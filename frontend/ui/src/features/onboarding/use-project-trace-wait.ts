@@ -11,6 +11,29 @@ import {
 import { useTraceWait, type RoundResult, type TraceWait } from "@/lib/hooks/use-trace-wait";
 
 /**
+ * How many rounds may fail to read the project before the wait stops early.
+ *
+ * The device page's equivalent counts rounds that found nowhere to look; here
+ * there is always somewhere, and what can fail is reading it. A project whose
+ * baseline never settles can never match — `findFirstTrace` skips it, having no
+ * line to compare against — so a session that expires mid-wait would otherwise
+ * spin out the whole ten minutes and then report that no trace arrived, which
+ * is a claim about the run that this tab is in no position to make. A couple of
+ * rounds of slack keeps a single blip from ending the wait.
+ */
+export const MAX_UNREADABLE_ROUNDS = 3;
+
+/**
+ * Where to leave someone whose wait ended with nothing: the project's own
+ * traces page, which is where this run's traces are going to land whenever they
+ * do. `active` is false without a project, so the second branch is the
+ * signed-out-of-the-question case rather than a reachable one.
+ */
+function fallbackUrlFor(projectId: string | null): string {
+  return projectId ? `/projects/${encodeURIComponent(projectId)}/traces` : "/workspaces";
+}
+
+/**
  * Watch one known project for the first trace a setup run sends it.
  *
  * This is the whole of what onboarding has to add to the shared wait, and it is
@@ -43,12 +66,9 @@ export function useProjectTraceWait(
 
   const beginWait = useCallback((isCancelled: () => boolean) => {
     const watched = projectIdRef.current;
-    // The project's own traces page: where this run's traces are going to land
-    // whenever they do, and the right place to leave someone whose wait ended
-    // with nothing. `active` is false without a project, so this is the
-    // signed-out-of-the-question case rather than a reachable one.
-    const fallbackUrl = watched ? `/projects/${encodeURIComponent(watched)}/traces` : "/workspaces";
+    const fallbackUrl = fallbackUrlFor(watched);
     let baseline: TraceBaseline | null = null;
+    let unreadableRounds = 0;
 
     return async function round(): Promise<RoundResult | null> {
       if (!watched) {
@@ -71,6 +91,18 @@ export function useProjectTraceWait(
         return null;
       }
 
+      if (baseline.get(watched)?.kind === "unknown") {
+        // Still no line, so there is nothing a search could match against and
+        // nothing to gain by making one. Counted rather than acted on at once,
+        // because one failed read is a blip and three in a row is a tab that
+        // has stopped being able to read this account.
+        unreadableRounds += 1;
+        return unreadableRounds >= MAX_UNREADABLE_ROUNDS
+          ? { kind: "stop", fallbackUrl, unreadable: true }
+          : { kind: "again", fallbackUrl };
+      }
+      unreadableRounds = 0;
+
       const found = await findFirstTrace([watched], baseline, userRef.current);
       return found ? { kind: "found", found } : { kind: "again", fallbackUrl };
     };
@@ -80,5 +112,6 @@ export function useProjectTraceWait(
     active && projectId !== null,
     beginWait,
     `${projectId ?? ""}|${user?.id ?? ""}`,
+    fallbackUrlFor(projectId),
   );
 }

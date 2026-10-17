@@ -831,6 +831,26 @@ describe("OnboardingPage", () => {
     );
   });
 
+  it("keeps the collision rather than adopting a project in a workspace it did not make", async () => {
+    // Project-only mode adds a project to a workspace that already existed, and
+    // such a workspace can be shared. With the form defaulting the project name
+    // to `my-llm-project`, a 409 there is at least as likely to be a teammate's
+    // project as a lost response of this user's own — and adopting it would
+    // report success, hand the terminal that project, and send this user's
+    // traces into someone else's.
+    setParams({ workspaceId: "ws-shared", workspaceName: "Example" });
+    mocks.createProject.mockRejectedValue(PROJECT_NAME_TAKEN());
+    mocks.getProjects.mockResolvedValue([LIVE_PROJECT]);
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() =>
+      expect(screen.getByText("A project with this name already exists")).toBeDefined(),
+    );
+    // Not even looked for: the refusal is settled before the listing is read.
+    expect(mocks.getProjects).not.toHaveBeenCalled();
+  });
+
   it("does not go looking for a project when the create failed for another reason", async () => {
     // A 500 says nothing about whether a project exists under this name, and
     // adopting one found anyway would hand the user a project this attempt has
@@ -874,6 +894,28 @@ describe("OnboardingPage", () => {
 
     await waitFor(() => expect(screen.getByText("workspace boom")).toBeDefined());
     expect(screen.queryByText("Finish setting up in your terminal")).toBeNull();
+  });
+
+  it.each<[string, Record<string, string>, string]>([
+    [
+      "back to a waiting terminal",
+      { callbackUrl: "/device?user_code=ABCD1234" },
+      "/device?user_code=ABCD1234",
+    ],
+    ["to the workspace list when nobody is waiting", {}, "/workspaces"],
+  ])("cancels %s", async (_where, params, destination) => {
+    // With the rail gone, Cancel was the one exit left that dropped the
+    // hand-back: the workspace list is an empty state for this account, and
+    // nothing on it leads back to /device, so the terminal polled until the
+    // code expired.
+    setParams(params);
+    renderPage();
+
+    const cancel = await waitFor(() => screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(cancel);
+
+    expect(mocks.push).toHaveBeenCalledWith(destination);
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
   });
 
   it("names the account it is setting up", async () => {
@@ -985,7 +1027,9 @@ describe("OnboardingPage", () => {
 
     await clickSignOut();
 
-    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    await waitFor(() =>
+      expect(screen.getByText("Could not sign out. Please try again.")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
       false,
@@ -1003,7 +1047,9 @@ describe("OnboardingPage", () => {
 
     await clickSignOut();
 
-    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    await waitFor(() =>
+      expect(screen.getByText("Could not sign out. Please try again.")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
       false,

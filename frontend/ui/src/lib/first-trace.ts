@@ -48,12 +48,20 @@ export type BaselineEntry =
  * Where each watched project's trace list stood when the wait began: the line
  * between "was already here" and "arrived after the run started".
  *
- * The line is drawn with a value the server supplied rather than with the
- * browser's clock. A tab whose clock runs fast would otherwise filter out the
- * very trace it is waiting for, and one running slow would pounce on a trace
- * that predates the run — both compare a local `Date.now()` against a timestamp
- * stamped elsewhere. Comparing two `trace_start_time` values from the same
- * column has no such failure mode.
+ * The line is drawn with a value that came back with the traces rather than
+ * with the browser's clock. A tab whose clock runs fast would otherwise filter
+ * out the very trace it is waiting for, and one running slow would pounce on a
+ * trace that predates the run — both compare a local `Date.now()` against a
+ * timestamp stamped elsewhere. Comparing two `trace_start_time` values keeps
+ * the comparison inside one column.
+ *
+ * Not inside one clock, though: `trace_start_time` is copied from a span's
+ * start time, so it is the producing process's clock. Two services writing to
+ * the same project with skewed clocks can therefore still hide a run's first
+ * trace behind the baseline. Nothing in the trace list carries an ingestion
+ * time to compare instead, and the skew that matters here is between two
+ * processes the user is deploying together, which is a far narrower exposure
+ * than one browser against the fleet.
  */
 export type TraceBaseline = ReadonlyMap<string, BaselineEntry>;
 
@@ -129,10 +137,19 @@ export async function retryUnknownBaseline(
 
 /** The oldest of `traces` that started after `cut`, or null when none did. */
 function firstTraceAfter(traces: TraceListItem[], cut: string | null): TraceListItem | null {
-  const after =
-    cut === null
-      ? traces
-      : traces.filter((trace) => Date.parse(trace.trace_start_time) > Date.parse(cut));
+  const cutAt = cut === null ? null : Date.parse(cut);
+  // The start time is what both the filter and the ordering below are about, so
+  // it is parsed once per row and travels with it rather than being re-parsed
+  // on each comparison.
+  const after = traces
+    .map((trace) => ({ trace, at: Date.parse(trace.trace_start_time) }))
+    // A row whose start time does not parse cannot be placed on either side of
+    // the line. `trace_start_time` is typed as a plain string, so "" arrives
+    // here without anything being wrong upstream — and left in, such a row is
+    // the one no comparison can beat (every `<` against NaN is false), so on
+    // the common path where there is no cut at all it would be returned as the
+    // run's first trace and deep-linked to.
+    .filter(({ at }) => !Number.isNaN(at) && (cutAt === null || at > cutAt));
   if (after.length === 0) {
     return null;
   }
@@ -140,9 +157,15 @@ function firstTraceAfter(traces: TraceListItem[], cut: string | null): TraceList
   // one we can see. A run that sent more than a page of traces between two
   // rounds would push its own first trace off the end — a bounded
   // imprecision, and always in the direction of a trace the same run produced.
-  return after.reduce((earliest, trace) =>
-    Date.parse(trace.trace_start_time) < Date.parse(earliest.trace_start_time) ? trace : earliest,
-  );
+  //
+  // Ties are broken on the id rather than on position, so which trace the
+  // person lands on does not depend on how the server happened to order two
+  // rows stamped in the same millisecond.
+  return after.reduce((earliest, row) =>
+    row.at < earliest.at || (row.at === earliest.at && row.trace.trace_id < earliest.trace.trace_id)
+      ? row
+      : earliest,
+  ).trace;
 }
 
 /**

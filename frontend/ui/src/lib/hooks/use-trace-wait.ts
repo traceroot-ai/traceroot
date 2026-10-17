@@ -34,11 +34,25 @@ export const WAIT_BUDGET_MS = 10 * 60 * 1000;
  *
  * `gave-up` carries somewhere to go, because a wait that ends empty still owes
  * the person a way into the product.
+ *
+ * It also carries whether the reads themselves were failing. "No trace has
+ * arrived" is a statement about the run, and a tab that could not read the
+ * traces at all — an expired session, a proxy answering errors — is in no
+ * position to make it. Absent means the reads worked and nothing came.
  */
 export type TraceWait =
   | { kind: "waiting" }
   | { kind: "found"; found: FirstTrace }
-  | { kind: "gave-up"; fallbackUrl: string };
+  | { kind: "gave-up"; fallbackUrl: string; unreadable?: boolean };
+
+/**
+ * The state every wait begins in, as one value rather than a fresh object.
+ *
+ * A restart sets it again, and `useState` compares by identity: one constant is
+ * what keeps the common case — a wait starting for the first time — from
+ * re-rendering for a state it is already in.
+ */
+const WAITING: TraceWait = { kind: "waiting" };
 
 /**
  * What one round of looking concluded.
@@ -51,7 +65,9 @@ export type TraceWait =
 export type RoundResult =
   | { kind: "found"; found: FirstTrace }
   | { kind: "again"; fallbackUrl: string }
-  | { kind: "stop"; fallbackUrl: string };
+  /** `unreadable` when the round is stopping because it could not read, not
+   * because it looked and found nothing. */
+  | { kind: "stop"; fallbackUrl: string; unreadable?: boolean };
 
 /**
  * One round of looking, or `null` when it noticed mid-flight that the wait had
@@ -100,59 +116,147 @@ export function useTraceWait(
   beginWait: BeginWait,
   /** The identity whose change should abandon this wait and start a new one. */
   restartKey: string,
+  /**
+   * Where to send someone whose wait ends before any round could say.
+   *
+   * A round names the way out it found, but the first one may never answer —
+   * the budget can expire with nothing read at all — and a wait that ends has
+   * to point somewhere regardless. So the caller says in advance where that is.
+   */
+  lastResortUrl: string,
 ): TraceWait {
-  const [wait, setWait] = useState<TraceWait>({ kind: "waiting" });
+  const [wait, setWait] = useState<TraceWait>(WAITING);
 
-  // Read through a ref so a caller that rebuilds the factory on every render
-  // does not restart the wait — and with it the baseline, which would then be
-  // drawn after the run had already started. `restartKey` is what a restart
-  // should actually follow.
+  // Read through refs so a caller that rebuilds the factory, or recomputes the
+  // fallback, on every render does not restart the wait — and with it the
+  // baseline, which would then be drawn after the run had already started.
+  // `restartKey` is what a restart should actually follow.
   const beginRef = useRef(beginWait);
   beginRef.current = beginWait;
+  const lastResortRef = useRef(lastResortUrl);
+  lastResortRef.current = lastResortUrl;
 
   useEffect(() => {
     if (!active) {
       return;
     }
 
+    // A new cycle starts over visibly. Without this a restart — a different
+    // account, a different project — would leave the previous wait's answer on
+    // screen while the new one runs, pointing at a trace this wait has nothing
+    // to do with.
+    setWait(WAITING);
+
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = Date.now() + WAIT_BUDGET_MS;
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    // Where to leave someone whose wait ends with nothing: the caller's
+    // standing answer until a round gets far enough to know a better one.
+    let fallbackUrl = lastResortRef.current;
     const round = beginRef.current(() => cancelled);
 
-    function schedule(fallbackUrl: string) {
-      if (Date.now() + POLL_INTERVAL_MS > deadline) {
-        setWait({ kind: "gave-up", fallbackUrl });
-        return;
+    /** Drop the timer the next round is waiting on, if one is pending. */
+    function clearPendingRound() {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
       }
+    }
+
+    function stop() {
+      cancelled = true;
+      clearPendingRound();
+      if (expiry !== undefined) {
+        clearTimeout(expiry);
+        expiry = undefined;
+      }
+    }
+
+    /** The wait's last word: no more rounds, no more timers. */
+    function settle(outcome: TraceWait) {
+      stop();
+      setWait(outcome);
+    }
+
+    // The budget as a deadline on the wait itself, rather than a check made
+    // between rounds. `fetch` has no timeout of its own, so a single read that
+    // never resolves would otherwise hold the wait open indefinitely — and a
+    // spinner with no end is the one outcome this must never produce. Expiring
+    // also cancels the wait, so a round still in flight stops at its next
+    // check and whatever it eventually answers is discarded.
+    expiry = setTimeout(() => {
+      settle({ kind: "gave-up", fallbackUrl });
+    }, WAIT_BUDGET_MS);
+
+    function schedule() {
       timer = setTimeout(() => {
         void tick();
       }, POLL_INTERVAL_MS);
     }
 
+    // Whether a round is in flight. Only the visibility kick below can arrive
+    // mid-round — the timer chain cannot, by construction — and two rounds
+    // racing the same baseline is the overlap this loop is a chain of timeouts
+    // rather than an interval to avoid.
+    let running = false;
+
     async function tick(): Promise<void> {
-      const result = await round();
+      if (running) {
+        return;
+      }
+      running = true;
+      let result: RoundResult | null;
+      try {
+        result = await round();
+      } catch {
+        // A round absorbs its own failed reads, so a throw reaching here is a
+        // defect rather than a flaky network. Coming back is still better than
+        // stopping dead with no timer and no answer, and the deadline above
+        // bounds the retrying either way.
+        result = { kind: "again", fallbackUrl };
+      } finally {
+        running = false;
+      }
       if (cancelled || result === null) {
         return;
       }
       if (result.kind === "found") {
-        setWait({ kind: "found", found: result.found });
+        settle({ kind: "found", found: result.found });
         return;
       }
+      // Every other answer carries the way out the round found, which is a
+      // better one than the caller's standing answer.
+      fallbackUrl = result.fallbackUrl;
       if (result.kind === "stop") {
-        setWait({ kind: "gave-up", fallbackUrl: result.fallbackUrl });
+        settle({ kind: "gave-up", fallbackUrl, unreadable: result.unreadable });
         return;
       }
-      schedule(result.fallbackUrl);
+      schedule();
     }
+
+    // Hidden is this wait's normal state: the person was told to go back to
+    // their terminal. A hidden tab's timers are throttled — Chrome aligns them
+    // to roughly one a minute once a tab has been out of sight for five, and
+    // iOS Safari can suspend them outright — so coming back starts a round at
+    // once instead of waiting out whatever is left of the interval. The budget
+    // is wall-clock either way, so this changes when a trace is noticed, never
+    // how long the wait lasts.
+    function onVisible() {
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      // Nothing is pending while a round runs, so this clears a due timer or
+      // an already-fired id; `tick` declines either way if one is in flight.
+      clearPendingRound();
+      void tick();
+    }
+    document.addEventListener("visibilitychange", onVisible);
 
     void tick();
 
     return () => {
-      cancelled = true;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
+      document.removeEventListener("visibilitychange", onVisible);
+      stop();
     };
     // beginRef holds the current factory; `restartKey` is the identity a
     // restart should follow.
