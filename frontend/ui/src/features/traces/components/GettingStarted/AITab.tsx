@@ -34,6 +34,14 @@ interface AITabProps {
  * The command itself is rendered rather than constant, because this page knows
  * the project the reader is looking at and the deployment that served them, and
  * the bare command would make them answer both again — see `./commands`.
+ *
+ * The docs link is the one thing added back. This section used to be the only
+ * part of the panel with nothing to read: two sentences and a command to paste,
+ * and no answer at all for the reader who wants to know what the agent will do
+ * before they let it near their repository. It points at the tracing
+ * get-started page rather than the CLI reference, because that page is the
+ * whole of what the command automates — key, SDK, environment, the one call —
+ * and the CLI page documents authenticating and reading traces instead.
  */
 export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
@@ -42,7 +50,17 @@ export function AITab({ projectId }: AITabProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
+          <a
+            href="https://traceroot.ai/docs/tracing/get-started"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          >
+            View the tracing docs
+          </a>
+        </div>
         <CodeBlock label="bash" value={setupCommand({ projectId })} />
         <p className="text-[12px] text-muted-foreground">
           Instruments your repo with a coding agent and handles API key configuration. Asks before
