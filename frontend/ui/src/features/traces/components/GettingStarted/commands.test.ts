@@ -22,6 +22,18 @@ afterEach(() => {
   vi.resetModules();
 });
 
+/**
+ * The invocation every assertion below starts from.
+ *
+ * Stated once rather than at each one: `commands.ts` pins an exact published
+ * version, and its own comment makes bumping that pin the last step of a CLI
+ * release, so a release should not have to edit a dozen golden strings. Still a
+ * literal here, not the module's constant — importing it would make every
+ * assertion agree with whatever `commands.ts` happens to say — and the shape
+ * test below is what refuses a tag or a range outright.
+ */
+const SETUP = "npx -y traceroot-cli@0.6.1 setup";
+
 describe("cliHostFlags", () => {
   it("returns nothing for the host the CLI already defaults to", () => {
     // Restating the default only adds a flag a reader has to evaluate.
@@ -118,9 +130,7 @@ describe("setupCommand", () => {
   it("names the project the caller already has in hand", async () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
-    expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@0.6.1 setup --project proj_1",
-    );
+    expect(setupCommand({ projectId: "proj_1" })).toBe(`${SETUP} --project proj_1`);
   });
 
   it("omits the project flag when there is no usable id", async () => {
@@ -128,10 +138,8 @@ describe("setupCommand", () => {
     // id no real project has is dropped rather than quoted into the line.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
-    expect(setupCommand({ projectId: "" })).toBe("npx -y traceroot-cli@0.6.1 setup");
-    expect(setupCommand({ projectId: "proj 1; rm -rf ~" })).toBe(
-      "npx -y traceroot-cli@0.6.1 setup",
-    );
+    expect(setupCommand({ projectId: "" })).toBe(SETUP);
+    expect(setupCommand({ projectId: "proj 1; rm -rf ~" })).toBe(SETUP);
   });
 
   it("leaves both hosts out on TraceRoot Cloud", async () => {
@@ -139,9 +147,7 @@ describe("setupCommand", () => {
     // origin the CLI defaults to, so the bare command is already right.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
-    expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@0.6.1 setup --project proj_1",
-    );
+    expect(setupCommand({ projectId: "proj_1" })).toBe(`${SETUP} --project proj_1`);
   });
 
   it("points setup at both halves of the documented self-hosted setup", async () => {
@@ -154,7 +160,7 @@ describe("setupCommand", () => {
     });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
+      `${SETUP} --project proj_1 ` +
         "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
     );
   });
@@ -166,7 +172,7 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({});
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@0.6.1 setup --project proj_1 --host 'http://localhost:3000'",
+      `${SETUP} --project proj_1 --host 'http://localhost:3000'`,
     );
   });
 
@@ -179,8 +185,7 @@ describe("setupCommand", () => {
     });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
-        "--host 'http://[::1]:8000' --auth-host 'http://[::1]:3000'",
+      `${SETUP} --project proj_1 ` + "--host 'http://[::1]:8000' --auth-host 'http://[::1]:3000'",
     );
   });
 });
@@ -198,7 +203,7 @@ describe("setupCommand with a handoff", () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(setupCommand({ projectId: "proj_1", handoff: CODE })).toBe(
-      `npx -y traceroot-cli@0.6.1 setup --project proj_1 --handoff ${CODE}`,
+      `${SETUP} --project proj_1 --handoff ${CODE}`,
     );
   });
 
@@ -209,7 +214,7 @@ describe("setupCommand with a handoff", () => {
     // it in a second browser page, which is the page this flag exists to avoid
     // rather than a thing the flow needs.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
-    const unaided = "npx -y traceroot-cli@0.6.1 setup --project proj_1";
+    const unaided = `${SETUP} --project proj_1`;
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(unaided);
     expect(setupCommand({ projectId: "proj_1", handoff: null })).toBe(unaided);
@@ -235,9 +240,7 @@ describe("setupCommand with a handoff", () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     for (const handoff of ["trh_a b", "trh_a;rm -rf ~", "trh_a'b", "trh_$(id)", "trh_a`b`"]) {
-      expect(setupCommand({ projectId: "proj_1", handoff })).toBe(
-        "npx -y traceroot-cli@0.6.1 setup --project proj_1",
-      );
+      expect(setupCommand({ projectId: "proj_1", handoff })).toBe(`${SETUP} --project proj_1`);
     }
   });
 
@@ -252,7 +255,7 @@ describe("setupCommand with a handoff", () => {
     });
 
     expect(setupCommand({ projectId: "proj_1", handoff: CODE })).toBe(
-      `npx -y traceroot-cli@0.6.1 setup --project proj_1 --handoff ${CODE} ` +
+      `${SETUP} --project proj_1 --handoff ${CODE} ` +
         "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
     );
   });

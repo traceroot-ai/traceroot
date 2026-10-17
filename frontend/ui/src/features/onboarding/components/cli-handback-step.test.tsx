@@ -13,12 +13,15 @@ vi.mock("next/link", () => ({
 // Shaped like the mint answers it: `trh_` and 43 base64url characters.
 const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABCXY";
 
-function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = {}) {
+type StepProps = Partial<Parameters<typeof CliHandbackStep>[0]>;
+
+function renderStep(overrides: StepProps = {}) {
   const onSetUpManually = vi.fn();
   const onSkip = vi.fn();
-  // `handoff: null` by default, which is both the first-render case (the mint
-  // is a round trip) and the failed-mint case.
-  const { container, rerender } = render(
+  // One element for both the first render and any re-render, so a prop added to
+  // the step is declared here once. `handoff: null` by default, which is both
+  // the first-render case (the mint is a round trip) and the failed-mint case.
+  const step = (next: StepProps = {}) => (
     <CliHandbackStep
       projectId="proj-1"
       projectName="my-llm-project"
@@ -27,26 +30,24 @@ function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = 
       onSkip={onSkip}
       wait={{ kind: "waiting" }}
       {...overrides}
-    />,
+      {...next}
+    />
   );
-  function renderAgain(next: Partial<Parameters<typeof CliHandbackStep>[0]>) {
-    rerender(
-      <CliHandbackStep
-        projectId="proj-1"
-        projectName="my-llm-project"
-        handoff={null}
-        onSetUpManually={onSetUpManually}
-        onSkip={onSkip}
-        wait={{ kind: "waiting" }}
-        {...overrides}
-        {...next}
-      />,
-    );
-  }
-  return { container, onSetUpManually, onSkip, renderAgain };
+  const { container, rerender } = render(step());
+  return {
+    container,
+    onSetUpManually,
+    onSkip,
+    renderAgain: (next: StepProps) => rerender(step(next)),
+  };
 }
 
-/** The command, read off the `<pre>` the snippet box splits into spans. */
+/**
+ * The command, read off the `<pre>` rather than matched as one string in the
+ * document: the snippet box splits the line into spans to colour `npx`, so no
+ * single text node holds the whole command even though `textContent`
+ * reassembles it.
+ */
 function shownCommand(container: HTMLElement): string {
   return container.querySelector("pre")?.textContent ?? "";
 }
@@ -57,13 +58,10 @@ describe("CliHandbackStep", () => {
   it("shows the setup command, pointed at the project just created", () => {
     const { container } = renderStep();
 
-    // Read off the `<pre>` rather than matched as one string in the document:
-    // the snippet box splits the line into spans to colour `npx`, so no single
-    // text node holds the whole command even though `textContent` reassembles
-    // it. A user with two projects who is handed the command without
-    // `--project` answers "which project?" from memory, and a wrong answer
-    // sends their first traces somewhere they will not look.
-    const command = container.querySelector("pre")?.textContent ?? "";
+    // A user with two projects who is handed the command without `--project`
+    // answers "which project?" from memory, and a wrong answer sends their
+    // first traces somewhere they will not look.
+    const command = shownCommand(container);
     expect(command).toContain("npx -y traceroot-cli@0.6.1 setup");
     expect(command).toContain("--project proj-1");
   });
