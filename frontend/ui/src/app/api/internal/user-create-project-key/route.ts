@@ -1,0 +1,150 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma, Role } from "@traceroot/core";
+import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { verifyInternalSecret } from "@/lib/auth-helpers";
+
+const createKeySchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+  projectId: z.string().min(1, "projectId is required"),
+  name: z.string().min(1, "Name is required").max(100, "Name too long"),
+  /**
+   * What the new key may do. Defaults to `ingest`, matching
+   * `/api/public/api-keys`: the credential a deployed application carries
+   * should be able to send telemetry and nothing else, so the safe scope is
+   * the one you get by not thinking about it. Reading the first trace back is
+   * not a reason to widen it — an `ingest` key reads traces, which is why the
+   * wizard's other mint path has always verified with one.
+   *
+   * `admin` stays accepted because a key-management credential is the one key
+   * no project key can mint, so a project with none yet has no other way to
+   * obtain one. It is not what belongs in an application's environment, and
+   * asking for it requires the workspace admin role (enforced below).
+   */
+  scope: z.enum(["ingest", "admin"]).optional(),
+  expiresInDays: z.number().int().positive().max(3650).nullable().optional(),
+});
+
+// POST /api/internal/user-create-project-key
+//
+// Mints a project API key for a userId the caller has ALREADY authenticated.
+//
+// This is what makes the second repository cheap. `/api/public/api-keys` already
+// mints keys, but it authenticates with a key for the very project you are
+// trying to get a key for — fine for rotation, useless when you have none yet.
+//
+// Deliberately narrow, for the same reason as user-create-project: a project's
+// first key is the one key no project credential can mint. Trust is the
+// X-Internal-Secret plus the backend's verified identity. Never log ids, and
+// never log the minted secret.
+export async function POST(request: NextRequest) {
+  if (!verifyInternalSecret(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const parsed = createKeySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+
+  const { userId, projectId, name, expiresInDays } = parsed.data;
+  // Resolved here and always written explicitly below: the column's own default
+  // is `admin`, so that keys predating it keep working, which means an omitted
+  // `scope` on the create would mint the opposite of the default above.
+  const scope = parsed.data.scope ?? "ingest";
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId, deleteTime: null },
+    select: { id: true, name: true, workspaceId: true },
+  });
+  if (!project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  // MEMBER, the same threshold the browser routes enforce.
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: project.workspaceId, userId } },
+    select: { role: true },
+  });
+  if (!membership || membership.role === Role.VIEWER) {
+    return NextResponse.json({ error: "Insufficient project permissions" }, { status: 403 });
+  }
+
+  // MEMBER is the threshold to mint a key; it is not the threshold to mint a
+  // key-management credential. An `admin`-scoped key lists, mints and revokes
+  // every key in its project through `/api/public/api-keys`, and the browser
+  // reserves exactly that last capability for ADMIN — deleting a key in
+  // `api/projects/[projectId]/api-keys/[keyId]` requires `Role.ADMIN`. Minting
+  // one on a member's login would hand them, over the API, the capability the
+  // dashboard refuses them. Reported distinctly from the check above: a member
+  // is authorized here, just not for this scope, and saying so is what lets a
+  // caller know to ask an admin rather than to retry.
+  if (scope === "admin" && membership.role !== Role.ADMIN) {
+    return NextResponse.json(
+      { error: "Minting an admin-scoped key requires the workspace admin role" },
+      { status: 403 },
+    );
+  }
+
+  const existing = await prisma.accessKey.findFirst({
+    where: { projectId: project.id, name },
+    select: { id: true },
+  });
+  if (existing) {
+    return NextResponse.json(
+      { error: `An API key named '${name}' already exists in this project` },
+      { status: 409 },
+    );
+  }
+
+  const secret = generateApiKey();
+  const expireTime =
+    expiresInDays === null || expiresInDays === undefined
+      ? null
+      : new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+
+  const created = await prisma.accessKey.create({
+    data: {
+      id: crypto.randomUUID(),
+      projectId: project.id,
+      secretHash: hashApiKey(secret),
+      keyHint: getKeyPrefix(secret),
+      name,
+      scope,
+      expireTime,
+    },
+    select: {
+      id: true,
+      keyHint: true,
+      name: true,
+      projectId: true,
+      scope: true,
+      expireTime: true,
+      createTime: true,
+    },
+  });
+
+  // `key` appears here and nowhere else, ever. Only the hash is stored.
+  return NextResponse.json(
+    {
+      valid: true,
+      id: created.id,
+      name: created.name,
+      hint: created.keyHint,
+      project_id: created.projectId,
+      project_name: project.name,
+      scope: created.scope,
+      expires_at: created.expireTime ? created.expireTime.toISOString() : null,
+      created_at: created.createTime.toISOString(),
+      key: secret,
+    },
+    { status: 201 },
+  );
+}
