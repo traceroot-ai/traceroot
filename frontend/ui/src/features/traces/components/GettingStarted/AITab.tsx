@@ -78,8 +78,8 @@ export function AITab({ projectId }: AITabProps) {
           </div>
           <CodeBlock label="bash" value={setup.command} />
           <p className="text-[12px] text-muted-foreground">
-            Instruments your repo with a coding agent and handles API key configuration. Asks before
-            editing, and stops if you have uncommitted changes.
+            Instruments your repository with a coding agent, writes the API key into it, and waits
+            for the first trace. Asks before editing, and stops if you have uncommitted changes.
           </p>
         </div>
       ) : (
