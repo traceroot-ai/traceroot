@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
@@ -340,9 +340,19 @@ export function ModelProviderBlock({
   // provider's label with "Verify and save" ready to send the old key to the
   // new provider. The bindings are literals in the catalogue, so identity is
   // stable per entry and re-selecting the same stack changes nothing.
+  //
+  // A save already in flight when that happens is the one case the reset cannot
+  // reach: it settles later, and its callbacks would write to fields that now
+  // belong to another provider -- a success clearing a key just typed for the
+  // new one, a rejection appearing under the new one's label. So the binding is
+  // mirrored into a ref here, the mutation tags itself with the value it started
+  // under, and the callbacks compare the two. A ref rather than this closure
+  // because the callbacks outlive the render that queued them.
+  const liveBinding = useRef(providerKey);
   const [bindingSeen, setBindingSeen] = useState(providerKey);
   if (bindingSeen !== providerKey) {
     setBindingSeen(providerKey);
+    liveBinding.current = providerKey;
     setOverride(null);
     setApiKey("");
     setFailure(null);
@@ -402,17 +412,31 @@ export function ModelProviderBlock({
         customModels: (ADAPTER_MODELS[chosen] ?? []).map((model) => model.id),
       });
     },
-    onMutate: () => setFailure(null),
-    onSuccess: () => {
+    // The binding this save belongs to travels with it, so the callbacks below
+    // can tell their own stack from the one on screen now.
+    onMutate: () => {
+      setFailure(null);
+      return { binding: liveBinding.current };
+    },
+    onSuccess: (_stored, _chosen, context) => {
       // The keys the assistant panel, the project home page and the detector
       // agent-model link read, so the stored provider shows up without a reload.
+      // Invalidated whichever stack is on screen: the row was written either
+      // way, and the surfaces that read it are not this step's.
       queryClient.invalidateQueries({ queryKey: ["model-providers", workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["llm-models", workspaceId] });
+      // The field, though, is the new stack's. Clearing it here would throw away
+      // a key typed for a provider this save never touched.
+      if (context?.binding !== liveBinding.current) return;
       setApiKey("");
     },
     // The key stays in the field on every failure: nothing was stored, and it is
-    // the one thing on screen the user cannot retype from memory.
-    onError: (error) => {
+    // the one thing on screen the user cannot retype from memory. A rejection
+    // that arrives after the stack changed is dropped instead: it is the old
+    // provider's answer about the old key, and the fields it would explain are
+    // gone.
+    onError: (error, _chosen, context) => {
+      if (context?.binding !== liveBinding.current) return;
       if (error instanceof ProbeRejected) {
         setFailure({ message: error.message, detail: error.detail });
       } else if (error instanceof ImpersonationError) {

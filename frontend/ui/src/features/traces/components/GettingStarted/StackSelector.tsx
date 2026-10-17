@@ -12,7 +12,10 @@ import {
   type IntegrationOption,
 } from "./integrations";
 
-/** "All" first, then the catalogue's own groups in its own order. */
+/**
+ * The group filters: "All" first, then the catalogue's own groups in its own
+ * order.
+ */
 const TABS: { value: IntegrationFilter; label: string }[] = [
   { value: "all", label: "All" },
   ...INTEGRATION_GROUPS.map((group) => ({ value: group.category, label: group.label })),
@@ -83,13 +86,20 @@ export function StackSelector({ selected, onSelect }: StackSelectorProps) {
           />
         </div>
 
-        <div role="tablist" aria-label="Integration groups" className="flex flex-wrap gap-1">
+        {/*
+         * Toggle buttons rather than ARIA tabs. These filter the list; they do
+         * not select anything (see above) and there is no tabpanel for them to
+         * control -- the cards below are a radiogroup, which is where the
+         * selection lives. Declaring `tab` would promise a reader arrow-key
+         * navigation and a roving tabIndex that are not here, and would take
+         * away the plain Tab-and-Enter path these already have.
+         */}
+        <div role="group" aria-label="Integration groups" className="flex flex-wrap gap-1">
           {TABS.map((candidate) => (
             <button
               key={candidate.value}
               type="button"
-              role="tab"
-              aria-selected={tab === candidate.value}
+              aria-pressed={tab === candidate.value}
               onClick={() => setTab(candidate.value)}
               className={cn(
                 "rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors",

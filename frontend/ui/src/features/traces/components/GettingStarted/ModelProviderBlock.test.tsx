@@ -103,6 +103,26 @@ function renderBlock(
   };
 }
 
+const OPENAI: ProviderKeyBinding = { kind: "suggested", adapter: "openai" };
+const ANTHROPIC: ProviderKeyBinding = { kind: "fixed", adapter: "anthropic" };
+
+/**
+ * A block whose binding can change under it, for the tests about a stack
+ * switched mid-step. One query client across both renders, so a save started
+ * under the first binding is still the same mutation after the second.
+ */
+function renderSwitchable(binding: ProviderKeyBinding = OPENAI, stackName = "LangChain") {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const tree = (next: ProviderKeyBinding, nextStackName: string) => (
+    <QueryClientProvider client={queryClient}>
+      <ModelProviderBlock workspaceId="ws-1" providerKey={next} stackName={nextStackName} />
+    </QueryClientProvider>
+  );
+  return { queryClient, tree, ...render(tree(binding, stackName)) };
+}
+
 // The field is named for the provider the stack asks for, so every lookup for
 // it is by suffix rather than by the bare words it used to carry.
 async function fillKey(value = "sk-test-key") {
@@ -769,37 +789,78 @@ describe("the key the selected stack asks for", () => {
     // Switching stack is switching provider, so the same rule applies as
     // switching it by hand: the key and the error belonged to the old one.
     mocks.testModelProvider.mockResolvedValue({ success: false, error: "Invalid API key" });
-    const openai: ProviderKeyBinding = { kind: "suggested", adapter: "openai" };
-    const anthropic: ProviderKeyBinding = { kind: "fixed", adapter: "anthropic" };
 
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock workspaceId="ws-1" providerKey={openai} stackName="LangChain" />
-      </QueryClientProvider>,
-    );
+    const { rerender, tree } = renderSwitchable();
 
     const field = await fillKey("sk-an-openai-key");
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
     expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
 
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock
-          workspaceId="ws-1"
-          providerKey={anthropic}
-          stackName="Claude Agent SDK"
-        />
-      </QueryClientProvider>,
-    );
+    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
 
     expect(screen.queryByText(/Invalid API key/)).toBeNull();
     expect(screen.getByLabelText("Anthropic API key")).toBeTruthy();
     expect(field.value).toBe("");
     // A provider chosen by hand is dropped with it: the new stack names its own.
     expect(screen.queryByLabelText("Model provider")).toBeNull();
+  });
+
+  it("drops a rejection that arrives after the stack changed under the save", async () => {
+    // The one state the render-time reset cannot reach: a probe already in
+    // flight. Its answer is about the old key and the old provider, so it must
+    // not surface under the new provider's label.
+    let settleProbe!: (result: { success: boolean; error?: string }) => void;
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean; error?: string }>((resolve) => {
+        settleProbe = resolve;
+      }),
+    );
+
+    const { rerender, tree } = renderSwitchable();
+    await fillKey("sk-an-openai-key");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+
+    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    const field = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "sk-an-anthropic-key" } });
+
+    await act(async () => {
+      settleProbe({ success: false, error: "Invalid API key" });
+    });
+
+    expect(screen.queryByText(/Invalid API key/)).toBeNull();
+    expect(field.value).toBe("sk-an-anthropic-key");
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("keeps the key typed for the new stack when the old save succeeds late", async () => {
+    let settleProbe!: (result: { success: boolean }) => void;
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean }>((resolve) => {
+        settleProbe = resolve;
+      }),
+    );
+
+    const { rerender, tree } = renderSwitchable();
+    await fillKey("sk-an-openai-key");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+
+    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    const field = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "sk-an-anthropic-key" } });
+
+    await act(async () => {
+      settleProbe({ success: true });
+    });
+
+    // The save completes for the provider it started under -- that key was
+    // verified and is worth storing -- but the field now holds another
+    // provider's key, and clearing it would throw that away.
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.createModelProvider.mock.calls[0][1].adapter).toBe("openai");
+    expect(field.value).toBe("sk-an-anthropic-key");
   });
 
   it("says there is no adapter at all rather than offering a field for one", async () => {
