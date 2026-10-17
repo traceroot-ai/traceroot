@@ -2,8 +2,7 @@
 
 import { SelectItem } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { MEASURE_TYPE_LABEL, type AlertMeasureDoc } from "../measure-docs";
-import type { AlertMeasure } from "../rule-model";
+import type { MeasureDoc } from "@/lib/measure-doc";
 
 function MetaChip({ children }: { children: React.ReactNode }) {
   return (
@@ -14,19 +13,23 @@ function MetaChip({ children }: { children: React.ReactNode }) {
 }
 
 interface MeasureOptionProps {
-  measure: AlertMeasure;
-  doc: AlertMeasureDoc | undefined;
+  value: string;
+  label: string;
+  typeLabel: string;
+  doc: MeasureDoc | undefined;
+  icon?: React.ReactNode;
 }
 
 /**
  * A Measure dropdown row with the measure's unit, type and description on
- * hover. Tooltip content portals to the body, so the two-column layout's
- * scroll containers cannot clip it.
+ * hover, shared by the alert form and the widget builder. Tooltip content
+ * portals to the body, so the forms' scroll containers cannot clip it. Render
+ * inside a TooltipProvider.
  */
-export function MeasureOption({ measure, doc }: MeasureOptionProps) {
+export function MeasureOption({ value, label, typeLabel, doc, icon }: MeasureOptionProps) {
   const item = (
-    <SelectItem value={measure.id} className="text-[12px]">
-      {measure.label}
+    <SelectItem value={value} className="text-[12px]" icon={icon}>
+      {label}
     </SelectItem>
   );
   if (!doc) return item;
@@ -41,10 +44,10 @@ export function MeasureOption({ measure, doc }: MeasureOptionProps) {
         collisionPadding={8}
         className="w-64 border bg-popover p-3 text-popover-foreground shadow-md"
       >
-        <p className="text-[13px] font-medium">{measure.label}</p>
+        <p className="text-[13px] font-medium">{label}</p>
         <div className="mt-1.5 flex flex-wrap gap-1">
           <MetaChip>Unit: {doc.unit}</MetaChip>
-          <MetaChip>Type: {MEASURE_TYPE_LABEL[measure.type]}</MetaChip>
+          <MetaChip>Type: {typeLabel}</MetaChip>
         </div>
         <p className="mt-2 text-[12px] leading-snug text-muted-foreground">{doc.description}</p>
         {doc.unavailable && (

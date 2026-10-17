@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, Widget } from "../types";
 import { ApiError } from "@/lib/api/client";
@@ -56,6 +56,8 @@ const SCHEMA = {
         filterOps: [">", ">="],
         groupable: false,
         aggs: ["sum", "avg"],
+        unit: "USD",
+        description: "Cost recorded on one span.",
       },
       count: {
         type: "number",
@@ -64,6 +66,8 @@ const SCHEMA = {
         groupable: false,
         aggs: ["count"],
         histogrammable: false,
+        unit: "Spans",
+        description: "Number of spans in the window.",
       },
     },
   },
@@ -497,5 +501,75 @@ describe("WidgetBuilderPage", () => {
     });
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
     expect(screen.getByText("$42")).toBeTruthy();
+  });
+});
+
+describe("WidgetBuilderPage measure documentation", () => {
+  afterEach(cleanup);
+  beforeEach(() => {
+    mockDashboard(DASHBOARD);
+    mockPreview({});
+  });
+
+  async function openSpanMeasures() {
+    fireEvent.pointerDown(screen.getByText("Select view").closest("button") as HTMLElement, {
+      button: 0,
+      pointerType: "mouse",
+    });
+    fireEvent.click(await screen.findByRole("option", { name: "Spans" }));
+    fireEvent.pointerDown(screen.getByText("Measure").closest("button") as HTMLElement, {
+      button: 0,
+      pointerType: "mouse",
+    });
+  }
+
+  async function hoverOption(name: string) {
+    const option = await screen.findByRole("option", { name });
+    fireEvent.pointerMove(option, { pointerType: "mouse" });
+    return option;
+  }
+
+  /** The opened panel, scoped by role: Radix renders the tooltip child twice. */
+  async function hoverPanelFor(name: string) {
+    await hoverOption(name);
+    return within(await screen.findByRole("tooltip"));
+  }
+
+  it("shows the unit, type and description when hovering a measure", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+    await openSpanMeasures();
+    const panel = await hoverPanelFor("Cost");
+
+    expect(panel.getByText("Unit: USD")).toBeTruthy();
+    expect(panel.getByText("Type: Number")).toBeTruthy();
+    expect(panel.getByText("Cost recorded on one span.")).toBeTruthy();
+  });
+
+  it("types Count as the integer it produces", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+    await openSpanMeasures();
+    const panel = await hoverPanelFor("Count");
+
+    expect(panel.getByText("Unit: Spans")).toBeTruthy();
+    expect(panel.getByText("Type: Integer")).toBeTruthy();
+    expect(panel.getByText("Number of spans in the window.")).toBeTruthy();
+  });
+
+  it("renders the panel outside the builder, so no scroll container can clip it", async () => {
+    const { container } = render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+    await openSpanMeasures();
+    await hoverPanelFor("Cost");
+
+    const panelRoot = screen.getByRole("tooltip").closest("[data-radix-popper-content-wrapper]");
+    expect(panelRoot).not.toBeNull();
+    expect(panelRoot?.parentElement).toBe(document.body);
+    expect(container.contains(panelRoot)).toBe(false);
+  });
+
+  it("leaves the option label itself unchanged, so the dropdown stays scannable", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+    await openSpanMeasures();
+    const option = await hoverOption("Cost");
+    expect(option.textContent).toBe("Cost");
   });
 });

@@ -396,6 +396,13 @@ const SOURCE_BY_ALERT_MEASURE: Record<string, AlertMetricSource> = {
   unique_session_ids: { view: "traces", field: "session_id" },
 };
 
+/** The widget view and field an alert measure reads, whatever its aggregation. */
+export function getAlertMeasureSource(measureId: string): AlertMetricSource | undefined {
+  return Object.hasOwn(SOURCE_BY_ALERT_MEASURE, measureId)
+    ? SOURCE_BY_ALERT_MEASURE[measureId]
+    : undefined;
+}
+
 /**
  * The unit of a number the engine already computed, looked up from the source
  * it was computed on. For a chart drawing a returned result, which may be a

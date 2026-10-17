@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MEASURE_TYPE_LABEL, getMeasureDoc, undocumentedMeasureIds } from "./measure-docs";
+import { MEASURE_TYPE_LABEL } from "@/lib/measure-doc";
+import { getMeasureDoc, undocumentedMeasureIds } from "./measure-docs";
 import { ALERT_AGGREGATIONS, ALERT_MEASURES_BY_VIEW } from "./rule-model";
 
 describe("alert measure docs", () => {
