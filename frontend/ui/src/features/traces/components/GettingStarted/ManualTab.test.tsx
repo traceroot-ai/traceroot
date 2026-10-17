@@ -91,9 +91,13 @@ describe("ManualTab", () => {
     expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
   });
 
-  it("groups GitHub and Slack into the external integrations card at step 4", () => {
+  it("groups GitHub and Slack into the external integrations card", () => {
     render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    expect(screen.getByText("4. External integrations")).toBeDefined();
+    // Number-agnostic: which step this is is already pinned, in order, by the
+    // first test in this file. Repeating the ordinal here only made a step
+    // being added or removed a two-place edit -- this card went from 6 to 4 in
+    // this change alone.
+    expect(screen.getByText(/External integrations$/)).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });

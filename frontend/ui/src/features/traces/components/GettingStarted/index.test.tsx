@@ -106,7 +106,7 @@ describe("switching between the command and the manual steps", () => {
   });
 
   it("keeps what has been typed and chosen above it", () => {
-    render(<GettingStarted projectId="proj_1" />);
+    const { container } = render(<GettingStarted projectId="proj_1" />);
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "crew" } });
     pickStack("CrewAI");
 
@@ -114,6 +114,20 @@ describe("switching between the command and the manual steps", () => {
     expect((screen.getByLabelText("Search integrations") as HTMLInputElement).value).toBe("crew");
     expect(screen.getByText("3. Initialize TraceRoot for CrewAI")).toBeTruthy();
     expect(keyBlock().dataset.stack).toBe("CrewAI");
+
+    // One selection, and everything it is supposed to drive, in one place. The
+    // key, the snippet and the docs link each have a test of their own, but
+    // each of those moves one of the three; nothing else would notice them
+    // coming apart -- a key field left on the previous stack's provider, or a
+    // docs link pointing somewhere other than the code on screen.
+    expect(keyBlock().dataset.kind).toBe("suggested");
+    expect(keyBlock().dataset.adapter).toBe("openai");
+    // The snippet's body, not its heading: the heading is asserted above and
+    // would still read "for CrewAI" over OpenAI's code.
+    expect(container.textContent).toContain("Integration.CREWAI");
+    expect(screen.getByRole("link", { name: "View CrewAI docs" }).getAttribute("href")).toBe(
+      "https://traceroot.ai/docs/integrations/crewai",
+    );
   });
 });
 

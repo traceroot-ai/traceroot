@@ -883,7 +883,7 @@ describe("the key the selected stack asks for", () => {
     // credential, it just ships no curated model list.
     renderBlock("ws-1", { kind: "fixed", adapter: "openrouter" }, "OpenRouter");
     expect(
-      await screen.findByText(/OpenRouter runs on OpenRouter, and OpenRouter needs a model list/),
+      await screen.findByText(/^OpenRouter needs a model list chosen, so it cannot be set up/),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.getByRole("link", { name: /Settings/ })).toBeTruthy();
@@ -937,16 +937,43 @@ describe("the lines the bound key is introduced with", () => {
   });
 
   it("sends a provider with no adapter nowhere, and an excluded one to settings", () => {
-    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Mistral")).toEqual({
+    // A framework that calls a provider there is no adapter for: both names
+    // are needed, because they are two different companies.
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Some Framework")).toEqual({
       state:
-        "Mistral calls Mistral, and TraceRoot has no Mistral adapter for your own keys, so there is no Mistral key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+        "Some Framework calls Mistral, and TraceRoot has no Mistral adapter for your own keys, so there is no Mistral key to paste here. The AI assistant and detectors run on TraceRoot's models.",
       settings: null,
     });
-    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" }, "Azure OpenAI")).toEqual({
+    // A framework fixed to a provider this step cannot finish configuring.
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" }, "Some Framework")).toEqual({
       state:
-        "Azure OpenAI runs on Azure OpenAI, and Azure OpenAI needs more than a key, so it cannot be set up from here.",
+        "Some Framework runs on Azure OpenAI, and Azure OpenAI needs more than a key, so it cannot be set up from here.",
       settings: "Add it in",
     });
+  });
+
+  it("does not say a provider calls itself", () => {
+    // Both live cases in the catalogue: the entry IS the provider, so the
+    // opening clause would only repeat the name. Mistral is the `none` entry
+    // and OpenRouter the settings-only one, and each is what a customer sees
+    // the moment they pick it.
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Mistral")).toEqual({
+      state:
+        "TraceRoot has no Mistral adapter for your own keys, so there is no key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+      settings: null,
+    });
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" }, "OpenRouter")).toEqual({
+      state: "OpenRouter needs a model list chosen, so it cannot be set up from here.",
+      settings: "Add it in",
+    });
+    for (const [binding, stack] of [
+      [{ kind: "none", provider: "Mistral" } as const, "Mistral"],
+      [{ kind: "fixed", adapter: "openrouter" } as const, "OpenRouter"],
+    ] as const) {
+      // No name twice over, in either form.
+      const { state } = unavailableKeyCopy(binding, stack);
+      expect(state.split(stack).length - 1, state).toBe(1);
+    }
   });
 
   it("derives each exclusion from the clause the adapter actually fails", () => {

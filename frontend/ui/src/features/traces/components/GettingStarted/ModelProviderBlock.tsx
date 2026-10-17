@@ -261,14 +261,25 @@ export function keyFieldIntro({
  * provider there is no adapter for at all, Mistral today: nothing anywhere in
  * TraceRoot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
+ *
+ * Both forms open by naming the stack and then the provider it calls, which is
+ * the whole point when the two differ. When they are the same company — which
+ * is every provider's own entry, and those are the only entries reaching
+ * either branch today — that opening says nothing and reads as nonsense
+ * ("Mistral calls Mistral", "OpenRouter runs on OpenRouter"), so it is dropped.
  */
 export function unavailableKeyCopy(
   binding: ProviderKeyBinding,
   stackName: string,
 ): { state: string; settings: string | null } {
   if (binding.kind === "none") {
+    const missing = `TraceRoot has no ${binding.provider} adapter for your own keys`;
+    const fallback = "The AI assistant and detectors run on TraceRoot's models.";
     return {
-      state: `${stackName} calls ${binding.provider}, and TraceRoot has no ${binding.provider} adapter for your own keys, so there is no ${binding.provider} key to paste here. The AI assistant and detectors run on TraceRoot's models.`,
+      state:
+        stackName === binding.provider
+          ? `${missing}, so there is no key to paste here. ${fallback}`
+          : `${stackName} calls ${binding.provider}, and ${missing}, so there is no ${binding.provider} key to paste here. ${fallback}`,
       settings: null,
     };
   }
@@ -279,7 +290,10 @@ export function unavailableKeyCopy(
       ? `${label} needs more than a key`
       : `${label} needs a model list chosen`;
   return {
-    state: `${stackName} runs on ${label}, and ${why}, so it cannot be set up from here.`,
+    state:
+      stackName === label
+        ? `${why}, so it cannot be set up from here.`
+        : `${stackName} runs on ${label}, and ${why}, so it cannot be set up from here.`,
     settings: "Add it in",
   };
 }
