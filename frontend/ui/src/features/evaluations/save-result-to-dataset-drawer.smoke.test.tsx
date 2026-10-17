@@ -37,6 +37,9 @@ vi.mock("@/components/ui/select", () => ({
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
     <option value={value}>{children}</option>
   ),
+  SelectEmpty: ({ children }: { children: React.ReactNode }) => (
+    <option disabled>{children}</option>
+  ),
 }));
 
 import {
@@ -47,7 +50,7 @@ import {
 const RESULT = {
   id: "res1",
   input: "Produce a report about Q2 performance",
-  expectedOutput: null,
+  expectedOutput: null as string | null,
   candidateOutput: "Q2 revenue grew 12% QoQ.",
   testCaseId: "case-1",
 };
@@ -79,7 +82,11 @@ function stubFetch(postResponse?: { ok: boolean; status: number; body: unknown }
   return fetchMock;
 }
 
-function mount(action: ResultDatasetAction, onOpenChange = () => {}) {
+function mount(
+  action: ResultDatasetAction,
+  onOpenChange = () => {},
+  result: typeof RESULT = RESULT,
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -89,7 +96,7 @@ function mount(action: ResultDatasetAction, onOpenChange = () => {}) {
           open
           onOpenChange={onOpenChange}
           action={action}
-          result={RESULT}
+          result={result}
           sourceDatasetId="ds1"
           sourceDatasetName="Billing routing"
         />
@@ -129,13 +136,69 @@ describe("SaveResultToDatasetDrawer", () => {
     expect(screen.getByLabelText("Dataset")).toBeDefined();
   });
 
+  it("disables Save until a field is edited or dataset changes", () => {
+    mount("update_existing_case");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "A different question" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(input, { target: { value: RESULT.input } });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Toggling the candidate switch enables Save
+    fireEvent.click(screen.getByRole("switch"));
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("treats a whitespace-only input edit as a real change — the case id hashes exact bytes", () => {
+    mount("update_existing_case");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // `input` is POSTed verbatim and `stableCaseId` hashes its exact bytes, so trailing
+    // whitespace republishes a genuinely different case — Save must not gate it away.
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: `${RESULT.input} ` } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("keeps Save disabled on open when expected is structured JSON that pretty-prints", () => {
+    mount("update_existing_case", () => {}, {
+      ...RESULT,
+      expectedOutput: '{"summary":"ok"}',
+    });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    const expected = screen.getByLabelText("Expected answer") as HTMLTextAreaElement;
+    fireEvent.change(expected, { target: { value: '{"summary":"updated"}' } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("preserves the distinction between null and empty candidate output", () => {
+    mount("update_existing_case", () => {}, {
+      ...RESULT,
+      expectedOutput: null,
+      candidateOutput: "",
+    });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Toggling candidate switch when candidate is "" but expected was null is a real change.
+    fireEvent.click(screen.getByRole("switch"));
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
   it("never copies the candidate output into expected unless explicitly toggled on", async () => {
     const fetchMock = stubFetch();
     mount("update_existing_case");
     // Type a real reference answer; the candidate output is a DIFFERENT string.
     const expected = screen.getByLabelText("Expected answer") as HTMLTextAreaElement;
     fireEvent.change(expected, { target: { value: "A concise Q2 summary." } });
-    fireEvent.click(screen.getByRole("button", { name: /Publish update/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true),
@@ -155,7 +218,7 @@ describe("SaveResultToDatasetDrawer", () => {
     // Flipping the toggle hides the free-text field and shows the candidate output.
     fireEvent.click(screen.getByRole("switch"));
     expect(screen.getByText(RESULT.candidateOutput)).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: /Publish update/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true),
@@ -174,8 +237,11 @@ describe("SaveResultToDatasetDrawer", () => {
     });
     mount("save_new_case");
     // ds1 is the source dataset (default); saving a new case that recreates the source
-    // is what the backend rejects.
-    fireEvent.click(screen.getByRole("button", { name: /Save new case/i }));
+    // is what the backend rejects. Save stays disabled until the datasets list has
+    // loaded and confirms ds1 is a real, current dataset.
+    const saveBtn = screen.getByRole("button", { name: /^Save$/i }) as HTMLButtonElement;
+    await waitFor(() => expect(saveBtn.disabled).toBe(false));
+    fireEvent.click(saveBtn);
 
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toMatch(/use update instead/i),

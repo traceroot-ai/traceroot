@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["access-keys", projectId],
     queryFn: () => getAccessKeys(projectId),
   });
@@ -105,6 +106,14 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
       : `TRACEROOT_API_KEY = "tr-..."`;
 
+  if (error instanceof ImpersonationError) {
+    return (
+      <p role="alert" className="text-sm text-muted-foreground">
+        {error.message}
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -112,7 +121,14 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <h2 className="text-lg font-semibold">Project API Keys</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
-        <AddButton onClick={() => setShowCreateDialog(true)}>Create new API key</AddButton>
+        <AddButton
+          onClick={() => {
+            createMutation.reset();
+            setShowCreateDialog(true);
+          }}
+        >
+          Create new API key
+        </AddButton>
       </div>
 
       <div className="border">
@@ -165,6 +181,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
             </Button>
+            {createMutation.error instanceof ImpersonationError && (
+              <p role="alert" className="text-sm text-destructive">
+                {createMutation.error.message}
+              </p>
+            )}
             <Button onClick={handleCreate} disabled={createMutation.isPending}>
               {createMutation.isPending ? "Creating..." : "Create"}
             </Button>
@@ -192,6 +213,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             <Button variant="outline" onClick={() => setEditingKey(null)}>
               Cancel
             </Button>
+            {updateMutation.error instanceof ImpersonationError && (
+              <p role="alert" className="text-sm text-destructive">
+                {updateMutation.error.message}
+              </p>
+            )}
             <Button onClick={handleSaveNote} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "Saving..." : "Save"}
             </Button>
@@ -251,6 +277,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete API Key"}
             </Button>
+            {deleteMutation.error instanceof ImpersonationError && (
+              <p role="alert" className="text-sm text-destructive">
+                {deleteMutation.error.message}
+              </p>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -280,7 +311,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                 <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted/20">
                   <td className="px-3 py-2">
                     <button
-                      onClick={() => setEditingKey({ id: key.id, name: key.name || "" })}
+                      onClick={() => {
+                        updateMutation.reset();
+                        setEditingKey({ id: key.id, name: key.name || "" });
+                      }}
                       className="cursor-pointer text-left hover:underline"
                     >
                       {key.name || <span className="text-muted-foreground">-</span>}
@@ -301,6 +335,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                     <DeleteIconButton
                       className="h-6 w-6"
                       onClick={() => {
+                        deleteMutation.reset();
                         setKeyToDelete(key);
                         setDeleteConfirmText("");
                       }}

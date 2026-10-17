@@ -104,7 +104,10 @@ describe("GeneralTab project delete dialog", () => {
     // Press Enter twice
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => {
-      expect(within(dialog).getByRole("button", { name: /deleting/i }).disabled).toBe(true);
+      expect(within(dialog).getByRole("button", { name: /deleting/i })).toHaveProperty(
+        "disabled",
+        true,
+      );
     });
     fireEvent.keyDown(input, { key: "Enter" });
 

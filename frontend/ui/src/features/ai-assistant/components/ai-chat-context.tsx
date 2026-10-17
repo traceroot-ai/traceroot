@@ -1,5 +1,6 @@
 "use client";
 
+import { useRetention } from "@/lib/hooks/use-retention";
 import { createContext, useContext, ReactNode } from "react";
 import { useAiChat } from "../hooks/use-ai-chat";
 import type { AiTraceContext } from "../types";
@@ -31,11 +32,15 @@ export function AiChatProvider({
   initialSessionId,
   children,
 }: AiChatProviderProps) {
+  // The plan's retention clamps the window sent with each message, the same
+  // way the picker's own pages clamp theirs.
+  const { retentionDays } = useRetention(projectId ?? "");
   const chat = useAiChat({
     projectId,
     traceId: initialContext?.traceId,
     traceSessionId: initialContext?.traceSessionId,
     initialSessionId,
+    retentionDays: projectId ? retentionDays : undefined,
   });
   return <AiChatContext.Provider value={chat}>{children}</AiChatContext.Provider>;
 }

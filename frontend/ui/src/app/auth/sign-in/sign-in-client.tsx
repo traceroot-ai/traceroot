@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -27,7 +28,14 @@ type SignInContentProps = {
 function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  // Attacker-suppliable query param; only same-origin destinations may pass.
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
+  // Preserve the callback when switching to sign-up so a new user finishes the
+  // same round-trip (e.g. a device login returns to /device to approve).
+  const signUpHref =
+    callbackUrl && callbackUrl !== "/"
+      ? `/auth/sign-up?callbackUrl=${encodeURIComponent(callbackUrl)}`
+      : "/auth/sign-up";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -154,7 +162,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href="/auth/sign-up" className="font-medium text-primary hover:underline">
+            <Link href={signUpHref} className="font-medium text-primary hover:underline">
               Sign up
             </Link>
           </p>

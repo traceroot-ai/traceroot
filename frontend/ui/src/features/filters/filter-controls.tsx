@@ -7,7 +7,7 @@
  * two filter UIs stay identical.
  */
 import { createContext, useContext, useState } from "react";
-import { ChevronDown, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,11 @@ import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
 // builder extends this map with its registry's extra field names.
 export const FIELD_ICONS: Record<string, LucideIcon> = {
   trace_id: DOMAIN_ICONS.id,
+  signal_id: DOMAIN_ICONS.id,
+  detector_id: DOMAIN_ICONS.id,
+  title: DOMAIN_ICONS.signal,
+  detector: DOMAIN_ICONS.detector,
+  status: DOMAIN_ICONS.status,
   cost: DOMAIN_ICONS.cost,
   total_tokens: DOMAIN_ICONS.tokens,
   duration_ms: DOMAIN_ICONS.latency,
@@ -228,6 +233,67 @@ export function ValueDropdown({
 }
 
 /**
+ * The stored-values picker for a membership (`in`) filter: the same dropdown
+ * as `ValueDropdown`, but each pick toggles a value in the selection and the
+ * menu stays open so several can be chosen in one go.
+ */
+export function MultiValueDropdown({
+  values,
+  options,
+  onValues,
+  placeholder = "Select values",
+  triggerClassName,
+}: {
+  values: readonly string[];
+  options: { value: string; count?: number }[];
+  onValues: (v: string[]) => void;
+  placeholder?: string;
+  triggerClassName?: string;
+}) {
+  const textSize = useTextSize();
+  const selected = new Set(values);
+  return (
+    <Dropdown
+      trigger={
+        <span className={cn("truncate", values.length === 0 && "text-muted-foreground")}>
+          {values.length > 0 ? values.join(", ") : placeholder}
+        </span>
+      }
+      triggerClassName={cn("min-w-0 flex-1", triggerClassName)}
+      contentClassName="w-[12rem]"
+    >
+      {() =>
+        options.length === 0 ? (
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
+        ) : (
+          options.map((opt) => {
+            const on = selected.has(opt.value);
+            return (
+              <DropdownItem
+                key={opt.value}
+                active={on}
+                onClick={() =>
+                  onValues(on ? values.filter((v) => v !== opt.value) : [...values, opt.value])
+                }
+              >
+                <Check
+                  className={cn("h-3.5 w-3.5 shrink-0", on ? "opacity-100" : "opacity-0")}
+                  aria-hidden
+                />
+                <span className="flex-1 truncate">{opt.value}</span>
+                {opt.count !== undefined && (
+                  <span className="text-[11px] text-muted-foreground">{opt.count}</span>
+                )}
+              </DropdownItem>
+            );
+          })
+        )
+      }
+    </Dropdown>
+  );
+}
+
+/**
  * The metadata key control: a combobox that SUGGESTS the keys discovered in the active
  * window and ACCEPTS ANY KEY TYPED. The two are different things — the suggestion list
  * exists to save typing, never to restrict it, so there is no "custom key" mode, no
@@ -254,7 +320,9 @@ export function MetadataKeyCombobox({
   endBefore?: string;
   value: string;
   onValue: (v: string) => void;
-  onEnter: () => void;
+  // Optional: the trace-list builder submits its row on Enter; a row that applies
+  // as it is edited has nothing to submit and passes none.
+  onEnter?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const textSize = useTextSize();
@@ -289,7 +357,7 @@ export function MetadataKeyCombobox({
               // complete; the typed key needs no confirmation, it is already the key.
               if (e.key === "Enter") {
                 setOpen(false);
-                onEnter();
+                onEnter?.();
               }
             }}
             className={cn(

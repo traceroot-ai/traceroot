@@ -194,6 +194,8 @@ traceroot.db
 /certs/
 test-results/
 web/test-results/*
+# Per-run transcripts from the agent eval harness
+frontend/ee/agent/evals/.results/
 
 # ===================
 # System Files
@@ -243,6 +245,9 @@ references/**/node_modules/
 !*.tfvars.example
 .terraform/
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
+terraform.tfstate.d/
 .terraform.lock.hcl
+tfplan*
+*.tfplan
 .worktrees/

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role, RoleSchema } from "@traceroot/core";
@@ -15,7 +16,7 @@ const updateRoleSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string; userId: string }> };
 
 // PUT /api/workspaces/[workspaceId]/members/[userId] - Update member role (ADMIN+)
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+async function handlePUT(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, userId: targetUserId } = await params;
 
   const authResult = await requireAuth();
@@ -92,7 +93,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/workspaces/[workspaceId]/members/[userId] - Remove member (ADMIN+)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, userId: targetUserId } = await params;
 
   const authResult = await requireAuth();
@@ -137,3 +138,5 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const PUT = withImpersonationPolicy(handlePUT);
+export const DELETE = withImpersonationPolicy(handleDELETE);

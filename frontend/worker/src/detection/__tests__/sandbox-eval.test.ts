@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const {
   mockComplete,
@@ -24,6 +24,13 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
+const { mockRunJevDetection } = vi.hoisted(() => ({ mockRunJevDetection: vi.fn() }));
+
+vi.mock("../jev-eval.js", () => ({
+  runJevDetection: mockRunJevDetection,
+  JEV_DEFAULT_MODEL_ID: "jev-1.13.0",
+}));
+
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
@@ -37,7 +44,10 @@ import {
   DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
   MAX_DETECTOR_EVAL_TIMEOUT_MS,
 } from "../sandbox-eval.js";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
+} from "@traceroot/core/llm-providers";
 
 const DETECTOR = {
   id: "det-1",
@@ -169,6 +179,88 @@ describe("runDetectionForTrace", () => {
     expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
   });
 
+  describe("without an OpenAI key", () => {
+    const OPENAI_MODEL = {
+      ...ANTHROPIC_MODEL,
+      id: "gpt-6-luna",
+      api: "openai-responses",
+      provider: "openai",
+    };
+    const CLEAN = {
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    };
+
+    beforeEach(() => {
+      vi.stubEnv("OPENAI_API_KEY", "");
+      vi.stubEnv("ANTHROPIC_API_KEY", "");
+      mockResolvePiModel.mockImplementation((id: string) =>
+        id === DETECTOR_SYSTEM_DEFAULT_MODEL_ID ? OPENAI_MODEL : ANTHROPIC_MODEL,
+      );
+      // Only an Anthropic key exists, as on an Anthropic-only deployment.
+      mockFindByokKey.mockImplementation(async (_ws: string, provider: string) =>
+        provider === "anthropic" ? "anthropic-key" : null,
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("screens an unpinned detector on the Anthropic fallback", async () => {
+      mockComplete.mockResolvedValueOnce(CLEAN);
+
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(mockResolvePiModel).toHaveBeenLastCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete.mock.calls[0][0]).toBe(ANTHROPIC_MODEL);
+      expect(mockComplete.mock.calls[0][2].apiKey).toBe("anthropic-key");
+      // A DeepSeek/xAI key maps to "openai" too, but is no good on OpenAI's endpoint.
+      expect(mockFindByokKey).toHaveBeenCalledWith("ws-1", "openai", { nativeOnly: true });
+    });
+
+    it("keeps the OpenAI default when an OpenAI key resolves", async () => {
+      vi.stubEnv("OPENAI_API_KEY", "openai-key");
+      mockComplete.mockResolvedValueOnce(CLEAN);
+
+      await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockResolvePiModel).not.toHaveBeenCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete.mock.calls[0][0]).toBe(OPENAI_MODEL);
+    });
+
+    it("fails a pinned OpenAI detector instead of substituting the fallback", async () => {
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: "gpt-6-luna" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toContain('No API key configured for provider "openai"');
+      expect(mockResolvePiModel).not.toHaveBeenCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete).not.toHaveBeenCalled();
+    });
+  });
+
   // A retired model id, or one an API client invented, would otherwise resolve
   // to an unrelated fallback and screen on it while the UI shows the pinned id.
   it("refuses a pinned system model that has left the catalog", async () => {
@@ -291,6 +383,107 @@ describe("runDetectionForTrace", () => {
     expect(result.identified).toBe(false);
     expect(result.error).toMatch(/not found or disabled/i);
     expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("judges a TypeSafe BYOK detector with Jev, never resolving a chat model", async () => {
+    const typesafeConfig = { adapter: "typesafe", key: "ts-key", baseUrl: null, config: null };
+    const jevResult = { identified: true, summary: "Jev: tool_error (P=0.91)", data: {} };
+    mockFetchProviderConfig.mockResolvedValueOnce(typesafeConfig);
+    mockRunJevDetection.mockResolvedValueOnce(jevResult);
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "12345");
+
+    const detector = {
+      ...DETECTOR,
+      detectionSource: "byok" as const,
+      detectionProvider: "my-typesafe",
+      detectionModel: "jev-1.13.0",
+    };
+    try {
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector,
+        workspaceId: "ws-1",
+      });
+
+      expect(result).toBe(jevResult);
+      expect(mockRunJevDetection).toHaveBeenCalledWith({
+        spansJsonl: "{}",
+        detector,
+        providerConfig: typesafeConfig,
+        timeoutMs: 12345,
+      });
+      expect(mockResolvePiModel).not.toHaveBeenCalled();
+      expect(mockComplete).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("turns a Jev failure into an error result with the thrown message", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "typesafe",
+      key: "ts-key",
+      baseUrl: null,
+      config: null,
+    });
+    mockRunJevDetection.mockRejectedValueOnce(
+      new Error("TypeSafe systemone returned 401: authentication_error"),
+    );
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "my-typesafe",
+        detectionModel: "jev-1.13.0",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe("TypeSafe systemone returned 401: authentication_error");
+  });
+
+  it("bills the tokens TypeSafe charged when a 200 response fails validation", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "typesafe",
+      key: "ts-key",
+      baseUrl: null,
+      config: null,
+    });
+    // typesafe-client hangs the billed usage on the error it throws for a 200
+    // whose answers it rejects.
+    mockRunJevDetection.mockRejectedValueOnce(
+      Object.assign(new Error("TypeSafe returned a malformed response: missing answers"), {
+        usage: { inputTokens: 810, outputTokens: 63 },
+      }),
+    );
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "my-typesafe",
+        detectionModel: "jev-1.13.0",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toMatch(/malformed response/);
+    expect(result).toMatchObject({
+      identified: false,
+      inferenceCost: 0,
+      inferenceInputTokens: 810,
+      inferenceOutputTokens: 63,
+      inferenceSource: "byok",
+      inferenceModel: "jev-1.13.0",
+      inferenceProvider: "typesafe",
+    });
   });
 
   it("always passes toolChoice='auto' regardless of protocol", async () => {

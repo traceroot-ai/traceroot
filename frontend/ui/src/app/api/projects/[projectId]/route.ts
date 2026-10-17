@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
 import {
@@ -10,7 +11,7 @@ import {
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId] - Get project details
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -50,3 +51,4 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     update_time: project.updateTime,
   });
 }
+export const GET = withImpersonationPolicy(handleGET);

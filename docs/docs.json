@@ -2,6 +2,10 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "TraceRoot",
   "theme": "mint",
+  "thumbnails": {
+    "appearance": "light",
+    "background": "/images/og-background.png"
+  },
   "colors": {
     "primary": "#0f172a",
     "light": "#FFFFFF",
@@ -21,14 +25,40 @@
   },
   "favicon": "/logo/favicon.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg",
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png",
     "href": "https://traceroot.ai",
     "size": 36
   },
   "contextual": {
     "options": ["copy", "view", "chatgpt", "claude"]
   },
+  "redirects": [
+    {
+      "source": "/detectors/get-started",
+      "destination": "/detectors/introduction#how-to-create-a-detector"
+    },
+    {
+      "source": "/detectors/notifications",
+      "destination": "/detectors/introduction#notifications"
+    },
+    {
+      "source": "/detectors/alerts",
+      "destination": "/detectors/introduction#notifications"
+    },
+    {
+      "source": "/alerts/introduction",
+      "destination": "/alerts/overview"
+    },
+    {
+      "source": "/alerts/get-started",
+      "destination": "/alerts/overview#how-to-create-an-alert"
+    },
+    {
+      "source": "/alerts/slack",
+      "destination": "/alerts/overview#slack-notifications"
+    }
+  ],
   "search": {
     "ai": true
   },
@@ -65,6 +95,7 @@
             "pages": [
               "getting-started/introduction",
               "getting-started/quickstart",
+              "getting-started/concepts",
               "developer/self-hosting"
             ]
           },
@@ -88,6 +119,7 @@
                   "tracing/sessions",
                   "tracing/tags",
                   "tracing/metadata",
+                  "tracing/data-capture",
                   "tracing/cost-tracking",
                   "tracing/git-context",
                   "tracing/timeline",
@@ -97,7 +129,51 @@
             ]
           },
           {
-            "group": "AI Agents",
+            "group": "CLI",
+            "pages": [
+              "cli/get-started",
+              "cli/sql"
+            ]
+          },
+          {
+            "group": "Detectors",
+            "pages": [
+              "detectors/introduction"
+            ]
+          },
+          {
+            "group": "Signals",
+            "pages": [
+              "signals/introduction"
+            ]
+          },
+          {
+            "group": "Alerts",
+            "pages": [
+              "alerts/overview",
+              "alerts/rule-reference"
+            ]
+          },
+          {
+            "group": "Evaluations",
+            "pages": [
+              "evals/introduction",
+              "evals/get-started",
+              "evals/datasets",
+              "evals/scorers",
+              "evals/running-evals",
+              "evals/reading-results",
+              "evals/cli"
+            ]
+          },
+          {
+            "group": "Dashboards",
+            "pages": [
+              "dashboards/get-started"
+            ]
+          },
+          {
+            "group": "TraceRoot Agent",
             "pages": [
               "ai-agent/overview",
               {
@@ -115,20 +191,6 @@
                   "ai-agent/pr-creation"
                 ]
               }
-            ]
-          },
-          {
-            "group": "Detectors",
-            "pages": [
-              "detectors/introduction",
-              "detectors/get-started",
-              "detectors/alerts"
-            ]
-          },
-          {
-            "group": "CLI",
-            "pages": [
-              "cli/get-started"
             ]
           }
         ]
@@ -162,8 +224,8 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/llamaindex",
-              "integrations/microsoft-agent-framework",
               "integrations/mastra",
+              "integrations/microsoft-agent-framework",
               "integrations/openai-agents-sdk",
               "integrations/pi",
               "integrations/pydantic-ai",
@@ -177,7 +239,9 @@
               "integrations/gemini",
               "integrations/mistral",
               "integrations/openai",
-              "integrations/openrouter"
+              "integrations/openai-compatible",
+              "integrations/openrouter",
+              "integrations/typesafe"
             ]
           },
           {
@@ -185,6 +249,22 @@
             "pages": [
               "integrations/internal-models"
             ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "square-code",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.json"
           }
         ]
       }
@@ -196,6 +276,12 @@
       "x": "https://x.com/TraceRootAI",
       "linkedin": "https://www.linkedin.com/company/traceroot-ai",
       "discord": "https://discord.gg/TM2m3CtKuC"
+    }
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_X8eeQUsyMb7bk5sw0msmN8ARBxurlVyQxC0uvHVul7C",
+      "apiHost": "https://us.i.posthog.com"
     }
   }
 }

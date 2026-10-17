@@ -57,12 +57,9 @@ const RUN = {
   scoredCount: 22,
   taskErrorCount: 1,
   scorerErrorCount: 1,
-  // Matches caseCount (24): 22 passed, 0 failed, 1 errored, 1 not-scored. Real
-  // fixtures must carry these — the list route emits them unconditionally and
-  // PassRate's fraction/percentage render NaN when they're missing (see the
-  // "Passed column renders a real fraction" test below).
-  passedCount: 22,
-  failedCount: 0,
+  // The unscorable slice of caseCount (24): 1 errored, 1 not-scored. The remaining
+  // 22 produced scores; there is no case-level pass/fail to count. The list route
+  // emits both counts unconditionally, so real fixtures must carry them.
   erroredCount: 1,
   notScoredCount: 1,
   cost: 0.264,
@@ -354,6 +351,29 @@ describe("real Datasets + Evaluations views render server data", () => {
       ).toBe(true),
     );
     expect(await screen.findByText("Run deleted")).toBeDefined();
+  });
+
+  it("Evaluations Runs opens the next page at the top of the list, not at the old scroll offset", async () => {
+    const urls: string[] = [];
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      urls.push(String(url));
+      const body = String(url).includes("/evaluations/runs")
+        ? { data: [RUN, RUN_OLDER], meta: { page: 0, limit: 50, total: 120 } }
+        : payloadFor(String(url));
+      return { ok: true, status: 200, json: async () => body };
+    }) as unknown as typeof fetch;
+    mount(<EvaluationsView projectId="p1" />);
+    const scroller = (await screen.findByText("git:4a91c02")).closest(
+      ".overflow-auto",
+    ) as HTMLElement;
+    scroller.scrollTop = 600;
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("/evaluations/runs") && u.includes("page=1"))).toBe(true),
+    );
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it("Run detail renders the per-case results table (no run-identity header)", async () => {

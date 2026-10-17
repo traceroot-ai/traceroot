@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -16,9 +16,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { ListPagination } from "@/components/list-pagination";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
-import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
+import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
+import { useRememberListQuery } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -45,9 +49,19 @@ export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
 }
 
 const RUNS_COLUMN_COUNT = 10;
-// Matches the route's default `limit` (runs/route.ts) so the page-count math lines
-// up with what the server actually returns per page.
+// The default page size, matching the route's default `limit` (runs/route.ts). A
+// picked size rides in `?page_limit=`; useUrlPagination caps it at the route's
+// maximum so the page-count math lines up with what the server returns per page.
 const RUNS_PAGE_LIMIT = 50;
+const DEFAULT_RUNS_DATE_FILTER =
+  DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
+
+/** Parses an ISO `?start=` / `?end=` param; null when absent or not a date. */
+function parseUrlDate(raw: string | null): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 export function formatElapsed(ms: number | null | undefined): string {
@@ -168,19 +182,63 @@ function RunsTab({ projectId }: { projectId: string }) {
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch();
-  const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
-    DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
-  );
-  const [customStart, setCustomStart] = React.useState<Date | null>(null);
-  const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
-  const [page, setPage] = React.useState(0);
+  // The page, the page size, the search text and the date window live in the URL
+  // (`?page_index=`, `?page_limit=`, `?search=`, `?date_filter=`, `?start=`/`?end=`) so
+  // opening a run and coming back lands on the same page of the same result set instead
+  // of the first page of the default window.
+  const { page, limit, goToPage, setLimit, resetPageState, clampToTotal } =
+    useUrlPagination(RUNS_PAGE_LIMIT);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const listQuery = searchParams.toString();
+  useRememberListQuery(`evaluations:${projectId}`, listQuery);
+  const urlDateFilterId = searchParams.get("date_filter");
+  const urlStart = searchParams.get("start");
+  const urlEnd = searchParams.get("end");
+  // Memoized on the raw params so the Date identities (and the bounds below) are stable.
+  const customStart = React.useMemo(() => parseUrlDate(urlStart), [urlStart]);
+  const customEnd = React.useMemo(() => parseUrlDate(urlEnd), [urlEnd]);
+  // A custom window needs both bounds, in order; a hand-edited or truncated URL
+  // without them falls back to the default window rather than querying unbounded.
+  const dateFilter = React.useMemo(() => {
+    const option = DATE_FILTER_OPTIONS.find((o) => o.id === urlDateFilterId);
+    if (!option) return DEFAULT_RUNS_DATE_FILTER;
+    if (option.isCustom && !(customStart && customEnd && customStart <= customEnd)) {
+      return DEFAULT_RUNS_DATE_FILTER;
+    }
+    return option;
+  }, [urlDateFilterId, customStart, customEnd]);
   // A narrower filter/date-range can otherwise land on a page past the end of its
   // (now shorter) result set, so reset to the first page whenever ANY server query
-  // input changes — the search text OR the date window.
-  React.useEffect(() => {
-    setPage(0);
-  }, [searchQuery, dateFilter.id, customStart, customEnd]);
+  // input changes — the search text OR the date window. Done from the change itself,
+  // not an effect on the inputs: an effect would also fire on mount and throw away
+  // the page restored from the URL. The search write drops `page_index` itself, so it
+  // takes the state-only reset.
+  const { keyword, setKeyword, searchQuery } = useUrlKeywordSearch(resetPageState);
+  // One URL write per date change that also drops `page_index`; a separate page-reset
+  // write would rebuild from the stale params and lose the new window.
+  const writeDateWindow = (id: string, start: Date | null, end: Date | null) => {
+    const params = new URLSearchParams(listQuery);
+    if (id === DEFAULT_RUNS_DATE_FILTER.id) params.delete("date_filter");
+    else params.set("date_filter", id);
+    if (start && end) {
+      params.set("start", start.toISOString());
+      params.set("end", end.toISOString());
+    } else {
+      params.delete("start");
+      params.delete("end");
+    }
+    params.delete("page_index");
+    resetPageState();
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  // Picking "Custom" is always followed by `setCustomRange` with the chosen bounds,
+  // which does the single URL write; writing here too would briefly drop the bounds.
+  const setDateFilter = (option: DateFilterOption) => {
+    if (!option.isCustom) writeDateWindow(option.id, null, null);
+  };
+  const setCustomRange = (start: Date, end: Date) => writeDateWindow("custom", start, end);
 
   // Resolve the selected range to actual bounds. Memoized on the filter/custom-range
   // inputs: `toTimestampBounds` reads `new Date()` for preset windows, so recomputing
@@ -189,27 +247,34 @@ function RunsTab({ projectId }: { projectId: string }) {
     () => toTimestampBounds(dateFilter.id, customStart ?? undefined, customEnd ?? undefined),
     [dateFilter.id, customStart, customEnd],
   );
-  const { data, isLoading, error } = useEvaluationRuns(projectId, {
+  const { data, isLoading, isPlaceholderData, error } = useEvaluationRuns(projectId, {
     search_query: searchQuery,
     started_after: startAfter,
     started_before: endBefore,
     page,
-    limit: RUNS_PAGE_LIMIT,
+    limit,
   });
   const runs = React.useMemo(() => data?.data ?? [], [data]);
+
+  // Every new page of runs, or a new search/time range, starts at the top of the list.
+  const listRef = React.useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([page, limit, searchQuery, startAfter, endBefore]),
+  );
   // Keyed off the immediate `keyword`, not the debounced `searchQuery`, so the
   // empty-state copy doesn't flicker for the 300ms before the debounce catches up.
   const filtered = !!keyword;
   const total = data?.meta?.total ?? runs.length;
 
   // After a delete shrinks the result set, the current page can point past the new
-  // end (empty table + invalid "showing X–Y of N" range). Clamp back to the last
-  // page that still has rows.
+  // end (an empty table). Clamp back to the last page that still has rows. Skipped
+  // while placeholder rows from the previous query are shown: their total belongs to a
+  // different query and would clamp a valid page.
   React.useEffect(() => {
-    if (isLoading || total === 0) return;
-    const lastPage = Math.max(0, Math.ceil(total / RUNS_PAGE_LIMIT) - 1);
-    if (page > lastPage) setPage(lastPage);
-  }, [total, page, isLoading]);
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(total);
+  }, [total, isLoading, isPlaceholderData, clampToTotal]);
 
   const confirmDelete = () => {
     if (!deleteRun) return;
@@ -228,7 +293,7 @@ function RunsTab({ projectId }: { projectId: string }) {
   // ride along into a bulk delete of a different result set.
   React.useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, searchQuery, dateFilter.id, customStart, customEnd]);
+  }, [page, limit, searchQuery, dateFilter.id, customStart, customEnd]);
 
   const allSelected = runs.length > 0 && runs.every((r) => selectedIds.has(r.id));
   const toggleSelect = (id: string) =>
@@ -324,15 +389,12 @@ function RunsTab({ projectId }: { projectId: string }) {
             customStartDate={customStart}
             customEndDate={customEnd}
             onDateFilterChange={setDateFilter}
-            onCustomRangeChange={(s, e) => {
-              setCustomStart(s);
-              setCustomEnd(e);
-            }}
+            onCustomRangeChange={setCustomRange}
           />
         </div>
       </SearchFilterBar>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
@@ -389,32 +451,13 @@ function RunsTab({ projectId }: { projectId: string }) {
       </div>
 
       {!isLoading && !error && total > 0 && (
-        <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-          <span>
-            Showing {page * RUNS_PAGE_LIMIT + 1}–{Math.min((page + 1) * RUNS_PAGE_LIMIT, total)} of{" "}
-            {total}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              aria-label="Previous page"
-              className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((p) => p + 1)}
-              disabled={(page + 1) * RUNS_PAGE_LIMIT >= total}
-              aria-label="Next page"
-              className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <ListPagination
+          page={page}
+          limit={limit}
+          total={total}
+          onPageChange={goToPage}
+          onLimitChange={setLimit}
+        />
       )}
 
       {deleteRun && (

@@ -51,7 +51,9 @@ export async function POST(req: NextRequest) {
         const priceId = subscription.items.data[0]?.price.id;
         const plan = mapPriceIdToPlan(priceId);
 
-        await prisma.workspace.update({
+        // updateMany rather than update: a workspace that no longer exists must not
+        // throw. See the `count === 0` branch below.
+        const { count } = await prisma.workspace.updateMany({
           where: { id: workspaceId },
           data: {
             billingCustomerId: subscription.customer as string,
@@ -64,6 +66,13 @@ export async function POST(req: NextRequest) {
             billingPeriodEnd: new Date(subscription.current_period_end * 1000),
           },
         });
+
+        if (count === 0) {
+          console.warn(
+            `Webhook ${event.type}: workspace ${workspaceId} not found (subscription ${subscription.id}) — acknowledging so Stripe stops retrying`,
+          );
+          break;
+        }
 
         console.log(
           `Subscription ${event.type} for workspace ${workspaceId}, plan: ${plan}, status: ${subscription.status}, period: ${subscription.current_period_start} - ${subscription.current_period_end}`,
@@ -81,7 +90,7 @@ export async function POST(req: NextRequest) {
           break;
         }
 
-        await prisma.workspace.update({
+        const { count } = await prisma.workspace.updateMany({
           where: { id: workspaceId },
           data: {
             billingSubscriptionId: null,
@@ -92,6 +101,13 @@ export async function POST(req: NextRequest) {
             billingPeriodEnd: null,
           },
         });
+
+        if (count === 0) {
+          console.warn(
+            `Webhook ${event.type}: workspace ${workspaceId} not found (subscription ${subscription.id}) — acknowledging so Stripe stops retrying`,
+          );
+          break;
+        }
 
         console.log(`Subscription deleted for workspace ${workspaceId}, reverted to free plan`);
         break;

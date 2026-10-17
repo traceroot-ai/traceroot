@@ -75,6 +75,13 @@ afterEach(() => {
 });
 
 describe("DetectorsTab alert window", () => {
+  it("describes email notifications as windowed digests", () => {
+    renderTab();
+    expect(
+      screen.getByText("New and reopened signals are batched into one email per alert window."),
+    ).toBeTruthy();
+  });
+
   it("hydrates the saved window from the project", () => {
     mocks.project.alert_window = "1h";
     renderTab();

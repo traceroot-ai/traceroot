@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { Redis } from "ioredis";
+import { Redis, type RedisOptions } from "ioredis";
 
 export interface DetectorRunJob {
   traceId: string;
@@ -11,6 +11,8 @@ export interface DetectorRcaFinding {
   detectorId: string;
   detectorName: string;
   summary: string;
+  /** Set for signal RCAs: the signal this hit started or reopened. */
+  signalTitle?: string;
 }
 
 export interface DetectorRcaJob {
@@ -25,11 +27,31 @@ export interface DetectorRcaJob {
   findingTimestamp?: number;
 }
 
+/**
+ * An RCA started by signals (ee/signals). It carries only the finding: the job
+ * reads which hits need analysis from signal_rcas when it runs, so hits whose
+ * signals were opened after it was enqueued are included.
+ */
+export interface SignalRcaJob {
+  kind: "signals";
+  findingId: string;
+  projectId: string;
+}
+
+/** Jobs on the RCA queue: legacy per-finding jobs still in flight, and signal RCAs. */
+export type RcaJob = DetectorRcaJob | SignalRcaJob;
+
+export function isSignalRcaJob(job: RcaJob): job is SignalRcaJob {
+  return (job as SignalRcaJob).kind === "signals";
+}
+
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
-export function createRedisConnection(): Redis {
+/** The default suits a BullMQ worker connection; producers override it. */
+export function createRedisConnection(overrides: RedisOptions = {}): Redis {
   return new Redis(REDIS_URL, {
     maxRetriesPerRequest: null, // required for BullMQ
+    ...overrides,
   });
 }
 
@@ -46,6 +68,6 @@ export function createDetectorRunQueue(connection: Redis): Queue<DetectorRunJob>
   return new Queue<DetectorRunJob>(DETECTOR_RUN_QUEUE, { connection });
 }
 
-export function createDetectorRcaQueue(connection: Redis): Queue<DetectorRcaJob> {
-  return new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, { connection });
+export function createDetectorRcaQueue(connection: Redis): Queue<RcaJob> {
+  return new Queue<RcaJob>(DETECTOR_RCA_QUEUE, { connection });
 }

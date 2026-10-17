@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -8,6 +9,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { captureServerEvent } from "@/lib/posthog-server";
 
 const createAccessKeySchema = z.object({
   name: z.string().max(100, "Name too long").nullable().optional(),
@@ -17,7 +19,7 @@ const createAccessKeySchema = z.object({
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId]/api-keys - List access keys
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -53,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/api-keys - Create a new access key (MEMBER+)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -95,6 +97,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     },
   });
 
+  captureServerEvent(user.id, "api_key_created", {
+    workspace_id: accessResult.project.workspaceId,
+    project_id: projectId,
+  });
+
   // Return the full access key only once - user must copy it now
   return NextResponse.json(
     {
@@ -108,3 +115,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

@@ -1,0 +1,18 @@
+// Typechecks the eval harness, which the emitting build can't reach: evals/
+// sits outside rootDir (src), so adding it to tsconfig.json's include would
+// break the dist layout the service is started from. Runs as part of
+// `pnpm build`, so this code can't silently rot.
+//
+// The src test files stay excluded, as in the build — they carry pre-existing
+// tuple-inference errors that are their own cleanup, not this config's.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*", "evals/**/*"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/__tests__/**"]
+}

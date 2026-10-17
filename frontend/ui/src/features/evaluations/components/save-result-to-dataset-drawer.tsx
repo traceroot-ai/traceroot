@@ -9,6 +9,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
+import { encodeEditedText } from "@/lib/eval/json-value";
 import { useDatasets } from "../hooks";
 
 /** Read-only fields never edit, so onChange is a no-op. */
@@ -41,27 +43,24 @@ export interface ResultForDataset {
 
 const ACTION_META: Record<
   ResultDatasetAction,
-  { title: string; blurb: string; cta: string; picksDataset: boolean }
+  { title: string; blurb: string; picksDataset: boolean }
 > = {
   update_existing_case: {
     title: "Update source case",
     blurb:
       "Publishes a new immutable version of this run's dataset with this case updated. Runs already recorded keep pointing at the version they used.",
-    cta: "Publish update",
     picksDataset: false,
   },
   save_new_case: {
     title: "Save as a new case",
     blurb:
       "Adds a brand-new case to the chosen dataset. Blocked if it would just recreate this result's own source case — use “Update source case” for that.",
-    cta: "Save new case",
     picksDataset: true,
   },
   duplicate_as_variant: {
     title: "Duplicate as a variant",
     blurb:
       "Adds a new case tagged as a variant of the source case. Always allowed — useful for exploring a tweak without touching the original.",
-    cta: "Duplicate case",
     picksDataset: true,
   },
 };
@@ -108,7 +107,11 @@ export function SaveResultToDatasetDrawer({
   const meta = ACTION_META[action];
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
+  const {
+    data: datasetsData,
+    isLoading: datasetsLoading,
+    isError: datasetsError,
+  } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const [targetDatasetId, setTargetDatasetId] = React.useState(sourceDatasetId);
@@ -172,7 +175,28 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
-  const canSave = !save.isPending && (!meta.picksDataset || !!targetDatasetId);
+  // Only "update" republishes an existing case, so only it needs a dirty gate; save/duplicate
+  // always create a case and are savable as they stand. Every field is compared the way it is
+  // PERSISTED — `input` and `expected` compare encoded values against their stored seed so
+  // structured values that EditableValueBlock pretty-prints on mount do not start dirty, while
+  // real value edits (and string whitespace edits) enable Save.
+  const hasChanges =
+    action === "update_existing_case"
+      ? encodeEditedText(result.input, input) !== encodeEditedText(result.input, result.input) ||
+        (useCandidateAsExpected
+          ? result.candidateOutput === null
+            ? result.expectedOutput !== null
+            : result.expectedOutput === null ||
+              encodeEditedText(result.expectedOutput, result.candidateOutput) !==
+                encodeEditedText(result.expectedOutput, result.expectedOutput)
+          : encodeEditedText(result.expectedOutput, expected) !==
+            encodeEditedText(result.expectedOutput, result.expectedOutput ?? ""))
+      : true;
+
+  const canSave =
+    !save.isPending &&
+    (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId)) &&
+    hasChanges;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -190,16 +214,29 @@ export function SaveResultToDatasetDrawer({
           <div className="space-y-1.5">
             <div className="text-[11px] font-medium text-muted-foreground">Dataset</div>
             {meta.picksDataset ? (
-              <Select value={targetDatasetId} onValueChange={setTargetDatasetId}>
+              <Select
+                value={datasets.some((d) => d.id === targetDatasetId) ? targetDatasetId : ""}
+                onValueChange={setTargetDatasetId}
+              >
                 <SelectTrigger className="h-8 text-[12px]">
                   <SelectValue placeholder="Choose a dataset" />
                 </SelectTrigger>
                 <SelectContent>
-                  {datasets.map((d) => (
-                    <SelectItem key={d.id} value={d.id} className="text-[12px]">
-                      {d.name}
-                    </SelectItem>
-                  ))}
+                  {datasets.length ? (
+                    datasets.map((d) => (
+                      <SelectItem key={d.id} value={d.id} className="text-[12px]">
+                        {d.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectEmpty>
+                      {datasetsLoading
+                        ? "Loading datasets…"
+                        : datasetsError
+                          ? "Couldn't load datasets"
+                          : "No datasets found"}
+                    </SelectEmpty>
+                  )}
                 </SelectContent>
               </Select>
             ) : (
@@ -283,7 +320,7 @@ export function SaveResultToDatasetDrawer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : meta.cta}
+            {save.isPending ? "Saving…" : "Save"}
           </Button>
         </DrawerFooter>
       </DrawerContent>

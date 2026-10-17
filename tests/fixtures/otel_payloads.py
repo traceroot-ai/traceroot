@@ -33,7 +33,7 @@ def make_span(
     start_nanos: int = 1705320000000000000,
     end_nanos: int = 1705320001000000000,
     attributes: list[dict] | None = None,
-    status_code: int = 0,
+    status_code: int | str = 0,
 ) -> dict:
     """Build a single OTEL span dict."""
     span = {
@@ -48,6 +48,18 @@ def make_span(
     if parent_span_id_hex:
         span["parentSpanId"] = encode_id(parent_span_id_hex)
     return span
+
+
+def make_exception_event(
+    exception_type: str | None = "ValueError",
+    message: str = "boom",
+    time_nanos: int = 1705320000500000000,
+) -> dict:
+    """Build an OTEL exception event. ``exception_type=None`` omits the type attr."""
+    attributes = [make_attr("exception.message", message)]
+    if exception_type is not None:
+        attributes.insert(0, make_attr("exception.type", exception_type))
+    return {"name": "exception", "timeUnixNano": str(time_nanos), "attributes": attributes}
 
 
 def make_otel_payload(

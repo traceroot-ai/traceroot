@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
@@ -28,6 +29,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.TYPESAFE,
 ] as const;
 
 const createSchema = z.object({
@@ -49,7 +51,7 @@ const createSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/model-providers
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -88,7 +90,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/workspaces/[workspaceId]/model-providers
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -209,3 +211,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   return successResponse(modelProvider, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

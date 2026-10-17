@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
@@ -13,7 +14,7 @@ import { getInstallationToken } from "@traceroot/github";
  *   - Internal (agent tools): X-Internal-Secret + x-workspace-id header.
  *   - Browser/session: workspaceId query param + workspace membership.
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     let workspaceId: string | undefined;
 
@@ -77,3 +78,4 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to get installation token" }, { status: 500 });
   }
 }
+export const GET = withImpersonationPolicy(handleGET);

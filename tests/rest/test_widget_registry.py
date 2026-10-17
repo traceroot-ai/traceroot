@@ -6,9 +6,27 @@ not the internal shape of individual fields.
 
 import json
 import re
+from pathlib import Path
 
-from rest.services.trace_reader import customer_traffic_only
-from rest.services.widget_registry import REGISTRY, registry_schema
+from rest.services.trace_reader import customer_traffic_only, windowed_evaluation_exclusion
+from rest.services.widget_registry import (
+    KEYED_COLUMN_SLOT,
+    REGISTRY,
+    registry_schema,
+    render_registry_snapshot,
+)
+
+# The checked-in registry snapshot the frontend write service validates specs
+# against; kept in lockstep with `registry_schema()` by the drift test below.
+SNAPSHOT = (
+    Path(__file__).resolve().parents[2]
+    / "frontend"
+    / "ui"
+    / "src"
+    / "features"
+    / "dashboards"
+    / "widget-registry.generated.json"
+)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,7 +50,10 @@ def test_every_field_expr_is_reachable_in_base_sql():
     """Each field's expr must be an alias or column token exposed by the view's base_sql."""
     for view_name, view in REGISTRY.items():
         for fname, fdef in view.fields.items():
-            assert _exposed_in_base_sql(fdef.expr, view.base_sql), (
+            base_sql = view.base_sql
+            if fdef.requires_key:
+                base_sql = base_sql.replace(KEYED_COLUMN_SLOT, f", {fdef.expr}")
+            assert _exposed_in_base_sql(fdef.expr, base_sql), (
                 f"{view_name}.{fname}: expr={fdef.expr!r} not found in base_sql"
             )
 
@@ -124,6 +145,28 @@ def test_token_measures_list_components_before_total():
         ], f"{view}: token measures out of order: {token_order}"
 
 
+# The evaluation exclusion every base relation binds. Its own sub-selects scan both
+# tables, so the per-scan-site checks swap it for a sentinel before looking for scans:
+# it is the guard, not a scan that needs guarding.
+_EVALUATION_GUARD = windowed_evaluation_exclusion("start_time", "end_time")
+_EVALUATION_SENTINEL = "<evaluation-exclusion>"
+
+
+def _scan_where_clauses(sql: str) -> list[tuple[str, int, str]]:
+    """Each scan of `spans`/`traces` in a base relation, with its own WHERE clause."""
+    sql = sql.replace(_EVALUATION_GUARD, _EVALUATION_SENTINEL)
+    clauses = []
+    # \b so a future `FROM traces_something` CTE can't be mistaken for the table.
+    for scan in re.finditer(r"FROM\s+(spans|traces)\b", sql):
+        # A derived table's own WHERE runs from its FROM up to its dedup; a guard
+        # past that boundary belongs to a different subquery and doesn't protect
+        # this one.
+        after = sql[scan.end() :]
+        cutoff = after.find("ORDER BY")
+        clauses.append((scan.group(1), scan.start(), after[:cutoff] if cutoff != -1 else after))
+    return clauses
+
+
 def test_every_base_relation_excludes_detector_self_traces():
     """No widget view may count detector self-traces as customer data.
 
@@ -135,21 +178,126 @@ def test_every_base_relation_excludes_detector_self_traces():
     comparing counts would accept two guards on one subquery and none on the other —
     which still lets detector rows through the unguarded one.
     """
+    # Matched via the helper, not a literal, so changing the predicate's spelling
+    # doesn't read as a missing guard.
     guard = customer_traffic_only()
     for view_name, view in REGISTRY.items():
-        sql = view.base_sql
-        # \b so a future `FROM traces_something` CTE can't be mistaken for the table.
-        scans = list(re.finditer(r"FROM\s+(spans|traces)\b", sql))
+        scans = _scan_where_clauses(view.base_sql)
         assert scans, f"{view_name}: no table scan found — has the base relation moved?"
-        for scan in scans:
-            # A derived table's own WHERE runs from its FROM up to its dedup; a guard
-            # past that boundary belongs to a different subquery and doesn't protect
-            # this one. Matched via the helper, not a literal, so changing the
-            # predicate's spelling doesn't read as a missing guard.
-            after = sql[scan.end() :]
-            cutoff = after.find("ORDER BY")
-            where_clause = after[:cutoff] if cutoff != -1 else after
+        for table, offset, where_clause in scans:
             assert guard in where_clause, (
-                f"{view_name}: the scan of `{scan.group(1)}` at offset {scan.start()} "
+                f"{view_name}: the scan of `{table}` at offset {offset} "
                 f"has no detector guard in its own WHERE"
             )
+
+
+def test_every_base_relation_excludes_evaluation_traces():
+    """No widget view may count offline-evaluation traces as production traffic.
+
+    The Tracing page and the dashboard's trace-feed tiles hide them, so a metric tile
+    that counts them disagrees with the list beside it, and a metric alert (same base
+    relations) fires on an eval run. Per scan site for the same reason as the detector
+    guard: the `traces` view also scans spans for its aggregates.
+    """
+    for view_name, view in REGISTRY.items():
+        scans = _scan_where_clauses(view.base_sql)
+        assert scans, f"{view_name}: no table scan found — has the base relation moved?"
+        for table, offset, where_clause in scans:
+            assert _EVALUATION_SENTINEL in where_clause, (
+                f"{view_name}: the scan of `{table}` at offset {offset} "
+                f"has no evaluation exclusion in its own WHERE"
+            )
+
+
+def test_evaluation_exclusion_reads_both_tables_within_a_padded_window():
+    """The excluded set is built from flagged traces AND flagged spans rows.
+
+    A traces-only set loses traces whose flagged row was merged away or never written
+    (see VIEW_EVALUATION_EXCLUSION in rest.services.sql.schema); the spans half is what
+    survives both. Each half is bounded to the widget window, its start padded, so it prunes
+    partitions instead of probing the project all-time.
+    """
+    sql = _EVALUATION_GUARD
+    assert sql.startswith("trace_id NOT IN (")
+    assert "FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1" in sql
+    # The spans half keys on the kinds ingest derives the flag from: span_kind is in the
+    # spans_no_io_by_start_time projection and is_evaluation is not, so only this form
+    # prunes to the window instead of reading the project's whole month.
+    assert (
+        "FROM spans WHERE project_id = {project_id:String}"
+        " AND span_kind IN ('EVALUATION', 'SCORER', 'TASK')" in sql
+    )
+    assert "UNION DISTINCT" in sql
+    # The leading padding is load-bearing (it must outlast an evaluation case), so pin
+    # it. The end is unpadded: a flagged row never starts after the rows it hides, so a
+    # trailing pad would only widen every tile's and alert tick's scan.
+    for column in ("trace_start_time", "span_start_time"):
+        assert f"{column} >= {{start_time:DateTime64(3)}} - INTERVAL 24 HOUR" in sql
+        assert f"{column} <= {{end_time:DateTime64(3)}}" in sql
+    assert "+ INTERVAL" not in sql
+    # Keyed on the ingest flag, never on the customer's free-text environment tag.
+    assert "environment" not in sql
+
+
+# ── tokens_per_second grain ───────────────────────────────────────────────────
+
+
+def _tokens_per_second_expr() -> str:
+    """The throughput expression as base_sql defines it."""
+    match = re.search(r"(if\(.+?\))\s+AS tokens_per_second", REGISTRY["spans"].base_sql)
+    assert match is not None, "the spans view no longer defines tokens_per_second in base_sql"
+    return match.group(1)
+
+
+def test_token_throughput_divides_by_the_millisecond_duration():
+    """A span shorter than a second still has a rate.
+
+    The divisor used to be a second count, so every sub-second span divided by zero and
+    dropped out: 30% of spans on the local stack, holding the average at 290.62 vs 1077.61.
+    """
+    expr = _tokens_per_second_expr()
+    assert "duration_ms" in expr, f"tokens_per_second no longer reads duration_ms: {expr}"
+    assert "1000" in expr, f"tokens_per_second no longer converts milliseconds to seconds: {expr}"
+    assert not re.search(r"date_?diff\(\s*'second'", REGISTRY["spans"].base_sql, re.IGNORECASE), (
+        "a second-boundary count is back in the spans view: it reads zero for "
+        "any span under a second, and a rate over it is NULL"
+    )
+
+
+def test_token_throughput_is_null_only_for_a_zero_length_span():
+    """The guard has to sit at zero: higher drops short spans, lower divides by zero."""
+    expr = _tokens_per_second_expr()
+    assert re.search(r"if\(\s*duration_ms\s*>\s*0\s*,", expr), (
+        f"tokens_per_second guards on something other than a positive duration: {expr}"
+    )
+    assert expr.rstrip().endswith("NULL)"), (
+        f"tokens_per_second no longer reads NULL for an unmeasurable span: {expr}"
+    )
+
+
+def test_span_duration_itself_is_millisecond_grained():
+    """duration_ms is a millisecond difference; a second-grained one reintroduces the zero."""
+    assert re.search(
+        r"date_?diff\(\s*'millisecond',[^)]+\)\s+AS duration_ms",
+        REGISTRY["spans"].base_sql,
+        re.IGNORECASE,
+    ), "duration_ms is no longer a millisecond difference"
+
+
+def test_snapshot_artifact_matches_registry_schema():
+    """Drift guard for the frontend snapshot: regenerate with
+    `uv run python scripts/sync_public_openapi.py`."""
+    assert SNAPSHOT.exists(), f"missing widget registry snapshot: {SNAPSHOT}"
+    assert SNAPSHOT.read_text(encoding="utf-8") == render_registry_snapshot(), (
+        "widget registry snapshot is stale — regenerate with "
+        "`uv run python scripts/sync_public_openapi.py`"
+    )
+
+
+def test_snapshot_rendering_is_deterministic_json_of_registry_schema():
+    """The snapshot is the registry schema itself (no extra envelope), rendered
+    like the public OpenAPI artifact (sorted keys) so diffs stay stable."""
+    rendered = render_registry_snapshot()
+    assert json.loads(rendered) == registry_schema()
+    assert rendered == render_registry_snapshot()
+    assert rendered.endswith("\n")

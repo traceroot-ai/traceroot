@@ -56,6 +56,9 @@ export function writeStored<T>(key: string, value: T): void {
  *   guarded by `readStored` / `writeStored`. The value is real React state, so the
  *   setter always updates the UI in-session even when persistence silently fails.
  * - Cross-tab sync: a `storage` event (fired only in *other* tabs) re-reads the value.
+ * - Key change: the new key's stored value is read during the same render, so no
+ *   render ever pairs the new key with the old key's value (a consumer effect that
+ *   writes the value back would otherwise persist it under the wrong key).
  */
 export function useLocalStorage<T>(
   key: string,
@@ -63,6 +66,13 @@ export function useLocalStorage<T>(
 ): [T, (value: T | ((prev: T) => T)) => void] {
   // Start from the default so the first client render matches the server render.
   const [value, setValue] = useState<T>(defaultValue);
+
+  // Key changes only happen on the client, so reading synchronously here is safe.
+  const [activeKey, setActiveKey] = useState(key);
+  if (key !== activeKey) {
+    setActiveKey(key);
+    setValue(readStored(key, defaultValue));
+  }
 
   // Adopt the persisted value after mount, and re-read if the key changes.
   useEffect(() => {

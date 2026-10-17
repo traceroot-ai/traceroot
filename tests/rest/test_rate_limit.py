@@ -717,3 +717,101 @@ def test_two_workspaces_do_not_share_a_read_counter():
     assert [client.get("/a").status_code for _ in range(3)] == [200, 200, 429]
     # ...ws-b still has its own full budget despite the shared scope + storage.
     assert [client.get("/b").status_code for _ in range(2)] == [200, 200]
+
+
+# ---------------------------------------------------------------------------
+# K. Per-user rate-limit keys (user-credential requests only)
+# ---------------------------------------------------------------------------
+def _make_stamped_request_with_user(
+    workspace_id: str, billing_plan: str, user_id: str | None
+) -> Request:
+    """Build a bare Request and stamp identity including the user dimension."""
+    request = Request({"type": "http", "headers": [], "state": {}})
+    rate_limit.set_rate_limit_identity(request, workspace_id, billing_plan, user_id)
+    return request
+
+
+def test_key_read_api_key_shape_is_byte_identical_to_pre_change_format():
+    """CRITICAL: an API-key request (no user_id stamped) must produce the exact
+    same key string as before per-user keys existed — a changed key silently
+    re-buckets every existing key caller.
+    """
+    # Arrange: mirrors an API-key stamp — no user_id passed at all.
+    request = _make_stamped_request_with_user("ws-abc", "pro", None)
+
+    # Act
+    key = rate_limit.key_read(request)
+
+    # Assert: exact string match against the historical, workspace-only shape.
+    assert key == "rl:read:pro:ws-abc"
+    assert key == f"rl:{rate_limit.BUCKET_READ}:pro:ws-abc"
+
+
+def test_key_export_api_key_shape_is_byte_identical_to_pre_change_format():
+    """Same byte-identical guarantee as above, for the export bucket."""
+    request = _make_stamped_request_with_user("ws-exp", "free", None)
+
+    key = rate_limit.key_export(request)
+
+    assert key == "rl:export:free:ws-exp"
+
+
+def test_key_read_user_project_shape_appends_user_id():
+    """A user-credential project read appends the user as a trailing segment."""
+    request = _make_stamped_request_with_user("ws-abc", "pro", "user-1")
+
+    key = rate_limit.key_read(request)
+
+    assert key == "rl:read:pro:ws-abc:user-1"
+
+
+def test_key_export_user_project_shape_appends_user_id():
+    """Same trailing-user-segment shape for the export bucket."""
+    request = _make_stamped_request_with_user("ws-exp", "pro", "user-1")
+
+    key = rate_limit.key_export(request)
+
+    assert key == "rl:export:pro:ws-exp:user-1"
+
+
+def test_key_read_account_scope_shape_has_no_workspace_segment():
+    """An account-scope op (empty workspace, user_id set) collapses to a clean
+    per-user key with no empty workspace segment."""
+    request = _make_stamped_request_with_user("", "free", "user-9")
+
+    key = rate_limit.key_read(request)
+
+    assert key == "rl:read:free:user-9"
+
+
+def test_key_ingest_unaffected_by_a_stamped_user_id():
+    """key_ingest stays workspace-only even if a user_id happens to be stamped
+    (ingestion is API-key-only and never carries a user dimension)."""
+    request = _make_stamped_request_with_user("ws-abc", "pro", "user-1")
+
+    key = rate_limit.key_ingest(request)
+
+    assert key == f"rl:{rate_limit.BUCKET_INGEST}:pro:ws-abc"
+
+
+def test_resolve_limit_parses_plan_correctly_for_all_three_key_shapes():
+    """resolve_limit must derive the same, correct limit regardless of whether a
+    trailing :user_id segment is present — the plan position does not move."""
+    api_key_limit = rate_limit.resolve_limit("rl:read:pro:ws-abc")
+    user_project_limit = rate_limit.resolve_limit("rl:read:pro:ws-abc:user-1")
+    account_limit = rate_limit.resolve_limit("rl:read:pro:user-9")
+
+    expected = settings.rate_limit.limit_for("read", "pro")
+    assert api_key_limit == expected
+    assert user_project_limit == expected
+    assert account_limit == expected
+
+
+def test_set_rate_limit_identity_defaults_user_id_to_empty_string():
+    """Calling set_rate_limit_identity positionally (no user_id) — the existing
+    call pattern every current call site uses — stamps rl_user_id as ''."""
+    request = Request({"type": "http", "headers": [], "state": {}})
+
+    rate_limit.set_rate_limit_identity(request, "ws-abc", "pro")
+
+    assert request.state.rl_user_id == ""
