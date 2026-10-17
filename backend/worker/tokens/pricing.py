@@ -17,6 +17,7 @@ import psycopg2
 from shared.config import settings
 
 from .buckets import TokenBuckets, reconcile_cache_write_1h
+from .types import strip_gateway_prefixes
 from .usage import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -81,26 +82,62 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _match_specificity(entry: dict) -> tuple[int, str]:
+    """Rank a regex match so the most specific entry wins rather than the first one seen.
+
+    Several patterns carry an optional version tail, so a predecessor subsumes its
+    successors: ``claude-sonnet-4``'s pattern also matches ``claude-sonnet-4-5`` and
+    ``claude-sonnet-4-6``. First-match-wins therefore depends on the order rows arrive
+    in, and the two runtimes do not agree on that. Python selects with ORDER BY
+    model_name while the TypeScript resolver reads whatever order the database hands
+    back, so the same id can price differently on the two paths, and the answer can
+    move after an UPDATE. Ranking removes the dependency instead of relying on order.
+
+    A longer model_name is the more specific entry. The name itself breaks ties so the
+    result is total and reproducible.
+    """
+    return (len(entry["model_name"]), entry["model_name"])
+
+
+def _match(cache: list[dict], model: str) -> dict[str, float] | None:
+    """Exact match on model_name, then a ranked regex fallback on match_pattern."""
+    for entry in cache:
+        if entry["model_name"] == model:
+            return entry["prices"]
+
+    best: tuple[tuple[int, str], dict[str, float]] | None = None
+    for entry in cache:
+        try:
+            if re.search(entry["match_pattern"], model, re.IGNORECASE):
+                rank = _match_specificity(entry)
+                if best is None or rank > best[0]:
+                    best = (rank, entry["prices"])
+        except re.error:
+            continue
+
+    return best[1] if best else None
+
+
 def get_model_price(model: str) -> dict[str, float] | None:
     """Lookup price for model. Tries exact match, then regex fallback.
 
     Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
     (values in USD per token), or None if not found.
+
+    The id is matched as given first, so any pattern that deliberately recognises a
+    prefixed form keeps winning exactly as before. Only when nothing matches are
+    gateway prefixes stripped and the passes retried — the fallback is additive, so
+    it can turn a None into a price but never change a price that already resolved.
     """
     cache = _load_cache()
 
-    # Exact match on model_name
-    for entry in cache:
-        if entry["model_name"] == model:
-            return entry["prices"]
+    prices = _match(cache, model)
+    if prices is not None:
+        return prices
 
-    # Regex fallback using match_pattern
-    for entry in cache:
-        try:
-            if re.search(entry["match_pattern"], model, re.IGNORECASE):
-                return entry["prices"]
-        except re.error:
-            continue
+    bare = strip_gateway_prefixes(model)
+    if bare != model:
+        return _match(cache, bare)
 
     return None
 
