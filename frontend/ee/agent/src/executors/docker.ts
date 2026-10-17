@@ -1,4 +1,5 @@
 import { spawn, execFile } from "child_process";
+import { randomUUID } from "crypto";
 import { promisify } from "util";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 import { ASKPASS_PATH, ASKPASS_SCRIPT, buildCloneCommand } from "./git-clone-command.js";
@@ -86,9 +87,42 @@ export class DockerExecutor implements Executor {
     if (!this.containerId) throw new Error("Container not initialized");
 
     return new Promise((resolve) => {
-      // Env values are passed to `docker exec` by NAME only (`-e KEY`), so the
-      // value is inherited from this process's environment and never appears in
-      // argv or `ps` output — matching the guarantee ExecOptions.env documents.
+      const executionId = randomUUID();
+      const pidFile = "/tmp/traceroot-exec-" + executionId + ".pid";
+      const cancelFile = "/tmp/traceroot-exec-" + executionId + ".cancel";
+      const processGroupCommand = [
+        "setsid --wait sh -c '",
+        "pid_file=$1; ",
+        "cancel_file=$2; ",
+        "command=$3; ",
+        'printf "%s\\n" "$$" > "$pid_file"; ',
+        'if [ -e "$cancel_file" ]; then /bin/kill -KILL -- "-$$" 2>/dev/null || exit 1; fi; ',
+        'exec sh -c "$command"',
+        '\' traceroot-command "$pid_file" "$cancel_file" "$3" &',
+      ].join("");
+
+      const wrappedCommand = [
+        "pid_file=$1",
+        "cancel_file=$2",
+        'if [ -e "$cancel_file" ]; then',
+        '  rm -f "$cancel_file"',
+        "  exit 1",
+        "fi",
+        processGroupCommand,
+        "command_pid=$!",
+        'if [ -e "$cancel_file" ]; then',
+        '  if [ -s "$pid_file" ]; then',
+        '    remote_pid=$(cat "$pid_file")',
+        '    /bin/kill -KILL -- "-$remote_pid" 2>/dev/null || true',
+        "  fi",
+        "fi",
+        'wait "$command_pid"',
+        "command_status=$?",
+        'rm -f "$pid_file" "$cancel_file"',
+        'exit "$command_status"',
+      ].join("\n");
+
+      // Pass environment values by NAME only, never as literal command arguments.
       const envNames = Object.keys(options?.env ?? {});
       const child = spawn(
         "docker",
@@ -98,6 +132,10 @@ export class DockerExecutor implements Executor {
           this.containerId!,
           "sh",
           "-c",
+          wrappedCommand,
+          "traceroot-exec",
+          pidFile,
+          cancelFile,
           command,
         ],
         {
@@ -108,25 +146,32 @@ export class DockerExecutor implements Executor {
 
       let stdout = "";
       let stderr = "";
-      let timedOut = false;
-      const MAX_BYTES = 10 * 1024 * 1024; // 10MB, matches Mom
-
-      // Timeout handling (like Mom's HostExecutor)
+      let terminationReason: "timeout" | "cancelled" | null = null;
+      const MAX_BYTES = 10 * 1024 * 1024;
       const timeoutMs = options?.timeout ? options.timeout * 1000 : 30000;
-      const timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGKILL");
-      }, timeoutMs);
 
-      // AbortSignal support (like Mom)
+      const requestTermination = (reason: "timeout" | "cancelled") => {
+        if (terminationReason) return;
+        terminationReason = reason;
+        void this.terminateRemoteCommand(pidFile, cancelFile).finally(() => {
+          child.kill("SIGKILL");
+        });
+      };
+
+      const timeoutHandle = setTimeout(() => requestTermination("timeout"), timeoutMs);
+      const onAbort = () => requestTermination("cancelled");
       if (options?.signal) {
-        const onAbort = () => child.kill("SIGKILL");
         if (options.signal.aborted) {
           onAbort();
         } else {
           options.signal.addEventListener("abort", onAbort, { once: true });
         }
       }
+
+      const cleanup = () => {
+        clearTimeout(timeoutHandle);
+        options?.signal?.removeEventListener("abort", onAbort);
+      };
 
       child.stdout?.on("data", (data: Buffer) => {
         stdout += data.toString();
@@ -138,19 +183,92 @@ export class DockerExecutor implements Executor {
         if (stderr.length > MAX_BYTES) stderr = stderr.slice(0, MAX_BYTES);
       });
 
+      const interruptedResult = (): ExecResult | undefined => {
+        if (terminationReason === "timeout") {
+          return {
+            stdout,
+            stderr: "Command timed out after " + timeoutMs / 1000 + "s",
+            code: 1,
+          };
+        }
+        if (terminationReason === "cancelled") {
+          return {
+            stdout,
+            stderr: (stderr ? stderr + "\n" : "") + "Command cancelled",
+            code: 1,
+          };
+        }
+        return undefined;
+      };
+
       child.on("close", (code) => {
-        clearTimeout(timeoutHandle);
-        if (timedOut) {
-          resolve({ stdout, stderr: `Command timed out after ${timeoutMs / 1000}s`, code: 1 });
+        cleanup();
+        const interrupted = interruptedResult();
+        if (interrupted) {
+          resolve(interrupted);
           return;
         }
-        resolve({ stdout, stderr, code: code ?? 0 });
+        resolve({ stdout, stderr, code: code ?? 1 });
       });
 
       child.on("error", (err) => {
-        clearTimeout(timeoutHandle);
-        resolve({ stdout, stderr: err.message, code: 1 });
+        cleanup();
+        const interrupted = interruptedResult();
+        resolve(interrupted ?? { stdout, stderr: err.message, code: 1 });
       });
+    });
+  }
+
+  private terminateRemoteCommand(pidFile: string, cancelFile: string): Promise<void> {
+    if (!this.containerId) return Promise.resolve();
+
+    const terminateCommand = [
+      "pid_file=$1",
+      "cancel_file=$2",
+      'touch "$cancel_file"',
+      "attempt=0",
+      'while [ "$attempt" -lt 40 ]; do',
+      '  if [ -s "$pid_file" ]; then',
+      '    command_pid=$(cat "$pid_file")',
+      '    case "$command_pid" in',
+      '      ""|*[!0-9]*) rm -f "$pid_file" "$cancel_file"; exit 0 ;;',
+      "    esac",
+      '    /bin/kill -KILL -- "-$command_pid" 2>/dev/null || true',
+      '    rm -f "$pid_file" "$cancel_file"',
+      "    exit 0",
+      "  fi",
+      '  if [ ! -e "$cancel_file" ]; then exit 0; fi',
+      "  attempt=$((attempt + 1))",
+      "  sleep 0.05",
+      "done",
+      "exit 0",
+    ].join("\n");
+
+    return new Promise((resolve) => {
+      const killer = spawn(
+        "docker",
+        [
+          "exec",
+          this.containerId!,
+          "sh",
+          "-c",
+          terminateCommand,
+          "traceroot-cancel",
+          pidFile,
+          cancelFile,
+        ],
+        { stdio: "ignore" },
+      );
+      const finish = () => {
+        clearTimeout(forceStopHandle);
+        resolve();
+      };
+      const forceStopHandle = setTimeout(() => {
+        killer.kill("SIGKILL");
+        finish();
+      }, 3000);
+      killer.once("close", finish);
+      killer.once("error", finish);
     });
   }
 
