@@ -8,6 +8,7 @@ import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
+import { ModelProviderBlock } from "./ModelProviderBlock";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
@@ -51,13 +52,34 @@ function LangTabs({
   );
 }
 
+/**
+ * Stands in for a workspace-scoped step when there is no workspace to scope it
+ * to.
+ *
+ * An errored project fetch is not a loading state: react-query drops
+ * `isLoading` with no data behind it, so rendering either of these steps on
+ * `!isLoading` alone hands it an empty workspace id. That is worse than
+ * nothing. `ModelProviderBlock` disables its own queries on an empty id, reads
+ * the resulting absence of a role as "not an admin", and tells the user — who
+ * may well be the admin — to go and ask one, via a link to
+ * `/workspaces//settings/model-providers` that 404s.
+ */
+function WorkspaceUnavailable() {
+  return (
+    <p className="text-[12px] text-muted-foreground">
+      This project&apos;s workspace could not be loaded, so this step is unavailable. Reload the
+      page to try again.
+    </p>
+  );
+}
+
 interface ManualTabProps {
   projectId: string;
 }
 
 export function ManualTab({ projectId }: ManualTabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id ?? "";
+  const workspaceId = project?.workspace_id;
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
 
@@ -145,11 +167,24 @@ export function ManualTab({ projectId }: ManualTabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">5. External integrations</p>
+        <p className="text-[13px] font-medium text-foreground">5. Use your own model key</p>
+        {projectLoading ? (
+          <LoadingState label="Loading model providers..." />
+        ) : workspaceId ? (
+          <ModelProviderBlock workspaceId={workspaceId} />
+        ) : (
+          <WorkspaceUnavailable />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[13px] font-medium text-foreground">6. External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
-        ) : (
+        ) : workspaceId ? (
           <ExternalIntegrations workspaceId={workspaceId} />
+        ) : (
+          <WorkspaceUnavailable />
         )}
       </div>
     </div>
