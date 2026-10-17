@@ -22,9 +22,9 @@ import {
 /**
  * The two groups this tab's own picker shows: providers, and everything else.
  *
- * The panel's picker splits "everything else" into SDKs and agent frameworks,
- * but this one keeps the split it had before that picker existed, so a
- * walkthrough rendered on its own looks exactly as it did.
+ * The panel's picker calls the second group "Frameworks & SDKs", but this one
+ * keeps the labels it had before that picker existed, so a walkthrough rendered
+ * on its own looks exactly as it did.
  */
 const OWN_PICKER_GROUPS: {
   key: string;
@@ -223,7 +223,6 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
             <ModelProviderBlock
               workspaceId={workspaceId}
               providerKey={selectedIntegration.providerKey}
-              stackName={selectedIntegration.name}
             />
           ) : (
             <WorkspaceUnavailable />

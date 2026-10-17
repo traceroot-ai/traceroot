@@ -19,17 +19,14 @@ vi.mock("./ModelProviderBlock", () => ({
   ModelProviderBlock: ({
     workspaceId,
     providerKey,
-    stackName,
   }: {
     workspaceId: string;
     providerKey: unknown;
-    stackName: string;
   }) => (
     <div
       data-testid="model-provider-block"
       data-workspace={workspaceId}
       data-provider-key={JSON.stringify(providerKey)}
-      data-stack={stackName}
     />
   ),
 }));
@@ -170,7 +167,7 @@ describe("ManualTab with no stack chosen above it", () => {
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
     ).toBe("true");
-    // Both of the panel's non-provider groups land under "Frameworks" here.
+    // The panel's "Frameworks & SDKs" entries land under "Frameworks" here.
     expect(within(frameworks).getByRole("radio", { name: "CrewAI" })).toBeDefined();
     expect(within(frameworks).getByRole("radio", { name: "DSPy" })).toBeDefined();
     expect(within(providers).queryByRole("radio", { name: "CrewAI" })).toBeNull();
@@ -187,7 +184,6 @@ describe("ManualTab with no stack chosen above it", () => {
       "https://traceroot.ai/docs/integrations/mastra",
     );
     const block = screen.getByTestId("model-provider-block");
-    expect(block.dataset.stack).toBe("Mastra");
     expect(block.dataset.providerKey).toBe(JSON.stringify(byId("mastra").providerKey));
   });
 

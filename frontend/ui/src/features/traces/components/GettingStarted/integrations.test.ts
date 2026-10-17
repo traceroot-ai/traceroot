@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ADAPTER_CONFIG, LLMAdapter } from "@traceroot/core";
 
-import {
-  filterIntegrations,
-  INTEGRATION_GROUPS,
-  INTEGRATIONS,
-  type IntegrationCategory,
-} from "./integrations";
+import { INTEGRATION_GROUPS, INTEGRATIONS } from "./integrations";
 
 describe("GettingStarted integrations", () => {
   it("includes OpenRouter with dark logo and OpenAI-compatible snippets", () => {
@@ -33,47 +28,26 @@ describe("GettingStarted integrations", () => {
   });
 });
 
-describe("the three groups the picker offers", () => {
+describe("the two groups the picker offers", () => {
   it("names them in the order the picker shows them", () => {
-    expect(INTEGRATION_GROUPS.map((group) => group.category)).toEqual([
-      "provider",
-      "sdk",
-      "agent-framework",
-    ]);
+    expect(INTEGRATION_GROUPS.map((group) => group.category)).toEqual(["provider", "framework"]);
     expect(INTEGRATION_GROUPS.map((group) => group.label)).toEqual([
       "Model providers",
-      "SDK integrations",
-      "Agent frameworks",
+      "Frameworks & SDKs",
     ]);
   });
 
-  it("puts every entry in exactly one group, and leaves no group empty", () => {
-    const groups = new Set(INTEGRATION_GROUPS.map((group) => group.category));
-    for (const integration of INTEGRATIONS) {
-      expect(groups.has(integration.category)).toBe(true);
+  it("puts every entry in exactly one group, and leaves neither group empty", () => {
+    const categories = INTEGRATION_GROUPS.map((group) => group.category);
+    for (const category of categories) {
+      expect(INTEGRATIONS.filter((i) => i.category === category).length).toBeGreaterThan(0);
     }
-    for (const category of groups) {
-      expect(filterIntegrations("", category).length).toBeGreaterThan(0);
-    }
-  });
-
-  it("splits the entries on who owns the agent loop, not on the name", () => {
-    // The two names that read as the opposite of where they sit. The Claude
-    // Agent SDK is a framework for agents you declare; pi is a finished coding
-    // agent you drive from your own control flow, as its snippet shows.
-    const byId = (id: string) => INTEGRATIONS.find((integration) => integration.id === id);
-    expect(byId("claude-agent-sdk")?.category).toBe("agent-framework");
-    expect(byId("pi")?.category).toBe("sdk");
-    // Mastra declares agents (`new Agent(...)` out of `@mastra/core/agent`);
-    // LlamaIndex is a retrieval pipeline whose example never builds one.
-    expect(byId("mastra")?.category).toBe("agent-framework");
-    expect(byId("llamaindex")?.category).toBe("sdk");
-  });
-
-  it("keeps the whole catalogue reachable from the groups together", () => {
-    const grouped = INTEGRATION_GROUPS.flatMap((group) => filterIntegrations("", group.category));
+    // Nothing falls outside the two, so the picker's grouped render is the
+    // whole catalogue rather than most of it.
+    const grouped = categories.flatMap((category) =>
+      INTEGRATIONS.filter((i) => i.category === category),
+    );
     expect(grouped).toHaveLength(INTEGRATIONS.length);
-    expect(filterIntegrations("", "all")).toEqual(INTEGRATIONS);
   });
 });
 
@@ -142,33 +116,5 @@ describe("the provider key each integration asks for", () => {
         expect(ADAPTER_CONFIG[binding.adapter]?.label, integration.id).toBeTruthy();
       }
     }
-  });
-});
-
-describe("narrowing the catalogue", () => {
-  it("matches on the displayed name and on the id", () => {
-    expect(filterIntegrations("langgraph").map((i) => i.id)).toEqual(["langchain"]);
-    expect(filterIntegrations("deepagents").map((i) => i.id)).toEqual(["langchain-deepagents"]);
-    expect(filterIntegrations("vercel-ai").map((i) => i.id)).toEqual(["vercel-ai"]);
-  });
-
-  it("ignores case and surrounding whitespace", () => {
-    expect(filterIntegrations("  CrEwAi  ").map((i) => i.id)).toEqual(["crewai"]);
-    expect(filterIntegrations("   ")).toEqual(INTEGRATIONS);
-  });
-
-  it("applies the group and the search together", () => {
-    // "openai" names an entry in two different groups.
-    expect(filterIntegrations("openai").map((i) => i.id)).toEqual(["openai-agents-sdk", "openai"]);
-    expect(filterIntegrations("openai", "provider").map((i) => i.id)).toEqual(["openai"]);
-    expect(filterIntegrations("openai", "agent-framework").map((i) => i.id)).toEqual([
-      "openai-agents-sdk",
-    ]);
-    expect(filterIntegrations("openai", "sdk")).toEqual([]);
-  });
-
-  it("comes back empty rather than falling back to everything", () => {
-    const nothing: IntegrationCategory | "all" = "all";
-    expect(filterIntegrations("not-a-framework", nothing)).toEqual([]);
   });
 });

@@ -7,6 +7,8 @@
  * `shrink-0` so it never squeezes the heading beside it in the flex row they
  * share. Shared rather than copied because the three sit in three different
  * files, where a restyle of one would otherwise leave the others behind.
+ * Onboarding's hand-back step puts the AI route's docs link over the same
+ * command, so it takes this one as well.
  *
  * Opens in a new tab, with `noopener noreferrer`, because every one of them
  * leaves the app and the reader is mid-setup on this page.

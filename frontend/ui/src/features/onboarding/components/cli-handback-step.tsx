@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
+import { SectionLink } from "@/features/traces/components/GettingStarted/SectionLink";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -74,9 +75,23 @@ export function CliHandbackStep({
       {setup.kind === "command" ? (
         <>
           <div>
-            <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
+              {/* Beside the heading rather than under the command, which is where
+                  the traces panel puts the same link over the same command. */}
+              <SectionLink href="https://traceroot.ai/docs/tracing/get-started">
+                View the tracing docs
+              </SectionLink>
+            </div>
+            {/* What the command does, before it is pasted. It printed a command
+                and nothing else: the one thing a reader weighs before handing a
+                CLI their checkout is whether it is going to edit the checkout,
+                and that was the one thing the step did not say. "{projectName} is
+                ready" said nothing the header above had not already said, so this
+                costs no line — it replaces one. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {projectName} is ready. Run this where your application lives.
+              Instruments your repository, writes the API key into it, and waits for the first
+              trace. Run it where {projectName}&apos;s code lives.
             </p>
           </div>
 
