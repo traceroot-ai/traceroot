@@ -11,19 +11,16 @@ export interface IntegrationCodeExample {
  * Which group of the stack picker an entry belongs to.
  *
  * "provider" is a model provider's own SDK, where the entry and the key are the
- * same company. The other two split what used to be a single "framework" group,
- * on who owns the agent loop: an "agent-framework" hands you an agent to
- * declare — `Agent`, `Crew`, `create_deep_agent` — and runs it for you, while an
- * "sdk" is a library you call from control flow you wrote yourself, whether
- * that is a model client, a retrieval pipeline or somebody else's finished agent
- * embedded as a dependency.
+ * same company — which is what decides whether the key field below the picker
+ * has a choice in it, so the split earns its keep.
  *
- * The line is drawn on the integration's own shape rather than on its name:
- * "Claude Agent SDK" and "pi SDK" are both called SDKs and land on opposite
- * sides of it, because one is a framework for agents you write and the other is
- * a coding agent you drive.
+ * Everything else is one group. It was briefly two, "SDK integrations" and
+ * "Agent frameworks", split on who owns the agent loop; the line was real but
+ * nobody arrives at this picker holding that question. They arrive holding a
+ * name, and a name in the wrong half of a two-column list is a name they cannot
+ * find.
  */
-export type IntegrationCategory = "provider" | "sdk" | "agent-framework";
+export type IntegrationCategory = "provider" | "framework";
 
 /**
  * Which provider key this integration needs, and how firmly.
@@ -62,40 +59,17 @@ export interface IntegrationOption {
 
 export const ALL_LANGS: Lang[] = ["python", "typescript"];
 
-/** The picker's groups, in the order it shows them. */
+/**
+ * The picker's groups, in the order it shows them.
+ *
+ * "Frameworks & SDKs" rather than "Frameworks", because the group holds both:
+ * CrewAI and LangGraph next to the Claude Agent SDK, the Vercel AI SDK and
+ * LlamaIndex. Naming only half of it is what made splitting it look necessary.
+ */
 export const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
   { category: "provider", label: "Model providers" },
-  { category: "sdk", label: "SDK integrations" },
-  { category: "agent-framework", label: "Agent frameworks" },
+  { category: "framework", label: "Frameworks & SDKs" },
 ];
-
-/** A group tab, or the "All" tab that stands for every group at once. */
-export type IntegrationFilter = IntegrationCategory | "all";
-
-/**
- * The catalogue narrowed to one group and one search.
- *
- * Matching is on the displayed name and on the id, so "langgraph" finds
- * "LangChain & LangGraph" by its name and "vercel" finds "Vercel AI SDK" by
- * either. Nothing here touches the selection: a search that hides the selected
- * entry leaves the snippets and the key field below it exactly as they were,
- * which is the point of a filter rather than a chooser.
- */
-export function filterIntegrations(
-  query: string,
-  category: IntegrationFilter = "all",
-  integrations: IntegrationOption[] = INTEGRATIONS,
-): IntegrationOption[] {
-  const needle = query.trim().toLowerCase();
-  return integrations.filter((integration) => {
-    if (category !== "all" && integration.category !== category) return false;
-    if (needle === "") return true;
-    return (
-      integration.name.toLowerCase().includes(needle) ||
-      integration.id.toLowerCase().includes(needle)
-    );
-  });
-}
 
 const PYTHON_INSTALL_COMMAND = "pip install traceroot";
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
@@ -113,7 +87,7 @@ export const INTEGRATIONS: IntegrationOption[] = [
     id: "agno",
     name: "Agno",
     href: "https://traceroot.ai/docs/integrations/agno",
-    category: "agent-framework",
+    category: "framework",
     // Agno takes any model; the example builds the agent on agno.models.anthropic.Claude.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/agno.png",
@@ -131,7 +105,7 @@ traceroot.initialize(integrations=[Integration.AGNO])`,
     id: "autogen",
     name: "AutoGen",
     href: "https://traceroot.ai/docs/integrations/autogen",
-    category: "agent-framework",
+    category: "framework",
     // The snippet above initializes Integration.OPENAI, with the others named as swaps.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/autogen.svg",
@@ -152,7 +126,7 @@ traceroot.initialize(integrations=[
     id: "claude-agent-sdk",
     name: "Claude Agent SDK",
     href: "https://traceroot.ai/docs/integrations/claude-agent-sdk",
-    category: "agent-framework",
+    category: "framework",
     // Anthropic's own agent SDK — @anthropic-ai/claude-agent-sdk, ANTHROPIC_API_KEY.
     providerKey: { kind: "fixed", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/claude-agent-sdk.svg",
@@ -179,7 +153,7 @@ TraceRoot.initialize({
     id: "crewai",
     name: "CrewAI",
     href: "https://traceroot.ai/docs/integrations/crewai",
-    category: "agent-framework",
+    category: "framework",
     // CrewAI drives any LLM; the snippet above initializes Integration.OPENAI.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/crewai.svg",
@@ -200,7 +174,7 @@ traceroot.initialize(integrations=[
     id: "dspy",
     name: "DSPy",
     href: "https://traceroot.ai/docs/integrations/dspy",
-    category: "sdk",
+    category: "framework",
     // DSPy is provider-agnostic; the docs example is dspy.LM("openai/gpt-4o-mini").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/dspy.png",
@@ -218,7 +192,7 @@ traceroot.initialize(integrations=[Integration.DSPY])`,
     id: "google-adk",
     name: "Google ADK",
     href: "https://traceroot.ai/docs/integrations/google-adk",
-    category: "agent-framework",
+    category: "framework",
     // Google's own agent kit — GOOGLE_API_KEY, Gemini models only.
     providerKey: { kind: "fixed", adapter: LLMAdapter.GOOGLE },
     logo: "/logo/integrations/google-adk.png",
@@ -236,7 +210,7 @@ traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
     id: "langchain",
     name: "LangChain & LangGraph",
     href: "https://traceroot.ai/docs/integrations/langchain",
-    category: "agent-framework",
+    category: "framework",
     // LangChain wraps any chat model; the docs example is ChatOpenAI(model="gpt-4o").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/langchain.png",
@@ -263,7 +237,7 @@ TraceRoot.initialize({
     id: "langchain-deepagents",
     name: "LangChain DeepAgents",
     href: "https://traceroot.ai/docs/integrations/langchain-deepagents",
-    category: "agent-framework",
+    category: "framework",
     // DeepAgents takes any model; the docs example is claude-sonnet-4-6 / ChatAnthropic.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/langchain.png",
@@ -290,7 +264,7 @@ TraceRoot.initialize({
     id: "llamaindex",
     name: "LlamaIndex",
     href: "https://traceroot.ai/docs/integrations/llamaindex",
-    category: "sdk",
+    category: "framework",
     // The snippet initializes Integration.OPENAI and the docs set Settings.llm = OpenAI(...).
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/llamaindex.png",
@@ -308,7 +282,7 @@ traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
     id: "microsoft-agent-framework",
     name: "Microsoft Agent Framework",
     href: "https://traceroot.ai/docs/integrations/microsoft-agent-framework",
-    category: "agent-framework",
+    category: "framework",
     // Any chat client; the docs example is agent_framework.openai.OpenAIChatClient.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/microsoft-agent-framework.svg",
@@ -326,7 +300,7 @@ traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])`,
     id: "mastra",
     name: "Mastra",
     href: "https://traceroot.ai/docs/integrations/mastra",
-    category: "agent-framework",
+    category: "framework",
     // Mastra takes any AI SDK model; the docs example is anthropic("claude-haiku-4-5-...").
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/mastra.svg",
@@ -359,7 +333,7 @@ const mastra = new Mastra({
     id: "openai-agents-sdk",
     name: "OpenAI Agents SDK",
     href: "https://traceroot.ai/docs/integrations/openai-agents-sdk",
-    category: "agent-framework",
+    category: "framework",
     // OpenAI's own agent SDK — @openai/agents, OPENAI_API_KEY.
     providerKey: { kind: "fixed", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai-agents-sdk.svg",
@@ -387,7 +361,7 @@ TraceRoot.initialize({
     id: "pi",
     name: "pi SDK",
     href: "https://traceroot.ai/docs/integrations/pi",
-    category: "sdk",
+    category: "framework",
     // pi carries its own credentials; the docs example injects OPENAI_API_KEY for gpt-4o-mini.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/pi.svg",
@@ -408,7 +382,7 @@ TraceRoot.initialize({
     id: "pydantic-ai",
     name: "Pydantic AI",
     href: "https://traceroot.ai/docs/integrations/pydantic-ai",
-    category: "agent-framework",
+    category: "framework",
     // Pydantic AI names the model as a string; the docs example is "openai:gpt-4o-mini".
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/pydantic-ai.png",
@@ -426,7 +400,7 @@ traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
     id: "vercel-ai",
     name: "Vercel AI SDK",
     href: "https://traceroot.ai/docs/integrations/vercel-ai",
-    category: "sdk",
+    category: "framework",
     // The AI SDK is provider-agnostic; the docs example is openai("gpt-4o-mini").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/vercel-ai.svg",
