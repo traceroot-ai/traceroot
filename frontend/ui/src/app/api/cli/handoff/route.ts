@@ -3,7 +3,12 @@ import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
 import { env } from "@/env";
 import { requireAuth, requireProjectAccess } from "@/lib/auth-helpers";
-import { HANDOFF_TTL_SECONDS, generateHandoffCode, hashHandoffCode } from "@/lib/cli-handoff";
+import {
+  HANDOFF_TTL_SECONDS,
+  generateHandoffCode,
+  hashHandoffCode,
+  pruneExpiredHandoffs,
+} from "@/lib/cli-handoff";
 import { checkMintRateLimit, rateLimitClientKey } from "@/lib/mint-rate-limit";
 import { getRequestSession } from "@/lib/request-session";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
@@ -103,6 +108,13 @@ async function handlePOST(request: NextRequest) {
         expiresAt,
       },
     });
+  });
+
+  // Sweep spent rows on the one authenticated path that writes this table; see
+  // pruneExpiredHandoffs for why there is no job to extend instead. A failure
+  // here must never deny an otherwise-valid mint.
+  pruneExpiredHandoffs().catch((e) => {
+    console.error("cli/handoff: pruning expired handoffs failed (non-fatal)", e);
   });
 
   return NextResponse.json({

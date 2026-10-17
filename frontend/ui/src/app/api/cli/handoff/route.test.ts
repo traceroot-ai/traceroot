@@ -137,7 +137,38 @@ describe("POST /api/cli/handoff", () => {
     expect(mocks.deleteMany).toHaveBeenCalledWith({
       where: { userId: "u1", redeemedAt: null },
     });
-    expect(order).toEqual(["delete", "create"]);
+    // delete-then-create inside the transaction; the trailing delete is the
+    // expiry sweep, which runs after the mint has committed.
+    expect(order.slice(0, 2)).toEqual(["delete", "create"]);
+  });
+
+  it("sweeps long-expired rows after the mint, and still mints if the sweep fails", async () => {
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    const before = Date.now();
+    await POST(request({ projectId: "p1" }));
+
+    // Nothing prunes the adjacent device_codes table, so this one sweeps itself.
+    // Retention outlives the session a redeemed row minted, so its
+    // redeemedSessionId stays answerable for as long as that session can be used.
+    const sweep = mocks.deleteMany.mock.calls.find(
+      (c) => (c[0] as { where: { expiresAt?: unknown } }).where.expiresAt,
+    );
+    expect(sweep).toBeDefined();
+    const cutoff = (sweep![0] as { where: { expiresAt: { lt: Date } } }).where.expiresAt.lt;
+    expect(cutoff.getTime()).toBeGreaterThanOrEqual(before - SEVEN_DAYS);
+    expect(cutoff.getTime()).toBeLessThan(before - SEVEN_DAYS + 5000);
+
+    mocks.deleteMany.mockReset();
+    mocks.deleteMany.mockImplementation(async (args: { where: { expiresAt?: unknown } }) => {
+      if (args.where.expiresAt) throw new Error("sweep exploded");
+      return { count: 0 };
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(request({ projectId: "p1" }));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(res.status).toBe(200);
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
   });
 
   it("401s without a session, writing nothing", async () => {

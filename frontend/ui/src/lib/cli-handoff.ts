@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
+import { prisma } from "@traceroot/core";
+import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
 
 // The handoff credential shared by the two /api/cli/handoff routes. Minting and
 // redemption MUST agree on the hash, so both derive it here.
@@ -27,6 +29,11 @@ export const HANDOFF_TTL_SECONDS = 10 * 60;
 // on that line as a bare word with no quoting.
 const HANDOFF_CODE_PREFIX = "trh_";
 
+// Keep an expired row long enough that the session it minted cannot outlive
+// its own provenance: redeemedSessionId has to stay answerable for as long as
+// that session can still be presented.
+const HANDOFF_RETENTION_MS = SESSION_EXPIRES_IN_SECONDS * 1000;
+
 /**
  * Mint a handoff code: 256 bits of CSPRNG output behind the `trh_` prefix.
  *
@@ -49,4 +56,33 @@ export function generateHandoffCode(): string {
  */
 export function hashHandoffCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
+}
+
+/**
+ * Delete handoff rows that expired long enough ago to have no audit value left.
+ *
+ * Nothing prunes the adjacent `device_codes` table. Its expiry index says it
+ * "supports pruning expired rows (cleanup)", but there is no sweeper anywhere
+ * in the repository -- no scheduled task, no worker job, no cron -- and
+ * better-auth's device plugin only deletes a row it happens to look up, so an
+ * abandoned device code is never collected. Rather than invent a scheduler for
+ * one small table, `cli_handoffs` sweeps itself on the one authenticated,
+ * rate-limited path that writes to it.
+ *
+ * That is enough here because the table cannot grow quickly: the mint keeps at
+ * most one unredeemed row per user, so what accumulates is spent rows at the
+ * rate handoffs are minted, and `ix_cli_handoff_expires_at` makes the delete an
+ * indexed range scan.
+ *
+ * Best effort by contract: a caller must not let a failure here fail its own
+ * request.
+ *
+ * @param now - Current epoch ms (injectable for tests).
+ * @returns The number of rows deleted.
+ */
+export async function pruneExpiredHandoffs(now: number = Date.now()): Promise<number> {
+  const { count } = await prisma.cliHandoff.deleteMany({
+    where: { expiresAt: { lt: new Date(now - HANDOFF_RETENTION_MS) } },
+  });
+  return count;
 }
