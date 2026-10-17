@@ -129,6 +129,78 @@ function settingsOnlyNote(): string {
 }
 
 /**
+ * The paragraph under a stored key: the sentence about the key, and the clause
+ * that introduces the settings link.
+ *
+ * The step is reached in two situations that need opposite sentences, and the
+ * copy this replaces could say only one of them. "This workspace already uses
+ * its own key", shown the instant a save settles, reads as a refusal — as if
+ * the key the user had just pasted were dropped because one was there already.
+ * On a later visit to a workspace somebody set up before, that same sentence is
+ * the honest one. `justSavedLabel` is what separates them: set when this mount
+ * stored the key itself, and carrying the provider it was stored for, so the
+ * confirmation names what the user chose rather than describing a workspace.
+ *
+ * None of these lines offers a second provider. This step configures one key;
+ * the settings link is where that key is replaced or switched, not somewhere to
+ * go and collect a set.
+ */
+export function storedKeyCopy({
+  usingOwnKey,
+  justSavedLabel,
+  count,
+}: {
+  usingOwnKey: boolean;
+  /**
+   * The provider label this mount stored a key for, when it stored one. A
+   * save with no label still counts as a save, so this is `undefined` for a
+   * key that was already there and `null` for one stored under a provider
+   * whose label could not be read back.
+   */
+  justSavedLabel?: string | null;
+  count: number;
+}): { state: string; settings: string } {
+  // Every row off means the workspace is running on TraceRoot's models, so no
+  // sentence that says otherwise is true here — including on the mount that
+  // did the storing, in the case where the stored row came back disabled. What
+  // matters then is that the key is present and inert, which this says either
+  // way, so this branch needs no notion of who stored it.
+  if (!usingOwnKey) {
+    return {
+      state:
+        count > 1
+          ? "This workspace has keys of its own, but they are all turned off, so the AI assistant and detectors still run on TraceRoot's models."
+          : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+      settings: count > 1 ? "Turn one back on in" : "Turn it back on in",
+    };
+  }
+
+  const settings = count > 1 ? "Manage them in" : "Replace or remove it in";
+
+  // Confirm the paste, in the terms the form promised it in, rather than
+  // describing a workspace state the user has not arrived at from anywhere.
+  if (justSavedLabel !== undefined) {
+    return {
+      state: justSavedLabel
+        ? `${justSavedLabel} key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own ${justSavedLabel} account.`
+        : "Key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own provider account.",
+      settings,
+    };
+  }
+
+  // A key that was there before this step read the list. Past tense, and
+  // explicit that nothing was written, because nothing was: the form is not
+  // offered at all once the list comes back non-empty.
+  return {
+    state:
+      count > 1
+        ? "This workspace already had keys of its own, so this step left them as they were."
+        : "This workspace already had a key of its own, so this step left it as it was.",
+    settings,
+  };
+}
+
+/**
  * For a failure that carries nothing the user can act on. Every response that
  * does carry something shows that instead.
  */
@@ -295,12 +367,34 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
   // switch it back on as well. A row that is off is still a row the step must
   // not write through, so the rule stays blind to `enabled`.
   //
-  // What `enabled` does decide is which state this is. A workspace whose only
-  // row is off is running on TraceRoot's models, so telling it that it "already
-  // uses its own key" would be false, and leaving a green check against the row
-  // would say nothing about why nothing changed.
+  // It is also why this step configures one key and then stops offering the
+  // form. The paragraph below says where that key is managed and deliberately
+  // neither offers nor promises a second: the row is the workspace's one model
+  // provider as far as getting started is concerned. `model_providers` still
+  // holds a row per provider for the surfaces that do manage a set, and
+  // nothing here narrows that.
+  //
+  // What `enabled` decides is which of the stored-key states this is: a
+  // workspace whose rows are all off is running on TraceRoot's models, so the
+  // sentences that say otherwise would be false, and a green check against the
+  // row would say nothing about why nothing changed.
   if (providers.length > 0) {
     const usingOwnKey = providers.some((provider) => provider.enabled);
+    // Whether the key on screen is one this mount just stored, and what it was
+    // stored for. The form renders only while the list is empty, so a settled
+    // save on this component is unambiguously "the user pasted this here, a
+    // moment ago" — no extra state to keep and nothing to thread in from the
+    // step around it. It stays set for the life of the mount, which is right: a
+    // later background refetch must not turn the paste the user has just made
+    // into a configuration that was always there.
+    //
+    // The provider comes from the mutation's own variable rather than the
+    // row that came back, so the confirmation names the provider the user
+    // picked even if the list is slower or holds more than this one row.
+    const justSavedLabel = saveMutation.isSuccess
+      ? (ADAPTER_CONFIG[saveMutation.variables]?.label ?? null)
+      : undefined;
+    const copy = storedKeyCopy({ usingOwnKey, justSavedLabel, count: providers.length });
     return (
       <div className="space-y-1.5">
         <div className="divide-y divide-border rounded-md border border-border">
@@ -322,10 +416,7 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
           ))}
         </div>
         <p className="text-[12px] text-muted-foreground">
-          {usingOwnKey
-            ? "This workspace already uses its own key."
-            : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models."}{" "}
-          Manage it in{" "}
+          {copy.state} {copy.settings}{" "}
           <Link href={settingsHref} className="font-medium underline underline-offset-4">
             Settings &rarr; Model Providers
           </Link>
