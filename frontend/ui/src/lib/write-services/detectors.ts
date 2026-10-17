@@ -86,6 +86,7 @@ const inputSchema = z
     detectionModel: z.string().nullable().optional(),
     detectionProvider: z.string().nullable().optional(),
     enableRca: z.boolean("enableRca must be a boolean").optional(),
+    enableSignals: z.boolean("enableSignals must be a boolean").optional(),
     enabled: z.boolean("enabled must be a boolean").optional(),
   })
   .superRefine((value, ctx) => {
@@ -116,6 +117,7 @@ export async function createDetector(input: {
   detectionModel?: string | null;
   detectionProvider?: string | null;
   enableRca?: boolean;
+  enableSignals?: boolean;
   enabled?: boolean;
   provenance: Provenance;
 }): Promise<ServiceResult<DetectorCreated>> {
@@ -162,7 +164,7 @@ export async function createDetector(input: {
           result: { ok: false, status: 400, error: parsed.error.issues[0].message },
         };
       }
-      const { name, template, detectionSource, enableRca, enabled } = parsed.data;
+      const { name, template, detectionSource, enableRca, enableSignals, enabled } = parsed.data;
       let prompt = parsed.data.prompt;
       let outputSchema = parsed.data.outputSchema;
       if (prompt === undefined) {
@@ -217,6 +219,8 @@ export async function createDetector(input: {
           sampleRate: resolvedSampleRate,
           enabled: resolvedEnabled,
           enableRca: enableRca ?? true,
+          // signalsEnabledAt defaults to now: a new detector groups from its first hit.
+          enableSignals: enableSignals ?? true,
           detectionModel: parsed.data.detectionModel || null,
           detectionProvider: parsed.data.detectionProvider || null,
           detectionSource: detectionSource ?? null,
@@ -279,6 +283,7 @@ const patchSchema = z.object({
   sampleRate: sampleRateSchema.optional(),
   enabled: z.boolean("enabled must be a boolean").optional(),
   enableRca: z.boolean("enableRca must be a boolean").optional(),
+  enableSignals: z.boolean("enableSignals must be a boolean").optional(),
   triggerConditions: triggerConditionsSchema,
   detectionModel: z.string("detectionModel must be a string").nullable().optional(),
   detectionProvider: z.string("detectionProvider must be a string").nullable().optional(),
@@ -298,6 +303,7 @@ export interface DetectorPatch {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
+  enableSignals?: boolean;
   triggerConditions?: unknown[];
   detectionModel?: string | null;
   detectionProvider?: string | null;
@@ -378,6 +384,9 @@ export async function updateDetector(input: {
         where: { id: existing.id },
         data: {
           ...(columns as Omit<typeof columns, "outputSchema"> & { outputSchema?: object }),
+          // Turning signals on groups hits from now on, never the ones detected
+          // while it was off.
+          ...(columns.enableSignals === true ? { signalsEnabledAt: new Date() } : {}),
           ...(conditions === undefined
             ? {}
             : conditions.length > 0

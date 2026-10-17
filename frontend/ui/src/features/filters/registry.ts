@@ -52,6 +52,15 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     enum_values: [],
   },
   {
+    field: "signal_id",
+    label: "Signal ID",
+    type: "text",
+    level: "SIGNAL",
+    operators: ["eq"],
+    value_source: "free_text",
+    enum_values: [],
+  },
+  {
     field: "model_name",
     label: "Model",
     type: "categorical",
@@ -81,6 +90,15 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
   {
     field: "status",
     label: "Status",
+    type: "categorical",
+    level: "SPAN_MEMBERSHIP",
+    operators: ["in"],
+    value_source: "distinct_query",
+    enum_values: [],
+  },
+  {
+    field: "error_type",
+    label: "Error type",
     type: "categorical",
     level: "SPAN_MEMBERSHIP",
     operators: ["in"],

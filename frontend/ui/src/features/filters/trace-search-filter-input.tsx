@@ -11,6 +11,7 @@ import { ListFilter, X } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { Predicate } from "@/types/api";
+import type { FilterFieldDef } from "./registry";
 import { useFilterFields } from "./hooks";
 import { FilterBuilder } from "./filter-builder";
 import { predicateLabel, upsertPredicate } from "./predicate-ui";
@@ -31,6 +32,13 @@ interface TraceSearchFilterInputProps {
   /** Active-window bounds, threaded to the lazy distinct-values query. */
   startAfter?: string;
   endBefore?: string;
+  /**
+   * Fields for another list than traces (e.g. signals). Give them static values
+   * (`static_enum` or `free_text`): the distinct-values query reads traces only.
+   */
+  fields?: FilterFieldDef[];
+  /** Shown while no filter is set; defaults to "Filter traces…". */
+  placeholder?: string;
 }
 
 export function TraceSearchFilterInput({
@@ -39,8 +47,11 @@ export function TraceSearchFilterInput({
   onFiltersChange,
   startAfter,
   endBefore,
+  fields: customFields,
+  placeholder = "Filter traces…",
 }: TraceSearchFilterInputProps) {
-  const fields = useFilterFields(projectId);
+  const traceFields = useFilterFields(projectId, !customFields);
+  const fields = customFields ?? traceFields;
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -127,7 +138,7 @@ export function TraceSearchFilterInput({
                 removeAt(filters.length - 1);
               }
             }}
-            placeholder={filters.length === 0 ? "Filter traces…" : "Add filter…"}
+            placeholder={filters.length === 0 ? placeholder : "Add filter…"}
             className="h-6 min-w-[6rem] flex-1 cursor-text bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
         </div>

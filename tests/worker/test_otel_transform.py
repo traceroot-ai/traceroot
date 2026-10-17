@@ -6,7 +6,12 @@ from typing import ClassVar
 
 import pytest
 
-from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from tests.fixtures.otel_payloads import (
+    make_attr,
+    make_exception_event,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
@@ -543,6 +548,37 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["output_tokens"] == 50
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
+
+    def test_decision_span_tokens_and_cost(self):
+        """OpenInference DECISION spans report model and usage under decision.*."""
+        from unittest.mock import patch
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("openinference.span.kind", "DECISION"),
+                        make_attr("decision.model_name", "jev-1.13.0"),
+                        make_attr("decision.token_count.input", 100),
+                        make_attr("decision.token_count.output", 50),
+                    ],
+                )
+            ]
+        )
+        mock_prices = {"input": 0.0000025, "output": 0.00001}
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["span_kind"] == "DECISION"
+        assert spans[0]["model_name"] == "jev-1.13.0"
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["total_tokens"] == 150
+        assert spans[0]["cost"] == pytest.approx(100 * 0.0000025 + 50 * 0.00001)
 
     @pytest.mark.parametrize(
         ("scope_name", "input_attr", "cache_read_attr", "cache_write_attr"),
@@ -2232,3 +2268,71 @@ class TestPiExtensionCacheWrite:
         span["attributes"].append(make_attr("gen_ai.usage.cache_creation_input_tokens", 555))
         s = self._transform(span)
         assert s["usage_details"]["cache_write_tokens"] == 555
+
+
+class TestErrorType:
+    """error_type is a bounded group key derived at ingest from the exception event."""
+
+    TRACE = "aa" * 16
+    SPAN = "bb" * 8
+
+    def _transform(self, span: dict) -> dict:
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "proj-1")
+        return spans[0]
+
+    def test_error_span_with_exception_event_stores_type(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("TimeoutError")]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_error_span_without_event_is_unknown(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_error_span_with_event_lacking_type_is_unknown(self):
+        # The last exception event decides; an earlier typed one does not stand in.
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event(exception_type=None, time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_ok_span_ignores_exception_event(self):
+        # A caught-and-recovered exception is not an error.
+        span = make_span(self.TRACE, self.SPAN, status_code=0)
+        span["events"] = [make_exception_event("ValueError")]
+        s = self._transform(span)
+        assert s["status"] == "OK"
+        assert s["error_type"] == ""
+
+    def test_latest_exception_event_wins(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event("TimeoutError", time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_oversized_type_is_truncated(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("E" * 1500)]
+        assert self._transform(span)["error_type"] == "E" * 1024
+
+    def test_non_exception_events_are_skipped(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("TimeoutError"),
+            {"name": "log", "attributes": [make_attr("exception.type", "Decoy")]},
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_string_status_code_format(self):
+        span = make_span(self.TRACE, self.SPAN)
+        span["status"] = {"code": "STATUS_CODE_ERROR", "message": "something failed"}
+        span["events"] = [make_exception_event("KeyError")]
+        assert self._transform(span)["error_type"] == "KeyError"
+
+    def test_ok_span_always_carries_the_field(self):
+        span = make_span(self.TRACE, self.SPAN)
+        assert self._transform(span)["error_type"] == ""

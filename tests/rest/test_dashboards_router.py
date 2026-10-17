@@ -1,5 +1,6 @@
 """Endpoint tests for the widget query router."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -164,6 +165,22 @@ def test_query_endpoint_pydantic_error_is_422(client):
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("token", ["1e999", "-1e999", "NaN", "Infinity"])
+def test_query_endpoint_non_finite_filter_value_is_422(client, token):
+    # json.loads turns these tokens into non-finite floats. The 422 echoes the
+    # rejected input back, and encoding it used to raise, which surfaced as a 500.
+    filters = [{"field": "model_name", "op": "=", "value": 0}]
+    body = {**VALID_BODY, "spec": {**VALID_BODY["spec"], "filters": filters}}
+    raw = json.dumps(body).replace('"value": 0', f'"value": {token}')
+    resp = client.post(
+        "/api/v1/projects/proj-1/widgets/query",
+        content=raw,
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 422
+    assert {error["input"] for error in resp.json()["detail"]} <= {"inf", "-inf", "nan"}
+
+
 def test_query_endpoint_no_auth_is_not_200():
     """Without the dependency override, auth is enforced — must not return 200."""
     # Don't override get_project_access — let it run for real.
@@ -199,6 +216,21 @@ class TestWidgetFieldValues:
         assert kw["project_id"] == "proj-1"
         assert kw["column"] == "model_name"
         mock_discovery.get_distinct_trace_values.assert_not_called()
+
+    def test_error_type_values_agree_across_widget_and_trace_list(self, client, mock_discovery):
+        """Both pickers resolve error_type to the same span column and return the same list."""
+        values = [{"value": "TimeoutError", "count": 5}, {"value": "unknown", "count": 2}]
+        mock_discovery.get_distinct_span_values.return_value = values
+        with patch("rest.routers.traces.get_trace_discovery_service", return_value=mock_discovery):
+            widget = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/error_type")
+            trace_list = client.get("/api/v1/projects/proj-1/traces/filter-values/error_type")
+        assert widget.status_code == 200
+        assert trace_list.status_code == 200
+        assert widget.json()["values"] == trace_list.json()["values"] == values
+        columns = {
+            c.kwargs["column"] for c in mock_discovery.get_distinct_span_values.call_args_list
+        }
+        assert columns == {"error_type"}
 
     def test_traces_view_uses_the_trace_distinct_query(self, client, mock_discovery):
         mock_discovery.get_distinct_trace_values.return_value = [{"value": "u-1", "count": 3}]

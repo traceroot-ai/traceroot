@@ -37,7 +37,7 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public", tags=["Account (Public)"])
+router = APIRouter(prefix="/public", tags=["Account"])
 
 
 def _account_service_error() -> HTTPException:
