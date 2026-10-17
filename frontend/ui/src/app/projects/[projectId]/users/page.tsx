@@ -237,7 +237,6 @@ export default function UsersPage() {
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
         currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
-        hasSubscription={retention.hasSubscription}
       />
     </div>
   );
