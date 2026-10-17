@@ -2,6 +2,10 @@
 
 import { Button } from "@/components/ui/button";
 import { ManualTab } from "@/features/traces/components/GettingStarted/ManualTab";
+import {
+  StackAndModelKey,
+  useStackSelection,
+} from "@/features/traces/components/GettingStarted/StackAndModelKey";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { FirstTraceLine } from "./first-trace-line";
 
@@ -27,14 +31,22 @@ interface ManualSetupStepProps {
 /**
  * The optional last step of a first run: adding tracing by hand.
  *
- * The body is the getting-started panel's own manual walkthrough, rendered
- * here rather than copied: it is five numbered steps of prose, snippets per
- * language and per integration, and a key the user only ever sees once. A
- * second copy of that in onboarding would answer a different version of the
- * same question within a release or two, and the version a brand-new account
- * reads is the one that must not be the stale one.
+ * The body is the getting-started panel's own setup, rendered here rather than
+ * copied: the two questions every route asks — which stack, whose model key —
+ * and then that panel's manual walkthrough, which is the key, the install and
+ * the one call that starts tracing. A second copy of any of that in onboarding
+ * would answer a different version of the same question within a release or
+ * two, and the version a brand-new account reads is the one that must not be
+ * the stale one.
  *
- * Only the manual half is shown, not both tabs. The other tab is the command
+ * The stack picker is here for the same reason it is on the traces panel rather
+ * than inside the walkthrough: the snippets, the docs link and the provider the
+ * key field asks for are all answers to it. Rendering the walkthrough on its
+ * own would show this user OpenAI's snippet with nothing to say they are not
+ * using OpenAI, and no key field at all — worse than what the walkthrough
+ * offered before those two moved out of it.
+ *
+ * Only the manual half is shown, not both modes. The other mode is the command
  * on the step before this one, which this user has just declined — so it is
  * offered as a way back instead, because deciding to do it by hand and then
  * changing your mind is ordinary.
@@ -46,6 +58,8 @@ interface ManualSetupStepProps {
  * first trace arrives, so leaving part-way through loses nothing.
  */
 export function ManualSetupStep({ projectId, onBack, onDone, wait }: ManualSetupStepProps) {
+  const { selected, select } = useStackSelection();
+
   return (
     <div className="flex flex-col gap-4">
       {/* A notch above the walkthrough's own numbered labels, which are 14px
@@ -53,7 +67,9 @@ export function ManualSetupStep({ projectId, onBack, onDone, wait }: ManualSetup
           inside it is worse than no title at all. */}
       <p className="text-sm font-semibold">Set up tracing by hand</p>
 
-      <ManualTab projectId={projectId} />
+      <StackAndModelKey projectId={projectId} selected={selected} onSelect={select} />
+
+      <ManualTab projectId={projectId} integration={selected} />
 
       <FirstTraceLine wait={wait} />
 

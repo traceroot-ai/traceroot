@@ -23,6 +23,7 @@ import {
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { createModelProvider, getModelProviders, testModelProvider } from "@/lib/api";
 import { ApiError, ImpersonationError } from "@/lib/api/errors";
+import type { ProviderKeyBinding } from "./integrations";
 
 /**
  * Whether this step can configure an adapter by itself, from that adapter's two
@@ -91,6 +92,23 @@ function joinLabels(labels: string[]): string {
 }
 
 /**
+ * Which clause of `isInlineConfigurable` this adapter fails, or null when it
+ * fails neither and the step can configure it inline.
+ *
+ * Pulled out of the sentence below because the step now reaches it one adapter
+ * at a time as well: a stack bound to Azure, Bedrock or OpenRouter has to be
+ * told why its own key cannot be pasted here, in the same terms as the list.
+ */
+export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "model-list" | null {
+  const config = ADAPTER_CONFIG[adapter];
+  const catalogue = ADAPTER_MODELS[adapter];
+  if (isInlineConfigurable(config, catalogue)) return null;
+  return config.credentialType !== "api-key" || config.requiresBaseUrl
+    ? "more-than-a-key"
+    : "model-list";
+}
+
+/**
  * Why each adapter this step does not offer lives in settings instead, derived
  * from the clause of `isInlineConfigurable` that adapter failed.
  *
@@ -107,11 +125,11 @@ function settingsOnlyNote(): string {
   const needMoreThanAKey: string[] = [];
   const needAModelList: string[] = [];
   for (const adapter of SETTINGS_ONLY_ADAPTERS) {
-    const config = ADAPTER_CONFIG[adapter];
-    if (config.credentialType !== "api-key" || config.requiresBaseUrl) {
-      needMoreThanAKey.push(config.label);
+    const label = ADAPTER_CONFIG[adapter].label;
+    if (settingsOnlyReason(adapter) === "more-than-a-key") {
+      needMoreThanAKey.push(label);
     } else {
-      needAModelList.push(config.label);
+      needAModelList.push(label);
     }
   }
 
@@ -129,13 +147,154 @@ function settingsOnlyNote(): string {
 }
 
 /**
+ * The paragraph under a stored key: the sentence about the key, and the clause
+ * that introduces the settings link.
+ *
+ * The step is reached in two situations that need opposite sentences, and the
+ * copy this replaces could say only one of them. "This workspace already uses
+ * its own key", shown the instant a save settles, reads as a refusal — as if
+ * the key the user had just pasted were dropped because one was there already.
+ * On a later visit to a workspace somebody set up before, that same sentence is
+ * the honest one. `justSavedLabel` is what separates them: set when this mount
+ * stored the key itself, and carrying the provider it was stored for, so the
+ * confirmation names what the user chose rather than describing a workspace.
+ *
+ * None of these lines offers a second provider. This step configures one key;
+ * the settings link is where that key is replaced or switched, not somewhere to
+ * go and collect a set.
+ */
+export function storedKeyCopy({
+  usingOwnKey,
+  justSavedLabel,
+  count,
+}: {
+  usingOwnKey: boolean;
+  /**
+   * The provider label this mount stored a key for, when it stored one. A
+   * save with no label still counts as a save, so this is `undefined` for a
+   * key that was already there and `null` for one stored under a provider
+   * whose label could not be read back.
+   */
+  justSavedLabel?: string | null;
+  count: number;
+}): { state: string; settings: string } {
+  // Every row off means the workspace is running on TraceRoot's models, so no
+  // sentence that says otherwise is true here — including on the mount that
+  // did the storing, in the case where the stored row came back disabled. What
+  // matters then is that the key is present and inert, which this says either
+  // way, so this branch needs no notion of who stored it.
+  if (!usingOwnKey) {
+    return {
+      state:
+        count > 1
+          ? "This workspace has keys of its own, but they are all turned off, so the AI assistant and detectors still run on TraceRoot's models."
+          : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+      settings: count > 1 ? "Turn one back on in" : "Turn it back on in",
+    };
+  }
+
+  const settings = count > 1 ? "Manage them in" : "Replace or remove it in";
+
+  // Confirm the paste, in the terms the form promised it in, rather than
+  // describing a workspace state the user has not arrived at from anywhere.
+  if (justSavedLabel !== undefined) {
+    return {
+      state: justSavedLabel
+        ? `${justSavedLabel} key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own ${justSavedLabel} account.`
+        : "Key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own provider account.",
+      settings,
+    };
+  }
+
+  // A key that was there before this step read the list. Past tense, and
+  // explicit that nothing was written, because nothing was: the form is not
+  // offered at all once the list comes back non-empty.
+  return {
+    state:
+      count > 1
+        ? "This workspace already had keys of its own, so this step left them as they were."
+        : "This workspace already had a key of its own, so this step left it as it was.",
+    settings,
+  };
+}
+
+/**
  * For a failure that carries nothing the user can act on. Every response that
  * does carry something shows that instead.
  */
 const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
 
+/**
+ * The line above the key field, said in terms of the stack the user picked.
+ *
+ * The line this replaces — "Optional. Paste a key and the AI assistant,
+ * detector screening and root cause analysis run on your own provider account"
+ * — had to stay vague about whose key, because the provider was a separate
+ * choice made in a dropdown underneath it. Now the picker decides, so the line
+ * can name the provider and say where that answer came from. Which matters most
+ * for the second case: "its example uses OpenAI" is an invitation to change it,
+ * where an unexplained "OpenAI API key" over a LangChain snippet looks like a
+ * requirement.
+ */
+export function keyFieldIntro({
+  stackName,
+  kind,
+  label,
+}: {
+  stackName: string;
+  kind: "fixed" | "suggested";
+  label: string;
+}): string {
+  if (kind === "fixed") {
+    return `Optional. ${stackName} runs on ${label}, so this step takes your ${label} key: paste it and the AI assistant, detector screening and root cause analysis run on your own ${label} account instead of TraceRoot's models.`;
+  }
+  return `Optional. ${stackName} calls whichever provider you give it, and its example uses ${label}. Paste that key — or switch provider — and the AI assistant, detector screening and root cause analysis run on your own account instead of TraceRoot's models.`;
+}
+
+/**
+ * What a stack whose provider cannot be configured from here is told, and why.
+ *
+ * Two different situations, kept apart because the honest sentence differs.
+ * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
+ * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
+ * access-key pair and a region, OpenRouter a model list. `none` covers a
+ * provider there is no adapter for at all, Mistral today: nothing anywhere in
+ * TraceRoot can store that key, so pointing at settings as if it could would
+ * send the user looking for a row that is not there.
+ */
+export function unavailableKeyCopy(
+  binding: ProviderKeyBinding,
+  stackName: string,
+): { state: string; settings: string | null } {
+  if (binding.kind === "none") {
+    return {
+      state: `${stackName} calls ${binding.provider}, and TraceRoot has no ${binding.provider} adapter for your own keys, so there is no ${binding.provider} key to paste here. The AI assistant and detectors run on TraceRoot's models.`,
+      settings: null,
+    };
+  }
+
+  const label = ADAPTER_CONFIG[binding.adapter].label;
+  const why =
+    settingsOnlyReason(binding.adapter) === "more-than-a-key"
+      ? `${label} needs more than a key`
+      : `${label} needs a model list chosen`;
+  return {
+    state: `${stackName} runs on ${label}, and ${why}, so it cannot be set up from here.`,
+    settings: "Add it in",
+  };
+}
+
 interface ModelProviderBlockProps {
   workspaceId: string;
+  /**
+   * Which provider key the selected stack asks for. The step no longer asks
+   * the user this separately: a LangChain reader is shown an OpenAI field
+   * because LangChain's own example calls OpenAI, and a Mistral reader is told
+   * there is no Mistral adapter rather than handed a field for one.
+   */
+  providerKey: ProviderKeyBinding;
+  /** The selected stack's name, for saying whose key this is and why. */
+  stackName: string;
 }
 
 /**
@@ -153,14 +312,48 @@ interface ModelProviderBlockProps {
  * The step is optional in the structural sense. There is no required field,
  * the manual path completes without touching it, and skipping it writes
  * nothing: a workspace that skips is left exactly as it is today.
+ *
+ * What it does not do is ask which provider. The panel above it already asked
+ * which stack, and that answer contains this one — LangChain's own example
+ * calls OpenAI, Claude Agent SDK can only call Anthropic — so asking again
+ * invites a mismatch between the snippet the reader is about to paste and the
+ * key they are about to store. The binding arrives as `providerKey`; the
+ * dropdown survives only for the stacks where the question is real.
  */
-export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
+export function ModelProviderBlock({
+  workspaceId,
+  providerKey,
+  stackName,
+}: ModelProviderBlockProps) {
   const queryClient = useQueryClient();
-  // Undefined when no adapter qualifies for the inline rule at all, which the
-  // render path below has to survive rather than throw on.
-  const [adapter, setAdapter] = useState<LLMAdapter | undefined>(INLINE_ADAPTERS[0]);
+  // Set only when the user overrides a *suggested* provider. The selection is
+  // the source of truth otherwise, so there is no second piece of state for the
+  // two of them to disagree in.
+  const [override, setOverride] = useState<LLMAdapter | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [failure, setFailure] = useState<{ message: string; detail?: string } | null>(null);
+
+  // Everything above belongs to the stack that was selected when it happened:
+  // the override, the half-typed key, the provider's rejection. React's recipe
+  // for adjusting state when a prop changes drops all three during the render
+  // that first sees a new binding, so none of them can survive under another
+  // provider's label with "Verify and save" ready to send the old key to the
+  // new provider. The bindings are literals in the catalogue, so identity is
+  // stable per entry and re-selecting the same stack changes nothing.
+  const [bindingSeen, setBindingSeen] = useState(providerKey);
+  if (bindingSeen !== providerKey) {
+    setBindingSeen(providerKey);
+    setOverride(null);
+    setApiKey("");
+    setFailure(null);
+  }
+
+  // Both undefined for a stack whose provider has no adapter at all, which the
+  // render path below has to survive rather than throw on. Splitting the
+  // binding out first is what lets the form below read `bound.kind` as the two
+  // cases that reach it, instead of re-checking the third.
+  const bound = providerKey.kind === "none" ? undefined : providerKey;
+  const adapter = override ?? bound?.adapter;
 
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -295,12 +488,34 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
   // switch it back on as well. A row that is off is still a row the step must
   // not write through, so the rule stays blind to `enabled`.
   //
-  // What `enabled` does decide is which state this is. A workspace whose only
-  // row is off is running on TraceRoot's models, so telling it that it "already
-  // uses its own key" would be false, and leaving a green check against the row
-  // would say nothing about why nothing changed.
+  // It is also why this step configures one key and then stops offering the
+  // form. The paragraph below says where that key is managed and deliberately
+  // neither offers nor promises a second: the row is the workspace's one model
+  // provider as far as getting started is concerned. `model_providers` still
+  // holds a row per provider for the surfaces that do manage a set, and
+  // nothing here narrows that.
+  //
+  // What `enabled` decides is which of the stored-key states this is: a
+  // workspace whose rows are all off is running on TraceRoot's models, so the
+  // sentences that say otherwise would be false, and a green check against the
+  // row would say nothing about why nothing changed.
   if (providers.length > 0) {
     const usingOwnKey = providers.some((provider) => provider.enabled);
+    // Whether the key on screen is one this mount just stored, and what it was
+    // stored for. The form renders only while the list is empty, so a settled
+    // save on this component is unambiguously "the user pasted this here, a
+    // moment ago" — no extra state to keep and nothing to thread in from the
+    // step around it. It stays set for the life of the mount, which is right: a
+    // later background refetch must not turn the paste the user has just made
+    // into a configuration that was always there.
+    //
+    // The provider comes from the mutation's own variable rather than the
+    // row that came back, so the confirmation names the provider the user
+    // picked even if the list is slower or holds more than this one row.
+    const justSavedLabel = saveMutation.isSuccess
+      ? (ADAPTER_CONFIG[saveMutation.variables]?.label ?? null)
+      : undefined;
+    const copy = storedKeyCopy({ usingOwnKey, justSavedLabel, count: providers.length });
     return (
       <div className="space-y-1.5">
         <div className="divide-y divide-border rounded-md border border-border">
@@ -322,10 +537,7 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
           ))}
         </div>
         <p className="text-[12px] text-muted-foreground">
-          {usingOwnKey
-            ? "This workspace already uses its own key."
-            : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models."}{" "}
-          Manage it in{" "}
+          {copy.state} {copy.settings}{" "}
           <Link href={settingsHref} className="font-medium underline underline-offset-4">
             Settings &rarr; Model Providers
           </Link>
@@ -358,53 +570,80 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
     );
   }
 
-  // No adapter a pasted key fully configures means there is no form to draw,
-  // and `ADAPTER_CONFIG[adapter]` would be a lookup on undefined. A TypeError
-  // thrown from here does not blank this step: the block renders inline in the
-  // Manual tab, so it would take the API key, the SDK install and the
-  // integration picker down with it. Say where the providers live instead.
-  if (!adapter) {
-    return <p className="text-[12px] text-muted-foreground">{settingsOnlyNote()}</p>;
+  // A stack whose provider this step cannot store a key for: no adapter at
+  // all, or one the inline rule excludes. Drawing the field anyway would be a
+  // field that cannot work — and `ADAPTER_CONFIG[adapter]` on the first of
+  // those is a lookup on undefined, which would throw from render and take the
+  // API key, the SDK install and the stack picker down with it, since this
+  // block renders inline in the same panel.
+  if (!bound || !adapter || settingsOnlyReason(adapter) !== null) {
+    const copy = unavailableKeyCopy(adapter ? { kind: "fixed", adapter } : providerKey, stackName);
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        {copy.state}
+        {copy.settings ? (
+          <>
+            {" "}
+            {copy.settings}{" "}
+            <Link href={settingsHref} className="font-medium underline underline-offset-4">
+              Settings &rarr; Model Providers
+            </Link>
+            .
+          </>
+        ) : null}
+      </p>
+    );
   }
+
+  const label = ADAPTER_CONFIG[adapter].label;
 
   return (
     <div className="space-y-2">
       <p className="text-[12px] text-muted-foreground">
-        Optional. Paste a key and the AI assistant, detector screening and root cause analysis run
-        on your own provider account instead of TraceRoot&apos;s models.
+        {keyFieldIntro({ stackName, kind: bound.kind, label })}
       </p>
 
       <div className="flex gap-2">
-        <Select
-          value={adapter}
-          onValueChange={(value) => {
-            setAdapter(value as LLMAdapter);
-            // A key belongs to the provider that issued it, and so does the
-            // rejection the probe came back with. Carrying either across the
-            // switch leaves one provider's error on screen under another
-            // provider's form, with "Verify and save" ready to send the old
-            // key to the new provider.
-            setApiKey("");
-            setFailure(null);
-          }}
-        >
-          <SelectTrigger aria-label="Model provider" className="h-8 w-[180px] shrink-0 text-[12px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {INLINE_ADAPTERS.map((candidate) => (
-              <SelectItem key={candidate} value={candidate}>
-                {ADAPTER_CONFIG[candidate].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Offered only where it is a real question. A provider's own SDK can
+            only use that provider's key, so a dropdown over it would be a
+            choice with one right answer and several wrong ones; a framework
+            that calls whatever it is handed genuinely has to be switchable,
+            and the catalogue's own example is only a starting point. */}
+        {bound.kind === "suggested" && (
+          <Select
+            value={adapter}
+            onValueChange={(value) => {
+              setOverride(value as LLMAdapter);
+              // A key belongs to the provider that issued it, and so does the
+              // rejection the probe came back with. Carrying either across the
+              // switch leaves one provider's error on screen under another
+              // provider's form, with "Verify and save" ready to send the old
+              // key to the new provider.
+              setApiKey("");
+              setFailure(null);
+            }}
+          >
+            <SelectTrigger
+              aria-label="Model provider"
+              className="h-8 w-[180px] shrink-0 text-[12px]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {INLINE_ADAPTERS.map((candidate) => (
+                <SelectItem key={candidate} value={candidate}>
+                  {ADAPTER_CONFIG[candidate].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Input
           type="password"
-          aria-label="API key"
+          aria-label={`${label} API key`}
           autoComplete="off"
-          placeholder={`${ADAPTER_CONFIG[adapter].label} API key`}
+          placeholder={`${label} API key`}
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
           className="h-8 flex-1 font-mono text-[12px]"

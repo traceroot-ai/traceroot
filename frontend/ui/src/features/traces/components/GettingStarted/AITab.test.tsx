@@ -72,6 +72,17 @@ describe("AITab", () => {
     expect(text).toContain("uncommitted changes");
   });
 
+  it("gives the reader something to read before they paste it", () => {
+    // This section had no link of any kind. It points at the page that
+    // documents what the command automates — not the CLI reference, which
+    // covers authenticating and reading traces.
+    render(<AITab projectId="proj_1" />);
+    const docs = screen.getByRole("link", { name: "View the tracing docs" });
+    expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/tracing/get-started");
+    expect(docs.getAttribute("target")).toBe("_blank");
+    expect(docs.getAttribute("rel")).toContain("noopener");
+  });
+
   it("groups GitHub and Slack into the external integrations card", () => {
     render(<AITab projectId="proj_1" />);
     expect(screen.getByText("External integrations")).toBeDefined();
