@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { TraceApiUser } from "@/lib/api/client";
 import {
   captureTraceBaseline,
@@ -61,7 +61,7 @@ export function useFirstTraceWait(
 
   // Identity that genuinely should restart the wait: a different account, or a
   // different set of places to look.
-  const workspaceKey = useMemo(() => workspaces.map((w) => w.id).join(","), [workspaces]);
+  const workspaceKey = workspaces.map((w) => w.id).join(",");
 
   const beginWait = useCallback((isCancelled: () => boolean) => {
     let baseline: TraceBaseline | null = null;
@@ -85,16 +85,14 @@ export function useFirstTraceWait(
           : { kind: "again", fallbackUrl };
       }
       barrenRounds = 0;
+      const projectIds = projects.map((project) => project.id);
 
       if (baseline === null) {
         // First round draws the line and stops there. Nothing the run produces
         // can have arrived in the instant between approval and this read, so
         // treating anything already present as the run's trace would land the
         // tab on an unrelated trace from the same workspace.
-        baseline = await captureTraceBaseline(
-          projects.map((project) => project.id),
-          userRef.current,
-        );
+        baseline = await captureTraceBaseline(projectIds, userRef.current);
         baselineIsWholeAccount = complete;
         return isCancelled() ? null : { kind: "again", fallbackUrl };
       }
@@ -107,14 +105,14 @@ export function useFirstTraceWait(
         // entirely. Drawing its line on first sight costs only the ranking in
         // `watchOrder`: a project the terminal really did just create reads as
         // empty, so anything that arrives in it still qualifies.
-        const unlined = projects
-          .map((project) => project.id)
-          .filter((projectId) => !baseline?.has(projectId));
+        // Held in a const because the line is read inside a callback, where a
+        // `let` the round reassigns cannot be narrowed: the drawn baseline is
+        // not null here, and an optional chain would quietly read as if a
+        // missing one meant every project were new.
+        const lined = baseline;
+        const unlined = projectIds.filter((projectId) => !lined.has(projectId));
         if (unlined.length > 0) {
-          baseline = new Map([
-            ...baseline,
-            ...(await captureTraceBaseline(unlined, userRef.current)),
-          ]);
+          baseline = new Map([...lined, ...(await captureTraceBaseline(unlined, userRef.current))]);
           if (isCancelled()) {
             return null;
           }

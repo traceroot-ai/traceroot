@@ -155,12 +155,17 @@ export function useTraceWait(
     let fallbackUrl = lastResortRef.current;
     const round = beginRef.current(() => cancelled);
 
-    function stop() {
-      cancelled = true;
+    /** Drop the timer the next round is waiting on, if one is pending. */
+    function clearPendingRound() {
       if (timer !== undefined) {
         clearTimeout(timer);
         timer = undefined;
       }
+    }
+
+    function stop() {
+      cancelled = true;
+      clearPendingRound();
       if (expiry !== undefined) {
         clearTimeout(expiry);
         expiry = undefined;
@@ -242,10 +247,7 @@ export function useTraceWait(
       }
       // Nothing is pending while a round runs, so this clears a due timer or
       // an already-fired id; `tick` declines either way if one is in flight.
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
+      clearPendingRound();
       void tick();
     }
     document.addEventListener("visibilitychange", onVisible);

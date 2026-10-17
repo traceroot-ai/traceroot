@@ -8,8 +8,8 @@ import { authClient } from "@/lib/auth-client";
 import { getWorkspaces } from "@/lib/api/workspaces";
 import type { TraceApiUser } from "@/lib/api/client";
 import type { Workspace } from "@/types/api";
-import { traceUrl } from "@/lib/first-trace";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
 import { useFirstTraceWait } from "./use-first-trace-wait";
 import { resolveSetupNeed, onboardingUrlForSetup, type SetupNeed } from "@/lib/account-setup";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -167,13 +167,7 @@ function DeviceContent() {
   // is closed, or never opened, leaves the run exactly as it would have been.
   const traceWait = useFirstTraceWait(phase.kind === "approved", workspaces, traceUser);
 
-  // Advancing on our own is the whole point: the person was told to go back to
-  // their terminal, so nobody is here to click anything when the trace lands.
-  useEffect(() => {
-    if (traceWait.kind === "found") {
-      router.push(traceUrl(traceWait.found));
-    }
-  }, [traceWait, router]);
+  useOpenFoundTrace(traceWait);
 
   // Resolve the pending request once we have both a code and a signed-in
   // session. Runs once per (activeCode, session) pair — activeCode only

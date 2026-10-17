@@ -86,13 +86,12 @@ export function useProjectTraceWait(
       // A baseline read that failed gets another go: until it settles nothing
       // in the project can match, and there is no second project to fall back
       // on.
-      const settled = await retryUnknownBaseline(baseline, userRef.current);
-      baseline = settled;
+      baseline = await retryUnknownBaseline(baseline, userRef.current);
       if (isCancelled()) {
         return null;
       }
 
-      if (settled.get(watched)?.kind === "unknown") {
+      if (baseline.get(watched)?.kind === "unknown") {
         // Still no line, so there is nothing a search could match against and
         // nothing to gain by making one. Counted rather than acted on at once,
         // because one failed read is a blip and three in a row is a tab that
