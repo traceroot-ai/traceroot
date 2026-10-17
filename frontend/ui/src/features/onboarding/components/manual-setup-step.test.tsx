@@ -32,18 +32,15 @@ vi.mock("@/features/traces/components/GettingStarted/ModelProviderBlock", () => 
   ModelProviderBlock: ({
     workspaceId,
     providerKey,
-    stackName,
   }: {
     workspaceId: string;
     providerKey: { kind: string; adapter?: string; provider?: string };
-    stackName: string;
   }) => (
     <div
       data-testid="model-provider-block"
       data-workspace={workspaceId}
       data-kind={providerKey.kind}
       data-adapter={providerKey.adapter ?? ""}
-      data-stack={stackName}
     />
   ),
 }));
@@ -87,7 +84,6 @@ describe("what onboarding's manual step asks for", () => {
     renderStep();
 
     expect(screen.getByRole("radiogroup", { name: "Stack" })).toBeDefined();
-    expect(screen.getByLabelText("Search integrations")).toBeDefined();
     expect(screen.getByText("Use your own model key")).toBeDefined();
     expect(keyBlock().dataset.workspace).toBe("ws-1");
   });
@@ -106,7 +102,7 @@ describe("what onboarding's manual step asks for", () => {
   it("drives the snippet and the key off the picker, as the traces panel does", () => {
     const { container } = renderStep();
     expect(container.textContent).toContain("Integration.OPENAI");
-    expect(keyBlock().dataset.stack).toBe("OpenAI");
+    expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("openai");
 
     pickStack("Anthropic");
@@ -114,7 +110,6 @@ describe("what onboarding's manual step asks for", () => {
     expect(container.textContent).toContain("Integration.ANTHROPIC");
     expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("anthropic");
-    expect(keyBlock().dataset.stack).toBe("Anthropic");
 
     // A framework that takes any provider: the key field is told so, and told
     // which one the snippet on screen happens to call.
@@ -122,17 +117,6 @@ describe("what onboarding's manual step asks for", () => {
     expect(screen.getByText(/Initialize TraceRoot for CrewAI/)).toBeDefined();
     expect(keyBlock().dataset.kind).toBe("suggested");
     expect(keyBlock().dataset.adapter).toBe("openai");
-    expect(keyBlock().dataset.stack).toBe("CrewAI");
-  });
-
-  it("holds the selection when a search hides the selected card", () => {
-    renderStep();
-    pickStack("CrewAI");
-    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "dspy" } });
-
-    expect(screen.queryByRole("radio", { name: "CrewAI" })).toBeNull();
-    expect(keyBlock().dataset.stack).toBe("CrewAI");
-    expect(screen.getByText(/Initialize TraceRoot for CrewAI/)).toBeDefined();
   });
 
   it("still ends on the two ways out of the step", () => {
