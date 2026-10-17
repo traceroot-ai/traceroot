@@ -3,9 +3,9 @@ title: LiveKit Agents
 description: Auto-instrument LiveKit voice and multimodal agents with TraceRoot
 ---
 
-Automatically capture voice agent sessions, conversational turns, Speech-to-Text (STT), LLM calls, Text-to-Speech (TTS), tool executions, and token metrics from [LiveKit Agents](https://livekit.io) in Python and TypeScript.
+Automatically capture voice agent sessions, conversational turns, Speech-to-Text (STT), LLM generations, Text-to-Speech (TTS), and tool executions from [LiveKit Agents](https://livekit.io) in Python and TypeScript.
 
-LiveKit Agents' native OpenTelemetry telemetry is automatically routed through TraceRoot, reshaping flat pipeline spans into rich, hierarchical agent session trees.
+TraceRoot ingests LiveKit Agents' OpenTelemetry spans and groups pipeline activity into structured agent sessions.
 
 ## Setup
 
@@ -143,16 +143,6 @@ LiveKit Agents' native OpenTelemetry telemetry is automatically routed through T
 | **STT / LLM / TTS** | Speech-to-text transcriptions, LLM generation spans, and audio synthesis metrics |
 | **Tool Calls** | Function tools executed by the model with inputs, return values, and errors |
 | **Token Usage** | LLM prompt and completion token counts |
-| **Audio Latency** | Speech pipeline latencies including time-to-first-token and turn response time |
-
-## Reliable Shutdown with `flush_async`
-
-In serverless or containerized agent runners, worker processes may terminate abruptly when a voice call concludes. Register TraceRoot's flush handler with LiveKit's shutdown callbacks:
-
-- **Python**: Pass `ctx.add_shutdown_callback(traceroot.flush_async)`
-- **TypeScript**: Pass `ctx.addShutdownCallback(() => TraceRoot.flush())`
-
-This guarantees all buffered voice spans are dispatched to TraceRoot before the process exits.
 
 ## Run the example
 

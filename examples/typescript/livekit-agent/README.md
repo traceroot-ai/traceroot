@@ -10,16 +10,7 @@ cp .env.example .env
 pnpm install
 ```
 
-For PR review before the LiveKit TypeScript SDK support is published, install a
-locally built TraceRoot SDK package:
-
-```bash
-pnpm --dir /path/to/traceroot-ts/packages/traceroot build
-mkdir -p /tmp/traceroot-ts-pack && npm --cache /tmp/npm-cache pack /path/to/traceroot-ts/packages/traceroot --pack-destination /tmp/traceroot-ts-pack
-npm install --no-save /tmp/traceroot-ts-pack/traceroot-ai-traceroot-*.tgz
-```
-
-Then verify the example without external API keys:
+Verify the example:
 
 ```bash
 pnpm build

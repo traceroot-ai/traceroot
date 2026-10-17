@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@livekit/agents": "^1.5.0",
-    "@opentelemetry/api": "^1.9.1",
     "@traceroot-ai/traceroot": "^0.1.6",
     "dotenv": "^16.4.5",
     "zod": "^4.0.0"
