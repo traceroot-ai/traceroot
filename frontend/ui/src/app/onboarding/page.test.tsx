@@ -135,8 +135,12 @@ vi.mock("@/features/traces/components/GettingStarted/ApiKeyBlock", () => ({
 // suite does not reach the network to find out — the form's own behaviour is
 // covered in ModelProviderBlock.test.tsx and in manual-setup-step.test.tsx.
 vi.mock("@/features/traces/components/GettingStarted/ModelProviderBlock", () => ({
-  ModelProviderBlock: ({ stackName }: { stackName: string }) => (
-    <div data-testid="model-provider-block" data-stack={stackName} />
+  ModelProviderBlock: ({ providerKey }: { providerKey: { kind: string; adapter?: string } }) => (
+    <div
+      data-testid="model-provider-block"
+      data-kind={providerKey.kind}
+      data-adapter={providerKey.adapter ?? ""}
+    />
   ),
 }));
 vi.mock("@/components/github/GitHubConnectButton", () => ({
@@ -373,7 +377,7 @@ describe("OnboardingPage", () => {
     await reachManualStep();
 
     expect(mocks.push).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "Setup" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Let's get started" })).toBeDefined();
     // The real walkthrough, rendered rather than reimplemented: its own steps,
     // the key block, and above it the stack picker and the model-key field that
     // both routes to a first trace share — all carrying the project this run
@@ -385,7 +389,7 @@ describe("OnboardingPage", () => {
     expect(screen.getByText(/Select your stack/)).toBeDefined();
     expect(screen.getByRole("radio", { name: "OpenAI" })).toBeDefined();
     expect(screen.getByText(/Use your own model key/)).toBeDefined();
-    expect(screen.getByTestId("model-provider-block").dataset.stack).toBe("OpenAI");
+    expect(screen.getByTestId("model-provider-block").dataset.adapter).toBe("openai");
     expect(screen.getByText(/External integrations/)).toBeDefined();
     // And the terminal is no longer what is being asked of this user, so the
     // frame stops saying it is.
