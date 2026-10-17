@@ -157,6 +157,7 @@ export function DetectorRunsTable({
               <IdCell
                 id={run.agent_trace_id}
                 title={`${run.agent_trace_id} — open the root cause analysis of this trace`}
+                copyTitle="Copy agent run ID"
                 onOpen={() => onAgentRunClick(run)}
               />
             ) : (

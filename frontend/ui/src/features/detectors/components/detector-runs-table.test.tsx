@@ -103,6 +103,7 @@ describe("DetectorRunsTable", () => {
       "trace-triggered",
       "Copy trace ID",
       "agent-trace-1 — open the root cause analysis of this trace",
+      "Copy agent run ID",
     ]);
   });
 
@@ -228,18 +229,19 @@ describe("DetectorRunsTable", () => {
     expect(screen.getByText("run-clean")).toBeTruthy();
   });
 
-  it("copies the untruncated run and trace ids without navigating", async () => {
+  it("copies the run, trace, and agent run ids without navigating", async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const onRunClick = vi.fn();
     const onTraceClick = vi.fn();
+    const onAgentRunClick = vi.fn();
     const selfRun: BackendRun = { ...triggeredRun, self_traced: true };
     render(
       <DetectorRunsTable
         rows={[selfRun]}
         onTraceClick={onTraceClick}
         onRunClick={onRunClick}
-        onAgentRunClick={vi.fn()}
+        onAgentRunClick={onAgentRunClick}
         signalHref={signalHref}
       />,
     );
@@ -250,9 +252,13 @@ describe("DetectorRunsTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy trace ID" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("trace-triggered"));
 
-    // The row and both cells are click targets; copying must not follow them.
+    fireEvent.click(screen.getByRole("button", { name: "Copy agent run ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("agent-trace-1"));
+
+    // The row and cells are click targets; copying must not follow them.
     expect(onRunClick).not.toHaveBeenCalled();
     expect(onTraceClick).not.toHaveBeenCalled();
+    expect(onAgentRunClick).not.toHaveBeenCalled();
   });
 
   it("offers a copy affordance for a run with no self-trace", () => {
