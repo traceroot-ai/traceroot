@@ -6,6 +6,7 @@ import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { setupCommand } from "./commands";
 import { SectionLink } from "./SectionLink";
+import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 
 interface AITabProps {
   projectId: string;
@@ -46,7 +47,7 @@ interface AITabProps {
  */
 export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id ?? "";
+  const workspaceId = project?.workspace_id;
 
   return (
     <div className="space-y-6">
@@ -68,8 +69,10 @@ export function AITab({ projectId }: AITabProps) {
         <p className="text-[13px] font-medium text-foreground">External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
-        ) : (
+        ) : workspaceId ? (
           <ExternalIntegrations workspaceId={workspaceId} />
+        ) : (
+          <WorkspaceUnavailable />
         )}
       </div>
     </div>

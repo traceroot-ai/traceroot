@@ -191,7 +191,13 @@ describe("a workspace that cannot be read", () => {
     projectQuery.data = undefined;
     render(<GettingStarted projectId="proj_1" />);
     expect(screen.queryByTestId("model-provider-block")).toBeNull();
-    expect(screen.getByText(/workspace could not be loaded/)).toBeTruthy();
+    // Twice, because each workspace-scoped step answers for itself: the key
+    // field here, and the external integrations inside whichever mode is open.
+    // Both are unavailable for the same reason and neither may be the one left
+    // guessing -- the default tab used to be, and said "ask a workspace admin"
+    // to the person who is one.
+    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(2);
+    expect(screen.queryByTestId("github-connect")).toBeNull();
     // The stack picker needs no workspace, so it is still usable.
     expect(screen.getByRole("radiogroup", { name: "Stack" })).toBeTruthy();
   });
