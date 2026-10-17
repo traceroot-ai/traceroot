@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
 import { ModelProviderBlock } from "./ModelProviderBlock";
@@ -35,6 +35,17 @@ interface StackAndModelKeyProps {
   projectId: string;
   selected: IntegrationOption;
   onSelect: (integrationId: string) => void;
+  /**
+   * Rendered between the two questions, for a caller with something to say
+   * about the run in progress.
+   *
+   * There is one such caller: onboarding, whose watch for the first trace
+   * belongs where it can be read without scrolling past a walkthrough. A slot
+   * rather than a flag because this block has no business knowing what a trace
+   * watch is, and because the position — under the stack, above the key — is
+   * the whole of what onboarding needs from it.
+   */
+  afterStack?: ReactNode;
 }
 
 /**
@@ -57,13 +68,20 @@ interface StackAndModelKeyProps {
  * questions are sections of whichever list they are dropped into rather than a
  * box of their own.
  */
-export function StackAndModelKey({ projectId, selected, onSelect }: StackAndModelKeyProps) {
+export function StackAndModelKey({
+  projectId,
+  selected,
+  onSelect,
+  afterStack,
+}: StackAndModelKeyProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id;
 
   return (
     <>
       <StackSelector selected={selected} onSelect={onSelect} />
+
+      {afterStack}
 
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">Use your own model key</p>

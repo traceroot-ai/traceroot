@@ -41,8 +41,10 @@ interface CliHandbackStepProps {
   /**
    * How the watch for this project's first trace is going.
    *
-   * The command is what produces that trace, so this is where saying so
-   * belongs: between the thing to run and the alternatives to running it.
+   * Said above the command rather than under it. It is the only line on the
+   * step that reports anything happening, and a user who has pasted the command
+   * is watching their terminal — so when they look back at this tab it has to
+   * be in the part they see first, not under the thing they have already run.
    */
   wait: TraceWait;
 }
@@ -91,9 +93,9 @@ export function CliHandbackStep({
         </p>
       </div>
 
-      <CodeBlock label="terminal" value={setupCommand({ projectId, handoff })} />
-
       <FirstTraceLine wait={wait} />
+
+      <CodeBlock label="terminal" value={setupCommand({ projectId, handoff })} />
 
       <div className="flex items-center justify-center gap-2">
         <Button

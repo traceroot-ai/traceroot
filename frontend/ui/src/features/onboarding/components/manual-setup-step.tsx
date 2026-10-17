@@ -67,11 +67,21 @@ export function ManualSetupStep({ projectId, onBack, onDone, wait }: ManualSetup
           inside it is worse than no title at all. */}
       <p className="text-sm font-semibold">Set up tracing by hand</p>
 
-      <StackAndModelKey projectId={projectId} selected={selected} onSelect={select} />
+      {/* The watch goes inside the shared top, between the stack and the key:
+          high enough to be read without scrolling past the whole walkthrough,
+          and in the part of the step that does not move when the user switches
+          back to the command. At the bottom it sat under the key field, both
+          snippets and the integrations card — the one line on the step that
+          says anything is listening, in the one place a user who is watching
+          their terminal would never scroll to. */}
+      <StackAndModelKey
+        projectId={projectId}
+        selected={selected}
+        onSelect={select}
+        afterStack={<FirstTraceLine wait={wait} />}
+      />
 
       <ManualTab projectId={projectId} integration={selected} />
-
-      <FirstTraceLine wait={wait} />
 
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button size="sm" className="h-7 px-4 text-[12px]" onClick={onDone}>
