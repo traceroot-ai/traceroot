@@ -44,3 +44,35 @@ describe("next.config.js env block", () => {
     expect(config.default.env?.NEXT_PUBLIC_APP_VERSION).toBe("dev");
   });
 });
+
+describe("next.config.js security headers", () => {
+  it("does not advertise the framework in X-Powered-By", async () => {
+    const config = await import("../../next.config.js");
+    expect(config.default.poweredByHeader).toBe(false);
+  });
+
+  it("sends HSTS, nosniff, frame denial, a referrer policy and a permissions policy on every path, and no-store on the API", async () => {
+    const config = await import("../../next.config.js");
+    expect(await config.default.headers?.()).toEqual([
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=63072000" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+      {
+        source: "/api/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, max-age=0, must-revalidate",
+          },
+        ],
+      },
+    ]);
+  });
+});

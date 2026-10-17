@@ -60,6 +60,10 @@ PROJECT_A = "proj_a"
 PROJECT_B = "proj_b"
 PROJECT_SEM = "proj_sem"
 PROJECT_CAP = "proj_cap"
+# Not "proj_err": test_widget_projection seeds its own tenant of that name with the same
+# span ids and timestamps, and two versions tied on ch_update_time make the view's dedup
+# pick either one.
+PROJECT_ERR = "proj_sql_gateway_err"
 # Neighbours in one large insert, so the middle project spans granules whose date ranges are
 # known on both sides. That is the layout primary-key pruning can act on, which a handful of
 # rows in one granule never is.
@@ -135,7 +139,8 @@ def _span(project, span_id, trace_id, start, **kw):
         "span_end_time": start + timedelta(milliseconds=kw.get("duration_ms", 250)),
         "name": kw.get("name", f"{span_id}-name"),
         "span_kind": kw.get("kind", "LLM"),
-        "status": "OK",
+        "status": kw.get("status", "OK"),
+        "error_type": kw.get("error_type", ""),
         "model_name": kw.get("model", "gpt-test"),
         "input_tokens": 10,
         "output_tokens": 20,
@@ -257,6 +262,30 @@ def _seed(admin: Client) -> Seeded:
                 EVAL_T0 + timedelta(seconds=1),
                 parent="sem-eval-scorer",
             ),
+        ],
+    )
+
+    # Error types, in a tenant of their own so no other case's counts move. Two types
+    # with different counts, and an OK span whose empty type must stay out of an
+    # ERROR-only breakdown.
+    _insert(admin, "traces", [_trace(PROJECT_ERR, "err-t0", T0)])
+    _insert(
+        admin,
+        "spans",
+        [
+            _span(PROJECT_ERR, "err-s0", "err-t0", T0),
+            *[
+                _span(
+                    PROJECT_ERR,
+                    f"err-s{i}",
+                    "err-t0",
+                    T0 + timedelta(seconds=i),
+                    parent="err-s0",
+                    status="ERROR",
+                    error_type=error_type,
+                )
+                for i, error_type in enumerate(("TimeoutError", "TimeoutError", "KeyError"), 1)
+            ],
         ],
     )
 

@@ -1,26 +1,37 @@
-import { Queue, Worker } from "bullmq";
+import { Queue, Worker, type Job } from "bullmq";
 import {
+  ALERT_CLOSE_MAX_RESENDS,
   decryptKey,
   hasEntitlement,
   prisma,
   type AlertStatus,
   type PlanType,
 } from "@traceroot/core";
-import { buildAlertBlocks, createSlackClient, type WebClient } from "@traceroot/slack";
+import {
+  buildAlertBlocks,
+  buildAlertClosedBlocks,
+  createSlackClient,
+  type WebClient,
+} from "@traceroot/slack";
 import {
   ALERT_NOTIFICATION_QUEUE,
   alertNotificationBackoff,
   createAlertNotificationQueue,
   createRedisConnection,
+  isAlertCloseJob,
+  type AlertCloseJob,
   type AlertEmissionClaim,
   type AlertNotification,
   type AlertNotificationJob,
+  type AlertQueueJob,
 } from "../queues/alert-notification-queue.js";
 import {
   recordAlertNotifyOutcome,
+  restoreAlertPendingClose,
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
 } from "../alerts/claim.js";
+import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "../alerts/delivery.js";
 import { revertAlertEmission } from "../alerts/emission.js";
 import { logError, logInfo } from "../alerts/log.js";
 
@@ -31,8 +42,8 @@ type SlackAttachments = Extract<
   { attachments: unknown }
 >["attachments"];
 
-let notificationQueue: Queue<AlertNotificationJob> | null = null;
-function getNotificationQueue(): Queue<AlertNotificationJob> {
+let notificationQueue: Queue<AlertQueueJob> | null = null;
+function getNotificationQueue(): Queue<AlertQueueJob> {
   if (!notificationQueue) {
     // A producer connection must not retry forever: an unfailable command is one the
     // caller can never compensate for.
@@ -55,7 +66,7 @@ function delay(ms: number): Promise<void> {
  * ioredis buffers commands issued while disconnected, so an `add` during an outage never
  * settles, and the tick is one awaited chain: it stops every remaining rule on the platform.
  */
-async function addWithTimeout(id: string, job: AlertNotificationJob): Promise<void> {
+async function addWithTimeout(id: string, job: AlertQueueJob): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -72,16 +83,9 @@ async function addWithTimeout(id: string, job: AlertNotificationJob): Promise<vo
 
 /**
  * The queue's `attempts` only cover a job that has landed in Redis, so a brief outage would
- * drop it. The jobId is the alert and its window, which BullMQ dedupes on, so no duplicate job.
+ * drop it.
  */
-export async function enqueueAlertNotification(payload: AlertNotification): Promise<void> {
-  const job: AlertNotificationJob = {
-    ...payload,
-    windowStart: payload.windowStart.getTime(),
-    windowEnd: payload.windowEnd.getTime(),
-  };
-  const id = `alert-${job.alertId}-${job.windowEnd}`;
-
+async function addWithRetry(id: string, job: AlertQueueJob): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= ENQUEUE_ATTEMPTS; attempt += 1) {
     try {
@@ -98,18 +102,41 @@ export async function enqueueAlertNotification(payload: AlertNotification): Prom
     : new Error(`alert notification enqueue failed for ${id}`);
 }
 
+/** The jobId is the alert and its window, which BullMQ dedupes on, so no duplicate job. */
+export async function enqueueAlertNotification(payload: AlertNotification): Promise<void> {
+  const job: AlertNotificationJob = {
+    ...payload,
+    windowStart: payload.windowStart.getTime(),
+    windowEnd: payload.windowEnd.getTime(),
+  };
+  await addWithRetry(`alert-${job.alertId}-${job.windowEnd}`, job);
+}
+
+/**
+ * The jobId is unique per call on purpose. The marker the caller took is what stops a
+ * second close, and BullMQ dedupes against finished jobs too: an id built from the
+ * marker would swallow the resend of a close that was put back after reaching nobody.
+ */
+export async function enqueueAlertClose(close: Omit<AlertCloseJob, "kind">): Promise<void> {
+  await addWithRetry(`alert-close-${close.alertId}-${Date.now()}`, { ...close, kind: "close" });
+}
+
 const ACTIVE: AlertStatus = "ACTIVE";
 
 /** A blocked job carries the outcome to record, since what to record is why it is blocked. */
 type AlertSendCheck = { ok: true } | { ok: false; outcome: AlertNotifyOutcome };
 
 function blocked(
-  alertId: string,
+  payload: AlertNotificationJob,
   status: AlertNotifyStatus,
   reason: string,
   notAfter?: Date,
 ): AlertSendCheck {
-  return { ok: false, outcome: { alertId, status, error: reason, at: new Date(), notAfter } };
+  const { alertId, severity } = payload;
+  return {
+    ok: false,
+    outcome: { alertId, status, severity, error: reason, at: new Date(), notAfter },
+  };
 }
 
 /**
@@ -143,14 +170,14 @@ async function checkAlertStillSendable(payload: AlertNotificationJob): Promise<A
     where: { id: payload.alertId },
     select: { status: true, severity: true, alertedAt: true },
   });
-  if (alert === null) return blocked(payload.alertId, "FAILED", "alert-deleted");
-  if (alert.status !== ACTIVE) return blocked(payload.alertId, "FAILED", "alert-paused");
+  if (alert === null) return blocked(payload, "FAILED", "alert-deleted");
+  if (alert.status !== ACTIVE) return blocked(payload, "FAILED", "alert-paused");
 
   // A job enqueued before the claim travelled cannot be placed against the row, so
   // it is delivered on the same terms it was queued under.
   const { emission } = payload;
   if (emission !== undefined && !isCurrentEmission(alert, payload, emission)) {
-    return blocked(payload.alertId, "SUPERSEDED", "superseded", new Date(emission.evaluatedAt));
+    return blocked(payload, "SUPERSEDED", "superseded", new Date(emission.evaluatedAt));
   }
   return { ok: true };
 }
@@ -271,6 +298,7 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: compensated ? "COMPENSATED" : "FAILED",
+    severity: payload.severity,
     error: reason,
     at: new Date(),
     // A failed revert means the row may be newer than this emission: never bury its record.
@@ -286,12 +314,11 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
  * lasts, and never a page. A rule saved without Slack connected reaches this on its
  * first breach. So it is recorded the way `alert-paused` is: the outcome lands on
  * the row, the severity stays where the evaluation put it, and the owner reads a
- * rule in ALERT whose notification says which setting to go and fix.
+ * rule in ALERT whose notification says which setting to go and fix. Fixing it is
+ * then enough: the scheduler re-pages once the Slack settings change (`isAwaitingRedelivery`).
  */
 const PERMANENT_DELIVERY_FAILURES = new Set([
-  "no-channel",
-  "no-bot-token",
-  "bot-token-undecryptable",
+  ...SLACK_CONFIGURATION_FAILURES,
   "permanent-slack-error",
 ]);
 
@@ -311,6 +338,7 @@ async function recordNonDelivery(payload: AlertNotificationJob, reason: string):
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: "FAILED",
+    severity: payload.severity,
     error: reason,
     at: new Date(),
   });
@@ -393,15 +421,184 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: "DELIVERED",
+    severity: payload.severity,
     error: null,
     at: new Date(),
   });
 }
 
-export function startAlertNotificationWorker(): Worker<AlertNotificationJob> {
-  const worker = new Worker<AlertNotificationJob>(
+/**
+ * A close whose attempts ran out goes back on the rule for a later tick to send, with
+ * one more cycle counted against it. Past `ALERT_CLOSE_MAX_RESENDS` it is dropped: a
+ * channel that has refused it this long is not one another half hour will open, and
+ * without the cap the close is re-queued for as long as the outage and the rule last.
+ * Guarded: the caller is already on a path that failed, and the worst a lost restore
+ * costs is the unclosed page this job existed to close.
+ */
+async function restoreClose(job: AlertCloseJob, reason: string): Promise<void> {
+  const tag = `alert=${job.alertId} project=${job.projectId} reason=${reason}`;
+  const resends = (job.resends ?? 0) + 1;
+  if (resends > ALERT_CLOSE_MAX_RESENDS) {
+    logError(`close given up on after ${ALERT_CLOSE_MAX_RESENDS} resends ${tag}`);
+    return;
+  }
+  try {
+    const restored = await restoreAlertPendingClose(job.alertId, {
+      reason: job.reason,
+      actorUserId: job.actorUserId,
+      at: job.at,
+      resends,
+    });
+    logInfo(
+      restored
+        ? `close put back for a later tick ${tag}`
+        : `close not put back, the alert is gone or carries a newer one ${tag}`,
+    );
+  } catch (error) {
+    logError(`close restore failed ${tag}`, error);
+  }
+}
+
+/**
+ * Display name of whoever edited or resumed the rule. Null for a deleted account and
+ * for one with no name set: the app falls back to the email there, but a Slack
+ * channel is read by people with no access to the project, so the message goes out
+ * unattributed rather than carry an address.
+ */
+async function resolveActor(userId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true },
+  });
+  // || not ??: an empty-string name is no name.
+  return user?.name || null;
+}
+
+/**
+ * Posts the close of a page an edit or a resume discarded. It leaves the rule's
+ * `lastNotify*` columns alone: they report on the page the rule stands on, which the
+ * scheduler reads to decide a redelivery, and a close is about the page before it.
+ *
+ * The rule's status is not consulted. Pausing stops a rule from paging; it does not
+ * make the page it already sent any less discarded, and a close held for the resume
+ * leaves the channel reading an alert nobody is evaluating. Only a rule that is gone
+ * has nothing to close. A channel no retry can reach drops the close, since the page
+ * it would close cannot have been delivered through that channel either; a failure a
+ * retry may get past is rethrown, and the caller puts the close back once the job's
+ * attempts run out.
+ */
+export async function sendAlertClose(job: AlertCloseJob): Promise<void> {
+  const tag = `alert=${job.alertId} project=${job.projectId} close=${job.reason}`;
+
+  const alert = await prisma.alert.findUnique({
+    where: { id: job.alertId },
+    select: { id: true },
+  });
+  if (alert === null) {
+    logInfo(`slack skip ${tag} reason=alert-deleted`);
+    return;
+  }
+
+  const resolution = await resolveAlertChannel(job.projectId);
+  if (!resolution.ok) {
+    logInfo(`slack skip ${tag} reason=${resolution.reason}`);
+    return;
+  }
+
+  let botToken: string;
+  try {
+    botToken = decryptKey(resolution.target.encryptedBotToken);
+  } catch (error) {
+    logError(`slack skip ${tag} reason=bot-token-undecryptable`, error);
+    return;
+  }
+
+  const message = buildAlertClosedBlocks({
+    appBaseUrl: APP_BASE_URL,
+    projectId: job.projectId,
+    alertId: job.alertId,
+    name: job.name,
+    reason: job.reason,
+    actor: await resolveActor(job.actorUserId),
+  });
+
+  try {
+    await createSlackClient(botToken).chat.postMessage({
+      channel: resolution.target.channelId,
+      attachments: [{ color: message.color, blocks: message.blocks }] as SlackAttachments,
+      text: message.text,
+      unfurl_links: false,
+      unfurl_media: false,
+    });
+  } catch (error) {
+    if (!isRetryableSlackError(error)) {
+      logError(`slack dropped ${tag} reason=permanent-slack-error`, error);
+      return;
+    }
+    throw error;
+  }
+
+  logInfo(`slack sent ${tag} channel=${resolution.target.channelId}`);
+}
+
+/** The close a page job carries, as the job it would have been if sent alone. */
+function carriedClose(page: AlertNotificationJob): AlertCloseJob | null {
+  const { closeFirst } = page;
+  if (closeFirst === undefined) return null;
+  return {
+    kind: "close",
+    alertId: page.alertId,
+    projectId: page.projectId,
+    name: page.name,
+    ...closeFirst,
+  };
+}
+
+/**
+ * Jobs whose carried close has posted but could not be dropped from the job's data.
+ * The data is what a retry and the exhaustion handler both read, so without this
+ * either would send the close again: the retry by posting it, the handler by putting
+ * it back on the rule. Held in memory, which a restart loses; what is left then is
+ * one repeated close, the lesser fault next to a page that never arrives.
+ */
+const closePostedJobs = new Set<string>();
+
+type AlertJob = Pick<Job<AlertQueueJob>, "data" | "updateData" | "id">;
+
+/**
+ * One job, in order: the close of the old page, then the new page. A close that
+ * throws fails the job before the page is tried, so a retry keeps the order. Once
+ * posted the close is dropped from the job's data, or a retry of the page alone would
+ * post it a second time; when that write fails the job is remembered here instead,
+ * and the page still goes out.
+ */
+export async function processAlertJob(job: AlertJob) {
+  if (isAlertCloseJob(job.data)) {
+    await sendAlertClose(job.data);
+    return;
+  }
+
+  const hasPosted = job.id !== undefined && closePostedJobs.has(job.id);
+  const close = hasPosted ? null : carriedClose(job.data);
+  const { closeFirst: _closeFirst, ...page } = job.data;
+  if (close !== null) {
+    await sendAlertClose(close);
+    try {
+      await job.updateData(page);
+    } catch (error) {
+      logError(`close posted but not cleared from its job alert=${page.alertId}`, error);
+      if (job.id !== undefined) closePostedJobs.add(job.id);
+    }
+  }
+
+  await sendAlertNotification(page);
+  if (job.id !== undefined) closePostedJobs.delete(job.id);
+}
+
+export function startAlertNotificationWorker(): Worker<AlertQueueJob> {
+  const worker = new Worker<AlertQueueJob>(
     ALERT_NOTIFICATION_QUEUE,
-    async (job) => sendAlertNotification(job.data),
+    async (job) => processAlertJob(job),
     {
       connection: createRedisConnection(),
       concurrency: 5,
@@ -416,7 +613,17 @@ export function startAlertNotificationWorker(): Worker<AlertNotificationJob> {
     const attempts = job?.opts?.attempts ?? 1;
     const isExhausted = (job?.attemptsMade ?? 0) >= attempts;
     if (!isExhausted || job?.data === undefined) return;
-    void recordNonDelivery(job.data, "retries-exhausted");
+    if (isAlertCloseJob(job.data)) {
+      void restoreClose(job.data, RETRIES_EXHAUSTED);
+      return;
+    }
+    // Still carried means the close never posted, unless it posted and could not
+    // be dropped from the job: it goes back with the page's own rollback, so the
+    // next tick sends the pair again, in order.
+    const hasPosted = job.id !== undefined && closePostedJobs.delete(job.id);
+    const close = hasPosted ? null : carriedClose(job.data);
+    if (close !== null) void restoreClose(close, RETRIES_EXHAUSTED);
+    void recordNonDelivery(job.data, RETRIES_EXHAUSTED);
   });
 
   return worker;

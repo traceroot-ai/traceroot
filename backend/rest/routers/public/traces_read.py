@@ -46,7 +46,7 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
+router = APIRouter(prefix="/public/traces", tags=["Traces"])
 
 
 @router.get("", response_model=PublicTraceListResponse, operation_id="list_traces")
