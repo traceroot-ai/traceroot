@@ -1,0 +1,254 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * The prisma mock here is a store, not a stub, because the property under test
+ * is a concurrency property: redemption must claim the row with a single
+ * conditional UPDATE, never a read followed by a write.
+ *
+ * `cliHandoff.updateMany` below evaluates its `where` and applies its `data`
+ * with no await in between, which is what Postgres guarantees under the row
+ * lock -- a second UPDATE blocks on the lock, then re-evaluates the predicate
+ * against the committed row. A handler that read the row, decided, and then
+ * wrote would have two winners here exactly as it would in production.
+ */
+
+const mocks = vi.hoisted(() => ({
+  rateLimitOk: vi.fn((_key: string, _max: number, _windowMs: number) => true),
+  sessionCreateGate: null as null | Promise<void>,
+}));
+
+vi.mock("@/env", () => ({ env: {} }));
+vi.mock("@/lib/mint-rate-limit", () => ({
+  checkMintRateLimit: (key: string, max: number, windowMs: number) =>
+    mocks.rateLimitOk(key, max, windowMs),
+  rateLimitClientKey: () => "test-client",
+}));
+
+type HandoffRow = {
+  id: string;
+  codeHash: string;
+  userId: string;
+  expiresAt: Date;
+  redeemedAt: Date | null;
+  redeemedSessionId: string | null;
+  user: { email: string; banned: boolean | null; banExpires: Date | null };
+};
+type SessionRow = Record<string, unknown> & { id: string; token: string };
+
+const store = { handoffs: [] as HandoffRow[], sessions: [] as SessionRow[] };
+
+function client() {
+  return {
+    cliHandoff: {
+      // Single statement: predicate and write with no suspension between them.
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { codeHash: string; redeemedAt?: null; expiresAt?: { gt: Date } };
+        data: { redeemedAt: Date };
+      }) => {
+        let count = 0;
+        for (const row of store.handoffs) {
+          // Every predicate comes from the handler's own `where`, so dropping
+          // one there drops it here too -- which is the point of this test.
+          if (row.codeHash !== where.codeHash) continue;
+          if (where.redeemedAt === null && row.redeemedAt !== null) continue;
+          if (where.expiresAt && row.expiresAt.getTime() <= where.expiresAt.gt.getTime()) continue;
+          row.redeemedAt = data.redeemedAt;
+          count += 1;
+        }
+        return { count };
+      },
+      findUnique: async ({ where }: { where: { codeHash: string } }) =>
+        store.handoffs.find((r) => r.codeHash === where.codeHash) ?? null,
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: { redeemedSessionId: string };
+      }) => {
+        const row = store.handoffs.find((r) => r.id === where.id)!;
+        Object.assign(row, data);
+        return row;
+      },
+    },
+    session: {
+      create: async ({ data }: { data: SessionRow }) => {
+        if (mocks.sessionCreateGate) await mocks.sessionCreateGate;
+        store.sessions.push(data);
+        return data;
+      },
+    },
+  };
+}
+
+vi.mock("@traceroot/core", () => ({
+  prisma: {
+    $transaction: async (fn: (tx: ReturnType<typeof client>) => Promise<unknown>) => fn(client()),
+  },
+}));
+
+import { hashHandoffCode } from "@/lib/cli-handoff";
+import { POST } from "./route";
+
+const CODE = "trh_PeyJ6kO0t4oLZSgTeMuzT6b6gZzaxkXC0GzTA_tUMM8";
+
+function request(body: unknown, headers: Record<string, string> = {}) {
+  return {
+    headers: new Headers({ "user-agent": "traceroot-cli/0.7.0", ...headers }),
+    json: async () => {
+      if (body === "malformed") throw new SyntaxError("bad json");
+      return body;
+    },
+  } as unknown as Parameters<typeof POST>[0];
+}
+
+function seed(overrides: Partial<HandoffRow> = {}) {
+  const row: HandoffRow = {
+    id: "handoff-1",
+    codeHash: hashHandoffCode(CODE),
+    userId: "u1",
+    expiresAt: new Date(Date.now() + 600_000),
+    redeemedAt: null,
+    redeemedSessionId: null,
+    user: { email: "u@example.com", banned: null, banExpires: null },
+    ...overrides,
+  };
+  store.handoffs.push(row);
+  return row;
+}
+
+beforeEach(() => {
+  store.handoffs = [];
+  store.sessions = [];
+  mocks.sessionCreateGate = null;
+  mocks.rateLimitOk.mockReset();
+  mocks.rateLimitOk.mockReturnValue(true);
+});
+
+describe("POST /api/cli/handoff/redeem", () => {
+  it("exchanges a live code for a session token", async () => {
+    seed();
+    const res = await POST(request({ code: CODE }));
+    const body = (await res.json()) as { sessionToken: string; email: string; expiresIn: number };
+
+    expect(res.status).toBe(200);
+    expect(body.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+    // Saves the CLI a round trip: whoami is API-key-only server-side, so
+    // browserSignIn otherwise mints a JWT purely to read the email claim.
+    expect(body.email).toBe("u@example.com");
+    expect(body.expiresIn).toBe(7 * 24 * 60 * 60);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.sessions[0].token).toBe(body.sessionToken);
+  });
+
+  it("produces the same session a device-flow approval would", async () => {
+    seed();
+    await POST(request({ code: CODE }));
+    const session = store.sessions[0];
+
+    // resolveSessionFromToken rejects impersonated sessions outright, so a
+    // non-null value here would yield a session that mints nothing.
+    expect(session.impersonatedBy).toBeNull();
+    // Active Sessions labels any agent starting with this as "TraceRoot CLI";
+    // drop it and a handoff session reads "Unknown device" instead.
+    expect(session.userAgent).toBe("traceroot-cli/0.7.0");
+    expect(session.userId).toBe("u1");
+    const expiresAt = session.expiresAt as Date;
+    expect(expiresAt.getTime()).toBeGreaterThan(Date.now() + 6 * 24 * 60 * 60 * 1000);
+  });
+
+  it("records when the code was spent and which session it produced", async () => {
+    const row = seed();
+    const res = await POST(request({ code: CODE }));
+    const { sessionToken } = (await res.json()) as { sessionToken: string };
+
+    expect(row.redeemedAt).toBeInstanceOf(Date);
+    expect(row.redeemedSessionId).toBe(store.sessions[0].id);
+    expect(store.sessions[0].token).toBe(sessionToken);
+  });
+
+  it.each([
+    ["unknown", () => {}],
+    ["expired", () => seed({ expiresAt: new Date(Date.now() - 1000) })],
+    ["already redeemed", () => seed({ redeemedAt: new Date(Date.now() - 1000) })],
+    ["banned user", () => seed({ user: { email: "u@x", banned: true, banExpires: null } })],
+  ])("answers one indistinguishable 401 for a %s code", async (_label, setup) => {
+    setup();
+    const res = await POST(request({ code: CODE }));
+    expect(res.status).toBe(401);
+    // Byte-identical: distinguishing these turns the endpoint into an oracle
+    // that confirms a guessed or observed code was once real.
+    expect(await res.json()).toEqual({ error: "invalid or expired handoff code" });
+    expect(store.sessions).toHaveLength(0);
+  });
+
+  it("gives a replay the same answer as a code that never existed", async () => {
+    seed();
+    const first = await POST(request({ code: CODE }));
+    expect(first.status).toBe(200);
+
+    const replay = await POST(request({ code: CODE }));
+    const unknown = await POST(request({ code: "trh_never-existed" }));
+    expect(replay.status).toBe(unknown.status);
+    expect(await replay.json()).toEqual(await unknown.json());
+    expect(store.sessions).toHaveLength(1);
+  });
+
+  it("lets a lifted ban through", async () => {
+    seed({
+      user: { email: "u@x", banned: true, banExpires: new Date(Date.now() - 60_000) },
+    });
+    const res = await POST(request({ code: CODE }));
+    expect(res.status).toBe(200);
+  });
+
+  it("yields exactly one session when two redemptions race", async () => {
+    seed();
+    // Suspend the winner inside session creation, so the loser runs its whole
+    // claim while the winner is mid-flight. A read-then-write handler would
+    // see redeemedAt still unset and mint a second session here.
+    let open!: () => void;
+    mocks.sessionCreateGate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+
+    const both = Promise.all([POST(request({ code: CODE })), POST(request({ code: CODE }))]);
+    await new Promise((resolve) => setImmediate(resolve));
+    open();
+    const [a, b] = await both;
+
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 401]);
+    expect(store.sessions).toHaveLength(1);
+    const winner = statuses[0] === 200 && a.status === 200 ? a : b;
+    const { sessionToken } = (await winner.json()) as { sessionToken: string };
+    expect(store.sessions[0].token).toBe(sessionToken);
+    expect(store.handoffs[0].redeemedSessionId).toBe(store.sessions[0].id);
+  });
+
+  it("never stores the code, so a bad hash cannot be matched by value", async () => {
+    const row = seed();
+    expect(row.codeHash).not.toContain(CODE);
+    // The lookup is by digest: the raw code reaches no query.
+    const res = await POST(request({ code: CODE.toUpperCase() }));
+    expect(res.status).toBe(401);
+  });
+
+  it("400s on a missing or malformed body", async () => {
+    expect((await POST(request({}))).status).toBe(400);
+    expect((await POST(request({ code: "" }))).status).toBe(400);
+    expect((await POST(request("malformed"))).status).toBe(400);
+  });
+
+  it("rate limits tighter than the mint, on its own budget", async () => {
+    mocks.rateLimitOk.mockReturnValue(false);
+    seed();
+    const res = await POST(request({ code: CODE }));
+    expect(res.status).toBe(429);
+    expect(mocks.rateLimitOk).toHaveBeenCalledWith("cli-handoff-redeem:test-client", 10, 60_000);
+    expect(store.sessions).toHaveLength(0);
+  });
+});
