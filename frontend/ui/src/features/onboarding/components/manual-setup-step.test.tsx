@@ -68,6 +68,11 @@ function renderStep(wait: TraceWait = { kind: "waiting" }) {
 const keyBlock = () => screen.getByTestId("model-provider-block");
 const pickStack = (name: string) => fireEvent.click(screen.getByRole("radio", { name }));
 
+/** Document order, so "above" is asserted rather than read off the markup. */
+function isAbove(first: Element, second: Element): boolean {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
 afterEach(() => {
   cleanup();
   projectQuery.data = { workspace_id: "ws-1" };
@@ -138,6 +143,49 @@ describe("what onboarding's manual step asks for", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("where the first-trace line sits on the manual step", () => {
+  it("sits under the stack picker and above the key field", () => {
+    // The user's own ask, after watching a competitor: the waiting line goes up,
+    // not at the bottom. At the bottom it sat under the key field, both
+    // snippets and the integrations card — unreadable without scrolling past
+    // the whole walkthrough, which is exactly what someone who is watching
+    // their terminal will not do.
+    renderStep();
+    const line = screen.getByText(/Waiting for your first trace/);
+
+    expect(isAbove(screen.getByText("Select your stack"), line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
+    expect(isAbove(line, screen.getByText(/Create an API key/))).toBe(true);
+  });
+
+  it("reports the arrived trace in that same place, with the link to it", () => {
+    // The page opens the trace; this line only reports it, and keeps the link
+    // as the way through until that push lands.
+    renderStep({ kind: "found", found: { projectId: "proj-1", traceId: "t-1" } });
+    const line = screen.getByText(/Your first trace arrived/);
+
+    expect(isAbove(screen.getByText("Select your stack"), line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces?traceId=t-1",
+    );
+    // Nothing about the arrival closes the step down.
+    expect(screen.getByRole("button", { name: "Go to my project" })).toBeDefined();
+    expect(screen.getByRole("radiogroup", { name: "Stack" })).toBeDefined();
+  });
+
+  it("says so in that same place when no trace turns up", () => {
+    renderStep({ kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" });
+    const line = screen.getByText(/Still no trace/);
+
+    expect(isAbove(screen.getByText("Select your stack"), line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
+    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
   });
 });
 

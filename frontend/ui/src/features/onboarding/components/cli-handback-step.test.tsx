@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { CliHandbackStep } from "./cli-handback-step";
 
 vi.mock("next/link", () => ({
@@ -50,6 +51,11 @@ function renderStep(overrides: StepProps = {}) {
  */
 function shownCommand(container: HTMLElement): string {
   return container.querySelector("pre")?.textContent ?? "";
+}
+
+/** Document order, so "above" is asserted rather than read off the markup. */
+function isAbove(first: Element, second: Element): boolean {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
 /**
@@ -225,6 +231,30 @@ describe("CliHandbackStep", () => {
     expect(shownCommand(container)).toContain(`--handoff ${replacement}`);
     expect(shownCommand(container)).not.toContain(CODE);
     expect(shownCommand(container)).toContain("--project proj-1");
+  });
+
+  it("keeps the trace line above the command, in every state it has", () => {
+    // The user's own ask, after watching a competitor: the waiting line goes up,
+    // not at the bottom. It is the only line on the step that reports anything
+    // happening, and someone who has pasted the command is watching their
+    // terminal — so when they glance back at this tab it has to be in the part
+    // they see first, not under the thing they have already run.
+    const states: TraceWait[] = [
+      { kind: "waiting" },
+      { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
+      { kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" },
+    ];
+    const said = [/Waiting for your first trace/, /Your first trace arrived/, /Still no trace/];
+
+    states.forEach((wait, index) => {
+      const { container } = renderStep({ wait });
+      const line = screen.getByText(said[index]!);
+      const command = container.querySelector("pre")!;
+
+      expect(isAbove(screen.getByText(/is ready/), line)).toBe(true);
+      expect(isAbove(line, command)).toBe(true);
+      cleanup();
+    });
   });
 
   it("says where the command has to be run", () => {
