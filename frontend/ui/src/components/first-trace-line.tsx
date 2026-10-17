@@ -13,11 +13,15 @@ interface FirstTraceLineProps {
   /** How the watch for the first trace is going. */
   wait: TraceWait;
   /**
-   * What to say when the wait ends with nothing, for a caller whose ending is
-   * genuinely a different statement. The device page's is: that flow has a
-   * terminal holding the authoritative result, so the empty ending there leads
-   * with the terminal rather than with the trace. Omitted, the shared line is
-   * used.
+   * What to say when the wait looked and nothing came, for a caller whose
+   * ending is genuinely a different statement. The device page's is: that flow
+   * has a terminal holding the authoritative result, so the empty ending there
+   * leads with the terminal rather than with the trace. Omitted, the shared
+   * line is used.
+   *
+   * Not consulted when the wait could not read the traces at all: that ending
+   * is a statement about this tab rather than about the run, so it is the same
+   * on every page and is made below rather than delegated.
    */
   gaveUp?: (wait: EmptyWait) => ReactNode;
   /**
@@ -88,14 +92,16 @@ function Line({
     );
   }
 
-  if (gaveUp) {
-    return <>{gaveUp(wait)}</>;
-  }
-
   if (wait.unreadable) {
     // The reads were failing, so "no trace arrived" would be a claim about the
     // run that this tab cannot make. The way out is the same page either way,
     // and it is also where an expired session gets asked to sign in again.
+    //
+    // Ahead of `gaveUp` because a caller's override is written for the ending
+    // it expects — the wait looked and nothing came — and the only page that
+    // overrides this is also the only one that can fail to read at all. Taking
+    // the override first let the device page make exactly the claim this branch
+    // exists to refuse.
     return (
       <p className="text-center text-[11px] text-muted-foreground">
         We could not read your traces from this tab.{" "}
@@ -105,6 +111,10 @@ function Line({
         to see what has arrived.
       </p>
     );
+  }
+
+  if (gaveUp) {
+    return <>{gaveUp(wait)}</>;
   }
 
   // Out of budget. Said plainly rather than left spinning, and pointed at the

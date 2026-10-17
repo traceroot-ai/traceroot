@@ -69,6 +69,11 @@ import { MAX_BARREN_ROUNDS } from "../use-first-trace-wait";
 
 const WAITING_TEXT = "Waiting for your first trace. This page opens it when it arrives.";
 const TERMINAL_TEXT = "Return to your terminal to finish setting up.";
+/** This page's own empty ending, the one it overrides the shared line with. */
+const NO_TRACE_TEXT = "No trace has arrived yet. Your terminal has the result either way.";
+/** The shared line's ending for a wait that could not read at all. */
+const UNREADABLE_TEXT =
+  "We could not read your traces from this tab. Open your traces to see what has arrived.";
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -225,9 +230,7 @@ describe("the approved panel", () => {
     await approve();
     await advance(WAIT_BUDGET_MS);
 
-    expect(
-      screen.getByText("No trace has arrived yet. Your terminal has the result either way."),
-    ).toBeDefined();
+    expect(screen.getByText(NO_TRACE_TEXT)).toBeDefined();
     expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
       "/projects/p-1/traces",
     );
@@ -261,6 +264,40 @@ describe("the approved panel", () => {
     expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
       "/workspaces",
     );
+  });
+
+  it("does not say no trace arrived when it could not read the traces", async () => {
+    // This is the only page that overrides the empty ending, and the only one
+    // whose wait can stop because it read nothing at all. Its one sentence
+    // covers both endings, so consulting the override first made the unreadable
+    // ending claim "no trace has arrived yet" -- a statement about the run,
+    // from a tab that could not see the run. The reads failed; the terminal is
+    // still the authority, and the line says only what this tab knows.
+    mocks.getProjects.mockRejectedValue(new Error("offline"));
+    mocks.getTraces.mockRejectedValue(new Error("offline"));
+
+    await approve();
+    await rounds(MAX_BARREN_ROUNDS);
+
+    // Read off the live region rather than by text: the sentence is split by
+    // the link inside it, and the region is the whole of what this line says.
+    // Still exactly one of them -- what changed is which ending it reports,
+    // not how many endings are on screen.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    const line = screen.getByRole("status").textContent ?? "";
+    expect(line).toContain(UNREADABLE_TEXT);
+    expect(line).not.toContain("No trace has arrived yet");
+    expect(screen.queryByText(NO_TRACE_TEXT)).toBeNull();
+    expect(screen.queryByText(WAITING_TEXT)).toBeNull();
+    // The way out is still offered, and it is the one a tab with no project it
+    // could name has: the workspace list.
+    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
+      "/workspaces",
+    );
+    // The approval stands, as it does for every ending of this wait.
+    expect(screen.getByText("Approved")).toBeDefined();
+    expect(screen.getByText(TERMINAL_TEXT)).toBeDefined();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("never reads a trace list before the code is approved", async () => {
