@@ -563,7 +563,8 @@ describe("Agent Run ID → the signal's RCA agent trace", () => {
     expect(
       within(row)
         .getAllByRole("button")
-        .map((b) => b.textContent),
+        .map((b) => b.textContent)
+        .filter(Boolean),
     ).toEqual(["trace-pending"]);
   });
 

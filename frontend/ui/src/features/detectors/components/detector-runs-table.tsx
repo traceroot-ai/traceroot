@@ -30,7 +30,7 @@ interface DetectorRunsTableProps {
 function IdCell({
   id,
   title,
-  copyTitle = "Copy ID",
+  copyTitle,
   onOpen,
 }: {
   id: string;
@@ -58,11 +58,13 @@ function IdCell({
             {id}
           </span>
         )}
-        <CopyButton
-          value={id}
-          className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
-          title={copyTitle}
-        />
+        {copyTitle && (
+          <CopyButton
+            value={id}
+            className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+            title={copyTitle}
+          />
+        )}
       </div>
     </td>
   );
@@ -131,20 +133,13 @@ export function DetectorRunsTable({
             />
             {run.signal_id ? (
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-                <div className="flex min-w-0 items-center gap-1">
-                  <Link
-                    href={signalHref(run.signal_id)}
-                    title={`${run.signal_id} — open the signal`}
-                    className="min-w-0 truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                  >
-                    {run.signal_id}
-                  </Link>
-                  <CopyButton
-                    value={run.signal_id}
-                    className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
-                    title="Copy signal ID"
-                  />
-                </div>
+                <Link
+                  href={signalHref(run.signal_id)}
+                  title={`${run.signal_id} — open the signal`}
+                  className="block max-w-full truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                >
+                  {run.signal_id}
+                </Link>
               </td>
             ) : run.signal_gave_up ? (
               <td className={cn(DETECTOR_TD, "whitespace-nowrap text-[11px]")}>
@@ -162,7 +157,6 @@ export function DetectorRunsTable({
               <IdCell
                 id={run.agent_trace_id}
                 title={`${run.agent_trace_id} — open the root cause analysis of this trace`}
-                copyTitle="Copy agent run ID"
                 onOpen={() => onAgentRunClick(run)}
               />
             ) : (

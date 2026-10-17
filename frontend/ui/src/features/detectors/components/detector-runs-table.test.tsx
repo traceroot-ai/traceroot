@@ -102,9 +102,7 @@ describe("DetectorRunsTable", () => {
       "Copy run ID",
       "trace-triggered",
       "Copy trace ID",
-      "Copy signal ID",
       "agent-trace-1 — open the root cause analysis of this trace",
-      "Copy agent run ID",
     ]);
   });
 
