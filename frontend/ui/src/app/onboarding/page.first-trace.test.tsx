@@ -132,13 +132,13 @@ function isAbove(first: Element, second: Element): boolean {
 }
 
 /**
- * The block the frame pins to the top of the viewport: the logo, the "Setup"
+ * The block the frame pins to the top of the viewport: the logo, the "Let's get started"
  * heading, its description and — since the layout fix — the first-trace line.
  * Found from the heading rather than by a class, so it is the block the user
  * sees rather than a selector that happens to match it.
  */
 function headerBlock(): HTMLElement {
-  const heading = screen.getByRole("heading", { name: "Setup" });
+  const heading = screen.getByRole("heading", { name: "Let's get started" });
   return heading.parentElement!.parentElement!;
 }
 
@@ -352,7 +352,7 @@ describe("where the page says the watch stands", () => {
 
     const line = traceLine();
     expect(headerBlock().contains(line)).toBe(true);
-    expect(isAbove(screen.getByRole("heading", { name: "Setup" }), line)).toBe(true);
+    expect(isAbove(screen.getByRole("heading", { name: "Let's get started" }), line)).toBe(true);
     expect(isAbove(line, screen.getByText("Finish setting up in your terminal"))).toBe(true);
   });
 
