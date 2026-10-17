@@ -187,6 +187,10 @@ export interface WidgetSchemaField {
   // Whether the widget builder offers this field. Optional so an older cached
   // schema keeps working — treat absence as offered.
   inBuilder?: boolean;
+  // What one value of a measure is and counts in, shown on hover in the
+  // builder's Measure dropdown. Optional so an older cached schema keeps working.
+  unit?: string | null;
+  description?: string | null;
 }
 
 export type WidgetSchema = Record<
@@ -202,6 +206,29 @@ export interface WidgetFieldValue {
 export interface WidgetFieldValuesResponse {
   field: string;
   values: WidgetFieldValue[];
+}
+
+/**
+ * The hover panel's documentation for a builder measure, or undefined when the
+ * schema carries none (an older cached schema), which leaves the row plain.
+ */
+export function measureDoc(
+  field: WidgetSchemaField,
+): { unit: string; description: string } | undefined {
+  return field.unit && field.description
+    ? { unit: field.unit, description: field.description }
+    : undefined;
+}
+
+/**
+ * The type a measure's hover panel shows, worded as the alert form words it.
+ * The count(*) sentinel is the one numeric field the registry marks
+ * non-histogrammable; it shows as "Integer", since "Count" is also an
+ * aggregation name and would read as a tautology on the Count row.
+ */
+export function measureTypeLabel(field: WidgetSchemaField): string {
+  if (field.type === "string") return "String";
+  return field.histogrammable === false ? "Integer" : "Number";
 }
 
 /**

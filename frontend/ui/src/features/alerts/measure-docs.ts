@@ -2,6 +2,7 @@
 // unique-id measures read from `traces`; see SOURCE_BY_ALERT_MEASURE in
 // frontend/packages/core/src/alerts.ts for why that is the same number.
 
+import type { MeasureDoc } from "@/components/measure-option";
 import { ALERT_MEASURES_BY_VIEW, type AlertView, type MeasureType } from "./rule-model";
 
 /**
@@ -14,15 +15,9 @@ export const MEASURE_TYPE_LABEL: Record<MeasureType, string> = {
   count: "Integer",
 };
 
-export interface AlertMeasureDoc {
-  // Unit of the raw column: `count` and `uniq` discard it, so the panel labels
-  // it the measure's unit, not the alert's.
-  unit: string;
-  description: string;
-  // Why a measure cannot return a number. Absent means available; nothing sets
-  // it today, but the panel must never go silent about a dead measure.
-  unavailable?: string;
-}
+// The shared hover-panel shape. `unavailable` is never set today, but the panel
+// must never go silent about a dead measure.
+export type AlertMeasureDoc = MeasureDoc;
 
 export const ALERT_MEASURE_DOCS: Record<AlertView, Record<string, AlertMeasureDoc>> = {
   SPANS: {

@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { MeasureOption } from "@/components/measure-option";
 import { isDashboardGone, useDashboard, useDashboardMutations } from "../hooks/use-dashboards";
 import { useWidgetPreview, useWidgetSchema } from "../hooks/use-widget-data";
 import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "../range-presets";
@@ -23,6 +25,8 @@ import {
   DISPLAY_TYPES,
   generateWidgetTitle,
   isSpecComplete,
+  measureDoc,
+  measureTypeLabel,
   parseSpec,
   type DraftSpec,
   type WidgetFilterValue,
@@ -351,19 +355,23 @@ export function WidgetBuilderPage({
                       <SelectValue placeholder="Measure" />
                     </SelectTrigger>
                     <SelectContent>
-                      {measurableFields.map(([key, meta]) => {
-                        const Icon = fieldIcon(key);
-                        return (
-                          <SelectItem
-                            key={key}
-                            value={key}
-                            className="text-[12px]"
-                            icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
-                          >
-                            {meta.label}
-                          </SelectItem>
-                        );
-                      })}
+                      {/* Scoped like the alert form's; context still reaches the
+                          portalled dropdown and its hover panels. */}
+                      <TooltipProvider delayDuration={150}>
+                        {measurableFields.map(([key, meta]) => {
+                          const Icon = fieldIcon(key);
+                          return (
+                            <MeasureOption
+                              key={key}
+                              value={key}
+                              label={meta.label}
+                              typeLabel={measureTypeLabel(meta)}
+                              doc={measureDoc(meta)}
+                              icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+                            />
+                          );
+                        })}
+                      </TooltipProvider>
                     </SelectContent>
                   </Select>
                   <Select value={agg} onValueChange={handleAggChange} disabled={!measure}>

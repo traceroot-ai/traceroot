@@ -8,10 +8,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { MeasureOption } from "@/components/measure-option";
 import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
 import { cn } from "@/lib/utils";
 import { SectionBox } from "@/features/dashboards/components/SectionBox";
-import { getMeasureDoc } from "../measure-docs";
+import { getMeasureDoc, MEASURE_TYPE_LABEL } from "../measure-docs";
 import {
   ALERT_MEASURES_BY_VIEW,
   ALERT_OPERATORS,
@@ -24,7 +25,6 @@ import {
   type AlertView,
 } from "../rule-model";
 import { CONTROL_SIZE } from "./form-controls";
-import { MeasureOption } from "./measure-option";
 
 function Connective({ children }: { children: React.ReactNode }) {
   return <span className="shrink-0 text-[12px] text-muted-foreground">{children}</span>;
@@ -104,7 +104,13 @@ export function ConditionSection({
               </SelectTrigger>
               <SelectContent>
                 {ALERT_MEASURES_BY_VIEW[view].map((m) => (
-                  <MeasureOption key={m.id} measure={m} doc={getMeasureDoc(view, m.id)} />
+                  <MeasureOption
+                    key={m.id}
+                    value={m.id}
+                    label={m.label}
+                    typeLabel={MEASURE_TYPE_LABEL[m.type]}
+                    doc={getMeasureDoc(view, m.id)}
+                  />
                 ))}
               </SelectContent>
             </Select>

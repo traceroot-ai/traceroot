@@ -11,6 +11,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input tokens one span read from the prompt cache; a span that reported no cache usage has no value.",
         "filterOps": [
           ">",
           ">=",
@@ -23,7 +24,8 @@
         "inBuilder": true,
         "label": "Cache read tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "cache_write_tokens": {
         "aggs": [
@@ -35,6 +37,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input tokens one span wrote to the prompt cache; a span that reported no cache usage has no value.",
         "filterOps": [
           ">",
           ">=",
@@ -47,7 +50,8 @@
         "inBuilder": true,
         "label": "Cache write tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "cost": {
         "aggs": [
@@ -59,6 +63,7 @@
           "p95",
           "p99"
         ],
+        "description": "Cost recorded on one span.",
         "filterOps": [
           ">",
           ">=",
@@ -71,19 +76,22 @@
         "inBuilder": true,
         "label": "Cost",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "USD"
       },
       "count": {
         "aggs": [
           "count"
         ],
+        "description": "Number of spans in the window.",
         "filterOps": [],
         "groupable": false,
         "histogrammable": false,
         "inBuilder": true,
         "label": "Count",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Spans"
       },
       "duration_ms": {
         "aggs": [
@@ -95,6 +103,7 @@
           "p95",
           "p99"
         ],
+        "description": "Elapsed time of one span, from its start time to its end time.",
         "filterOps": [
           ">",
           ">=",
@@ -107,10 +116,12 @@
         "inBuilder": true,
         "label": "Duration",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Milliseconds"
       },
       "environment": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -121,10 +132,12 @@
         "inBuilder": true,
         "label": "Environment",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "error_type": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -135,7 +148,8 @@
         "inBuilder": true,
         "label": "Error type",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "input_tokens": {
         "aggs": [
@@ -147,6 +161,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input tokens recorded on one span.",
         "filterOps": [
           ">",
           ">=",
@@ -159,10 +174,12 @@
         "inBuilder": true,
         "label": "Input tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "is_root": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "="
         ],
@@ -171,10 +188,12 @@
         "inBuilder": false,
         "label": "Root span",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "metadata": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains"
@@ -184,10 +203,12 @@
         "inBuilder": false,
         "label": "Metadata",
         "requiresKey": true,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "model_name": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -198,10 +219,12 @@
         "inBuilder": true,
         "label": "Model",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "name": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -212,7 +235,8 @@
         "inBuilder": true,
         "label": "Span name",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "output_tokens": {
         "aggs": [
@@ -224,6 +248,7 @@
           "p95",
           "p99"
         ],
+        "description": "Output tokens recorded on one span.",
         "filterOps": [
           ">",
           ">=",
@@ -236,10 +261,12 @@
         "inBuilder": true,
         "label": "Output tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "span_kind": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -250,10 +277,12 @@
         "inBuilder": true,
         "label": "Span kind",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "status": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -264,7 +293,8 @@
         "inBuilder": true,
         "label": "Status",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "tokens_per_second": {
         "aggs": [
@@ -279,13 +309,15 @@
           "p99",
           "uniq"
         ],
+        "description": "A span's total tokens over its millisecond duration, as a per-second rate; a span with no measured duration has no value.",
         "filterOps": [],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": false,
         "label": "Tokens per second",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens per second"
       },
       "total_tokens": {
         "aggs": [
@@ -297,6 +329,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input plus output tokens recorded on one span.",
         "filterOps": [
           ">",
           ">=",
@@ -309,20 +342,23 @@
         "inBuilder": true,
         "label": "Total tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "trace_id": {
         "aggs": [
           "count",
           "uniq"
         ],
+        "description": "Trace identifier recorded on every span; aggregate with uniq to count distinct traces.",
         "filterOps": [],
         "groupable": false,
         "histogrammable": false,
         "inBuilder": false,
         "label": "Trace ID",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": "Traces"
       }
     }
   },
@@ -338,6 +374,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input tokens one trace read from the prompt cache, summed across its spans.",
         "filterOps": [
           ">",
           ">=",
@@ -350,7 +387,8 @@
         "inBuilder": true,
         "label": "Cache read tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "cache_write_tokens": {
         "aggs": [
@@ -362,6 +400,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input tokens one trace wrote to the prompt cache, summed across its spans.",
         "filterOps": [
           ">",
           ">=",
@@ -374,7 +413,8 @@
         "inBuilder": true,
         "label": "Cache write tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "cost": {
         "aggs": [
@@ -386,6 +426,7 @@
           "p95",
           "p99"
         ],
+        "description": "Cost of one trace, summed across its spans.",
         "filterOps": [
           ">",
           ">=",
@@ -398,19 +439,22 @@
         "inBuilder": true,
         "label": "Cost",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "USD"
       },
       "count": {
         "aggs": [
           "count"
         ],
+        "description": "Number of traces in the window.",
         "filterOps": [],
         "groupable": false,
         "histogrammable": false,
         "inBuilder": true,
         "label": "Count",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Traces"
       },
       "duration_ms": {
         "aggs": [
@@ -422,6 +466,7 @@
           "p95",
           "p99"
         ],
+        "description": "Elapsed time of one trace, from its first span's start to its last span's end.",
         "filterOps": [
           ">",
           ">=",
@@ -434,10 +479,12 @@
         "inBuilder": true,
         "label": "Latency",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Milliseconds"
       },
       "environment": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -448,7 +495,8 @@
         "inBuilder": true,
         "label": "Environment",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "error_count": {
         "aggs": [
@@ -460,6 +508,7 @@
           "p95",
           "p99"
         ],
+        "description": "Spans in one trace with an error status.",
         "filterOps": [
           ">",
           ">=",
@@ -472,7 +521,8 @@
         "inBuilder": true,
         "label": "Errors",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Spans"
       },
       "input_tokens": {
         "aggs": [
@@ -484,6 +534,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input tokens of one trace, summed across its spans.",
         "filterOps": [
           ">",
           ">=",
@@ -496,10 +547,12 @@
         "inBuilder": true,
         "label": "Input tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "name": {
         "aggs": [],
+        "description": null,
         "filterOps": [
           "=",
           "contains",
@@ -510,7 +563,8 @@
         "inBuilder": true,
         "label": "Trace name",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": null
       },
       "output_tokens": {
         "aggs": [
@@ -522,6 +576,7 @@
           "p95",
           "p99"
         ],
+        "description": "Output tokens of one trace, summed across its spans.",
         "filterOps": [
           ">",
           ">=",
@@ -534,10 +589,12 @@
         "inBuilder": true,
         "label": "Output tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "session_id": {
         "aggs": [],
+        "description": "Identifier of the session a trace belongs to; aggregate with uniq to count distinct sessions.",
         "filterOps": [
           "=",
           "contains",
@@ -548,7 +605,8 @@
         "inBuilder": true,
         "label": "Session",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": "Sessions"
       },
       "total_tokens": {
         "aggs": [
@@ -560,6 +618,7 @@
           "p95",
           "p99"
         ],
+        "description": "Input plus output tokens of one trace, summed across its spans.",
         "filterOps": [
           ">",
           ">=",
@@ -572,10 +631,12 @@
         "inBuilder": true,
         "label": "Tokens",
         "requiresKey": false,
-        "type": "number"
+        "type": "number",
+        "unit": "Tokens"
       },
       "user_id": {
         "aggs": [],
+        "description": "Identifier of the user a trace belongs to; aggregate with uniq to count distinct users.",
         "filterOps": [
           "=",
           "contains",
@@ -586,7 +647,8 @@
         "inBuilder": true,
         "label": "User",
         "requiresKey": false,
-        "type": "string"
+        "type": "string",
+        "unit": "Users"
       }
     }
   }
