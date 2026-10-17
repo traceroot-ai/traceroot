@@ -27,8 +27,10 @@ interface CliHandbackStepProps {
   /**
    * How the watch for this project's first trace is going.
    *
-   * The command is what produces that trace, so this is where saying so
-   * belongs: between the thing to run and the alternatives to running it.
+   * Said above the command rather than under it. It is the only line on the
+   * step that reports anything happening, and a user who has pasted the command
+   * is watching their terminal — so when they look back at this tab it has to
+   * be in the part they see first, not under the thing they have already run.
    */
   wait: TraceWait;
 }
@@ -84,25 +86,29 @@ export function CliHandbackStep({
             </p>
           </div>
 
+          <FirstTraceLine wait={wait} />
+
           <CodeBlock label="terminal" value={setup.command} />
         </>
       ) : (
-        <div>
-          <p className="text-[13px] font-medium">
-            The setup command cannot be shown for this deployment
-          </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
-            to <code className="font-mono">{setup.value}</code>, which is not an origin the command
-            can be pointed at. Without it the command would send sign-in and your first traces to
-            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
-            value for this deployment and the command appears here; until then, &quot;Set up
-            manually&quot; walks through the rest in the browser.
-          </p>
-        </div>
-      )}
+        <>
+          <div>
+            <p className="text-[13px] font-medium">
+              The setup command cannot be shown for this deployment
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
+              to <code className="font-mono">{setup.value}</code>, which is not an origin the
+              command can be pointed at. Without it the command would send sign-in and your first
+              traces to TraceRoot Cloud rather than here, so it is withheld rather than guessed.
+              Correct that value for this deployment and the command appears here; until then,
+              &quot;Set up manually&quot; walks through the rest in the browser.
+            </p>
+          </div>
 
-      <FirstTraceLine wait={wait} />
+          <FirstTraceLine wait={wait} />
+        </>
+      )}
 
       <div className="flex items-center justify-center gap-2">
         <Button
