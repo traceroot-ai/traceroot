@@ -57,6 +57,10 @@
     {
       "source": "/alerts/slack",
       "destination": "/alerts/overview#slack-notifications"
+    },
+    {
+      "source": "/dashboards/introduction",
+      "destination": "/dashboards/get-started"
     }
   ],
   "search": {
@@ -95,6 +99,7 @@
             "pages": [
               "getting-started/introduction",
               "getting-started/quickstart",
+              "getting-started/concepts",
               "developer/self-hosting"
             ]
           },
@@ -168,7 +173,7 @@
           {
             "group": "Dashboards",
             "pages": [
-              "dashboards/introduction",
+              "dashboards/get-started",
               "dashboards/widgets"
             ]
           },
@@ -224,8 +229,8 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/llamaindex",
-              "integrations/microsoft-agent-framework",
               "integrations/mastra",
+              "integrations/microsoft-agent-framework",
               "integrations/openai-agents-sdk",
               "integrations/pi",
               "integrations/pydantic-ai",
