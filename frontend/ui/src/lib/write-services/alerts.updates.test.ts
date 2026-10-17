@@ -10,7 +10,7 @@ import { DELETE_REASON_MESSAGE, NO_FIELDS_MESSAGE } from "./update-support";
 
 type Where = Record<string, unknown>;
 
-const { tx, root, order, store } = vi.hoisted(() => ({
+const { tx, root, order, store, postDeletedAlertClose } = vi.hoisted(() => ({
   tx: {
     $queryRaw: vi.fn(),
     project: { findUnique: vi.fn() },
@@ -22,6 +22,7 @@ const { tx, root, order, store } = vi.hoisted(() => ({
   root: { auditLog: { create: vi.fn() } },
   order: [] as string[],
   store: new Map<string, Record<string, unknown>>(),
+  postDeletedAlertClose: vi.fn<(close: { actorName: string | null }) => Promise<void>>(),
 }));
 vi.mock("@traceroot/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@traceroot/core")>()),
@@ -34,6 +35,7 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
     auditLog: root.auditLog,
   },
 }));
+vi.mock("@/lib/alerts/post-deleted-close", () => ({ postDeletedAlertClose }));
 import { deleteAlert, setAlertStatus, updateAlert } from "./alerts";
 
 const T0 = new Date("2026-08-12T10:00:00.000Z");
@@ -145,6 +147,10 @@ beforeEach(() => {
     const rows = rowsMatching(where);
     for (const r of rows) store.delete(r.id as string);
     return { count: rows.length };
+  });
+  postDeletedAlertClose.mockReset();
+  postDeletedAlertClose.mockImplementation(async () => {
+    order.push("slack");
   });
   tx.user.findUnique.mockResolvedValue({ name: "Ada", email: "ada@example.com" });
   root.auditLog.create.mockReset();
@@ -722,7 +728,13 @@ describe("deleteAlert", () => {
     });
     expect(store.has("alert-1")).toBe(false);
     expect(tx.alert.deleteMany).toHaveBeenCalledWith({ where: { id: "alert-1", projectId: "p1" } });
-    expect(order).toEqual(["delete", "commit", "audit"]);
+    // The close goes out only once the delete is durable.
+    expect(order).toEqual(["lock", "delete", "commit", "audit", "slack"]);
+    // The lock has to land before the read: read first, a tick could take the
+    // marker in between and the close would go out twice.
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.alert.findFirst.mock.invocationCallOrder[0],
+    );
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         operation: "delete_alert",
@@ -742,6 +754,78 @@ describe("deleteAlert", () => {
     store.set("alert-1", row({ severity: "OK", alertedAt: null }));
     expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
     expect(await remove()).toEqual({ ok: false, status: 404, error: "Alert not found" });
+  });
+
+  describe("the close it sends for the page it took with it", () => {
+    it("sends it once committed and audited, naming the rule and who deleted it", async () => {
+      mockAccess();
+      await remove({ actorUserId: "u2" });
+      expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+      expect(postDeletedAlertClose).toHaveBeenCalledWith({
+        projectId: "p1",
+        alertId: "alert-1",
+        name: "P95 latency",
+        actorName: "Ada",
+      });
+      // The channel's readers need not have access to the project, so the address
+      // the app would fall back to is not even selected.
+      expect(tx.user.findUnique).toHaveBeenCalledWith({
+        where: { id: "u2" },
+        select: { name: true },
+      });
+    });
+
+    it("names nobody for an account with no name, or one that is gone", async () => {
+      mockAccess();
+      tx.user.findUnique.mockResolvedValueOnce({ name: "" });
+      await remove();
+      store.set("alert-1", row());
+      tx.user.findUnique.mockResolvedValueOnce(null);
+      await remove();
+
+      const actors = postDeletedAlertClose.mock.calls.map(([close]) => close.actorName);
+      expect(actors).toEqual([null, null]);
+    });
+
+    it("sends one for a page carried across a gap in NO_DATA", async () => {
+      mockAccess();
+      store.set("alert-1", row({ severity: "NO_DATA" }));
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: true });
+      expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends the close an earlier edit left and no tick has sent yet", async () => {
+      mockAccess();
+      store.set(
+        "alert-1",
+        row({
+          severity: "UNKNOWN",
+          alertedAt: null,
+          pendingClose: { reason: "edited", actorUserId: "u1", at: T0.toISOString() },
+        }),
+      );
+      // The edit already discarded the page, so this delete reports none of its own.
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
+      expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends nothing when no page was open and no close was waiting", async () => {
+      mockAccess();
+      store.set("alert-1", row({ severity: "OK", alertedAt: null }));
+      await remove();
+      expect(postDeletedAlertClose).not.toHaveBeenCalled();
+      expect(tx.user.findUnique).not.toHaveBeenCalled();
+      expect(order).toEqual(["lock", "delete", "commit", "audit"]);
+    });
+
+    it("sends nothing for a delete that found no row, or that a non-member asked for", async () => {
+      mockAccess();
+      tx.alert.deleteMany.mockResolvedValueOnce({ count: 0 });
+      await remove();
+      mockAccess("VIEWER");
+      await remove();
+      expect(postDeletedAlertClose).not.toHaveBeenCalled();
+    });
   });
 
   it("404s when the row vanishes between the read and the delete", async () => {
