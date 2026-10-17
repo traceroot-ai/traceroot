@@ -33,7 +33,9 @@ describe("AITab", () => {
   it("leads with the one command that does the whole setup", () => {
     const { container } = render(<AITab projectId="proj_1" />);
     expect(screen.getByText("Run this in your project")).toBeDefined();
-    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@latest setup");
+    // The version is pinned and will be bumped on every CLI release, so match
+    // the shape rather than one release: an exact version, never a tag.
+    expect(container.textContent ?? "").toMatch(/npx -y traceroot-cli@\d+\.\d+\.\d+ setup/);
   });
 
   it("writes the project this panel is showing into the command", () => {
