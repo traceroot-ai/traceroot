@@ -39,7 +39,7 @@ describe("CliHandbackStep", () => {
     // `--project` answers "which project?" from memory, and a wrong answer
     // sends their first traces somewhere they will not look.
     const command = container.querySelector("pre")?.textContent ?? "";
-    expect(command).toContain("npx -y traceroot-cli@latest setup");
+    expect(command).toContain("npx -y traceroot-cli@0.6.1 setup");
     expect(command).toContain("--project proj-1");
   });
 

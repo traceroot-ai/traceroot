@@ -18,8 +18,32 @@ export const INSTRUMENT_PROMPT =
 /** Install the first-party TraceRoot skills into a coding agent. */
 export const SKILLS_COMMAND = "npx skills add traceroot-ai/traceroot-skills";
 
+/**
+ * The published CLI the printed command resolves to.
+ *
+ * An exact pin, and the ordering it encodes is the point: **the version named
+ * here must already be published to npm carrying every flag this file puts on
+ * the line, before this constant names it.** `setupCommand` renders
+ * `--handoff`, and an option the resolved CLI does not declare is not ignored —
+ * commander reports it as a usage error and exits — so a pin that runs ahead of
+ * a release ends someone's sign-up on "unknown option". Bumping this is
+ * therefore the last step of a CLI release, never the first.
+ *
+ * Not `@latest`, which is what this was: `npm view traceroot-cli dist-tags`
+ * answers 0.5.0, a version with no `setup` subcommand at all, so the line this
+ * file prints dies with "unknown command 'setup'" on Cloud today. `@latest` is
+ * also resolved per machine against npx's cache, so even once a good version is
+ * published a warm cache can still hand back an older one, and a rollback
+ * silently re-breaks the page.
+ *
+ * Not a `^` range either, which would otherwise be the compromise: `^` is an
+ * escape character in Windows `cmd.exe`, and this line has to survive being
+ * pasted into whatever shell the reader happens to have open.
+ */
+const SETUP_CLI_VERSION = "0.6.1";
+
 /** The invocation, before the flags this page is able to fill in. */
-const SETUP_BASE = "npx -y traceroot-cli@latest setup";
+const SETUP_BASE = `npx -y traceroot-cli@${SETUP_CLI_VERSION} setup`;
 
 /**
  * The API host `traceroot setup` assumes when it is passed no `--host`.
