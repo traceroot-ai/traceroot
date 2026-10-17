@@ -64,11 +64,6 @@ export const INLINE_ADAPTERS: LLMAdapter[] = PROVIDER_PRIORITY.filter((adapter) 
   isInlineConfigurable(ADAPTER_CONFIG[adapter], ADAPTER_MODELS[adapter]),
 );
 
-/** The rest of the offered adapters, for the line that says where they live. */
-export const SETTINGS_ONLY_ADAPTERS: LLMAdapter[] = PROVIDER_PRIORITY.filter(
-  (adapter) => !INLINE_ADAPTERS.includes(adapter),
-);
-
 /**
  * The provider answered the probe and rejected the credential, as opposed to
  * the request to our own API failing. The provider's own words are worth
@@ -82,13 +77,6 @@ class ProbeRejected extends Error {
     this.name = "ProbeRejected";
     this.detail = detail;
   }
-}
-
-/** "a", "a and b", "a, b and c". */
-function joinLabels(labels: string[]): string {
-  return labels.length === 1
-    ? labels[0]
-    : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
 }
 
 /**
@@ -109,55 +97,21 @@ export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "mo
 }
 
 /**
- * Why each adapter this step does not offer lives in settings instead, derived
- * from the clause of `isInlineConfigurable` that adapter failed.
+ * The line under a stored key: one sentence, and the clause that introduces the
+ * settings link.
  *
- * The two clauses are not the same reason and cannot be reported as one. Azure
- * OpenAI needs a base URL and AWS Bedrock needs an access-key pair or a
- * default-credentials toggle plus a region, so for those a key genuinely is not
- * the whole credential. OpenRouter's key is its whole credential — it is here
- * only for shipping no curated catalogue, and a row stored with a key and
- * nothing to seed offers no model anywhere. Telling the user it "needs more
- * than a key" is untrue, and would stay untrue for the next catalogue-less
- * single-key adapter the tables gain.
- */
-function settingsOnlyNote(): string {
-  const needMoreThanAKey: string[] = [];
-  const needAModelList: string[] = [];
-  for (const adapter of SETTINGS_ONLY_ADAPTERS) {
-    const label = ADAPTER_CONFIG[adapter].label;
-    if (settingsOnlyReason(adapter) === "more-than-a-key") {
-      needMoreThanAKey.push(label);
-    } else {
-      needAModelList.push(label);
-    }
-  }
-
-  const clauses: string[] = [];
-  if (needMoreThanAKey.length > 0) {
-    const verb = needMoreThanAKey.length === 1 ? "needs" : "need";
-    clauses.push(`${joinLabels(needMoreThanAKey)} ${verb} more than a key`);
-  }
-  if (needAModelList.length > 0) {
-    const verb = needAModelList.length === 1 ? "needs" : "need";
-    clauses.push(`${joinLabels(needAModelList)} ${verb} a model list chosen`);
-  }
-  if (clauses.length === 0) return "";
-  return `${clauses.join(", and ")} — add those in workspace settings.`;
-}
-
-/**
- * The paragraph under a stored key: the sentence about the key, and the clause
- * that introduces the settings link.
+ * The step is reached in two situations that need opposite sentences. "This
+ * workspace already uses its own key", shown the instant a save settles, reads
+ * as a refusal — as if the key the user had just pasted were dropped because
+ * one was there already. On a later visit to a workspace somebody set up
+ * before, that same sentence is the honest one. `justSavedLabel` is what
+ * separates them: set when this mount stored the key itself, and carrying the
+ * provider it was stored for, so the confirmation names what the user chose.
  *
- * The step is reached in two situations that need opposite sentences, and the
- * copy this replaces could say only one of them. "This workspace already uses
- * its own key", shown the instant a save settles, reads as a refusal — as if
- * the key the user had just pasted were dropped because one was there already.
- * On a later visit to a workspace somebody set up before, that same sentence is
- * the honest one. `justSavedLabel` is what separates them: set when this mount
- * stored the key itself, and carrying the provider it was stored for, so the
- * confirmation names what the user chose rather than describing a workspace.
+ * One sentence each, because the rows above say most of it: the provider, the
+ * key preview, and a check or "Turned off" against each. What is left for the
+ * text is only what the rows cannot show — that the probe passed, that nothing
+ * was overwritten, or that a key being off means the models are still ours.
  *
  * None of these lines offers a second provider. This step configures one key;
  * the settings link is where that key is replaced or switched, not somewhere to
@@ -187,8 +141,8 @@ export function storedKeyCopy({
     return {
       state:
         count > 1
-          ? "This workspace has keys of its own, but they are all turned off, so the AI assistant and detectors still run on TraceRoot's models."
-          : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+          ? "All of these are off, so the AI assistant and detectors still run on TraceRoot's models."
+          : "This key is off, so the AI assistant and detectors still run on TraceRoot's models.",
       settings: count > 1 ? "Turn one back on in" : "Turn it back on in",
     };
   }
@@ -200,8 +154,8 @@ export function storedKeyCopy({
   if (justSavedLabel !== undefined) {
     return {
       state: justSavedLabel
-        ? `${justSavedLabel} key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own ${justSavedLabel} account.`
-        : "Key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own provider account.",
+        ? `Verified and saved. The AI assistant and detectors now run on your own ${justSavedLabel} account.`
+        : "Verified and saved. The AI assistant and detectors now run on your own account.",
       settings,
     };
   }
@@ -212,8 +166,8 @@ export function storedKeyCopy({
   return {
     state:
       count > 1
-        ? "This workspace already had keys of its own, so this step left them as they were."
-        : "This workspace already had a key of its own, so this step left it as it was.",
+        ? "These were already here, and nothing was changed."
+        : "This was already here, and nothing was changed.",
     settings,
   };
 }
@@ -225,34 +179,11 @@ export function storedKeyCopy({
 const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
 
 /**
- * The line above the key field, said in terms of the stack the user picked.
+ * What a selection whose provider cannot be configured from here is told.
  *
- * The line this replaces — "Optional. Paste a key and the AI assistant,
- * detector screening and root cause analysis run on your own provider account"
- * — had to stay vague about whose key, because the provider was a separate
- * choice made in a dropdown underneath it. Now the picker decides, so the line
- * can name the provider and say where that answer came from. Which matters most
- * for the second case: "its example uses OpenAI" is an invitation to change it,
- * where an unexplained "OpenAI API key" over a LangChain snippet looks like a
- * requirement.
- */
-export function keyFieldIntro({
-  stackName,
-  kind,
-  label,
-}: {
-  stackName: string;
-  kind: "fixed" | "suggested";
-  label: string;
-}): string {
-  if (kind === "fixed") {
-    return `Optional. ${stackName} runs on ${label}, so this step takes your ${label} key: paste it and the AI assistant, detector screening and root cause analysis run on your own ${label} account instead of TraceRoot's models.`;
-  }
-  return `Optional. ${stackName} calls whichever provider you give it, and its example uses ${label}. Paste that key — or switch provider — and the AI assistant, detector screening and root cause analysis run on your own account instead of TraceRoot's models.`;
-}
-
-/**
- * What a stack whose provider cannot be configured from here is told, and why.
+ * The only words in this section that are not a label, and they are here
+ * because the alternative is a heading with nothing under it: the reader picked
+ * a stack, the key field vanished, and nothing says whether that is a bug.
  *
  * Two different situations, kept apart because the honest sentence differs.
  * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
@@ -261,25 +192,29 @@ export function keyFieldIntro({
  * provider there is no adapter for at all, Mistral today: nothing anywhere in
  * TraceRoot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
+ *
+ * Neither line names the selected stack. It is on screen a few lines above,
+ * checked, and for every entry that reaches here it is also the provider's own
+ * name — so saying it produced "Mistral calls Mistral, and TraceRoot has no
+ * Mistral adapter".
  */
-export function unavailableKeyCopy(
-  binding: ProviderKeyBinding,
-  stackName: string,
-): { state: string; settings: string | null } {
+export function unavailableKeyCopy(binding: ProviderKeyBinding): {
+  state: string;
+  settings: string | null;
+} {
   if (binding.kind === "none") {
     return {
-      state: `${stackName} calls ${binding.provider}, and TraceRoot has no ${binding.provider} adapter for your own keys, so there is no ${binding.provider} key to paste here. The AI assistant and detectors run on TraceRoot's models.`,
+      state: `TraceRoot has no ${binding.provider} adapter, so there is no key to paste here.`,
       settings: null,
     };
   }
 
   const label = ADAPTER_CONFIG[binding.adapter].label;
-  const why =
-    settingsOnlyReason(binding.adapter) === "more-than-a-key"
-      ? `${label} needs more than a key`
-      : `${label} needs a model list chosen`;
   return {
-    state: `${stackName} runs on ${label}, and ${why}, so it cannot be set up from here.`,
+    state:
+      settingsOnlyReason(binding.adapter) === "more-than-a-key"
+        ? `${label} needs more than a key.`
+        : `${label} needs a model list chosen.`,
     settings: "Add it in",
   };
 }
@@ -293,8 +228,6 @@ interface ModelProviderBlockProps {
    * there is no Mistral adapter rather than handed a field for one.
    */
   providerKey: ProviderKeyBinding;
-  /** The selected stack's name, for saying whose key this is and why. */
-  stackName: string;
 }
 
 /**
@@ -320,11 +253,7 @@ interface ModelProviderBlockProps {
  * key they are about to store. The binding arrives as `providerKey`; the
  * dropdown survives only for the stacks where the question is real.
  */
-export function ModelProviderBlock({
-  workspaceId,
-  providerKey,
-  stackName,
-}: ModelProviderBlockProps) {
+export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBlockProps) {
   const queryClient = useQueryClient();
   // Set only when the user overrides a *suggested* provider. The selection is
   // the source of truth otherwise, so there is no second piece of state for the
@@ -577,7 +506,7 @@ export function ModelProviderBlock({
   // API key, the SDK install and the stack picker down with it, since this
   // block renders inline in the same panel.
   if (!bound || !adapter || settingsOnlyReason(adapter) !== null) {
-    const copy = unavailableKeyCopy(adapter ? { kind: "fixed", adapter } : providerKey, stackName);
+    const copy = unavailableKeyCopy(adapter ? { kind: "fixed", adapter } : providerKey);
     return (
       <p className="text-[12px] text-muted-foreground">
         {copy.state}
@@ -599,10 +528,6 @@ export function ModelProviderBlock({
 
   return (
     <div className="space-y-2">
-      <p className="text-[12px] text-muted-foreground">
-        {keyFieldIntro({ stackName, kind: bound.kind, label })}
-      </p>
-
       <div className="flex gap-2">
         {/* Offered only where it is a real question. A provider's own SDK can
             only use that provider's key, so a dropdown over it would be a
@@ -666,8 +591,6 @@ export function ModelProviderBlock({
           {failure.detail ? ` — ${failure.detail}` : ""}
         </p>
       )}
-
-      <p className="text-[12px] text-muted-foreground">{settingsOnlyNote()}</p>
     </div>
   );
 }

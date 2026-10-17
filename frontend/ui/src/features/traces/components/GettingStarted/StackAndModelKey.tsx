@@ -74,11 +74,7 @@ export function StackAndModelKey({ projectId, selected, onSelect }: StackAndMode
         {projectLoading ? (
           <LoadingState label="Loading model providers..." />
         ) : workspaceId ? (
-          <ModelProviderBlock
-            workspaceId={workspaceId}
-            providerKey={selected.providerKey}
-            stackName={selected.name}
-          />
+          <ModelProviderBlock workspaceId={workspaceId} providerKey={selected.providerKey} />
         ) : (
           <WorkspaceUnavailable />
         )}
