@@ -86,6 +86,7 @@ afterEach(() => {
   cleanup();
   prefetch.mockReset();
   autoRefresh = false;
+  searchParamsValue = "";
 });
 
 describe("TracesPage prefetch wiring", () => {
@@ -124,5 +125,19 @@ describe("TracesPage by-id scoping", () => {
     const panel = screen.getByTestId("trace-panel");
     expect(panel.getAttribute("data-trace-id")).toBe("aaaaaaaabbbbccccddddeeeeeeeeeeee");
     expect(panel.getAttribute("data-source")).toBe("user");
+  });
+});
+
+describe("TracesPage user_id filter badge", () => {
+  afterEach(() => {
+    searchParamsValue = "";
+  });
+
+  it("shows a clearable badge for the active user_id filter", () => {
+    searchParamsValue = "user_id=user-42";
+    render(<TracesPage />, { wrapper: Wrapper });
+
+    expect(screen.getByText("User:")).toBeTruthy();
+    expect(screen.getByText("user-42")).toBeTruthy();
   });
 });
