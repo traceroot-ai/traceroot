@@ -985,7 +985,9 @@ describe("OnboardingPage", () => {
 
     await clickSignOut();
 
-    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    await waitFor(() =>
+      expect(screen.getByText("Could not sign out. Please try again.")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
       false,
@@ -1003,7 +1005,9 @@ describe("OnboardingPage", () => {
 
     await clickSignOut();
 
-    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    await waitFor(() =>
+      expect(screen.getByText("Could not sign out. Please try again.")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
       false,

@@ -169,6 +169,9 @@ describe("the approved panel", () => {
     expect(screen.getByText("Approved")).toBeDefined();
     expect(screen.getByText(TERMINAL_TEXT)).toBeDefined();
     expect(screen.getByText(WAITING_TEXT)).toBeDefined();
+    // Announced, not merely shown. This panel tells the person to leave, so a
+    // state change here is one nobody is watching for.
+    expect(screen.getByRole("status").textContent).toContain(WAITING_TEXT);
     // Nowhere to send anyone yet: no project is known to hold a trace, and an
     // empty project page reads as a failure.
     expect(mocks.push).not.toHaveBeenCalled();
@@ -198,7 +201,13 @@ describe("the approved panel", () => {
     // end: one push, to the trace, after it has actually arrived.
     expect(mocks.push).toHaveBeenCalledTimes(1);
     expect(mocks.push).toHaveBeenCalledWith("/projects/p-1/traces?traceId=t-run");
-    expect(screen.getByText("Your first trace arrived. Opening it now...")).toBeDefined();
+    // One shared line with the onboarding hand-back, which brings its link with
+    // it: the push can be slow or refused, and good news with no way forward is
+    // the one thing this state must not be.
+    expect(screen.getByText("Your first trace arrived. Opening it…")).toBeDefined();
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/p-1/traces?traceId=t-run",
+    );
   });
 
   it("does not seize a trace that was already there", async () => {

@@ -137,10 +137,20 @@ export async function retryUnknownBaseline(
 
 /** The oldest of `traces` that started after `cut`, or null when none did. */
 function firstTraceAfter(traces: TraceListItem[], cut: string | null): TraceListItem | null {
-  const after =
-    cut === null
-      ? traces
-      : traces.filter((trace) => Date.parse(trace.trace_start_time) > Date.parse(cut));
+  const cutAt = cut === null ? null : Date.parse(cut);
+  const after = traces.filter((trace) => {
+    const at = Date.parse(trace.trace_start_time);
+    // A row whose start time does not parse cannot be placed on either side of
+    // the line. `trace_start_time` is typed as a plain string, so "" arrives
+    // here without anything being wrong upstream — and left in, such a row is
+    // the one no comparison can beat (every `<` against NaN is false), so on
+    // the common path where there is no cut at all it would be returned as the
+    // run's first trace and deep-linked to.
+    if (Number.isNaN(at)) {
+      return false;
+    }
+    return cutAt === null || at > cutAt;
+  });
   if (after.length === 0) {
     return null;
   }
@@ -148,9 +158,13 @@ function firstTraceAfter(traces: TraceListItem[], cut: string | null): TraceList
   // one we can see. A run that sent more than a page of traces between two
   // rounds would push its own first trace off the end — a bounded
   // imprecision, and always in the direction of a trace the same run produced.
-  return after.reduce((earliest, trace) =>
-    Date.parse(trace.trace_start_time) < Date.parse(earliest.trace_start_time) ? trace : earliest,
-  );
+  return after.reduce((earliest, trace) => {
+    const gap = Date.parse(trace.trace_start_time) - Date.parse(earliest.trace_start_time);
+    // Ties are broken on the id rather than on position, so which trace the
+    // person lands on does not depend on how the server happened to order two
+    // rows stamped in the same millisecond.
+    return gap < 0 || (gap === 0 && trace.trace_id < earliest.trace_id) ? trace : earliest;
+  });
 }
 
 /**

@@ -120,6 +120,71 @@ describe("useTraceWait", () => {
     expect(result.current).toEqual({ kind: "gave-up", fallbackUrl: AGAIN.fallbackUrl });
   });
 
+  it("passes on that a round stopped because it could not read", async () => {
+    // The page says a different thing in that case, and it can only say it if
+    // this loop carries the distinction rather than flattening it.
+    const { result } = watchWith([{ kind: "stop", fallbackUrl: "/workspaces", unreadable: true }]);
+
+    await flush();
+
+    expect(result.current).toEqual({
+      kind: "gave-up",
+      fallbackUrl: "/workspaces",
+      unreadable: true,
+    });
+  });
+
+  it("starts a round as soon as the tab comes back, rather than waiting the interval out", async () => {
+    // Hidden is this wait's normal state — the person was sent to their
+    // terminal — and a hidden tab's timers are throttled to roughly one a
+    // minute. Noticing on return is what keeps that from deciding how long a
+    // trace takes to show up.
+    const { round } = watchWith([AGAIN]);
+
+    await flush();
+    expect(round).toHaveBeenCalledTimes(1);
+
+    // Mid-interval: nothing is due yet.
+    await act(async () => {
+      vi.advanceTimersByTime(POLL_INTERVAL_MS / 2);
+    });
+    await flush();
+    expect(round).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await flush();
+
+    expect(round).toHaveBeenCalledTimes(2);
+  });
+
+  it("adds no round alongside one still in flight when the tab comes back", async () => {
+    // The kick must not cost the no-overlap property below it: a round is
+    // several reads deep, and two of them racing one baseline is exactly what
+    // the chain of timeouts exists to prevent.
+    let release: (() => void) | undefined;
+    const round = vi.fn(
+      () =>
+        new Promise<RoundResult>((resolve) => {
+          release = () => resolve(AGAIN);
+        }),
+    );
+    renderHook(() => useTraceWait(true, () => round, "key", LAST_RESORT));
+
+    await flush();
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await flush();
+
+    expect(round).toHaveBeenCalledTimes(1);
+
+    release?.();
+    await flush();
+  });
+
   it("never lets one round overlap the next", async () => {
     // The reason this is a chain of timeouts and not an interval: a round that
     // takes longer than the interval would otherwise be racing a second copy of
@@ -156,6 +221,8 @@ describe("useTraceWait", () => {
 
     unmount();
     await act(async () => {
+      // Not on a timer, and not on the tab coming back either.
+      document.dispatchEvent(new Event("visibilitychange"));
       vi.advanceTimersByTime(POLL_INTERVAL_MS * 3);
     });
     await flush();

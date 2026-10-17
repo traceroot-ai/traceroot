@@ -69,6 +69,28 @@ describe("CliHandbackStep", () => {
     renderStep();
 
     expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
+    // And announced rather than merely shown. The whole premise is that nobody
+    // is looking at this tab, so a state change that only paints is a state
+    // change a screen-reader user never hears about.
+    expect(screen.getByRole("status").textContent).toContain("Waiting for your first trace");
+  });
+
+  it("keeps the hand-back's own wording while it waits", () => {
+    // The line is shared with the device page, which says it "opens it"; this
+    // step's approved sentence says the page updates, and stays that way.
+    renderStep();
+
+    expect(
+      screen.getByText("Waiting for your first trace. This page updates when it arrives."),
+    ).toBeDefined();
+  });
+
+  it("announces the arrival from the same region it announced the wait from", () => {
+    // One region for all three states, so the change is announced rather than
+    // the region being mounted alongside its own text — which is not.
+    renderStep({ wait: { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } } });
+
+    expect(screen.getByRole("status").textContent).toContain("Your first trace arrived");
   });
 
   it("shows the arrived trace without closing the step down", () => {

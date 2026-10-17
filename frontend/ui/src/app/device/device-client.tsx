@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
+import { FirstTraceLine } from "@/components/first-trace-line";
 
 const FALLBACK_CLIENT_NAME = "A command-line application";
 
@@ -603,29 +604,26 @@ function Approved({ wait }: { wait: TraceWait }) {
         </p>
       </div>
 
-      {wait.kind === "waiting" && (
-        <p className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Waiting for your first trace. This page opens it when it arrives.
-        </p>
-      )}
-
-      {wait.kind === "found" && (
-        <p className="text-[12px] text-muted-foreground">
-          Your first trace arrived. Opening it now...
-        </p>
-      )}
-
-      {wait.kind === "gave-up" && (
-        <div className="space-y-1 text-[12px] text-muted-foreground">
-          <p>No trace has arrived yet. Your terminal has the result either way.</p>
-          <p>
-            <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
-              Open your traces
-            </Link>
-          </p>
-        </div>
-      )}
+      {/* The same line the onboarding hand-back shows, from the same component:
+          both pages wait for the same thing and open it the same way, and two
+          copies of those lines had already drifted apart. Two things stay this
+          page's own and are passed in: the waiting line's "opens it", the
+          wording this page has always used, and the empty ending, because
+          only this flow has a terminal holding the result either way. */}
+      <FirstTraceLine
+        wait={wait}
+        arrival="This page opens it when it arrives."
+        gaveUp={(ended) => (
+          <div className="space-y-1 text-[11px] text-muted-foreground">
+            <p>No trace has arrived yet. Your terminal has the result either way.</p>
+            <p>
+              <Link href={ended.fallbackUrl} className="underline hover:text-foreground">
+                Open your traces
+              </Link>
+            </p>
+          </div>
+        )}
+      />
     </div>
   );
 }

@@ -34,11 +34,16 @@ export const WAIT_BUDGET_MS = 10 * 60 * 1000;
  *
  * `gave-up` carries somewhere to go, because a wait that ends empty still owes
  * the person a way into the product.
+ *
+ * It also carries whether the reads themselves were failing. "No trace has
+ * arrived" is a statement about the run, and a tab that could not read the
+ * traces at all — an expired session, a proxy answering errors — is in no
+ * position to make it. Absent means the reads worked and nothing came.
  */
 export type TraceWait =
   | { kind: "waiting" }
   | { kind: "found"; found: FirstTrace }
-  | { kind: "gave-up"; fallbackUrl: string };
+  | { kind: "gave-up"; fallbackUrl: string; unreadable?: boolean };
 
 /**
  * The state every wait begins in, as one value rather than a fresh object.
@@ -60,7 +65,9 @@ const WAITING: TraceWait = { kind: "waiting" };
 export type RoundResult =
   | { kind: "found"; found: FirstTrace }
   | { kind: "again"; fallbackUrl: string }
-  | { kind: "stop"; fallbackUrl: string };
+  /** `unreadable` when the round is stopping because it could not read, not
+   * because it looked and found nothing. */
+  | { kind: "stop"; fallbackUrl: string; unreadable?: boolean };
 
 /**
  * One round of looking, or `null` when it noticed mid-flight that the wait had
@@ -182,7 +189,17 @@ export function useTraceWait(
       }, POLL_INTERVAL_MS);
     }
 
+    // Whether a round is in flight. Only the visibility kick below can arrive
+    // mid-round — the timer chain cannot, by construction — and two rounds
+    // racing the same baseline is the overlap this loop is a chain of timeouts
+    // rather than an interval to avoid.
+    let running = false;
+
     async function tick(): Promise<void> {
+      if (running) {
+        return;
+      }
+      running = true;
       let result: RoundResult | null;
       try {
         result = await round();
@@ -192,6 +209,8 @@ export function useTraceWait(
         // stopping dead with no timer and no answer, and the deadline above
         // bounds the retrying either way.
         result = { kind: "again", fallbackUrl };
+      } finally {
+        running = false;
       }
       if (cancelled || result === null) {
         return;
@@ -204,15 +223,39 @@ export function useTraceWait(
       // better one than the caller's standing answer.
       fallbackUrl = result.fallbackUrl;
       if (result.kind === "stop") {
-        settle({ kind: "gave-up", fallbackUrl });
+        settle({ kind: "gave-up", fallbackUrl, unreadable: result.unreadable });
         return;
       }
       schedule();
     }
 
+    // Hidden is this wait's normal state: the person was told to go back to
+    // their terminal. A hidden tab's timers are throttled — Chrome aligns them
+    // to roughly one a minute once a tab has been out of sight for five, and
+    // iOS Safari can suspend them outright — so coming back starts a round at
+    // once instead of waiting out whatever is left of the interval. The budget
+    // is wall-clock either way, so this changes when a trace is noticed, never
+    // how long the wait lasts.
+    function onVisible() {
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      // Nothing is pending while a round runs, so this clears a due timer or
+      // an already-fired id; `tick` declines either way if one is in flight.
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      void tick();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+
     void tick();
 
-    return stop;
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      stop();
+    };
     // beginRef holds the current factory; `restartKey` is the identity a
     // restart should follow.
   }, [active, restartKey]);

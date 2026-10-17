@@ -81,7 +81,7 @@ export function useFirstTraceWait(
       if (projects.length === 0) {
         barrenRounds += 1;
         return barrenRounds >= MAX_BARREN_ROUNDS
-          ? { kind: "stop", fallbackUrl }
+          ? { kind: "stop", fallbackUrl, unreadable: true }
           : { kind: "again", fallbackUrl };
       }
       barrenRounds = 0;

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
-import { FirstTraceLine } from "./first-trace-line";
+import { FirstTraceLine } from "@/components/first-trace-line";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */

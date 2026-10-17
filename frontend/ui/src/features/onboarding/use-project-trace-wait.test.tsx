@@ -24,7 +24,7 @@ vi.mock("@/lib/first-trace", () => ({
 }));
 
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
-import { useProjectTraceWait } from "./use-project-trace-wait";
+import { MAX_UNREADABLE_ROUNDS, useProjectTraceWait } from "./use-project-trace-wait";
 
 const USER = { id: "u-1" };
 const FOUND = { projectId: "p-1", traceId: "t-1" };
@@ -108,7 +108,12 @@ describe("useProjectTraceWait", () => {
 
     await nextRound();
 
-    expect(mocks.retryUnknownBaseline).toHaveBeenCalled();
+    // With the arguments: a retry handed an empty map, the wrong map or no user
+    // settles nothing and would still pass a bare call assertion.
+    expect(mocks.retryUnknownBaseline).toHaveBeenCalledWith(
+      new Map([["p-1", { kind: "unknown" }]]),
+      USER,
+    );
     expect(mocks.findFirstTrace).toHaveBeenCalledWith(["p-1"], settled, USER);
   });
 
@@ -143,6 +148,45 @@ describe("useProjectTraceWait", () => {
     expect(result.current).toEqual({ kind: "waiting" });
     await flush();
     expect(mocks.captureTraceBaseline).toHaveBeenLastCalledWith(["p-2"], USER);
+  });
+
+  it("stops early, and says why, when the project stays unreadable", async () => {
+    // A session that expires mid-wait leaves the line undrawn, and a project
+    // with no line can never match — `findFirstTrace` skips it. Without this
+    // the page would spend the whole ten minutes and then report that no trace
+    // arrived, which is a claim about the run it is in no position to make.
+    mocks.captureTraceBaseline.mockResolvedValue(new Map([["p-1", { kind: "unknown" }]]));
+    const { result } = watch();
+
+    for (let round = 0; round < MAX_UNREADABLE_ROUNDS; round += 1) {
+      await nextRound();
+    }
+
+    expect(result.current).toEqual({
+      kind: "gave-up",
+      fallbackUrl: "/projects/p-1/traces",
+      unreadable: true,
+    });
+    // And it never searched: there was nothing to compare a trace against.
+    expect(mocks.findFirstTrace).not.toHaveBeenCalled();
+  });
+
+  it("treats one unreadable round as a blip rather than an ending", async () => {
+    mocks.captureTraceBaseline.mockResolvedValue(new Map([["p-1", { kind: "unknown" }]]));
+    mocks.retryUnknownBaseline
+      .mockResolvedValueOnce(new Map([["p-1", { kind: "unknown" }]]))
+      .mockResolvedValue(new Map([["p-1", { kind: "empty" }]]));
+    const { result } = watch();
+
+    await nextRound();
+    await nextRound();
+
+    expect(result.current).toEqual({ kind: "waiting" });
+    expect(mocks.findFirstTrace).toHaveBeenCalledWith(
+      ["p-1"],
+      new Map([["p-1", { kind: "empty" }]]),
+      USER,
+    );
   });
 
   it("gives up on the project's own traces page when the budget runs out", async () => {

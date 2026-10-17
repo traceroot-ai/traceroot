@@ -61,15 +61,19 @@ describe("readWatchedProjects", () => {
   });
 
   it("caps how many projects one round will look in, keeping the newest", async () => {
-    const many = Array.from({ length: MAX_WATCHED_PROJECTS + 5 }, (_, i) =>
+    // The cap is pinned here and the fixture is a fixed size, because a fixture
+    // sized from the constant and compared back to it passes for any cap at
+    // all — including one, and including none.
+    expect(MAX_WATCHED_PROJECTS).toBe(3);
+    const many = Array.from({ length: 8 }, (_, i) =>
       project(`p-${i}`, `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`),
     );
     mocks.getProjects.mockResolvedValue(many);
 
     const { projects, complete } = await readWatchedProjects([workspace("ws-1")]);
 
-    expect(projects).toHaveLength(MAX_WATCHED_PROJECTS);
-    expect(projects[0].id).toBe(`p-${MAX_WATCHED_PROJECTS + 4}`);
+    // Which three, in which order: the cap, its direction and the sort at once.
+    expect(projects.map((p) => p.id)).toEqual(["p-7", "p-6", "p-5"]);
     // The cap hides projects too, and one of them can enter the window later —
     // when a watched project is deleted — so a capped listing is not the whole
     // account either.
@@ -90,17 +94,23 @@ describe("watchOrder", () => {
     expect(order).toEqual(["p-fresh", "p-known"]);
   });
 
-  it("keeps every watched project, not only the new ones", () => {
+  it("keeps the projects that already existed, after the new one and in their own order", () => {
     // The ordering is a preference, not a filter: an established account whose
     // terminal reused a project it already had still has to be able to match.
+    // Three projects with the new one in the middle, so the answer is not the
+    // list as supplied and a passthrough cannot satisfy it.
     const order = watchOrder(
-      [project("p-a", "2026-01-01T00:00:00Z"), project("p-b", "2026-02-01T00:00:00Z")],
+      [
+        project("p-known-1", "2026-01-01T00:00:00Z"),
+        project("p-fresh", "2026-05-01T10:59:00Z"),
+        project("p-known-2", "2026-02-01T00:00:00Z"),
+      ],
       new Map<string, BaselineEntry>([
-        ["p-a", { kind: "empty" }],
-        ["p-b", { kind: "empty" }],
+        ["p-known-1", { kind: "empty" }],
+        ["p-known-2", { kind: "newest", at: "2026-05-01T10:00:00Z" }],
       ]),
     );
 
-    expect(order).toEqual(["p-a", "p-b"]);
+    expect(order).toEqual(["p-fresh", "p-known-1", "p-known-2"]);
   });
 });

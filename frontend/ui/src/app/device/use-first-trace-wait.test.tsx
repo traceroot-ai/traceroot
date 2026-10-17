@@ -14,9 +14,23 @@ const mocks = vi.hoisted(() => ({
   findFirstTrace: vi.fn(),
 }));
 
-vi.mock("./first-trace", () => ({
+// Only `readWatchedProjects` is stubbed. `watchOrder` is the ranking this hook
+// exists to apply — the device page's one binding between a trace and the run
+// that authorized it — so a stub for it would leave the hook's use of it
+// unverified, and a passthrough stub is exactly the un-ranked behaviour the
+// real function replaces.
+vi.mock("./first-trace", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./first-trace")>()),
   readWatchedProjects: (...args: unknown[]) => mocks.readWatchedProjects(...args),
-  watchOrder: (projects: { id: string }[]) => projects.map((project) => project.id),
+}));
+
+// Loading the real `./first-trace` brings its projects-API import with it, and
+// `readWatchedProjects` above is what stands in for that read. Stubbed to throw
+// so nothing in this file can reach a client by accident.
+vi.mock("@/lib/api/projects", () => ({
+  getProjects: () => {
+    throw new Error("getProjects is not reachable here: readWatchedProjects is stubbed");
+  },
 }));
 
 vi.mock("@/lib/first-trace", () => ({
@@ -127,7 +141,12 @@ describe("useFirstTraceWait", () => {
 
     await nextRound();
 
-    expect(mocks.retryUnknownBaseline).toHaveBeenCalled();
+    // With the arguments, because a retry handed an empty map, the wrong map or
+    // no user would settle nothing and still pass a bare call assertion.
+    expect(mocks.retryUnknownBaseline).toHaveBeenCalledWith(
+      new Map([["p-1", { kind: "unknown" }]]),
+      { id: "u-1" },
+    );
     // The search takes ids, ranked by `watchOrder` before it is called.
     expect(mocks.findFirstTrace).toHaveBeenCalledWith([PROJECT.id], settled, { id: "u-1" });
   });
@@ -184,7 +203,13 @@ describe("useFirstTraceWait", () => {
       await nextRound();
     }
 
-    expect(result.current).toEqual({ kind: "gave-up", fallbackUrl: "/workspaces" });
+    // `unreadable`, because that is what this ending means: the account had a
+    // project moments ago, so a round that finds none could not read it.
+    expect(result.current).toEqual({
+      kind: "gave-up",
+      fallbackUrl: "/workspaces",
+      unreadable: true,
+    });
     expect(mocks.captureTraceBaseline).not.toHaveBeenCalled();
   });
 
@@ -258,6 +283,29 @@ describe("useFirstTraceWait", () => {
     expect(mocks.captureTraceBaseline).toHaveBeenCalledTimes(1);
     const searched = mocks.findFirstTrace.mock.calls[0][1] as Map<string, unknown>;
     expect(searched.has("p-2")).toBe(false);
+    // Which is what puts it first: unlined is what "the terminal made this one"
+    // is read from, and the name of this test is the consequence.
+    expect(mocks.findFirstTrace.mock.calls[0][0]).toEqual(["p-2", "p-1"]);
+  });
+
+  it("searches a project the terminal just made before the ones already there", async () => {
+    // Nothing the SDK sends carries the device code, so the page cannot name the
+    // run it authorized. A project that was absent when the line was drawn is
+    // the strongest binding available, and this is the only place it is applied.
+    mocks.readWatchedProjects
+      .mockResolvedValueOnce(WHOLE_ACCOUNT)
+      .mockResolvedValue({ projects: [PROJECT, LATE_PROJECT], complete: true });
+    watch();
+
+    await nextRound();
+
+    // p-2 was not in the account the baseline was drawn across, so it goes
+    // first — even though the listing hands the two over the other way round.
+    expect(mocks.findFirstTrace).toHaveBeenCalledWith(
+      [LATE_PROJECT.id, PROJECT.id],
+      new Map([["p-1", { kind: "empty" }]]),
+      { id: "u-1" },
+    );
   });
 
   it("stops on unmount, leaving no timer and no late state write", async () => {
