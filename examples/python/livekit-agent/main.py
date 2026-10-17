@@ -8,8 +8,6 @@ Usage:
     python main.py dev
     python main.py start
     python main.py console
-
-See README.md for PR-review installation commands using a local TraceRoot SDK.
 """
 
 import asyncio
