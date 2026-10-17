@@ -28,6 +28,9 @@ vi.mock("@traceroot/core", () => ({
     $transaction: mocks.transaction,
   },
 }));
+// lib/create-session reads AUTH_TRUSTED_PROXY_CIDRS; the real env module parses
+// the whole server schema at import and throws under vitest.
+vi.mock("@/env", () => ({ env: {} }));
 import { supportPlugin } from "./auth-plugin";
 const original = {
   userId: "staff",
