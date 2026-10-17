@@ -1,15 +1,39 @@
-// Single source of truth for the onboarding snippets, so the getting-started
-// panel and anything else that shows a command cannot drift apart.
+// Single source of truth for the onboarding snippets, shared by the
+// getting-started panel and the first-run hand-back page, so the command one
+// shows cannot drift from the other's.
 
 import { clientEnv } from "@/env.client";
 
+/**
+ * The published CLI the printed command resolves to.
+ *
+ * An exact pin, and the ordering it encodes is the point: **the version named
+ * here must already be published to npm carrying every flag this file puts on
+ * the line, before this constant names it.** `setupCommand` renders
+ * `--handoff`, and an option the resolved CLI does not declare is not ignored —
+ * commander reports it as a usage error and exits — so a pin that runs ahead of
+ * a release ends someone's sign-up on "unknown option". Bumping this is
+ * therefore the last step of a CLI release, never the first.
+ *
+ * Not `@latest`, which is what this was: `npm view traceroot-cli dist-tags`
+ * answers 0.5.0, a version with no `setup` subcommand at all, so the line this
+ * file prints dies with "unknown command 'setup'" on Cloud today. `@latest` is
+ * also resolved per machine against npx's cache, so even once a good version is
+ * published a warm cache can still hand back an older one, and a rollback
+ * silently re-breaks the page.
+ *
+ * Not a `^` range either: `^` is an escape character in Windows `cmd.exe`, and
+ * this line has to survive being pasted into whatever shell the reader has open.
+ */
+const SETUP_CLI_VERSION = "0.6.1";
+
 /** The invocation, before the flags this page is able to fill in. */
-const SETUP_BASE = "npx -y traceroot-cli@latest setup";
+const SETUP_BASE = `npx -y traceroot-cli@${SETUP_CLI_VERSION} setup`;
 
 /**
  * The API host `traceroot setup` assumes when it is passed no `--host`.
  *
- * Mirrors `DEFAULT_HOST` in the CLI. Kept here so the panel can tell "this is
+ * Mirrors `DEFAULT_HOST` in the CLI. Kept here so a caller can tell "this is
  * the deployment the CLI would have picked anyway" from "this is somewhere
  * else", and omit the flag in the first case rather than restate the default.
  */
@@ -37,10 +61,12 @@ const DEFAULT_APP_ORIGIN = "http://localhost:3000";
  * a quote cannot survive a value that contains one; omitting the flag for an id
  * no real project has costs a prompt the user can still answer.
  *
- * None of `.`, `_` or `-` is special to a shell, so a matching id is safe as a
- * bare word and is rendered as one.
+ * None of `.`, `_` or `-` is special to a shell, so a matching value is safe as
+ * a bare word and is rendered as one. That covers the handoff code without a
+ * second rule: its alphabet is base64url, `[A-Za-z0-9_-]`, a strict subset of
+ * this class, and its `trh_` prefix is in the class too.
  */
-const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
+const PLAIN_ARG = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Origins this file is willing to put in the line.
@@ -163,17 +189,17 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
 }
 
 /**
- * The whole of setup, as one command, carrying what this page already knows.
+ * The whole of setup, as one command, carrying what the caller already knows.
  *
  * `npx -y` rather than a global install: someone reading this has not decided
  * to keep a CLI yet, and asking them to install one before they have seen a
  * trace is a commitment ahead of the payoff. It authenticates in the browser,
  * creates the key, instruments the service with a coding agent, runs the
  * application and waits for the first trace — which is why none of those are
- * separate steps in the panel any more.
+ * separate steps anywhere that shows this command.
  *
- * The flags are what the panel has and the bare command does not. The project,
- * because the panel is already showing one: without it a user with more than
+ * The flags are what the caller has and the bare command does not. The project,
+ * because the caller already has one in hand: without it a user with more than
  * one project answers "which project?" from memory, and a wrong answer sends
  * their first traces somewhere they will not look for them. The deployment,
  * because the CLI defaults to TraceRoot Cloud — so on a self-hosted install the
@@ -184,11 +210,34 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * accepts a program option after the subcommand name, so they read as part of
  * the one line a user pastes.
  */
-export function setupCommand(input: { projectId: string }): string {
+export function setupCommand(input: {
+  projectId: string;
+  /**
+   * A one-time code that signs the terminal in without opening a browser.
+   *
+   * Optional, and null when the mint failed, because the command without it is
+   * the command this page printed before handoffs existed: `setup` finds no
+   * credential, runs the device flow, and the user approves it in a second
+   * browser page. That is a worse flow, not a broken one — which is why a
+   * failure here degrades to it silently rather than reporting anything.
+   */
+  handoff?: string | null;
+}): string {
   const parts = [SETUP_BASE];
 
-  if (PLAIN_PROJECT_ID.test(input.projectId)) {
+  if (PLAIN_ARG.test(input.projectId)) {
     parts.push(`--project ${input.projectId}`);
+  }
+
+  // After `--project`, which stays on the line whether or not this one is
+  // there: the fallback for an expired code is the device flow, and
+  // `chooseProject` reads the flag to resolve without prompting. Dropping it
+  // would give the degraded path a question the undegraded path does not ask.
+  //
+  // Printed bare. A value that somehow is not shell-safe is dropped rather than
+  // quoted, leaving the working command above.
+  if (input.handoff && PLAIN_ARG.test(input.handoff)) {
+    parts.push(`--handoff ${input.handoff}`);
   }
 
   const { host, authHost } = cliHostFlags({

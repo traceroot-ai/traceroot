@@ -1,10 +1,10 @@
-import { randomBytes, randomUUID } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import { deleteSessionCookie, expireCookie, setSessionCookie } from "better-auth/cookies";
 import { prisma } from "@traceroot/core";
 import { z } from "zod";
 import { isStaff } from "./policy";
+import { createSession } from "@/lib/create-session";
 import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
 
 export const supportPlugin = () =>
@@ -27,8 +27,6 @@ export const supportPlugin = () =>
             throw new APIError("FORBIDDEN", {
               message: "Use your employee session to start impersonation",
             });
-          const id = randomUUID();
-          const expiresAt = new Date(Date.now() + SESSION_EXPIRES_IN_SECONDS * 1000);
           const result = await prisma.$transaction(async (tx) => {
             await tx.$queryRaw`SELECT id FROM users WHERE id IN (${current.user.id}, ${ctx.body.userId}) ORDER BY id FOR UPDATE`;
             const actor = await tx.user.findUnique({ where: { id: current.user.id } });
@@ -52,14 +50,12 @@ export const supportPlugin = () =>
               });
               return null;
             }
-            const session = await tx.session.create({
-              data: {
-                id,
-                token: randomBytes(32).toString("hex"),
-                userId: target.id,
-                impersonatedBy: actor.id,
-                expiresAt,
-              },
+            // The one caller that sets impersonatedBy. No request headers: the
+            // customer's Active Sessions list must not show the employee's
+            // address or browser.
+            const session = await createSession(tx, {
+              userId: target.id,
+              impersonatedBy: actor.id,
             });
             await tx.auditLog.create({
               data: {
@@ -67,13 +63,13 @@ export const supportPlugin = () =>
                 actorEmail: actor.email,
                 targetUserId: target.id,
                 targetEmail: target.email,
-                impersonationSessionId: id,
+                impersonationSessionId: session.id,
                 operation: "impersonation.started",
                 resourceType: "session",
-                resourceId: id,
+                resourceId: session.id,
                 transport: "admin",
                 outcome: "success",
-                expiresAt,
+                expiresAt: session.expiresAt,
                 summary: {
                   reason: ctx.body.reason || null,
                   mode: actor.role === "admin" ? "read-write" : "read-only",
@@ -91,12 +87,12 @@ export const supportPlugin = () =>
           });
           await ctx.setSignedCookie(
             original.name,
-            `${current.session.token}:${id}`,
+            `${current.session.token}:${result.session.id}`,
             ctx.context.secret,
             original.attributes,
           );
           await setSessionCookie(ctx, result, false);
-          return ctx.json({ success: true, expiresAt });
+          return ctx.json({ success: true, expiresAt: result.session.expiresAt });
         },
       ),
       supportStop: createAuthEndpoint(

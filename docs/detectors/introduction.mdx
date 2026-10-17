@@ -1,57 +1,126 @@
 ---
 title: Introduction
-description: Continuous monitoring for your AI agents
+description: Find problems in your agent's traces
 ---
 
+A detector checks your agent's traces for one specific problem, such as a hallucination or a failed task. You hear about the problem without reading every trace. For each trace it checks, a model reads the trace and answers yes or no. A yes is a **finding**. TraceRoot groups findings of the same problem into a [signal](/signals/introduction), and the TraceRoot Agent can find the signal's root cause.
 
-A detector is an **LLM-as-a-judge** — an evaluator model that reads a sampled share of incoming traces that match its trigger conditions and decides whether a specific problem is present. When the judge flags one, TraceRoot records a finding and, when RCA is enabled, the AI agent investigates using the trace, your production source code, and recent GitHub activity. Notifications are sent on the configured digest window rather than waiting for the analysis to finish.
+Detectors work on every plan. Free includes 100 detector runs per billing period.
 
-
-<Frame>
-  <img src="/images/detector_findings_v1.png" alt="Detector findings table with the detail panel open" />
+<Frame caption="Detectors list: template, model, sampling, signals and agent runs per detector">
+  <img src="/images/detectors_list_v1.png" alt="Detectors list with each detector's template, model, sampling, judge runs, signals and agent runs" />
 </Frame>
 
-## Two-step pipeline
+## How detectors work
 
-Detection runs in two stages so you pay deep-analysis costs only on real problems:
+Detection runs in two steps. The second step, root cause analysis, costs more, so it runs only on problems the first step finds.
 
-**Step 1 — LLM-as-a-judge.** An evaluator model reads the sampled traces that match the detector's trigger conditions. The judge returns a boolean: is the problem you defined present in this trace?
+**Step 1, the judge.** About a minute after a trace's last span arrives, each detector checks whether the trace matches its filter and its sampling rate. If it does, the detector's model reads the trace, answers whether the problem is present, and writes a one-sentence summary. Detectors skip traces that come from [evaluations](/evals/introduction).
 
-**Step 2 — AI agent run.** When the judge flags a trace and RCA is enabled, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis with a code location and recommendation.
+**Step 2, the agent.** The TraceRoot Agent reads one trace of a signal and writes a root cause analysis with a code location and a recommendation. [Signals](/signals/introduction) explains when it runs.
 
-Each step's model is configurable. For the judge we can choose a cheaper model and for the agent we can pick a stronger model since it only runs on real findings. You can swap either to any system model or a [BYOK](/ai-agent/byok) model — independently per step.
+Each step has its own model. You pick the judge model on each detector. You pick the agent model once per project, in **Settings → Detectors → Agent Model**. Either can be a model TraceRoot provides or a model from your own provider key ([bring your own key](/ai-agent/byok)).
 
-## Anatomy of a detector
+## How to create a detector
 
-A detector has six configurable parts:
+You need a project that receives traces. See [Tracing](/tracing/get-started) to set one up.
 
-- **A prompt** — what to look for, in natural language ("does this trace contain a hallucination?").
-- **An output schema** — the structured result the judge returns, including the boolean `identified` outcome.
-- **Trigger conditions** — which incoming traces are eligible for evaluation.
-- **A sample rate** — what percentage of matching traces to evaluate (25% for a new detector).
-- **A detection model** — the system or BYOK model that evaluates the trace.
-- **An RCA toggle** — whether the AI agent investigates this detector's findings (on by default).
+Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detectors** from the left nav, then click **New Detector**.
 
-When `identified` is true, the detector emits a **finding** and the AI agent investigates when RCA is enabled. Findings from RCA-enabled detectors are included in the next configured notification digest; the RCA itself is read in TraceRoot, not in the digest.
+<Frame caption="Detectors page: New Detector button">
+  <img src="/images/detector_new_button_v1.png" alt="Detectors page header with the New Detector button highlighted" />
+</Frame>
 
-Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
+1. **Template**: pick **Failure** (selected by default), **Hallucination**, **Logic Error**, **Task Completion**, **Safety** or **Blank**. A template fills in the **Name** and the **Prompt**. **Blank** leaves both empty.
+2. **Model**: pick the model that judges each trace. The default is `gpt-6-luna`.
+3. **Prompt**: describe what to look for, in plain language.
+4. **Filter**: choose which traces the detector checks. Leave it empty to check every trace.
+5. **Sampling**: set the share of matching traces to check. It starts at 25%. **100%** checks every matching trace, and **0%** pauses the detector. A detector always makes the same sampling choice for a given trace, so sending that trace again does not change whether it is checked.
+6. **Signals**: leave **Generate signals** on to group findings into signals. Set **Root cause analysis** as described [below](#root-cause-analysis).
+7. Click **Create Detector**. The detector checks traces that arrive from then on.
+
+## Create detectors with AI
+
+Select **Home** from the left nav to open the TraceRoot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
+
+- "Create a detector that flags traces where a tool call fails"
+- "Suggest a new detector based on my current detectors"
+
+The agent drafts the detector. Nothing is saved until you click **Create detector** under the chat; reply instead to revise the draft.
+
+<Frame caption="TraceRoot Agent: a detector request, the detectors it read, and its summary of them">
+  <img src="/images/detector_agent_v1.png" alt="TraceRoot Agent listing and reading the project's detectors, then summarizing their setup" />
+</Frame>
+
+AI coding agents can also create detectors with the [TraceRoot CLI](/cli/get-started) (`traceroot detectors create`) or the public API under `/api/v1/public/detectors`. Writes need a signed-in user; a project API key can only read.
 
 ## Root cause analysis
 
-Every detector has a **Run root cause analysis on findings** toggle, available in the create sheet and the edit panel. It controls whether the AI agent (step 2) investigates the detector's findings — turn it off for a noisy detector that would otherwise incur agent-model cost on every finding. It defaults to on, and detection itself is unaffected either way: a detector with the toggle off still fires and records findings, but its findings are excluded from email and Slack notification digests.
+You set **Root cause analysis** in the **Signals** section, on the **New Detector** page and in the detector's edit panel. It needs **Generate signals** on.
 
-RCA is decided **per trace, not per detector**. When several detectors fire on the same trace they share a single finding and a single RCA agent, and that analysis runs if **at least one detector that fired** on the trace has the toggle on. Two consequences:
+- **Automatic** (the default for every new detector): the agent analyzes signals by itself.
+- **Manual**: the agent runs only when you click **Run root cause analysis** on a signal. Use it to analyze only the problems you choose.
 
-- Turning a detector's toggle off only suppresses RCA when it fires alone (or only alongside other RCA-off detectors).
-- When an RCA-off detector shares a trace with a firing RCA-on detector, its finding still rides along into the one shared analysis — at no extra cost, since there is only ever one agent per trace.
+Both modes detect and notify the same way.
 
-## Where to start
+The agent analyzes a signal, not each finding. [Signals](/signals/introduction) explains when it runs.
+
+## View findings
+
+Open a detector to see its runs. A run with **Identified** set to Yes is a finding.
+
+In the runs table:
+
+- Each run links to the trace it checked.
+- **Identified** shows Yes or No, or a dash if the run failed.
+- **Signal ID** links to the signal the finding joined. If grouping failed, it says **Not grouped**.
+- **Agent Run ID** links to the agent's run if the agent analyzed this trace. Otherwise it shows a dash. Open the signal to read its analysis.
+
+If the agent analyzed a trace, its analysis opens in the trace's chat panel, and you can ask follow-up questions there. The trace viewer's **Detectors** tab lists each detector that ran on the trace and links to each finding's signal.
+
+## Notifications
+
+TraceRoot tells you when a signal is created or reopened. It collects these signals over each alert window and sends them together in one message, a digest. New findings on a signal it already announced send nothing.
+
+In your project, open **Settings → Detectors** and go to **Notifications**:
+
+- **Email**: click **Add recipient**, enter an address and click **Save**.
+- **Alert window**: pick how long TraceRoot collects signals before it sends a digest (1, 5, 10 or 30 minutes, 1 hour or 2 hours), then click **Save**. The default is 10 minutes.
+- **Slack**: shows the connected workspace and channel. Click **Connect** or **Manage** to change them.
+
+With no email recipient and no Slack channel, TraceRoot sends nothing. Adding a recipient or channel later does not resend earlier signals.
+
+Email and Slack get the same digest, split into **New** and **Reopened**. Each signal shows:
+
+- Its title, linked to the signal.
+- A short summary of what it covers.
+- Its detector and its number of hits, one per finding.
+
+A digest lists up to 45 signals and counts the rest. The email also has a **View signals** button that opens the Signals page. The digest does not include or wait for root cause analysis. Open the signal to read it.
+
+<Frame caption="Slack digest: new signals, each with detector, hits and summary">
+  <img src="/images/detector_digest_slack_v2.png" alt="Slack digest listing new detector signals, each with detector name, hit count and summary" />
+</Frame>
+
+### Connect Slack
+
+You connect Slack once per TraceRoot workspace. TraceRoot posts to one Slack channel.
+
+1. As a workspace admin, open your workspace settings and go to **Integrations**. From a project, you can also click **Connect** under **Settings → Detectors → Slack**.
+2. Click **Connect** and approve TraceRoot in Slack.
+3. Click **Manage → Configure** and choose the channel. Click **Test Connection** to check that it works.
+
+<Note>
+  On a self-hosted deployment, signals, root cause analysis and notifications need `OPENAI_API_KEY` on the server. Without it, detectors still record findings. A detector with no model chosen then judges on `claude-haiku-5-5` instead of `gpt-6-luna`, unless the workspace has its own OpenAI key. Email also needs `TRACEROOT_SMTP_URL`.
+</Note>
+
+## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Get Started" icon="rocket" href="/detectors/get-started">
-    Create your first detector in a few minutes from a starting prompt.
+  <Card title="Signals" icon="lightbulb" href="/signals/introduction">
+    See how findings are grouped, reviewed and resolved.
   </Card>
-  <Card title="Notifications" icon="bell" href="/detectors/notifications">
-    Configure email and Slack notifications for findings.
+  <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
+    Learn how the agent behind root cause analysis works.
   </Card>
 </CardGroup>

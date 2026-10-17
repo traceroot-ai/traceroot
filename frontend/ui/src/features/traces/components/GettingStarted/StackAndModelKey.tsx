@@ -1,0 +1,106 @@
+"use client";
+
+import { useState, type ReactNode } from "react";
+import { LoadingState } from "@/components/ui/loading-state";
+import { useProject } from "@/features/projects/hooks";
+import { ModelProviderBlock } from "./ModelProviderBlock";
+import { StackSelector } from "./StackSelector";
+import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
+import { INTEGRATIONS, type IntegrationOption } from "./integrations";
+
+/**
+ * Which stack the rest of the setup is about.
+ *
+ * A hook rather than state inside the block below, because the answer is needed
+ * on both sides of it: the block renders the picker and the key field it drives,
+ * and the section underneath — a walkthrough, in both callers — renders the
+ * snippets for the same selection. Lifting it is what lets the two sit as
+ * siblings instead of nesting the whole of setup inside the picker.
+ *
+ * The lookup and its fallback live here too, so neither caller can derive the
+ * selected entry slightly differently from the other.
+ */
+export function useStackSelection(): {
+  selected: IntegrationOption;
+  select: (integrationId: string) => void;
+} {
+  const [selectedId, setSelectedId] = useState("openai");
+  const selected =
+    INTEGRATIONS.find((integration) => integration.id === selectedId) ?? INTEGRATIONS[0];
+  return { selected, select: setSelectedId };
+}
+
+interface StackAndModelKeyProps {
+  /** The project whose workspace owns the key being stored. */
+  projectId: string;
+  selected: IntegrationOption;
+  onSelect: (integrationId: string) => void;
+  /**
+   * Rendered between the two questions, for a caller with something to say
+   * about the run in progress.
+   *
+   * There is one such caller: onboarding, whose watch for the first trace
+   * belongs where it can be read without scrolling past a walkthrough. A slot
+   * rather than a flag because this block has no business knowing what a trace
+   * watch is, and because the position — under the stack, above the key — is
+   * the whole of what onboarding needs from it.
+   */
+  afterStack?: ReactNode;
+}
+
+/**
+ * The two questions every route to a first trace has to ask, wherever it is
+ * asked from.
+ *
+ * Which stack you have decides the install command, the snippet, the docs link
+ * and which provider's key the field below asks for. Whose model key the
+ * assistant and the detectors run on is the same question whether a coding
+ * agent is about to edit the repository, you are about to edit it yourself, or
+ * you are halfway through signing up. So it is one component used three times
+ * over rather than three arrangements of the same two fields: onboarding's
+ * manual step used to render the walkthrough alone, which — once the picker
+ * moved out of the walkthrough — would have left a brand-new account reading
+ * OpenAI's snippet with no way to say they were not using OpenAI, and no key
+ * field at all.
+ *
+ * Returns a fragment, so the caller's own list spacing applies: the traces
+ * panel spaces its sections at 6 and the onboarding card at 4, and the two
+ * questions are sections of whichever list they are dropped into rather than a
+ * box of their own.
+ */
+export function StackAndModelKey({
+  projectId,
+  selected,
+  onSelect,
+  afterStack,
+}: StackAndModelKeyProps) {
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
+  const workspaceId = project?.workspace_id;
+
+  return (
+    <>
+      <StackSelector selected={selected} onSelect={onSelect} />
+
+      {afterStack}
+
+      <div className="space-y-2">
+        <p className="text-[13px] font-medium text-foreground">Use your own model key</p>
+        {/* The heading stays general while the field below it is named for
+            the provider the stack asks for. A heading that renamed itself on
+            every selection would move the mode switch and the whole section
+            under it, which is the reflow this layout exists to stop. */}
+        {projectLoading ? (
+          <LoadingState label="Loading model providers..." />
+        ) : workspaceId ? (
+          <ModelProviderBlock
+            workspaceId={workspaceId}
+            providerKey={selected.providerKey}
+            stackName={selected.name}
+          />
+        ) : (
+          <WorkspaceUnavailable />
+        )}
+      </div>
+    </>
+  );
+}

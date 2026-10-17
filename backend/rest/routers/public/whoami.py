@@ -3,6 +3,13 @@
 Powers the CLI's `login` (validate + confirm) and `status` commands. Returns
 identity plus both hosts so the CLI stays single-host: ``host`` is the API host
 the client reached, ``ui_base_url`` is where trace links point.
+
+It also reports the key's scope. Scope is otherwise only discoverable by being
+refused, which is the right answer for a route and the wrong one for a decision
+taken before any route is called — a client deciding whether to write a key into
+a file that outlives the run should not have to exercise a privileged endpoint to
+find out whether it is privileged. Reporting it to the key's own holder discloses
+nothing they could not already establish that way.
 """
 
 from fastapi import APIRouter, Request, Response
@@ -14,11 +21,35 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import KeyStampedAuth
+from rest.routers.public.deps import KeyStampedAuth, parse_scope
 from rest.schemas.public import WhoamiResponse
 from shared.config import settings
 
-router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
+router = APIRouter(prefix="/public/whoami", tags=["Whoami"])
+
+
+def _public_api_host(request: Request) -> str:
+    """The API host as a client outside the deployment would reach it.
+
+    ``request.base_url`` takes its scheme from what the ASGI server believes the
+    connection was. Behind a proxy that terminates TLS, that belief is only
+    right if the proxy's ``X-Forwarded-Proto`` is trusted, and uvicorn trusts it
+    only from the peers named by ``forwarded_allow_ips`` — which defaults to
+    ``127.0.0.1`` and is not set here. So a deployment whose TLS ends at a load
+    balancer on some other address reports ``http://`` for a host that answers
+    only on ``https://``, and the response contradicts itself: ``host`` arrives
+    as ``http`` next to a ``ui_base_url`` of ``https`` for the same deployment.
+
+    The configured public UI origin is not a guess in the same way — it is
+    deployment configuration rather than anything a client can set. When it is
+    HTTPS this deployment is reached over HTTPS, so the scheme comes from there.
+    HTTPS wins a disagreement deliberately: handing back a URL that redirects is
+    recoverable, and handing back one that refuses the connection is not.
+    """
+    base = str(request.base_url).rstrip("/")
+    if settings.traceroot_public_ui_url.startswith("https://") and base.startswith("http://"):
+        return f"https://{base[len('http://') :]}"
+    return base
 
 
 @router.get("", response_model=WhoamiResponse, operation_id="whoami")
@@ -28,7 +59,8 @@ router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
 async def whoami(request: Request, response: Response, auth: KeyStampedAuth) -> WhoamiResponse:
     """Return the identity the authenticated API key maps to."""
     # `host` reflects the request's Host header (the API host the client
-    # reached). It is only echoed back, never used server-side — but it is
+    # reached), with the scheme corrected for a TLS-terminating proxy. It is
+    # only echoed back, never used server-side — but the host itself is
     # client-controllable unless a trusted proxy validates Host, so consumers
     # should treat it as informational.
     return WhoamiResponse(
@@ -38,6 +70,15 @@ async def whoami(request: Request, response: Response, auth: KeyStampedAuth) -> 
         workspace_name=auth.workspace_name,
         key_name=auth.key_name,
         key_hint=auth.key_hint,
-        host=str(request.base_url).rstrip("/"),
+        # Narrowed through the same function the enforcement path uses, rather
+        # than reported raw. The two must agree: a holder told `admin` and then
+        # refused as `ingest` is worse than either answer alone. This route is
+        # key-only, so `auth.scope` is always populated — routing it through
+        # `parse_scope` costs nothing and means a credential that somehow
+        # carries none is reported as what it would in fact be allowed, not as
+        # a 500. (A user credential carries no scope; were this route ever to
+        # accept one, it would need an answer of its own rather than this.)
+        key_scope=parse_scope(auth.scope),
+        host=_public_api_host(request),
         ui_base_url=settings.traceroot_public_ui_url.rstrip("/"),
     )
