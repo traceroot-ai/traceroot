@@ -166,7 +166,11 @@ export function ManualTab({ projectId }: ManualTabProps) {
         {projectLoading ? (
           <LoadingState label="Loading model providers..." />
         ) : workspaceId ? (
-          <ModelProviderBlock workspaceId={workspaceId} />
+          <ModelProviderBlock
+            workspaceId={workspaceId}
+            providerKey={selectedIntegration.providerKey}
+            stackName={selectedIntegration.name}
+          />
         ) : (
           <WorkspaceUnavailable />
         )}

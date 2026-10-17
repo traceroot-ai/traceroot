@@ -65,12 +65,27 @@ import { ApiError } from "@/lib/api/errors";
 import {
   INLINE_ADAPTERS,
   isInlineConfigurable,
+  keyFieldIntro,
   ModelProviderBlock,
   SETTINGS_ONLY_ADAPTERS,
+  settingsOnlyReason,
   storedKeyCopy,
+  unavailableKeyCopy,
 } from "./ModelProviderBlock";
+import type { ProviderKeyBinding } from "./integrations";
 
-function renderBlock(workspaceId = "ws-1") {
+/**
+ * A provider-agnostic stack: the picker suggests a provider and the user may
+ * switch it. Most of what follows is about the form itself rather than the
+ * binding, and this is the binding that renders the whole of it.
+ */
+const SUGGESTED: ProviderKeyBinding = { kind: "suggested", adapter: INLINE_ADAPTERS[0] };
+
+function renderBlock(
+  workspaceId = "ws-1",
+  providerKey: ProviderKeyBinding = SUGGESTED,
+  stackName = "LangChain & LangGraph",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -78,14 +93,20 @@ function renderBlock(workspaceId = "ws-1") {
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock workspaceId={workspaceId} />
+        <ModelProviderBlock
+          workspaceId={workspaceId}
+          providerKey={providerKey}
+          stackName={stackName}
+        />
       </QueryClientProvider>,
     ),
   };
 }
 
+// The field is named for the provider the stack asks for, so every lookup for
+// it is by suffix rather than by the bare words it used to carry.
 async function fillKey(value = "sk-test-key") {
-  const field = await screen.findByLabelText("API key");
+  const field = await screen.findByLabelText(/API key$/);
   fireEvent.change(field, { target: { value } });
   return field as HTMLInputElement;
 }
@@ -144,8 +165,8 @@ describe("the adapters offered inline", () => {
     ).toBe(true);
   });
 
-  it("asks for the provider rather than inferring it, defaulting to the top-ranked one", async () => {
-    renderBlock();
+  it("offers every inline adapter as a switch, under a stack that names none", async () => {
+    renderBlock("ws-1", { kind: "suggested", adapter: "anthropic" });
     const select = (await screen.findByLabelText("Model provider")) as HTMLSelectElement;
     expect(select.value).toBe("anthropic");
     expect([...select.options].map((o) => o.value)).toEqual(INLINE_ADAPTERS);
@@ -337,7 +358,7 @@ describe("a workspace the feature is not entitled on", () => {
 
     renderBlock();
     expect(await screen.findByText(/not available on this workspace/)).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(mocks.testModelProvider).not.toHaveBeenCalled();
   });
 });
@@ -352,7 +373,7 @@ describe("a provider list that cannot be read", () => {
 
     renderBlock();
     expect(await screen.findByText(/could not be read/)).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
     expect(mocks.createModelProvider).not.toHaveBeenCalled();
   });
@@ -364,7 +385,7 @@ describe("a provider list that cannot be read", () => {
     renderBlock("");
     expect(await screen.findByText(/could not be read/)).toBeTruthy();
     expect(mocks.getModelProviders).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
   });
 });
 
@@ -390,14 +411,18 @@ describe("a cached list this mount has not re-read", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock workspaceId="ws-1" />
+        <ModelProviderBlock
+          workspaceId="ws-1"
+          providerKey={SUGGESTED}
+          stackName="LangChain & LangGraph"
+        />
       </QueryClientProvider>,
     );
 
     // In flight, behind a snapshot that says this workspace has no provider.
     await waitFor(() => expect(mocks.getModelProviders).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/Loading model providers/)).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
 
     // And it comes back carrying the row that was added after that snapshot.
@@ -418,7 +443,7 @@ describe("a cached list this mount has not re-read", () => {
     });
 
     expect(await screen.findByText("sk-ant-...new")).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(mocks.createModelProvider).not.toHaveBeenCalled();
   });
 
@@ -448,7 +473,7 @@ describe("a cached list this mount has not re-read", () => {
     await act(async () => {
       answer({ byokEnabled: true, providers: [] });
     });
-    expect(screen.getByLabelText("API key")).toBeTruthy();
+    expect(screen.getByLabelText(/API key$/)).toBeTruthy();
   });
 });
 
@@ -470,7 +495,7 @@ describe("a provider the workspace already has", () => {
 
     renderBlock();
     expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
     expect(
       screen.getByText(/already had a key of its own, so this step left it as it was/),
@@ -542,7 +567,7 @@ describe("a provider the workspace already has", () => {
     expect(screen.queryByText(/already had a key of its own/)).toBeNull();
     expect(screen.queryByText(/key verified and saved/i)).toBeNull();
     expect(screen.getByText(/Turn it back on in/)).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
   });
 });
@@ -630,7 +655,7 @@ describe("a member who cannot write one", () => {
 
     expect(screen.getByText("Loading model providers...")).toBeTruthy();
     expect(screen.queryByText(/A workspace admin can add one/)).toBeNull();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
   });
 
   it("shows the state rather than a form that would be refused", async () => {
@@ -638,21 +663,21 @@ describe("a member who cannot write one", () => {
 
     renderBlock();
     expect(await screen.findByText(/A workspace admin can add one/)).toBeTruthy();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(mocks.testModelProvider).not.toHaveBeenCalled();
     expect(mocks.createModelProvider).not.toHaveBeenCalled();
   });
 });
 
 describe("no adapter a pasted key fully configures", () => {
-  it("names where the providers live instead of throwing through the whole tab", async () => {
+  it("says why rather than throwing through the whole panel", async () => {
     // INLINE_ADAPTERS is derived once at module load, so an empty list can only
     // be reached by reloading the module over an empty catalogue: with no
     // curated models anywhere, every adapter fails the second half of the
-    // rule. `useState(INLINE_ADAPTERS[0])` then held undefined and
-    // `ADAPTER_CONFIG[undefined].label` threw from render — and because this
-    // block renders inline in ManualTab, that took the API key, the SDK install
-    // and the integration picker with it.
+    // rule. The adapter the binding names then has nowhere to be configured,
+    // and the form must not be drawn over it — this block renders inline in the
+    // same panel as the API key, the SDK install and the stack picker, so a
+    // throw from here would take all three with it.
     vi.resetModules();
     vi.doMock("@traceroot/core", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@traceroot/core")>()),
@@ -667,16 +692,208 @@ describe("no adapter a pasted key fully configures", () => {
       });
       render(
         <QueryClientProvider client={queryClient}>
-          <fresh.ModelProviderBlock workspaceId="ws-1" />
+          <fresh.ModelProviderBlock
+            workspaceId="ws-1"
+            providerKey={{ kind: "suggested", adapter: "anthropic" }}
+            stackName="Agno"
+          />
         </QueryClientProvider>,
       );
 
-      expect(await screen.findByText(/workspace settings/)).toBeTruthy();
-      expect(screen.queryByLabelText("API key")).toBeNull();
+      expect(
+        await screen.findByText(/Agno runs on Anthropic, and Anthropic needs a model list chosen/),
+      ).toBeTruthy();
+      expect(screen.queryByLabelText(/API key$/)).toBeNull();
       expect(screen.queryByLabelText("Model provider")).toBeNull();
+      expect(screen.getByRole("link", { name: /Settings/ }).getAttribute("href")).toBe(
+        "/workspaces/ws-1/settings/model-providers",
+      );
     } finally {
       vi.doUnmock("@traceroot/core");
       vi.resetModules();
+    }
+  });
+});
+
+describe("the key the selected stack asks for", () => {
+  it("names the field for a provider SDK's own provider, with nothing to switch", async () => {
+    // Claude Agent SDK can only call Anthropic. A dropdown over that is a
+    // question with one right answer and six wrong ones.
+    renderBlock("ws-1", { kind: "fixed", adapter: "anthropic" }, "Claude Agent SDK");
+    expect(await screen.findByLabelText("Anthropic API key")).toBeTruthy();
+    expect(screen.queryByLabelText("Model provider")).toBeNull();
+    expect(
+      screen.getByText(/Claude Agent SDK runs on Anthropic, so this step takes your Anthropic key/),
+    ).toBeTruthy();
+  });
+
+  it("names the field for the provider a framework's own example calls", async () => {
+    // The mapping the panel is built on: a LangChain reader is shown an OpenAI
+    // field because LangChain's own example builds ChatOpenAI — not because
+    // OpenAI is the default for everything.
+    renderBlock("ws-1", { kind: "suggested", adapter: "openai" }, "LangChain & LangGraph");
+    expect(await screen.findByLabelText("OpenAI API key")).toBeTruthy();
+    expect(screen.getByText(/its example uses OpenAI/)).toBeTruthy();
+    // And here the switch is real, because the framework will take any of them.
+    expect(screen.getByLabelText("Model provider")).toBeTruthy();
+  });
+
+  it("relabels the field when the user switches a suggested provider", async () => {
+    renderBlock("ws-1", { kind: "suggested", adapter: "openai" }, "LangChain & LangGraph");
+    await screen.findByLabelText("OpenAI API key");
+    fireEvent.change(screen.getByLabelText("Model provider"), { target: { value: "google" } });
+    expect(screen.getByLabelText("Google Gemini API key")).toBeTruthy();
+    expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
+  });
+
+  it("sends the provider the stack named, not the top-ranked one", async () => {
+    // The old default was PROVIDER_PRIORITY[0] — Anthropic — for every stack.
+    renderBlock("ws-1", { kind: "fixed", adapter: "google" }, "Google ADK");
+    await fillKey("sk-google");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "google",
+      apiKey: "sk-google",
+    });
+    expect(mocks.createModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "google",
+      provider: ADAPTER_CONFIG.google.label,
+      apiKey: "sk-google",
+      customModels: ADAPTER_MODELS.google!.map((m) => m.id),
+    });
+  });
+
+  it("drops a half-typed key and its rejection when the stack changes under it", async () => {
+    // Switching stack is switching provider, so the same rule applies as
+    // switching it by hand: the key and the error belonged to the old one.
+    mocks.testModelProvider.mockResolvedValue({ success: false, error: "Invalid API key" });
+    const openai: ProviderKeyBinding = { kind: "suggested", adapter: "openai" };
+    const anthropic: ProviderKeyBinding = { kind: "fixed", adapter: "anthropic" };
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ModelProviderBlock workspaceId="ws-1" providerKey={openai} stackName="LangChain" />
+      </QueryClientProvider>,
+    );
+
+    const field = await fillKey("sk-an-openai-key");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ModelProviderBlock
+          workspaceId="ws-1"
+          providerKey={anthropic}
+          stackName="Claude Agent SDK"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText(/Invalid API key/)).toBeNull();
+    expect(screen.getByLabelText("Anthropic API key")).toBeTruthy();
+    expect(field.value).toBe("");
+    // A provider chosen by hand is dropped with it: the new stack names its own.
+    expect(screen.queryByLabelText("Model provider")).toBeNull();
+  });
+
+  it("says there is no adapter at all rather than offering a field for one", async () => {
+    // Mistral's integration is MISTRAL_API_KEY throughout and LLMAdapter has no
+    // Mistral entry. Nothing in TraceRoot can store that key, so there is no
+    // settings tab to send the reader to for it either.
+    renderBlock("ws-1", { kind: "none", provider: "Mistral" }, "Mistral");
+    expect(
+      await screen.findByText(/TraceRoot has no Mistral adapter for your own keys/),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
+    expect(screen.queryByLabelText("Model provider")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Settings/ })).toBeNull();
+  });
+
+  it("says why an offered adapter still cannot be set up from here", async () => {
+    // OpenRouter is one of the three the inline rule excludes, and the reason
+    // it gives is the clause it actually failed: its key is the whole
+    // credential, it just ships no curated model list.
+    renderBlock("ws-1", { kind: "fixed", adapter: "openrouter" }, "OpenRouter");
+    expect(
+      await screen.findByText(/OpenRouter runs on OpenRouter, and OpenRouter needs a model list/),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
+    expect(screen.getByRole("link", { name: /Settings/ })).toBeTruthy();
+  });
+
+  it("keeps offering only one key when the workspace already has one", async () => {
+    // Picking a different stack over a stored key must not reopen the form for
+    // a second provider: the write upserts on (workspace, label), and this step
+    // configures one key.
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "mp-existing",
+          adapter: "anthropic",
+          provider: "Anthropic",
+          keyPreview: "sk-ant-...xyz",
+          customModels: ["claude-opus-5"],
+          enabled: true,
+        },
+      ],
+    });
+
+    renderBlock("ws-1", { kind: "fixed", adapter: "openai" }, "OpenAI");
+    expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
+    expect(screen.queryByText(/add another|add a key for another/i)).toBeNull();
+  });
+});
+
+describe("the lines the bound key is introduced with", () => {
+  it("states the provider as a consequence of the stack when it is fixed", () => {
+    expect(keyFieldIntro({ stackName: "OpenAI Agents SDK", kind: "fixed", label: "OpenAI" })).toBe(
+      "Optional. OpenAI Agents SDK runs on OpenAI, so this step takes your OpenAI key: paste it and the AI assistant, detector screening and root cause analysis run on your own OpenAI account instead of TraceRoot's models.",
+    );
+  });
+
+  it("offers it as the example's provider, and says it can be switched", () => {
+    const line = keyFieldIntro({ stackName: "CrewAI", kind: "suggested", label: "OpenAI" });
+    expect(line).toContain("CrewAI calls whichever provider you give it");
+    expect(line).toContain("its example uses OpenAI");
+    expect(line).toContain("switch provider");
+  });
+
+  it("never invites a second key, in either form", () => {
+    for (const kind of ["fixed", "suggested"] as const) {
+      expect(keyFieldIntro({ stackName: "CrewAI", kind, label: "OpenAI" })).not.toMatch(
+        /\badd\b|another|each provider/i,
+      );
+    }
+  });
+
+  it("sends a provider with no adapter nowhere, and an excluded one to settings", () => {
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Mistral")).toEqual({
+      state:
+        "Mistral calls Mistral, and TraceRoot has no Mistral adapter for your own keys, so there is no Mistral key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+      settings: null,
+    });
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" }, "Azure OpenAI")).toEqual({
+      state:
+        "Azure OpenAI runs on Azure OpenAI, and Azure OpenAI needs more than a key, so it cannot be set up from here.",
+      settings: "Add it in",
+    });
+  });
+
+  it("derives each exclusion from the clause the adapter actually fails", () => {
+    expect(settingsOnlyReason("azure")).toBe("more-than-a-key");
+    expect(settingsOnlyReason("amazon-bedrock")).toBe("more-than-a-key");
+    expect(settingsOnlyReason("openrouter")).toBe("model-list");
+    for (const adapter of INLINE_ADAPTERS) {
+      expect(settingsOnlyReason(adapter), adapter).toBeNull();
     }
   });
 });
@@ -729,7 +946,7 @@ describe("the links out to settings", () => {
 describe("skipping the step", () => {
   it("writes nothing when the step is left alone", async () => {
     renderBlock();
-    const field = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    const field = (await screen.findByLabelText(/API key$/)) as HTMLInputElement;
     // Rendering and reading the state is all an untouched step may do. The
     // field starts empty because the user is the only source of the key:
     // nothing is read from their machine, environment or files.
@@ -740,7 +957,7 @@ describe("skipping the step", () => {
 
   it("cannot be submitted with an empty key", async () => {
     renderBlock();
-    await screen.findByLabelText("API key");
+    await screen.findByLabelText(/API key$/);
     expect(
       (screen.getByRole("button", { name: "Verify and save" }) as HTMLButtonElement).disabled,
     ).toBe(true);
