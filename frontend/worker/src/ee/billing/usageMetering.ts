@@ -29,6 +29,7 @@ import {
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
   EVENT_QUOTAS,
+  findPlanItem,
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
@@ -714,15 +715,7 @@ async function updateStripeQuantity(
   try {
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
     // Find the plan item (not the metered usage items — AI runs, RCA runs, detector usage)
-    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
-    const rcaUsagePriceId = process.env.STRIPE_PRICE_ID_RCA_USAGE;
-    const detectorUsagePriceId = process.env.STRIPE_PRICE_ID_DETECTOR_USAGE;
-    const meteredPriceIds = new Set(
-      [aiUsagePriceId, rcaUsagePriceId, detectorUsagePriceId].filter((p): p is string =>
-        Boolean(p),
-      ),
-    );
-    const planItem = subscription.items.data.find((item) => !meteredPriceIds.has(item.price.id));
+    const planItem = findPlanItem(subscription.items.data);
 
     if (!planItem) {
       console.warn(`[Billing] No plan subscription item found for ${subscriptionId}`);
