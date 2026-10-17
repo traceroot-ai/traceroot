@@ -85,8 +85,10 @@ traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])`,
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 // Spread the read-only ESM namespace into a mutable object so the patcher
-// can rewrite query. Always call the SDK via claudeAgentSDK to ensure calls are traced.
+// can rewrite \`query\` in place. If you call the original namespace's \`query\`
+// after this point, it will NOT be traced.
 const claudeAgentSDK = { ...claudeAgentSDKModule };
+
 TraceRoot.initialize({
   instrumentModules: { claudeAgentSDK },
 });`,

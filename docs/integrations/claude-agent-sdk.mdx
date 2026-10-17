@@ -13,6 +13,8 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
     import traceroot
     from traceroot import Integration
 
+    # Always initialize TraceRoot before importing `query` from `claude_agent_sdk`
+    # so the module attribute is patched in place.
     traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])
     ```
   </Tab>
@@ -22,7 +24,8 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
     // Spread the read-only ESM namespace into a mutable object so the patcher
-    // can rewrite query. Always call the SDK via claudeAgentSDK to ensure calls are traced.
+    // can rewrite `query` in place. If you call the original namespace's `query`
+    // after this point, it will NOT be traced.
     const claudeAgentSDK = { ...claudeAgentSDKModule };
 
     TraceRoot.initialize({
@@ -32,11 +35,22 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
   </Tab>
 </Tabs>
 
+<Warning>
+  **Import order matters**: In Python, always call `traceroot.initialize()` **before** importing `query` from `claude_agent_sdk`. Importing `query` beforehand binds the unpatched function reference and prevents calls from being traced.
+</Warning>
+
 ## Usage
 
 <Tabs>
   <Tab title="Python">
     ```python
+    import asyncio
+    import traceroot
+    from traceroot import Integration
+
+    # Initialize TraceRoot before importing query
+    traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])
+
     from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
 
     # Define subagents
@@ -47,23 +61,39 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
         model="haiku",
     )
 
-    # Run the agent with subagents
-    async for message in query(
-        prompt="Research the latest trends in AI observability",
-        options=ClaudeAgentOptions(
-            allowed_tools=["Agent", "Bash", "Read", "Glob", "Grep"],
-            agents={"researcher": researcher},
-        ),
-    ):
-        if hasattr(message, "result"):
-            print(message.result)
+
+    async def main():
+        # Run the agent with subagents
+        async for message in query(
+            prompt="Research the latest trends in AI observability",
+            options=ClaudeAgentOptions(
+                allowed_tools=["Agent", "Bash", "Read", "Glob", "Grep"],
+                agents={"researcher": researcher},
+            ),
+        ):
+            if hasattr(message, "result"):
+                print(message.result)
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+        traceroot.flush()
     ```
   </Tab>
   <Tab title="TypeScript">
     ```typescript
+    import * as claudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
     import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
 
-    // Assumes Setup ran first to initialize TraceRoot and claudeAgentSDK
+    // Spread the read-only ESM namespace into a mutable object so the patcher
+    // can rewrite `query` in place. If you call the original namespace's `query`
+    // after this point, it will NOT be traced.
+    const claudeAgentSDK = { ...claudeAgentSDKModule };
+
+    TraceRoot.initialize({
+      instrumentModules: { claudeAgentSDK },
+    });
 
     // Define subagents
     const researcher: AgentDefinition = {
@@ -73,8 +103,8 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
       model: 'haiku',
     };
 
-    // Run the agent with subagents via the instrumented claudeAgentSDK
     async function main() {
+      // Run the agent with subagents via the instrumented claudeAgentSDK
       for await (const message of claudeAgentSDK.query({
         prompt: 'Research the latest trends in AI observability',
         options: {
@@ -86,7 +116,10 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
           console.log(message.result);
         }
       }
+
+      await TraceRoot.shutdown();
     }
+
     main().catch(console.error);
     ```
   </Tab>
@@ -96,12 +129,13 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
 
 | Attribute | Description |
 |-----------|-------------|
-| Agent queries | Each `query()` call as a top-level agent span |
-| Subagent invocations | Each subagent delegation via the Agent tool |
+| Agent queries | Each `query()` call as a top-level `ClaudeAgent.query` span |
+| Subagent invocations | Each subagent delegation via the `Agent` tool |
 | Tool calls | Built-in tools (Read, Write, Bash, Glob, Grep, WebSearch) |
-| Token usage | Aggregated input/output tokens per query |
-| Cost | Total cost for the full query execution |
+| Token usage | Trace-level input, output, and cache token totals |
+| Cost | Estimated cost calculated across the trace |
 | Model name | The model used (e.g., claude-sonnet-4-6, claude-haiku-4-5) |
+| Latency | Duration per query and per individual execution step |
 
 
 ## Run the example
