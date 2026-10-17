@@ -31,7 +31,6 @@ function stubSpawn() {
   });
 }
 
-
 /** A spawn stub that remains open until the test cancels it. */
 function stubPendingSpawn() {
   const child = new EventEmitter() as EventEmitter & {
@@ -70,7 +69,6 @@ beforeEach(() => {
   spawnMock.mockReset();
   execFileMock.mockReset();
 });
-
 
 describe("DockerExecutor.exec cancellation", () => {
   it("runs a command in a unique process group with cancellation marker files", async () => {

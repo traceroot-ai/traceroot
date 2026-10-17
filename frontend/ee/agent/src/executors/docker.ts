@@ -1,5 +1,5 @@
-import { randomUUID } from "crypto";
 import { spawn, execFile } from "child_process";
+import { randomUUID } from "crypto";
 import { promisify } from "util";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 import { ASKPASS_PATH, ASKPASS_SCRIPT, buildCloneCommand } from "./git-clone-command.js";
