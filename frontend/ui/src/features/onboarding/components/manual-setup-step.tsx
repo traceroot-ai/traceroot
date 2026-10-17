@@ -6,8 +6,6 @@ import {
   StackAndModelKey,
   useStackSelection,
 } from "@/features/traces/components/GettingStarted/StackAndModelKey";
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
-import { FirstTraceLine } from "./first-trace-line";
 
 interface ManualSetupStepProps {
   /** The project the key, the snippets and the integrations belong to. */
@@ -16,16 +14,6 @@ interface ManualSetupStepProps {
   onBack: () => void;
   /** Into the app, instrumented or not. */
   onDone: () => void;
-  /**
-   * How the watch for this project's first trace is going.
-   *
-   * The same watch the step before this one shows, still running: instrumenting
-   * by hand ends in a trace exactly as the command does, and the moment it
-   * arrives is the moment these steps are finished with. Stopping the watch
-   * because the user chose the longer path would blind the page precisely where
-   * the confirmation is worth the most.
-   */
-  wait: TraceWait;
 }
 
 /**
@@ -51,13 +39,21 @@ interface ManualSetupStepProps {
  * offered as a way back instead, because deciding to do it by hand and then
  * changing your mind is ordinary.
  *
+ * The line about the first trace is not here either, for the same reason it is
+ * not on the hand-back step: the page watches across both of them and says so
+ * once, in the header above the card. The watch keeps running while this step is
+ * open — instrumenting by hand ends in a trace exactly as the command does — but
+ * the line that reports it belongs to the flow, not to the step, and a line that
+ * each step rendered for itself was a line that moved whenever the step changed.
+ * See app/onboarding/page.tsx.
+ *
  * The way out leads into the app with the application possibly still
  * uninstrumented, which is the honest state: these steps end in the user's
  * editor, and nothing in the browser can tell how far they got. The page picks
  * the destination, and picks one that keeps showing these same steps until the
  * first trace arrives, so leaving part-way through loses nothing.
  */
-export function ManualSetupStep({ projectId, onBack, onDone, wait }: ManualSetupStepProps) {
+export function ManualSetupStep({ projectId, onBack, onDone }: ManualSetupStepProps) {
   const { selected, select } = useStackSelection();
 
   return (
@@ -67,19 +63,7 @@ export function ManualSetupStep({ projectId, onBack, onDone, wait }: ManualSetup
           inside it is worse than no title at all. */}
       <p className="text-sm font-semibold">Set up tracing by hand</p>
 
-      {/* The watch goes inside the shared top, between the stack and the key:
-          high enough to be read without scrolling past the whole walkthrough,
-          and in the part of the step that does not move when the user switches
-          back to the command. At the bottom it sat under the key field, both
-          snippets and the integrations card — the one line on the step that
-          says anything is listening, in the one place a user who is watching
-          their terminal would never scroll to. */}
-      <StackAndModelKey
-        projectId={projectId}
-        selected={selected}
-        onSelect={select}
-        afterStack={<FirstTraceLine wait={wait} />}
-      />
+      <StackAndModelKey projectId={projectId} selected={selected} onSelect={select} />
 
       <ManualTab projectId={projectId} integration={selected} />
 

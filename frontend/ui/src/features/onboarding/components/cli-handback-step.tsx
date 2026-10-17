@@ -3,8 +3,6 @@
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
-import { FirstTraceLine } from "./first-trace-line";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -38,15 +36,6 @@ interface CliHandbackStepProps {
   onSetUpManually: () => void;
   /** "Skip for now" — into the app with the application still uninstrumented. */
   onSkip: () => void;
-  /**
-   * How the watch for this project's first trace is going.
-   *
-   * Said above the command rather than under it. It is the only line on the
-   * step that reports anything happening, and a user who has pasted the command
-   * is watching their terminal — so when they look back at this tab it has to
-   * be in the part they see first, not under the thing they have already run.
-   */
-  wait: TraceWait;
 }
 
 /**
@@ -75,6 +64,12 @@ interface CliHandbackStepProps {
  * alternatives are deliberately quieter than the command — not hidden, because
  * a user who will not paste a CLI invocation into their shell needs a door, and
  * a dead end here is a dead end at the end of signing up.
+ *
+ * What is deliberately not here is the line about the first trace. The page
+ * watches for it across both of these steps and says so once, in the header
+ * above the card, so that it reads as the state of the run rather than as part
+ * of whichever step happens to be on screen — and so that it stays in the same
+ * place when the user switches to the manual step. See app/onboarding/page.tsx.
  */
 export function CliHandbackStep({
   projectId,
@@ -82,7 +77,6 @@ export function CliHandbackStep({
   handoff,
   onSetUpManually,
   onSkip,
-  wait,
 }: CliHandbackStepProps) {
   return (
     <div className="flex flex-col gap-3">
@@ -92,8 +86,6 @@ export function CliHandbackStep({
           {projectName} is ready. Run this where your application lives.
         </p>
       </div>
-
-      <FirstTraceLine wait={wait} />
 
       <CodeBlock label="terminal" value={setupCommand({ projectId, handoff })} />
 
