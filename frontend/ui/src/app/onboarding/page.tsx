@@ -597,7 +597,17 @@ function OnboardingContent() {
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <Logo size="lg" />
           <div>
-            <h1 className="text-lg font-semibold">Setup</h1>
+            {/* The first run, named as one. "Setup" is the word this product
+                already uses for two other things — the `traceroot setup`
+                command this page hands over to, and the settings screens a
+                returning account goes to — and a heading that reads like a
+                settings tab is the wrong frame for the only page an account
+                sees once. "Get started" is also what the traces panel calls
+                this same content, so the two surfaces now agree. The line
+                under it is what says which of the two routes you are on, and
+                it carries more now that the step below says what the command
+                does. */}
+            <h1 className="text-lg font-semibold">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
               {/* "The rest happens in your terminal" stops being true the
                   moment the user says they would rather it did not. */}
