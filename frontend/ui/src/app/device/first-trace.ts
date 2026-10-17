@@ -30,6 +30,23 @@ import type { Project, Workspace } from "@/types/api";
  */
 export const MAX_WATCHED_PROJECTS = 3;
 
+/** One round's answer to "where could the trace land?". */
+export interface WatchedProjects {
+  /** The projects to look in: newest created first, and capped. */
+  projects: Project[];
+  /**
+   * Whether this is the whole account, or only the part of it this round could
+   * see.
+   *
+   * False when a workspace failed to list, and false when the account has more
+   * projects than the cap keeps. Either way some project exists that this
+   * listing does not name, so its absence from the listing says nothing about
+   * when it was created — which is the one thing `watchOrder` reads absence as
+   * meaning.
+   */
+  complete: boolean;
+}
+
 /**
  * The projects this account can see, newest first and capped.
  *
@@ -39,21 +56,27 @@ export const MAX_WATCHED_PROJECTS = 3;
  *
  * A workspace that cannot be listed is skipped rather than failing the round:
  * one unreadable workspace must not blind the tab to a trace landing in
- * another.
+ * another. It is reported, though, because a partial listing is not the same
+ * answer as a whole one.
  */
-export async function readWatchedProjects(workspaces: Workspace[]): Promise<Project[]> {
+export async function readWatchedProjects(workspaces: Workspace[]): Promise<WatchedProjects> {
   const found: Project[] = [];
+  let missedWorkspace = false;
   for (const workspace of workspaces) {
     try {
       found.push(...(await getProjects(workspace.id)));
     } catch {
       // Skipped, not fatal — see above.
+      missedWorkspace = true;
     }
   }
-  return found
-    .slice()
-    .sort((a, b) => Date.parse(b.create_time) - Date.parse(a.create_time))
-    .slice(0, MAX_WATCHED_PROJECTS);
+  return {
+    projects: found
+      .slice()
+      .sort((a, b) => Date.parse(b.create_time) - Date.parse(a.create_time))
+      .slice(0, MAX_WATCHED_PROJECTS),
+    complete: !missedWorkspace && found.length <= MAX_WATCHED_PROJECTS,
+  };
 }
 
 /**
@@ -66,6 +89,11 @@ export async function readWatchedProjects(workspaces: Workspace[]): Promise<Proj
  * the baseline is one the terminal made after approval, and its traces belong
  * to this run. Only after those come the projects that already existed, where
  * "arrived after approval" is all we have.
+ *
+ * Absence has to be made to mean that, though, and only the caller can do it:
+ * a project missing from an incomplete listing was never observed rather than
+ * newly created. `useFirstTraceWait` closes that gap by drawing a baseline for
+ * such a project on first sight, which puts it in the second group here.
  *
  * The onboarding page needs no equivalent: it watches the project it created
  * itself, so there is nothing to rank and nothing left to infer.

@@ -11,6 +11,16 @@ import {
 import { useTraceWait, type RoundResult, type TraceWait } from "@/lib/hooks/use-trace-wait";
 
 /**
+ * Where to leave someone whose wait ended with nothing: the project's own
+ * traces page, which is where this run's traces are going to land whenever they
+ * do. `active` is false without a project, so the second branch is the
+ * signed-out-of-the-question case rather than a reachable one.
+ */
+function fallbackUrlFor(projectId: string | null): string {
+  return projectId ? `/projects/${encodeURIComponent(projectId)}/traces` : "/workspaces";
+}
+
+/**
  * Watch one known project for the first trace a setup run sends it.
  *
  * This is the whole of what onboarding has to add to the shared wait, and it is
@@ -43,11 +53,7 @@ export function useProjectTraceWait(
 
   const beginWait = useCallback((isCancelled: () => boolean) => {
     const watched = projectIdRef.current;
-    // The project's own traces page: where this run's traces are going to land
-    // whenever they do, and the right place to leave someone whose wait ended
-    // with nothing. `active` is false without a project, so this is the
-    // signed-out-of-the-question case rather than a reachable one.
-    const fallbackUrl = watched ? `/projects/${encodeURIComponent(watched)}/traces` : "/workspaces";
+    const fallbackUrl = fallbackUrlFor(watched);
     let baseline: TraceBaseline | null = null;
 
     return async function round(): Promise<RoundResult | null> {
@@ -80,5 +86,6 @@ export function useProjectTraceWait(
     active && projectId !== null,
     beginWait,
     `${projectId ?? ""}|${user?.id ?? ""}`,
+    fallbackUrlFor(projectId),
   );
 }

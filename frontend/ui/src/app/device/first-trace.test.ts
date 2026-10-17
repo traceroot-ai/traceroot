@@ -32,9 +32,13 @@ describe("readWatchedProjects", () => {
         : [project("new", "2026-03-01T00:00:00Z")],
     );
 
-    const projects = await readWatchedProjects([workspace("ws-1"), workspace("ws-2")]);
+    const { projects, complete } = await readWatchedProjects([
+      workspace("ws-1"),
+      workspace("ws-2"),
+    ]);
 
     expect(projects.map((p) => p.id)).toEqual(["new", "old"]);
+    expect(complete).toBe(true);
   });
 
   it("skips a workspace it cannot list rather than losing the others", async () => {
@@ -45,9 +49,15 @@ describe("readWatchedProjects", () => {
       return [project("p-2", "2026-01-01T00:00:00Z")];
     });
 
-    const projects = await readWatchedProjects([workspace("ws-1"), workspace("ws-2")]);
+    const { projects, complete } = await readWatchedProjects([
+      workspace("ws-1"),
+      workspace("ws-2"),
+    ]);
 
     expect(projects.map((p) => p.id)).toEqual(["p-2"]);
+    // Reported, though: a project turning up in a later round may be one this
+    // listing could not see rather than one the terminal has just made.
+    expect(complete).toBe(false);
   });
 
   it("caps how many projects one round will look in, keeping the newest", async () => {
@@ -56,10 +66,14 @@ describe("readWatchedProjects", () => {
     );
     mocks.getProjects.mockResolvedValue(many);
 
-    const projects = await readWatchedProjects([workspace("ws-1")]);
+    const { projects, complete } = await readWatchedProjects([workspace("ws-1")]);
 
     expect(projects).toHaveLength(MAX_WATCHED_PROJECTS);
     expect(projects[0].id).toBe(`p-${MAX_WATCHED_PROJECTS + 4}`);
+    // The cap hides projects too, and one of them can enter the window later —
+    // when a watched project is deleted — so a capped listing is not the whole
+    // account either.
+    expect(complete).toBe(false);
   });
 });
 

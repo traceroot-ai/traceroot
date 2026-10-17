@@ -40,6 +40,17 @@ const PROJECT: Project = {
   create_time: "2026-01-01T00:00:00Z",
 };
 
+/** A project that only becomes visible part-way through a wait. */
+const LATE_PROJECT: Project = {
+  id: "p-2",
+  name: "other",
+  trace_ttl_days: null,
+  create_time: "2026-02-01T00:00:00Z",
+};
+
+/** The whole account, read without incident. */
+const WHOLE_ACCOUNT = { projects: [PROJECT], complete: true };
+
 /**
  * Drain the microtask queue. The rounds are several awaits deep, and under fake
  * timers nothing else will advance them — testing-library's own waitFor polls on
@@ -68,7 +79,7 @@ function watch(active = true) {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  mocks.readWatchedProjects.mockResolvedValue([PROJECT]);
+  mocks.readWatchedProjects.mockResolvedValue(WHOLE_ACCOUNT);
   mocks.captureTraceBaseline.mockResolvedValue(new Map([["p-1", { kind: "empty" }]]));
   mocks.retryUnknownBaseline.mockImplementation(async (baseline: unknown) => baseline);
   mocks.findFirstTrace.mockResolvedValue(null);
@@ -166,7 +177,7 @@ describe("useFirstTraceWait", () => {
     // Reaching this panel means the account had a project moments ago, so a
     // round that finds none could not read the account. Saying so beats
     // spinning out the whole budget.
-    mocks.readWatchedProjects.mockResolvedValue([]);
+    mocks.readWatchedProjects.mockResolvedValue({ projects: [], complete: true });
     const { result } = watch();
 
     for (let round = 0; round < MAX_BARREN_ROUNDS; round += 1) {
@@ -178,7 +189,7 @@ describe("useFirstTraceWait", () => {
   });
 
   it("recovers from a blip rather than ending the wait on it", async () => {
-    mocks.readWatchedProjects.mockResolvedValueOnce([]);
+    mocks.readWatchedProjects.mockResolvedValueOnce({ projects: [], complete: true });
     const { result } = watch();
 
     await nextRound();
@@ -189,9 +200,9 @@ describe("useFirstTraceWait", () => {
   });
 
   it("never overlaps rounds, even when one takes longer than the interval", async () => {
-    let release: (projects: Project[]) => void = () => {};
+    let release: (watched: typeof WHOLE_ACCOUNT) => void = () => {};
     mocks.readWatchedProjects.mockReturnValueOnce(
-      new Promise<Project[]>((resolve) => {
+      new Promise<typeof WHOLE_ACCOUNT>((resolve) => {
         release = resolve;
       }),
     );
@@ -206,9 +217,47 @@ describe("useFirstTraceWait", () => {
     expect(mocks.readWatchedProjects).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      release([PROJECT]);
+      release(WHOLE_ACCOUNT);
     });
     await flush();
+  });
+
+  it("draws a line for a project that appears after a round it could not read in full", async () => {
+    // Absence from the baseline is what marks a project as the terminal's, and
+    // that only holds if the baseline saw the whole account. A workspace that
+    // failed to list leaves a project that was there all along looking new —
+    // and then its months-old traces qualify and the tab opens the wrong one.
+    mocks.readWatchedProjects
+      .mockResolvedValueOnce({ projects: [PROJECT], complete: false })
+      .mockResolvedValue({ projects: [PROJECT, LATE_PROJECT], complete: true });
+    mocks.captureTraceBaseline
+      .mockResolvedValueOnce(new Map([["p-1", { kind: "empty" }]]))
+      .mockResolvedValueOnce(new Map([["p-2", { kind: "newest", at: "2026-05-01T10:00:00Z" }]]));
+    watch();
+
+    await nextRound();
+
+    expect(mocks.captureTraceBaseline).toHaveBeenCalledTimes(2);
+    expect(mocks.captureTraceBaseline).toHaveBeenLastCalledWith(["p-2"], { id: "u-1" });
+    // And the search gets that line, rather than searching p-2 with none.
+    const searched = mocks.findFirstTrace.mock.calls[0][1] as Map<string, unknown>;
+    expect(searched.get("p-2")).toEqual({ kind: "newest", at: "2026-05-01T10:00:00Z" });
+  });
+
+  it("leaves a project that appears after a complete round unlined, so the terminal's own ranks first", async () => {
+    // The other half of the same rule: when the first round did see the whole
+    // account, a project that was not in it did not exist, and everything in it
+    // belongs to the run that just authorized.
+    mocks.readWatchedProjects
+      .mockResolvedValueOnce(WHOLE_ACCOUNT)
+      .mockResolvedValue({ projects: [PROJECT, LATE_PROJECT], complete: true });
+    watch();
+
+    await nextRound();
+
+    expect(mocks.captureTraceBaseline).toHaveBeenCalledTimes(1);
+    const searched = mocks.findFirstTrace.mock.calls[0][1] as Map<string, unknown>;
+    expect(searched.has("p-2")).toBe(false);
   });
 
   it("stops on unmount, leaving no timer and no late state write", async () => {

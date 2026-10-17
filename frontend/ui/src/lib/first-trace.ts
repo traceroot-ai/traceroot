@@ -48,12 +48,20 @@ export type BaselineEntry =
  * Where each watched project's trace list stood when the wait began: the line
  * between "was already here" and "arrived after the run started".
  *
- * The line is drawn with a value the server supplied rather than with the
- * browser's clock. A tab whose clock runs fast would otherwise filter out the
- * very trace it is waiting for, and one running slow would pounce on a trace
- * that predates the run — both compare a local `Date.now()` against a timestamp
- * stamped elsewhere. Comparing two `trace_start_time` values from the same
- * column has no such failure mode.
+ * The line is drawn with a value that came back with the traces rather than
+ * with the browser's clock. A tab whose clock runs fast would otherwise filter
+ * out the very trace it is waiting for, and one running slow would pounce on a
+ * trace that predates the run — both compare a local `Date.now()` against a
+ * timestamp stamped elsewhere. Comparing two `trace_start_time` values keeps
+ * the comparison inside one column.
+ *
+ * Not inside one clock, though: `trace_start_time` is copied from a span's
+ * start time, so it is the producing process's clock. Two services writing to
+ * the same project with skewed clocks can therefore still hide a run's first
+ * trace behind the baseline. Nothing in the trace list carries an ingestion
+ * time to compare instead, and the skew that matters here is between two
+ * processes the user is deploying together, which is a far narrower exposure
+ * than one browser against the fleet.
  */
 export type TraceBaseline = ReadonlyMap<string, BaselineEntry>;
 

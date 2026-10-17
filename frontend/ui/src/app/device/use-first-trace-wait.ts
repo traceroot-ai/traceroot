@@ -65,10 +65,14 @@ export function useFirstTraceWait(
 
   const beginWait = useCallback((isCancelled: () => boolean) => {
     let baseline: TraceBaseline | null = null;
+    // Whether the listing the baseline was drawn from was the whole account.
+    // When it was not, a project turning up later may be one that was there all
+    // along, so absence from the baseline stops meaning "the terminal made it".
+    let baselineIsWholeAccount = false;
     let barrenRounds = 0;
 
     return async function round(): Promise<RoundResult | null> {
-      const projects = await readWatchedProjects(workspacesRef.current);
+      const { projects, complete } = await readWatchedProjects(workspacesRef.current);
       if (isCancelled()) {
         return null;
       }
@@ -91,7 +95,30 @@ export function useFirstTraceWait(
           projects.map((project) => project.id),
           userRef.current,
         );
+        baselineIsWholeAccount = complete;
         return isCancelled() ? null : { kind: "again", fallbackUrl };
+      }
+
+      if (!baselineIsWholeAccount) {
+        // The line was drawn across part of the account, so a project showing
+        // up now is as likely to be one that was hidden then as one the
+        // terminal has just made — and treating a hidden one as new would make
+        // its months-old traces qualify and send the tab to the wrong trace
+        // entirely. Drawing its line on first sight costs only the ranking in
+        // `watchOrder`: a project the terminal really did just create reads as
+        // empty, so anything that arrives in it still qualifies.
+        const unlined = projects
+          .map((project) => project.id)
+          .filter((projectId) => !baseline?.has(projectId));
+        if (unlined.length > 0) {
+          baseline = new Map([
+            ...baseline,
+            ...(await captureTraceBaseline(unlined, userRef.current)),
+          ]);
+          if (isCancelled()) {
+            return null;
+          }
+        }
       }
 
       // Any project whose baseline read failed gets another go first: until it
@@ -107,5 +134,11 @@ export function useFirstTraceWait(
     };
   }, []);
 
-  return useTraceWait(active, beginWait, `${workspaceKey}|${user?.id ?? ""}`);
+  return useTraceWait(
+    active,
+    beginWait,
+    `${workspaceKey}|${user?.id ?? ""}`,
+    // Nowhere better to send someone until a round has read the account.
+    WORKSPACES_URL,
+  );
 }

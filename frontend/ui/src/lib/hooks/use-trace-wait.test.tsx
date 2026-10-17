@@ -15,6 +15,8 @@ import { POLL_INTERVAL_MS, WAIT_BUDGET_MS, useTraceWait, type RoundResult } from
 
 const FOUND = { projectId: "p-1", traceId: "t-1" };
 const AGAIN: RoundResult = { kind: "again", fallbackUrl: "/projects/p-1/traces" };
+/** The caller's standing answer, used until a round reports a better one. */
+const LAST_RESORT = "/workspaces";
 
 /**
  * Drain the microtask queue. A round is several awaits deep, and under fake
@@ -43,7 +45,7 @@ function watchWith(answers: RoundResult[], active = true) {
   const round = vi.fn(
     async () => answers[Math.min(round.mock.calls.length - 1, answers.length - 1)],
   );
-  const rendered = renderHook(() => useTraceWait(active, () => round, "key"));
+  const rendered = renderHook(() => useTraceWait(active, () => round, "key", LAST_RESORT));
   return { round, ...rendered };
 }
 
@@ -129,7 +131,7 @@ describe("useTraceWait", () => {
           release = () => resolve(AGAIN);
         }),
     );
-    renderHook(() => useTraceWait(true, () => round, "key"));
+    renderHook(() => useTraceWait(true, () => round, "key", LAST_RESORT));
 
     await flush();
     await act(async () => {
@@ -173,6 +175,7 @@ describe("useTraceWait", () => {
           return async () => AGAIN;
         },
         "key",
+        LAST_RESORT,
       ),
     );
     await flush();
@@ -184,7 +187,9 @@ describe("useTraceWait", () => {
 
   it("does nothing with a round that stopped half-way", async () => {
     const { result } = watchWith([{ kind: "found", found: FOUND }]);
-    const stopped = renderHook(() => useTraceWait(true, () => async () => null, "other"));
+    const stopped = renderHook(() =>
+      useTraceWait(true, () => async () => null, "other", LAST_RESORT),
+    );
 
     await flush();
 
@@ -197,12 +202,97 @@ describe("useTraceWait", () => {
     // Where a wait's state lives: a baseline drawn on the first round has to
     // survive to the second, and must not survive a restart.
     const beginWait = vi.fn(() => vi.fn(async (): Promise<RoundResult> => AGAIN));
-    renderHook(() => useTraceWait(true, beginWait, "key"));
+    renderHook(() => useTraceWait(true, beginWait, "key", LAST_RESORT));
 
     await flush();
     await nextRound();
     await nextRound();
 
     expect(beginWait).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts over, visibly, when the identity it follows changes", async () => {
+    // The previous account's trace is not this account's answer. Leaving it on
+    // screen would offer a link into somewhere the new wait has nothing to do
+    // with, and the baseline that found it lives in the old factory's closure.
+    const beginWait = vi.fn(() =>
+      vi.fn(async (): Promise<RoundResult> => ({ kind: "found", found: FOUND })),
+    );
+    const { result, rerender } = renderHook(
+      ({ identity }: { identity: string }) => useTraceWait(true, beginWait, identity, LAST_RESORT),
+      { initialProps: { identity: "acct-1" } },
+    );
+
+    await flush();
+    expect(result.current).toEqual({ kind: "found", found: FOUND });
+
+    rerender({ identity: "acct-2" });
+
+    expect(result.current).toEqual({ kind: "waiting" });
+    expect(beginWait).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends on its deadline even when a round never answers at all", async () => {
+    // The budget is a deadline on the wait, not a check made between rounds:
+    // `fetch` has no timeout of its own, so one read that never resolves would
+    // otherwise leave the page spinning for good.
+    const round = vi.fn(() => new Promise<RoundResult>(() => {}));
+    const { result } = renderHook(() => useTraceWait(true, () => round, "key", LAST_RESORT));
+
+    await flush();
+    await act(async () => {
+      vi.advanceTimersByTime(WAIT_BUDGET_MS);
+    });
+    await flush();
+
+    // Nothing ever reported a way out, so the caller's standing one is used.
+    expect(result.current).toEqual({ kind: "gave-up", fallbackUrl: LAST_RESORT });
+    expect(round).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("comes back from a round that threw instead of stopping dead", async () => {
+    // A throw used to skip the state write and the next timer both, leaving a
+    // wait that spun on "waiting" with nothing scheduled and no way out.
+    let calls = 0;
+    const round = vi.fn(async (): Promise<RoundResult> => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("boom");
+      }
+      return { kind: "found", found: FOUND };
+    });
+    const { result } = renderHook(() => useTraceWait(true, () => round, "key", LAST_RESORT));
+
+    await flush();
+    expect(result.current).toEqual({ kind: "waiting" });
+
+    await nextRound();
+
+    expect(round).toHaveBeenCalledTimes(2);
+    expect(result.current).toEqual({ kind: "found", found: FOUND });
+  });
+
+  it("drops a round that answers after the tab has gone", async () => {
+    // Cancellation has to survive the gap between a round's last read and its
+    // answer, because the state write is on the far side of that await.
+    let release: ((result: RoundResult) => void) | undefined;
+    const round = vi.fn(
+      () =>
+        new Promise<RoundResult>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const { result, unmount } = renderHook(() =>
+      useTraceWait(true, () => round, "key", LAST_RESORT),
+    );
+
+    await flush();
+    unmount();
+    release?.({ kind: "found", found: FOUND });
+    await flush();
+
+    expect(result.current).toEqual({ kind: "waiting" });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
