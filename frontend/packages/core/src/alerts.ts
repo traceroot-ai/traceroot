@@ -27,14 +27,61 @@ export function isAlertSeverity(value: string): value is AlertSeverity {
  * A breach that has been announced and not yet recovered: in ALERT it is the
  * emission that put the rule there; in NO_DATA it is the one carried across
  * the gap. The worker's state machine reads it to tell a recovery from a
- * first reading, and the write services read it to say when an edit or a
- * delete discarded an open page.
+ * first reading, the write services read it to say when an edit or a
+ * delete discarded an open page, and the edit form to warn before one does.
  */
 export function hasOutstandingAlertPage(state: {
   severity: string;
-  alertedAt: Date | null;
+  /** A string where the row has crossed JSON, as it has for the edit form. */
+  alertedAt: Date | string | null;
 }): boolean {
   return (state.severity === "ALERT" || state.severity === "NO_DATA") && state.alertedAt !== null;
+}
+
+/** Why an open page was closed without a recovery: the write that voided its state. */
+export const ALERT_CLOSE_REASONS = ["edited", "resumed"] as const;
+export type AlertCloseReason = (typeof ALERT_CLOSE_REASONS)[number];
+
+export function isAlertCloseReason(value: string): value is AlertCloseReason {
+  return (ALERT_CLOSE_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * The marker a state reset leaves when it discards an open page. The write
+ * services cannot notify, so this carries the close to the worker, which posts
+ * it on the next tick. `at` is an ISO string: the marker is stored as JSON.
+ */
+export interface AlertPendingClose {
+  reason: AlertCloseReason;
+  actorUserId: string;
+  at: string;
+  /**
+   * How many delivery cycles this close has already run out of. Absent until the
+   * first one does. The worker stops putting the close back at
+   * `ALERT_CLOSE_MAX_RESENDS`, so a channel that never accepts it is not retried
+   * for as long as the rule exists.
+   */
+  resends?: number;
+}
+
+/**
+ * Delivery cycles a close gets after its first. Each is about half an hour of
+ * retries, so a close is given up on after roughly two hours of Slack refusing it.
+ */
+export const ALERT_CLOSE_MAX_RESENDS = 3;
+
+/** Null for no marker, and for a stored value that is not one. */
+export function parseAlertPendingClose(value: unknown): AlertPendingClose | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { reason, actorUserId, at } = value as Record<string, unknown>;
+  if (typeof reason !== "string" || !isAlertCloseReason(reason)) return null;
+  if (typeof actorUserId !== "string" || actorUserId === "") return null;
+  if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
+  // A count this build cannot read is no count: the close is still owed.
+  const { resends } = value as Record<string, unknown>;
+  return typeof resends === "number" && Number.isInteger(resends) && resends > 0
+    ? { reason, actorUserId, at, resends }
+    : { reason, actorUserId, at };
 }
 
 /**
@@ -183,7 +230,10 @@ export function isAlertFilterField(value: string): value is AlertFilterField {
   return (ALERT_FILTER_FIELDS as readonly string[]).includes(value);
 }
 
-/** Mirrors `filter_ops` in backend/rest/services/widget_registry.py. */
+/**
+ * The alert subset of `filter_ops` in backend/rest/services/widget_registry.py:
+ * the engine also offers `in` on string dimensions, which alerts do not store.
+ */
 export const ALERT_FILTER_OPERATORS_BY_FIELD: Record<
   AlertFilterField,
   readonly AlertFilterOperator[]

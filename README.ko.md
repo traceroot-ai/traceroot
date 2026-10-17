@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-AI 에이전트를 위한 오픈 소스 자기 개선 레이어
+오픈 소스 AI 에이전트 개선 플랫폼
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -29,7 +29,7 @@ AI 에이전트를 위한 오픈 소스 자기 개선 레이어
 
 ## TraceRoot
 
-TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
+TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 개선 루프를 완성합니다.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 

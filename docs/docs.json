@@ -35,8 +35,28 @@
   },
   "redirects": [
     {
+      "source": "/detectors/get-started",
+      "destination": "/detectors/introduction#how-to-create-a-detector"
+    },
+    {
+      "source": "/detectors/notifications",
+      "destination": "/detectors/introduction#notifications"
+    },
+    {
       "source": "/detectors/alerts",
-      "destination": "/detectors/notifications"
+      "destination": "/detectors/introduction#notifications"
+    },
+    {
+      "source": "/alerts/introduction",
+      "destination": "/alerts/overview"
+    },
+    {
+      "source": "/alerts/get-started",
+      "destination": "/alerts/overview#how-to-create-an-alert"
+    },
+    {
+      "source": "/alerts/slack",
+      "destination": "/alerts/overview#slack-notifications"
     }
   ],
   "search": {
@@ -98,6 +118,7 @@
                   "tracing/sessions",
                   "tracing/tags",
                   "tracing/metadata",
+                  "tracing/data-capture",
                   "tracing/cost-tracking",
                   "tracing/git-context",
                   "tracing/timeline",
@@ -107,7 +128,45 @@
             ]
           },
           {
-            "group": "AI Agents",
+            "group": "CLI",
+            "pages": [
+              "cli/get-started",
+              "cli/sql"
+            ]
+          },
+          {
+            "group": "Detectors",
+            "pages": [
+              "detectors/introduction"
+            ]
+          },
+          {
+            "group": "Signals",
+            "pages": [
+              "signals/introduction"
+            ]
+          },
+          {
+            "group": "Alerts",
+            "pages": [
+              "alerts/overview",
+              "alerts/rule-reference"
+            ]
+          },
+          {
+            "group": "Evaluations",
+            "pages": [
+              "evals/introduction",
+              "evals/get-started",
+              "evals/datasets",
+              "evals/scorers",
+              "evals/running-evals",
+              "evals/reading-results",
+              "evals/cli"
+            ]
+          },
+          {
+            "group": "TraceRoot Agent",
             "pages": [
               "ai-agent/overview",
               {
@@ -125,41 +184,6 @@
                   "ai-agent/pr-creation"
                 ]
               }
-            ]
-          },
-          {
-            "group": "Detectors",
-            "pages": [
-              "detectors/introduction",
-              "detectors/get-started",
-              "detectors/notifications"
-            ]
-          },
-          {
-            "group": "Alerts",
-            "pages": [
-              "alerts/introduction",
-              "alerts/get-started",
-              "alerts/rule-reference",
-              "alerts/slack"
-            ]
-          },
-          {
-            "group": "Evaluations",
-            "pages": [
-              "evals/introduction",
-              "evals/get-started",
-              "evals/datasets",
-              "evals/scorers",
-              "evals/running-evals",
-              "evals/reading-results",
-              "evals/cli"
-            ]
-          },
-          {
-            "group": "CLI",
-            "pages": [
-              "cli/get-started"
             ]
           }
         ]
@@ -193,8 +217,8 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/llamaindex",
-              "integrations/microsoft-agent-framework",
               "integrations/mastra",
+              "integrations/microsoft-agent-framework",
               "integrations/openai-agents-sdk",
               "integrations/pi",
               "integrations/pydantic-ai",
@@ -208,7 +232,9 @@
               "integrations/gemini",
               "integrations/mistral",
               "integrations/openai",
-              "integrations/openrouter"
+              "integrations/openai-compatible",
+              "integrations/openrouter",
+              "integrations/typesafe"
             ]
           },
           {
@@ -216,6 +242,22 @@
             "pages": [
               "integrations/internal-models"
             ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "square-code",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.json"
           }
         ]
       }
