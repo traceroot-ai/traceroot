@@ -91,10 +91,11 @@ export async function POST(request: NextRequest) {
     // Its key-management routes require `admin` and refuse anything less before
     // forwarding to the routes here, which require the same scope and still
     // re-validate — two checks, not a relocated one. Every other route it
-    // exposes stays reachable with an `ingest` key. Omitting this field (an
-    // older deployment of this app) is read there as the narrow scope, never as
-    // full access, so a key-management call is refused during a rollout rather
-    // than let through.
+    // exposes that accepts an API key at all stays reachable with an `ingest`
+    // one; the rest take a user credential only and refuse a key outright,
+    // before scope is ever consulted. Omitting this field (an older deployment
+    // of this app) is read there as the narrow scope, never as full access, so a
+    // key-management call is refused during a rollout rather than let through.
     scope: accessKey.scope,
     billingPlan,
     ingestionBlocked: accessKey.project.workspace.ingestionBlocked,
