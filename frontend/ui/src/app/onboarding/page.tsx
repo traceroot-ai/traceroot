@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
@@ -11,7 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { createWorkspace, createProject, getWorkspaces } from "@/lib/api";
+import {
+  createWorkspace,
+  updateWorkspace,
+  createProject,
+  getProjects,
+  getWorkspaces,
+} from "@/lib/api";
+import { ApiError } from "@/lib/api/errors";
+import type { Project, Workspace } from "@/types/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
@@ -48,6 +56,125 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
   return company.charAt(0).toUpperCase() + company.slice(1);
 }
 
+// The workspace a 409 collided with, when the list names it unambiguously.
+//
+// `createdBy` — the other half of `uq_workspace_created_by_name` — is not in
+// the list payload, so "is this one mine?" is answered by role instead: the
+// POST handler makes the creator an ADMIN member, so a workspace this account
+// created always reads ADMIN, and a MEMBER or VIEWER row under the same name is
+// somebody else's. Two ADMIN rows can still share a name — this account being
+// promoted in someone else's — and adopting the wrong one would put the user's
+// first project in a workspace that is not theirs, so an ambiguous answer is no
+// answer and the collision stands.
+function findOwnWorkspaceByName(workspaces: Workspace[], name: string): Workspace | null {
+  const mine = workspaces.filter(
+    (workspace) => workspace.name === name && workspace.role === "ADMIN",
+  );
+  return mine.length === 1 ? mine[0] : null;
+}
+
+// The workspace this attempt should use: a new one, or the one an earlier
+// attempt created and could not report back.
+//
+// A create that throws has not necessarily failed. The POST can commit and the
+// response still be lost — a dropped connection, a proxy answering 502 after
+// the write, a 5xx raised after the transaction — and the workspace then exists
+// while this page holds no id for it. `createdWorkspace` is assigned from the
+// response, so it stays null through exactly that case, and the retry submits
+// the same name again. That collides with `uq_workspace_created_by_name`, the
+// route answers 409, and the user is stopped on the first screen of their
+// account by a workspace they do not know they own — with no way past it, since
+// pressing Create is the whole recovery path this page offers.
+//
+// The status alone identifies the collision. This endpoint's only 409 is that
+// constraint (see app/api/workspaces/route.ts; everything else it refuses is a
+// 400 or a 401), and matching the message would tie recovery to prose written
+// to be read by a person. The lookup is guarded regardless, so a 409 that came
+// to mean something else could not adopt anything.
+//
+// What this does not recover is an edited name after a lost response: with no
+// id in hand, a retry under a different name cannot collide, so it creates a
+// second workspace and leaves the first orphaned. Finding that one would mean
+// matching an empty workspace by something other than the name that was
+// submitted — and an empty workspace is also what one somebody made deliberately
+// and has not filled yet looks like.
+async function createOrAdoptWorkspace(name: string): Promise<{ id: string; name: string }> {
+  try {
+    const workspace = await createWorkspace(name);
+    return { id: workspace.id, name };
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 409) {
+      throw err;
+    }
+    // Read through the API rather than the page's query: the cached list is
+    // whatever it held when the form was shown — `[]` for a first-run account —
+    // and nothing has invalidated it, because the only invalidation here follows
+    // a project that was never created.
+    const adopted = findOwnWorkspaceByName(await getWorkspaces(), name);
+    if (!adopted) {
+      throw err;
+    }
+    return { id: adopted.id, name };
+  }
+}
+
+// The project a 409 collided with, when the workspace's own list names it.
+//
+// There is no ownership to establish here, unlike the workspace lookup above.
+// `uq_project_workspace_live_name` is scoped to one workspace, the caller is
+// already a member of that workspace (the route refuses anyone else with a
+// 403), and the listing leaves out soft-deleted rows — which the index also
+// ignores. So a live row under this name is the row the create collided with,
+// and the index permits exactly one of them. More than one would mean the index
+// is not there, which is not something to adopt a project on.
+function findLiveProjectByName(projects: Project[], name: string): Project | null {
+  const live = projects.filter((project) => project.name === name && !project.delete_time);
+  return live.length === 1 ? live[0] : null;
+}
+
+// The project this attempt should use: a new one, or the one an earlier attempt
+// created and could not report back.
+//
+// The same lost response as the workspace above, one step later. `createdProject`
+// is set from the response, so a POST that commits without answering leaves it
+// null and the retry submits the same name into the same workspace — by then the
+// adopted or remembered one, so the collision is with the project the first
+// attempt wrote. The route answers 409 and that is the end of the account: this
+// is the last screen of sign-up and pressing Create is all it offers.
+//
+// The status identifies the collision on its own, as it does for the workspace:
+// this endpoint's only 409 is that constraint (see
+// app/api/workspaces/[workspaceId]/projects/route.ts, which maps Prisma's P2002
+// to it; everything else it refuses is a 400 or a 403). The lookup is guarded
+// regardless, so a 409 that came to mean something else could not adopt
+// anything.
+//
+// In project-only mode the workspace can be a shared one, where the 409 can
+// instead be a teammate's project under the same name. Adopting it is still the
+// better of the two answers: the user is a member of that workspace, the project
+// is the one they asked for by name, and the alternative is a first run that
+// cannot be finished. What this does not recover is an edited name after a lost
+// response — with no id in hand a retry under a different name cannot collide,
+// so it creates a second project and leaves the first unmentioned.
+async function createOrAdoptProject(
+  workspaceId: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  try {
+    const project = await createProject(workspaceId, name);
+    return { id: project.id, name: project.name };
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 409) {
+      throw err;
+    }
+    const adopted = findLiveProjectByName(await getProjects(workspaceId), name);
+    if (!adopted) {
+      throw err;
+    }
+    return { id: adopted.id, name: adopted.name };
+  }
+}
+
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -57,6 +184,24 @@ function OnboardingContent() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
+  // The workspace outlives a failed project step, and the retry is the same
+  // button right under the error. Creating it again is worse than untidy. With
+  // the name unchanged it collides with `uq_workspace_created_by_name` and the
+  // route turns that into a 409 ("A workspace with this name already exists"),
+  // so the retry cannot succeed at all and the user is walled off the first
+  // screen with no way forward. With the name edited it does succeed, and
+  // leaves the first workspace behind, orphaned and not mentioned anywhere.
+  //
+  // The name travels with the id, because reusing the workspace must not mean
+  // ignoring the field: a user who renames it before retrying has said what
+  // they want it called, and the other two readings — create a second one under
+  // the new name, or keep the old name silently — are both wrong. Recording the
+  // new name here is also what stops a third attempt renaming it again.
+  //
+  // This only ever holds a workspace whose create *answered*. An attempt that
+  // committed and lost its response leaves it null, which is what
+  // `createOrAdoptWorkspace` is for.
+  const createdWorkspace = useRef<{ id: string; name: string } | null>(null);
 
   // Set header content
   useEffect(() => {
@@ -193,8 +338,18 @@ function OnboardingContent() {
           setIsLoading(false);
           return;
         }
-        const workspace = await createWorkspace(workspaceName);
-        workspaceId = workspace.id;
+        const existing = createdWorkspace.current;
+        if (existing) {
+          if (existing.name !== workspaceName) {
+            await updateWorkspace(existing.id, workspaceName);
+          }
+          createdWorkspace.current = { id: existing.id, name: workspaceName };
+          workspaceId = existing.id;
+        } else {
+          const workspace = await createOrAdoptWorkspace(workspaceName);
+          createdWorkspace.current = workspace;
+          workspaceId = workspace.id;
+        }
       }
 
       if (!workspaceId) {
@@ -211,7 +366,7 @@ function OnboardingContent() {
         return;
       }
 
-      const project = await createProject(workspaceId, projectName);
+      const project = await createOrAdoptProject(workspaceId, projectName);
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
