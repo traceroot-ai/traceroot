@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="https://traceroot.ai/">
+  <a href="https://traceroot.ai/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=github-navigation&amp;utm_content=readme-logo-zh">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="frontend/ui/public/images/traceroot_logo_dark.png">
       <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo_light.png">
@@ -17,6 +17,12 @@
   [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
   [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-5562EA)](https://deepwiki.com/traceroot-ai/traceroot)
 
+  <p>
+    <a href="https://traceroot.ai/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=github-navigation&amp;utm_content=readme-website-zh">Website</a> ·
+    <a href="https://app.traceroot.ai">Cloud</a> ·
+    <a href="https://traceroot.ai/docs/getting-started/introduction?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=github-navigation&amp;utm_content=readme-docs-zh">Documentation</a> ·
+    <a href="https://discord.gg/TM2m3CtKuC">Community</a>
+  </p>
 </div>
 
 <p align="center">
