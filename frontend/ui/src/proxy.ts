@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  ATTRIBUTION_COOKIE,
+  ATTRIBUTION_MAX_AGE_SECONDS,
+  encodeAttributionCookie,
+  getUtmParams,
+} from "@/lib/marketing-attribution";
 import { buildContentSecurityPolicy, cspHeaderName, REPORTING_ENDPOINTS } from "@/lib/csp";
 
 // Every page carries a Content-Security-Policy with a fresh nonce (lib/csp.ts).
@@ -41,28 +47,38 @@ export function proxy(req: NextRequest) {
     req.cookies.get("better-auth.session_token") ??
     req.cookies.get("__Secure-better-auth.session_token");
 
-  // Allow auth pages without token
-  if (req.nextUrl.pathname.startsWith("/auth/")) {
-    return nextWithCsp(req);
-  }
-
-  // The device consent page owns its own sign-in round-trip: it must preserve
-  // the ?user_code query and stash it across the redirect (this middleware would
-  // otherwise redirect with a pathname-only callbackUrl, dropping the code). The
-  // sensitive action (approve) is enforced server-side to require the claiming
-  // session, so leaving the page reachable without a token is safe.
-  if (req.nextUrl.pathname === "/device") {
-    return nextWithCsp(req);
-  }
-
-  // No token → redirect to sign-in
-  if (!token) {
+  const utm = getUtmParams(req.nextUrl.searchParams);
+  let response: NextResponse;
+  // Auth pages remain public. /device owns its sign-in round-trip, preserving
+  // the user_code; approval still requires a session in its server handler.
+  if (!token && !req.nextUrl.pathname.startsWith("/auth/") && req.nextUrl.pathname !== "/device") {
     const signInUrl = new URL("/auth/sign-in", req.url);
     signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
-    return NextResponse.redirect(signInUrl);
+    for (const [key, value] of Object.entries(utm)) signInUrl.searchParams.set(key, value);
+    response = NextResponse.redirect(signInUrl);
+  } else {
+    response = nextWithCsp(req);
   }
 
-  return nextWithCsp(req);
+  if (
+    !token &&
+    req.method === "GET" &&
+    process.env.NEXT_PUBLIC_POSTHOG_KEY &&
+    process.env.NEXT_PUBLIC_POSTHOG_HOST &&
+    Object.keys(utm).length
+  ) {
+    // The same campaign can bring a visitor back later. Refresh every tagged
+    // visit, accepting the small timestamp shift on the forwarded sign-in hop.
+    const value = encodeAttributionCookie({ capturedAt: Date.now(), utm });
+    if (value)
+      response.cookies.set(ATTRIBUTION_COOKIE, value, {
+        path: "/",
+        maxAge: ATTRIBUTION_MAX_AGE_SECONDS,
+        sameSite: "lax",
+        secure: req.nextUrl.protocol === "https:",
+      });
+  }
+  return response;
 }
 
 export const config = {
