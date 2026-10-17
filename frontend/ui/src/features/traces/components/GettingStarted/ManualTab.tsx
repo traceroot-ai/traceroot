@@ -7,14 +7,8 @@ import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
-import { IntegrationPickerCard } from "./IntegrationPickerCard";
-import { ModelProviderBlock } from "./ModelProviderBlock";
-import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
-
-const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model Providers" },
-  { category: "framework", label: "Frameworks" },
-];
+import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
+import { ALL_LANGS, type IntegrationOption, type Lang } from "./integrations";
 
 function LangTabs({
   lang,
@@ -52,48 +46,39 @@ function LangTabs({
   );
 }
 
-/**
- * Stands in for a workspace-scoped step when there is no workspace to scope it
- * to.
- *
- * An errored project fetch is not a loading state: react-query drops
- * `isLoading` with no data behind it, so rendering either of these steps on
- * `!isLoading` alone hands it an empty workspace id. That is worse than
- * nothing. `ModelProviderBlock` disables its own queries on an empty id, reads
- * the resulting absence of a role as "not an admin", and tells the user — who
- * may well be the admin — to go and ask one, via a link to
- * `/workspaces//settings/model-providers` that 404s.
- */
-function WorkspaceUnavailable() {
-  return (
-    <p className="text-[12px] text-muted-foreground">
-      This project&apos;s workspace could not be loaded, so this step is unavailable. Reload the
-      page to try again.
-    </p>
-  );
-}
-
 interface ManualTabProps {
   projectId: string;
+  /**
+   * The stack chosen above this section. It arrives as a prop rather than being
+   * chosen in here so that the picker — and the key field that follows it — keep
+   * their place when the reader switches between the command and these steps.
+   */
+  integration: IntegrationOption;
 }
 
-export function ManualTab({ projectId }: ManualTabProps) {
+/**
+ * Instrumenting by hand: the key, the install, the one call that starts tracing.
+ *
+ * Four steps rather than six. The stack picker and the model key that used to
+ * be steps 3 and 5 are not gone — they are above this section now, shared with
+ * the command, because both routes need the same two answers and neither one
+ * belongs to this half. What is left is only the part that is genuinely manual,
+ * which is also what makes the numbers worth keeping: these four are done in
+ * order, in a terminal and an editor, and the picker above is not.
+ */
+export function ManualTab({ projectId, integration }: ManualTabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id;
-  const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
 
-  const selectedIntegration =
-    INTEGRATIONS.find((integration) => integration.id === selectedIntegrationId) ?? INTEGRATIONS[0];
-  const availableLangs = ALL_LANGS.filter((l) => selectedIntegration.languages[l]);
+  const availableLangs = ALL_LANGS.filter((l) => integration.languages[l]);
   const resolvedLang = availableLangs.includes(lang) ? lang : availableLangs[0];
-  const config =
-    resolvedLang !== undefined ? selectedIntegration.languages[resolvedLang] : undefined;
+  const config = resolvedLang !== undefined ? integration.languages[resolvedLang] : undefined;
 
   if (!config || !resolvedLang) {
     if (process.env.NODE_ENV !== "production") {
       throw new Error(
-        `Integration "${selectedIntegration.id}" has no languages defined. Check INTEGRATIONS in integrations.tsx.`,
+        `Integration "${integration.id}" has no languages defined. Check INTEGRATIONS in integrations.tsx.`,
       );
     }
     return null;
@@ -112,73 +97,29 @@ export function ManualTab({ projectId }: ManualTabProps) {
         <CodeBlock label="bash" value={config.installCommand} />
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[13px] font-medium text-foreground">3. Select your integration</p>
+          <p className="text-[13px] font-medium text-foreground">
+            3. Initialize TraceRoot for {integration.name}
+          </p>
+          {/* Kept beside the snippet it explains, and it moves with the
+              selection: the page the reader needs is the one for the stack
+              whose code is on screen. */}
           <a
-            href="https://github.com/traceroot-ai/traceroot/issues/new"
+            href={integration.href}
             target="_blank"
             rel="noopener noreferrer"
             className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
           >
-            Don&apos;t see yours? Request one
+            View {integration.name} docs
           </a>
         </div>
-
-        {INTEGRATION_GROUPS.map((group) => {
-          const items = INTEGRATIONS.filter(
-            (integration) => integration.category === group.category,
-          );
-          if (items.length === 0) return null;
-
-          return (
-            <div key={group.category} className="space-y-1.5">
-              <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
-              <div role="radiogroup" aria-label={group.label} className="flex flex-wrap gap-2">
-                {items.map((integration) => (
-                  <IntegrationPickerCard
-                    key={integration.id}
-                    integration={integration}
-                    selected={selectedIntegration.id === integration.id}
-                    onSelect={() => setSelectedIntegrationId(integration.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-
-        <a
-          href={selectedIntegration.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-block text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-        >
-          View {selectedIntegration.name} docs
-        </a>
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">
-          4. Initialize TraceRoot for {selectedIntegration.name}
-        </p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
         <CodeBlock label={resolvedLang} value={config.initSnippet} language={resolvedLang} />
       </div>
 
       <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">5. Use your own model key</p>
-        {projectLoading ? (
-          <LoadingState label="Loading model providers..." />
-        ) : workspaceId ? (
-          <ModelProviderBlock workspaceId={workspaceId} />
-        ) : (
-          <WorkspaceUnavailable />
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">6. External integrations</p>
+        <p className="text-[13px] font-medium text-foreground">4. External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
         ) : workspaceId ? (

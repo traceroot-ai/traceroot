@@ -2,8 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 
-// The CLI card is the unit under test; mock the surrounding hooks and side-effecting
-// children so the tab renders without a query client or network access.
+// The walkthrough is the unit under test; mock the surrounding hooks and
+// side-effecting children so the tab renders without a query client or network
+// access.
 const { projectQuery } = vi.hoisted(() => ({
   projectQuery: { data: { workspace_id: "ws_1" }, isLoading: false } as {
     data?: { workspace_id: string };
@@ -14,14 +15,6 @@ vi.mock("@/features/projects/hooks", () => ({
   useProject: () => projectQuery,
 }));
 vi.mock("./ApiKeyBlock", () => ({ ApiKeyBlock: () => <div data-testid="api-key-block" /> }));
-vi.mock("./IntegrationPickerCard", () => ({
-  IntegrationPickerCard: () => <div data-testid="integration-picker" />,
-}));
-vi.mock("./ModelProviderBlock", () => ({
-  ModelProviderBlock: ({ workspaceId }: { workspaceId: string }) => (
-    <div data-testid="model-provider-block" data-workspace={workspaceId} />
-  ),
-}));
 vi.mock("@/components/github/GitHubConnectButton", () => ({
   GitHubConnectButton: () => <div data-testid="github-connect" />,
 }));
@@ -29,7 +22,10 @@ vi.mock("@/components/slack/SlackConnectButton", () => ({
   SlackConnectButton: () => <div data-testid="slack-connect" />,
 }));
 
+import { INTEGRATIONS } from "./integrations";
 import { ManualTab } from "./ManualTab";
+
+const byId = (id: string) => INTEGRATIONS.find((integration) => integration.id === id)!;
 
 afterEach(() => {
   cleanup();
@@ -38,46 +34,89 @@ afterEach(() => {
 });
 
 describe("ManualTab", () => {
-  it("groups GitHub and Slack into the external integrations card at step 6", () => {
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("6. External integrations")).toBeDefined();
+  it("is four steps: the key, the install, the call, and the connections", () => {
+    // The stack picker and the model key are above this section now, shared
+    // with the command. What is numbered here is what is actually done in order
+    // in a terminal and an editor.
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    const steps = screen
+      .getAllByText(/^\d+\. /)
+      .map((node) => node.textContent?.replace(/^\d+\. /, ""));
+    expect(steps).toEqual([
+      "Create an API key",
+      "Install SDK",
+      "Initialize TraceRoot for OpenAI",
+      "External integrations",
+    ]);
+  });
+
+  it("does not pick the stack or the model key for itself", () => {
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    expect(screen.queryByText(/Select your stack/)).toBeNull();
+    expect(screen.queryByLabelText("Search integrations")).toBeNull();
+    expect(screen.queryByText(/Use your own model key/)).toBeNull();
+  });
+
+  it("takes its snippets from the stack it is given", () => {
+    const { container, rerender } = render(
+      <ManualTab projectId="proj_1" integration={byId("openai")} />,
+    );
+    expect(container.textContent).toContain("pip install traceroot");
+    expect(container.textContent).toContain("Integration.OPENAI");
+
+    rerender(<ManualTab projectId="proj_1" integration={byId("mastra")} />);
+    expect(screen.getByText(/3\. Initialize TraceRoot for Mastra/)).toBeDefined();
+    expect(container.textContent).toContain("@traceroot-ai/mastra");
+  });
+
+  it("points the docs link at the stack whose code is on screen", () => {
+    // The thing the user said worked: the link follows the selection.
+    const { rerender } = render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    expect(screen.getByRole("link", { name: "View OpenAI docs" }).getAttribute("href")).toBe(
+      "https://traceroot.ai/docs/integrations/openai",
+    );
+
+    rerender(<ManualTab projectId="proj_1" integration={byId("crewai")} />);
+    expect(screen.getByRole("link", { name: "View CrewAI docs" }).getAttribute("href")).toBe(
+      "https://traceroot.ai/docs/integrations/crewai",
+    );
+    expect(screen.queryByRole("link", { name: "View OpenAI docs" })).toBeNull();
+  });
+
+  it("offers only the languages the stack has, starting on one it has", () => {
+    // Mastra is TypeScript only; Python must not be the resolved tab.
+    const { container } = render(<ManualTab projectId="proj_1" integration={byId("mastra")} />);
+    const python = screen.getAllByRole("button", { name: "Python" });
+    expect(python.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
+  });
+
+  it("groups GitHub and Slack into the external integrations card at step 4", () => {
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    expect(screen.getByText("4. External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });
 
-  it("offers the model key step after the four that produce a trace", () => {
-    // Nothing here is needed to get a trace in, so it sits with the other
-    // optional workspace-scoped step rather than ahead of the sequence.
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("5. Use your own model key")).toBeDefined();
-    expect(screen.getByTestId("model-provider-block").dataset.workspace).toBe("ws_1");
-  });
-
-  it("says both workspace steps are unavailable when the project fetch fails", () => {
+  it("says the workspace step is unavailable when the project fetch fails", () => {
     // An errored useProject is not a loading state: isLoading drops with no
-    // data behind it. Rendering on `!isLoading` alone gave both steps an empty
-    // workspace id, and ModelProviderBlock turns that into a settings link at
-    // `/workspaces//settings/model-providers` shown to someone who may be the
-    // admin it tells them to find.
+    // data behind it. Rendering on `!isLoading` alone gave the step an empty
+    // workspace id.
     projectQuery.isLoading = false;
     projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
     expect(screen.queryByTestId("github-connect")).toBeNull();
     expect(screen.queryByTestId("slack-connect")).toBeNull();
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(2);
+    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
   });
 
   it("shows a placeholder instead of the integrations while the project loads", () => {
-    // Both workspace-scoped steps read the workspace id off the project, so
-    // rendering them before the fetch settles puts rows on screen that cannot
-    // act on anything.
+    // The card reads the workspace id off the project, so rendering it before
+    // the fetch settles puts rows on screen that cannot act on anything.
     projectQuery.isLoading = true;
     projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" />);
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
     expect(screen.getByText("Loading integrations...")).toBeDefined();
-    expect(screen.getByText("Loading model providers...")).toBeDefined();
     expect(screen.queryByTestId("github-connect")).toBeNull();
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
   });
 });
