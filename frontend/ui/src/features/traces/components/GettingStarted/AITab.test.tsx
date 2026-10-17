@@ -59,7 +59,9 @@ describe("AITab", () => {
     // attention of someone who just wants to know what to paste.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain("Instruments your repo with a coding agent");
+    expect(text).toContain("Instruments your repository with a coding agent");
+    expect(text).toContain("writes the API key into it");
+    expect(text).toContain("waits for the first trace");
     expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 
