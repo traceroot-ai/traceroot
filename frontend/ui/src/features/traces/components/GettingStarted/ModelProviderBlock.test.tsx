@@ -67,6 +67,7 @@ import {
   isInlineConfigurable,
   ModelProviderBlock,
   SETTINGS_ONLY_ADAPTERS,
+  storedKeyCopy,
 } from "./ModelProviderBlock";
 
 function renderBlock(workspaceId = "ws-1") {
@@ -471,8 +472,47 @@ describe("a provider the workspace already has", () => {
     expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
     expect(screen.queryByLabelText("API key")).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
-    expect(screen.getByText(/already uses its own key/)).toBeTruthy();
+    expect(
+      screen.getByText(/already had a key of its own, so this step left it as it was/),
+    ).toBeTruthy();
+    // Not the just-stored confirmation: nothing was written on this mount.
+    expect(screen.queryByText(/key verified and saved/i)).toBeNull();
+    expect(screen.getByText(/Replace or remove it in/)).toBeTruthy();
     expect(screen.queryByText("Turned off")).toBeNull();
+  });
+
+  it("confirms a key this mount stored rather than calling it pre-existing", async () => {
+    // The sequence a first run goes through, and the one this fix came from:
+    // the list is empty when the form is offered and holds the new row by the
+    // time the read the save invalidated comes back. "This workspace already
+    // uses its own key" landed exactly there, over a key the user had just
+    // pasted, and read as though the paste had been thrown away.
+    const adapter = INLINE_ADAPTERS[0];
+    const label = ADAPTER_CONFIG[adapter].label;
+    mocks.getModelProviders.mockResolvedValueOnce({ byokEnabled: true, providers: [] });
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "mp-new",
+          adapter,
+          provider: label,
+          keyPreview: "sk-...new",
+          customModels: (ADAPTER_MODELS[adapter] ?? []).map((model) => model.id),
+          enabled: true,
+        },
+      ],
+    });
+
+    renderBlock();
+    await fillKey("sk-just-pasted");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    // Named for the provider the user picked, not for the workspace.
+    expect(await screen.findByText(new RegExp(`^${label} key verified and saved\\.`))).toBeTruthy();
+    expect(screen.queryByText(/already had a key of its own/)).toBeNull();
+    // And no invitation to add a second one: this step configures one key.
+    expect(screen.queryByText(/add another|add a key for another/i)).toBeNull();
   });
 
   it("says a row that is switched off is switched off, and still offers no form", async () => {
@@ -499,9 +539,79 @@ describe("a provider the workspace already has", () => {
     expect(
       screen.getByText(/turned off, so the AI assistant and detectors still run/),
     ).toBeTruthy();
-    expect(screen.queryByText(/already uses its own key/)).toBeNull();
+    expect(screen.queryByText(/already had a key of its own/)).toBeNull();
+    expect(screen.queryByText(/key verified and saved/i)).toBeNull();
+    expect(screen.getByText(/Turn it back on in/)).toBeTruthy();
     expect(screen.queryByLabelText("API key")).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
+  });
+});
+
+describe("the line a stored key is reported with", () => {
+  // The step is reached in two genuinely different situations, and one sentence
+  // cannot be honest in both.
+  it("confirms the save, under the provider's name, when this mount stored the key", () => {
+    expect(storedKeyCopy({ usingOwnKey: true, justSavedLabel: "Anthropic", count: 1 })).toEqual({
+      state:
+        "Anthropic key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own Anthropic account.",
+      settings: "Replace or remove it in",
+    });
+  });
+
+  it("still confirms the save when the provider it was stored for is unknown", () => {
+    const { state } = storedKeyCopy({ usingOwnKey: true, justSavedLabel: null, count: 1 });
+    expect(state).toBe(
+      "Key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own provider account.",
+    );
+    expect(state).not.toMatch(/already/);
+  });
+
+  it("says a key that was there at mount was left as it was, in the past tense", () => {
+    expect(storedKeyCopy({ usingOwnKey: true, count: 1 })).toEqual({
+      state: "This workspace already had a key of its own, so this step left it as it was.",
+      settings: "Replace or remove it in",
+    });
+  });
+
+  it("reports a key that is turned off as turned off, stored here or not", () => {
+    // A row that came back disabled is still inert, so the save confirmation
+    // would be false over it even on the mount that wrote it.
+    for (const justSavedLabel of ["Anthropic", null, undefined]) {
+      expect(storedKeyCopy({ usingOwnKey: false, justSavedLabel, count: 1 })).toEqual({
+        state:
+          "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+        settings: "Turn it back on in",
+      });
+    }
+  });
+
+  it("speaks of several keys when the list it read holds several", () => {
+    // This step stores one key, but it only reads the list: a workspace set up
+    // elsewhere first can reach it with more than one row on screen, and the
+    // singular would then be describing a table that visibly disagrees.
+    expect(storedKeyCopy({ usingOwnKey: true, count: 3 })).toEqual({
+      state: "This workspace already had keys of its own, so this step left them as they were.",
+      settings: "Manage them in",
+    });
+    expect(storedKeyCopy({ usingOwnKey: false, count: 3 })).toEqual({
+      state:
+        "This workspace has keys of its own, but they are all turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+      settings: "Turn one back on in",
+    });
+  });
+
+  it("never offers a second provider, in any state", () => {
+    // Onboarding configures one key. The settings link is where that key is
+    // replaced or switched back on, not somewhere to go and collect a set, and
+    // the line must not read as an invitation to add more.
+    for (const usingOwnKey of [true, false]) {
+      for (const justSavedLabel of ["Anthropic", undefined]) {
+        for (const count of [1, 2]) {
+          const { state, settings } = storedKeyCopy({ usingOwnKey, justSavedLabel, count });
+          expect(`${state} ${settings}`).not.toMatch(/\badd\b|another|each provider/i);
+        }
+      }
+    }
   });
 });
 
