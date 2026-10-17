@@ -24,11 +24,9 @@ vi.mock("./ModelProviderBlock", () => ({
   ModelProviderBlock: ({
     workspaceId,
     providerKey,
-    stackName,
   }: {
     workspaceId: string;
     providerKey: { kind: string; adapter?: string; provider?: string };
-    stackName: string;
   }) => (
     <div
       data-testid="model-provider-block"
@@ -36,7 +34,6 @@ vi.mock("./ModelProviderBlock", () => ({
       data-kind={providerKey.kind}
       data-adapter={providerKey.adapter ?? ""}
       data-provider={providerKey.provider ?? ""}
-      data-stack={stackName}
     />
   ),
 }));
@@ -91,29 +88,24 @@ describe("switching between the command and the manual steps", () => {
     render(<GettingStarted projectId="proj_1" />);
     const heading = screen.getByRole("heading", { name: "Get started with tracing" });
     const picker = screen.getByRole("radiogroup", { name: "Stack" });
-    const searchBox = screen.getByLabelText("Search integrations");
     const field = keyBlock();
 
     pickMode("Manual");
     expect(screen.getByRole("heading", { name: "Get started with tracing" })).toBe(heading);
     expect(screen.getByRole("radiogroup", { name: "Stack" })).toBe(picker);
-    expect(screen.getByLabelText("Search integrations")).toBe(searchBox);
     expect(screen.getByTestId("model-provider-block")).toBe(field);
 
     pickMode("Using AI");
-    expect(screen.getByLabelText("Search integrations")).toBe(searchBox);
+    expect(screen.getByRole("radiogroup", { name: "Stack" })).toBe(picker);
     expect(screen.getByTestId("model-provider-block")).toBe(field);
   });
 
-  it("keeps what has been typed and chosen above it", () => {
+  it("keeps what has been chosen above it", () => {
     const { container } = render(<GettingStarted projectId="proj_1" />);
-    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "crew" } });
     pickStack("CrewAI");
 
     pickMode("Manual");
-    expect((screen.getByLabelText("Search integrations") as HTMLInputElement).value).toBe("crew");
     expect(screen.getByText("3. Initialize TraceRoot for CrewAI")).toBeTruthy();
-    expect(keyBlock().dataset.stack).toBe("CrewAI");
 
     // One selection, and everything it is supposed to drive, in one place. The
     // key, the snippet and the docs link each have a test of their own, but
@@ -134,29 +126,27 @@ describe("switching between the command and the manual steps", () => {
 describe("the key the panel asks for", () => {
   it("starts on the selected stack's own provider", () => {
     render(<GettingStarted projectId="proj_1" />);
-    expect(keyBlock().dataset.stack).toBe("OpenAI");
     expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("openai");
   });
 
-  it("follows the selection across all three groups", () => {
+  it("follows the selection across both groups", () => {
     render(<GettingStarted projectId="proj_1" />);
 
-    // A model provider: its own key, with nothing to switch.
+    // A model provider with no adapter at all: said outright, not offered.
     pickStack("Mistral");
     expect(keyBlock().dataset.kind).toBe("none");
     expect(keyBlock().dataset.provider).toBe("Mistral");
 
-    // An SDK integration whose example calls OpenAI.
+    // A framework whose own example calls OpenAI, switchable.
     pickStack("Vercel AI SDK");
     expect(keyBlock().dataset.kind).toBe("suggested");
     expect(keyBlock().dataset.adapter).toBe("openai");
 
-    // An agent framework whose example calls Anthropic.
+    // One that can only call Anthropic, with nothing to switch.
     pickStack("Claude Agent SDK");
     expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("anthropic");
-    expect(keyBlock().dataset.stack).toBe("Claude Agent SDK");
   });
 
   it("asks for it on the command route as well as the manual one", () => {
@@ -166,14 +156,6 @@ describe("the key the panel asks for", () => {
     expect(keyBlock()).toBeTruthy();
     pickMode("Manual");
     expect(keyBlock()).toBeTruthy();
-  });
-
-  it("holds the selection when a search hides the selected card", () => {
-    render(<GettingStarted projectId="proj_1" />);
-    pickStack("CrewAI");
-    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "dspy" } });
-    expect(screen.queryByRole("radio", { name: "CrewAI" })).toBeNull();
-    expect(keyBlock().dataset.stack).toBe("CrewAI");
   });
 });
 
