@@ -223,7 +223,6 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
             <ModelProviderBlock
               workspaceId={workspaceId}
               providerKey={selectedIntegration.providerKey}
-              stackName={selectedIntegration.name}
             />
           ) : (
             <WorkspaceUnavailable />
