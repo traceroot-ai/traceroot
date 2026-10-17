@@ -12,7 +12,8 @@ import { MeasureOption } from "@/components/measure-option";
 import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
 import { cn } from "@/lib/utils";
 import { SectionBox } from "@/features/dashboards/components/SectionBox";
-import { getMeasureDoc, MEASURE_TYPE_LABEL } from "../measure-docs";
+import { MEASURE_TYPE_LABEL } from "@/lib/measure-doc";
+import { getMeasureDoc } from "../measure-docs";
 import {
   ALERT_MEASURES_BY_VIEW,
   ALERT_OPERATORS,

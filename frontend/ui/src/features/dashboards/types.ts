@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MEASURE_TYPE_LABEL, type MeasureDoc } from "@/lib/measure-doc";
 
 export const DISPLAY_TYPES = [
   "line",
@@ -209,26 +210,22 @@ export interface WidgetFieldValuesResponse {
 }
 
 /**
- * The hover panel's documentation for a builder measure, or undefined when the
- * schema carries none (an older cached schema), which leaves the row plain.
+ * The hover panel's documentation for a measure, or undefined when the schema
+ * carries none (an older cached schema), which leaves the row plain.
  */
-export function measureDoc(
-  field: WidgetSchemaField,
-): { unit: string; description: string } | undefined {
+export function measureDoc(field: WidgetSchemaField): MeasureDoc | undefined {
   return field.unit && field.description
     ? { unit: field.unit, description: field.description }
     : undefined;
 }
 
 /**
- * The type a measure's hover panel shows, worded as the alert form words it.
- * The count(*) sentinel is the one numeric field the registry marks
- * non-histogrammable; it shows as "Integer", since "Count" is also an
- * aggregation name and would read as a tautology on the Count row.
+ * The type a measure's hover panel shows. The count(*) sentinel is the one
+ * numeric field the registry marks non-histogrammable, so it takes the count label.
  */
 export function measureTypeLabel(field: WidgetSchemaField): string {
-  if (field.type === "string") return "String";
-  return field.histogrammable === false ? "Integer" : "Number";
+  if (field.type === "string") return MEASURE_TYPE_LABEL.string;
+  return field.histogrammable === false ? MEASURE_TYPE_LABEL.count : MEASURE_TYPE_LABEL.number;
 }
 
 /**

@@ -374,7 +374,7 @@
           "p95",
           "p99"
         ],
-        "description": "Input tokens one trace read from the prompt cache, summed across its spans.",
+        "description": "Input tokens one trace read from the prompt cache, summed across its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -400,7 +400,7 @@
           "p95",
           "p99"
         ],
-        "description": "Input tokens one trace wrote to the prompt cache, summed across its spans.",
+        "description": "Input tokens one trace wrote to the prompt cache, summed across its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -426,7 +426,7 @@
           "p95",
           "p99"
         ],
-        "description": "Cost of one trace, summed across its spans.",
+        "description": "Cost of one trace, summed across its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -466,7 +466,7 @@
           "p95",
           "p99"
         ],
-        "description": "Elapsed time of one trace, from its first span's start to its last span's end.",
+        "description": "Elapsed time of one trace, from the first start to the last end among its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -508,7 +508,7 @@
           "p95",
           "p99"
         ],
-        "description": "Spans in one trace with an error status.",
+        "description": "Spans in one trace with an error status, among those that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -534,7 +534,7 @@
           "p95",
           "p99"
         ],
-        "description": "Input tokens of one trace, summed across its spans.",
+        "description": "Input tokens of one trace, summed across its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -576,7 +576,7 @@
           "p95",
           "p99"
         ],
-        "description": "Output tokens of one trace, summed across its spans.",
+        "description": "Output tokens of one trace, summed across its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",
@@ -618,7 +618,7 @@
           "p95",
           "p99"
         ],
-        "description": "Input plus output tokens of one trace, summed across its spans.",
+        "description": "Input plus output tokens of one trace, summed across its spans that start in the window.",
         "filterOps": [
           ">",
           ">=",

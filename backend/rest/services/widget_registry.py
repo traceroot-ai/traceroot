@@ -259,13 +259,19 @@ REGISTRY: dict[str, ViewDef] = {
                 "cache_read_tokens",
                 "Cache read tokens",
                 "Tokens",
-                "Input tokens one span read from the prompt cache; a span that reported no cache usage has no value.",
+                (
+                    "Input tokens one span read from the prompt cache; a span that reported no"
+                    " cache usage has no value."
+                ),
             ),
             "cache_write_tokens": _number_measure(
                 "cache_write_tokens",
                 "Cache write tokens",
                 "Tokens",
-                "Input tokens one span wrote to the prompt cache; a span that reported no cache usage has no value.",
+                (
+                    "Input tokens one span wrote to the prompt cache; a span that reported no"
+                    " cache usage has no value."
+                ),
             ),
             # Total last: input + output. Cache read/write are a breakdown of
             # the input above, not additional addends — summing all four
@@ -369,34 +375,46 @@ REGISTRY: dict[str, ViewDef] = {
                 "duration_ms",
                 "Latency",
                 "Milliseconds",
-                "Elapsed time of one trace, from its first span's start to its last span's end.",
+                (
+                    "Elapsed time of one trace, from the first start to the last end"
+                    " among its spans that start in the window."
+                ),
             ),
             "cost": _number_measure(
-                "cost", "Cost", "USD", "Cost of one trace, summed across its spans."
+                "cost",
+                "Cost",
+                "USD",
+                "Cost of one trace, summed across its spans that start in the window.",
             ),
             "input_tokens": _number_measure(
                 "input_tokens",
                 "Input tokens",
                 "Tokens",
-                "Input tokens of one trace, summed across its spans.",
+                "Input tokens of one trace, summed across its spans that start in the window.",
             ),
             "output_tokens": _number_measure(
                 "output_tokens",
                 "Output tokens",
                 "Tokens",
-                "Output tokens of one trace, summed across its spans.",
+                "Output tokens of one trace, summed across its spans that start in the window.",
             ),
             "cache_read_tokens": _number_measure(
                 "cache_read_tokens",
                 "Cache read tokens",
                 "Tokens",
-                "Input tokens one trace read from the prompt cache, summed across its spans.",
+                (
+                    "Input tokens one trace read from the prompt cache, summed across its spans"
+                    " that start in the window."
+                ),
             ),
             "cache_write_tokens": _number_measure(
                 "cache_write_tokens",
                 "Cache write tokens",
                 "Tokens",
-                "Input tokens one trace wrote to the prompt cache, summed across its spans.",
+                (
+                    "Input tokens one trace wrote to the prompt cache, summed across its spans"
+                    " that start in the window."
+                ),
             ),
             # Total last: input + output. Cache read/write are a breakdown of
             # the input above, not additional addends — summing all four
@@ -405,7 +423,10 @@ REGISTRY: dict[str, ViewDef] = {
                 "total_tokens",
                 "Tokens",
                 "Tokens",
-                "Input plus output tokens of one trace, summed across its spans.",
+                (
+                    "Input plus output tokens of one trace, summed across its spans that start"
+                    " in the window."
+                ),
             ),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(
@@ -419,7 +440,10 @@ REGISTRY: dict[str, ViewDef] = {
             # Last, so the list reads as the spans measures plus one trailing
             # trace-only addition when switching views.
             "error_count": _number_measure(
-                "error_count", "Errors", "Spans", "Spans in one trace with an error status."
+                "error_count",
+                "Errors",
+                "Spans",
+                "Spans in one trace with an error status, among those that start in the window.",
             ),
         },
     ),

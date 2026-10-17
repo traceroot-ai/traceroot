@@ -2,15 +2,7 @@
 
 import { SelectItem } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-
-export interface MeasureDoc {
-  // Unit of the raw column: `count` and `uniq` discard it, so the panel labels
-  // it the measure's unit, not the result's.
-  unit: string;
-  description: string;
-  // Why a measure cannot return a number. Absent means available.
-  unavailable?: string;
-}
+import type { MeasureDoc } from "@/lib/measure-doc";
 
 function MetaChip({ children }: { children: React.ReactNode }) {
   return (
