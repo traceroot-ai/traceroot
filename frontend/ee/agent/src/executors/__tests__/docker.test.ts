@@ -195,6 +195,26 @@ describe("DockerExecutor.exec cancellation", () => {
     expect(child.kill).not.toHaveBeenCalled();
   });
 
+  it("cleans published group state after the host fallback kills a stuck client", async () => {
+    const executor = await readyExecutor();
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const child = runningCommand();
+    execFileMock.mockClear();
+    execFileMock.mockImplementation((_cmd: string, args: string[], ...rest: unknown[]) => {
+      const cb = rest.at(-1) as (error: Error | null, result: object) => void;
+      cb(null, { stdout: args.includes("traceroot-cancel") ? "started" : "", stderr: "" });
+    });
+    const result = executor.exec("sleep 100", { signal: controller.signal });
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    expect(execFileMock.mock.calls.some((call) => call[1].includes("traceroot-cleanup"))).toBe(
+      true,
+    );
+  });
+
   it("does not start a command for an already aborted signal", async () => {
     const executor = await readyExecutor();
     const controller = new AbortController();
@@ -310,6 +330,9 @@ describe("DockerExecutor.exec cancellation", () => {
     const result = executor.exec("sleep 100", { signal: controller.signal });
     controller.abort();
     await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
+    expect(execFileMock.mock.calls.some((call) => call[1].includes("traceroot-cleanup"))).toBe(
+      true,
+    );
   });
 });
 

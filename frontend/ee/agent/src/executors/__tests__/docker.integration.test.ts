@@ -67,6 +67,36 @@ describe.skipIf(process.env.RUN_DOCKER_TESTS !== "1")("Docker command lifecycle 
     await expectNoCommandState();
   });
 
+  it.each(["timeout", "abort"])(
+    "keeps a background child's group cancellable after the command shell exits (%s)",
+    async (mode) => {
+      const controller = new AbortController();
+      const marker = `/tmp/background-after-${mode}`;
+      const result = executor.exec(
+        `sh -c 'sleep 1; touch ${marker}' &`,
+        mode === "timeout" ? { timeout: 0.1 } : { signal: controller.signal },
+      );
+      const timer = mode === "abort" ? setTimeout(() => controller.abort(), 100) : undefined;
+      try {
+        expect((await result).code).not.toBe(0);
+      } finally {
+        clearTimeout(timer);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      expect(await markerExists(marker)).toBe("no");
+      await expectNoCommandState();
+    },
+  );
+
+  it("cleans up after a normally completed background child and preserves output", async () => {
+    expect(await executor.exec("sh -c 'sleep 0.2; printf child-output' &")).toEqual({
+      stdout: "child-output",
+      stderr: "",
+      code: 0,
+    });
+    await expectNoCommandState();
+  });
+
   it("aborts one command without stopping another command in the same sandbox", async () => {
     const controller = new AbortController();
     const unrelated = executor.exec("sleep 0.5; printf kept > /tmp/unrelated; printf kept");

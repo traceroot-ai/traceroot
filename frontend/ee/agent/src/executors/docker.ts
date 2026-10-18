@@ -10,6 +10,31 @@ const DOCKER_IMAGE = "ubuntu:24.04";
 const WORKSPACE_DIR = "/workspace";
 const CONTAINER_NAME_PREFIX = "traceroot-sandbox-";
 
+// Keep the session leader alive until its remaining process-group members exit,
+// including background grandchildren orphaned by the command shell. Ubuntu's
+// base image has /proc but does not require ps/procps to be installed. Ignore
+// zombies, which cannot execute and may await reaping by the container's PID 1.
+const COMMAND_WRAPPER = `
+mkdir -p -m 700 "$1" || exit 1
+trap 'rm -f "$1/pid"; rmdir "$1" 2>/dev/null || true' EXIT
+printf '%s\\n' "$$" > "$1/pid" || exit 1
+if [ -e "$1/cancelled" ]; then rm -f "$1/cancelled"; exit 1; fi
+group_has_children() {
+  for file in /proc/[0-9]*/stat; do
+    [ "$file" != "/proc/$$/stat" ] || continue
+    IFS= read -r stat 2>/dev/null < "$file" || continue
+    fields=\${stat##*) }
+    set -- $fields
+    if [ "$3" = "$$" ] && [ "$1" != Z ]; then return 0; fi
+  done
+  return 1
+}
+sh -c "$2"
+status=$?
+while group_has_children; do sleep 0.05; done
+exit "$status"
+`;
+
 /** Marks a container as an agent sandbox. Set on every container we create. */
 export const SANDBOX_LABEL = "traceroot.sandbox";
 /** The session a sandbox belongs to. */
@@ -111,11 +136,7 @@ export class DockerExecutor implements Executor {
           // cancellation reaches Docker before this exec starts, its marker still
           // prevents the command from running. Positional arguments preserve the
           // caller's shell quoting and keep the generated path out of the command.
-          'mkdir -p -m 700 "$1" || exit 1; ' +
-            'trap \'rm -f "$1/pid"; rmdir "$1" 2>/dev/null || true\' EXIT; ' +
-            'printf "%s\\n" "$$" > "$1/pid" || exit 1; ' +
-            'if [ -e "$1/cancelled" ]; then rm -f "$1/cancelled"; exit 1; fi; ' +
-            'sh -c "$2"; exit "$?"',
+          COMMAND_WRAPPER,
           "traceroot-exec",
           stateDir,
           command,
@@ -133,6 +154,7 @@ export class DockerExecutor implements Executor {
       let terminationFailed = false;
       let finished = false;
       let hostKilled = false;
+      let groupPublished = false;
       let hostKillHandle: ReturnType<typeof setTimeout> | undefined;
       const MAX_BYTES = 10 * 1024 * 1024; // 10MB, matches Mom
 
@@ -150,14 +172,15 @@ export class DockerExecutor implements Executor {
             "sh",
             "-c",
             'mkdir -p -m 700 "$1" && touch "$1/cancelled" || exit 1; ' +
-              'if [ -s "$1/pid" ]; then read -r pid < "$1/pid"; ' +
-              'kill -KILL "-$pid" 2>/dev/null || true; fi',
+              'if [ -s "$1/pid" ] && read -r pid < "$1/pid"; then ' +
+              'kill -KILL "-$pid" 2>/dev/null || true; printf started; fi',
             "traceroot-cancel",
             stateDir,
           ],
           { timeout: 5000 },
         )
-          .then(() => {
+          .then(({ stdout }) => {
+            groupPublished = stdout === "started";
             // A process that escaped the group can keep Docker's output pipes
             // open. Bound the host client too, after attempting remote cleanup.
             if (!finished) {
@@ -200,9 +223,10 @@ export class DockerExecutor implements Executor {
         options?.signal?.removeEventListener("abort", onAbort);
         await cancellation;
         // Normal completion cleans up in the launcher, without another Docker
-        // call. After a forced host kill or remote failure, retain the marker:
-        // a delayed launcher may still arrive and must observe cancellation.
-        if (cancellation && !terminationFailed && !hostKilled) {
+        // call. A forced host kill only needs to retain the marker when the
+        // launcher has not published its group yet. A published group was
+        // already signaled and its state can be cleaned up even after fallback.
+        if (cancellation && !terminationFailed && (!hostKilled || groupPublished)) {
           try {
             await execFileAsync(
               "docker",
