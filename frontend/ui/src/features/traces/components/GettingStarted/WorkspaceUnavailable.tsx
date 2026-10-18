@@ -10,9 +10,9 @@
  * may well be the admin — to go and ask one, via a link to
  * `/workspaces//settings/model-providers` that 404s.
  *
- * Shared rather than duplicated because the two steps that need it now sit on
- * opposite sides of the mode switch: the model key above it, the external
- * integrations inside each mode's own section.
+ * Shared rather than duplicated because the steps that need it live in
+ * different files: the external integrations on each of the traces page's two
+ * tabs, and the model key field wherever that is asked for.
  */
 export function WorkspaceUnavailable() {
   return (
