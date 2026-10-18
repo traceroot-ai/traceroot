@@ -36,6 +36,19 @@ export async function createCheckoutSession(
 }
 
 /**
+ * Sync the workspace's subscription from Stripe after Checkout redirects back
+ */
+export async function reconcileCheckout(
+  workspaceId: string,
+  sessionId: string,
+): Promise<{ reconciled: boolean; plan?: string }> {
+  return fetchNextApi<{ reconciled: boolean; plan?: string }>("/billing/checkout/reconcile", {
+    method: "POST",
+    body: JSON.stringify({ workspaceId, sessionId }),
+  });
+}
+
+/**
  * Change subscription plan (upgrade, downgrade, or cancel to free)
  */
 export async function changePlan(
