@@ -8,6 +8,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { revokeProjectAccessKey } from "@/lib/revoke-access-key";
 
 const updateAccessKeySchema = z.object({
   name: z.string().max(100, "Name too long").nullable(),
@@ -77,24 +78,8 @@ async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const accessResult = await requireProjectAccess(user.id, projectId, Role.ADMIN);
-  if (accessResult.error) return accessResult.error;
-
-  // Check access key exists and belongs to this project
-  const accessKey = await prisma.accessKey.findFirst({
-    where: {
-      id: keyId,
-      projectId,
-    },
-  });
-
-  if (!accessKey) {
-    return errorResponse("Access key not found", 404);
-  }
-
-  await prisma.accessKey.delete({
-    where: { id: keyId },
-  });
+  const revokeResult = await revokeProjectAccessKey(user.id, projectId, keyId);
+  if (revokeResult.error) return revokeResult.error;
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }

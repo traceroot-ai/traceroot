@@ -5,10 +5,12 @@ API key. It runs under a **user** credential, because it happens before any
 project key exists — a project key knows exactly one project, so asking it to
 mint that project's first key is circular.
 
-Deliberately just this one. This is not a general write API, and it should not
-grow into one: everything else a user writes has a browser surface that already
-owns it. This exists only because onboarding has no key yet, so nothing else can
-produce one.
+Deliberately just this one, plus its undo. This is not a general write API, and
+it should not grow into one: everything else a user writes has a browser surface
+that already owns it. This exists only because onboarding has no key yet, so
+nothing else can produce one. The revoke beside it exists for the same reason:
+a run that fails after minting must take its keys back, and the key-authenticated
+revoke cannot remove the key making the request.
 
 Project creation is deliberately absent: the public write surface already serves
 ``POST /api/v1/public/projects``, and the setup wizard always resolves a workspace
@@ -26,6 +28,7 @@ never the raw credential — matching :mod:`rest.routers.public.account_read`.
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -50,6 +53,14 @@ logger = logging.getLogger(__name__)
 # anything that would pressure a worker. The eval proxy carries the same ceiling
 # for the same reason; extracting one shared reader is tracked separately.
 _MAX_BODY_BYTES = 64 * 1024
+
+# One path segment: an opaque id, deliberately narrow. The eval gateway's
+# `_SEGMENT_RE` is the same class, so a key id the other public routes refuse is
+# refused here too: no `/`, `%`, `\`, `:` or whitespace, and nothing over 128.
+_PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9_.~-]{1,128}")
+
+# Dot-segments match the character class above, so they are excluded by name.
+_DOT_SEGMENTS = frozenset({".", ".."})
 
 
 async def _read_capped_body(request: Request) -> bytes:
@@ -79,6 +90,24 @@ async def _read_capped_body(request: Request) -> bytes:
             )
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+def _path_segment(value: str) -> str:
+    """Validate one caller-supplied path segment before it is forwarded.
+
+    Args:
+        value (str): The caller-supplied segment, such as a key id.
+
+    Returns:
+        str: ``value`` unchanged, once it is known to be one opaque segment.
+
+    Raises:
+        HTTPException: 404 if it is not. A 404 rather than a 400, matching the
+            eval gateway's answer to the same input.
+    """
+    if value in _DOT_SEGMENTS or not _PATH_SEGMENT_RE.fullmatch(value):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return value
 
 
 router = APIRouter(prefix="/public/projects", tags=["Projects (Public)"])
@@ -214,3 +243,56 @@ async def create_project_api_key(
         payload["expiresInDays"] = body["expires_in_days"]
 
     return await _call_internal("user-create-project-key", payload)
+
+
+@router.delete(
+    "/{project_id}/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
+)
+async def revoke_project_api_key(
+    project_id: str,
+    key_id: str,
+    request: Request,
+    response: Response,
+    auth: AccountStampedAuth,
+    _live: LiveSession,
+) -> Response:
+    """Revoke an API key in one of this user's projects.
+
+    The undo of :func:`create_project_api_key`, for a setup run that fails after
+    minting. ``DELETE /public/api-keys/{id}`` cannot serve it: it authenticates
+    with an admin key of the same project and refuses to revoke that key itself.
+
+    The control plane runs the dashboard's own revoke, so a login can revoke
+    exactly what it could in the browser: the workspace admin role, and a key
+    outside ``project_id`` is a 404, never revoked.
+
+    Args:
+        project_id (str): The project the key belongs to.
+        key_id (str): The key to revoke; one opaque path segment.
+        request (Request): Incoming request (rate-limit plumbing).
+        response (Response): Outgoing response (rate-limit plumbing).
+        auth (AccountStampedAuth): Account-scope user auth (session token or CLI
+            access JWT); carries the resolved ``user_id``.
+        _live (LiveSession): Refuses a JWT whose minting session has been revoked
+            or expired, as on the mint.
+
+    Returns:
+        Response: 204 once the key is revoked.
+
+    Raises:
+        HTTPException: 404 for a key id that is not one opaque segment, before
+            anything is forwarded; otherwise the control plane's 403/404
+            verbatim, or a 503 when its response is ambiguous.
+    """
+    payload: dict[str, Any] = {
+        "userId": auth.user_id,
+        "projectId": project_id,
+        "keyId": _path_segment(key_id),
+    }
+    await _call_internal("user-revoke-project-key", payload)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
