@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listCliHandoffSessionIds } from "@/lib/api/cli-handoff";
 import { authClient } from "@/lib/auth-client";
 
 /** A single row in the Active Sessions table. */
@@ -14,6 +15,8 @@ export interface SessionRow {
   userAgent?: string | null;
   /** True for the session backing the current request — see ActiveSessions for why it can't be plainly revoked. */
   isCurrent: boolean;
+  /** True when a CLI handoff code created this session, not a sign-in or a device approval. */
+  fromHandoff: boolean;
 }
 
 // Keyed per user: the rows carry raw session tokens (a session token can mint
@@ -24,6 +27,8 @@ export interface SessionRow {
 // gcTime 0 below drops the token-bearing payload as soon as the page unmounts.
 const activeSessionsQueryKey = (userId: string | null) =>
   ["account-settings", "sessions", userId] as const;
+const handoffSessionsQueryKey = (userId: string | null) =>
+  ["account-settings", "handoff-sessions", userId] as const;
 
 /**
  * Data-fetching + mutation logic for the Active Sessions table, kept out of
@@ -60,6 +65,19 @@ export function useActiveSessions() {
     },
   });
 
+  // Which rows a handoff code created. A handoff session's row is identical to
+  // a device-flow login's, so this comes from the server's record of each
+  // redemption rather than from anything on the row; the user agent in
+  // particular is whatever the redeemer sent. Best effort: a failed lookup
+  // leaves every row unmarked rather than hiding the table, since the table is
+  // also how a session gets revoked.
+  const handoffQuery = useQuery({
+    queryKey: handoffSessionsQueryKey(currentUserId),
+    enabled: currentUserId !== null,
+    queryFn: listCliHandoffSessionIds,
+  });
+  const handoffSessionIds = new Set(handoffQuery.data ?? []);
+
   const sessions: SessionRow[] = (query.data ?? []).map((session) => ({
     id: session.id,
     token: session.token,
@@ -72,6 +90,7 @@ export function useActiveSessions() {
     // current row. Callers must also check `currentSessionPending` before
     // offering a destructive revoke control, not rely on `isCurrent` alone.
     isCurrent: session.token === currentToken,
+    fromHandoff: handoffSessionIds.has(session.id),
   }));
 
   const refresh = useCallback(
