@@ -2,21 +2,17 @@
  * Finding the first trace a setup run produces, from the browser tab that
  * started it.
  *
- * Two pages watch for this, and they know different amounts about where to
- * look. The device page approves a terminal before that terminal has chosen a
- * project, so it has a *set* of places a trace could land and that set can grow
- * while it watches. The onboarding page made the project itself, so it has one
- * id and no guessing to do. What they share is everything after "which
- * projects": where each one stood when the wait began, and which row in it is
- * the trace the run produced.
+ * The onboarding page is what watches for this. It made the project itself, so
+ * it has the id to look in and no guessing to do. What lives here is
+ * everything after "which project": where it stood when the wait began, and
+ * which row in it is the trace the run produced.
  *
  * So this module takes project ids and never discovers them. Deciding what to
  * watch — and in what order — is the caller's, because only the caller knows
  * how firmly it can bind a trace to its own run.
  *
- * Everything here is a read. Neither page may create a workspace or a project
- * on the user's behalf (see the device page's own notes on why), so a wait that
- * finds nowhere to look simply finds nothing.
+ * Everything here is a read, so a wait that finds nowhere to look simply finds
+ * nothing.
  */
 import { getTraces } from "@/lib/api/traces";
 import type { TraceApiUser } from "@/lib/api/client";
