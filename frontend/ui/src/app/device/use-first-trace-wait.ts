@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { TraceApiUser } from "@/lib/api/client";
 import {
   captureTraceBaseline,
@@ -10,7 +10,7 @@ import {
 } from "@/lib/first-trace";
 import { useTraceWait, type RoundResult, type TraceWait } from "@/lib/hooks/use-trace-wait";
 import type { Project, Workspace } from "@/types/api";
-import { readWatchedProjects, watchOrder } from "./first-trace";
+import { readWatchedProjects, watchOrder, type KeyCounts } from "./first-trace";
 
 /**
  * How many rounds may find nowhere to look before the wait stops early.
@@ -61,37 +61,68 @@ export function useFirstTraceWait(
 
   // Identity that genuinely should restart the wait: a different account, or a
   // different set of places to look.
-  const workspaceKey = useMemo(() => workspaces.map((w) => w.id).join(","), [workspaces]);
+  const workspaceKey = workspaces.map((w) => w.id).join(",");
 
   const beginWait = useCallback((isCancelled: () => boolean) => {
     let baseline: TraceBaseline | null = null;
+    // Whether the listing the baseline was drawn from was the whole account.
+    // When it was not, a project turning up later may be one that was there all
+    // along, so absence from the baseline stops meaning "the terminal made it".
+    let baselineIsWholeAccount = false;
+    let keyCounts: KeyCounts = new Map();
     let barrenRounds = 0;
 
     return async function round(): Promise<RoundResult | null> {
-      const projects = await readWatchedProjects(workspacesRef.current);
+      const watched = await readWatchedProjects(workspacesRef.current, keyCounts);
       if (isCancelled()) {
         return null;
       }
+      keyCounts = watched.keyCounts;
+      const { projects, complete } = watched;
       const fallbackUrl = fallbackUrlFor(projects);
 
       if (projects.length === 0) {
         barrenRounds += 1;
         return barrenRounds >= MAX_BARREN_ROUNDS
-          ? { kind: "stop", fallbackUrl }
+          ? { kind: "stop", fallbackUrl, unreadable: true }
           : { kind: "again", fallbackUrl };
       }
       barrenRounds = 0;
+      const projectIds = projects.map((project) => project.id);
 
       if (baseline === null) {
         // First round draws the line and stops there. Nothing the run produces
         // can have arrived in the instant between approval and this read, so
         // treating anything already present as the run's trace would land the
         // tab on an unrelated trace from the same workspace.
-        baseline = await captureTraceBaseline(
-          projects.map((project) => project.id),
-          userRef.current,
-        );
+        baseline = await captureTraceBaseline(projectIds, userRef.current);
+        baselineIsWholeAccount = complete;
         return isCancelled() ? null : { kind: "again", fallbackUrl };
+      }
+
+      if (!baselineIsWholeAccount) {
+        // The line was drawn across part of the account, so a project showing
+        // up now is as likely to be one that was hidden then as one the
+        // terminal has just made — and treating a hidden one as new would make
+        // its months-old traces qualify and send the tab to the wrong trace
+        // entirely. Drawing its line on first sight costs only the ranking in
+        // `watchOrder`: a project the terminal really did just create reads as
+        // empty, so anything that arrives in it still qualifies.
+        // An older project the terminal has minted a key in is the usual case:
+        // it sat past the cap when the line was drawn. A whole-account line
+        // needs no such step, since every project that existed then has one.
+        // Held in a const because the line is read inside a callback, where a
+        // `let` the round reassigns cannot be narrowed: the drawn baseline is
+        // not null here, and an optional chain would quietly read as if a
+        // missing one meant every project were new.
+        const lined = baseline;
+        const unlined = projectIds.filter((projectId) => !lined.has(projectId));
+        if (unlined.length > 0) {
+          baseline = new Map([...lined, ...(await captureTraceBaseline(unlined, userRef.current))]);
+          if (isCancelled()) {
+            return null;
+          }
+        }
       }
 
       // Any project whose baseline read failed gets another go first: until it
@@ -107,5 +138,11 @@ export function useFirstTraceWait(
     };
   }, []);
 
-  return useTraceWait(active, beginWait, `${workspaceKey}|${user?.id ?? ""}`);
+  return useTraceWait(
+    active,
+    beginWait,
+    `${workspaceKey}|${user?.id ?? ""}`,
+    // Nowhere better to send someone until a round has read the account.
+    WORKSPACES_URL,
+  );
 }

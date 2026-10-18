@@ -192,6 +192,55 @@ describe("findFirstTrace", () => {
     });
   });
 
+  it("lands on the same trace whichever way the page orders two stamped alike", async () => {
+    // Which of two rows inside the same millisecond comes back first is the
+    // server's business. A deep link that followed it would send two people who
+    // ran the same command to two different traces, so the id breaks the tie.
+    const tied = [trace("t-b", "2026-05-01T11:00:00Z"), trace("t-a", "2026-05-01T11:00:00Z")];
+    const baseline = new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]);
+
+    tracesByProject({ "p-1": tied });
+    expect(await findFirstTrace(["p-1"], baseline, undefined)).toEqual({
+      projectId: "p-1",
+      traceId: "t-a",
+    });
+
+    tracesByProject({ "p-1": [...tied].reverse() });
+    expect(await findFirstTrace(["p-1"], baseline, undefined)).toEqual({
+      projectId: "p-1",
+      traceId: "t-a",
+    });
+  });
+
+  it("passes over a row whose start time does not parse rather than calling it the first", async () => {
+    // A project with no line to filter against is the ordinary first-run case,
+    // and there every row qualifies. An unparseable one then beats every real
+    // trace, because no comparison against NaN is ever true.
+    tracesByProject({
+      "p-1": [trace("t-bad", ""), trace("t-good", "2026-05-01T11:00:00Z")],
+    });
+
+    const found = await findFirstTrace(
+      ["p-1"],
+      new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
+      undefined,
+    );
+
+    expect(found).toEqual({ projectId: "p-1", traceId: "t-good" });
+  });
+
+  it("keeps waiting when the only row it can see has an unparseable start time", async () => {
+    tracesByProject({ "p-1": [trace("t-bad", "not a date")] });
+
+    const found = await findFirstTrace(
+      ["p-1"],
+      new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
+      undefined,
+    );
+
+    expect(found).toBeNull();
+  });
+
   it("takes any trace in a project that had none when the wait began", async () => {
     tracesByProject({ "p-1": [trace("t-1", "2026-05-01T11:00:00Z")] });
 

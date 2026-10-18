@@ -75,6 +75,7 @@ vi.mock("@/components/slack/SlackConnectButton", () => ({
 }));
 
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
+import { MAX_UNREADABLE_ROUNDS } from "@/features/onboarding/use-project-trace-wait";
 import OnboardingPage from "./page";
 
 function trace(traceId: string, startTime: string) {
@@ -204,12 +205,51 @@ describe("the hand-back step's first-trace watch", () => {
     // Both waiting pages end the same way: the trace the run was for is what
     // the person lands on, without having to ask for it.
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
+    // Once. The effect is keyed on the wait object's identity, so a settled
+    // wait that re-rendered would push again — and the device-page twin pins
+    // this same count for the same reason.
+    expect(mocks.push).toHaveBeenCalledTimes(1);
     // The link stays in the arrival line as the way forward if that push is
     // slow or refused, so the state is never a statement with no exit.
     expect(screen.getByText(/Your first trace arrived/)).toBeDefined();
     expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
       "/projects/proj-1/traces?traceId=t-run",
     );
+  });
+
+  it("carries on once a baseline read that failed comes good", async () => {
+    // A blip while the line is being drawn records the project as unreadable,
+    // and a project with no line can never match — `findFirstTrace` skips it.
+    // The retry is the whole of what keeps a momentary 401 from stranding a run
+    // that then goes perfectly.
+    mocks.getTraces.mockRejectedValueOnce(new Error("offline"));
+    await reachHandback();
+    // The first round's read failed; the second retries it and draws the line.
+    await rounds(1);
+    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
+
+    tracePage = [trace("t-run", "2026-05-01T10:05:00Z")];
+    await rounds(1);
+
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
+  });
+
+  it("says it could not read, rather than that no trace came, when the reads keep failing", async () => {
+    // "Still no trace" is a claim about the run. A tab whose session expired
+    // mid-wait is in no position to make it, and spinning out the remaining
+    // nine and a half minutes first does not make it any truer.
+    mocks.getTraces.mockRejectedValue(new Error("unauthorized"));
+    await reachHandback();
+    await rounds(MAX_UNREADABLE_ROUNDS);
+
+    expect(screen.getByText(/could not read your traces/)).toBeDefined();
+    expect(screen.queryByText(/Still no trace/)).toBeNull();
+    // And still a way forward — which for an expired session is also where the
+    // sign-in it needs lives.
+    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("leaves both exits working while it waits", async () => {

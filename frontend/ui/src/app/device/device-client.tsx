@@ -8,8 +8,8 @@ import { authClient } from "@/lib/auth-client";
 import { getWorkspaces } from "@/lib/api/workspaces";
 import type { TraceApiUser } from "@/lib/api/client";
 import type { Workspace } from "@/types/api";
-import { traceUrl } from "@/lib/first-trace";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
 import { useFirstTraceWait } from "./use-first-trace-wait";
 import { resolveSetupNeed, onboardingUrlForSetup, type SetupNeed } from "@/lib/account-setup";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
+import { FirstTraceLine } from "@/components/first-trace-line";
 
 const FALLBACK_CLIENT_NAME = "A command-line application";
 
@@ -166,13 +167,7 @@ function DeviceContent() {
   // is closed, or never opened, leaves the run exactly as it would have been.
   const traceWait = useFirstTraceWait(phase.kind === "approved", workspaces, traceUser);
 
-  // Advancing on our own is the whole point: the person was told to go back to
-  // their terminal, so nobody is here to click anything when the trace lands.
-  useEffect(() => {
-    if (traceWait.kind === "found") {
-      router.push(traceUrl(traceWait.found));
-    }
-  }, [traceWait, router]);
+  useOpenFoundTrace(traceWait);
 
   // Resolve the pending request once we have both a code and a signed-in
   // session. Runs once per (activeCode, session) pair — activeCode only
@@ -317,13 +312,40 @@ function DeviceContent() {
   // Signed in as the wrong account. Because the code isn't claimed until the user
   // acts (see claimActiveCode), it's still usable by a different account — so
   // carry it back through sign-in and return to consent as the new account,
-  // rather than dropping the flow. Clear activeCode first so signing out doesn't
-  // re-fire the effect's signed-out branch mid-flip (we push the sign-in URL,
-  // with the code in callbackUrl, explicitly below).
+  // rather than dropping the flow.
   async function handleSwitchAccount() {
     const code = activeCode;
+    let cleared: boolean;
+    try {
+      // The client reports an HTTP failure in `error` and rejects only when the
+      // request never completed, so both have to be read before the session can
+      // be called cleared. A rate limit or a proxy error leaves the cookie in
+      // place, and a sign-in reached on a live session hands the browser
+      // straight back here as the same account — the thing this button exists
+      // to undo, now with nothing said about it.
+      const { error } = await authClient.signOut();
+      cleared = !error;
+    } catch {
+      cleared = false;
+    }
+    if (!cleared) {
+      // Its own message rather than the device-error mapper, for the same reason
+      // the workspace load above uses one: nothing is wrong with the code. The
+      // code is deliberately still set — every phase that renders anything is
+      // gated on it, so clearing it before the sign-out is known to have
+      // happened leaves this card with a header over an empty body.
+      setPhase({
+        kind: "error",
+        message:
+          "Could not sign out, so you are still signed in and nothing was approved. Check your connection and try again.",
+        recoverable: true,
+      });
+      return;
+    }
+    // Cleared only once the session is gone, so signing out doesn't re-fire the
+    // effect's signed-out branch mid-flip (we push the sign-in URL, with the
+    // code in callbackUrl, explicitly below).
     setActiveCode(null);
-    await authClient.signOut();
     if (!code) {
       router.push("/auth/sign-in");
       return;
@@ -603,29 +625,26 @@ function Approved({ wait }: { wait: TraceWait }) {
         </p>
       </div>
 
-      {wait.kind === "waiting" && (
-        <p className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Waiting for your first trace. This page opens it when it arrives.
-        </p>
-      )}
-
-      {wait.kind === "found" && (
-        <p className="text-[12px] text-muted-foreground">
-          Your first trace arrived. Opening it now...
-        </p>
-      )}
-
-      {wait.kind === "gave-up" && (
-        <div className="space-y-1 text-[12px] text-muted-foreground">
-          <p>No trace has arrived yet. Your terminal has the result either way.</p>
-          <p>
-            <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
-              Open your traces
-            </Link>
-          </p>
-        </div>
-      )}
+      {/* The same line the onboarding hand-back shows, from the same component:
+          both pages wait for the same thing and open it the same way, and two
+          copies of those lines had already drifted apart. Two things stay this
+          page's own and are passed in: the waiting line's "opens it", the
+          wording this page has always used, and the empty ending, because
+          only this flow has a terminal holding the result either way. */}
+      <FirstTraceLine
+        wait={wait}
+        arrival="This page opens it when it arrives."
+        gaveUp={(ended) => (
+          <div className="space-y-1 text-[11px] text-muted-foreground">
+            <p>No trace has arrived yet. Your terminal has the result either way.</p>
+            <p>
+              <Link href={ended.fallbackUrl} className="underline hover:text-foreground">
+                Open your traces
+              </Link>
+            </p>
+          </div>
+        )}
+      />
     </div>
   );
 }

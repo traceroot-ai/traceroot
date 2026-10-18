@@ -92,24 +92,51 @@ const PLAIN_ARG = /^[A-Za-z0-9._-]+$/;
  * Origins this file is willing to put in the line.
  *
  * `new URL(...).origin` is not shell-safe on its own: a hostname may carry a
- * single quote (`http://%27.com` parses to `http://'.com`), and a backtick,
- * `$`, `;` or `*` survive parsing too. So the origin is held to a scheme, a
- * hostname or IPv6 literal, and an optional port — which excludes every one of
- * those, and in particular the one character single quotes cannot carry. With
- * that established, `quotedArg` is enough to make the value one word.
+ * quote of either kind (`http://%27.com` parses to `http://'.com`,
+ * `http://%22.com` to `http://".com`), and a backtick, `$`, `;` or `*` survive
+ * parsing too. So the origin is held to a scheme, a hostname or IPv6 literal,
+ * and an optional port — which excludes every one of those, and with them every
+ * character that would still be live inside the quoting `quotedArg` applies.
+ * With that established, `quotedArg` is enough to make the value one word.
+ *
+ * The host class admits `_` alongside the letters, digits, `.` and `-` of a
+ * public domain. It is legal in a URL host, ordinary in container and internal
+ * DNS names (`http://app_internal:3000`), and special to no shell — and
+ * rejecting it is the one thing this check must not do, because a deployment
+ * served under such a name would lose both flags and the bare command would
+ * send its operator to TraceRoot Cloud, which is what this file exists to
+ * prevent.
+ *
+ * It stops there rather than admitting everything quoting happens to survive,
+ * because the check also answers "could this be a host at all". The other
+ * characters the parser lets through — `&`, `!`, `~`, `+`, `,`, `(` and `{`
+ * among them — reach an origin only by percent-decoding, never by naming a
+ * deployment, so a flag carrying one is noise better dropped. Nothing
+ * excludes whitespace or control characters because nothing has to: the URL
+ * parser refuses a host containing them, so they arrive as a malformed URL.
  */
-const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$/;
+const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+)?$/;
 
 /**
- * A value as a single shell word.
+ * A value as a single shell word, quoted the one way every shell this line may
+ * be pasted into agrees on.
  *
- * An origin can legitimately be an IPv6 literal — `http://[::1]:8000` — and zsh
- * reads the brackets as a glob: unquoted, the pasted line dies with "no matches
- * found" before `setup` ever runs. `SHELL_SAFE_ORIGIN` has already ruled out
- * the quote that would escape this, so wrapping is sound rather than hopeful.
+ * Quoting is needed at all for one shape: an origin can legitimately be an IPv6
+ * literal — `http://[::1]:8000` — and zsh reads the brackets as a glob, so
+ * unquoted the pasted line dies with "no matches found" before `setup` ever
+ * runs. Those brackets are also the only characters `SHELL_SAFE_ORIGIN` admits
+ * that any shell acts on, which is why nothing else here has to be escaped.
+ *
+ * Double quotes rather than single, because cmd.exe does not treat `'` as a
+ * quote character and neither does the argv parsing behind `npx` on Windows: a
+ * single-quoted value arrives with the quotes inside it and `setup` stops on an
+ * invalid host, so a self-hosted operator pasting the line into cmd.exe could
+ * not start at all. Double quotes are stripped by cmd.exe, PowerShell, bash and
+ * zsh alike, and what stays live inside them — `"`, `$`, a backtick, `\`, and
+ * `%` or `!` under cmd.exe — is exactly what `SHELL_SAFE_ORIGIN` excludes.
  */
 function quotedArg(value: string): string {
-  return `'${value}'`;
+  return `"${value}"`;
 }
 
 /** The origin serving the dashboard, falling back to the app's own default. */
@@ -128,12 +155,49 @@ function appOrigin(appUrl: string | undefined): string {
   return DEFAULT_APP_ORIGIN;
 }
 
-export interface CliHostFlags {
-  /** `--host`, or null when the CLI's own default is already this deployment. */
-  host: string | null;
-  /** `--auth-host`, or null when sign-in belongs on the same origin as the API. */
-  authHost: string | null;
+/**
+ * A deployment variable this file was given a value it cannot put in a command.
+ *
+ * Carried out of here rather than swallowed, because the person finishing a
+ * first run on a self-hosted install is usually the person who sets these, and
+ * the value is already public: `NEXT_PUBLIC_*` is inlined into the client
+ * bundle, so naming it on screen discloses nothing a reader could not already
+ * read out of the page they are on.
+ */
+export interface UnusableOrigin {
+  /** The variable to fix, spelled the way a deployment sets it. */
+  variable: "NEXT_PUBLIC_API_URL" | "NEXT_PUBLIC_APP_URL";
+  /** What it is set to, so the reader can see what this file saw. */
+  value: string;
 }
+
+/**
+ * Which deployment to point `setup` at, or why that cannot be answered.
+ *
+ * Discriminated rather than two nullable fields, because `host: null` has two
+ * unrelated meanings that a caller holding only the nulls cannot tell apart:
+ * the API genuinely *is* the host the CLI defaults to, so the flag would be
+ * noise, or the configured value is unusable and this file has nothing to say.
+ * The first renders a correct bare command; the second must not render one at
+ * all, because the bare command targets TraceRoot Cloud and a self-hosted
+ * reader pasting it signs in against someone else's deployment. Collapsing
+ * both into nulls is what let that happen, so the type now forces the caller
+ * to separate them.
+ */
+export type CliHostFlags =
+  | {
+      kind: "resolved";
+      /** `--host`, or null when the CLI's own default is already this deployment. */
+      host: string | null;
+      /** `--auth-host`, or null when sign-in belongs on the same origin as the API. */
+      authHost: string | null;
+    }
+  | ({ kind: "unresolved" } & UnusableOrigin);
+
+/** The one command, or the reason this deployment has none to show. */
+export type SetupCommand =
+  | { kind: "command"; command: string }
+  | ({ kind: "unavailable" } & UnusableOrigin);
 
 /**
  * Which deployment to point `setup` at: the API origin, and where to sign in.
@@ -170,20 +234,31 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
     // — so this is a value that is malformed outright: `http://`, `http://[`,
     // `//`, `http://:8000`. That says nothing about where the API is, and the
     // app's origin is not a stand-in for it: on a split deployment it would
-    // point the CLI's API traffic at the UI host. Saying nothing is the only
-    // honest answer, and it leaves the operator a `.env` to fix rather than a
-    // command that half works.
-    return { host: null, authHost: null };
+    // point the CLI's API traffic at the UI host. So the variable is reported
+    // back instead of guessed at, and the caller shows no command rather than
+    // one that runs against the wrong deployment.
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_API_URL", value: input.apiUrl };
   }
 
   // Either both flags are renderable or neither is. A `--auth-host` beside a
   // silently-omitted `--host` would name one half of a deployment and leave the
-  // CLI defaulting to Cloud for the other, which is worse than saying nothing.
-  if (!SHELL_SAFE_ORIGIN.test(api) || !SHELL_SAFE_ORIGIN.test(app)) {
-    return { host: null, authHost: null };
+  // CLI defaulting to Cloud for the other, which is worse than showing nothing.
+  //
+  // The app origin is tested first because `api` is resolved against it
+  // whenever `NEXT_PUBLIC_API_URL` is relative — which its own default is — so
+  // an unusable `api` in that case is this variable's doing, and reporting the
+  // other one would send the reader to a value that is already correct.
+  if (!SHELL_SAFE_ORIGIN.test(app)) {
+    // `appOrigin`'s own fallback is `DEFAULT_APP_ORIGIN`, which passes, so
+    // reaching here means this variable was set to something that parsed.
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_APP_URL", value: input.appUrl ?? app };
+  }
+  if (!SHELL_SAFE_ORIGIN.test(api)) {
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_API_URL", value: input.apiUrl };
   }
 
   return {
+    kind: "resolved",
     host: api === new URL(CLI_DEFAULT_HOST).origin ? null : api,
     // The CLI's `--auth-host` already defaults to the effective `--host`, which
     // is `api` whether or not the flag above was rendered. Restating it when it
@@ -215,6 +290,12 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * part of the one line a user pastes. `--handoff` is declared on `setup`
  * itself, because a one-shot onboarding credential has no business appearing in
  * every other subcommand's help.
+ *
+ * It can also answer that there is no command to show. When the deployment is
+ * unresolvable the line this function would otherwise return is the bare
+ * command, and the bare command is not a weaker version of the right one — it
+ * is the Cloud one, which is why that case comes back as `unavailable` rather
+ * than as a string the caller cannot tell apart from a correct bare command.
  */
 export function setupCommand(input: {
   projectId: string;
@@ -228,7 +309,20 @@ export function setupCommand(input: {
    * failure here degrades to it silently rather than reporting anything.
    */
   handoff?: string | null;
-}): string {
+}): SetupCommand {
+  const flags = cliHostFlags({
+    // Validated as a string, not as a URL: `NEXT_PUBLIC_API_URL` is
+    // `z.string()` with the `/api/v1` default, so a value that is not an origin
+    // at all reaches here rather than failing the schema.
+    apiUrl: clientEnv.NEXT_PUBLIC_API_URL,
+    // Read straight from the environment, as `lib/auth-client.ts` and
+    // `lib/eval/run-link.ts` do: the client schema does not carry it.
+    appUrl: process.env.NEXT_PUBLIC_APP_URL,
+  });
+  if (flags.kind === "unresolved") {
+    return { kind: "unavailable", variable: flags.variable, value: flags.value };
+  }
+
   const parts = [SETUP_BASE];
 
   if (PLAIN_ARG.test(input.projectId)) {
@@ -247,19 +341,12 @@ export function setupCommand(input: {
     parts.push(`--handoff ${input.handoff}`);
   }
 
-  const { host, authHost } = cliHostFlags({
-    // Validated, and with the `/api/v1` default that means "same origin".
-    apiUrl: clientEnv.NEXT_PUBLIC_API_URL,
-    // Read straight from the environment, as `lib/auth-client.ts` and
-    // `lib/eval/run-link.ts` do: the client schema does not carry it.
-    appUrl: process.env.NEXT_PUBLIC_APP_URL,
-  });
-  if (host !== null) {
-    parts.push(`--host ${quotedArg(host)}`);
+  if (flags.host !== null) {
+    parts.push(`--host ${quotedArg(flags.host)}`);
   }
-  if (authHost !== null) {
-    parts.push(`--auth-host ${quotedArg(authHost)}`);
+  if (flags.authHost !== null) {
+    parts.push(`--auth-host ${quotedArg(flags.authHost)}`);
   }
 
-  return parts.join(" ");
+  return { kind: "command", command: parts.join(" ") };
 }

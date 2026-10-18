@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { ManualTab } from "@/features/traces/components/GettingStarted/ManualTab";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
-import { FirstTraceLine } from "./first-trace-line";
+import { FirstTraceLine } from "@/components/first-trace-line";
 
 interface ManualSetupStepProps {
   /** The project the key, the snippets and the integrations belong to. */

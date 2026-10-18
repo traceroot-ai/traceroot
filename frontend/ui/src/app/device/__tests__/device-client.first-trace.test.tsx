@@ -69,6 +69,11 @@ import { MAX_BARREN_ROUNDS } from "../use-first-trace-wait";
 
 const WAITING_TEXT = "Waiting for your first trace. This page opens it when it arrives.";
 const TERMINAL_TEXT = "Return to your terminal to finish setting up.";
+/** This page's own empty ending, the one it overrides the shared line with. */
+const NO_TRACE_TEXT = "No trace has arrived yet. Your terminal has the result either way.";
+/** The shared line's ending for a wait that could not read at all. */
+const UNREADABLE_TEXT =
+  "We could not read your traces from this tab. Open your traces to see what has arrived.";
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -169,6 +174,9 @@ describe("the approved panel", () => {
     expect(screen.getByText("Approved")).toBeDefined();
     expect(screen.getByText(TERMINAL_TEXT)).toBeDefined();
     expect(screen.getByText(WAITING_TEXT)).toBeDefined();
+    // Announced, not merely shown. This panel tells the person to leave, so a
+    // state change here is one nobody is watching for.
+    expect(screen.getByRole("status").textContent).toContain(WAITING_TEXT);
     // Nowhere to send anyone yet: no project is known to hold a trace, and an
     // empty project page reads as a failure.
     expect(mocks.push).not.toHaveBeenCalled();
@@ -198,7 +206,13 @@ describe("the approved panel", () => {
     // end: one push, to the trace, after it has actually arrived.
     expect(mocks.push).toHaveBeenCalledTimes(1);
     expect(mocks.push).toHaveBeenCalledWith("/projects/p-1/traces?traceId=t-run");
-    expect(screen.getByText("Your first trace arrived. Opening it now...")).toBeDefined();
+    // One shared line with the onboarding hand-back, which brings its link with
+    // it: the push can be slow or refused, and good news with no way forward is
+    // the one thing this state must not be.
+    expect(screen.getByText("Your first trace arrived. Opening it…")).toBeDefined();
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/p-1/traces?traceId=t-run",
+    );
   });
 
   it("does not seize a trace that was already there", async () => {
@@ -216,9 +230,7 @@ describe("the approved panel", () => {
     await approve();
     await advance(WAIT_BUDGET_MS);
 
-    expect(
-      screen.getByText("No trace has arrived yet. Your terminal has the result either way."),
-    ).toBeDefined();
+    expect(screen.getByText(NO_TRACE_TEXT)).toBeDefined();
     expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
       "/projects/p-1/traces",
     );
@@ -254,6 +266,40 @@ describe("the approved panel", () => {
     );
   });
 
+  it("does not say no trace arrived when it could not read the traces", async () => {
+    // This is the only page that overrides the empty ending, and the only one
+    // whose wait can stop because it read nothing at all. Its one sentence
+    // covers both endings, so consulting the override first made the unreadable
+    // ending claim "no trace has arrived yet" -- a statement about the run,
+    // from a tab that could not see the run. The reads failed; the terminal is
+    // still the authority, and the line says only what this tab knows.
+    mocks.getProjects.mockRejectedValue(new Error("offline"));
+    mocks.getTraces.mockRejectedValue(new Error("offline"));
+
+    await approve();
+    await rounds(MAX_BARREN_ROUNDS);
+
+    // Read off the live region rather than by text: the sentence is split by
+    // the link inside it, and the region is the whole of what this line says.
+    // Still exactly one of them -- what changed is which ending it reports,
+    // not how many endings are on screen.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    const line = screen.getByRole("status").textContent ?? "";
+    expect(line).toContain(UNREADABLE_TEXT);
+    expect(line).not.toContain("No trace has arrived yet");
+    expect(screen.queryByText(NO_TRACE_TEXT)).toBeNull();
+    expect(screen.queryByText(WAITING_TEXT)).toBeNull();
+    // The way out is still offered, and it is the one a tab with no project it
+    // could name has: the workspace list.
+    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
+      "/workspaces",
+    );
+    // The approval stands, as it does for every ending of this wait.
+    expect(screen.getByText("Approved")).toBeDefined();
+    expect(screen.getByText(TERMINAL_TEXT)).toBeDefined();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("never reads a trace list before the code is approved", async () => {
     // Strictly additive means the consent screen is untouched: nothing here may
     // delay, gate or precede the approval itself.
@@ -277,5 +323,86 @@ describe("the approved panel", () => {
 
     expect(mocks.getProjects.mock.calls.length).toBe(readsBefore);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("an account with more projects than the watch keeps", () => {
+  // Three newer projects and an older one. The cap watches the newest three,
+  // so the older one is found only if the terminal's keys point the watch at it.
+  const NEWER = ["p-new-1", "p-new-2", "p-new-3"].map((id, i) => ({
+    ...PROJECT,
+    id,
+    name: id,
+    create_time: `2026-05-0${i + 2}T09:00:00Z`,
+    access_key_count: 1,
+  }));
+  const LEGACY_ID = "p-legacy";
+
+  /** The legacy project's key count and every project's trace list, swapped between rounds. */
+  let legacyKeys = 1;
+  let tracesIn: Record<string, ReturnType<typeof trace>[]> = {};
+
+  beforeEach(() => {
+    legacyKeys = 1;
+    tracesIn = {};
+    mocks.getProjects.mockImplementation(async () => [
+      ...NEWER,
+      {
+        ...PROJECT,
+        id: LEGACY_ID,
+        name: "legacy",
+        create_time: "2025-01-01T09:00:00Z",
+        access_key_count: legacyKeys,
+      },
+    ]);
+    mocks.getTraces.mockImplementation(
+      async (projectId: string, _key: string, options: { limit: number }) => {
+        const page = tracesIn[projectId] ?? [];
+        return {
+          data: page.slice(0, options.limit),
+          meta: { page: 0, limit: options.limit, total: page.length },
+        };
+      },
+    );
+  });
+
+  it("opens the run's trace in an older project the terminal minted its keys in", async () => {
+    tracesIn[LEGACY_ID] = [trace("t-legacy-before", "2026-04-01T10:00:00Z")];
+    await approve();
+    await flush();
+    expect(mocks.getTraces).not.toHaveBeenCalledWith(
+      LEGACY_ID,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+
+    // The terminal settles on the older project and mints its two keys there.
+    legacyKeys = 3;
+    await rounds(1);
+    // The project is watched now, but what it already held is not the run's.
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    tracesIn[LEGACY_ID] = [
+      trace("t-run", "2026-05-01T10:05:00Z"),
+      trace("t-legacy-before", "2026-04-01T10:00:00Z"),
+    ];
+    await rounds(1);
+
+    expect(mocks.push).toHaveBeenCalledTimes(1);
+    expect(mocks.push).toHaveBeenCalledWith(`/projects/${LEGACY_ID}/traces?traceId=t-run`);
+  });
+
+  it("watches only the newest three while no older project gains a key", async () => {
+    await approve();
+    await flush();
+    tracesIn[LEGACY_ID] = [trace("t-elsewhere", "2026-05-01T10:05:00Z")];
+
+    await rounds(3);
+
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(new Set(mocks.getTraces.mock.calls.map(([projectId]) => projectId))).toEqual(
+      new Set(NEWER.map((project) => project.id)),
+    );
   });
 });
