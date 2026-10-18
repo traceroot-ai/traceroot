@@ -101,6 +101,69 @@ def test_revoke_preserves_an_empty_204(client):
 
 @respx.mock
 @pytest.mark.parametrize(
+    ("key_id", "detail"),
+    [
+        # Dot-segments. httpx resolves them against the control-plane origin, so
+        # `api-keys/..` would leave this process as `DELETE /api/public`. The
+        # server unquotes the path before routing, so `%2e%2e` is how `..` gets
+        # past a client that would normalize it itself.
+        ("%2e%2e", "Not found"),
+        ("%2e", "Not found"),
+        # Double-encoded traversal arrives with a literal `%`.
+        ("%252e%252e", "Not found"),
+        # Backslash traversal.
+        ("..%5C..%5Cinternal", "Not found"),
+        # A query or a fragment re-points the forwarded URL rather than the path.
+        ("ak_1%3Fx%3D1", "Not found"),
+        ("ak_1%23frag", "Not found"),
+        # `%2F` also arrives unquoted, and `{key_id}` is `[^/]+`, so these never
+        # match the route at all and FastAPI's own 404 answers them. Listed here
+        # because the input is the same attempt, and the property asserted is the
+        # one that matters either way: 404, and nothing forwarded.
+        ("..%2F..%2Finternal%2Fvalidate-api-key", "Not Found"),
+        ("http:%2F%2Fevil.example%2Fx", "Not Found"),
+    ],
+)
+def test_a_key_id_that_is_not_one_opaque_segment_is_404_and_never_forwarded(client, key_id, detail):
+    """The control plane re-authenticates, so this is not escalation.
+
+    What it is, is a request arriving at an upstream handler other than the one
+    the route names — reached by interpolating caller text into the forwarded
+    path. Nothing may leave the process on that input.
+    """
+    route = respx.route().mock(return_value=httpx.Response(204))
+
+    response = client.delete(
+        f"/api/v1/public/api-keys/{key_id}", headers={"Authorization": "Bearer tr-caller"}
+    )
+
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": detail}
+    assert not route.called
+
+
+@respx.mock
+def test_a_real_key_id_still_forwards_unchanged(client):
+    """The guard above must not cost a legitimate revoke.
+
+    Ids are UUIDs from the control plane (see the `api-keys` POST handler), and
+    the fixtures' `ak_1` shape is what the rest of this file revokes.
+    """
+    route = respx.delete(f"{UI_URL}/api/public/api-keys/0b9c2f14-6c3f-4a0e-9c3a-4d9a1f2b3c4d").mock(
+        return_value=httpx.Response(204)
+    )
+
+    response = client.delete(
+        "/api/v1/public/api-keys/0b9c2f14-6c3f-4a0e-9c3a-4d9a1f2b3c4d",
+        headers={"Authorization": "Bearer tr-caller"},
+    )
+
+    assert response.status_code == 204
+    assert route.called
+
+
+@respx.mock
+@pytest.mark.parametrize(
     ("upstream_status", "upstream_body", "expected_detail"),
     [
         (

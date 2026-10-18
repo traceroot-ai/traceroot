@@ -98,8 +98,8 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       // travels wherever their application runs and gets the narrow scope.
       // Stated here rather than left to the column default: the scope a key is
       // minted with is a decision, and it should be readable at the call site
-      // that makes it. An admin-scoped key is minted deliberately, through the
-      // key-management API, by a caller that asks for one.
+      // that makes it. An admin-scoped key comes only from a signed-in user's own
+      // credential, never from this route or from another key.
       scope: "ingest" satisfies ApiKeyScope,
       expireTime: expire_time ? new Date(expire_time) : null,
     },

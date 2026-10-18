@@ -30,12 +30,13 @@ vi.mock("@traceroot/core", () => ({
 import { DELETE } from "./route";
 
 /** The authenticating key's row, as `requireApiKeyProject` selects it. */
-function authRow() {
+function authRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "ak_caller",
     expireTime: null,
     scope: "admin",
     project: { id: "proj-A", name: "demo", deleteTime: null, workspace: { id: "ws-1" } },
+    ...overrides,
   };
 }
 
@@ -102,6 +103,24 @@ describe("DELETE /api/public/api-keys/{keyId}", () => {
     const res = await DELETE(request(), params("ak_old"));
     expect(res.status).toBe(204);
   });
+
+  it.each(["ingest", "something-new"])(
+    "refuses revocation to a key whose stored scope is %s",
+    async (scope) => {
+      // The only guard on this path: the gateway in front of it is not in the
+      // way of a caller who reaches the control plane directly, so without the
+      // admin requirement a leaked application credential could revoke every
+      // key in its project. An unrecognised scope fails closed the same way.
+      findUniqueMock.mockReset();
+      findUniqueMock.mockResolvedValueOnce(authRow({ scope }));
+      // A revocable target in the caller's own project, so the refusal is the
+      // only thing standing between this request and a 204.
+      findUniqueMock.mockResolvedValueOnce({ id: "ak_old", projectId: "proj-A" });
+      const res = await DELETE(request(), params("ak_old"));
+      expect(res.status).toBe(403);
+      expect(deleteManyMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects an unauthenticated request before touching the database", async () => {
     findUniqueMock.mockReset();
