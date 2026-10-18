@@ -13,12 +13,12 @@ import { INTEGRATIONS, type IntegrationOption } from "./integrations";
  *
  * A hook rather than state inside the block below, because the answer is needed
  * on both sides of it: the block renders the picker and the key field it drives,
- * and the section underneath — a walkthrough, in both callers — renders the
- * snippets for the same selection. Lifting it is what lets the two sit as
- * siblings instead of nesting the whole of setup inside the picker.
+ * and the walkthrough underneath renders the snippets for the same selection.
+ * Lifting it is what lets the two sit as siblings instead of nesting the whole
+ * of setup inside the picker.
  *
- * The lookup and its fallback live here too, so neither caller can derive the
- * selected entry slightly differently from the other.
+ * The lookup and its fallback live here too, so the walkthrough cannot derive
+ * the selected entry slightly differently from the block.
  */
 export function useStackSelection(): {
   selected: IntegrationOption;
@@ -49,25 +49,18 @@ interface StackAndModelKeyProps {
 }
 
 /**
- * The two questions every route to a first trace has to ask, wherever it is
- * asked from.
+ * The two questions onboarding's manual step asks above its walkthrough: which
+ * stack, and whose model key.
  *
  * Which stack you have decides which provider's key the field below asks for,
- * and the manual route's install command, snippet and docs link. Whose model
- * key the assistant and the detectors run on is the same question whether a
- * coding agent is about to edit the repository, you are about to edit it
- * yourself, or you are halfway through signing up. So it is one component used
- * in both places rather than two arrangements of the same two fields:
- * onboarding's manual step used to render the walkthrough alone, which then
- * had to ask both questions itself, through a second picker grouped
- * differently from this one and a key field numbered in among the steps — so
- * the same account met a different picker for the same question depending on
- * where it started.
+ * and the walkthrough's install command, snippet and docs link, so the field
+ * sits directly under the answer it depends on. The empty traces page asks
+ * neither question this way: it keeps the stack picker inside its manual tab
+ * and asks for no model key, which is asked for during onboarding instead.
  *
- * Returns a fragment, so the caller's own list spacing applies: the traces
- * panel spaces its sections at 6 and the onboarding card at 4, and the two
- * questions are sections of whichever list they are dropped into rather than a
- * box of their own.
+ * Returns a fragment, so the caller's own list spacing applies: the two
+ * questions are sections of the onboarding card's list rather than a box of
+ * their own.
  */
 export function StackAndModelKey({
   projectId,
