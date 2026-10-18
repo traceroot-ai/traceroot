@@ -13,7 +13,7 @@ const CONTAINER_NAME_PREFIX = "traceroot-sandbox-";
 // Keep the session leader alive until its remaining process-group members exit,
 // including background grandchildren orphaned by the command shell. Ubuntu's
 // base image has /proc but does not require ps/procps to be installed. Ignore
-// zombies, which cannot execute and may await reaping by the container's PID 1.
+// zombies, which cannot execute and may briefly await the container's init reaper.
 const COMMAND_WRAPPER = `
 mkdir -p -m 700 "$1" || exit 1
 trap 'rm -f "$1/pid"; rmdir "$1" 2>/dev/null || true' EXIT
@@ -73,6 +73,8 @@ export class DockerExecutor implements Executor {
     const { stdout } = await execFileAsync("docker", [
       "run",
       "-d",
+      // Reap orphaned descendants after their command shell or group is killed.
+      "--init",
       "--name",
       `${CONTAINER_NAME_PREFIX}${Date.now()}`,
       "--label",

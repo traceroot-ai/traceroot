@@ -20,6 +20,7 @@ describe.skipIf(process.env.RUN_DOCKER_TESTS !== "1")("Docker command lifecycle 
     containerId = await docker(
       "run",
       "-d",
+      "--init",
       "--name",
       `traceroot-exec-test-${randomUUID()}`,
       "--network",
@@ -52,6 +53,36 @@ describe.skipIf(process.env.RUN_DOCKER_TESTS !== "1")("Docker command lifecycle 
       ),
     ).toBe("");
   }
+
+  async function zombieCount() {
+    return Number(
+      await docker(
+        "exec",
+        containerId,
+        "sh",
+        "-c",
+        `
+      count=0
+      for file in /proc/[0-9]*/stat; do
+        IFS= read -r stat 2>/dev/null < "$file" || continue
+        fields=\${stat##*) }
+        set -- $fields
+        [ "$1" != Z ] || count=$((count + 1))
+      done
+      printf '%s' "$count"
+    `,
+      ),
+    );
+  }
+
+  it("reaps orphaned descendants across repeated completed and canceled commands", async () => {
+    for (let i = 0; i < 3; i++) {
+      expect((await executor.exec("sh -c 'sleep 0.05' &")).code).toBe(0);
+      expect((await executor.exec("sh -c 'sleep 1' &", { timeout: 0.05 })).code).not.toBe(0);
+    }
+    await expect.poll(zombieCount).toBe(0);
+    await expectNoCommandState();
+  });
 
   it("stops a timed-out command and its child before either can write later", async () => {
     const result = await executor.exec(

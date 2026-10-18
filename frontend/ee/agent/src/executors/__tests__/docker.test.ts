@@ -400,6 +400,14 @@ describe("DockerExecutor.cloneRepo", () => {
 });
 
 describe("DockerExecutor sandbox ownership labels", () => {
+  it("starts an init process to reap orphaned command descendants", async () => {
+    stubSpawn();
+    stubExecFile();
+    await new DockerExecutor().init();
+    const runArgs = execFileMock.mock.calls.find((call) => call[1][0] === "run")![1];
+    expect(runArgs).toContain("--init");
+  });
+
   it("labels the container with the sandbox marker, session and owner", async () => {
     stubSpawn();
     stubExecFile();
