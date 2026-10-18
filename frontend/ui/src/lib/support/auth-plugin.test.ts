@@ -142,10 +142,7 @@ it.each(["admin", "support"])(
       body: { userId: target.id, reason: "ticket" },
       setSignedCookie: vi.fn(),
     };
-    const response = (await supportPlugin().endpoints.supportStart(context as never)) as {
-      success: boolean;
-      expiresAt: Date;
-    };
+    const response: unknown = await supportPlugin().endpoints.supportStart(context as never);
     const data = create.mock.calls[0][0].data;
     expect(data).toMatchObject({ userId: target.id, impersonatedBy: actor.id });
     // The customer's Active Sessions list must not show the employee's address
