@@ -66,9 +66,8 @@ describe("captureTraceBaseline", () => {
   });
 
   it("records a project it could not read as unknown, not as empty", async () => {
-    // Absence from the baseline means "did not exist when the wait began",
-    // which is the device page's strongest binding. A failed read must not
-    // borrow that meaning.
+    // Absence from the baseline means "did not exist when the wait began". A
+    // failed read must not borrow that meaning.
     mocks.getTraces.mockRejectedValue(new Error("boom"));
 
     const baseline = await captureTraceBaseline(["p-1"], undefined);
@@ -168,9 +167,7 @@ describe("findFirstTrace", () => {
   });
 
   it("searches the ids in the order the caller gave them", async () => {
-    // The ranking itself is the caller's: the device page puts the projects
-    // that did not exist at approval first, and the onboarding page has one id
-    // and nothing to rank. What this module owes either of them is that the
+    // The ranking itself is the caller's. What this module owes it is that the
     // order it was handed is the order it searches.
     tracesByProject({
       "p-second": [trace("t-second", "2026-05-01T11:00:05Z")],

@@ -6,11 +6,6 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { getWorkspaces } from "@/lib/api/workspaces";
-import type { TraceApiUser } from "@/lib/api/client";
-import type { Workspace } from "@/types/api";
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
-import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
-import { useFirstTraceWait } from "./use-first-trace-wait";
 import { resolveSetupNeed, onboardingUrlForSetup, type SetupNeed } from "@/lib/account-setup";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { formatUserCode } from "@/lib/device-user-code";
@@ -21,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
-import { FirstTraceLine } from "@/components/first-trace-line";
 
 const FALLBACK_CLIENT_NAME = "A command-line application";
 
@@ -54,11 +48,6 @@ type Phase =
   // denial is not (see SetupRequired).
   | { kind: "setup"; need: SetupNeed }
   | { kind: "consent" }
-  // The terminal is released. The panel stays put and starts watching for the
-  // run's first trace, so this one phase renders three outcomes — still
-  // waiting, settled on a trace, finished without one — carried by the
-  // `TraceWait` the watch returns rather than by three phases of its own.
-  // Whichever it is, approval is already complete and cannot be taken back.
   | { kind: "approved" }
   | { kind: "denied" }
   // `recoverable` gates the "Try again" affordance: only a mistyped/unverified
@@ -154,20 +143,6 @@ function DeviceContent() {
     initialCode ? { kind: "verifying" } : { kind: "entry" },
   );
   const [actionPending, setActionPending] = useState(false);
-  // Kept from the gate below rather than re-fetched after approval: these are
-  // the only places the authorized run's trace could land, and the browser is
-  // not allowed to add to them.
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-
-  const traceUser: TraceApiUser | undefined = sessionData?.user?.id
-    ? { id: sessionData.user.id, email: sessionData.user.email }
-    : undefined;
-
-  // Starts only once the terminal has been released, and reads only. A tab that
-  // is closed, or never opened, leaves the run exactly as it would have been.
-  const traceWait = useFirstTraceWait(phase.kind === "approved", workspaces, traceUser);
-
-  useOpenFoundTrace(traceWait);
 
   // Resolve the pending request once we have both a code and a signed-in
   // session. Runs once per (activeCode, session) pair — activeCode only
@@ -215,7 +190,6 @@ function DeviceContent() {
       if (cancelled) {
         return;
       }
-      setWorkspaces(workspaces);
       const need = resolveSetupNeed(workspaces);
       if (need) {
         // Shown rather than redirected to: a device request nobody started must
@@ -267,16 +241,10 @@ function DeviceContent() {
       setPhase(errorPhase(error));
       return;
     }
-    // Approval is the last thing the browser *does*. Whatever the account still
+    // Approval is the last thing the browser does. Whatever the account still
     // needed — creating a workspace and a project on a brand-new one — happened
     // before this point, because releasing the terminal first would hand the CLI
     // an account that owns nothing to send traces to.
-    //
-    // It is not the last thing the browser *shows*, though: the approved panel
-    // watches for the trace this run is about to produce. Navigating now would
-    // be wrong — the project may not exist yet, nothing is instrumented, and no
-    // trace has been sent, so every destination is an empty state that reads as
-    // a failure. The panel waits where it is instead.
     setActionPending(false);
     setPhase({ kind: "approved" });
   }
@@ -404,7 +372,7 @@ function DeviceContent() {
             />
           )}
 
-          {phase.kind === "approved" && <Approved wait={traceWait} />}
+          {phase.kind === "approved" && <Approved />}
 
           {phase.kind === "denied" && <Denied />}
 
@@ -607,44 +575,13 @@ function SetupRequired({
   );
 }
 
-// Approved, and now watching for what the run does next.
-//
-// "Return to your terminal" stays on screen in every state of the wait, and
-// stays first. It is still the correct instruction — the terminal is where the
-// setup continues and where the outcome is reported — and this panel is only
-// ever a shortcut to the trace, so a wait that ends badly, or never starts
-// because the polling could not read anything, leaves the person exactly where
-// they were before: approved, and pointed at their terminal.
-function Approved({ wait }: { wait: TraceWait }) {
+// The end of this page. Everything after approval happens in the terminal,
+// which reports its own outcome, so there is nothing left to watch or open here.
+function Approved() {
   return (
-    <div className="space-y-3 py-4 text-center">
-      <div>
-        <p className="text-[14px] font-medium">Approved</p>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          Return to your terminal to finish setting up.
-        </p>
-      </div>
-
-      {/* The same line the onboarding hand-back shows, from the same component:
-          both pages wait for the same thing and open it the same way, and two
-          copies of those lines had already drifted apart. Two things stay this
-          page's own and are passed in: the waiting line's "opens it", the
-          wording this page has always used, and the empty ending, because
-          only this flow has a terminal holding the result either way. */}
-      <FirstTraceLine
-        wait={wait}
-        arrival="This page opens it when it arrives."
-        gaveUp={(ended) => (
-          <div className="space-y-1 text-[11px] text-muted-foreground">
-            <p>No trace has arrived yet. Your terminal has the result either way.</p>
-            <p>
-              <Link href={ended.fallbackUrl} className="underline hover:text-foreground">
-                Open your traces
-              </Link>
-            </p>
-          </div>
-        )}
-      />
+    <div className="py-4 text-center">
+      <p className="text-[14px] font-medium">Device approved</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">You can close this window now.</p>
     </div>
   );
 }
