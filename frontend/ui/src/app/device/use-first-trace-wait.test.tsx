@@ -41,6 +41,8 @@ vi.mock("@/lib/first-trace", () => ({
 
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
 import { MAX_BARREN_ROUNDS, useFirstTraceWait } from "./use-first-trace-wait";
+import type { WatchedProjects } from "./first-trace";
+import type { BaselineEntry } from "@/lib/first-trace";
 import type { Project, Workspace } from "@/types/api";
 
 const WORKSPACES: Workspace[] = [
@@ -62,8 +64,13 @@ const LATE_PROJECT: Project = {
   create_time: "2026-02-01T00:00:00Z",
 };
 
+/** One round's listing: the whole account unless `complete` says otherwise. */
+function watched(projects: Project[], complete = true): WatchedProjects {
+  return { projects, complete, keyCounts: new Map() };
+}
+
 /** The whole account, read without incident. */
-const WHOLE_ACCOUNT = { projects: [PROJECT], complete: true };
+const WHOLE_ACCOUNT = watched([PROJECT]);
 
 /**
  * Drain the microtask queue. The rounds are several awaits deep, and under fake
@@ -151,6 +158,65 @@ describe("useFirstTraceWait", () => {
     expect(mocks.findFirstTrace).toHaveBeenCalledWith([PROJECT.id], settled, { id: "u-1" });
   });
 
+  it("carries each round's key counts into the next", async () => {
+    // The counts are what a project gaining a key is measured against, so a
+    // round that dropped them would start every comparison from nothing.
+    const counts = new Map([["p-1", 1]]);
+    mocks.readWatchedProjects.mockResolvedValueOnce({ ...WHOLE_ACCOUNT, keyCounts: counts });
+    watch();
+
+    await nextRound();
+
+    expect(mocks.readWatchedProjects.mock.calls[0][1]).toEqual(new Map());
+    expect(mocks.readWatchedProjects.mock.calls[1][1]).toBe(counts);
+  });
+
+  it("draws a line for a project that joined on a new key before looking in it", async () => {
+    // It existed before approval, so it is not one the terminal created, and
+    // with no line the traces it already held would pass for the run's. An
+    // account with a project past the cap is never listed whole, so the line
+    // comes from the first-sight rule for a partial listing.
+    const older: Project = {
+      id: "p-old",
+      name: "legacy",
+      trace_ttl_days: null,
+      create_time: "2025-01-01T00:00:00Z",
+    };
+    const oldLine: BaselineEntry = { kind: "newest", at: "2026-04-01T10:00:00Z" };
+    mocks.readWatchedProjects.mockResolvedValue(watched([PROJECT], false));
+    watch();
+    await flush();
+    mocks.readWatchedProjects.mockResolvedValue(watched([PROJECT, older], false));
+    mocks.captureTraceBaseline.mockResolvedValueOnce(new Map([["p-old", oldLine]]));
+
+    await nextRound();
+
+    expect(mocks.captureTraceBaseline).toHaveBeenLastCalledWith(["p-old"], { id: "u-1" });
+    expect(mocks.findFirstTrace).toHaveBeenCalledWith(
+      [PROJECT.id, older.id],
+      new Map<string, BaselineEntry>([
+        ["p-1", { kind: "empty" }],
+        ["p-old", oldLine],
+      ]),
+      { id: "u-1" },
+    );
+
+    // Drawn once. A later round compares against the same line.
+    await nextRound();
+    expect(mocks.captureTraceBaseline).toHaveBeenCalledTimes(2);
+  });
+
+  it("draws no line past the first while nothing joins on a key", async () => {
+    mocks.readWatchedProjects.mockResolvedValue(watched([PROJECT], false));
+    watch();
+
+    await nextRound();
+    await nextRound();
+    await nextRound();
+
+    expect(mocks.captureTraceBaseline).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps waiting while no trace has arrived", async () => {
     const { result } = watch();
 
@@ -196,7 +262,7 @@ describe("useFirstTraceWait", () => {
     // Reaching this panel means the account had a project moments ago, so a
     // round that finds none could not read the account. Saying so beats
     // spinning out the whole budget.
-    mocks.readWatchedProjects.mockResolvedValue({ projects: [], complete: true });
+    mocks.readWatchedProjects.mockResolvedValue(watched([]));
     const { result } = watch();
 
     for (let round = 0; round < MAX_BARREN_ROUNDS; round += 1) {
@@ -214,7 +280,7 @@ describe("useFirstTraceWait", () => {
   });
 
   it("recovers from a blip rather than ending the wait on it", async () => {
-    mocks.readWatchedProjects.mockResolvedValueOnce({ projects: [], complete: true });
+    mocks.readWatchedProjects.mockResolvedValueOnce(watched([]));
     const { result } = watch();
 
     await nextRound();
@@ -225,9 +291,9 @@ describe("useFirstTraceWait", () => {
   });
 
   it("never overlaps rounds, even when one takes longer than the interval", async () => {
-    let release: (watched: typeof WHOLE_ACCOUNT) => void = () => {};
+    let release: (watched: WatchedProjects) => void = () => {};
     mocks.readWatchedProjects.mockReturnValueOnce(
-      new Promise<typeof WHOLE_ACCOUNT>((resolve) => {
+      new Promise<WatchedProjects>((resolve) => {
         release = resolve;
       }),
     );
@@ -253,8 +319,8 @@ describe("useFirstTraceWait", () => {
     // failed to list leaves a project that was there all along looking new —
     // and then its months-old traces qualify and the tab opens the wrong one.
     mocks.readWatchedProjects
-      .mockResolvedValueOnce({ projects: [PROJECT], complete: false })
-      .mockResolvedValue({ projects: [PROJECT, LATE_PROJECT], complete: true });
+      .mockResolvedValueOnce(watched([PROJECT], false))
+      .mockResolvedValue(watched([PROJECT, LATE_PROJECT]));
     mocks.captureTraceBaseline
       .mockResolvedValueOnce(new Map([["p-1", { kind: "empty" }]]))
       .mockResolvedValueOnce(new Map([["p-2", { kind: "newest", at: "2026-05-01T10:00:00Z" }]]));
@@ -275,7 +341,7 @@ describe("useFirstTraceWait", () => {
     // belongs to the run that just authorized.
     mocks.readWatchedProjects
       .mockResolvedValueOnce(WHOLE_ACCOUNT)
-      .mockResolvedValue({ projects: [PROJECT, LATE_PROJECT], complete: true });
+      .mockResolvedValue(watched([PROJECT, LATE_PROJECT]));
     watch();
 
     await nextRound();
@@ -294,7 +360,7 @@ describe("useFirstTraceWait", () => {
     // the strongest binding available, and this is the only place it is applied.
     mocks.readWatchedProjects
       .mockResolvedValueOnce(WHOLE_ACCOUNT)
-      .mockResolvedValue({ projects: [PROJECT, LATE_PROJECT], complete: true });
+      .mockResolvedValue(watched([PROJECT, LATE_PROJECT]));
     watch();
 
     await nextRound();

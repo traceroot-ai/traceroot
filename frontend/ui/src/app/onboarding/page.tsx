@@ -712,11 +712,15 @@ function OnboardingContent() {
                   >
                     {isLoading ? "Creating..." : "Create"}
                   </Button>
+                  {/* Back to whatever is waiting, when something is. The
+                      workspace list drops `returnTo` exactly as the rail did,
+                      and for a terminal on /device that strands it until the
+                      code expires; /device itself still offers Deny. */}
                   <Button
                     variant="outline"
                     size="sm"
                     className="h-7 px-4 text-[12px]"
-                    onClick={() => router.push("/workspaces")}
+                    onClick={() => router.push(returnTo ?? "/workspaces")}
                   >
                     Cancel
                   </Button>

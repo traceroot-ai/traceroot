@@ -10,7 +10,7 @@ import {
 } from "@/lib/first-trace";
 import { useTraceWait, type RoundResult, type TraceWait } from "@/lib/hooks/use-trace-wait";
 import type { Project, Workspace } from "@/types/api";
-import { readWatchedProjects, watchOrder } from "./first-trace";
+import { readWatchedProjects, watchOrder, type KeyCounts } from "./first-trace";
 
 /**
  * How many rounds may find nowhere to look before the wait stops early.
@@ -69,13 +69,16 @@ export function useFirstTraceWait(
     // When it was not, a project turning up later may be one that was there all
     // along, so absence from the baseline stops meaning "the terminal made it".
     let baselineIsWholeAccount = false;
+    let keyCounts: KeyCounts = new Map();
     let barrenRounds = 0;
 
     return async function round(): Promise<RoundResult | null> {
-      const { projects, complete } = await readWatchedProjects(workspacesRef.current);
+      const watched = await readWatchedProjects(workspacesRef.current, keyCounts);
       if (isCancelled()) {
         return null;
       }
+      keyCounts = watched.keyCounts;
+      const { projects, complete } = watched;
       const fallbackUrl = fallbackUrlFor(projects);
 
       if (projects.length === 0) {
@@ -105,6 +108,9 @@ export function useFirstTraceWait(
         // entirely. Drawing its line on first sight costs only the ranking in
         // `watchOrder`: a project the terminal really did just create reads as
         // empty, so anything that arrives in it still qualifies.
+        // An older project the terminal has minted a key in is the usual case:
+        // it sat past the cap when the line was drawn. A whole-account line
+        // needs no such step, since every project that existed then has one.
         // Held in a const because the line is read inside a callback, where a
         // `let` the round reassigns cannot be narrowed: the drawn baseline is
         // not null here, and an optional chain would quietly read as if a
