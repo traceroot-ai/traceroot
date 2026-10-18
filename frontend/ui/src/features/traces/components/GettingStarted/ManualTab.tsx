@@ -128,9 +128,10 @@ interface ManualTabProps {
    * chosen in here so that the picker — and the key field that follows it — keep
    * their place when the reader switches between the command and these steps.
    *
-   * Optional, because onboarding's manual step renders this walkthrough on its
-   * own, with no picker above it. Without one the tab asks for the stack and the
-   * model key itself.
+   * Optional, so the walkthrough still stands on its own with no picker above
+   * it. Both callers pass one now — the traces panel, and onboarding's manual
+   * step, which renders the same shared picker — and without one the tab asks
+   * for the stack and the model key itself.
    */
   integration?: IntegrationOption;
 }
