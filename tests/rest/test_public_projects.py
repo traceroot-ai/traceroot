@@ -18,11 +18,20 @@ import jwt
 import pytest
 import respx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from httpx import Response
 from jwt.algorithms import OKPAlgorithm
+from starlette.requests import Request
 
 from rest.main import app
+from rest.rate_limit import (
+    BUCKET_WRITE,
+    is_request_rate_limit_exempt,
+    key_write,
+    limiter,
+    set_rate_limit_identity,
+)
 from rest.routers.public import deps
 from rest.routers.public.jwks_cache import JwksCache
 
@@ -310,4 +319,175 @@ def test_a_body_that_declares_no_length_is_still_refused():
 
     assert resp.status_code == 413
     assert resp.json() == {"detail": "Request body too large"}
+    assert not internal.called
+
+
+# ── Revoking a key on the same credential ────────────────────────────────
+
+REVOKE_PATH = "/api/v1/public/projects/proj-1/api-keys/key-1"
+REVOKED = {"deleted": True}
+
+
+def test_the_revoke_route_is_wired_like_the_mint():
+    """Hidden, on the write bucket, and behind the same two dependencies."""
+    routes = [
+        r
+        for r in app.routes
+        if isinstance(r, APIRoute)
+        and r.path == "/api/v1/public/projects/{project_id}/api-keys/{key_id}"
+    ]
+    assert len(routes) == 1
+    (route,) = routes
+    assert route.methods == {"DELETE"}
+    assert route.include_in_schema is False
+
+    calls = [d.call for d in route.dependant.dependencies]
+    assert deps.authenticate_and_stamp_account_caller in calls
+    assert deps.require_live_session in calls
+
+    (group,) = limiter._dynamic_route_limits["rest.routers.public.projects.revoke_project_api_key"]
+    assert group.key_function is key_write
+    assert group.exempt_when is is_request_rate_limit_exempt
+    request = Request({"type": "http", "headers": [], "state": {}})
+    set_rate_limit_identity(request, "", "free", "u1")
+    assert [limit.scope for limit in group.with_request(request)] == [BUCKET_WRITE]
+
+
+@respx.mock
+def test_revoking_a_key_forwards_the_resolved_user_and_answers_204():
+    _mock_account_auth()
+    internal = _mock_internal("user-revoke-project-key", REVOKED, status_code=200)
+
+    resp = TestClient(app).delete(REVOKE_PATH, headers=USER_HEADER)
+
+    assert resp.status_code == 204
+    assert resp.content == b""
+    assert json.loads(internal.calls.last.request.content) == {
+        "userId": "u1",
+        "projectId": "proj-1",
+        "keyId": "key-1",
+    }
+    # The user's credential stays in this process; only the internal secret crosses.
+    assert "authorization" not in internal.calls.last.request.headers
+
+
+@respx.mock
+def test_a_project_api_key_cannot_revoke_on_the_user_route():
+    internal = _mock_internal("user-revoke-project-key", REVOKED, status_code=200)
+
+    resp = TestClient(app).delete(REVOKE_PATH, headers=KEY_HEADER)
+
+    assert resp.status_code == 403
+    assert not internal.called
+
+
+@respx.mock
+def test_a_revoke_with_no_credential_never_reaches_the_control_plane():
+    internal = _mock_internal("user-revoke-project-key", REVOKED, status_code=200)
+
+    resp = TestClient(app).delete(REVOKE_PATH)
+
+    assert resp.status_code == 401
+    assert not internal.called
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("status_code", "upstream_error"),
+    [
+        (404, "Access key not found"),
+        (404, "Project not found"),
+        (403, "Requires ADMIN role or higher"),
+        (403, "Not a member of this workspace"),
+    ],
+)
+def test_revoke_errors_keep_their_status_in_the_public_shape(status_code, upstream_error):
+    _mock_account_auth()
+    _mock_internal("user-revoke-project-key", {"error": upstream_error}, status_code=status_code)
+
+    resp = TestClient(app).delete(REVOKE_PATH, headers=USER_HEADER)
+
+    assert resp.status_code == status_code
+    assert resp.json() == {"detail": upstream_error}
+
+
+@respx.mock
+def test_a_revoke_that_gets_no_json_back_fails_closed():
+    _mock_account_auth()
+    respx.post(f"{BASE_URL}/api/internal/user-revoke-project-key").mock(
+        return_value=Response(500, text="<html>stack trace</html>")
+    )
+
+    resp = TestClient(app).delete(REVOKE_PATH, headers=USER_HEADER)
+
+    assert resp.status_code == 503
+    assert "stack trace" not in resp.text
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("key_id", "detail"),
+    [
+        # Dot-segments. The server unquotes the path before routing, so `%2e%2e`
+        # is how `..` gets past a client that would normalize it itself.
+        ("%2e%2e", "Not found"),
+        ("%2e", "Not found"),
+        # Double-encoded traversal arrives with a literal `%`.
+        ("%252e%252e", "Not found"),
+        # Backslash traversal.
+        ("..%5C..%5Cinternal", "Not found"),
+        # A query, a fragment, a scheme separator or whitespace in the id.
+        ("key-1%3Fx%3D1", "Not found"),
+        ("key-1%23frag", "Not found"),
+        ("http:evil.example", "Not found"),
+        ("key%201", "Not found"),
+        ("k" * 129, "Not found"),
+        # `%2F` also arrives unquoted, and `{key_id}` is `[^/]+`, so these never
+        # match the route and FastAPI's own 404 answers them. Listed because the
+        # attempt is the same, and so is what matters: 404, and nothing forwarded.
+        ("..%2F..%2Finternal%2Fvalidate-api-key", "Not Found"),
+        ("http:%2F%2Fevil.example%2Fx", "Not Found"),
+    ],
+)
+def test_a_key_id_that_is_not_one_opaque_segment_is_404_and_never_forwarded(key_id, detail):
+    _mock_account_auth()
+    internal = _mock_internal("user-revoke-project-key", REVOKED, status_code=200)
+
+    resp = TestClient(app).delete(
+        f"/api/v1/public/projects/proj-1/api-keys/{key_id}", headers=USER_HEADER
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert resp.json() == {"detail": detail}
+    assert not internal.called
+
+
+@respx.mock
+def test_a_real_key_id_still_forwards_unchanged():
+    """The guard above must not cost a legitimate revoke: key ids are UUIDs."""
+    _mock_account_auth()
+    internal = _mock_internal("user-revoke-project-key", REVOKED, status_code=200)
+    key_id = "0b9c2f14-6c3f-4a0e-9c3a-4d9a1f2b3c4d"
+
+    resp = TestClient(app).delete(
+        f"/api/v1/public/projects/proj-1/api-keys/{key_id}", headers=USER_HEADER
+    )
+
+    assert resp.status_code == 204
+    assert json.loads(internal.calls.last.request.content)["keyId"] == key_id
+
+
+@respx.mock
+def test_a_revoked_session_cannot_revoke_a_key(monkeypatch):
+    priv = _install_jwt_signer(monkeypatch)
+    respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": False}))
+    internal = _mock_internal("user-revoke-project-key", REVOKED, status_code=200)
+    token = _mint_jwt(priv, extra_claims={"sid": "sess-1"})
+
+    resp = TestClient(app, raise_server_exceptions=False).delete(
+        REVOKE_PATH, headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Session revoked or expired"}
     assert not internal.called
