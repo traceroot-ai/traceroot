@@ -51,11 +51,13 @@ A signal keeps collecting new findings in every state. [Notifications](/detector
 
 ## Signals in the API
 
-Scripts and the [TraceRoot CLI](/cli/get-started) can read signals and change their status through the public API:
+Scripts can read signals and change their status through the public API:
 
 - `GET /api/v1/public/signals` lists the project's signals, newest first. Filter by `status` or `detector_id`. Merged signals are left out.
 - `GET /api/v1/public/signals/{signal_id}` returns one signal. A merged signal names the signal it moved to in `merged_into_id`.
 - `PATCH /api/v1/public/signals/{signal_id}/status` resolves or reopens a signal. Resolving needs a `reason` (`fixed_elsewhere`, `fixed_by_pr`, `already_fixed_before` or `other`), and `other` also needs a `note`. Send `expected_status` to refuse the change when someone changed the status after you read it.
+
+The [TraceRoot CLI](/cli/get-started) does not have these signal commands yet.
 
 For user-token authentication, include `project_id` as a query parameter on GET requests and in the JSON body on PATCH requests. Listing returns 50 signals by default; increment `page` (starting at 0) to read subsequent pages.
 
