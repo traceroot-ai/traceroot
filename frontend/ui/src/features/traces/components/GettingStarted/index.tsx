@@ -3,14 +3,9 @@
 import { useState } from "react";
 import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LoadingState } from "@/components/ui/loading-state";
-import { useProject } from "@/features/projects/hooks";
 import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
-import { ModelProviderBlock } from "./ModelProviderBlock";
-import { StackSelector } from "./StackSelector";
-import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
-import { INTEGRATIONS } from "./integrations";
+import { StackAndModelKey, useStackSelection } from "./StackAndModelKey";
 
 type Tab = "ai" | "manual";
 
@@ -35,6 +30,12 @@ interface GettingStartedProps {
  * it and nothing above it — the picker keeps its selection, the key field keeps
  * what has been typed into it, and neither moves by a pixel.
  *
+ * The two questions are `StackAndModelKey` rather than markup in here, because
+ * this is not the only place a route to a first trace is offered: onboarding's
+ * manual step shows the same walkthrough, and it needs the same two answers
+ * above it for the same reasons. What is left in here is this panel's own
+ * framing and the mode switch.
+ *
  * "Using AI" says what the automatic route actually is — a coding agent edits
  * the repository — which is the thing a reader weighs before choosing it. The
  * pairing with "Manual" is looser than a strict antonym, and that is the trade:
@@ -42,12 +43,7 @@ interface GettingStartedProps {
  */
 export function GettingStarted({ projectId }: GettingStartedProps) {
   const [tab, setTab] = useState<Tab>("ai");
-  const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id;
-
-  const selectedIntegration =
-    INTEGRATIONS.find((integration) => integration.id === selectedIntegrationId) ?? INTEGRATIONS[0];
+  const { selected, select } = useStackSelection();
 
   return (
     <div className="w-full p-6">
@@ -60,26 +56,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           </p>
         </div>
 
-        <StackSelector selected={selectedIntegration} onSelect={setSelectedIntegrationId} />
-
-        <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">Use your own model key</p>
-          {/* The heading stays general while the field below it is named for
-              the provider the stack asks for. A heading that renamed itself on
-              every selection would move the mode switch and the whole section
-              under it, which is the reflow this layout exists to stop. */}
-          {projectLoading ? (
-            <LoadingState label="Loading model providers..." />
-          ) : workspaceId ? (
-            <ModelProviderBlock
-              workspaceId={workspaceId}
-              providerKey={selectedIntegration.providerKey}
-              stackName={selectedIntegration.name}
-            />
-          ) : (
-            <WorkspaceUnavailable />
-          )}
-        </div>
+        <StackAndModelKey projectId={projectId} selected={selected} onSelect={select} />
 
         <div>
           <div className="flex items-center gap-1 border-b border-border">
@@ -115,7 +92,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
             {tab === "ai" ? (
               <AITab projectId={projectId} />
             ) : (
-              <ManualTab projectId={projectId} integration={selectedIntegration} />
+              <ManualTab projectId={projectId} integration={selected} />
             )}
           </div>
         </div>
