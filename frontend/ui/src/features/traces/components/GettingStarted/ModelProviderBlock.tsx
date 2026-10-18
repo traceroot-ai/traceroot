@@ -47,9 +47,15 @@ export function isInlineConfigurable(
   config: { credentialType: "api-key" | "aws"; requiresBaseUrl: boolean } | undefined,
   catalogue: readonly unknown[] | undefined,
 ): boolean {
-  return (
-    config?.credentialType === "api-key" && !config.requiresBaseUrl && (catalogue?.length ?? 0) > 0
-  );
+  return keyIsWholeCredential(config) && (catalogue?.length ?? 0) > 0;
+}
+
+/**
+ * The credential half of `isInlineConfigurable`, on its own because
+ * `settingsOnlyReason` reports which half an adapter failed.
+ */
+function keyIsWholeCredential(config: Parameters<typeof isInlineConfigurable>[0]): boolean {
+  return config?.credentialType === "api-key" && !config.requiresBaseUrl;
 }
 
 /**
@@ -103,9 +109,7 @@ export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "mo
   const config = ADAPTER_CONFIG[adapter];
   const catalogue = ADAPTER_MODELS[adapter];
   if (isInlineConfigurable(config, catalogue)) return null;
-  return config.credentialType !== "api-key" || config.requiresBaseUrl
-    ? "more-than-a-key"
-    : "model-list";
+  return keyIsWholeCredential(config) ? "model-list" : "more-than-a-key";
 }
 
 /**
