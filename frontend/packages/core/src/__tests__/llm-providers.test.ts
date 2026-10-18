@@ -6,8 +6,10 @@ import {
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DIGEST_SUMMARY_SYSTEM_MODEL_ID,
   defaultApiProtocol,
   isDecisionModelId,
+  ADAPTER_CONFIG,
 } from "../llm-providers.ts";
 
 describe("defaultApiProtocol", () => {
@@ -38,6 +40,10 @@ describe("isDecisionModelId", () => {
 });
 
 describe("ADAPTER_MODELS", () => {
+  it("lists claude-opus-5-5 first, so it is the default Anthropic model", () => {
+    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-opus-5-5");
+  });
+
   it("contains no duplicate model IDs within a single adapter", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
@@ -74,6 +80,12 @@ describe("ADAPTER_MODELS", () => {
     );
 
     expect(systemModelIds).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+  });
+
+  it("keeps the digest summary default on Anthropic, the provider of keyless-signals deployments", () => {
+    const anthropic = SYSTEM_MODELS.find((system) => system.provider === "Anthropic");
+
+    expect(anthropic?.models.map((model) => model.id)).toContain(DIGEST_SUMMARY_SYSTEM_MODEL_ID);
   });
 
   describe("apiProtocol consistency with SYSTEM_MODELS", () => {
@@ -176,39 +188,164 @@ describe("ADAPTER_MODELS", () => {
     });
   });
 
-  it("includes grok-4.6 in the xAI model list", () => {
-    const xaiModels = ADAPTER_MODELS["xai"];
-    expect(xaiModels).toBeDefined();
+  it.each(["grok-4.6", "grok-4.7"])("includes %s in the xAI model list", (id) => {
+    expect(ADAPTER_MODELS["xai"]).toContainEqual({ id, label: id });
+  });
 
-    expect(xaiModels).toContainEqual({
-      id: "grok-4.6",
-      label: "grok-4.6",
-    });
+  it("lists grok-4.7 first, so it is the default xAI model", () => {
+    expect(ADAPTER_MODELS["xai"]?.[0]?.id).toBe("grok-4.7");
   });
 });
+
+function getTableRows(docPath: URL, heading: string): { provider: string; ids: string[] }[] {
+  const content = readFileSync(docPath, "utf8");
+  const lines = content.split("\n");
+  const rows = [];
+
+  let inSection = false;
+  let inTable = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith(heading)) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && lines[i].startsWith("## ")) {
+      break; // next section
+    }
+
+    if (inSection) {
+      if (!inTable && lines[i].startsWith("|")) {
+        inTable = true;
+        // skip header and separator
+        i++; // skip header row
+        // the next might be separator
+        if (lines[i] && /^\|[-\s:|]+$/.test(lines[i])) {
+          continue;
+        } else {
+          // fallback if missing
+          i--;
+        }
+      } else if (inTable && lines[i].startsWith("|")) {
+        const parts = lines[i].split("|").map((s) => s.trim());
+        if (parts.length >= 3) {
+          const provider = parts[1];
+          const modelsCol = parts[2];
+          const ids = [...modelsCol.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+          rows.push({ provider, ids });
+        }
+      } else if (inTable && !lines[i].startsWith("|") && lines[i].trim() !== "") {
+        inTable = false;
+      }
+    }
+  }
+  return rows;
+}
+
+const BYOK_DOC = new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url);
 
 describe("docs stay in sync with SYSTEM_MODELS", () => {
   // The BYOK docs table is a hand-maintained copy of SYSTEM_MODELS. Without this
   // check, adding a model here silently leaves the docs stale (see #1431).
-  const BYOK_DOC = new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url);
 
-  it.each(SYSTEM_MODELS.map((s) => [s.provider, s.models.map((m) => m.id)] as const))(
+  it.each(SYSTEM_MODELS.map((s) => [s.provider, s.models.map((m) => m.id)]))(
     "the byok.mdx Default Models table lists %s's models in SYSTEM_MODELS order",
     (provider, expectedIds) => {
-      const row = readFileSync(BYOK_DOC, "utf8")
-        .split("\n")
-        .find((line) => line.startsWith(`| ${provider} |`));
+      const rows = getTableRows(BYOK_DOC, "## Default Models");
+      const row = rows.find((r) => r.provider === provider);
 
       expect(
         row,
         `no "${provider}" row in the Default Models table of docs/ai-agent/byok.mdx`,
       ).toBeDefined();
 
-      const documentedIds = [...row!.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
       expect(
-        documentedIds,
-        `docs/ai-agent/byok.mdx is out of sync with SYSTEM_MODELS for ${provider} — update the table`,
+        row!.ids,
+        `docs/ai-agent/byok.mdx Default Models table is out of sync with SYSTEM_MODELS for ${provider} — update the table`,
       ).toEqual([...expectedIds]);
     },
   );
+});
+
+describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
+  it("every ADAPTER_MODELS key has a row and ids equal the catalog ids in order", () => {
+    const rows = getTableRows(BYOK_DOC, "## BYOK model catalog");
+
+    for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
+      if (!models || models.length === 0) continue;
+
+      const label = ADAPTER_CONFIG[adapter as LLMAdapter].label;
+      const matchingRows = rows.filter((r) => r.provider === label);
+
+      expect(
+        matchingRows.length,
+        `expected exactly 1 "${label}" row in BYOK model catalog, found ${matchingRows.length}`,
+      ).toBe(1);
+
+      const row = matchingRows[0];
+      const expectedIds = models.map((m) => m.id);
+      expect(
+        row.ids,
+        `BYOK model catalog for "${label}" is out of sync with ADAPTER_MODELS — update the table`,
+      ).toEqual(expectedIds);
+    }
+  });
+
+  it("every id in the catalog table exists in ADAPTER_MODELS under that provider (no stale ids)", () => {
+    const rows = getTableRows(BYOK_DOC, "## BYOK model catalog");
+
+    for (const row of rows) {
+      const adapterEntry = Object.entries(ADAPTER_CONFIG).find(
+        ([_, config]) => config.label === row.provider,
+      );
+      expect(
+        adapterEntry,
+        `Unknown provider "${row.provider}" in BYOK model catalog table`,
+      ).toBeDefined();
+
+      const adapterKey = adapterEntry![0] as LLMAdapter;
+      const codeModels = ADAPTER_MODELS[adapterKey] || [];
+      const codeIds = new Set(codeModels.map((m) => m.id));
+
+      for (const docId of row!.ids) {
+        expect(
+          codeIds.has(docId),
+          `Stale ID "${docId}" found in BYOK model catalog table under "${row.provider}" — remove it or add it to ADAPTER_MODELS`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("there are no rows for unknown providers", () => {
+    const rows = getTableRows(BYOK_DOC, "## BYOK model catalog");
+    const validLabels = new Set(Object.values(ADAPTER_CONFIG).map((c) => c.label));
+
+    for (const row of rows) {
+      expect(
+        validLabels.has(row.provider),
+        `Unknown provider "${row.provider}" found in BYOK model catalog table`,
+      ).toBe(true);
+    }
+  });
+
+  it("every free-text adapter is mentioned in the note", () => {
+    const content = readFileSync(BYOK_DOC, "utf8");
+    const freeTextAdapters = Object.keys(ADAPTER_CONFIG).filter(
+      (adapter) => !ADAPTER_MODELS[adapter as LLMAdapter],
+    );
+
+    // the text is below the table
+    const byokSection = content.split("## BYOK model catalog")[1].split("## ")[0];
+    const noteMatch = byokSection.match(/\*\*Note:\*\* (.*)/);
+    expect(noteMatch, "Missing **Note:** below BYOK model catalog table").toBeTruthy();
+
+    const noteText = noteMatch![1];
+
+    for (const adapter of freeTextAdapters) {
+      const label = ADAPTER_CONFIG[adapter as LLMAdapter].label;
+      expect(
+        noteText.includes(label) || noteText.includes(adapter),
+        `Free-text adapter "${label}" (${adapter}) is missing from the BYOK model catalog note`,
+      ).toBe(true);
+    }
+  });
 });

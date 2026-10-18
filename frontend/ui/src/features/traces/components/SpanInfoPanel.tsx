@@ -129,6 +129,7 @@ export function SpanInfoPanel({
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
+  const errorType = !isTrace ? selection.span.error_type : "";
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -317,48 +318,61 @@ export function SpanInfoPanel({
 
       {/* Content */}
       <div className="space-y-3 p-4">
-        {/* Error message */}
-        {statusMessage && (
+        {/* Error box: shown when an ERROR span has a type or a message to show */}
+        {hasError && (errorType || statusMessage) && (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <DOMAIN_ICONS.error className="h-3 w-3" />
               Error
             </div>
             {/* Source location info */}
-            {!isTrace && (trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                {trace.git_repo && (
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                    <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
-                      {trace.git_repo}
-                    </span>
-                  </div>
-                )}
-                {trace.git_ref && (
-                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitCommitHorizontal className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                    <span className="font-mono text-red-700 dark:text-red-300">
-                      {trace.git_ref.substring(0, 7)}
-                    </span>
-                  </div>
-                )}
-                {selection.span.git_source_file && (
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                    <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
-                      {selection.span.git_source_file}
-                      {selection.span.git_source_line && (
-                        <span className="whitespace-nowrap">:{selection.span.git_source_line}</span>
-                      )}
-                    </span>
-                  </div>
-                )}
-              </div>
+            {!isTrace &&
+              (errorType || trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {errorType && (
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <DOMAIN_ICONS.error className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                        {errorType}
+                      </span>
+                    </div>
+                  )}
+                  {trace.git_repo && (
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                        {trace.git_repo}
+                      </span>
+                    </div>
+                  )}
+                  {trace.git_ref && (
+                    <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <GitCommitHorizontal className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="font-mono text-red-700 dark:text-red-300">
+                        {trace.git_ref.substring(0, 7)}
+                      </span>
+                    </div>
+                  )}
+                  {selection.span.git_source_file && (
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                        {selection.span.git_source_file}
+                        {selection.span.git_source_line && (
+                          <span className="whitespace-nowrap">
+                            :{selection.span.git_source_line}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            {statusMessage && (
+              <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
+                {statusMessage}
+              </p>
             )}
-            <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
-              {statusMessage}
-            </p>
           </div>
         )}
 

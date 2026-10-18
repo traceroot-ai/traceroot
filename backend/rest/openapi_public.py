@@ -1180,6 +1180,61 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     return schema
 
 
+#: Base URLs for the docs' API playground. The cloud host serves the public API
+#: under the same origin the SDKs default to; self-hosters point the variable at
+#: their own backend.
+DOCS_SERVERS: list[dict[str, Any]] = [
+    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
+    {
+        "url": "{baseUrl}",
+        "description": "Self-hosted",
+        "variables": {
+            "baseUrl": {
+                "default": "http://localhost:8000",
+                "description": "Your TraceRoot backend URL",
+            }
+        },
+    },
+]
+
+_SDK_NOTE = (
+    "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only "
+    "where no SDK fits. It accepts a project API key only.</Note>"
+)
+_INGEST_NOTE = (
+    "\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, "
+    "optionally gzip-compressed with `Content-Encoding: gzip`."
+)
+
+
+def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return the copy of the public document that the Mintlify API reference reads.
+
+    Mintlify only reads files inside ``docs/``, so the reference needs its own
+    copy. It is the public document plus what only the docs need: ``servers``
+    for the playground, and a note on each operation hidden from the tool
+    registry (the SDKs' ingest and evaluation-run writes) saying the SDKs call
+    it. ``public.json`` itself stays unchanged, so the tool registry is unaffected.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; not mutated.
+
+    Returns:
+        dict[str, Any]: The docs copy.
+    """
+    docs = copy.deepcopy(schema)
+    docs["servers"] = copy.deepcopy(DOCS_SERVERS)
+    for item in docs["paths"].values():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS or op.get("x-tool", {}).get("enabled", True):
+                continue
+            note = _SDK_NOTE
+            if op.get("operationId") == "ingest_traces":
+                note += _INGEST_NOTE
+            op["x-mint"] = {"content": note}
+    return docs
+
+
 def render(schema: dict[str, Any]) -> str:
     """Deterministic serialization (sorted keys) for stable diffs / drift checks."""
     return json.dumps(schema, indent=2, sort_keys=True) + "\n"

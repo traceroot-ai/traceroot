@@ -88,8 +88,26 @@ export interface LLMModelDef {
  * This is intentionally not `resolvePiModel(undefined, null)`: detector evals
  * use a stable cheap-and-fast model instead of the general provider-priority
  * fallback used by other model resolution paths.
+ *
+ * gpt-6-luna was chosen in #2485: on a labeled synthetic judge comparison it matched
+ * the frontier models' verdicts at ~1/13 of claude-haiku-4-5's cost and half
+ * its latency, where claude-haiku-4-5 raised false positives on long traces.
  */
-export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "gpt-6-luna";
+
+/**
+ * What an unpinned detector screens on when no OpenAI key resolves (neither
+ * OPENAI_API_KEY nor a workspace OpenAI key), so Anthropic-only deployments
+ * keep screening instead of failing every run.
+ */
+export const DETECTOR_SYSTEM_FALLBACK_MODEL_ID = "claude-haiku-5-5";
+
+/**
+ * Hosted model for the finding-digest summary paragraph. Kept apart from the
+ * detector default: that digest is the path deployments without OPENAI_API_KEY
+ * use (with a key, signals send their own digest), so it stays on Anthropic.
+ */
+export const DIGEST_SUMMARY_SYSTEM_MODEL_ID = "claude-haiku-4-5";
 
 export const SYSTEM_MODELS: {
   provider: string;
@@ -115,6 +133,7 @@ export const SYSTEM_MODELS: {
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
+      { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
       { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
     ],
   },
@@ -125,6 +144,7 @@ export const SYSTEM_MODELS: {
     apiProtocol: "openai-responses",
     models: [
       { id: "gpt-5.5", label: "gpt-5.5" },
+      { id: "gpt-6-luna", label: "gpt-6-luna" },
       { id: "gpt-5.4", label: "gpt-5.4" },
       { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
       { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
@@ -160,11 +180,14 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
+    { id: "gpt-6-astra", label: "gpt-6-astra" },
+    { id: "gpt-6-sol", label: "gpt-6-sol" },
+    { id: "gpt-6-luna", label: "gpt-6-luna" },
     { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
     { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
     { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
     { id: "gpt-5.6-cyber", label: "gpt-5.6-cyber" },
-    { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-5.5", label: "gpt-5.5" },
     { id: "gpt-5.5-pro", label: "gpt-5.5-pro" },
     { id: "gpt-5.4", label: "gpt-5.4" },
@@ -180,14 +203,17 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
   ],
   anthropic: [
+    { id: "claude-opus-5-5", label: "claude-opus-5-5" },
     { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
     { id: "claude-opus-4-5", label: "claude-opus-4-5" },
+    { id: "claude-sonnet-5-5", label: "claude-sonnet-5-5" },
     { id: "claude-sonnet-5", label: "claude-sonnet-5" },
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
+    { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
     { id: "claude-fable-5", label: "claude-fable-5" },
   ],
@@ -205,6 +231,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-chat", label: "deepseek-chat" },
   ],
   xai: [
+    { id: "grok-4.7", label: "grok-4.7" },
     { id: "grok-4.6", label: "grok-4.6" },
     { id: "grok-4.5", label: "grok-4.5" },
     { id: "grok-4.20", label: "grok-4.20" },
