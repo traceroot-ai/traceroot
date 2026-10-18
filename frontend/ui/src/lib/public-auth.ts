@@ -28,8 +28,6 @@ import { hashApiKey } from "@/lib/api-keys";
  */
 export type ApiKeyScope = "ingest" | "admin";
 
-export const API_KEY_SCOPES: readonly ApiKeyScope[] = ["ingest", "admin"];
-
 /** Narrows an arbitrary stored value; unknown scopes fail closed to `ingest`. */
 export function parseScope(value: unknown): ApiKeyScope {
   return value === "admin" ? "admin" : "ingest";
