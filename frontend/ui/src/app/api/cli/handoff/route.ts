@@ -97,6 +97,18 @@ async function handlePOST(request: NextRequest) {
     // codes for an account is one, so a hijacked tab cannot stockpile tickets.
     // Scoped to unredeemed rows so a code claimed a moment ago by the user's
     // own terminal keeps its provenance.
+    //
+    // The lock keeps that true when two mints for one user overlap (two
+    // onboarding tabs, or a refresh firing as a second tab mounts). At READ
+    // COMMITTED each statement sees only rows committed before it started, so
+    // two overlapping delete-then-insert pairs would each delete nothing and
+    // both insert. Taken first, the lock makes the second mint wait for the
+    // first to commit, and its delete then sees and removes the first row.
+    // Released when the transaction ends. Keyed under 'cli_handoffs' so it never
+    // meets another feature's advisory locks; two users whose ids hash alike
+    // only serialize, which is harmless. `$executeRaw`, not `$queryRaw`: the
+    // function returns void, which Prisma cannot deserialize as a column.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('cli_handoffs'), hashtext(${user.id}))`;
     await tx.cliHandoff.deleteMany({ where: { userId: user.id, redeemedAt: null } });
     return tx.cliHandoff.create({
       data: {

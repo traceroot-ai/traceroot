@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rateLimitOk: vi.fn((_key: string, _max: number, _windowMs: number) => true),
   sessionCreateGate: null as null | Promise<void>,
+  auditFails: false,
 }));
 
 vi.mock("@/env", () => ({ env: {} }));
@@ -28,20 +29,28 @@ type HandoffRow = {
   id: string;
   codeHash: string;
   userId: string;
+  issuedBySessionId: string | null;
+  projectId: string | null;
+  workspaceId: string | null;
   expiresAt: Date;
   redeemedAt: Date | null;
   redeemedSessionId: string | null;
   user: { email: string; banned: boolean | null; banExpires: Date | null };
 };
 type SessionRow = Record<string, unknown> & { id: string; token: string };
+type AuditRow = Record<string, unknown> & { summary: Record<string, unknown> };
 
 // `claims` counts the conditional UPDATE the handler issues, so a test can say
 // "this input reached the table" or "this one did not". `claimedBy` records the
 // value each of those statements matched on, which is how a test can say the
-// raw code never reached a query.
+// raw code never reached a query. `issuers` holds the browser sessions that
+// minted the codes, apart from `sessions`, which holds only what redemption
+// created.
 const store = {
   handoffs: [] as HandoffRow[],
   sessions: [] as SessionRow[],
+  issuers: [] as { id: string; ipAddress: string | null }[],
+  audit: [] as AuditRow[],
   claims: 0,
   claimedBy: [] as string[],
 };
@@ -91,6 +100,17 @@ function client() {
         store.sessions.push(data);
         return data;
       },
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        store.issuers.find((s) => s.id === where.id) ?? null,
+    },
+    // Only the transaction's client has this: the bare `prisma` below does not,
+    // so an audit write outside the transaction fails every redemption test.
+    auditLog: {
+      create: async ({ data }: { data: AuditRow }) => {
+        if (mocks.auditFails) throw new Error("audit insert failed");
+        store.audit.push(data);
+        return data;
+      },
     },
   };
 }
@@ -124,6 +144,9 @@ function seed(overrides: Partial<HandoffRow> = {}) {
     id: "handoff-1",
     codeHash: hashHandoffCode(CODE),
     userId: "u1",
+    issuedBySessionId: "browser-session",
+    projectId: "p1",
+    workspaceId: "w1",
     expiresAt: new Date(Date.now() + 600_000),
     redeemedAt: null,
     redeemedSessionId: null,
@@ -137,9 +160,12 @@ function seed(overrides: Partial<HandoffRow> = {}) {
 beforeEach(() => {
   store.handoffs = [];
   store.sessions = [];
+  store.issuers = [];
+  store.audit = [];
   store.claims = 0;
   store.claimedBy = [];
   mocks.sessionCreateGate = null;
+  mocks.auditFails = false;
   mocks.rateLimitOk.mockReset();
   mocks.rateLimitOk.mockReturnValue(true);
 });
@@ -184,6 +210,85 @@ describe("POST /api/cli/handoff/redeem", () => {
     expect(row.redeemedAt).toBeInstanceOf(Date);
     expect(row.redeemedSessionId).toBe(store.sessions[0].id);
     expect(store.sessions[0].token).toBe(sessionToken);
+  });
+
+  it("records the session it created as a handoff's, which is what Active Sessions marks", async () => {
+    seed();
+    const res = await POST(request({ code: CODE }));
+    expect(res.status).toBe(200);
+
+    // The session row is a device-flow row in every column, so this audit row
+    // is the only thing that says where it came from. Keyed by the session id,
+    // which is what /api/cli/handoff/sessions hands the page.
+    expect(store.audit).toHaveLength(1);
+    expect(store.audit[0]).toMatchObject({
+      actorUserId: "u1",
+      actorEmail: "u@example.com",
+      operation: "cli_handoff.redeemed",
+      resourceType: "session",
+      resourceId: store.sessions[0].id,
+      projectId: "p1",
+      workspaceId: "w1",
+      outcome: "success",
+    });
+    expect(store.audit[0].summary).toMatchObject({
+      handoffId: "handoff-1",
+      issuedBySessionId: "browser-session",
+    });
+    // Nothing a caller could replay: the summary names no code and no token.
+    const serialized = JSON.stringify(store.audit[0]);
+    expect(serialized).not.toContain(CODE);
+    expect(serialized).not.toContain(store.sessions[0].token);
+  });
+
+  it("fails the redemption rather than create a session nothing marks", async () => {
+    seed();
+    mocks.auditFails = true;
+    // In the transaction, not swallowed: a handoff session without its record
+    // is the unmarked credential the record exists to prevent. The rollback
+    // that keeps the code redeemable is Postgres's; here it is enough that
+    // the failure reaches the transaction instead of being caught short of it.
+    await expect(POST(request({ code: CODE }))).rejects.toThrow("audit insert failed");
+  });
+
+  it("records, and does not refuse, a code spent from another address than the tab that minted it", async () => {
+    seed();
+    store.issuers.push({ id: "browser-session", ipAddress: "198.51.100.4" });
+    const res = await POST(request({ code: CODE }, { "x-forwarded-for": "203.0.113.7" }));
+
+    // "Run this where your application lives" makes a second host the normal
+    // case, so a mismatch is a record for the user and for support, never a
+    // refusal.
+    expect(res.status).toBe(200);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.audit[0].summary).toMatchObject({
+      mintedFrom: "198.51.100.4",
+      redeemedFrom: "203.0.113.7",
+      addressChanged: true,
+    });
+  });
+
+  it("records the same address as unchanged, and an unknown one as unknown", async () => {
+    seed();
+    store.issuers.push({ id: "browser-session", ipAddress: "203.0.113.7" });
+    await POST(request({ code: CODE }, { "x-forwarded-for": "203.0.113.7" }));
+    expect(store.audit[0].summary).toMatchObject({
+      mintedFrom: "203.0.113.7",
+      redeemedFrom: "203.0.113.7",
+      addressChanged: false,
+    });
+
+    // The minting tab signed out before the terminal ran: legitimate, and
+    // nothing left to compare against, so neither true nor false.
+    store.handoffs = [];
+    store.issuers = [];
+    seed();
+    await POST(request({ code: CODE }, { "x-forwarded-for": "203.0.113.7" }));
+    expect(store.audit[1].summary).toMatchObject({
+      mintedFrom: null,
+      redeemedFrom: "203.0.113.7",
+      addressChanged: null,
+    });
   });
 
   it.each([
@@ -294,6 +399,49 @@ describe("POST /api/cli/handoff/redeem", () => {
     expect(store.claims).toBe(0);
     expect(store.handoffs[0].redeemedAt).toBeNull();
     expect(store.sessions).toHaveLength(0);
+  });
+
+  it("stops reading a body that declares no length once it passes the ceiling", async () => {
+    seed();
+    // A chunked request carries no content-length, so the declared-length
+    // check cannot see it. Well-formed JSON, so a reader that buffered it all
+    // would parse it and answer 401; 64 chunks of 512 bytes, so how many were
+    // pulled shows where reading stopped.
+    let pulled = 0;
+    const chunks = ['{"code":"trh_', ...Array.from({ length: 64 }, () => "A".repeat(512)), '"}'];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = chunks[pulled++];
+        if (next === undefined) controller.close();
+        else controller.enqueue(encoder.encode(next));
+      },
+    });
+    const chunked = new Request("http://localhost/api/cli/handoff/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "traceroot-cli/0.7.0" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    expect(chunked.headers.get("content-length")).toBeNull();
+
+    const res = await POST(chunked as unknown as Parameters<typeof POST>[0]);
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(6);
+    expect(store.claims).toBe(0);
+    expect(store.sessions).toHaveLength(0);
+  });
+
+  it("still redeems a code sent as a streamed body within the ceiling", async () => {
+    seed();
+    const streamed = new Request("http://localhost/api/cli/handoff/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "traceroot-cli/0.7.0" },
+      body: JSON.stringify({ code: CODE }),
+    });
+    const res = await POST(streamed as unknown as Parameters<typeof POST>[0]);
+    expect(res.status).toBe(200);
+    expect(store.sessions).toHaveLength(1);
   });
 
   it("400s on a missing or malformed body", async () => {

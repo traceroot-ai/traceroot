@@ -34,7 +34,17 @@ const mocks = vi.hoisted(() => ({
   // spies above, so this is the only thing that tells a write inside the
   // transaction from one on the bare client.
   through: [] as string[],
+  // Every raw statement, with the client it went through.
+  raw: [] as { via: string; sql: string; values: unknown[] }[],
 }));
+
+function rawStatement(via: string) {
+  return async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    mocks.through.push(`${via}.lock`);
+    mocks.raw.push({ via, sql: strings.join("?"), values });
+    return 1;
+  };
+}
 
 vi.mock("@/env", () => ({ env: { BETTER_AUTH_URL: "https://app.traceroot.ai/" } }));
 vi.mock("@/lib/request-session", () => ({ getRequestSession: mocks.session }));
@@ -60,8 +70,10 @@ vi.mock("@traceroot/core", () => ({
         return mocks.create(...a);
       },
     },
+    $executeRaw: rawStatement("prisma"),
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
+        $executeRaw: rawStatement("tx"),
         cliHandoff: {
           deleteMany: (...a: unknown[]) => {
             mocks.through.push("tx.deleteMany");
@@ -99,6 +111,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.through.length = 0;
+  mocks.raw.length = 0;
   mocks.rateLimitOk.mockReturnValue(true);
   mocks.session.mockResolvedValue({
     user: { id: "u1", email: "u@example.com", name: null },
@@ -176,11 +189,28 @@ describe("POST /api/cli/handoff", () => {
     expect(mocks.deleteMany).toHaveBeenCalledWith({
       where: { userId: "u1", redeemedAt: null },
     });
-    // delete-then-create, both through the transaction's client rather than the
-    // bare one -- a create outside it would leave the delete committed on its
-    // own. The trailing delete is the expiry sweep, which is deliberately not
+    // lock-then-delete-then-create, all through the transaction's client rather
+    // than the bare one -- a create outside it would leave the delete committed
+    // on its own, and a lock outside it would be released before the delete
+    // ran. The trailing delete is the expiry sweep, which is deliberately not
     // in the transaction: it runs once the mint has committed.
-    expect(mocks.through).toEqual(["tx.deleteMany", "tx.create", "prisma.deleteMany"]);
+    expect(mocks.through).toEqual(["tx.lock", "tx.deleteMany", "tx.create", "prisma.deleteMany"]);
+  });
+
+  it("serializes mints per user with a transaction-scoped advisory lock", async () => {
+    await POST(request({ projectId: "p1" }));
+
+    // The xact variant, so the lock lives exactly as long as the transaction
+    // that deletes and inserts under it; keyed under its own namespace and the
+    // user, so two of one user's mints queue and nobody else's do. See
+    // route.race.test.ts for the overlap it prevents.
+    expect(mocks.raw).toEqual([
+      {
+        via: "tx",
+        sql: "SELECT pg_advisory_xact_lock(hashtext('cli_handoffs'), hashtext(?))",
+        values: ["u1"],
+      },
+    ]);
   });
 
   it("sweeps long-expired rows after the mint, and still mints if the sweep fails", async () => {

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@traceroot/core";
-import { HANDOFF_CODE_PATTERN, hashHandoffCode } from "@/lib/cli-handoff";
+import {
+  HANDOFF_CODE_PATTERN,
+  HANDOFF_REDEEMED_OPERATION,
+  hashHandoffCode,
+} from "@/lib/cli-handoff";
 import { createSession } from "@/lib/create-session";
+import { readLimitedJson } from "@/lib/eval/body";
 import { checkMintRateLimit, rateLimitClientKey } from "@/lib/mint-rate-limit";
 import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
 
@@ -16,7 +21,9 @@ import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
 // What comes back is the same artifact a device-flow approval produces: a
 // `sessions` row with a null impersonatedBy, created through lib/create-session
 // so nothing downstream (/api/cli/token, the backend's JWT check, `traceroot
-// logout`, Active Sessions) learns a new case.
+// logout`) learns a new case. Active Sessions is the one place that does tell
+// it apart, from the audit row written beside it (see the end of the
+// transaction below).
 
 const redeemSchema = z.object({ code: z.string().min(1, "code is required") });
 
@@ -29,12 +36,12 @@ const REDEEM_MAX_PER_WINDOW = 10;
 const REDEEM_WINDOW_MS = 60_000;
 
 // The body this route accepts is one 47-character code, so a kilobyte is already
-// two decimal orders of headroom. Checked before the body is read: the rate
-// limiter bounds how MANY anonymous requests are served, not how large one of
-// them is, so without this a caller inside its budget could still make the web
-// process allocate and hash an arbitrarily long string. A request that declares
-// no length (chunked) is still read in full -- a hard byte ceiling belongs in
-// front of the app, and this is the cheap part of it that lives here.
+// two decimal orders of headroom. The rate limiter bounds how MANY anonymous
+// requests are served, not how large one of them is, so without a ceiling a
+// caller inside its budget could still make the web process buffer and parse an
+// arbitrarily long body. readLimitedJson refuses an oversized declared length
+// before reading anything, and stops reading a body that declares none
+// (chunked) as soon as it passes the ceiling.
 const MAX_BODY_BYTES = 1024;
 
 // One response for unknown, expired, already-redeemed and banned alike.
@@ -54,18 +61,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "rate limited" }, { status: 429 });
   }
 
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: "request body too large" }, { status: 413 });
+  const body = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!body.ok) {
+    return NextResponse.json({ error: body.error }, { status: body.status });
   }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-  const parsed = redeemSchema.safeParse(body);
+  const parsed = redeemSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
@@ -104,6 +104,9 @@ export async function POST(request: NextRequest) {
       select: {
         id: true,
         userId: true,
+        issuedBySessionId: true,
+        projectId: true,
+        workspaceId: true,
         user: { select: { email: true, banned: true, banExpires: true } },
       },
     });
@@ -118,8 +121,8 @@ export async function POST(request: NextRequest) {
 
     const session = await createSession(tx, {
       userId: handoff.userId,
-      // Records the CLI's own address and `traceroot-cli/<version>` agent, so
-      // Active Sessions labels this exactly as it labels a device-flow session.
+      // Records the redeemer's own address and agent (`traceroot-cli/<version>`
+      // for the CLI), the way a device-flow session records them.
       headers: request.headers,
     });
 
@@ -127,6 +130,52 @@ export async function POST(request: NextRequest) {
     await tx.cliHandoff.update({
       where: { id: handoff.id },
       data: { redeemedSessionId: session.id },
+    });
+
+    // The record that sets this session apart. A redeemed code buys a full,
+    // sliding account session with no interaction, on a row nothing
+    // distinguishes from a device-flow login, so a code stolen from the page
+    // would otherwise become a credential the user cannot tell from their own.
+    // Active Sessions marks every session named by one of these rows, and,
+    // unlike cli_handoffs, nothing sweeps the audit trail. Written in this
+    // transaction rather than best-effort after it: a handoff session without
+    // it is exactly the unmarked credential this is here to prevent, so if it
+    // cannot be written the redemption rolls back and the code stays live.
+    //
+    // It also records whether the code was spent from a different address than
+    // the tab that minted it. Recorded, never refused: the hand-back step says
+    // to run the command where the application lives, which is routinely
+    // another host. The minting side is the issuing session's address as
+    // better-auth stored it at sign-in, resolved the same way as the
+    // redeemer's; the comparison is null when that session is gone or either
+    // address is unknown.
+    const issuer = handoff.issuedBySessionId
+      ? await tx.session.findUnique({
+          where: { id: handoff.issuedBySessionId },
+          select: { ipAddress: true },
+        })
+      : null;
+    const mintedFrom = issuer?.ipAddress ?? null;
+    const redeemedFrom = session.ipAddress ?? null;
+    await tx.auditLog.create({
+      data: {
+        actorUserId: handoff.userId,
+        actorEmail: handoff.user.email,
+        operation: HANDOFF_REDEEMED_OPERATION,
+        resourceType: "session",
+        resourceId: session.id,
+        workspaceId: handoff.workspaceId,
+        projectId: handoff.projectId,
+        transport: "cli",
+        outcome: "success",
+        summary: {
+          handoffId: handoff.id,
+          issuedBySessionId: handoff.issuedBySessionId,
+          mintedFrom,
+          redeemedFrom,
+          addressChanged: mintedFrom && redeemedFrom ? mintedFrom !== redeemedFrom : null,
+        },
+      },
     });
 
     return { sessionToken: session.token, email: handoff.user.email };

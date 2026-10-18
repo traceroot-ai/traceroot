@@ -36,6 +36,13 @@ const HANDOFF_CODE_PREFIX = "trh_";
 // same prefix and length the generator uses keeps the two from drifting.
 export const HANDOFF_CODE_PATTERN = new RegExp(`^${HANDOFF_CODE_PREFIX}[A-Za-z0-9_-]{43}$`);
 
+// `audit_logs.operation` of the row redemption writes for each session it
+// creates, with the session's id as the resource. The session row itself is
+// identical to a device-flow login's, so this row is the durable record of where
+// the session came from: Active Sessions reads it to show handoff sessions as
+// their own class.
+export const HANDOFF_REDEEMED_OPERATION = "cli_handoff.redeemed";
+
 // Keep an expired row for as long as the session it minted can survive without
 // being used, so an abandoned handoff's provenance outlasts the credential it
 // issued.
@@ -44,7 +51,8 @@ export const HANDOFF_CODE_PATTERN = new RegExp(`^${HANDOFF_CODE_PREFIX}[A-Za-z0-
 // session's expiry forward on every mint (lib/session-config.ts) and nothing
 // slides this cutoff with it, so a daily CLI user still holds a session months
 // after the handoff row that records where it came from was swept. Provenance
-// here is a best-effort record, not a guarantee for the life of the session.
+// here is a best-effort record, not a guarantee for the life of the session;
+// the audit row above is the one that lasts.
 const HANDOFF_RETENTION_MS = SESSION_EXPIRES_IN_SECONDS * 1000;
 
 /**

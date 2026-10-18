@@ -44,3 +44,16 @@ export async function createCliHandoff(projectId: string): Promise<CliHandoff> {
     body: JSON.stringify({ projectId }),
   });
 }
+
+/**
+ * The ids of the signed-in user's sessions that a handoff code created.
+ *
+ * Active Sessions matches these against better-auth's session list to mark
+ * those rows: a handoff session's row is otherwise identical to a device-flow
+ * login's, and it is the one kind of session nobody approved on a page. May
+ * include sessions that no longer exist.
+ */
+export async function listCliHandoffSessionIds(): Promise<string[]> {
+  const { sessionIds } = await fetchNextApi<{ sessionIds: string[] }>("/cli/handoff/sessions");
+  return sessionIds;
+}

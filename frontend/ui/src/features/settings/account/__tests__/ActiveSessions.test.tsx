@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listSessions: vi.fn(),
   revokeSession: vi.fn(),
   revokeOtherSessions: vi.fn(),
+  handoffSessionIds: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -17,6 +18,10 @@ vi.mock("@/lib/auth-client", () => ({
     revokeSession: (args: { token: string }) => mocks.revokeSession(args),
     revokeOtherSessions: () => mocks.revokeOtherSessions(),
   },
+}));
+
+vi.mock("@/lib/api/cli-handoff", () => ({
+  listCliHandoffSessionIds: () => mocks.handoffSessionIds(),
 }));
 
 import { ActiveSessions } from "../ActiveSessions";
@@ -44,6 +49,19 @@ const cliSession = {
   userAgent: "traceroot-cli/1.2.3",
 };
 
+// Created by a handoff code, and reporting an agent that is not the CLI's: the
+// mark has to come from the server's record, not from the row.
+const handoffSession = {
+  id: "sess-handoff",
+  token: "tok-handoff",
+  createdAt: "2026-08-06T00:00:00.000Z",
+  updatedAt: "2026-08-07T00:00:00.000Z",
+  userId: "user-1",
+  expiresAt: "2026-09-06T00:00:00.000Z",
+  ipAddress: "203.0.113.7",
+  userAgent: "curl/8.4.0",
+};
+
 function renderComponent() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -61,6 +79,11 @@ afterEach(() => {
   mocks.listSessions.mockReset();
   mocks.revokeSession.mockReset();
   mocks.revokeOtherSessions.mockReset();
+  mocks.handoffSessionIds.mockReset();
+});
+
+beforeEach(() => {
+  mocks.handoffSessionIds.mockResolvedValue([]);
 });
 
 describe("ActiveSessions", () => {
@@ -198,6 +221,44 @@ describe("ActiveSessions", () => {
     renderComponent();
 
     expect(await screen.findByText("No active sessions.")).toBeTruthy();
+  });
+
+  it("marks a session a handoff code created, whatever agent it reports", async () => {
+    mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
+    mocks.listSessions.mockResolvedValue({
+      data: [currentSession, cliSession, handoffSession],
+      error: null,
+    });
+    // May name a session that is gone; only listed rows are marked.
+    mocks.handoffSessionIds.mockResolvedValue(["sess-handoff", "sess-revoked"]);
+
+    renderComponent();
+
+    const mark = await screen.findByText("Sign-in code from browser");
+    expect(screen.getAllByText("Sign-in code from browser")).toHaveLength(1);
+    const row = mark.closest("tr")!;
+    expect(row.textContent).toContain("curl/8.4.0");
+    expect(row.textContent).toContain("203.0.113.7");
+    // Its own row, so it can be revoked on its own.
+    fireEvent.click(within(row).getByRole("button", { name: /^revoke$/i }));
+    await waitFor(() => expect(mocks.revokeSession).toHaveBeenCalledWith({ token: "tok-handoff" }));
+    // A device-flow CLI session is not a handoff's.
+    const cliRow = screen.getByText("TraceRoot CLI").closest("tr")!;
+    expect(cliRow.textContent).not.toContain("Sign-in code from browser");
+  });
+
+  it("still lists and revokes sessions when the handoff lookup fails", async () => {
+    mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
+    mocks.listSessions.mockResolvedValue({ data: [currentSession, handoffSession], error: null });
+    mocks.handoffSessionIds.mockRejectedValue(new Error("Exit impersonation first"));
+
+    renderComponent();
+
+    expect(await screen.findByText("curl/8.4.0")).toBeTruthy();
+    await waitFor(() => expect(mocks.handoffSessionIds).toHaveBeenCalled());
+    expect(screen.queryByText(/couldn't load your sessions/i)).toBeNull();
+    expect(screen.queryByText("Sign-in code from browser")).toBeNull();
+    expect(screen.getByRole("button", { name: /^revoke$/i })).toBeTruthy();
   });
 
   it("shows an error state when listSessions fails", async () => {
