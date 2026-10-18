@@ -31,19 +31,17 @@ interface ManualSetupStepProps {
 /**
  * The optional last step of a first run: adding tracing by hand.
  *
- * The body is the getting-started panel's own setup, rendered here rather than
- * copied: the two questions every route asks — which stack, whose model key —
- * and then that panel's manual walkthrough, which is the key, the install and
- * the one call that starts tracing. A second copy of any of that in onboarding
- * would answer a different version of the same question within a release or
- * two, and the version a brand-new account reads is the one that must not be
- * the stale one.
+ * The body is the getting-started panel's own pieces, rendered here rather than
+ * copied: two questions — which stack, whose model key — and then that panel's
+ * manual walkthrough, which is the key, the install and the one call that
+ * starts tracing. A second copy of any of that in onboarding would answer a
+ * different version of the same question within a release or two, and the
+ * version a brand-new account reads is the one that must not be the stale one.
  *
- * The stack picker is the traces panel's, above the walkthrough, rather than
- * the one the walkthrough falls back to when it is rendered alone. That one is
- * grouped differently and asks for the model key as a numbered step after the
- * snippets, so an account that signed up here and later opened an empty
- * project would meet the same two questions asked two different ways.
+ * The stack is asked above the walkthrough, together with the model key, rather
+ * than by the picker the walkthrough shows as its own step on the empty traces
+ * page. The model key is asked for here and not on that page, and the stack
+ * decides which provider's key the field asks for, so the two sit together.
  *
  * Only the manual half is shown, not both modes. The other mode is the command
  * on the step before this one, which this user has just declined — so it is
