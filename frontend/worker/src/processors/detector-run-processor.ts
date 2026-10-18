@@ -1,14 +1,9 @@
-import { Worker, Queue, DelayedError, type Job } from "bullmq";
+import { Worker, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
 import { prisma, PlanType, calculateCost } from "@traceroot/core";
-import type {
-  DetectorRunJob,
-  DetectorRcaJob,
-  DetectorRcaFinding,
-} from "../queues/detector-run-queue.js";
+import type { DetectorRunJob } from "../queues/detector-run-queue.js";
 import {
   DETECTOR_RUN_QUEUE,
-  DETECTOR_RCA_QUEUE,
   EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
@@ -16,6 +11,7 @@ import { runDetectionForTrace } from "../detection/sandbox-eval.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
+import { enqueueSignalHits } from "../ee/signals/queue.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -65,20 +61,6 @@ function deterministicRunId(projectId: string, traceId: string, detectorId: stri
 }
 
 /**
- * Decide whether to run the per-trace RCA. RCA is shared across all detectors
- * that fired on a trace; we run it when AT LEAST ONE triggered detector has
- * RCA enabled. A triggered detector missing from `detectors` defaults to "run"
- * so an unexpected gap never silently suppresses analysis.
- */
-export function shouldRunRca(
-  triggered: { detectorId: string }[],
-  detectors: { id: string; enableRca: boolean }[],
-): boolean {
-  const rcaEnabledById = new Map(detectors.map((d) => [d.id, d.enableRca]));
-  return triggered.some((t) => rcaEnabledById.get(t.detectorId) !== false);
-}
-
-/**
  * Deterministic finding id for a trace — a hash of (projectId, traceId) only.
  * It does NOT depend on which/how many detectors fired, so every detector that
  * triggers on the same trace maps to the SAME finding, and therefore the SAME
@@ -94,31 +76,6 @@ export function shouldRunRca(
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
-}
-
-/**
- * Build the per-trace RCA payload from every detector that fired. The single
- * RCA job carries all triggered detectors' summaries, so one agent analyzes the
- * whole trace rather than one agent per detector.
- */
-export function buildRcaFindings(
-  triggered: { detectorId: string; detectorName: string; summary: string }[],
-): DetectorRcaFinding[] {
-  return triggered.map((r) => ({
-    detectorId: r.detectorId,
-    detectorName: r.detectorName,
-    summary: r.summary,
-  }));
-}
-
-let rcaQueue: Queue<DetectorRcaJob> | null = null;
-function getRcaQueue(): Queue<DetectorRcaJob> {
-  if (!rcaQueue) {
-    rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
-      connection: createRedisConnection(),
-    });
-  }
-  return rcaQueue;
 }
 
 async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
@@ -137,6 +94,8 @@ interface TriggeredResult {
   detectorName: string;
   summary: string;
   data: unknown;
+  /** Whether this run's eval recorded inference usage; persisted on the run. */
+  usedInference: boolean;
   /** Whether this run's self-trace was emitted; carried to the triggered run write. */
   selfTraced: boolean;
 }
@@ -173,6 +132,25 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
     );
     return usage.inferenceCost;
   }
+}
+
+/**
+ * Whether a scan recorded inference usage — the model was reached and billed,
+ * whatever the run's final status. Token counts are the reliable signal: a
+ * provider can be billed with a zero cost (free/system model, BYOK), and an
+ * error response can name a model without ever producing tokens, so neither a
+ * model id nor a positive cost alone proves a call. The sandbox eval
+ * accumulates tokens across attempts, so a run that burned calls and then
+ * failed (no submit_result, a rejected TypeSafe answer) still counts; a
+ * failure before any call (missing key, unknown model, span download) leaves
+ * both counts at zero.
+ *
+ * Persisted to detector_runs.used_inference, which the usage meter reads
+ * alongside status: a run consumes quota (and stays in the paid overage
+ * denominator) when its latest version completed OR used inference.
+ */
+function recordedInferenceUsage(usage: ScanUsage): boolean {
+  return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
 }
 
 interface SingleDetectorOutcome {
@@ -281,6 +259,9 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: "failed",
+      // The eval threw before it returned a usage record: nothing here proves
+      // a model call was billed, so the run stays out of the usage meter.
+      usedInference: false,
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage: null };
@@ -310,6 +291,7 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: result.error ? "failed" : "completed",
+      usedInference: recordedInferenceUsage(usage),
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage };
@@ -326,6 +308,7 @@ async function runSingleDetector(params: {
       detectorName: detector.name,
       summary: result.summary,
       data: result.data,
+      usedInference: recordedInferenceUsage(usage),
       selfTraced,
     },
     usage,
@@ -353,6 +336,9 @@ export async function processTrace(
           traceId,
           findingId: null,
           status: "failed",
+          // No detector ever ran, so nothing was billed: this failure must not
+          // consume detector-scan quota.
+          usedInference: false,
         }).catch((err) => console.error("[Detector] Failed to write run:", err)),
       ),
     );
@@ -386,7 +372,7 @@ async function evaluateTrace(
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
   // flag set by the hourly billing job (same pattern as `aiBlocked` and
   // `ingestionBlocked`). Worst-case overshoot: ~1h of scans between cron
-  // runs, which costs us a few cents of haiku tokens — acceptable as
+  // runs, which costs us a few cents of judge tokens — acceptable as
   // customer-acquisition spend per the pricing rule "Free is truly free."
   const billingPlan = (project?.workspace?.billingPlan ?? "free") as PlanType;
   if (project?.workspace?.detectorBlocked && billingPlan === PlanType.FREE) {
@@ -481,8 +467,8 @@ async function evaluateTrace(
   );
 
   // Single capture time for this finding. Stamped onto the finding row AND every
-  // triggered run below (timestampMs), and threaded to the RCA job to key the
-  // digest flush. Because the same value is both the row timestamp the flush
+  // triggered run below (timestampMs), and keys the per-finding digest flush
+  // scheduled below. Because the same value is both the row timestamp the flush
   // counts and the window key, a finding always falls in exactly the window its
   // flush covers — no boundary skew between the worker and server clocks.
   const findingTimestamp = Date.now();
@@ -508,6 +494,7 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
+        usedInference: r.usedInference,
         timestampMs: findingTimestamp,
         selfTraced: r.selfTraced,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),
@@ -518,55 +505,14 @@ async function evaluateTrace(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
 
-  // RCA is shared per trace. Run it only when at least one triggered detector
-  // has RCA enabled; otherwise skip both the seed row and the queue job so a
-  // noisy RCA-disabled detector doesn't incur agent-model cost. Consumers
-  // null-check an absent DetectorRca record, so skipping the row is safe.
-  const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
-
-  if (shouldRunRca(triggered, detectors)) {
-    // `update` never touches lifecycle status on an existing row: with the
-    // deterministic jobId below and `removeOnComplete: 100`, a re-detection
-    // over an already-completed finding can dedupe against the retained
-    // completed job and never run — resetting status to "pending" here would
-    // then leave the finding stuck at "pending" forever over a done result. A
-    // new attempt's own markFindingRunningIfLatest is what sets "running".
-    await prisma.detectorRca
-      .upsert({
-        where: { findingId },
-        create: { findingId, projectId, status: "pending" },
-        update: { projectId },
-      })
-      .catch((e) =>
-        console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
-      );
-
-    await getRcaQueue().add(
-      `rca-${findingId}`,
-      {
-        findingId,
-        projectId,
-        traceId,
-        workspaceId,
-        findings: rcaFindings,
-        findingTimestamp,
-      },
-      {
-        jobId: `rca-${findingId}`,
-        removeOnComplete: 100,
-        removeOnFail: 50,
-        // Modest attempts: each retry re-invokes the agent (LLM cost), but a
-        // thrown RCA run is meant to retry through transient causes (rate
-        // limits, provider 5xx) rather than land permanently failed on one shot.
-        attempts: 3,
-        backoff: { type: "exponential", delay: 10000 },
-      },
-    );
-  } else {
-    console.log(
-      `[Detector] All triggered detectors have RCA disabled; skipping RCA for finding ${findingId}`,
-    );
-  }
+  // Signals (ee): enqueue assignment for detectors with signals on; the job
+  // reads the hits back from ClickHouse. Notifications come only from the
+  // signal digest, for new and reopened signals. A failure here must not fail
+  // the finding, which is written: the partition is on record in Postgres, or in
+  // Redis when Postgres refused it, and the sweeper picks the hits up later.
+  await enqueueSignalHits({ projectId, detectors, triggered }).catch((err) =>
+    console.error(`[Detector] Failed to enqueue signal assignment for finding ${findingId}:`, err),
+  );
 }
 
 /**

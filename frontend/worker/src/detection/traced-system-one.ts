@@ -1,5 +1,5 @@
 /**
- * Records a TypeSafe System One call as an LLM span inside an active self-trace
+ * Records a TypeSafe System One call as a DECISION span inside an active self-trace
  * scope, mirroring tracedComplete; outside a scope it is a passthrough. The
  * wrapper's own work is guarded so tracing never throws into a detector run.
  */
@@ -33,7 +33,7 @@ export async function tracedSystemOne<R extends SystemOneResult>(
       attributes: {
         // No source marker: the secret-gated ingest route classifies these rows.
         "traceroot.project_id": scope.projectId,
-        "traceroot.span.type": "LLM",
+        "traceroot.span.type": "DECISION",
         "traceroot.llm.model": meta.model,
         "traceroot.span.input": boundedJson({
           questions: meta.questions,

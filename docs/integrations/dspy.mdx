@@ -7,6 +7,12 @@ Automatically capture module executions, signature predictions, and underlying L
 
 ## Setup
 
+Install TraceRoot with the DSPy extra. The extra includes DSPy and the OpenInference instrumentor that emits its spans.
+
+```bash
+pip install "traceroot[dspy]"
+```
+
 <Tabs>
   <Tab title="Python">
     ```python
@@ -62,7 +68,7 @@ traceroot.flush()
 | Predictors | `Predict`, `ChainOfThought`, `ReAct`, etc. as nested spans |
 | Signatures | Input/output fields declared on each signature |
 | LLM calls | Raw completion requests to the configured `dspy.LM` |
-| Tokens & Cost | Aggregated token usage and pricing |
+| Tokens & Cost | Aggregated token usage; cost when the model ID matches TraceRoot's pricing table |
 | Latency | Duration per module call and per LLM call |
 
 

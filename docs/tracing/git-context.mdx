@@ -3,7 +3,7 @@ title: Git Context
 description: Correlate every span back to its source file, line, and commit
 ---
 
-TraceRoot automatically captures the git repository, commit, and the exact source file and line number for each instrumented function. This powers the **Show Code** feature in the trace viewer and enables the AI agent to jump directly from a failing trace to the relevant code.
+TraceRoot automatically captures the git repository, commit, and the exact source file and line number for each instrumented function. This powers the **Show Code** feature in the trace viewer and enables the TraceRoot Agent to jump directly from a failing trace to the relevant code.
 
 ## What Gets Captured
 
@@ -63,4 +63,4 @@ For setups that reuse one image across commits, set `TRACEROOT_GIT_REPO` / `TRAC
 
 ## Why It Matters
 
-Source code correlation is what enables the AI agent to perform accurate root cause analysis — it can read the exact function that produced a failing span, not just the trace data. See [Root Cause Analysis](/ai-agent/root-cause-analysis).
+Source code correlation is what enables the TraceRoot Agent to perform accurate root cause analysis — it can read the exact function that produced a failing span, not just the trace data. See [Root Cause Analysis](/ai-agent/root-cause-analysis).

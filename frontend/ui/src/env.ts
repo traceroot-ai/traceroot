@@ -74,6 +74,12 @@ const serverSchema = z.object({
   SLACK_CLIENT_SECRET: z.string().default(""),
   SLACK_STATE_SECRET: z.string().default(""),
   SLACK_REDIRECT_URI: z.string().default("http://localhost:3000/api/slack/oauth/callback"),
+  // Sign-up follow-ups; unset means no Slack post.
+  TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: z.string().optional(),
+  // Server-side read of a new user's PostHog person (city, device, referrer) for the Slack post
+  POSTHOG_PERSONAL_API_KEY: z.string().optional(),
+  POSTHOG_PROJECT_ID: z.string().optional(),
+  POSTHOG_API_HOST: z.string().default("https://us.posthog.com"),
 });
 
 export const env = serverSchema.parse(process.env);

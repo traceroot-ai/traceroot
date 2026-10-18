@@ -40,9 +40,24 @@ import { AITab } from "./AITab";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
+  vi.resetModules();
   projectQuery.data = { workspace_id: "ws_1" };
   projectQuery.isLoading = false;
 });
+
+/**
+ * Renders the tab against a stated deployment.
+ *
+ * `NEXT_PUBLIC_API_URL` is read through `@/env.client`, which parses it once at
+ * module load, so the stub has to be followed by a fresh import of the tab.
+ */
+async function renderTabWith(apiUrl: string) {
+  vi.stubEnv("NEXT_PUBLIC_API_URL", apiUrl);
+  vi.resetModules();
+  const { AITab: Reloaded } = await import("./AITab");
+  return render(<Reloaded projectId="proj_1" />);
+}
 
 describe("AITab", () => {
   it("leads with the one command that does the whole setup", () => {
@@ -94,6 +109,45 @@ describe("AITab", () => {
     expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/tracing/get-started");
     expect(docs.getAttribute("target")).toBe("_blank");
     expect(docs.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("shows no runnable command when the deployment's API URL is not an origin", async () => {
+    // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
+    // like this reaches the panel. The command rendered for it used to be the
+    // unflagged one, which targets TraceRoot Cloud — so a self-hosted reader
+    // was handed a confident line that signs in against the wrong deployment.
+    const { container } = await renderTabWith("http://:8000");
+    const text = container.textContent ?? "";
+
+    expect(text).not.toContain("npx -y traceroot-cli@latest setup");
+    // No code block and so no copy button: a command in that frame reads as
+    // one to paste whatever the surrounding text says.
+    expect(container.querySelector("pre")).toBeNull();
+    expect(screen.queryByText("Run this in your project")).toBeNull();
+  });
+
+  it("names the variable and its value, which is what the reader can act on", async () => {
+    // The person on an empty traces page of a self-hosted install is usually
+    // the person who sets this, and the value is already public — it is inlined
+    // into this bundle — so showing it discloses nothing new and saves a hunt.
+    const { container } = await renderTabWith("http://:8000");
+    const text = container.textContent ?? "";
+
+    expect(text).toContain("NEXT_PUBLIC_API_URL");
+    expect(text).toContain("http://:8000");
+    // Says where a working route is, and promises no repair of its own.
+    expect(text).toContain("manual tab");
+  });
+
+  it("keeps the command for a deployment the CLI's own default already serves", async () => {
+    // The contrasting case: no flags because none are needed, which still has
+    // to render the bare command.
+    const { container } = await renderTabWith("https://app.traceroot.ai/api/v1");
+    const text = container.textContent ?? "";
+
+    expect(text).toContain("npx -y traceroot-cli@latest setup --project proj_1");
+    expect(text).not.toContain("NEXT_PUBLIC_API_URL");
+    expect(container.querySelector("pre")).not.toBeNull();
   });
 
   it("groups GitHub and Slack into the external integrations card", () => {

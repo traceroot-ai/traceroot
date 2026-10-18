@@ -598,6 +598,30 @@ export function ModelProviderBlock({
     );
   }
 
+  // Fail closed when the role is not there to read, for the same reason as the
+  // list above: an errored read leaves `workspace` undefined with `isLoading`
+  // already false, and `canManage` then says "not an admin" about a user it
+  // knows nothing about — which is how the branch below comes to tell this
+  // workspace's own admin to go and find an admin. Claim nothing about the
+  // reader; the link works either way.
+  //
+  // Keyed on the data rather than on `isError`, unlike the list: a background
+  // refetch that fails keeps the role already read, and the role only picks
+  // which sentence is honest — the write is refused to a non-admin server-side
+  // either way — so withdrawing the form mid-paste over it would buy nothing.
+  if (!workspace) {
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        This workspace&apos;s settings could not be read, so this step cannot tell whether you can
+        add a key here. Check or add one in{" "}
+        <Link href={settingsHref} className="font-medium underline underline-offset-4">
+          Settings &rarr; Model Providers
+        </Link>
+        .
+      </p>
+    );
+  }
+
   // Both the write and the probe require workspace ADMIN, so a member who
   // cannot succeed is told the state rather than handed a form that would 403.
   if (!canManage) {

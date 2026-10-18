@@ -450,3 +450,203 @@ def test_get_detector_without_trigger_has_none_conditions(reader, monkeypatch):
     assert detail.trigger_conditions is None
     assert detail.enabled is False
     assert detail.detection_model is None
+
+
+# --------------------------------------------------------------------------- #
+# signals
+# --------------------------------------------------------------------------- #
+def _two_detector_finding(reader):
+    payload = json.dumps(
+        [
+            {"detectorId": "d1", "detectorName": "Failure", "summary": "timeout", "data": {}},
+            {"detectorId": "d2", "detectorName": "Logic", "summary": "wrong city", "data": {}},
+        ]
+    )
+    reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 9, 30))]
+
+
+def _signals_pg(own_rca=None, inherited=None, fail=None, calls=None):
+    """Fake Postgres for the signal lookups; ``fail`` names a query to raise on.
+
+    Rows come back only for project p1 and its finding f1 / signal sig-1, so a
+    lookup that loses its project or finding filter finds nothing. ``calls``
+    collects (sql, params) for assertions.
+    """
+
+    def fake_pg(sql, params):
+        s = sql.lower()
+        if calls is not None:
+            calls.append((s, params))
+        if fail and fail in s:
+            raise RuntimeError("postgres down")
+        if "from signal_hits sh join signals" in s:
+            if "sh.project_id = %s" in s and params == ("p1", ["f1"]):
+                return [("f1", "d1", "sig-1", "Timeout swallowed", "open")]
+            return []
+        if "from signal_rcas" in s:
+            if "dr.project_id = %s" in s and params[:2] == (["sig-1"], "p1"):
+                return inherited or []
+            return []
+        if "from detector_rcas" in s:
+            return own_rca or []
+        return []
+
+    return fake_pg
+
+
+def test_get_finding_attaches_the_signal_of_each_grouped_hit(reader, monkeypatch):
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(
+        reader,
+        "_pg_rows",
+        _signals_pg(
+            own_rca=[("done", "own")],
+            inherited=[("sig-1", "- Root cause: the signal's", "trace-first")],
+            calls=calls,
+        ),
+    )
+    detail = reader.get_finding("p1", "f1")
+    signal_lookups = [p for sql, p in calls if "from signal_hits sh join signals" in sql]
+    assert signal_lookups == [("p1", ["f1"])]
+    first, second = detail.results
+    assert (first.signal_id, first.signal_title, first.signal_status) == (
+        "sig-1",
+        "Timeout swallowed",
+        "open",
+    )
+    # Not grouped (signals off, or not assigned yet): no signal.
+    assert (second.signal_id, second.signal_title, second.signal_status) == (None, None, None)
+    assert [s.signal_id for s in detail.signals] == ["sig-1"]
+    # The finding's own RCA wins over the signal's, which is not even read.
+    assert detail.rca.result == "own" and detail.rca.inherited is False
+    assert not any("from signal_rcas" in sql for sql, _ in calls)
+
+
+def test_get_finding_inherits_the_signal_rca_when_it_ran_none(reader, monkeypatch):
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(
+        reader,
+        "_pg_rows",
+        _signals_pg(
+            inherited=[("sig-1", "- Root cause: swallowed timeout", "trace-first")], calls=calls
+        ),
+    )
+    detail = reader.get_finding("p1", "f1")
+    assert [p for sql, p in calls if "from signal_rcas" in sql] == [(["sig-1"], "p1")]
+    assert detail.rca.status == "done"
+    assert detail.rca.inherited is True
+    assert detail.rca.result.startswith('## Failure: signal "Timeout swallowed"')
+    assert "The signal's RCA, from trace trace-first:" in detail.rca.result
+    assert detail.rca.result.endswith("- Root cause: swallowed timeout")
+
+
+def test_inherited_rca_reads_the_answer_kept_on_the_opening(reader, monkeypatch):
+    """The signal's answer is the one kept on its opening, not the shared finding's
+    latest attempt, which a later signal on the same trace resets and may fail."""
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[], calls=calls))
+    reader.get_finding("p1", "f1")
+    sql = next(sql for sql, _ in calls if "from signal_rcas" in sql)
+    assert "sr.result is not null" in sql
+    assert "dr.status" not in sql
+    assert "sr.signal_id, sr.result," in sql
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_get_finding_keeps_the_last_successful_answer_while_a_later_attempt_is_not_done(
+    reader, monkeypatch, status
+):
+    """A later signal on the same trace resets the finding's RCA, and that attempt
+    may fail; the answer kept on the finding's openings still stands for it."""
+    _two_detector_finding(reader)
+    calls = []
+
+    def fake_pg(sql, params):
+        s = sql.lower()
+        calls.append((s, params))
+        if "from signal_rcas sr join detector_rcas" in s and "sr.finding_id = %s" in s:
+            return [("- Root cause: kept answer",)] if params == ("p1", "f1") else []
+        if "from detector_rcas" in s:
+            return [(status, None)]
+        return []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+    detail = reader.get_finding("p1", "f1")
+    assert (detail.rca.status, detail.rca.result) == ("done", "- Root cause: kept answer")
+    assert detail.rca.inherited is False
+    kept_sql = next(s for s, _ in calls if "sr.finding_id = %s" in s)
+    assert "dr.project_id = %s" in kept_sql and "sr.result is not null" in kept_sql
+    assert "order by sr.create_time desc" in kept_sql
+
+
+def test_get_finding_reports_the_latest_attempt_when_the_kept_answer_lookup_fails(
+    reader, monkeypatch
+):
+    _two_detector_finding(reader)
+    monkeypatch.setattr(
+        reader,
+        "_pg_rows",
+        _signals_pg(own_rca=[("pending", None)], fail="from signal_rcas sr join detector_rcas"),
+    )
+    detail = reader.get_finding("p1", "f1")
+    assert (detail.rca.status, detail.rca.result) == ("pending", None)
+
+
+def test_get_finding_reports_a_failed_attempt_when_no_answer_was_kept(reader, monkeypatch):
+    _two_detector_finding(reader)
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(own_rca=[("failed", None)]))
+    detail = reader.get_finding("p1", "f1")
+    assert (detail.rca.status, detail.rca.result) == ("failed", None)
+
+
+@pytest.mark.parametrize("plan", [None, "enterprise"])
+def test_inherited_rca_reads_any_age_without_a_retention_limit(reader, monkeypatch, plan):
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[], calls=calls))
+    reader.get_finding("p1", "f1", plan)
+    sql, params = next((sql, p) for sql, p in calls if "from signal_rcas" in sql)
+    assert "rh.seen_at >= %s" not in sql
+    assert params == (["sig-1"], "p1")
+
+
+def test_inherited_rca_is_read_only_from_findings_inside_the_plans_retention(reader, monkeypatch):
+    """The answer comes from another trace; a plan sees it only while that trace's
+    finding is inside its retention window, as for the finding itself."""
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[], calls=calls))
+    reader.get_finding_by_trace("p1", "t1", "free")
+    sql, params = next((sql, p) for sql, p in calls if "from signal_rcas" in sql)
+    assert "exists (select 1 from signal_hits rh" in sql and "rh.seen_at >= %s" in sql
+    assert params[:2] == (["sig-1"], "p1")
+    cutoff = params[2]
+    assert isinstance(cutoff, datetime)
+    assert abs((datetime.utcnow() - cutoff).days - 15) <= 1
+
+
+def test_get_finding_has_no_rca_when_the_signal_has_no_finished_one(reader, monkeypatch):
+    _two_detector_finding(reader)
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[]))
+    assert reader.get_finding("p1", "f1").rca is None
+
+
+def test_signal_lookup_failures_degrade_to_null(reader, monkeypatch):
+    _two_detector_finding(reader)
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(fail="from signal_hits sh join signals"))
+    detail = reader.get_finding("p1", "f1")
+    assert detail.results[0].signal_id is None and detail.signals == []
+
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(fail="from signal_rcas"))
+    assert reader.get_finding("p1", "f1").rca is None
+
+
+def test_list_findings_lists_each_findings_signals(reader, monkeypatch):
+    _two_detector_finding(reader)
+    reader._client.count_rows = [(1,)]
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg())
+    items, _ = reader.list_findings("p1", 10, None, None, None, None)
+    assert [(s.detector_id, s.signal_id) for s in items[0].signals] == [("d1", "sig-1")]
