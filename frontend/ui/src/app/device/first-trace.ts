@@ -26,9 +26,49 @@ import type { Project, TraceListItem, Workspace } from "@/types/api";
  * about to land in — a wait that throttles the destination it is heading for
  * has made things worse, not better. The newest projects are kept, because the
  * project a terminal just resolved is far likelier to be recent than to be the
- * oldest one in the account.
+ * oldest one in the account. An older one it did resolve is not lost to the
+ * cap, though: see `MAX_KEYED_PROJECTS`.
  */
 export const MAX_WATCHED_PROJECTS = 3;
+
+/**
+ * How many projects past the newest few a round will also look in, because
+ * each has gained an API key since the wait began.
+ *
+ * The run needs one. `traceroot setup` mints its keys in the project it settled
+ * on right after sign-in, long before anything it instruments can send a trace,
+ * and those keys are scoped to that project, so a project whose key count has
+ * grown is where this run's traces will land, however old it is. A bare
+ * `traceroot login` mints nothing and leaves the watch as it was.
+ *
+ * The rest of the allowance absorbs a teammate minting a key elsewhere in the
+ * same minutes, and the cap keeps unrelated key churn across a large org from
+ * reopening the fan-out `MAX_WATCHED_PROJECTS` exists to prevent.
+ */
+export const MAX_KEYED_PROJECTS = 3;
+
+/**
+ * Each project's API-key count the first time the wait saw it.
+ *
+ * Recorded on first sight and never moved, so a key minted at any point in the
+ * wait still reads as growth against it. A project only ever seen after the
+ * terminal minted into it reads as no growth, which leaves it exactly where it
+ * would have been without this.
+ */
+export type KeyCounts = ReadonlyMap<string, number>;
+
+/** One round's answer to "where could the trace land?". */
+export interface WatchedProjects {
+  /**
+   * The projects to look in: the newest created first, capped, then any older
+   * one that has gained a key since the wait began.
+   */
+  projects: Project[];
+  /** Which of `projects` are watched only because they gained a key. */
+  keyed: string[];
+  /** The key counts the next round compares against. */
+  keyCounts: KeyCounts;
+}
 
 /**
  * How many traces one probe reads from a project.
@@ -69,17 +109,27 @@ export type TraceBaseline = ReadonlyMap<string, BaselineEntry>;
 export type FirstTrace = { projectId: string; traceId: string };
 
 /**
- * The projects this account can see, newest first and capped.
+ * The projects this account can see, newest first and capped, plus any older
+ * project the terminal has minted a key in.
  *
  * Re-read on every round rather than once, because the terminal may create its
  * project after approval — a project that does not exist yet is the single most
  * likely destination for the trace we are waiting for.
  *
+ * The device flow never tells this tab which project the terminal chose, but
+ * the listing already counts each project's keys, so the choice shows up here
+ * without a single extra read: the chosen project's count goes up. Only a
+ * project past the cap is added on that evidence. One inside it is already
+ * watched, and stays exactly where it was.
+ *
  * A workspace that cannot be listed is skipped rather than failing the round:
  * one unreadable workspace must not blind the tab to a trace landing in
  * another.
  */
-export async function readWatchedProjects(workspaces: Workspace[]): Promise<Project[]> {
+export async function readWatchedProjects(
+  workspaces: Workspace[],
+  keyCounts: KeyCounts = new Map(),
+): Promise<WatchedProjects> {
   const found: Project[] = [];
   for (const workspace of workspaces) {
     try {
@@ -88,10 +138,34 @@ export async function readWatchedProjects(workspaces: Workspace[]): Promise<Proj
       // Skipped, not fatal — see above.
     }
   }
-  return found
-    .slice()
-    .sort((a, b) => Date.parse(b.create_time) - Date.parse(a.create_time))
-    .slice(0, MAX_WATCHED_PROJECTS);
+  const byAge = found.slice().sort((a, b) => Date.parse(b.create_time) - Date.parse(a.create_time));
+  const keyed = byAge
+    .slice(MAX_WATCHED_PROJECTS)
+    .filter((project) => gainedKey(project, keyCounts))
+    .slice(0, MAX_KEYED_PROJECTS);
+
+  const seen = new Map(keyCounts);
+  for (const project of found) {
+    if (!seen.has(project.id) && project.access_key_count !== undefined) {
+      seen.set(project.id, project.access_key_count);
+    }
+  }
+
+  return {
+    projects: [...byAge.slice(0, MAX_WATCHED_PROJECTS), ...keyed],
+    keyed: keyed.map((project) => project.id),
+    keyCounts: seen,
+  };
+}
+
+/** Whether `project` holds more keys now than when the wait first saw it. */
+function gainedKey(project: Project, keyCounts: KeyCounts): boolean {
+  const before = keyCounts.get(project.id);
+  return (
+    before !== undefined &&
+    project.access_key_count !== undefined &&
+    project.access_key_count > before
+  );
 }
 
 /**
