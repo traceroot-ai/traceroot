@@ -60,6 +60,9 @@ vi.mock("@/features/projects/hooks", () => ({
 vi.mock("@/features/traces/components/GettingStarted/ApiKeyBlock", () => ({
   ApiKeyBlock: () => <div data-testid="api-key-block" />,
 }));
+vi.mock("@/features/traces/components/GettingStarted/ModelProviderBlock", () => ({
+  ModelProviderBlock: () => <div data-testid="model-provider-block" />,
+}));
 vi.mock("@/components/github/GitHubConnectButton", () => ({
   GitHubConnectButton: () => <div data-testid="github-connect" />,
 }));
