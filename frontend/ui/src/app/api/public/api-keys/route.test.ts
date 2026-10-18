@@ -214,11 +214,44 @@ describe("POST /api/public/api-keys", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it("refuses to mint an admin key on a key credential", async () => {
+    // A leaked admin key that could mint an admin successor would survive its
+    // own revocation. The caller here is admin-scoped, so only the asked-for
+    // scope can be what refuses it.
+    const res = await POST(request({ name: "x", scope: "admin" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).detail).toBe(
+      "An API key can only create ingest-scoped keys. Create an admin key with a signed-in user's credential.",
+    );
+    expect(findFirstMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["asks for ingest", { name: "x", scope: "ingest" }],
+    ["omits the scope", { name: "x" }],
+  ])("mints an ingest key when an admin key %s", async (_label, body) => {
+    findFirstMock.mockResolvedValue(null);
+    createMock.mockResolvedValue(keyRow());
+    const res = await POST(request(body));
+    expect(res.status).toBe(201);
+    expect(createMock.mock.calls[0][0].data.scope).toBe("ingest");
+  });
+
   it("refuses key management to an ingest-scoped key", async () => {
-    // Without this a leaked application credential could mint an admin key.
+    // Without this a leaked application credential could mint itself
+    // successors that outlive its revocation.
     findUniqueMock.mockResolvedValue(authRow({ scope: "ingest" }));
     expect((await POST(request({ name: "x" }))).status).toBe(403);
     expect((await GET(request())).status).toBe(403);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an ingest key on its credential before reading what scope it asks for", async () => {
+    findUniqueMock.mockResolvedValue(authRow({ scope: "ingest" }));
+    const res = await POST(request({ name: "x", scope: "admin" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).detail).toMatch(/scoped to telemetry ingestion/);
     expect(createMock).not.toHaveBeenCalled();
   });
 

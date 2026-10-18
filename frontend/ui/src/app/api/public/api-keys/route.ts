@@ -15,7 +15,9 @@ import { publicError, requireApiKeyProject } from "@/lib/public-auth";
  *
  * The authenticating key's project is the only project reachable here; there is
  * no `project_id` input to confuse or abuse. A key can therefore mint siblings
- * for its own project but can never reach another one.
+ * for its own project but can never reach another one, and every sibling it
+ * mints is `ingest`: an admin key comes only from a signed-in user's own
+ * credential, never from another key.
  */
 
 /** Well above the largest legal body (three short fields), far below harm. */
@@ -33,6 +35,8 @@ const createKeySchema = z.object({
    * What the new key may do. Defaults to `ingest` — the credential a deployed
    * application carries should be able to send telemetry and nothing else, so
    * the safe scope is the one you get by not thinking about it.
+   *
+   * `admin` parses only so that it can be refused by name, below.
    */
   scope: z.enum(["ingest", "admin"]).optional(),
 });
@@ -87,7 +91,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/public/api-keys — mint a key for this project.
 export async function POST(request: NextRequest) {
-  // Without this, a leaked ingest key could mint an admin key and escalate.
+  // Without this, a leaked ingest key could mint itself successors that outlive
+  // its revocation.
   const result = await requireApiKeyProject(request, { require: "admin" });
   if (!result.ok) {
     return result.response;
@@ -109,7 +114,19 @@ export async function POST(request: NextRequest) {
     return publicError(parsed.error.issues[0].message, 400);
   }
   const { name, expires_in_days } = parsed.data;
-  const scope = parsed.data.scope ?? "ingest";
+
+  // A key minted by a key is always `ingest`. If an admin key could mint an
+  // admin key, whoever holds a leaked one could mint a fresh successor, and
+  // revoking the leak would no longer evict them. Refused rather than quietly
+  // downgraded, so a caller that asked for admin is not handed a key that cannot
+  // do what it asked for. Every request here is key-authenticated, and both the
+  // gateway and a direct call land on this check.
+  if (parsed.data.scope === "admin") {
+    return publicError(
+      "An API key can only create ingest-scoped keys. Create an admin key with a signed-in user's credential.",
+      403,
+    );
+  }
 
   // A duplicate name is almost always a client that failed to check for an
   // existing key first; refuse rather than silently growing a pile of
@@ -135,7 +152,7 @@ export async function POST(request: NextRequest) {
       secretHash: hashApiKey(secret),
       keyHint: getKeyPrefix(secret),
       name,
-      scope,
+      scope: "ingest",
       expireTime,
     },
     select: keyMetadataSelect,
