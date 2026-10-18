@@ -43,6 +43,17 @@ interface CliHandbackStepProps {
  * alternatives are deliberately quieter than the command — not hidden, because
  * a user who will not paste a CLI invocation into their shell needs a door, and
  * a dead end here is a dead end at the end of signing up.
+ *
+ * On a deployment whose own origin cannot be resolved there is no command to
+ * run, and nothing runnable is drawn: `setupCommand` has no flags to put on the
+ * line there, and the line without them is the TraceRoot Cloud one — so a
+ * self-hosted operator who pasted it would sign this machine in against someone
+ * else's deployment and send their first traces there, on the last page of
+ * signing up. What is drawn instead names the variable and the value it holds,
+ * since the person finishing a self-hosted first run is usually the person who
+ * can correct it, and the value is already public: it is inlined into this
+ * bundle. Both doors stay, because that is the half of this step which still
+ * works.
  */
 export function CliHandbackStep({
   projectId,
@@ -50,18 +61,38 @@ export function CliHandbackStep({
   onSetUpManually,
   onSkip,
 }: CliHandbackStepProps) {
+  const setup = setupCommand({ projectId });
+
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          {projectName} is ready. Run this where your application lives — it signs this machine in,
-          writes its API key, instruments your code with your coding agent and waits for the first
-          trace.
-        </p>
-      </div>
+      {setup.kind === "command" ? (
+        <>
+          <div>
+            <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {projectName} is ready. Run this where your application lives — it signs this machine
+              in, writes its API key, instruments your code with your coding agent and waits for the
+              first trace.
+            </p>
+          </div>
 
-      <CodeBlock label="terminal" value={setupCommand({ projectId })} />
+          <CodeBlock label="terminal" value={setup.command} />
+        </>
+      ) : (
+        <div>
+          <p className="text-[13px] font-medium">
+            The setup command cannot be shown for this deployment
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
+            to <code className="font-mono">{setup.value}</code>, which is not an origin the command
+            can be pointed at. Without it the command would send sign-in and your first traces to
+            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
+            value for this deployment and the command appears here; until then, &quot;Set up
+            manually&quot; walks through the rest in the browser.
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center justify-center gap-2">
         <Button

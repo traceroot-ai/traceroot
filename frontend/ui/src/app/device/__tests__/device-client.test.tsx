@@ -23,6 +23,15 @@ const mocks = vi.hoisted(() => ({
 const READY_WORKSPACE = { id: "ws-1", name: "Acme", role: "ADMIN", project_count: 1 };
 const EMPTY_WORKSPACE = { id: "ws-empty", name: "Acme", role: "ADMIN", project_count: 0 };
 
+// What `authClient.signOut()` really answers with: an envelope, success or not.
+// A refusal is resolved, not thrown — a 429 arrives this way — so a handler that
+// reads only a rejection treats it as a cleared session.
+const SIGNED_OUT = { data: { success: true }, error: null };
+const SIGN_OUT_REFUSED = {
+  data: null,
+  error: { status: 429, statusText: "Too Many Requests", message: "Too many requests" },
+};
+
 let searchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
@@ -526,10 +535,34 @@ describe("DeviceClient", () => {
     expect(mocks.device).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["is refused", () => mocks.signOut.mockResolvedValue(SIGN_OUT_REFUSED)],
+    ["never completes", () => mocks.signOut.mockRejectedValue(new Error("offline"))],
+  ])("says so and sends nobody to sign-in when the sign-out %s", async (_how, arrange) => {
+    // A resolved-but-refused answer is how better-auth reports a rate limit, and
+    // neither it nor a rejection was read: the code was cleared before the
+    // sign-out, both screens are gated on the code, and the card rendered its
+    // header over an empty body with nothing to click.
+    setParams({ user_code: "abcd1234" });
+    signedIn("wrong@example.com");
+    arrange();
+
+    render(<DeviceClient />);
+    await waitFor(() => screen.getByText("as wrong@example.com"));
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+
+    await waitFor(() => expect(screen.getByText(/Could not sign out/)).toBeDefined());
+    // And something to click, where there used to be nothing.
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    // The session is still live, so a sign-in would hand the browser straight
+    // back here as the same account.
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("signs out and returns to sign-in carrying the code from the consent 'Not you?' action", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn("wrong@example.com");
-    mocks.signOut.mockResolvedValue(undefined);
+    mocks.signOut.mockResolvedValue(SIGNED_OUT);
 
     render(<DeviceClient />);
     await waitFor(() => screen.getByText("as wrong@example.com"));
