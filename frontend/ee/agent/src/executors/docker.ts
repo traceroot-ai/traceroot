@@ -112,9 +112,10 @@ export class DockerExecutor implements Executor {
           // prevents the command from running. Positional arguments preserve the
           // caller's shell quoting and keep the generated path out of the command.
           'mkdir -p -m 700 "$1" || exit 1; ' +
+            'trap \'rm -f "$1/pid"; rmdir "$1" 2>/dev/null || true\' EXIT; ' +
             'printf "%s\\n" "$$" > "$1/pid" || exit 1; ' +
-            '[ ! -e "$1/cancelled" ] || exit 1; ' +
-            'sh -c "$2"; status=$?; rm -f "$1/pid"; exit "$status"',
+            'if [ -e "$1/cancelled" ]; then rm -f "$1/cancelled"; exit 1; fi; ' +
+            'sh -c "$2"; exit "$?"',
           "traceroot-exec",
           stateDir,
           command,
@@ -130,6 +131,9 @@ export class DockerExecutor implements Executor {
       let cancellationMessage: string | undefined;
       let cancellation: Promise<void> | undefined;
       let terminationFailed = false;
+      let finished = false;
+      let hostKilled = false;
+      let hostKillHandle: ReturnType<typeof setTimeout> | undefined;
       const MAX_BYTES = 10 * 1024 * 1024; // 10MB, matches Mom
 
       const timeoutMs = options?.timeout ? options.timeout * 1000 : 30000;
@@ -153,7 +157,16 @@ export class DockerExecutor implements Executor {
           ],
           { timeout: 5000 },
         )
-          .then(() => {})
+          .then(() => {
+            // A process that escaped the group can keep Docker's output pipes
+            // open. Bound the host client too, after attempting remote cleanup.
+            if (!finished) {
+              hostKillHandle = setTimeout(() => {
+                hostKilled = true;
+                child.kill("SIGKILL");
+              }, 1000);
+            }
+          })
           .catch((error: Error) => {
             terminationFailed = true;
             cancellationMessage += `; could not terminate container command: ${error.message}`;
@@ -179,16 +192,17 @@ export class DockerExecutor implements Executor {
         if (stderr.length > MAX_BYTES) stderr = stderr.slice(0, MAX_BYTES);
       });
 
-      let finished = false;
       const finish = async (code: number | null, error?: Error) => {
         if (finished) return;
         finished = true;
         clearTimeout(timeoutHandle);
+        clearTimeout(hostKillHandle);
         options?.signal?.removeEventListener("abort", onAbort);
         await cancellation;
-        // Do not erase a cancellation marker if the remote termination failed:
-        // a delayed launcher may still arrive and must observe that marker.
-        if (!terminationFailed) {
+        // Normal completion cleans up in the launcher, without another Docker
+        // call. After a forced host kill or remote failure, retain the marker:
+        // a delayed launcher may still arrive and must observe cancellation.
+        if (cancellation && !terminationFailed && !hostKilled) {
           try {
             await execFileAsync(
               "docker",

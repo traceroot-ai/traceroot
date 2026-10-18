@@ -158,6 +158,43 @@ describe("DockerExecutor.exec cancellation", () => {
     expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
   });
 
+  it("bounds a Docker client that stays open after remote cancellation succeeds", async () => {
+    const executor = await readyExecutor();
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const child = runningCommand();
+    execFileMock.mockClear();
+    const result = executor.exec("sleep 100", { signal: controller.signal });
+    let resolved = false;
+    void result.then(() => {
+      resolved = true;
+    });
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(resolved).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    // The launcher might not have started: its cancellation marker must survive.
+    expect(execFileMock.mock.calls.some((call) => call[1].includes("traceroot-cleanup"))).toBe(
+      false,
+    );
+  });
+
+  it("clears the host fallback when the Docker client closes normally after cancellation", async () => {
+    const executor = await readyExecutor();
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const child = runningCommand();
+    completeTermination(child);
+    const result = executor.exec("sleep 100", { signal: controller.signal });
+    controller.abort();
+    await expect(result).resolves.toMatchObject({ code: 1 });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
   it("does not start a command for an already aborted signal", async () => {
     const executor = await readyExecutor();
     const controller = new AbortController();
@@ -243,18 +280,36 @@ describe("DockerExecutor.exec cancellation", () => {
     child.emit("error", new Error("spawn docker ENOENT"));
     child.emit("close", -2);
     await expect(result).resolves.toMatchObject({ code: 1, stderr: "spawn docker ENOENT" });
-    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it("retains a completed result if temporary-state cleanup fails", async () => {
+  it("does not launch an extra Docker cleanup for a completed command", async () => {
     const executor = await readyExecutor();
     const child = runningCommand();
-    execFileMock.mockImplementation((_cmd: string, _args: string[], ...rest: unknown[]) => {
-      (rest.at(-1) as (error: Error) => void)(new Error("Container removed"));
-    });
+    execFileMock.mockClear();
     const result = executor.exec("true");
     child.emit("close", 0);
     await expect(result).resolves.toMatchObject({ code: 0 });
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock.mock.calls[0][1].join(" ")).toContain('rmdir "$1"');
+  });
+
+  it("retains a canceled result if temporary-state cleanup fails", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const child = runningCommand();
+    execFileMock.mockImplementation((_cmd: string, args: string[], ...rest: unknown[]) => {
+      const cb = rest.at(-1) as (error: Error | null, result?: object) => void;
+      if (args.includes("traceroot-cancel")) {
+        cb(null, { stdout: "", stderr: "" });
+        queueMicrotask(() => child.emit("close", 137));
+      } else {
+        cb(new Error("Container removed"));
+      }
+    });
+    const result = executor.exec("sleep 100", { signal: controller.signal });
+    controller.abort();
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
   });
 });
 

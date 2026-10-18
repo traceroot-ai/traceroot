@@ -118,4 +118,32 @@ describe.skipIf(process.env.RUN_DOCKER_TESTS !== "1")("Docker command lifecycle 
     ).toEqual({ stdout: "spaces ' quotes $literal\nsecond line", stderr: "warning", code: 7 });
     await expectNoCommandState();
   });
+
+  it("returns while a delayed launcher is still pending and leaves cancellation for it", async () => {
+    await docker(
+      "exec",
+      containerId,
+      "sh",
+      "-c",
+      'printf \'#!/bin/sh\nsleep 2.5\ntouch /tmp/fallback-launcher-resumed\nfor dir in /tmp/traceroot-exec-*; do [ ! -e "$dir/cancelled" ] || touch /tmp/fallback-marker-seen; done\nexec /usr/bin/setsid "$@"\n\' > /usr/local/bin/setsid; chmod +x /usr/local/bin/setsid',
+    );
+    const controller = new AbortController();
+    const start = Date.now();
+    const result = executor.exec("touch /tmp/fallback-command-started", {
+      signal: controller.signal,
+    });
+    const timer = setTimeout(() => controller.abort(), 100);
+    try {
+      expect(await result).toMatchObject({ code: 1, stderr: "Command aborted" });
+      expect(await markerExists("/tmp/fallback-launcher-resumed")).toBe("no");
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 2800 - (Date.now() - start))));
+      expect(await markerExists("/tmp/fallback-launcher-resumed")).toBe("yes");
+      expect(await markerExists("/tmp/fallback-marker-seen")).toBe("yes");
+      expect(await markerExists("/tmp/fallback-command-started")).toBe("no");
+      await expectNoCommandState();
+    } finally {
+      clearTimeout(timer);
+      await docker("exec", containerId, "rm", "/usr/local/bin/setsid");
+    }
+  });
 });
