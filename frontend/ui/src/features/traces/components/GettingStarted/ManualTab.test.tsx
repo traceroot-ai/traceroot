@@ -144,9 +144,10 @@ describe("ManualTab", () => {
 });
 
 describe("ManualTab with no stack chosen above it", () => {
-  // Onboarding's manual step renders this walkthrough on its own, with no
-  // picker above it, so the tab has to ask for the stack and the model key
-  // itself — as the six steps it was before the panel lifted both out.
+  // Rendered on its own, with no picker above it, the tab has to ask for the
+  // stack and the model key itself — as the six steps it was before the panel
+  // lifted both out. Onboarding's manual step rendered it this way until it
+  // took the panel's shared picker.
   const stepNames = () =>
     screen.getAllByText(/^\d+\. /).map((node) => node.textContent?.replace(/^\d+\. /, ""));
 
