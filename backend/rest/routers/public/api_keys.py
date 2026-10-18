@@ -43,7 +43,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.routers.public.deps import KeyStampedAuth, require_admin_key_scope
-from rest.routers.public.gateway import forward
+from rest.routers.public.gateway import forward, path_segment
 
 router = APIRouter(prefix="/public/api-keys", tags=["API Keys (Public)"])
 
@@ -99,7 +99,16 @@ async def create_api_key(
 async def api_keys_item(
     key_id: str, request: Request, response: Response, auth: Auth, _scope: AdminScope
 ) -> Response:
-    """Revoke one of this project's API keys."""
+    """Revoke one of this project's API keys.
+
+    ``key_id`` is the only caller-supplied text that reaches the forwarded path,
+    so it is validated rather than interpolated: see ``path_segment``, which
+    refuses a dot-segment or anything carrying a query, a fragment or a
+    separator before the upstream URL is built.
+    """
     return await forward(
-        request, f"api-keys/{key_id}", unavailable_detail=_UNAVAILABLE, generic_error=_GENERIC
+        request,
+        f"api-keys/{path_segment(key_id)}",
+        unavailable_detail=_UNAVAILABLE,
+        generic_error=_GENERIC,
     )
