@@ -704,7 +704,7 @@ describe("a member who cannot write one", () => {
     renderBlock();
     expect(await screen.findByText(/settings could not be read/)).toBeTruthy();
     expect(screen.queryByText(/A workspace admin can add one/)).toBeNull();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
   });
 
   it("keeps the form for an admin whose role outlives a failed refetch", async () => {
