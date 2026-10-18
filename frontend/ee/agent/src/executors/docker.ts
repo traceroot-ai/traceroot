@@ -1,4 +1,5 @@
 import { spawn, execFile } from "child_process";
+import { randomUUID } from "crypto";
 import { promisify } from "util";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 import { ASKPASS_PATH, ASKPASS_SCRIPT, buildCloneCommand } from "./git-clone-command.js";
@@ -84,6 +85,12 @@ export class DockerExecutor implements Executor {
    */
   async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
     if (!this.containerId) throw new Error("Container not initialized");
+    if (options?.signal?.aborted) {
+      return { stdout: "", stderr: "Command aborted", code: 1 };
+    }
+
+    const containerId = this.containerId;
+    const stateDir = `/tmp/traceroot-exec-${randomUUID()}`;
 
     return new Promise((resolve) => {
       // Env values are passed to `docker exec` by NAME only (`-e KEY`), so the
@@ -95,9 +102,21 @@ export class DockerExecutor implements Executor {
         [
           "exec",
           ...envNames.flatMap((name) => ["-e", name]),
-          this.containerId!,
+          containerId,
+          "setsid",
+          "--wait",
           "sh",
           "-c",
+          // Publish the process-group leader before checking cancellation. If a
+          // cancellation reaches Docker before this exec starts, its marker still
+          // prevents the command from running. Positional arguments preserve the
+          // caller's shell quoting and keep the generated path out of the command.
+          'mkdir -p -m 700 "$1" || exit 1; ' +
+            'printf "%s\\n" "$$" > "$1/pid" || exit 1; ' +
+            '[ ! -e "$1/cancelled" ] || exit 1; ' +
+            'sh -c "$2"; status=$?; rm -f "$1/pid"; exit "$status"',
+          "traceroot-exec",
+          stateDir,
           command,
         ],
         {
@@ -108,25 +127,47 @@ export class DockerExecutor implements Executor {
 
       let stdout = "";
       let stderr = "";
-      let timedOut = false;
+      let cancellationMessage: string | undefined;
+      let cancellation: Promise<void> | undefined;
+      let terminationFailed = false;
       const MAX_BYTES = 10 * 1024 * 1024; // 10MB, matches Mom
 
-      // Timeout handling (like Mom's HostExecutor)
       const timeoutMs = options?.timeout ? options.timeout * 1000 : 30000;
-      const timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGKILL");
-      }, timeoutMs);
-
-      // AbortSignal support (like Mom)
-      if (options?.signal) {
-        const onAbort = () => child.kill("SIGKILL");
-        if (options.signal.aborted) {
-          onAbort();
-        } else {
-          options.signal.addEventListener("abort", onAbort, { once: true });
-        }
-      }
+      const cancel = (message: string) => {
+        if (cancellation) return;
+        cancellationMessage = message;
+        // Killing the host-side docker client does not kill its remote command.
+        // Mark cancellation first, then stop this exec's entire process group.
+        cancellation = execFileAsync(
+          "docker",
+          [
+            "exec",
+            containerId,
+            "sh",
+            "-c",
+            'mkdir -p -m 700 "$1" && touch "$1/cancelled" || exit 1; ' +
+              'if [ -s "$1/pid" ]; then read -r pid < "$1/pid"; ' +
+              'kill -KILL "-$pid" 2>/dev/null || true; fi',
+            "traceroot-cancel",
+            stateDir,
+          ],
+          { timeout: 5000 },
+        )
+          .then(() => {})
+          .catch((error: Error) => {
+            terminationFailed = true;
+            cancellationMessage += `; could not terminate container command: ${error.message}`;
+            child.kill("SIGKILL");
+          });
+      };
+      const timeoutHandle = setTimeout(
+        () => cancel(`Command timed out after ${timeoutMs / 1000}s`),
+        timeoutMs,
+      );
+      const onAbort = () => cancel("Command aborted");
+      options?.signal?.addEventListener("abort", onAbort, { once: true });
+      // The signal may have changed while spawn was starting the Docker client.
+      if (options?.signal?.aborted) onAbort();
 
       child.stdout?.on("data", (data: Buffer) => {
         stdout += data.toString();
@@ -138,19 +179,42 @@ export class DockerExecutor implements Executor {
         if (stderr.length > MAX_BYTES) stderr = stderr.slice(0, MAX_BYTES);
       });
 
-      child.on("close", (code) => {
+      let finished = false;
+      const finish = async (code: number | null, error?: Error) => {
+        if (finished) return;
+        finished = true;
         clearTimeout(timeoutHandle);
-        if (timedOut) {
-          resolve({ stdout, stderr: `Command timed out after ${timeoutMs / 1000}s`, code: 1 });
-          return;
+        options?.signal?.removeEventListener("abort", onAbort);
+        await cancellation;
+        // Do not erase a cancellation marker if the remote termination failed:
+        // a delayed launcher may still arrive and must observe that marker.
+        if (!terminationFailed) {
+          try {
+            await execFileAsync(
+              "docker",
+              [
+                "exec",
+                containerId,
+                "sh",
+                "-c",
+                'rm -f "$1/pid" "$1/cancelled"; rmdir "$1" 2>/dev/null || true',
+                "traceroot-cleanup",
+                stateDir,
+              ],
+              { timeout: 5000 },
+            );
+          } catch {
+            // A removed container has already discarded its temporary state.
+          }
         }
-        resolve({ stdout, stderr, code: code ?? 0 });
-      });
-
-      child.on("error", (err) => {
-        clearTimeout(timeoutHandle);
-        resolve({ stdout, stderr: err.message, code: 1 });
-      });
+        resolve({
+          stdout,
+          stderr: cancellationMessage ?? error?.message ?? stderr,
+          code: cancellationMessage || error ? 1 : (code ?? 1),
+        });
+      };
+      child.on("close", (code) => void finish(code));
+      child.on("error", (error) => void finish(1, error));
     });
   }
 

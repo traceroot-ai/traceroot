@@ -33,7 +33,8 @@ function stubSpawn() {
 
 /** execFile is promisified, so it must call back node-style. */
 function stubExecFile(stdout = "container123\n") {
-  execFileMock.mockImplementation((_cmd: string, _args: string[], cb: unknown) => {
+  execFileMock.mockImplementation((_cmd: string, _args: string[], ...rest: unknown[]) => {
+    const cb = rest.at(-1);
     (cb as (e: null, r: { stdout: string; stderr: string }) => void)(null, { stdout, stderr: "" });
   });
 }
@@ -89,6 +90,171 @@ describe("DockerExecutor.exec env handling", () => {
     expect(argv.filter((a) => a === "-e")).toHaveLength(2);
     expect(argv).toContain("A");
     expect(argv).toContain("B");
+  });
+});
+
+describe("DockerExecutor.exec cancellation", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function runningCommand(onSpawn?: () => void) {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      kill: ReturnType<typeof vi.fn>;
+    };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn(() => child.emit("close", null));
+    spawnMock.mockImplementation(() => {
+      onSpawn?.();
+      return child;
+    });
+    return child;
+  }
+
+  function completeTermination(child: EventEmitter, error?: Error) {
+    execFileMock.mockImplementation((_cmd: string, args: string[], ...rest: unknown[]) => {
+      const cb = rest.at(-1) as (error: Error | null, result?: object) => void;
+      if (args.includes("traceroot-cancel")) {
+        cb(error ?? null, { stdout: "", stderr: "" });
+        if (!error) queueMicrotask(() => child.emit("close", 137));
+      } else {
+        cb(null, { stdout: "", stderr: "" });
+      }
+    });
+  }
+
+  it("terminates the remote process group on timeout before returning failure", async () => {
+    const executor = await readyExecutor();
+    vi.useFakeTimers();
+    const child = runningCommand();
+    completeTermination(child);
+    const result = executor.exec("sleep 100", { timeout: 1 });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command timed out after 1s" });
+    expect(spawnMock.mock.calls[0][1]).toContain("setsid");
+    const cancellation = execFileMock.mock.calls.find((call) =>
+      call[1].includes("traceroot-cancel"),
+    )!;
+    expect(cancellation[1].join(" ")).toContain('kill -KILL "-$pid"');
+    expect(cancellation[1].at(-1)).toBe(spawnMock.mock.calls[0][1].at(-2));
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("reports abort as failure and removes the abort listener", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const child = runningCommand();
+    completeTermination(child);
+    const result = executor.exec("sleep 100", { signal: controller.signal });
+    controller.abort();
+
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("does not start a command for an already aborted signal", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      executor.exec("touch /tmp/should-not-exist", { signal: controller.signal }),
+    ).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("handles an abort during spawn before the listener is registered", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const child = runningCommand(() => controller.abort());
+    completeTermination(child);
+    await expect(executor.exec("sleep 100", { signal: controller.signal })).resolves.toMatchObject({
+      code: 1,
+      stderr: "Command aborted",
+    });
+  });
+
+  it("does not run termination twice when abort and timeout both occur", async () => {
+    const executor = await readyExecutor();
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const child = runningCommand();
+    const result = executor.exec("sleep 100", { timeout: 1, signal: controller.signal });
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(1000);
+    child.emit("close", 137);
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "Command aborted" });
+    expect(
+      execFileMock.mock.calls.filter((call) => call[1].includes("traceroot-cancel")),
+    ).toHaveLength(1);
+  });
+
+  it("reports remote termination failure and keeps the cancellation marker", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const child = runningCommand();
+    completeTermination(child, new Error("Docker unavailable"));
+    const result = executor.exec("sleep 100", { signal: controller.signal });
+    execFileMock.mockClear();
+    controller.abort();
+    await expect(result).resolves.toMatchObject({
+      code: 1,
+      stderr: "Command aborted; could not terminate container command: Docker unavailable",
+    });
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    expect(execFileMock.mock.calls.some((call) => call[1].includes("traceroot-cleanup"))).toBe(
+      false,
+    );
+  });
+
+  it("preserves output and the shell exit code and detaches a completed command", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const child = runningCommand();
+    const result = executor.exec("echo output; exit 7", { signal: controller.signal });
+    child.stdout.emit("data", Buffer.from("output\n"));
+    child.stderr.emit("data", Buffer.from("warning\n"));
+    child.emit("close", 7);
+    await expect(result).resolves.toEqual({ stdout: "output\n", stderr: "warning\n", code: 7 });
+    controller.abort();
+    expect(execFileMock.mock.calls.some((call) => call[1].includes("traceroot-cancel"))).toBe(
+      false,
+    );
+  });
+
+  it("does not report a signal-terminated Docker client as success", async () => {
+    const executor = await readyExecutor();
+    const child = runningCommand();
+    const result = executor.exec("echo output");
+    child.emit("close", null);
+    await expect(result).resolves.toMatchObject({ code: 1 });
+  });
+
+  it("handles a spawn error only once even if close follows", async () => {
+    const executor = await readyExecutor();
+    const child = runningCommand();
+    execFileMock.mockClear();
+    const result = executor.exec("echo output");
+    child.emit("error", new Error("spawn docker ENOENT"));
+    child.emit("close", -2);
+    await expect(result).resolves.toMatchObject({ code: 1, stderr: "spawn docker ENOENT" });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains a completed result if temporary-state cleanup fails", async () => {
+    const executor = await readyExecutor();
+    const child = runningCommand();
+    execFileMock.mockImplementation((_cmd: string, _args: string[], ...rest: unknown[]) => {
+      (rest.at(-1) as (error: Error) => void)(new Error("Container removed"));
+    });
+    const result = executor.exec("true");
+    child.emit("close", 0);
+    await expect(result).resolves.toMatchObject({ code: 0 });
   });
 });
 
