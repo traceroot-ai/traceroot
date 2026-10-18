@@ -230,6 +230,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   emailSends    EmailSend[]
+  cliHandoffs   CliHandoff[]
 
   @@map("users")
 }
@@ -310,6 +311,41 @@ model DeviceCode {
   // Supports pruning expired rows (cleanup) and bounds the hot verify/poll path.
   @@index([expiresAt], map: "ix_device_code_expires_at")
   @@map("device_codes")
+}
+
+// CLI Handoffs - single-use tickets that let browser-first onboarding hand the
+// terminal a session without a second browser page. The hand-back step mints
+// one bound to the signed-in user and prints it on the `traceroot setup` line;
+// `setup` exchanges it at /api/cli/handoff/redeem for an ordinary session row,
+// identical to one a device-flow approval produces.
+//
+// Unlike device_codes (whose shape is upstream better-auth's) the code itself is
+// never stored: codeHash is the SHA-256 hex of it, so a read of this table
+// yields nothing usable. A plain hash rather than a password KDF is right --
+// the code is 256 bits of CSPRNG output, so there is nothing to brute-force.
+//
+// projectId/workspaceId are audit and CLI-confirmation detail, NOT an
+// authorization scope: the session the ticket yields is a full user session.
+model CliHandoff {
+  id                String    @id @default(cuid()) @db.VarChar
+  codeHash          String    @unique @map("code_hash") @db.VarChar
+  userId            String    @map("user_id") @db.VarChar
+  issuedBySessionId String?   @map("issued_by_session_id") @db.VarChar
+  projectId         String?   @map("project_id") @db.VarChar
+  workspaceId       String?   @map("workspace_id") @db.VarChar
+  clientId          String?   @map("client_id") @db.VarChar
+  expiresAt         DateTime  @map("expires_at") @db.Timestamp(6)
+  redeemedAt        DateTime? @map("redeemed_at") @db.Timestamp(6)
+  redeemedSessionId String?   @map("redeemed_session_id") @db.VarChar
+  createdAt         DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime  @updatedAt @db.Timestamp(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "ix_cli_handoff_user_id")
+  // Supports pruning expired rows (cleanup).
+  @@index([expiresAt], map: "ix_cli_handoff_expires_at")
+  @@map("cli_handoffs")
 }
 
 // EdDSA signing keys for the better-auth jwt() plugin. The private key signs the

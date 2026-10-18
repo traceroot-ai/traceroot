@@ -114,6 +114,18 @@ function SessionTableRow({ session, canRevoke, onRevoke, isRevoking }: SessionTa
             This device
           </span>
         )}
+        {/* Marked whatever agent it reports: a handoff code is the one sign-in
+            nobody approved on a page, so this is the row to find and revoke
+            when a setup command ran that the user does not recognise. The
+            wording is the CLI's own line when it redeems one. */}
+        {session.fromHandoff && (
+          <span
+            className="ml-2 border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            title="Signed in with the one-time code a setup command carried, not by approving a device"
+          >
+            Sign-in code from browser
+          </span>
+        )}
       </td>
       <td className="px-3 py-2 text-muted-foreground">{formatRelativeTime(session.createdAt)}</td>
       <td className="px-3 py-2 text-muted-foreground">{formatRelativeTime(session.updatedAt)}</td>

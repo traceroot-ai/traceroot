@@ -185,7 +185,19 @@ describe("support policy", () => {
         else if (item.name === "route.ts") {
           const relative = path.slice(root.length + 1);
           if (
-            /^(auth|internal|public|cli|support)\//.test(relative) ||
+            /^(auth|internal|public|support)\//.test(relative) ||
+            // cli/ is walked, with the three routes that carry no cookie
+            // exempted by name rather than the directory exempted wholesale:
+            // the policy reads the session cookie, so it has nothing to say
+            // about a route that never receives one. redeem is unauthenticated
+            // by construction, and token and logout take a raw session token
+            // from an Authorization header -- resolveSessionFromToken refuses
+            // an impersonated session itself (lib/internal-session.ts).
+            // cli/handoff/route.ts, the mint, IS cookie-authenticated, so it is
+            // deliberately absent here and must carry the wrapper.
+            relative === "cli/handoff/redeem/route.ts" ||
+            relative === "cli/logout/route.ts" ||
+            relative === "cli/token/route.ts" ||
             relative === "billing/webhook/route.ts" ||
             relative === "email/unsubscribe/route.ts" || // token-authenticated, reached from email links
             relative === "health/route.ts" ||
