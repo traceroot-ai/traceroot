@@ -452,4 +452,17 @@ describe("setupCommand with a handoff", () => {
         '--host "http://localhost:8000" --auth-host "http://localhost:3000"',
     );
   });
+
+  it("carries no code on a deployment it has no command for", async () => {
+    // The code belongs to a line, and there is none here: the bare one would be
+    // the TraceRoot Cloud command. So the result is the same as without a code,
+    // with nothing in it that holds one.
+    const setupCommand = await setupCommandWith({ apiUrl: "http://:8000" });
+
+    expect(setupCommand({ projectId: "proj_1", handoff: CODE })).toEqual({
+      kind: "unavailable",
+      variable: "NEXT_PUBLIC_API_URL",
+      value: "http://:8000",
+    });
+  });
 });

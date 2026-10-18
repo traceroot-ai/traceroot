@@ -351,6 +351,37 @@ describe("OnboardingPage", () => {
     expect(mocks.createCliHandoff).not.toHaveBeenCalled();
   });
 
+  it("mints nothing on a deployment it has no command to show for", async () => {
+    // `NEXT_PUBLIC_API_URL` is read once at module load, so the page is
+    // re-imported under the stub. The step withholds the command here, which
+    // leaves nothing to print a code on: minting one anyway would hand the
+    // account a live credential no line ever shows.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://:8000");
+    vi.resetModules();
+    try {
+      const { default: Reloaded } = await import("./page");
+      mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+      mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+      render(
+        <QueryClientProvider client={makeQueryClient()}>
+          <Reloaded />
+        </QueryClientProvider>,
+      );
+      await clickCreate();
+      await waitFor(() =>
+        expect(
+          screen.getByText("The setup command cannot be shown for this deployment"),
+        ).toBeDefined(),
+      );
+
+      expect(document.querySelector("pre")).toBeNull();
+      expect(mocks.createCliHandoff).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("shows the manual walkthrough as a step of the flow, not a page away from it", async () => {
     // "Set up manually" used to navigate to the project's traces page, where
     // this same walkthrough lives. The content was right and the exit was the

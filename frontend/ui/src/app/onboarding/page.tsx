@@ -29,6 +29,7 @@ import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-s
 import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
 import { useCliHandoff } from "@/features/onboarding/use-cli-handoff";
+import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
 import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
 import { cn } from "@/lib/utils";
 
@@ -403,7 +404,15 @@ function OnboardingContent() {
   // should find a live code rather than a fresh round trip. Null while the
   // first mint is in flight and null if it failed, and the step prints the
   // command without the flag in both cases — see `useCliHandoff`.
-  const handoff = useCliHandoff(createdProject?.id ?? null);
+  //
+  // Not minted at all on a deployment the step can show no command for (see
+  // `setupCommand`): nothing would print the code, and a live credential that
+  // is never shown is one more thing the account holds for no use.
+  const handoffProjectId =
+    createdProject && setupCommand({ projectId: createdProject.id }).kind === "command"
+      ? createdProject.id
+      : null;
+  const handoff = useCliHandoff(handoffProjectId);
 
   useOpenFoundTrace(traceWait);
 
