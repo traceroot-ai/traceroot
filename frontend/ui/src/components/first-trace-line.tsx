@@ -98,10 +98,10 @@ function Line({
     // and it is also where an expired session gets asked to sign in again.
     //
     // Ahead of `gaveUp` because a caller's override is written for the ending
-    // it expects — the wait looked and nothing came — and the only page that
-    // overrides this is also the only one that can fail to read at all. Taking
-    // the override first let the device page make exactly the claim this branch
-    // exists to refuse.
+    // it expects — the wait looked and nothing came — while both pages' waits
+    // can also stop unreadable: onboarding's, and the device page's, which is
+    // the one that overrides it. Taking the override first let the device page
+    // make exactly the claim this branch exists to refuse.
     return (
       <p className="text-center text-[11px] text-muted-foreground">
         We could not read your traces from this tab.{" "}
