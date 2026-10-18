@@ -278,3 +278,84 @@ describe("the approved panel", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("an account with more projects than the watch keeps", () => {
+  // Three newer projects and an older one. The cap watches the newest three,
+  // so the older one is found only if the terminal's keys point the watch at it.
+  const NEWER = ["p-new-1", "p-new-2", "p-new-3"].map((id, i) => ({
+    ...PROJECT,
+    id,
+    name: id,
+    create_time: `2026-05-0${i + 2}T09:00:00Z`,
+    access_key_count: 1,
+  }));
+  const LEGACY_ID = "p-legacy";
+
+  /** The legacy project's key count and every project's trace list, swapped between rounds. */
+  let legacyKeys = 1;
+  let tracesIn: Record<string, ReturnType<typeof trace>[]> = {};
+
+  beforeEach(() => {
+    legacyKeys = 1;
+    tracesIn = {};
+    mocks.getProjects.mockImplementation(async () => [
+      ...NEWER,
+      {
+        ...PROJECT,
+        id: LEGACY_ID,
+        name: "legacy",
+        create_time: "2025-01-01T09:00:00Z",
+        access_key_count: legacyKeys,
+      },
+    ]);
+    mocks.getTraces.mockImplementation(
+      async (projectId: string, _key: string, options: { limit: number }) => {
+        const page = tracesIn[projectId] ?? [];
+        return {
+          data: page.slice(0, options.limit),
+          meta: { page: 0, limit: options.limit, total: page.length },
+        };
+      },
+    );
+  });
+
+  it("opens the run's trace in an older project the terminal minted its keys in", async () => {
+    tracesIn[LEGACY_ID] = [trace("t-legacy-before", "2026-04-01T10:00:00Z")];
+    await approve();
+    await flush();
+    expect(mocks.getTraces).not.toHaveBeenCalledWith(
+      LEGACY_ID,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+
+    // The terminal settles on the older project and mints its two keys there.
+    legacyKeys = 3;
+    await rounds(1);
+    // The project is watched now, but what it already held is not the run's.
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    tracesIn[LEGACY_ID] = [
+      trace("t-run", "2026-05-01T10:05:00Z"),
+      trace("t-legacy-before", "2026-04-01T10:00:00Z"),
+    ];
+    await rounds(1);
+
+    expect(mocks.push).toHaveBeenCalledTimes(1);
+    expect(mocks.push).toHaveBeenCalledWith(`/projects/${LEGACY_ID}/traces?traceId=t-run`);
+  });
+
+  it("watches only the newest three while no older project gains a key", async () => {
+    await approve();
+    await flush();
+    tracesIn[LEGACY_ID] = [trace("t-elsewhere", "2026-05-01T10:05:00Z")];
+
+    await rounds(3);
+
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(new Set(mocks.getTraces.mock.calls.map(([projectId]) => projectId))).toEqual(
+      new Set(NEWER.map((project) => project.id)),
+    );
+  });
+});

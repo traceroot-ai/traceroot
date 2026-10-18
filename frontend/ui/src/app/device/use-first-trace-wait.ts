@@ -9,6 +9,7 @@ import {
   readWatchedProjects,
   retryUnknownBaseline,
   type FirstTrace,
+  type KeyCounts,
   type TraceBaseline,
 } from "./first-trace";
 
@@ -104,6 +105,7 @@ export function useFirstTraceWait(
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let baseline: TraceBaseline | null = null;
+    let keyCounts: KeyCounts = new Map();
     let barrenRounds = 0;
     const deadline = Date.now() + WAIT_BUDGET_MS;
 
@@ -112,10 +114,12 @@ export function useFirstTraceWait(
     }
 
     async function round(): Promise<void> {
-      const projects = await readWatchedProjects(workspacesRef.current);
+      const watched = await readWatchedProjects(workspacesRef.current, keyCounts);
       if (cancelled) {
         return;
       }
+      keyCounts = watched.keyCounts;
+      const { projects } = watched;
 
       if (projects.length === 0) {
         barrenRounds += 1;
@@ -142,6 +146,22 @@ export function useFirstTraceWait(
         }
         schedule(projects);
         return;
+      }
+
+      // A project past the newest few is watched only because it gained a key
+      // after the wait began, so it existed before approval and was never part
+      // of the line drawn above. It gets one before anything in it can match:
+      // left off the baseline it would read as a project the terminal had just
+      // created, and the traces it already held would qualify.
+      // Held in a const because the line is read inside a callback, where the
+      // `let` this round reassigns is no longer narrowed to the drawn baseline.
+      const lined = baseline;
+      const unlined = watched.keyed.filter((projectId) => !lined.has(projectId));
+      if (unlined.length > 0) {
+        baseline = new Map([...lined, ...(await captureTraceBaseline(unlined, userRef.current))]);
+        if (cancelled) {
+          return;
+        }
       }
 
       // Any project whose baseline read failed gets another go first: until it

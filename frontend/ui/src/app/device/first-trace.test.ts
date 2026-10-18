@@ -15,6 +15,7 @@ vi.mock("@/lib/api/traces", () => ({
 }));
 
 import {
+  MAX_KEYED_PROJECTS,
   MAX_WATCHED_PROJECTS,
   captureTraceBaseline,
   findFirstTrace,
@@ -29,8 +30,14 @@ function workspace(id: string): Workspace {
   return { id, name: id, role: "ADMIN", create_time: "2026-01-01T00:00:00Z" };
 }
 
-function project(id: string, createTime: string): Project {
-  return { id, name: id, trace_ttl_days: null, create_time: createTime };
+function project(id: string, createTime: string, accessKeyCount?: number): Project {
+  return {
+    id,
+    name: id,
+    trace_ttl_days: null,
+    create_time: createTime,
+    ...(accessKeyCount === undefined ? {} : { access_key_count: accessKeyCount }),
+  };
 }
 
 // Only the two fields this module reads are meaningful; the rest is the shape
@@ -76,7 +83,7 @@ describe("readWatchedProjects", () => {
         : [project("new", "2026-03-01T00:00:00Z")],
     );
 
-    const projects = await readWatchedProjects([workspace("ws-1"), workspace("ws-2")]);
+    const { projects } = await readWatchedProjects([workspace("ws-1"), workspace("ws-2")]);
 
     expect(projects.map((p) => p.id)).toEqual(["new", "old"]);
   });
@@ -89,7 +96,7 @@ describe("readWatchedProjects", () => {
       return [project("p-2", "2026-01-01T00:00:00Z")];
     });
 
-    const projects = await readWatchedProjects([workspace("ws-1"), workspace("ws-2")]);
+    const { projects } = await readWatchedProjects([workspace("ws-1"), workspace("ws-2")]);
 
     expect(projects.map((p) => p.id)).toEqual(["p-2"]);
   });
@@ -100,10 +107,106 @@ describe("readWatchedProjects", () => {
     );
     mocks.getProjects.mockResolvedValue(many);
 
-    const projects = await readWatchedProjects([workspace("ws-1")]);
+    const { projects } = await readWatchedProjects([workspace("ws-1")]);
 
     expect(projects).toHaveLength(MAX_WATCHED_PROJECTS);
     expect(projects[0].id).toBe(`p-${MAX_WATCHED_PROJECTS + 4}`);
+  });
+
+  /** Five projects, newest first, each holding one key unless `keys` says otherwise. */
+  function account(keys: Record<string, number> = {}): Project[] {
+    return ["p-5", "p-4", "p-3", "p-2", "p-1"].map((id, i) =>
+      project(id, `2026-0${5 - i}-01T00:00:00Z`, keys[id] ?? 1),
+    );
+  }
+
+  it("watches an older project once the terminal mints a key in it", async () => {
+    // The device flow never names the project the terminal chose. Its keys do:
+    // they are minted in that project right after approval, and the listing
+    // this round already reads counts them.
+    mocks.getProjects.mockResolvedValue(account());
+    const first = await readWatchedProjects([workspace("ws-1")]);
+    expect(first.projects.map((p) => p.id)).toEqual(["p-5", "p-4", "p-3"]);
+
+    mocks.getProjects.mockResolvedValue(account({ "p-1": 3 }));
+    const next = await readWatchedProjects([workspace("ws-1")], first.keyCounts);
+
+    expect(next.projects.map((p) => p.id)).toEqual(["p-5", "p-4", "p-3", "p-1"]);
+    expect(next.keyed).toEqual(["p-1"]);
+  });
+
+  it("keeps watching it in later rounds, against the count it first saw", async () => {
+    mocks.getProjects.mockResolvedValue(account());
+    const first = await readWatchedProjects([workspace("ws-1")]);
+    mocks.getProjects.mockResolvedValue(account({ "p-1": 3 }));
+    const second = await readWatchedProjects([workspace("ws-1")], first.keyCounts);
+
+    const third = await readWatchedProjects([workspace("ws-1")], second.keyCounts);
+
+    expect(third.keyed).toEqual(["p-1"]);
+    expect(third.keyCounts.get("p-1")).toBe(1);
+  });
+
+  it("watches only the newest while no older project gains a key", async () => {
+    mocks.getProjects.mockResolvedValue(account());
+    const first = await readWatchedProjects([workspace("ws-1")]);
+
+    const next = await readWatchedProjects([workspace("ws-1")], first.keyCounts);
+
+    expect(next.projects.map((p) => p.id)).toEqual(["p-5", "p-4", "p-3"]);
+    expect(next.keyed).toEqual([]);
+  });
+
+  it("does not add a project twice when the one that gained a key is already watched", async () => {
+    // The common case: the terminal chose one of the newest projects. Nothing
+    // about the watch changes, not even its order.
+    mocks.getProjects.mockResolvedValue(account());
+    const first = await readWatchedProjects([workspace("ws-1")]);
+    mocks.getProjects.mockResolvedValue(account({ "p-4": 3 }));
+
+    const next = await readWatchedProjects([workspace("ws-1")], first.keyCounts);
+
+    expect(next.projects.map((p) => p.id)).toEqual(["p-5", "p-4", "p-3"]);
+    expect(next.keyed).toEqual([]);
+  });
+
+  it("reads the keys a project already had on first sight as its starting count", async () => {
+    mocks.getProjects.mockResolvedValue(account({ "p-1": 4 }));
+
+    const first = await readWatchedProjects([workspace("ws-1")]);
+
+    expect(first.keyed).toEqual([]);
+    expect(first.keyCounts.get("p-1")).toBe(4);
+  });
+
+  it("adds nothing on a listing that does not count keys", async () => {
+    const uncounted = ["p-5", "p-4", "p-3", "p-1"].map((id, i) =>
+      project(id, `2026-0${5 - i}-01T00:00:00Z`),
+    );
+    mocks.getProjects.mockResolvedValue(uncounted);
+    const first = await readWatchedProjects([workspace("ws-1")]);
+
+    const next = await readWatchedProjects([workspace("ws-1")], first.keyCounts);
+
+    expect(next.projects.map((p) => p.id)).toEqual(["p-5", "p-4", "p-3"]);
+    expect(next.keyed).toEqual([]);
+  });
+
+  it("caps how many projects it adds on key evidence, keeping the newest", async () => {
+    const older = MAX_KEYED_PROJECTS + 2;
+    const many = (keys: number) =>
+      Array.from({ length: MAX_WATCHED_PROJECTS + older }, (_, i) =>
+        project(`p-${i}`, `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`, keys),
+      );
+    mocks.getProjects.mockResolvedValue(many(1));
+    const first = await readWatchedProjects([workspace("ws-1")]);
+    mocks.getProjects.mockResolvedValue(many(2));
+
+    const next = await readWatchedProjects([workspace("ws-1")], first.keyCounts);
+
+    expect(next.projects).toHaveLength(MAX_WATCHED_PROJECTS + MAX_KEYED_PROJECTS);
+    expect(next.keyed).toHaveLength(MAX_KEYED_PROJECTS);
+    expect(next.keyed[0]).toBe(`p-${older - 1}`);
   });
 });
 

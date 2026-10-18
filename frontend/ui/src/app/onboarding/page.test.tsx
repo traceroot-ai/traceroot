@@ -472,6 +472,28 @@ describe("OnboardingPage", () => {
     expect(screen.queryByTestId("add-detectors-step")).toBeNull();
   });
 
+  it.each<[string, Record<string, string>, string]>([
+    [
+      "back to a waiting terminal",
+      { callbackUrl: "/device?user_code=ABCD1234" },
+      "/device?user_code=ABCD1234",
+    ],
+    ["to the workspace list when nobody is waiting", {}, "/workspaces"],
+  ])("cancels %s", async (_where, params, destination) => {
+    // With the rail gone, Cancel was the one exit left that dropped the
+    // hand-back: the workspace list is an empty state for this account, and
+    // nothing on it leads back to /device, so the terminal polled until the
+    // code expired.
+    setParams(params);
+    renderPage();
+
+    const cancel = await waitFor(() => screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(cancel);
+
+    expect(mocks.push).toHaveBeenCalledWith(destination);
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+  });
+
   it("names the account it is setting up", async () => {
     // Without the shell there is no user menu, so nothing else on the page says
     // which account this is — and being signed in as the wrong one is the
@@ -581,7 +603,9 @@ describe("OnboardingPage", () => {
 
     await clickSignOut();
 
-    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    await waitFor(() =>
+      expect(screen.getByText("Could not sign out. Please try again.")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
       false,
@@ -599,7 +623,9 @@ describe("OnboardingPage", () => {
 
     await clickSignOut();
 
-    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    await waitFor(() =>
+      expect(screen.getByText("Could not sign out. Please try again.")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
       false,
