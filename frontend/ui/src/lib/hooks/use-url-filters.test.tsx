@@ -100,3 +100,43 @@ describe("useUrlFilters", () => {
     expect(result.current.filters).toEqual(external);
   });
 });
+
+describe("useUrlFilters with a configured defaultFilters", () => {
+  const defaultFilters: Predicate[] = [{ field: "status", op: "in", value: ["ERROR"] }];
+
+  it("applies the default when the filters key is absent from the URL", () => {
+    const { result } = renderHook(() => useUrlFilters(undefined, defaultFilters));
+    expect(result.current.filters).toEqual(defaultFilters);
+  });
+
+  it("clearing filters writes the explicit filters=[] marker instead of deleting the key", () => {
+    currentParams = new URLSearchParams({ filters: JSON.stringify(defaultFilters) });
+    const { result } = renderHook(() => useUrlFilters(undefined, defaultFilters));
+
+    act(() => result.current.setFilters([]));
+
+    const url = new URL(replace.mock.calls[0][0] as string, "http://x");
+    expect(url.searchParams.has("filters")).toBe(true);
+    expect(url.searchParams.get("filters")).toBe("[]");
+    // Same thing, checked against the raw query string so an accidental switch back to
+    // deleting the key (rather than writing the literal marker) would fail here too.
+    expect(url.search).toContain("filters=%5B%5D");
+  });
+
+  it("does not reapply the default when the URL already has the explicit filters=[] marker", () => {
+    currentParams = new URLSearchParams({ filters: "[]" });
+    const { result } = renderHook(() => useUrlFilters(undefined, defaultFilters));
+    expect(result.current.filters).toEqual([]);
+  });
+
+  it("re-reads the URL the same way on navigation (absent key resolves to the default)", () => {
+    currentParams = new URLSearchParams({ filters: JSON.stringify(defaultFilters) });
+    const { result, rerender } = renderHook(() => useUrlFilters(undefined, defaultFilters));
+    expect(result.current.filters).toEqual(defaultFilters);
+
+    // Simulate back/forward to a URL with no filters key at all.
+    currentParams = new URLSearchParams();
+    rerender();
+    expect(result.current.filters).toEqual(defaultFilters);
+  });
+});

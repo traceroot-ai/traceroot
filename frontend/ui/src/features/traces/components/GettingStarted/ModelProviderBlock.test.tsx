@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
   getModelProviders: vi.fn(),
   createModelProvider: vi.fn(),
   testModelProvider: vi.fn(),
-  workspace: { data: undefined as { role: string } | undefined, isLoading: false },
+  workspace: {
+    data: undefined as { role: string } | undefined,
+    isLoading: false,
+    isError: false,
+  },
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -96,6 +100,7 @@ beforeEach(() => {
   mocks.createModelProvider.mockResolvedValue({ id: "mp-1" });
   mocks.workspace.data = { role: "ADMIN" };
   mocks.workspace.isLoading = false;
+  mocks.workspace.isError = false;
 });
 
 afterEach(() => {
@@ -641,6 +646,32 @@ describe("a member who cannot write one", () => {
     expect(screen.queryByLabelText("API key")).toBeNull();
     expect(mocks.testModelProvider).not.toHaveBeenCalled();
     expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("claims nothing about the reader when the role cannot be read at all", async () => {
+    // An errored read is not a loading state: react-query drops `isLoading`
+    // with no data behind it, so the role gate saw "not an admin" and told
+    // whoever was looking — the workspace's own admin, as likely as not — that
+    // adding a key was someone else's job. Only the list had this branch.
+    mocks.workspace.data = undefined;
+    mocks.workspace.isError = true;
+
+    renderBlock();
+    expect(await screen.findByText(/settings could not be read/)).toBeTruthy();
+    expect(screen.queryByText(/A workspace admin can add one/)).toBeNull();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+  });
+
+  it("keeps the form for an admin whose role outlives a failed refetch", async () => {
+    // react-query keeps the data it has when a background refetch errors, so the
+    // role is still known — failing closed on the error alone would take the
+    // form away from the admin mid-paste for a sentence nobody needed.
+    mocks.workspace.data = { role: "ADMIN" };
+    mocks.workspace.isError = true;
+
+    renderBlock();
+    expect(await screen.findByLabelText("API key")).toBeTruthy();
+    expect(screen.queryByText(/settings could not be read/)).toBeNull();
   });
 });
 

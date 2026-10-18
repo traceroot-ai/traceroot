@@ -438,6 +438,30 @@ def _trace_condition(idx: int, col: FilterColumn, pred: Predicate, params: dict)
     return f"t.{col.name} = {{{pname}:String}}"
 
 
+def _signal_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
+    """The traces holding a hit of one signal, read from ``signal_assignments``.
+
+    The table keeps one row per detector run, replaced when a user moves the hit or merges
+    its signal (``ReplacingMergeTree`` on ``assigned_at``). The inner query keeps each run's
+    latest placement before the signal predicate applies, so a moved hit counts only for the
+    signal it now belongs to, without FINAL. It is scoped to the outer query's project, and
+    the value binds as a parameter, never interpolated.
+    """
+    pname = f"f_{col.name}_{idx}"
+    params[pname] = pred.value
+    inner = (
+        "SELECT argMax(trace_id, assigned_at) AS hit_trace_id, "
+        "argMax(signal_id, assigned_at) AS hit_signal_id "
+        "FROM signal_assignments "
+        "WHERE project_id = {project_id:String} "
+        "GROUP BY detector_id, run_id"
+    )
+    return (
+        f"t.trace_id IN (SELECT hit_trace_id FROM ({inner}) "
+        f"WHERE hit_signal_id = {{{pname}:String}})"
+    )
+
+
 def _having_clause(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
     """One per-trace aggregate HAVING comparison: ``<agg> <op> {param}``.
 
@@ -478,6 +502,8 @@ _LEVEL_LOWERING: dict[FilterLevel, Callable[[int, FilterColumn, Predicate, dict]
     # Inline trace-row predicates (t.*), keyed on the outer query so they land in both the
     # page and count queries.
     FilterLevel.TRACE: _trace_condition,
+    # A signal's traces, from the latest placement of each of its hits.
+    FilterLevel.SIGNAL: _signal_semijoin,
     # One semi-join per membership predicate (independent existence), each AND-combined via
     # the shared conditions list so every one lands in both the page and count queries.
     FilterLevel.SPAN_MEMBERSHIP: _membership_semijoin,
