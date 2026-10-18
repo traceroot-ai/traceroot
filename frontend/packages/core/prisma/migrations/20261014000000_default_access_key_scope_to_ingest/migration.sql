@@ -1,0 +1,13 @@
+-- The column arrived with DEFAULT 'admin' so that adding it could not silently
+-- narrow a credential already in use; the backfill that default performs was
+-- the whole point. This flips the default to the safe scope, so anything that
+-- inserts a key without asking for one — now or later — gets 'ingest' rather
+-- than full project rights.
+--
+-- It is a separate migration because the one that added the column has already
+-- been applied. Prisma matches applied migrations by name, so a statement
+-- appended to that file would never run anywhere it had already gone through:
+-- those databases would keep 'admin' while every fresh one got 'ingest', on
+-- the one column whose default is a security decision.
+-- AlterTable
+ALTER TABLE "access_keys" ALTER COLUMN "scope" SET DEFAULT 'ingest';

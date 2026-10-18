@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, ScoreInputSchema } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 
 type RouteParams = { params: Promise<{ runId: string; testCaseId: string }> };
 
@@ -13,7 +13,7 @@ const isUniqueViolation = (e: unknown) =>
 // delayed / human / per-scorer scores that arrive after the result, and accepted
 // even once the run is completed (B2) — it never rewrites the automated results.
 export async function POST(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
   const { runId, testCaseId } = await params;
