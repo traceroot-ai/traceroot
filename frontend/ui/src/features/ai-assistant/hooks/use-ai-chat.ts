@@ -537,7 +537,8 @@ export function useAiChat({
       const res = await fetch(`/api/projects/${projectId}/ai/sessions`);
       const data = await res.json();
       setSessions(data.sessions || []);
-      setHistoryOpen(true);
+      // A demo visitor may have closed History or picked an example meanwhile.
+      if (!demoReadOnly) setHistoryOpen(true);
     } catch (err) {
       console.error(err);
     }
