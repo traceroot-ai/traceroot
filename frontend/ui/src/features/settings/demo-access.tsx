@@ -1,8 +1,8 @@
 "use client";
 
 // What a viewer of the public demo workspace may do in settings. This is the
-// one place for that rule; settings pages ask it through the two hooks and
-// pass the answer to SettingsLayout.
+// one place for that rule; WorkspaceSettingsLayout and ProjectSettingsLayout
+// ask it for their tab and render the page through SettingsAccessGate.
 //
 // Demo viewers (members below ADMIN: every visitor) keep the Settings entry
 // and every menu item. General pages are readable but every control is
@@ -13,19 +13,8 @@
 import { type ReactNode } from "react";
 import { Info } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useProject } from "@/features/projects/hooks";
-import { useWorkspace } from "@/features/workspaces/hooks";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
-
-export type SettingsSection =
-  | "workspace-general"
-  | "members"
-  | "model-providers"
-  | "integrations"
-  | "billing"
-  | "project-general"
-  | "access-keys"
-  | "detectors";
+import type { ProjectSettingsTab, WorkspaceSettingsTab } from "./settings-layout";
 
 export type SettingsAccess =
   | { mode: "loading" }
@@ -39,8 +28,8 @@ const denied = (scope: "workspace" | "project", message: string): SettingsAccess
   message,
 });
 
-const DEMO_VIEWER_ACCESS: Record<SettingsSection, SettingsAccess> = {
-  "workspace-general": { mode: "read-only", scope: "workspace" },
+const WORKSPACE_DEMO_VIEWER_ACCESS: Record<WorkspaceSettingsTab, SettingsAccess> = {
+  general: { mode: "read-only", scope: "workspace" },
   members: denied(
     "workspace",
     "The member list is not available in this demo workspace. You can manage members in your own workspace.",
@@ -57,8 +46,11 @@ const DEMO_VIEWER_ACCESS: Record<SettingsSection, SettingsAccess> = {
     "workspace",
     "Billing settings are not available in this demo workspace. You can manage billing in your own workspace.",
   ),
-  "project-general": { mode: "read-only", scope: "project" },
-  "access-keys": denied(
+};
+
+const PROJECT_DEMO_VIEWER_ACCESS: Record<ProjectSettingsTab, SettingsAccess> = {
+  general: { mode: "read-only", scope: "project" },
+  accessKeys: denied(
     "project",
     "API keys are not available in this demo project. You can create API keys in your own project.",
   ),
@@ -69,32 +61,27 @@ const DEMO_VIEWER_ACCESS: Record<SettingsSection, SettingsAccess> = {
   ),
 };
 
-/** The access to one settings section for a user with this workspace membership. */
-export function settingsAccess(
-  section: SettingsSection,
-  workspace: { is_demo?: boolean; role?: string } | undefined,
-): SettingsAccess {
+type Membership = { is_demo?: boolean; role?: string } | undefined;
+
+function accessFor(demoViewerAccess: SettingsAccess, workspace: Membership): SettingsAccess {
   if (!workspace) return { mode: "loading" };
-  return isDemoWorkspaceViewer(workspace) ? DEMO_VIEWER_ACCESS[section] : { mode: "full" };
+  return isDemoWorkspaceViewer(workspace) ? demoViewerAccess : { mode: "full" };
 }
 
-// If the membership cannot be read, show the page as before and let the page
-// and its API calls deal with the error, rather than an empty screen.
-export function useWorkspaceSettingsAccess(
-  workspaceId: string,
-  section: SettingsSection,
+/** The access to one workspace settings tab for a user with this workspace membership. */
+export function workspaceSettingsAccess(
+  tab: WorkspaceSettingsTab,
+  workspace: Membership,
 ): SettingsAccess {
-  const { data: workspace, isError } = useWorkspace(workspaceId);
-  return isError ? { mode: "full" } : settingsAccess(section, workspace);
+  return accessFor(WORKSPACE_DEMO_VIEWER_ACCESS[tab], workspace);
 }
 
-export function useProjectSettingsAccess(
-  projectId: string,
-  section: SettingsSection,
+/** The access to one project settings tab for a user with the owning workspace's membership. */
+export function projectSettingsAccess(
+  tab: ProjectSettingsTab,
+  workspace: Membership,
 ): SettingsAccess {
-  const { data: project, isError: projectError } = useProject(projectId);
-  const { data: workspace, isError } = useWorkspace(project?.workspace_id ?? "");
-  return projectError || isError ? { mode: "full" } : settingsAccess(section, workspace);
+  return accessFor(PROJECT_DEMO_VIEWER_ACCESS[tab], workspace);
 }
 
 function DemoSettingsCard({ title, message }: { title: string; message: string }) {

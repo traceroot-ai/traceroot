@@ -12,16 +12,23 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { SettingsAccessGate, type SettingsAccess } from "./demo-access";
 
-interface SettingsTab {
-  id: string;
+interface SettingsTab<Id extends string = string> {
+  id: Id;
   label: string;
   icon: LucideIcon;
   href: string;
 }
 
-export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
+export type WorkspaceSettingsTab =
+  | "general"
+  | "members"
+  | "model-providers"
+  | "integrations"
+  | "billing";
+export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
+
+export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "members", label: "Members", icon: DOMAIN_ICONS.user, href: "members" },
   {
@@ -35,7 +42,7 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ];
 
-export const PROJECT_SETTINGS_TABS: SettingsTab[] = [
+export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "accessKeys", label: "API Keys", icon: Key, href: "accessKeys" },
   { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
@@ -59,11 +66,6 @@ interface SettingsLayoutProps {
   children: ReactNode;
   /** Optional link to navigate to a related settings context (e.g. Org Settings from project). */
   crossLink?: CrossLink;
-  /**
-   * What the user may do on this page (see demo-access.tsx). Every tab stays in
-   * the menu either way; only the page body changes. Omitted means full access.
-   */
-  access?: SettingsAccess;
 }
 
 export function SettingsLayout({
@@ -72,7 +74,6 @@ export function SettingsLayout({
   basePath,
   children,
   crossLink,
-  access = { mode: "full" },
 }: SettingsLayoutProps) {
   return (
     <>
@@ -110,9 +111,7 @@ export function SettingsLayout({
         </ul>
       </nav>
 
-      <div className="flex-1 overflow-auto p-6">
-        <SettingsAccessGate access={access}>{children}</SettingsAccessGate>
-      </div>
+      <div className="flex-1 overflow-auto p-6">{children}</div>
     </>
   );
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, renderHook, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({
   workspace: undefined as { is_demo?: boolean; role?: string } | undefined,
@@ -14,6 +14,8 @@ vi.mock("@/features/workspaces/hooks", () => ({
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: state.project, isError: false }),
 }));
+vi.mock("@/features/workspaces/components", () => ({ WorkspaceBreadcrumb: () => null }));
+vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>
@@ -22,27 +24,22 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import {
-  settingsAccess,
-  useProjectSettingsAccess,
-  useWorkspaceSettingsAccess,
-  type SettingsSection,
-} from "./demo-access";
-import { PROJECT_SETTINGS_TABS, SettingsLayout, WORKSPACE_SETTINGS_TABS } from "./settings-layout";
+import { projectSettingsAccess, workspaceSettingsAccess } from "./demo-access";
+import { ProjectSettingsLayout, WorkspaceSettingsLayout } from "./scoped-settings-layout";
+import type { ProjectSettingsTab, WorkspaceSettingsTab } from "./settings-layout";
 
 const DEMO_VIEWER = { is_demo: true, role: "VIEWER" };
 const DEMO_MEMBER = { is_demo: true, role: "MEMBER" };
 const DEMO_ADMIN = { is_demo: true, role: "ADMIN" };
 const OTHER_VIEWER = { is_demo: false, role: "VIEWER" };
 
-const DENIED: SettingsSection[] = [
+const DENIED_WORKSPACE_TABS: WorkspaceSettingsTab[] = [
   "members",
   "model-providers",
   "integrations",
   "billing",
-  "access-keys",
-  "detectors",
 ];
+const DENIED_PROJECT_TABS: ProjectSettingsTab[] = ["accessKeys", "detectors"];
 
 afterEach(() => {
   cleanup();
@@ -50,10 +47,19 @@ afterEach(() => {
   state.workspaceError = false;
 });
 
-describe("settingsAccess", () => {
-  it.each(DENIED)("denies %s to a demo viewer", (section) => {
+describe("settings access", () => {
+  it.each(DENIED_WORKSPACE_TABS)("denies the workspace %s tab to a demo viewer", (tab) => {
     for (const ws of [DEMO_VIEWER, DEMO_MEMBER]) {
-      expect(settingsAccess(section, ws)).toMatchObject({
+      expect(workspaceSettingsAccess(tab, ws)).toMatchObject({
+        mode: "denied",
+        message: expect.stringContaining("demo"),
+      });
+    }
+  });
+
+  it.each(DENIED_PROJECT_TABS)("denies the project %s tab to a demo viewer", (tab) => {
+    for (const ws of [DEMO_VIEWER, DEMO_MEMBER]) {
+      expect(projectSettingsAccess(tab, ws)).toMatchObject({
         mode: "denied",
         message: expect.stringContaining("demo"),
       });
@@ -61,70 +67,63 @@ describe("settingsAccess", () => {
   });
 
   it("makes the General pages read-only for a demo viewer", () => {
-    expect(settingsAccess("workspace-general", DEMO_VIEWER)).toEqual({
+    expect(workspaceSettingsAccess("general", DEMO_VIEWER)).toEqual({
       mode: "read-only",
       scope: "workspace",
     });
-    expect(settingsAccess("project-general", DEMO_VIEWER)).toEqual({
+    expect(projectSettingsAccess("general", DEMO_VIEWER)).toEqual({
       mode: "read-only",
       scope: "project",
     });
   });
 
   it("gives full access to demo admins and to every role in other workspaces", () => {
-    const sections: SettingsSection[] = ["workspace-general", "project-general", ...DENIED];
     for (const ws of [DEMO_ADMIN, OTHER_VIEWER, { is_demo: false, role: "MEMBER" }, {}]) {
-      for (const section of sections) {
-        expect(settingsAccess(section, ws)).toMatchObject({ mode: "full" });
+      for (const tab of ["general", ...DENIED_WORKSPACE_TABS] as WorkspaceSettingsTab[]) {
+        expect(workspaceSettingsAccess(tab, ws)).toMatchObject({ mode: "full" });
+      }
+      for (const tab of ["general", ...DENIED_PROJECT_TABS] as ProjectSettingsTab[]) {
+        expect(projectSettingsAccess(tab, ws)).toMatchObject({ mode: "full" });
       }
     }
   });
 
   it("waits until the membership is known", () => {
-    expect(settingsAccess("members", undefined)).toEqual({ mode: "loading" });
+    expect(workspaceSettingsAccess("members", undefined)).toEqual({ mode: "loading" });
   });
 });
 
-describe("the access hooks", () => {
-  it("read the workspace membership, through the project for project pages", () => {
-    state.workspace = DEMO_VIEWER;
-    expect(
-      renderHook(() => useWorkspaceSettingsAccess("ws-demo", "billing")).result.current.mode,
-    ).toBe("denied");
-    expect(
-      renderHook(() => useProjectSettingsAccess("proj-1", "access-keys")).result.current.mode,
-    ).toBe("denied");
-  });
+const PAGE = (
+  <>
+    <label>
+      Name
+      <input defaultValue="Acme" />
+    </label>
+    <button type="button">Save</button>
+    <p>Page content</p>
+  </>
+);
 
-  it("show the page as before when the workspace cannot be read", () => {
-    state.workspaceError = true;
-    expect(renderHook(() => useWorkspaceSettingsAccess("ws-x", "members")).result.current).toEqual({
-      mode: "full",
-    });
-  });
-});
-
-function renderLayout(tabs: typeof WORKSPACE_SETTINGS_TABS, section: SettingsSection) {
-  function Page() {
-    const access = useWorkspaceSettingsAccess("ws-demo", section);
-    return (
-      <SettingsLayout tabs={tabs} activeTab="x" basePath="/settings" access={access}>
-        <label>
-          Name
-          <input defaultValue="Acme" />
-        </label>
-        <button type="button">Save</button>
-        <p>Page content</p>
-      </SettingsLayout>
-    );
-  }
-  return render(<Page />);
+function renderWorkspacePage(tab: WorkspaceSettingsTab) {
+  return render(
+    <WorkspaceSettingsLayout workspaceId="ws-demo" tab={tab}>
+      {PAGE}
+    </WorkspaceSettingsLayout>,
+  );
 }
 
-describe("SettingsLayout for a demo viewer", () => {
+function renderProjectPage(tab: ProjectSettingsTab) {
+  return render(
+    <ProjectSettingsLayout projectId="proj-1" tab={tab}>
+      {PAGE}
+    </ProjectSettingsLayout>,
+  );
+}
+
+describe("the settings layouts for a demo viewer", () => {
   it("keeps every menu item and shows a demo settings explanation instead of the page", () => {
     state.workspace = DEMO_VIEWER;
-    renderLayout(WORKSPACE_SETTINGS_TABS, "members");
+    renderWorkspacePage("members");
 
     for (const tab of ["General", "Members", "Model Providers", "Integrations", "Billing"]) {
       expect(screen.getByRole("link", { name: tab })).toBeTruthy();
@@ -138,19 +137,23 @@ describe("SettingsLayout for a demo viewer", () => {
     expect(screen.queryByText("Page content")).toBeNull();
   });
 
-  it("keeps the project menu items and denies the detector settings", () => {
+  it("reads the membership through the project and denies the detector settings", () => {
     state.workspace = DEMO_VIEWER;
-    renderLayout(PROJECT_SETTINGS_TABS, "detectors");
+    renderProjectPage("detectors");
 
     for (const tab of ["General", "API Keys", "Detectors"]) {
       expect(screen.getByRole("link", { name: tab })).toBeTruthy();
     }
+    expect(screen.getByRole("link", { name: "Org Settings" }).getAttribute("href")).toBe(
+      "/workspaces/ws-demo/settings/general",
+    );
     expect(screen.getByText("Demo project settings")).toBeTruthy();
+    expect(screen.queryByText("Page content")).toBeNull();
   });
 
   it("shows the General page with every input and button disabled", () => {
     state.workspace = DEMO_VIEWER;
-    renderLayout(WORKSPACE_SETTINGS_TABS, "workspace-general");
+    renderWorkspacePage("general");
 
     expect(screen.getByText("Page content")).toBeTruthy();
     expect(
@@ -160,21 +163,40 @@ describe("SettingsLayout for a demo viewer", () => {
       (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled"),
     ).toBe(true);
   });
+
+  it("renders nothing until the membership is known", () => {
+    renderWorkspacePage("members");
+    expect(screen.queryByText("Page content")).toBeNull();
+    expect(screen.queryByText("Demo workspace settings")).toBeNull();
+  });
+});
+
+describe("the settings layouts when the workspace cannot be read", () => {
+  it("show the page as before", () => {
+    state.workspaceError = true;
+    renderWorkspacePage("members");
+    expect(screen.getByText("Page content")).toBeTruthy();
+    expect(screen.queryByTestId("settings-read-only")).toBeNull();
+  });
 });
 
 describe.each([
   ["a demo admin", DEMO_ADMIN],
   ["a viewer of another workspace", OTHER_VIEWER],
-])("SettingsLayout for %s", (_who, workspace) => {
-  it("shows the page as before, with working controls", () => {
-    state.workspace = workspace;
-    renderLayout(WORKSPACE_SETTINGS_TABS, "members");
+])("the settings layouts for %s", (_who, workspace) => {
+  it.each(["workspace", "project"] as const)(
+    "show the %s page as before, with working controls",
+    (scope) => {
+      state.workspace = workspace;
+      if (scope === "workspace") renderWorkspacePage("members");
+      else renderProjectPage("accessKeys");
 
-    expect(screen.queryByText("Demo workspace settings")).toBeNull();
-    expect(screen.getByText("Page content")).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled"),
-    ).toBe(false);
-    expect(screen.queryByTestId("settings-read-only")).toBeNull();
-  });
+      expect(screen.queryByText(`Demo ${scope} settings`)).toBeNull();
+      expect(screen.getByText("Page content")).toBeTruthy();
+      expect(
+        (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled"),
+      ).toBe(false);
+      expect(screen.queryByTestId("settings-read-only")).toBeNull();
+    },
+  );
 });
