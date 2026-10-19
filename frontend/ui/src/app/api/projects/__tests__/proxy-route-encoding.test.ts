@@ -72,7 +72,10 @@ const routes = [
 beforeEach(() => {
   vi.clearAllMocks();
   requireAuth.mockResolvedValue({ user: { id: "caller" } });
-  requireProjectAccess.mockResolvedValue({ project: { workspaceId: "workspace" } });
+  requireProjectAccess.mockResolvedValue({
+    project: { workspaceId: "workspace" },
+    membership: { role: "MEMBER" },
+  });
   fetchMock.mockImplementation(async () => Response.json({ findings: [], runs: [] }));
   vi.stubGlobal("fetch", fetchMock);
 });
