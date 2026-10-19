@@ -53,6 +53,9 @@ export async function runBillingJob(): Promise<void> {
   console.log("[Billing] Starting billing job...");
 
   try {
+    // Every workspace, the demo workspace included: it is on the enterprise
+    // plan with no Stripe subscription, so it is never billed and never sent a
+    // usage email, and its usage numbers stay correct.
     const workspaces = await prisma.workspace.findMany({
       include: {
         projects: {

@@ -43,6 +43,9 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
  * project writes stay CLI/API surface — and widening this map is a
  * deliberate per-tool decision.
  */
+// set_signal_status is deliberately absent: the agent does not resolve or
+// reopen signals on its own. That stays a person's decision (web app) or a
+// script's (public API) until a separate decision binds it here.
 export const INTERNAL_WRITE_BINDINGS: Readonly<Record<string, string>> = {
   create_detector: "/api/internal/write/detectors",
   create_dashboard: "/api/internal/write/dashboards",
