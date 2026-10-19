@@ -6,11 +6,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
+import type { DeletedAlertClose } from "@/lib/alerts/post-deleted-close";
 import { DELETE_REASON_MESSAGE, NO_FIELDS_MESSAGE } from "./update-support";
 
 type Where = Record<string, unknown>;
 
-const { tx, root, order, store, postDeletedAlertClose } = vi.hoisted(() => ({
+const { tx, root, order, store, postDeletedAlertClose, slack } = vi.hoisted(() => ({
   tx: {
     $queryRaw: vi.fn(),
     project: { findUnique: vi.fn() },
@@ -22,7 +23,9 @@ const { tx, root, order, store, postDeletedAlertClose } = vi.hoisted(() => ({
   root: { auditLog: { create: vi.fn() } },
   order: [] as string[],
   store: new Map<string, Record<string, unknown>>(),
-  postDeletedAlertClose: vi.fn<(close: { actorName: string | null }) => Promise<void>>(),
+  postDeletedAlertClose: vi.fn<(close: DeletedAlertClose) => Promise<void>>(),
+  // Only reached by the one test that runs the real send.
+  slack: { resolveAlertChannel: vi.fn(), postMessage: vi.fn() },
 }));
 vi.mock("@traceroot/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@traceroot/core")>()),
@@ -34,6 +37,12 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
     },
     auditLog: root.auditLog,
   },
+  decryptKey: (cipher: string) => `decrypted(${cipher})`,
+}));
+vi.mock("@traceroot/slack", () => ({
+  resolveAlertChannel: slack.resolveAlertChannel,
+  createSlackClient: () => ({ chat: { postMessage: slack.postMessage } }),
+  buildAlertClosedBlocks: () => ({ blocks: [], color: "#1a7f4e", text: "[OK] P95 latency" }),
 }));
 vi.mock("@/lib/alerts/post-deleted-close", () => ({ postDeletedAlertClose }));
 import { deleteAlert, setAlertStatus, updateAlert } from "./alerts";
@@ -149,6 +158,8 @@ beforeEach(() => {
     return { count: rows.length };
   });
   postDeletedAlertClose.mockReset();
+  slack.resolveAlertChannel.mockReset();
+  slack.postMessage.mockReset();
   postDeletedAlertClose.mockImplementation(async () => {
     order.push("slack");
   });
@@ -826,6 +837,36 @@ describe("deleteAlert", () => {
       await remove();
       expect(postDeletedAlertClose).not.toHaveBeenCalled();
     });
+  });
+
+  it("still deletes, audits and answers ok when Slack refuses the close", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/alerts/post-deleted-close")>(
+      "@/lib/alerts/post-deleted-close",
+    );
+    postDeletedAlertClose.mockImplementationOnce(actual.postDeletedAlertClose);
+    slack.resolveAlertChannel.mockResolvedValueOnce({
+      ok: true,
+      target: { channelId: "C_ALERTS", encryptedBotToken: "enc-token" },
+    });
+    slack.postMessage.mockRejectedValueOnce(new Error("channel_not_found"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAccess();
+
+    expect(await remove()).toEqual({
+      ok: true,
+      data: { id: "alert-1", name: "P95 latency" },
+      reason: "the rule was replaced by a detector",
+      pageCleared: true,
+    });
+
+    expect(slack.postMessage).toHaveBeenCalledTimes(1);
+    expect(store.has("alert-1")).toBe(false);
+    expect(root.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("deleted close not sent alert=alert-1 project=p1"),
+      expect.any(Error),
+    );
+    logged.mockRestore();
   });
 
   it("404s when the row vanishes between the read and the delete", async () => {
