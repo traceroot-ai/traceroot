@@ -28,6 +28,8 @@ const ALLOWED: Record<string, string> = {
     "Approves the agent's pending write; the write runs as the caller and the write service requires MEMBER.",
   "POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages":
     "Sends a message in the caller's own chat. Viewers may chat; demoAgentWriteDenied blocks demo viewers.",
+  "DELETE /api/projects/[projectId]/api-keys/[keyId]":
+    "Not open to viewers: revokeProjectAccessKey (lib/revoke-access-key.ts) requires ADMIN, shared with the CLI revoke.",
   "POST /api/workspaces": "Any signed-in user may create their own workspace.",
   "POST /api/github/callback": "OAuth callback; the install flow checks the role before it starts.",
 };
