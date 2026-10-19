@@ -185,10 +185,17 @@ describe("useAiChat session switching", () => {
     expect(result.current.sessions.map((session) => session.id)).toEqual(
       DEMO_EXAMPLES.map(({ session }) => session.id),
     );
+    // Picking an example closes History; the list that lands later must not
+    // open it again over the transcript.
+    await act(async () => {
+      await result.current.handleSelectSession(result.current.sessions[0]);
+    });
+    expect(result.current.historyOpen).toBe(false);
     release();
     await act(async () => {
       await opening;
     });
+    expect(result.current.historyOpen).toBe(false);
   });
 
   it("keeps the demo example in History after opening RCA and returning Home", async () => {
