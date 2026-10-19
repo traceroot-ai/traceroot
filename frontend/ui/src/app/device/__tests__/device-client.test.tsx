@@ -22,6 +22,14 @@ const mocks = vi.hoisted(() => ({
 // would prove nothing about the real payload.
 const READY_WORKSPACE = { id: "ws-1", name: "Acme", role: "ADMIN", project_count: 1 };
 const EMPTY_WORKSPACE = { id: "ws-empty", name: "Acme", role: "ADMIN", project_count: 0 };
+// Every account joins the public demo as a VIEWER at sign-up, and it has a project.
+const DEMO_WORKSPACE = {
+  id: "ws-demo",
+  name: "TraceRoot Demo",
+  role: "VIEWER",
+  project_count: 1,
+  is_demo: true,
+};
 
 // What `authClient.signOut()` really answers with: an envelope, success or not.
 // A refusal is resolved, not thrown — a 429 arrives this way — so a handler that
@@ -233,6 +241,24 @@ describe("DeviceClient", () => {
     render(<DeviceClient />);
 
     await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
+    );
+  });
+
+  it("withholds approval from an account whose only workspace is the demo", async () => {
+    // The demo's project is not one this account can send traces to, so a new
+    // account that is only in the demo still has the CLI's next step ahead of it.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([DEMO_WORKSPACE]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
 
     expect(mocks.push).toHaveBeenCalledWith(
