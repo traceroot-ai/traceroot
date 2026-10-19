@@ -23,7 +23,7 @@ const PYTHON_INSTALL_COMMAND = "pip install traceroot";
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
-const OPENCODE_INSTALL_COMMAND = "opencode plugin add @traceroot-ai/opencode-plugin";
+const OPENCODE_INSTALL_COMMAND = "opencode plugin @traceroot-ai/opencode-plugin";
 const PI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent";
 const VERCEL_AI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot ai @ai-sdk/otel";
 
@@ -291,7 +291,9 @@ TraceRoot.initialize({
     languages: {
       typescript: {
         installCommand: OPENCODE_INSTALL_COMMAND,
-        initSnippet: `{
+        initSnippet: `// 1. Enable tracing: export TRACEROOT_ENABLED=true
+// 2. In opencode.json:
+{
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "@traceroot-ai/opencode-plugin"

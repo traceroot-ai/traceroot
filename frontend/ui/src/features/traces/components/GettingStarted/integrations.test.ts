@@ -37,8 +37,9 @@ describe("GettingStarted integrations", () => {
       logoDark: "/logo/integrations/opencode-dark.svg",
     });
     expect(opencode?.languages.typescript?.installCommand).toBe(
-      "opencode plugin add @traceroot-ai/opencode-plugin",
+      "opencode plugin @traceroot-ai/opencode-plugin",
     );
+    expect(opencode?.languages.typescript?.initSnippet).toContain("TRACEROOT_ENABLED=true");
     expect(opencode?.languages.typescript?.initSnippet).toContain(
       '"$schema": "https://opencode.ai/config.json"',
     );

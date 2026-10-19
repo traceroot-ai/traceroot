@@ -282,14 +282,13 @@ def test_npm_scoped_traceroot_emitters_are_known_no_warning(caplog):
     # "@traceroot-ai/pi-extension" (and the other @traceroot-ai/* scopes) start
     # with "@", so the bare "traceroot" prefix never matched them and every
     # process logged a spurious unknown-emitter warning for our own SDKs.
-    for scope in ("@traceroot-ai/pi-extension", "@traceroot-ai/opencode-plugin"):
-        with caplog.at_level(logging.WARNING):
-            b = normalize_token_usage(
-                scope,
-                input_tokens=3,
-                output_tokens=224,
-                cache_read_tokens=0,
-                cache_write_tokens=3326,
-            )
-        assert b == TokenBuckets(input_uncached=0, output=224, cache_read=0, cache_write=3326)
-        assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+    with caplog.at_level(logging.WARNING):
+        b = normalize_token_usage(
+            "@traceroot-ai/pi-extension",
+            input_tokens=3,
+            output_tokens=224,
+            cache_read_tokens=0,
+            cache_write_tokens=3326,
+        )
+    assert b == TokenBuckets(input_uncached=0, output=224, cache_read=0, cache_write=3326)
+    assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)

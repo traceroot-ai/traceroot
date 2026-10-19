@@ -68,8 +68,7 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     "logfire",
     "traceroot",
     # npm-scoped traceroot emitters: @traceroot-ai/pi-extension,
-    # @traceroot-ai/claude-agent-sdk, @traceroot-ai/pi-coding-agent,
-    # @traceroot-ai/opencode-plugin. "traceroot"
+    # @traceroot-ai/claude-agent-sdk, @traceroot-ai/pi-coding-agent. "traceroot"
     # above does not prefix-match the leading "@".
     "@traceroot-ai/",
 )
