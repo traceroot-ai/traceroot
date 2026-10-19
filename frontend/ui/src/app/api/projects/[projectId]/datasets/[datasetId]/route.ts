@@ -134,8 +134,9 @@ async function handlePATCH(req: NextRequest, { params }: RouteParams) {
     });
     return successResponse({ dataset });
   } catch (e) {
-    // A rename racing a concurrent create/rename to the same name loses to the partial
-    // unique index (uq_dataset_project_lower_name_ui); surface the same 409 as the pre-check.
+    // The partial unique index (uq_dataset_project_lower_name_ui) covers only legacy rows
+    // with a null clientDatasetId, so this race backstop applies to those alone; for other
+    // datasets the pre-check above is the only name guard. Surface the same 409 as it.
     if (parsed.data.name !== undefined && isPrismaKnownError(e, "P2002")) {
       return errorResponse(
         `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
