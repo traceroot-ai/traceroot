@@ -38,7 +38,8 @@ def extract_snippets_from_examples() -> dict[str, dict[str, str]]:
         if file_path.suffix not in (".py", ".ts", ".js"):
             continue
         # Skip node_modules and hidden files
-        if "node_modules" in file_path.parts or any(p.startswith(".") for p in file_path.parts):
+        rel_parts = file_path.relative_to(REPO_ROOT).parts
+        if "node_modules" in rel_parts or any(p.startswith(".") for p in rel_parts):
             continue
 
         try:
