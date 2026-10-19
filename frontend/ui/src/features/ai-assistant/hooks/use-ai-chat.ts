@@ -525,15 +525,23 @@ export function useAiChat({
 
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
-    setHistoryOpen(true);
+    // A demo visitor's History leads with the bundled examples, which need no
+    // request, so it opens at once, even if the list request fails. The list
+    // is cleared first: the last one can belong to another project. Everyone
+    // else sees History only when this project's list has arrived.
+    if (demoReadOnly) {
+      setSessions([]);
+      setHistoryOpen(true);
+    }
     try {
       const res = await fetch(`/api/projects/${projectId}/ai/sessions`);
       const data = await res.json();
       setSessions(data.sessions || []);
+      setHistoryOpen(true);
     } catch (err) {
       console.error(err);
     }
-  }, [projectId]);
+  }, [projectId, demoReadOnly]);
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {

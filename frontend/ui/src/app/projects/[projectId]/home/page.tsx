@@ -17,7 +17,8 @@ import { DEMO_AGENT_SEND_DENIED } from "@/features/ai-assistant/constants";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 
 // Starter prompts shown while the current session has no messages. Clicking
-// one sends it immediately through the same send path as the message input.
+// one sends it immediately through the same send path as the message input;
+// for a read-only demo visitor, it shows the read-only message instead.
 const STARTER_PROMPTS = [
   { icon: TriangleAlert, text: "Investigate the most recent errored trace" },
   { icon: MessagesSquare, text: "Summarize today's sessions" },
@@ -81,7 +82,9 @@ export default function HomePage() {
   // Rendered by the panel, vertically centered in the empty message region
   // (between the toolbar and the input). Suppressed during a session handoff
   // so the greeting can't flash while the handed-off session's messages load;
-  // the panel itself hides it as soon as the conversation has messages.
+  // the panel itself hides it as soon as the conversation has messages. Also
+  // suppressed while the demo access check runs, so the starter prompts never
+  // show as runnable before we know whether the visitor is read-only.
   const greeting =
     aiInitialSessionId || accessLoading ? undefined : (
       <div className="text-center">

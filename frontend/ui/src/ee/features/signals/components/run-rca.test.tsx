@@ -91,3 +91,14 @@ it("hides execution for a read-only demo visitor", () => {
   expect(screen.getByText("Demo analyses are read-only.")).toBeTruthy();
   expect(mocks.mutate).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["pending", "Analyzing affected traces…"],
+  ["failed", "The last analysis failed."],
+])("still tells a read-only demo visitor that the analysis is %s", (state, line) => {
+  mocks.readOnly = true;
+  render(<RunRca projectId="p1" signalId="s1" state={state} available />);
+  expect(screen.getByText(line)).toBeTruthy();
+  expect(screen.getByText("Demo analyses are read-only.")).toBeTruthy();
+  expect(screen.queryByRole("button")).toBeNull();
+});

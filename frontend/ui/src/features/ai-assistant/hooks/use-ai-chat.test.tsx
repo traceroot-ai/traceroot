@@ -130,6 +130,67 @@ describe("useAiChat session switching", () => {
     );
   };
 
+  /** Holds every GET of a session list until the returned function is called. */
+  const holdSessionLists = () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answer = fetchMock.getMockImplementation() as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET" && String(input).endsWith("/ai/sessions")) await held;
+      return answer(input, init);
+    });
+    return release;
+  };
+
+  it("opens History for an ordinary member only when this project's list has arrived", async () => {
+    const release = holdSessionLists();
+    const { result } = renderChat();
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleOpenHistory();
+    });
+    expect(result.current.historyOpen).toBe(false);
+    release();
+    await act(async () => {
+      await opening;
+    });
+    expect(result.current.historyOpen).toBe(true);
+    expect(result.current.sessions).toEqual([sessionB]);
+  });
+
+  it("opens a demo visitor's History at once, without the last project's list", async () => {
+    const { result, rerender } = renderHook(
+      ({ projectId, demoReadOnly }: { projectId: string; demoReadOnly: boolean }) =>
+        useAiChat({ projectId, demoReadOnly }),
+      { wrapper, initialProps: { projectId: "own", demoReadOnly: false } },
+    );
+    await act(async () => {
+      await result.current.handleOpenHistory();
+    });
+    expect(result.current.sessions).toEqual([sessionB]);
+    act(() => result.current.setHistoryOpen(false));
+
+    rerender({ projectId: "demo", demoReadOnly: true });
+    const release = holdSessionLists();
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleOpenHistory();
+    });
+    expect(result.current.historyOpen).toBe(true);
+    expect(result.current.sessions.map((session) => session.id)).toEqual(
+      DEMO_EXAMPLES.map(({ session }) => session.id),
+    );
+    release();
+    await act(async () => {
+      await opening;
+    });
+  });
+
   it("keeps the demo example in History after opening RCA and returning Home", async () => {
     const { result, rerender } = renderHook(
       ({ initialSessionId }: { initialSessionId?: string }) =>

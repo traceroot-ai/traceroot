@@ -291,37 +291,37 @@ export function AiAssistantPanel({
           />
         )}
 
-        {/* Input */}
-        {!accessLoading && (
-          <MessageInput
-            onSend={handleSend}
-            modelSelection={modelSelection}
-            onModelChange={setModelSelection}
-            disabled={!projectId || (!readOnly && !hasModels)}
-            blockedReason={readOnly ? DEMO_AGENT_SEND_DENIED : undefined}
-            workspaceId={workspaceId}
-            // While a proposal awaits a decision, a typed reply revises it —
-            // except a delete, which a reply skips; the bar says so instead.
-            placeholder={
-              hasPendingDecision && pendingDecision?.approvalClass !== "approval"
-                ? "Reply to revise"
-                : undefined
-            }
-            actions={
-              canInteract &&
-              isStreaming && (
-                <button
-                  onClick={handleAbort}
-                  className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Stop generation"
-                >
-                  <Square className="h-3 w-3 fill-current" />
-                  Stop
-                </button>
-              )
-            }
-          />
-        )}
+        {/* Input. It stays mounted while the demo access check runs, so the
+            layout does not jump, but it is disabled until we know whether
+            the visitor is read-only. */}
+        <MessageInput
+          onSend={handleSend}
+          modelSelection={modelSelection}
+          onModelChange={setModelSelection}
+          disabled={accessLoading || !projectId || (!readOnly && !hasModels)}
+          blockedReason={readOnly ? DEMO_AGENT_SEND_DENIED : undefined}
+          workspaceId={workspaceId}
+          // While a proposal awaits a decision, a typed reply revises it —
+          // except a delete, which a reply skips; the bar says so instead.
+          placeholder={
+            hasPendingDecision && pendingDecision?.approvalClass !== "approval"
+              ? "Reply to revise"
+              : undefined
+          }
+          actions={
+            canInteract &&
+            isStreaming && (
+              <button
+                onClick={handleAbort}
+                className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Stop generation"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                Stop
+              </button>
+            )
+          }
+        />
       </div>
       {projectId && (
         <AgentTraceSheet
