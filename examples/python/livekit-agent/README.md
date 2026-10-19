@@ -46,5 +46,4 @@ LiveKit currently emits an `agent_turn` span for each completed turn. Voice runs
 also emit `user_turn` spans for user input.
 
 The demo agent exposes an `add_numbers` function tool. The default command asks
-"what is 12 plus 30?" automatically to generate a tool call span during an
-apple-to-apple comparison run.
+"what is 12 plus 30?" automatically to generate a tool call span.
