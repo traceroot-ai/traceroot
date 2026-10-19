@@ -95,8 +95,9 @@ async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   if (parsed.data.name !== undefined) {
     const clash = await prisma.dataset.findFirst({
       where: {
+        // Every dataset, not only legacy UI rows with a null clientDatasetId: datasets
+        // created in the UI now carry a ds_ client id too, so that scope matched nothing.
         projectId,
-        clientDatasetId: null, // UI-scoped, matching the partial unique index
         id: { not: datasetId },
         name: { equals: parsed.data.name, mode: "insensitive" as const },
       },

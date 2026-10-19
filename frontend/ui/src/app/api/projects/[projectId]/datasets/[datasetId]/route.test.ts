@@ -267,10 +267,37 @@ describe("PATCH", () => {
       .find((a) => "name" in a.where)!;
     expect(clashCall.where).toEqual({
       projectId: "p1",
-      clientDatasetId: null,
       id: { not: "ds1" },
       name: { equals: "support", mode: "insensitive" },
     });
+  });
+
+  it("409s a rename onto another dataset's name when both carry a ds_ client id", async () => {
+    // Datasets created in the UI get a non-null clientDatasetId, so a clash check scoped to
+    // null ids never finds them. The mock answers the query the route actually sends.
+    const rows = [
+      { id: "ds1", projectId: "p1", name: "Alpha", clientDatasetId: "ds_alpha" },
+      { id: "ds2", projectId: "p1", name: "Beta", clientDatasetId: "ds_beta" },
+    ];
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) => {
+        if (!("name" in where)) return rows[0];
+        const name = (where.name as { equals: string }).equals.toLowerCase();
+        return (
+          rows.find(
+            (r) =>
+              r.projectId === where.projectId &&
+              r.id !== (where.id as { not: string }).not &&
+              (!("clientDatasetId" in where) || r.clientDatasetId === where.clientDatasetId) &&
+              r.name.toLowerCase() === name,
+          ) ?? null
+        );
+      },
+    );
+    const res = await PATCH(jsonReq({ name: "beta" }), params);
+    expect(res.status).toBe(409);
+    expect((await body(res)).error).toContain('A dataset named "Beta" already exists');
+    expect(prismaMock.dataset.update).not.toHaveBeenCalled();
   });
 
   it("409s when a concurrent write wins the rename race (P2002 from the unique index)", async () => {
