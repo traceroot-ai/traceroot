@@ -157,6 +157,10 @@ const notifyWrites = () =>
     .map(([args]) => args)
     .filter((args) => "lastNotifyStatus" in args.data);
 
+/** The writes that record whether the channel has seen the rule's current breach. */
+const deliveryWrites = () =>
+  alertUpdateMany.mock.calls.map(([args]) => args).filter((args) => "pageDeliveredAt" in args.data);
+
 const stateWrites = () =>
   alertUpdateMany.mock.calls.map(([args]) => args).filter((args) => "severity" in args.data);
 
@@ -348,6 +352,65 @@ describe("sendAlertNotification", () => {
     expect(write.data.lastNotifyAt).toBeInstanceOf(Date);
     // A sent page is never taken back.
     expect(stateWrites()).toHaveLength(0);
+  });
+
+  describe("whether the channel has seen the breach", () => {
+    // Placed by the alertedAt the emission stamped, so a delivery that settles after
+    // the rule moved on, was reset or was deleted writes nothing.
+    const emitted = { id: "al_1", alertedAt: new Date(emission.evaluatedAt) };
+
+    it.each(["ALERT", "NO_DATA"] as const)(
+      "marks it seen once Slack accepts a %s page, at the delivery's own instant",
+      async (severity) => {
+        alertFindUnique.mockResolvedValue(alertRow({ severity }));
+        const { sendAlertNotification } = await importModule();
+        await sendAlertNotification({ ...compensableJob, severity });
+
+        expect(deliveryWrites()).toHaveLength(1);
+        const [write] = deliveryWrites();
+        expect(write.where).toEqual(emitted);
+        expect(write.data.pageDeliveredAt).toBeInstanceOf(Date);
+        expect(write.data.pageDeliveredAt).toBe(notifyWrites()[0].data.lastNotifyAt);
+      },
+    );
+
+    it("clears it once the recovery is delivered, only while the row is that recovery", async () => {
+      alertFindUnique.mockResolvedValue(alertRow({ severity: "OK" }));
+      const { sendAlertNotification } = await importModule();
+      await sendAlertNotification({ ...compensableJob, severity: "OK", previousSeverity: "ALERT" });
+
+      expect(deliveryWrites()).toEqual([
+        { where: { ...emitted, severity: "OK" }, data: { pageDeliveredAt: null } },
+      ]);
+    });
+
+    it("records nothing for a job queued before the emission claim existed", async () => {
+      const { sendAlertNotification } = await importModule();
+      await sendAlertNotification(job);
+
+      expect(postMessage).toHaveBeenCalledTimes(1);
+      expect(deliveryWrites()).toHaveLength(0);
+    });
+
+    it("records nothing for a page Slack did not accept", async () => {
+      slackRefuses();
+      const { sendAlertNotification } = await importModule();
+      await sendAlertNotification(compensableJob);
+
+      expect(deliveryWrites()).toHaveLength(0);
+    });
+
+    it("keeps the delivery when the flag cannot be written", async () => {
+      alertUpdateMany.mockImplementation(async (args) => {
+        if ("pageDeliveredAt" in args.data) throw new Error("pool exhausted");
+        return { count: 1 };
+      });
+      const { sendAlertNotification } = await importModule();
+
+      await expect(sendAlertNotification(compensableJob)).resolves.toBeUndefined();
+      expect(notifyWrites()[0].data.lastNotifyStatus).toBe("DELIVERED");
+      expect(stateWrites()).toHaveLength(0);
+    });
   });
 
   it("gives the page back when the project it belonged to is gone", async () => {

@@ -284,6 +284,10 @@ function auditEntry(
  * Only into an empty marker. A close still waiting to go out is for the page
  * the channel actually saw, and a second edit before then has no page of its
  * own to close, so the first marker is the one that stands.
+ *
+ * Callers leave one only when the discarded breach's page reached Slack
+ * (`pageDeliveredAt`): a page still retrying when the state is voided is then
+ * dropped as superseded, and an [OK] for it would close nothing the channel saw.
  */
 async function leavePendingClose(
   tx: Tx,
@@ -336,7 +340,7 @@ export async function updateAlert(input: {
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: alertSelect,
+      select: { ...alertSelect, pageDeliveredAt: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -449,7 +453,9 @@ export async function updateAlert(input: {
 
     const stateReset = rewritesRule || reArmed;
     const pageCleared = stateReset && hasOutstandingAlertPage(existing);
-    if (pageCleared) await leavePendingClose(tx, input, "edited", input.actorUserId);
+    if (pageCleared && existing.pageDeliveredAt !== null) {
+      await leavePendingClose(tx, input, "edited", input.actorUserId);
+    }
 
     const alert = await tx.alert.findFirst({
       where: { id: alertId, projectId },
@@ -505,7 +511,7 @@ export async function setAlertStatus(input: {
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: alertSelect,
+      select: { ...alertSelect, pageDeliveredAt: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
     if (existing.status === status) {
@@ -563,7 +569,9 @@ export async function setAlertStatus(input: {
     }
     const stateReset = status === "ACTIVE";
     const pageCleared = stateReset && hasOutstandingAlertPage(existing);
-    if (pageCleared) await leavePendingClose(tx, input, "resumed", input.actorUserId);
+    if (pageCleared && existing.pageDeliveredAt !== null) {
+      await leavePendingClose(tx, input, "resumed", input.actorUserId);
+    }
     return {
       result: {
         ok: true,
