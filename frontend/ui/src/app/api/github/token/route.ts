@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, verifyInternalSecret } from "@/lib/auth-helpers";
+import { isDemoViewer, DEMO_VIEWER_FORBIDDEN } from "@/lib/demo-workspace";
 import { getInstallationToken } from "@traceroot/github";
 
 /**
@@ -37,6 +38,9 @@ async function handleGET(request: NextRequest) {
         Role.MEMBER,
       );
       if (memberCheck.error) return memberCheck.error;
+      if (isDemoViewer(workspaceId, memberCheck.membership.role)) {
+        return NextResponse.json({ error: DEMO_VIEWER_FORBIDDEN }, { status: 403 });
+      }
     }
 
     const repo = request.nextUrl.searchParams.get("repo");

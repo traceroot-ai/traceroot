@@ -9,6 +9,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 import { captureServerEvent } from "@/lib/posthog-server";
 
 const createAccessKeySchema = z.object({
@@ -28,6 +29,9 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const accessKeys = await prisma.accessKey.findMany({
     where: { projectId },
@@ -64,6 +68,9 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   let body: unknown;
   try {

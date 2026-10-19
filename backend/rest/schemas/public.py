@@ -215,6 +215,13 @@ class WorkspaceListItem(BaseModel):
     id: str
     name: str
     role: str
+    is_demo: bool = Field(
+        default=False,
+        description=(
+            "True for the public demo workspace, which every user can read. It is "
+            "listed last and is not one of the user's own workspaces."
+        ),
+    )
 
 
 class PublicWorkspaceListResponse(BaseModel):
@@ -235,6 +242,9 @@ class ProjectListItem(BaseModel):
     name: str
     workspace_id: str
     workspace_name: str
+    workspace_is_demo: bool = Field(
+        default=False, description="True when the project is in the public demo workspace."
+    )
 
 
 class PublicProjectListResponse(BaseModel):
