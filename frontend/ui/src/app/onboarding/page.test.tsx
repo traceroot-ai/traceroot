@@ -44,6 +44,8 @@ const mocks = vi.hoisted(() => ({
 const READY_WORKSPACE = { id: "ws-existing", name: "Example", role: "ADMIN", project_count: 1 };
 const EMPTY_WORKSPACE = { id: "ws-empty", name: "Example", role: "ADMIN", project_count: 0 };
 const VIEWER_EMPTY_WORKSPACE = { ...EMPTY_WORKSPACE, role: "VIEWER" };
+// Every account joins the public demo as a VIEWER at sign-up, and it has a project.
+const DEMO_WORKSPACE = { ...READY_WORKSPACE, id: "ws-demo", role: "VIEWER", is_demo: true };
 
 // Shaped like better-auth's client results (see @better-fetch/fetch): a cleared
 // session, and a sign-out the server answered with an error.
@@ -686,6 +688,18 @@ describe("OnboardingPage", () => {
     await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("shows the form to an account whose only workspace is the demo", async () => {
+    // A new account arrives here already in the demo. If its project counted,
+    // this page would send the account to /workspaces, where it has nothing of
+    // its own, and it would never see the form.
+    mocks.getWorkspaces.mockResolvedValue([DEMO_WORKSPACE]);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("Acme Inc")).toBeDefined();
   });
 
   it("sends an already-onboarded account with nobody waiting to its workspaces", async () => {
