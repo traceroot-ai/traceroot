@@ -44,6 +44,35 @@ describe("downloadOneTrace", () => {
     expect(url).toContain("?fields=full");
     expect(result.spanCount).toBe(1);
   });
+
+  it.each([
+    "victim-trace?fields=full#",
+    "x/../../../victim-project/traces/victim-trace",
+    "..\\..\\..\\victim-project\\traces\\victim-trace",
+    "%2e%2e%2fvictim-project%2ftraces%2fvictim-trace",
+  ])("keeps a model-supplied trace ID in one path segment: %s", async (traceId) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ spans: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await downloadOneTrace(traceId, "/workspace/traces", "proj-1", "user-1", executor);
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    const prefix = "/api/v1/projects/proj-1/traces/";
+    expect(url.pathname).toBe(`${prefix}${encodeURIComponent(traceId)}`);
+    expect(decodeURIComponent(url.pathname.slice(prefix.length))).toBe(traceId);
+    expect(url.hash).toBe("");
+    expect([...url.searchParams]).toEqual([["fields", "full"]]);
+  });
+
+  it.each([".", ".."])("rejects a dot segment trace ID before fetching: %s", async (traceId) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      downloadOneTrace(traceId, "/workspace/traces", "proj-1", "user-1", executor),
+    ).rejects.toThrow("Invalid trace ID");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("createDownloadTracesTool", () => {
