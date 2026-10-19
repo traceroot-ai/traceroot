@@ -1089,7 +1089,9 @@ model Alert {
   // delivery worker for an ALERT or a paged NO_DATA, and cleared when the recovery
   // is delivered or the state is reset. Only a delivered page gets a close: an
   // [OK] for an [ALERT] the channel never saw reads as noise. Null for a rule
-  // whose current breach, if any, has not reached Slack.
+  // whose current breach, if any, has not reached Slack. Not backfilled: a breach
+  // already open when the column shipped reads null until its next delivered page
+  // (a renotify or the next breach), so an edit or resume before then closes nothing.
   pageDeliveredAt    DateTime? @map("page_delivered_at") @db.Timestamp(6)
   // Null `nextRunAt` means due immediately; `lastClaimedAt` is the CAS token a
   // completing tick writes back against.

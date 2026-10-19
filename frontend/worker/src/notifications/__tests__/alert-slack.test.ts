@@ -408,6 +408,10 @@ describe("sendAlertNotification", () => {
       const { sendAlertNotification } = await importModule();
 
       await expect(sendAlertNotification(compensableJob)).resolves.toBeUndefined();
+      expect(logError).toHaveBeenCalledWith(
+        expect.stringContaining("page delivery write failed alert=al_1"),
+        expect.any(Error),
+      );
       expect(notifyWrites()[0].data.lastNotifyStatus).toBe("DELIVERED");
       expect(stateWrites()).toHaveLength(0);
     });
