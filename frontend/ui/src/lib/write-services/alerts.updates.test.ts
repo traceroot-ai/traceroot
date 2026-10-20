@@ -853,12 +853,27 @@ describe("deleteAlert", () => {
         row({
           severity: "UNKNOWN",
           alertedAt: null,
+          // The edit's reset cleared it; the edit checked it before leaving the marker.
+          pageDeliveredAt: null,
           pendingClose: { reason: "edited", actorUserId: "u1", at: T0.toISOString() },
         }),
       );
       // The edit already discarded the page, so this delete reports none of its own.
       expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
       expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends nothing for a page that never reached Slack, though the page is still cleared", async () => {
+      mockAccess();
+      // Still retrying when the rule is deleted: the job then stops on alert-deleted,
+      // so an [OK] would close an [ALERT] the channel never saw.
+      store.set("alert-1", row({ pageDeliveredAt: null }));
+
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: true });
+      expect(postDeletedAlertClose).not.toHaveBeenCalled();
+      expect(store.has("alert-1")).toBe(false);
+      // Read under the lock with the rest of the state it decides from.
+      expect(tx.alert.findFirst.mock.calls[0][0].select).toMatchObject({ pageDeliveredAt: true });
     });
 
     it("sends nothing when no page was open and no close was waiting", async () => {
