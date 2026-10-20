@@ -30,7 +30,19 @@ interface PrismaUpdateArgs {
   data: Record<string, unknown>;
 }
 
-vi.mock("@traceroot/slack", () => ({
+// The installer is built from these at import, and the real channel lookup below
+// pulls the package in.
+vi.hoisted(() => {
+  process.env.SLACK_CLIENT_ID ??= "test-client-id";
+  process.env.SLACK_CLIENT_SECRET ??= "test-client-secret";
+  process.env.SLACK_STATE_SECRET ??= "test-state-secret";
+});
+
+// The channel lookup stays real: it reads the project through the Prisma mock
+// below, so the rows each test sets are the ones it resolves from.
+vi.mock("@traceroot/slack", async (importOriginal) => ({
+  resolveAlertChannel: (await importOriginal<typeof import("@traceroot/slack")>())
+    .resolveAlertChannel,
   createSlackClient: (token: string) => createSlackClient(token),
   buildAlertBlocks: (params: unknown) => buildAlertBlocks(params),
   buildAlertClosedBlocks: (params: unknown) => buildAlertClosedBlocks(params),
@@ -871,12 +883,17 @@ describe("sendAlertClose", () => {
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("drops the close of a deleted rule, which has no page left to close", async () => {
+  it("posts an edit's close whose rule was deleted before the job ran", async () => {
+    // The take cleared the marker, so the delete found no close of its own to send:
+    // this job is the only close the page gets.
     alertFindUnique.mockResolvedValue(null);
     const { sendAlertClose } = await importModule();
     await sendAlertClose(closeJob);
 
-    expect(postMessage).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(buildAlertClosedBlocks).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "edited" }),
+    );
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
