@@ -25,7 +25,7 @@ from rest.routers.public.deps import KeyStampedAuth, parse_scope
 from rest.schemas.public import WhoamiResponse
 from shared.config import settings
 
-router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
+router = APIRouter(prefix="/public/whoami", tags=["Whoami"])
 
 
 @router.get("", response_model=WhoamiResponse, operation_id="whoami")

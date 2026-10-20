@@ -526,8 +526,8 @@ const ToolStepEntry = memo(function ToolStepEntry({
     () => (step.pending ? pendingCardModel(step, projectId, retentionDays, known) : null),
     [step, projectId, retentionDays, known],
   );
-  // A read whose result carries card details (the alert reads) becomes its
-  // card: rows for a list, the alert's own card for a detail.
+  // A read whose result carries card details becomes its card: rows for an
+  // alert list, the resource's own card for an alert, widget or dashboard.
   const readCard = useMemo(
     () => (pendingCard !== null ? null : readCardModel(step, projectId, retentionDays)),
     [pendingCard, step, projectId, retentionDays],
@@ -554,7 +554,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
             <PendingResourceCard model={pendingCard} />
           ) : readCard?.kind === "alert_list" ? (
             <AlertListCard model={readCard.model} />
-          ) : readCard?.kind === "alert" ? (
+          ) : readCard ? (
             <ResourceCard model={readCard.model} />
           ) : card ? (
             <ResourceCard model={card} />
