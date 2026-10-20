@@ -281,7 +281,7 @@ describe("OnboardingPage", () => {
 
     expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
     expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "my-llm-project");
-    expect(shownCommand()).toContain("npx -y traceroot-cli@latest setup");
+    expect(shownCommand()).toContain("npx -y traceroot-cli@0.6.0 setup");
     expect(shownCommand()).toContain("--project proj-1");
     expect(mocks.push).not.toHaveBeenCalled();
   });

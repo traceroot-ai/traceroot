@@ -8,8 +8,7 @@
  * which row in it is the trace the run produced.
  *
  * So this module takes project ids and never discovers them. Deciding what to
- * watch — and in what order — is the caller's, because only the caller knows
- * how firmly it can bind a trace to its own run.
+ * watch is the caller's.
  *
  * Everything here is a read, so a wait that finds nowhere to look simply finds
  * nothing.
@@ -32,8 +31,8 @@ const PROBE_PAGE_SIZE = 10;
  *
  * `unknown` is its own answer rather than a missing entry, because absence from
  * the baseline means something else entirely — it means the project did not
- * exist yet — and conflating the two would rank a project we merely failed to
- * read above a project the terminal actually just created.
+ * exist yet, so anything in it qualifies — and conflating the two would let a
+ * project we merely failed to read match a trace that was already there.
  */
 export type BaselineEntry =
   | { kind: "newest"; at: string }
@@ -165,39 +164,26 @@ function firstTraceAfter(traces: TraceListItem[], cut: string | null): TraceList
 }
 
 /**
- * One round of looking: the first trace to arrive in any of `projectIds` since
- * the baseline was taken, or null when none has.
+ * One round of looking: the first trace to arrive in `projectId` since the
+ * baseline was taken, or null when none has.
  *
- * The ids are searched in the order given and the first match wins, so a caller
- * that can rank its candidates should rank them before calling. A caller
- * watching exactly one project has nothing to rank and gets the only answer
- * there is.
+ * A read that fails is thrown rather than answered with null. Null says the
+ * project was read and nothing new was in it, which a failed read cannot say.
  */
 export async function findFirstTrace(
-  projectIds: string[],
+  projectId: string,
   baseline: TraceBaseline,
   user: TraceApiUser | undefined,
 ): Promise<FirstTrace | null> {
-  for (const projectId of projectIds) {
-    const entry = baseline.get(projectId);
-    if (entry?.kind === "unknown") {
-      // No line to compare against, so any trace here could be one that was
-      // already present. Skipped until the baseline for it settles.
-      continue;
-    }
-    let traces: TraceListItem[];
-    try {
-      traces = await probeTraces(projectId, user, PROBE_PAGE_SIZE);
-    } catch {
-      // One unreadable project does not end the round; another may hold the trace.
-      continue;
-    }
-    const match = firstTraceAfter(traces, entry?.kind === "newest" ? entry.at : null);
-    if (match) {
-      return { projectId, traceId: match.trace_id };
-    }
+  const entry = baseline.get(projectId);
+  if (entry?.kind === "unknown") {
+    // No line to compare against, so any trace here could be one that was
+    // already present. Skipped until the baseline for it settles.
+    return null;
   }
-  return null;
+  const traces = await probeTraces(projectId, user, PROBE_PAGE_SIZE);
+  const match = firstTraceAfter(traces, entry?.kind === "newest" ? entry.at : null);
+  return match ? { projectId, traceId: match.trace_id } : null;
 }
 
 /** The dashboard's deep link to one trace, the destination a finished wait offers. */
