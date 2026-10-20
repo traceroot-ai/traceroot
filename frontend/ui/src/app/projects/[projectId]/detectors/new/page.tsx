@@ -25,6 +25,7 @@ import {
 import { SignalsCard } from "@/features/detectors/components/signals-card";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { ApiError } from "@/lib/api/client";
 
 export default function NewDetectorPage() {
   const params = useParams();
@@ -83,11 +84,19 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    try {
+      await createMutation.mutateAsync(input);
+      router.push(`/projects/${projectId}/detectors`);
+    } catch {
+      // Handled by createMutation.isError and displayed under Name input
+    }
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
+
+  const isDuplicateNameError = Boolean(
+    createMutation.isError && (createMutation.error as ApiError | null)?.status === 409,
+  );
 
   // Block Create while a filter row is incomplete (missing value or metadata
   // key) — the write path rejects such payloads with a message the fetch
@@ -144,11 +153,19 @@ export default function NewDetectorPage() {
                   onChange={(e) => {
                     setName(e.target.value);
                     setNameEdited(true);
+                    if (createMutation.isError) {
+                      createMutation.reset();
+                    }
                   }}
                   placeholder="e.g. error detector"
                   className="h-7 text-[13px]"
                   required
                 />
+                {isDuplicateNameError && (
+                  <p className="mt-1.5 text-[12px] text-destructive">
+                    {createMutation.error?.message}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -232,6 +249,11 @@ export default function NewDetectorPage() {
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 pt-1">
+              {createMutation.isError && !isDuplicateNameError && (
+                <span className="mr-auto text-[12px] text-destructive">
+                  {createMutation.error?.message}
+                </span>
+              )}
               {conditionsError && (
                 <span className="text-[12px] text-destructive">{conditionsError}</span>
               )}

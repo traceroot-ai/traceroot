@@ -166,7 +166,7 @@ describe("parseAlertPendingClose", () => {
       undefined,
       "edited",
       [marker],
-      { ...marker, reason: "deleted" },
+      { ...marker, reason: "renamed" },
       { ...marker, actorUserId: "" },
       { ...marker, at: "not a date" },
       { reason: marker.reason, actorUserId: marker.actorUserId },

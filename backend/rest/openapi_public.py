@@ -170,6 +170,10 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
         sessions_list_op["responses"].setdefault("500", _error_response("Failed to list sessions"))
+    signal_get_op = schema.get("paths", {}).get("/api/v1/public/signals/{signal_id}", {}).get("get")
+    if signal_get_op:
+        signal_get_op["responses"].setdefault("404", _error_response("Signal not found"))
+
     session_get_op = schema["paths"].get("/api/v1/public/sessions/{session_id}", {}).get("get")
     if session_get_op is not None:
         session_get_op["responses"].setdefault("404", _error_response("Session not found"))
@@ -597,6 +601,27 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "list_signals": {
+        "name": "list_signals",
+        "description": (
+            "List the project's signals, newest first: the recurring problems "
+            "that detector findings are grouped into, with status (open, "
+            "resolved, dismissed), detector, hit count, reopen count and the "
+            "state of the current root cause analysis. Filter by status or "
+            "detector_id. Merged signals are left out. Returns 50 results by default; "
+            "increment page to fetch subsequent pages until all needed signals are found."
+        ),
+        "enabled": True,
+    },
+    "get_signal": {
+        "name": "get_signal",
+        "description": (
+            "Fetch one signal by id, including when it was resolved. A merged "
+            "signal names the signal its findings moved to in merged_into_id. "
+            "Resolve the signal id by listing signals — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     # Dataset READS are tool-exposed; the dataset writes stay off the registry entirely.
     # Not because the registry cannot carry a write (it can, behind an x-tool policy
@@ -862,6 +887,22 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "verdict and cannot be requested; pausing a parked alert is a "
             "conflict, resume it to run it again. Setting the status the alert "
             "already has changes nothing."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "set_signal_status": {
+        "name": "set_signal_status",
+        "description": (
+            "Resolve or reopen a signal. Resolving needs a reason "
+            "(fixed_elsewhere, fixed_by_pr, already_fixed_before, other); "
+            "'other' also needs a note. A resolved signal opens again by itself "
+            "when its detector finds the problem in a trace that started after "
+            "the resolve. Dismissing is not possible here: a dismissed signal "
+            "never reopens, so a person dismisses in the web app. Send "
+            "expected_status to refuse the change when the status changed "
+            "since you read it (a conflict). Setting the current status "
+            "changes nothing."
         ),
         "enabled": True,
         "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},

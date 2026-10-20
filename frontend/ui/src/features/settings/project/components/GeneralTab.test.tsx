@@ -34,6 +34,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SettingsAccessGate } from "../../demo-access";
 import { GeneralTab } from "./GeneralTab";
 
 function renderTab() {
@@ -114,5 +115,25 @@ describe("GeneralTab project delete dialog", () => {
     // Verify delete was called exactly once
     expect(mocks.deleteProject).toHaveBeenCalledTimes(1);
     expect(mocks.deleteProject).toHaveBeenCalledWith("w1", "p1");
+  });
+});
+
+describe("GeneralTab inside the demo viewer read-only gate", () => {
+  it("shows the project settings but disables every input and button", () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <SettingsAccessGate access={{ mode: "read-only" }}>
+          <GeneralTab projectId="p1" />
+        </SettingsAccessGate>
+      </QueryClientProvider>,
+    );
+
+    // Browsers never deliver a click to a disabled control (jsdom's fireEvent
+    // does, so the test checks the disabled state, not a click).
+    const controls = [...screen.queryAllByRole("textbox"), ...screen.queryAllByRole("button")];
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) expect(control.matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: /delete project/i }).matches(":disabled")).toBe(true);
   });
 });
