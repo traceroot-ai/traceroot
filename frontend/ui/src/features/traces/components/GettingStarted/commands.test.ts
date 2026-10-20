@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cliHostFlags, type SetupCommand } from "./commands";
 
 /**
- * The two flags, for a configuration the panel can resolve.
+ * The two flags, for a configuration this file can resolve.
  *
  * Narrows the discriminated result so the assertions below stay about the
  * flags, and fails loudly rather than silently reading `undefined` off the
@@ -117,7 +117,7 @@ describe("cliHostFlags", () => {
     // `_` is legal in a URL host and ordinary in container and internal DNS
     // names, and it is special to no shell. When the class that vets these
     // origins excluded it, such a deployment lost both flags and the bare
-    // command the panel then rendered sent the CLI to TraceRoot Cloud.
+    // command this file then rendered sent the CLI to TraceRoot Cloud.
     expect(
       hostFlagsOf({ apiUrl: "http://app_internal:8000/api/v1", appUrl: "http://web_1:3000" }),
     ).toEqual({ host: "http://app_internal:8000", authHost: "http://web_1:3000" });
@@ -205,7 +205,7 @@ describe("cliHostFlags", () => {
 });
 
 describe("setupCommand", () => {
-  it("names the project the panel is already showing", async () => {
+  it("names the project the caller already has in hand", async () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
