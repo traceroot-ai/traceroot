@@ -125,6 +125,8 @@ Some actions start a rule fresh: its severity returns to **No Data** until the n
 
 Closing an open alert queues an `[OK]` message for Slack, normally within about a minute. It is not a recovery: it carries no measured value, and names who edited or resumed the rule. When the metric still breaches, the new `[ALERT]` follows the `[OK]`. A rule edited while paused still sends it, because the alert it closes was already announced. If Slack keeps refusing the message for about 30 minutes it is queued again, up to three more times; if no channel is set, the Slack connection is incomplete, or Slack rejected it, it is not sent again.
 
+Deleting a rule with an alert open posts the same `[OK]` right away, naming who deleted the rule when their account has a display name. It is sent once: if no channel is set or Slack does not accept it, it is not sent again, and the delete still goes through.
+
 | Action | Starts fresh |
 | --- | --- |
 | Resume | Always |
