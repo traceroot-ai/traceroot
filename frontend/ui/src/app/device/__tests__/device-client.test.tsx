@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // The mocked `device` call must carry its `.approve`/`.deny` sub-mocks from
 // the moment it's created — vi.mock's factory below runs at import time
@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   // consent screen, and consent is only reached by an account that has
   // somewhere for traces to go. The empty cases have tests of their own below.
   getWorkspaces: vi.fn(async () => [READY_WORKSPACE]),
+  // Spies, not stubs: the page ends at approval, and these prove it reads no
+  // project or trace list on the way there or after.
+  getProjects: vi.fn(async () => []),
+  getTraces: vi.fn(async () => ({ data: [], meta: { page: 0, limit: 0, total: 0 } })),
 }));
 
 // Shaped like GET /api/workspaces answers it (see app/api/workspaces/route.ts):
@@ -22,6 +26,14 @@ const mocks = vi.hoisted(() => ({
 // would prove nothing about the real payload.
 const READY_WORKSPACE = { id: "ws-1", name: "Acme", role: "ADMIN", project_count: 1 };
 const EMPTY_WORKSPACE = { id: "ws-empty", name: "Acme", role: "ADMIN", project_count: 0 };
+// Every account joins the public demo as a VIEWER at sign-up, and it has a project.
+const DEMO_WORKSPACE = {
+  id: "ws-demo",
+  name: "TraceRoot Demo",
+  role: "VIEWER",
+  project_count: 1,
+  is_demo: true,
+};
 
 // What `authClient.signOut()` really answers with: an envelope, success or not.
 // A refusal is resolved, not thrown — a 429 arrives this way — so a handler that
@@ -43,17 +55,12 @@ vi.mock("@/lib/api/workspaces", () => ({
   getWorkspaces: () => mocks.getWorkspaces(),
 }));
 
-// The approved panel watches for the run's first trace. Nothing in this file is
-// about that watch — see device-client.first-trace.test.tsx — but it must not
-// be left to a real fetch either, or these tests would depend on how jsdom
-// happens to fail one. An account with nowhere to look keeps every assertion
-// here about the phase it is testing.
 vi.mock("@/lib/api/projects", () => ({
-  getProjects: async () => [],
+  getProjects: () => mocks.getProjects(),
 }));
 
 vi.mock("@/lib/api/traces", () => ({
-  getTraces: async () => ({ data: [], meta: { page: 0, limit: 0, total: 0 } }),
+  getTraces: () => mocks.getTraces(),
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -89,6 +96,8 @@ afterEach(() => {
   mocks.device.approve.mockReset();
   mocks.getWorkspaces.mockReset();
   mocks.getWorkspaces.mockResolvedValue([READY_WORKSPACE]);
+  mocks.getProjects.mockClear();
+  mocks.getTraces.mockClear();
   mocks.device.deny.mockReset();
   mocks.signOut.mockReset();
   searchParams = new URLSearchParams();
@@ -253,6 +262,24 @@ describe("DeviceClient", () => {
     );
   });
 
+  it("withholds approval from an account whose only workspace is the demo", async () => {
+    // The demo's project is not one this account can send traces to, so a new
+    // account that is only in the demo still has the CLI's next step ahead of it.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([DEMO_WORKSPACE]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
+    );
+  });
+
   it("reaches consent when any workspace the account belongs to has a project", async () => {
     // One usable project is the whole requirement; an empty workspace sitting
     // next to it is not a reason to stop.
@@ -332,14 +359,16 @@ describe("DeviceClient", () => {
     await waitFor(() => screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    await waitFor(() => expect(screen.getByText("Approved")).toBeDefined());
+    await waitFor(() => expect(screen.getByText("Device approved")).toBeDefined());
     expect(mocks.device.approve).toHaveBeenCalledWith({ userCode: "ABCD1234" });
   });
 
-  it("ends on the terminal screen after approve, navigating nowhere", async () => {
+  it("ends at approval: says the window can close, reads no traces, opens nothing", async () => {
     // Approval is the last thing the browser does. A stale `next` on the URL —
     // a link opened from before this ordering changed — must not send the user
     // onward and create a second workspace behind the one that already exists.
+    // Nor does the page wait on the run: the terminal reports how it went, so
+    // nothing here polls for a trace or navigates to one.
     setParams({ user_code: "abcd1234", next: "/onboarding" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -352,8 +381,22 @@ describe("DeviceClient", () => {
     await waitFor(() => screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    await waitFor(() => expect(screen.getByText("Approved")).toBeDefined());
-    expect(screen.getByText("Return to your terminal to finish setting up.")).toBeDefined();
+    await waitFor(() => expect(screen.getByText("Device approved")).toBeDefined());
+    expect(screen.getByText("You can close this window now.")).toBeDefined();
+
+    // Well past any polling interval or wait budget the page could have started.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(mocks.getProjects).not.toHaveBeenCalled();
+    expect(mocks.getTraces).not.toHaveBeenCalled();
+    expect(screen.queryByText(/first trace/i)).toBeNull();
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -400,7 +443,7 @@ describe("DeviceClient", () => {
         ),
       ).toBeDefined(),
     );
-    expect(screen.queryByText("Approved")).toBeNull();
+    expect(screen.queryByText("Device approved")).toBeNull();
     // Terminal error: no looping "Try again" — the code is dead, they need a new one.
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
