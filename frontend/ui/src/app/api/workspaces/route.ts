@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { isDemoWorkspace, sortDemoLast, userMembershipWhere } from "@/lib/demo-workspace";
 
 const createWorkspaceSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -16,7 +17,7 @@ async function handleGET() {
   const { user } = authResult;
 
   const memberships = await prisma.workspaceMember.findMany({
-    where: { userId: user.id },
+    where: userMembershipWhere(user.id, "include-demo"),
     include: {
       workspace: {
         include: {
@@ -33,15 +34,21 @@ async function handleGET() {
     orderBy: { workspace: { name: "asc" } },
   });
 
-  const workspaces = memberships.map((m) => ({
-    id: m.workspace.id,
-    name: m.workspace.name,
-    role: m.role,
-    member_count: m.workspace._count.members,
-    project_count: m.workspace.projects.length,
-    projects: m.workspace.projects,
-    create_time: m.workspace.createTime,
-  }));
+  // The demo workspace comes last and is marked, so the UI never treats it as
+  // the user's own. Its member count is every user, so it is not shown.
+  const workspaces = sortDemoLast(memberships, (m) => m.workspace.id).map((m) => {
+    const isDemo = isDemoWorkspace(m.workspace.id);
+    return {
+      id: m.workspace.id,
+      name: m.workspace.name,
+      role: m.role,
+      is_demo: isDemo,
+      member_count: isDemo ? undefined : m.workspace._count.members,
+      project_count: m.workspace.projects.length,
+      projects: m.workspace.projects,
+      create_time: m.workspace.createTime,
+    };
+  });
 
   return successResponse({ workspaces });
 }
@@ -103,6 +110,7 @@ async function handlePOST(request: NextRequest) {
       id: workspace.id,
       name: workspace.name,
       role: Role.ADMIN,
+      is_demo: false,
       member_count: 1,
       project_count: 0,
       projects: [],

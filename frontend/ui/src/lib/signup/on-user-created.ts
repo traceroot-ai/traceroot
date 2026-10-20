@@ -1,12 +1,13 @@
-// Everything that follows a new account (Resend contact, welcome email, Slack
-// notice), run from better-auth's user.create.after hook. Each arm is on only
-// when its own config is set and never rejects. The contact is created before
-// the welcome because Resend delivers topic mail to non-contacts, and the
-// opt-out needs a record.
+// Everything that follows a new account (demo workspace access, Resend contact,
+// welcome email, Slack notice), run from better-auth's user.create.after hook.
+// Each arm is on only when its own config is set and never rejects. The
+// contact is created before the welcome because Resend delivers topic mail to
+// non-contacts, and the opt-out needs a record.
 import { prisma } from "@traceroot/core";
 import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
+import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
 
@@ -40,8 +41,14 @@ export async function onUserCreated(
   user: CreatedUser,
   context: { path?: string } | null,
 ): Promise<void> {
+  // Every account can look at the demo workspace, however it was created.
+  const demo = ensureDemoMembership(user.id);
+
   // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (context?.path === "/admin/create-user") return;
+  if (context?.path === "/admin/create-user") {
+    await demo;
+    return;
+  }
 
   const welcome = isProductMailConfigured()
     ? arm("welcome email", user.id, async () => {
@@ -80,5 +87,5 @@ export async function onUserCreated(
       })
     : undefined;
 
-  await Promise.all([welcome, slack]);
+  await Promise.all([demo, welcome, slack]);
 }

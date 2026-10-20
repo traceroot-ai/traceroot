@@ -25,7 +25,7 @@ from rest.routers.dashboard_read_common import run_widget_query_page
 from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.dashboards import WidgetQueryRequest, WidgetQueryResponse
 
-router = APIRouter(prefix="/public/widgets", tags=["Dashboards (Public)"])
+router = APIRouter(prefix="/public/widgets", tags=["Widgets"])
 
 
 @router.post("/query", response_model=WidgetQueryResponse, operation_id="run_widget_query")

@@ -82,6 +82,10 @@ Helpful defaults:
 - Reference the issue in the PR body when relevant, for example `Closes #581`.
 - Make sure pre-commit and the relevant tests pass before requesting review.
 
+## Integration Documentation Template
+
+Integration pages under `docs/integrations/` follow a fixed eight-section structure. See [`docs/README.md`](docs/README.md) for the template.
+
 ## License
 
 This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
