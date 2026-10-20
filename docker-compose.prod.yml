@@ -54,8 +54,9 @@ services:
       retries: 10
       start_period: 1s
 
+  # Runs PGSTY Silo, a community-maintained MinIO fork, because upstream MinIO images are no longer published.
   minio:
-    image: docker.io/minio/minio:latest
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     restart: always
     command: server /data --console-address ":9001"
     environment:
@@ -74,7 +75,7 @@ services:
       start_period: 1s
 
   minio-init:
-    image: docker.io/minio/mc:latest
+    image: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy
@@ -286,6 +287,8 @@ services:
       TRACEROOT_UPDATES_EMAIL_FROM: ${TRACEROOT_UPDATES_EMAIL_FROM:-}
       TRACEROOT_UPDATES_EMAIL_REPLY_TO: ${TRACEROOT_UPDATES_EMAIL_REPLY_TO:-}
       TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET: ${TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET:-}
+      # --- Public demo workspace (optional) ---
+      DEMO_WORKSPACE_ID: ${DEMO_WORKSPACE_ID:-}
       # --- Sign-up Slack post (optional) ---
       TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: ${TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL:-}
       POSTHOG_PERSONAL_API_KEY: ${POSTHOG_PERSONAL_API_KEY:-}
