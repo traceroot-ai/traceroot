@@ -102,6 +102,12 @@ const alertCreate = vi.fn(async ({ data }: { data: Where }) => {
 
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
+// The close a delete sends for a rule it took with its page open; Slack is not this suite's.
+const postDeletedAlertClose = vi.fn(async () => {});
+vi.mock("@/lib/alerts/post-deleted-close", () => ({
+  postDeletedAlertClose: () => postDeletedAlertClose(),
+}));
+
 const auditCreate = vi.fn(async () => ({}));
 
 vi.mock("@traceroot/core", async (importOriginal) => {
@@ -125,7 +131,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
       findUnique: async () => ({ name: "Ada", email: "ada@example.com" }),
     },
     auditLog: { create: auditCreate },
-    // The row lock an edit and a resume take before reading the rule.
+    // The row lock an edit, a resume and a delete take before reading the rule.
     $queryRaw: async () => [],
     $transaction: (operations: Promise<unknown>[] | ((tx: unknown) => unknown)) =>
       typeof operations === "function" ? operations(client) : Promise.all(operations),
