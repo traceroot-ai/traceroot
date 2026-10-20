@@ -26,7 +26,7 @@ By default the run reports to TraceRoot; with no `TRACEROOT_API_KEY` set, `main.
 
 ### Providers
 
-The agent runs on `gpt-4o-mini` (default) or `claude-opus-5`. The judge follows the agent unless `JUDGE_PROVIDER` picks `openai`, `anthropic` or `jev`.
+The agent runs on `gpt-6-luna` (default) or `claude-opus-5-5`. The judge follows the agent unless `JUDGE_PROVIDER` picks `openai`, `anthropic` or `jev`.
 
 ```bash
 pnpm start                                              # OpenAI agent, OpenAI judge

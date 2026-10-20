@@ -6,16 +6,19 @@ every question has an exact ground-truth answer (NVDA is 495.20, a 10% rise 544.
 """
 
 from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 
 # ---------------------------------------------------------------------------
 # Agent & tools
 # ---------------------------------------------------------------------------
-# Deterministic settings (temperature=0) so the same question yields the same
-# tool calls and answer from run to run.
+# GPT-6 Luna reasons by default, and Chat Completions supports its function
+# calling only with reasoning_effort "none". No sampling settings such as
+# temperature are sent. The fixed data makes every answer checkable, but model
+# output can still vary from run to run.
 
 agent = Agent(
-    "openai-chat:gpt-4o-mini",
-    model_settings={"temperature": 0.0},
+    "openai-chat:gpt-6-luna",
+    model_settings=OpenAIChatModelSettings(openai_reasoning_effort="none"),
     system_prompt=(
         "You are a financial research assistant. Use the available tools to look "
         "up stock prices and to perform any arithmetic. Never compute prices or do "

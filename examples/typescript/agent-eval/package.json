@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "tsx main.ts",
-    "agent": "tsx agent.ts"
+    "agent": "tsx agent.ts",
+    "test": "tsx --test agent.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",

@@ -6,7 +6,7 @@
  */
 
 import { generateText, tool, stepCountIs } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { openai, type OpenAIChatLanguageModelOptions } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
@@ -65,7 +65,7 @@ const SYSTEM_PROMPT =
   "from memory — always call the calculate tool. Report concrete numbers and keep " +
   "your answer concise.";
 
-const AGENT_MODELS = { openai: "gpt-4o-mini", anthropic: "claude-opus-5" } as const;
+const AGENT_MODELS = { openai: "gpt-6-luna", anthropic: "claude-opus-5-5" } as const;
 export type AgentProvider = keyof typeof AGENT_MODELS;
 
 // Read lazily: the standalone run loads .env only after this module has loaded.
@@ -103,10 +103,15 @@ export async function runAgent(input: {
       provider === "anthropic"
         ? anthropic(AGENT_MODELS.anthropic)
         : openai.chat(AGENT_MODELS.openai),
-    // temperature 0 → the same question yields the same tool calls and answer.
-    // The Anthropic provider drops temperature for Opus 5 with a warning, so only
-    // the OpenAI path sets it.
-    ...(provider === "openai" && { temperature: 0 }),
+    // GPT-6 Luna reasons by default, and Chat Completions supports its function
+    // calling only with reasoning_effort "none". Only the OpenAI provider reads
+    // providerOptions.openai. No sampling settings such as temperature are sent,
+    // and answers can vary from run to run.
+    providerOptions: {
+      openai: {
+        reasoningEffort: "none",
+      } satisfies OpenAIChatLanguageModelOptions,
+    },
     // Emit OpenTelemetry model/tool spans so TraceRoot captures the agent's
     // execution (matches the sibling `examples/typescript/vercel-ai` example).
     experimental_telemetry: { isEnabled: true },
