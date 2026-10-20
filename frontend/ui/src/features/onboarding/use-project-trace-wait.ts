@@ -6,20 +6,22 @@ import {
   captureTraceBaseline,
   findFirstTrace,
   retryUnknownBaseline,
+  type FirstTrace,
   type TraceBaseline,
 } from "@/lib/first-trace";
 import { useTraceWait, type RoundResult, type TraceWait } from "@/lib/hooks/use-trace-wait";
 
 /**
- * How many rounds may fail to read the project before the wait stops early.
+ * How many rounds in a row may fail to read the project before the wait stops
+ * early.
  *
- * The device page's equivalent counts rounds that found nowhere to look; here
- * there is always somewhere, and what can fail is reading it. A project whose
+ * Either read can fail: the baseline, or the search after it. A project whose
  * baseline never settles can never match — `findFirstTrace` skips it, having no
- * line to compare against — so a session that expires mid-wait would otherwise
- * spin out the whole ten minutes and then report that no trace arrived, which
- * is a claim about the run that this tab is in no position to make. A couple of
- * rounds of slack keeps a single blip from ending the wait.
+ * line to compare against — and a search that cannot read finds nothing either,
+ * so a session that expires mid-wait would otherwise spin out the whole ten
+ * minutes and then report that no trace arrived, which is a claim about the run
+ * that this tab is in no position to make. A couple of rounds of slack keeps a
+ * single blip from ending the wait.
  */
 export const MAX_UNREADABLE_ROUNDS = 3;
 
@@ -38,11 +40,8 @@ function fallbackUrlFor(projectId: string | null): string {
  *
  * This is the whole of what onboarding has to add to the shared wait, and it is
  * short because of what this page knows. It made the project, so there is one
- * id and it is certain: no listing every workspace on every round, no cap on
- * how many projects a round may look in, no ranking of which project the trace
- * probably belongs to, and no round that can find nowhere to look. A trace that
- * turns up here is this project's, and this project is the one the command on
- * screen was built to fill.
+ * id and it is certain. A trace that turns up here is this project's, and this
+ * project is the one the command on screen was built to fill.
  *
  * The baseline stays, though, and is not ceremony. Creating a project is
  * idempotent on its name within a workspace (see lib/write-services/projects):
@@ -70,13 +69,20 @@ export function useProjectTraceWait(
     let baseline: TraceBaseline | null = null;
     let unreadableRounds = 0;
 
+    /** A round that could not read the project, which ends the wait at the limit. */
+    function unreadable(): RoundResult {
+      unreadableRounds += 1;
+      return unreadableRounds >= MAX_UNREADABLE_ROUNDS
+        ? { kind: "stop", fallbackUrl, unreadable: true }
+        : { kind: "again", fallbackUrl };
+    }
+
     return async function round(): Promise<RoundResult | null> {
       if (!watched) {
         return { kind: "stop", fallbackUrl };
       }
       if (baseline === null) {
-        // Drawn before anything can match, exactly as the device page draws it
-        // — and for the same reason, which here is a project that turned out
+        // Drawn before anything can match, because the project may turn out
         // not to be new.
         baseline = await captureTraceBaseline([watched], userRef.current);
         // A tab that left part-way through a round does not go on to fetch the
@@ -96,14 +102,19 @@ export function useProjectTraceWait(
         // nothing to gain by making one. Counted rather than acted on at once,
         // because one failed read is a blip and three in a row is a tab that
         // has stopped being able to read this account.
-        unreadableRounds += 1;
-        return unreadableRounds >= MAX_UNREADABLE_ROUNDS
-          ? { kind: "stop", fallbackUrl, unreadable: true }
-          : { kind: "again", fallbackUrl };
+        return unreadable();
+      }
+
+      let found: FirstTrace | null;
+      try {
+        found = await findFirstTrace(watched, baseline, userRef.current);
+      } catch {
+        // A search that cannot read is the same blip-or-ending as a baseline
+        // that cannot, so it counts the same way. Only a search that read the
+        // project starts the count over.
+        return unreadable();
       }
       unreadableRounds = 0;
-
-      const found = await findFirstTrace([watched], baseline, userRef.current);
       return found ? { kind: "found", found } : { kind: "again", fallbackUrl };
     };
   }, []);
