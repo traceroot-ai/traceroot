@@ -31,7 +31,6 @@ from rest.routers.public.deps import (
     authenticate_api_key,
     parse_scope,
     require_admin_key_scope,
-    require_admin_scope,
     require_scope,
 )
 
@@ -269,12 +268,11 @@ def test_refusal_body_is_the_detail_shape_the_public_api_speaks():
 def _app_with(dependency, inner, auth: AuthResult) -> TestClient:
     """A throwaway app whose one route depends on ``dependency``.
 
-    The dependencies are exercised on a route of their own rather than on a
+    The dependency is exercised on a route of its own rather than on a
     production one because which production routes require ``admin`` — the three
     key-management gateways in ``api_keys.py``, and nothing else — is pinned by
-    ``test_public_route_scopes.py``, and because ``require_admin_scope`` has no
-    production route at all yet. What is under test here is the dependency's own
-    contract, so the route only has to exist.
+    ``test_public_route_scopes.py``. What is under test here is the dependency's
+    own contract, so the route only has to exist.
     """
     app = FastAPI()
 
@@ -292,21 +290,6 @@ def test_require_admin_key_scope_gates_a_key_only_route(scope, status_code):
     assert client.get("/needs-admin").status_code == status_code
 
 
-@pytest.mark.parametrize("scope,status_code", [("admin", 200), ("ingest", 403), (None, 403)])
-def test_require_admin_scope_gates_a_key_or_user_route(scope, status_code):
-    from rest.routers.public.deps import authenticate_public_caller
-
-    client = _app_with(require_admin_scope, authenticate_public_caller, _key_auth(scope))
-    assert client.get("/needs-admin").status_code == status_code
-
-
-def test_require_admin_scope_admits_a_user_on_a_key_or_user_route():
-    from rest.routers.public.deps import authenticate_public_caller
-
-    client = _app_with(require_admin_scope, authenticate_public_caller, _user_auth())
-    assert client.get("/needs-admin").status_code == 200
-
-
 def test_scope_dependencies_share_the_credential_they_check():
     """Composing one onto a route must not cost a second validate-api-key hop.
 
@@ -315,13 +298,7 @@ def test_scope_dependencies_share_the_credential_they_check():
     a differently-wrapped copy instead would double every request's round-trip to
     the control plane, which is why this asserts the inner callable by identity.
     """
-    from rest.routers.public.deps import authenticate_public_caller
-
     assert (
         require_admin_key_scope.__annotations__["auth"].__metadata__[0].dependency
         is authenticate_api_key
-    )
-    assert (
-        require_admin_scope.__annotations__["auth"].__metadata__[0].dependency
-        is authenticate_public_caller
     )
