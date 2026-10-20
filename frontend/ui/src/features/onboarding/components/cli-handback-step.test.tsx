@@ -68,7 +68,7 @@ describe("CliHandbackStep", () => {
     // `--project` answers "which project?" from memory, and a wrong answer
     // sends their first traces somewhere they will not look.
     const command = container.querySelector("pre")?.textContent ?? "";
-    expect(command).toContain("npx -y traceroot-cli@latest setup");
+    expect(command).toContain("npx -y traceroot-cli@0.6.0 setup");
     expect(command).toContain("--project proj-1");
   });
 
@@ -105,8 +105,7 @@ describe("CliHandbackStep", () => {
   });
 
   it("keeps the hand-back's own wording while it waits", () => {
-    // The line is shared with the device page, which says it "opens it"; this
-    // step's approved sentence says the page updates, and stays that way.
+    // This step's approved sentence says the page updates, and stays that way.
     renderStep();
 
     expect(
@@ -172,7 +171,7 @@ describe("CliHandbackStep", () => {
     const { container } = await renderStepWith({ apiUrl: "http://:8000" });
     const text = container.textContent ?? "";
 
-    expect(text).not.toContain("npx -y traceroot-cli@latest setup");
+    expect(text).not.toContain("npx -y traceroot-cli@");
     // No code block and so no copy button: a command in that frame reads as one
     // to paste whatever the surrounding text says.
     expect(container.querySelector("pre")).toBeNull();
@@ -205,7 +204,7 @@ describe("CliHandbackStep", () => {
     // The whole line, not a prefix of it: on Cloud the unflagged command is the
     // correct one, so a stray `--host` here would be the error in reverse.
     expect(container.querySelector("pre")?.textContent).toBe(
-      "npx -y traceroot-cli@latest setup --project proj-1",
+      "npx -y traceroot-cli@0.6.0 setup --project proj-1",
     );
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
   });

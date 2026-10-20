@@ -123,7 +123,7 @@ describe("findFirstTrace", () => {
     tracesByProject({ "p-1": [trace("t-old", "2026-05-01T10:00:00Z")] });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "newest", at: "2026-05-01T10:00:00Z" }]]),
       undefined,
     );
@@ -137,7 +137,7 @@ describe("findFirstTrace", () => {
     });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "newest", at: "2026-05-01T10:00:00Z" }]]),
       undefined,
     );
@@ -158,35 +158,12 @@ describe("findFirstTrace", () => {
     });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "newest", at: "2026-05-01T10:00:00Z" }]]),
       undefined,
     );
 
     expect(found).toEqual({ projectId: "p-1", traceId: "t-first" });
-  });
-
-  it("searches the ids in the order the caller gave them", async () => {
-    // The ranking itself is the caller's. What this module owes it is that the
-    // order it was handed is the order it searches.
-    tracesByProject({
-      "p-second": [trace("t-second", "2026-05-01T11:00:05Z")],
-      "p-first": [trace("t-first", "2026-05-01T11:00:00Z")],
-    });
-
-    const baseline = new Map<string, BaselineEntry>([
-      ["p-first", { kind: "empty" }],
-      ["p-second", { kind: "empty" }],
-    ]);
-
-    expect(await findFirstTrace(["p-first", "p-second"], baseline, undefined)).toEqual({
-      projectId: "p-first",
-      traceId: "t-first",
-    });
-    expect(await findFirstTrace(["p-second", "p-first"], baseline, undefined)).toEqual({
-      projectId: "p-second",
-      traceId: "t-second",
-    });
   });
 
   it("lands on the same trace whichever way the page orders two stamped alike", async () => {
@@ -197,13 +174,13 @@ describe("findFirstTrace", () => {
     const baseline = new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]);
 
     tracesByProject({ "p-1": tied });
-    expect(await findFirstTrace(["p-1"], baseline, undefined)).toEqual({
+    expect(await findFirstTrace("p-1", baseline, undefined)).toEqual({
       projectId: "p-1",
       traceId: "t-a",
     });
 
     tracesByProject({ "p-1": [...tied].reverse() });
-    expect(await findFirstTrace(["p-1"], baseline, undefined)).toEqual({
+    expect(await findFirstTrace("p-1", baseline, undefined)).toEqual({
       projectId: "p-1",
       traceId: "t-a",
     });
@@ -218,7 +195,7 @@ describe("findFirstTrace", () => {
     });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
       undefined,
     );
@@ -230,7 +207,7 @@ describe("findFirstTrace", () => {
     tracesByProject({ "p-1": [trace("t-bad", "not a date")] });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
       undefined,
     );
@@ -242,7 +219,7 @@ describe("findFirstTrace", () => {
     tracesByProject({ "p-1": [trace("t-1", "2026-05-01T11:00:00Z")] });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
       undefined,
     );
@@ -250,25 +227,18 @@ describe("findFirstTrace", () => {
     expect(found).toEqual({ projectId: "p-1", traceId: "t-1" });
   });
 
-  it("keeps looking past a project it cannot read", async () => {
-    mocks.getTraces.mockImplementation(async (projectId: string) => {
-      if (projectId === "p-broken") throw new Error("boom");
-      return {
-        data: [trace("t-1", "2026-05-01T11:00:00Z")],
-        meta: { page: 0, limit: 10, total: 1 },
-      };
-    });
+  it("lets a failed read through rather than reporting that nothing arrived", async () => {
+    // Null means the project was read and held nothing new. A search that could
+    // not read it is in no position to say that, so the caller hears the error.
+    mocks.getTraces.mockRejectedValue(new Error("unauthorized"));
 
-    const found = await findFirstTrace(
-      ["p-broken", "p-ok"],
-      new Map<string, BaselineEntry>([
-        ["p-broken", { kind: "empty" }],
-        ["p-ok", { kind: "empty" }],
-      ]),
-      undefined,
-    );
-
-    expect(found).toEqual({ projectId: "p-ok", traceId: "t-1" });
+    await expect(
+      findFirstTrace(
+        "p-1",
+        new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
+        undefined,
+      ),
+    ).rejects.toThrow("unauthorized");
   });
 
   it("will not match in a project whose baseline never settled", async () => {
@@ -277,7 +247,7 @@ describe("findFirstTrace", () => {
     tracesByProject({ "p-1": [trace("t-1", "2026-05-01T11:00:00Z")] });
 
     const found = await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "unknown" }]]),
       undefined,
     );
@@ -293,7 +263,7 @@ describe("findFirstTrace", () => {
     tracesByProject({ "p-1": [] });
 
     await findFirstTrace(
-      ["p-1"],
+      "p-1",
       new Map<string, BaselineEntry>([["p-1", { kind: "empty" }]]),
       undefined,
     );
