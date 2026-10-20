@@ -8,7 +8,6 @@ import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
-import { ModelProviderBlock } from "./ModelProviderBlock";
 import { SectionLink } from "./SectionLink";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 import {
@@ -22,9 +21,9 @@ import {
 /**
  * The two groups this tab's own picker shows: providers, and everything else.
  *
- * The panel's picker splits "everything else" into SDKs and agent frameworks,
- * but this one keeps the split it had before that picker existed, so a
- * walkthrough rendered on its own looks exactly as it did.
+ * `StackSelector` splits "everything else" into SDKs and agent frameworks, but
+ * this picker keeps the two groups the traces page has always shown, so the
+ * empty traces page looks as it did.
  */
 const OWN_PICKER_GROUPS: {
   key: string;
@@ -124,30 +123,27 @@ function OwnStackPicker({
 interface ManualTabProps {
   projectId: string;
   /**
-   * The stack chosen above this section. It arrives as a prop rather than being
-   * chosen in here so that the picker — and the key field that follows it — keep
-   * their place when the reader switches between the command and these steps.
+   * The stack, for a caller that has already asked for it above this section —
+   * onboarding's manual step, which asks for it together with the model key —
+   * so the walkthrough follows that answer instead of asking a second time.
    *
-   * Optional, so the walkthrough still stands on its own with no picker above
-   * it. Both callers pass one now — the traces panel, and onboarding's manual
-   * step, which renders the same shared picker — and without one the tab asks
-   * for the stack and the model key itself.
+   * Optional, because the traces page passes none: there the tab asks for the
+   * stack itself.
    */
   integration?: IntegrationOption;
 }
 
 /**
- * Instrumenting by hand: the key, the install, the one call that starts tracing.
+ * Instrumenting by hand: the key, the install, the one call that starts
+ * tracing, and the external integrations.
  *
- * Four steps rather than six. The stack picker and the model key that used to
- * be steps 3 and 5 are not gone — they are above this section now, shared with
- * the command, because both routes need the same two answers and neither one
- * belongs to this half. What is left is only the part that is genuinely manual,
- * which is also what makes the numbers worth keeping: these four are done in
- * order, in a terminal and an editor, and the picker above is not.
+ * On the traces page the tab picks the stack itself, as step 3, and asks for
+ * no model key — the five steps that page has always shown. The model key is
+ * asked for during onboarding instead.
  *
- * Rendered without an `integration`, there is no picker above, so the tab puts
- * both back as steps 3 and 5 and is the six-step walkthrough it was before.
+ * Given an `integration`, the stack has been asked for above this section, so
+ * the picker step drops out and the four left are renumbered. The docs link
+ * then sits beside the snippet heading, since there is no picker to sit under.
  */
 export function ManualTab({ projectId, integration }: ManualTabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
@@ -214,26 +210,9 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
         <CodeBlock label={resolvedLang} value={config.initSnippet} language={resolvedLang} />
       </div>
 
-      {ownsStack && (
-        <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">5. Use your own model key</p>
-          {projectLoading ? (
-            <LoadingState label="Loading model providers..." />
-          ) : workspaceId ? (
-            <ModelProviderBlock
-              workspaceId={workspaceId}
-              providerKey={selectedIntegration.providerKey}
-              stackName={selectedIntegration.name}
-            />
-          ) : (
-            <WorkspaceUnavailable />
-          )}
-        </div>
-      )}
-
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">
-          {ownsStack ? "6. External integrations" : "4. External integrations"}
+          {ownsStack ? "5. External integrations" : "4. External integrations"}
         </p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
