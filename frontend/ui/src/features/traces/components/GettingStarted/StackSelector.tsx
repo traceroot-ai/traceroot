@@ -30,11 +30,10 @@ interface StackSelectorProps {
  * reader can act on: it is the difference between a key field with one right
  * answer and a key field with a dropdown.
  *
- * The answer feeds the key field below, which both routes share, and the
- * install command, the snippet and the docs link on the manual one. The AI
- * route's own section does not take it: its single `traceroot setup` line
- * detects the stack in the repository it is run in rather than taking this
- * page's word for it, and its docs link is the general tracing guide.
+ * The answer feeds the key field below and the manual walkthrough's install
+ * command, snippet and docs link. The setup command does not take it: its
+ * single `traceroot setup` line detects the stack in the repository it is run
+ * in, and its docs link is the general tracing guide.
  */
 export function StackSelector({ selected, onSelect }: StackSelectorProps) {
   return (
