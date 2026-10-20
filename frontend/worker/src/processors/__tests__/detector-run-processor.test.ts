@@ -445,6 +445,146 @@ describe("processTrace — self-trace emission", () => {
   });
 });
 
+describe("processTrace — usage-meter classification", () => {
+  const DETECTOR = {
+    id: "d1",
+    name: "Slow",
+    prompt: "p",
+    outputSchema: [],
+    detectionModel: "m",
+    detectionProvider: "anthropic",
+    detectionSource: "system",
+    enableRca: false,
+  };
+  const BASE_RESULT = {
+    identified: false,
+    summary: "clean",
+    data: {},
+    inferenceCost: 0,
+    inferenceInputTokens: 0,
+    inferenceOutputTokens: 0,
+    inferenceSource: "system",
+    inferenceModel: "m",
+    inferenceProvider: "anthropic",
+  };
+
+  beforeEach(() => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([DETECTOR]);
+  });
+
+  it("marks a failed run that recorded tokens as inference-using", async () => {
+    // The eval reached the model, burned calls, then failed (e.g. no
+    // submit_result). The scan consumed quota even though it failed.
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      summary: "Analysis failed",
+      error: "No submit_result tool call",
+      inferenceInputTokens: 900,
+      inferenceOutputTokens: 120,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: true }),
+    );
+  });
+
+  it("marks a clean run that recorded tokens as inference-using", async () => {
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      inferenceInputTokens: 500,
+      inferenceOutputTokens: 40,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed", usedInference: true }),
+    );
+  });
+
+  it("leaves a pre-model failure out of the meter even when it names a provider", async () => {
+    // Missing API key / unknown model: an error that names a provider or model
+    // without tokens is not a billed call.
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      summary: "Analysis failed",
+      error: 'No API key configured for provider "anthropic"',
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("does not infer usage from a positive cost without tokens", async () => {
+    // Token counts are the evidence a model was reached; cost alone is not.
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      summary: "Analysis failed",
+      error: "provider overloaded",
+      inferenceCost: 0.01,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("leaves a thrown eval out of the meter", async () => {
+    mockRunDetection.mockRejectedValue(new Error("boom"));
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("leaves a spans-download failure out of the meter", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (String(url).includes("/time-since-last-span")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ time_since_last_span_ms: 60_000 }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 500 });
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("carries usage onto the triggered run write", async () => {
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      identified: true,
+      summary: "found it",
+      inferenceInputTokens: 700,
+      inferenceOutputTokens: 60,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    const triggeredWrite = mockWriteRun.mock.calls
+      .map((c) => c[0])
+      .find((w) => w.findingId !== null);
+    expect(triggeredWrite?.usedInference).toBe(true);
+  });
+});
+
 describe("processTrace — signals call site", () => {
   const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
 
