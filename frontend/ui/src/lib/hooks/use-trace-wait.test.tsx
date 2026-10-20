@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 /**
- * The loop both setup flows run their rounds on: what it does with each answer
+ * The loop a first-trace wait runs its rounds on: what it does with each answer
  * a round can give, and the two properties that make it safe to leave running
  * in a tab nobody is looking at — it never overlaps its own rounds, and an
  * unmount stops it dead.
  *
- * The rounds here are stubs. What each page actually looks at is its own
+ * The rounds here are stubs. What the page actually looks at is its own
  * business and is tested with that page.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

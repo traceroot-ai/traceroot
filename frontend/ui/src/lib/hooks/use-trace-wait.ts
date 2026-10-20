@@ -11,11 +11,7 @@ import type { FirstTrace } from "@/lib/first-trace";
  * inside the smallest plan's allowance while still reacting within a few
  * seconds of a trace landing — and against the minutes it takes to install a
  * package, instrument a service and run it, a few seconds either way is not
- * what either page is really waiting on.
- *
- * One number for both pages on purpose. The device page's round is the more
- * expensive of the two, so a value that is safe there is safe for a page
- * watching a single project — and two constants would drift.
+ * what the page is really waiting on.
  */
 export const POLL_INTERVAL_MS = 10_000;
 
@@ -98,10 +94,10 @@ export type BeginWait = (isCancelled: () => boolean) => WaitRound;
  * Run a caller's round on a timer until it finds a trace, stops, or runs out of
  * budget.
  *
- * This is the half that both setup flows share: the pacing, the deadline, and
- * the guarantee that a tab can be closed at any moment without consequence. The
- * rounds themselves differ, because the two pages know different amounts about
- * where the trace will land.
+ * This is the generic half of a wait: the pacing, the deadline, and the
+ * guarantee that a tab can be closed at any moment without consequence. The
+ * round itself is the caller's, because only the caller knows where the trace
+ * will land.
  *
  * Strictly additive, in both directions. Nothing here writes, so a tab that is
  * closed — or never opened — changes nothing about the run, and whatever this

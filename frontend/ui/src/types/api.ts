@@ -25,6 +25,9 @@ export interface Workspace {
   id: string;
   name: string;
   role: Role;
+  // Public demo: new memberships are VIEWER; existing members retain their roles.
+  // It is not one of the user's own workspaces.
+  is_demo?: boolean;
   member_count?: number;
   project_count?: number;
   create_time: string;
