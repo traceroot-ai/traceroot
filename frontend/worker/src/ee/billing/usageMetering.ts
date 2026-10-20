@@ -33,6 +33,8 @@ import {
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
 
+const FAR_FUTURE_END = new Date("2100-01-01T00:00:00Z");
+
 let stripe: Stripe | null = null;
 
 function getStripe(): Stripe {
@@ -140,7 +142,7 @@ async function processWorkspace(
     // Rewrites refresh ClickHouse version timestamps. A fixed "now" can exclude
     // the surviving version after a merge, temporarily refunding consumed usage.
     // Keep free telemetry lifetime-scoped; paid periods below remain bounded.
-    end = new Date("2100-01-01T00:00:00Z");
+    end = FAR_FUTURE_END;
   } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
     // Use billing period dates from Stripe (updated via webhook each month)
     start = workspace.billingPeriodStart;
