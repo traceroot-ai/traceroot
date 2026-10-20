@@ -1,5 +1,6 @@
-// Single source of truth for the onboarding snippets, so the getting-started
-// panel and anything else that shows a command cannot drift apart.
+// Single source of truth for the setup command, so the places that show it
+// cannot drift apart: the getting-started panel's AI tab and onboarding's
+// hand-back step both render `setupCommand`.
 
 import { clientEnv } from "@/env.client";
 
@@ -9,7 +10,7 @@ const SETUP_BASE = "npx -y traceroot-cli@latest setup";
 /**
  * The API host `traceroot setup` assumes when it is passed no `--host`.
  *
- * Mirrors `DEFAULT_HOST` in the CLI. Kept here so the panel can tell "this is
+ * Mirrors `DEFAULT_HOST` in the CLI. Kept here so a caller can tell "this is
  * the deployment the CLI would have picked anyway" from "this is somewhere
  * else", and omit the flag in the first case rather than restate the default.
  */
@@ -84,10 +85,10 @@ const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+
  * Double quotes rather than single, because cmd.exe does not treat `'` as a
  * quote character and neither does the argv parsing behind `npx` on Windows: a
  * single-quoted value arrives with the quotes inside it and `setup` stops on an
- * invalid host, so a self-hosted operator pasting into cmd.exe could not start
- * at all. Double quotes are stripped by cmd.exe, PowerShell, bash and zsh
- * alike, and what stays live inside them — `"`, `$`, a backtick, `\`, and `%`
- * or `!` under cmd.exe — is exactly what `SHELL_SAFE_ORIGIN` excludes.
+ * invalid host, so a self-hosted operator pasting the line into cmd.exe could
+ * not start at all. Double quotes are stripped by cmd.exe, PowerShell, bash and
+ * zsh alike, and what stays live inside them — `"`, `$`, a backtick, `\`, and
+ * `%` or `!` under cmd.exe — is exactly what `SHELL_SAFE_ORIGIN` excludes.
  */
 function quotedArg(value: string): string {
   return `"${value}"`;
@@ -112,11 +113,12 @@ function appOrigin(appUrl: string | undefined): string {
 /**
  * A deployment variable this file was given a value it cannot put in a command.
  *
- * Carried out of here rather than swallowed, because the person reading an
- * empty traces page on a self-hosted install is usually the person who sets
- * these, and the value is already public: `NEXT_PUBLIC_*` is inlined into the
- * client bundle, so naming it on screen discloses nothing a reader could not
- * already read out of the page they are on.
+ * Carried out of here rather than swallowed, because the person finishing a
+ * first run, or reading an empty traces page, on a self-hosted install is
+ * usually the person who sets these, and the value is already public:
+ * `NEXT_PUBLIC_*` is inlined into the client bundle, so naming it on screen
+ * discloses nothing a reader could not already read out of the page they are
+ * on.
  */
 export interface UnusableOrigin {
   /** The variable to fix, spelled the way a deployment sets it. */
@@ -189,7 +191,7 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
     // `//`, `http://:8000`. That says nothing about where the API is, and the
     // app's origin is not a stand-in for it: on a split deployment it would
     // point the CLI's API traffic at the UI host. So the variable is reported
-    // back instead of guessed at, and the panel shows no command rather than
+    // back instead of guessed at, and the caller shows no command rather than
     // one that runs against the wrong deployment.
     return { kind: "unresolved", variable: "NEXT_PUBLIC_API_URL", value: input.apiUrl };
   }
@@ -222,17 +224,17 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
 }
 
 /**
- * The whole of setup, as one command, carrying what this page already knows.
+ * The whole of setup, as one command, carrying what the caller already knows.
  *
  * `npx -y` rather than a global install: someone reading this has not decided
  * to keep a CLI yet, and asking them to install one before they have seen a
  * trace is a commitment ahead of the payoff. It authenticates in the browser,
  * creates the key, instruments the service with a coding agent, runs the
  * application and waits for the first trace — which is why none of those are
- * separate steps in the panel any more.
+ * separate steps anywhere that shows this command.
  *
- * The flags are what the panel has and the bare command does not. The project,
- * because the panel is already showing one: without it a user with more than
+ * The flags are what the caller has and the bare command does not. The project,
+ * because the caller already has one in hand: without it a user with more than
  * one project answers "which project?" from memory, and a wrong answer sends
  * their first traces somewhere they will not look for them. The deployment,
  * because the CLI defaults to TraceRoot Cloud — so on a self-hosted install the

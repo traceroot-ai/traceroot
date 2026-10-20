@@ -55,9 +55,12 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   return (
     <div className="space-y-1.5">
       <div className="flex gap-2">
-        <div className="flex h-8 flex-1 items-center rounded-md border border-border bg-muted px-3 font-mono text-[12px]">
-          <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
-          <span className="text-muted-foreground/50">&quot;your_key_here&quot;</span>
+        {/* `min-w-0` so the row may shrink past the width of the text in it:
+            a flex item defaults to its content's width as a floor, and at phone
+            width that floor pushed "Generate" off the right edge. */}
+        <div className="flex h-8 min-w-0 flex-1 items-center rounded-md border border-border bg-muted px-3 font-mono text-[12px]">
+          <span className="shrink-0 text-muted-foreground">TRACEROOT_API_KEY=</span>
+          <span className="truncate text-muted-foreground/50">&quot;your_key_here&quot;</span>
         </div>
         <Button
           variant="outline"
