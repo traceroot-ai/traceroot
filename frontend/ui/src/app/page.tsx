@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspaces } from "@/lib/api";
+import { homeDestination } from "@/features/workspaces/utils";
 
 export default function Home() {
   const router = useRouter();
@@ -24,11 +25,7 @@ export default function Home() {
 
   useEffect(() => {
     if (workspaces !== undefined) {
-      if (workspaces.length > 0) {
-        router.push("/workspaces");
-      } else {
-        router.push("/onboarding");
-      }
+      router.push(homeDestination(workspaces));
     }
   }, [workspaces, router]);
 

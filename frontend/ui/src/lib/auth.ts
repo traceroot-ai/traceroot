@@ -11,6 +11,7 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
+import { ensureDemoMembership } from "@/lib/demo-workspace";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -42,6 +43,17 @@ export const auth = betterAuth({
             { id: user.id, email: user.email, name: user.name ?? null },
             context ? { path: context.path } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
+        },
+      },
+    },
+    session: {
+      create: {
+        // Each login re-checks the demo workspace membership, so users that
+        // the backfill missed (or that were removed) join at their next login.
+        // Not awaited, and ensureDemoMembership never rejects, so it cannot
+        // slow down or break sign-in.
+        after: async (session) => {
+          void ensureDemoMembership(session.userId);
         },
       },
     },

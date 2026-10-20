@@ -170,6 +170,10 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
         sessions_list_op["responses"].setdefault("500", _error_response("Failed to list sessions"))
+    signal_get_op = schema.get("paths", {}).get("/api/v1/public/signals/{signal_id}", {}).get("get")
+    if signal_get_op:
+        signal_get_op["responses"].setdefault("404", _error_response("Signal not found"))
+
     session_get_op = schema["paths"].get("/api/v1/public/sessions/{session_id}", {}).get("get")
     if session_get_op is not None:
         session_get_op["responses"].setdefault("404", _error_response("Session not found"))
@@ -597,6 +601,27 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "list_signals": {
+        "name": "list_signals",
+        "description": (
+            "List the project's signals, newest first: the recurring problems "
+            "that detector findings are grouped into, with status (open, "
+            "resolved, dismissed), detector, hit count, reopen count and the "
+            "state of the current root cause analysis. Filter by status or "
+            "detector_id. Merged signals are left out. Returns 50 results by default; "
+            "increment page to fetch subsequent pages until all needed signals are found."
+        ),
+        "enabled": True,
+    },
+    "get_signal": {
+        "name": "get_signal",
+        "description": (
+            "Fetch one signal by id, including when it was resolved. A merged "
+            "signal names the signal its findings moved to in merged_into_id. "
+            "Resolve the signal id by listing signals — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     # Dataset READS are tool-exposed; the dataset writes stay off the registry entirely.
     # Not because the registry cannot carry a write (it can, behind an x-tool policy
@@ -862,6 +887,22 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "verdict and cannot be requested; pausing a parked alert is a "
             "conflict, resume it to run it again. Setting the status the alert "
             "already has changes nothing."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "set_signal_status": {
+        "name": "set_signal_status",
+        "description": (
+            "Resolve or reopen a signal. Resolving needs a reason "
+            "(fixed_elsewhere, fixed_by_pr, already_fixed_before, other); "
+            "'other' also needs a note. A resolved signal opens again by itself "
+            "when its detector finds the problem in a trace that started after "
+            "the resolve. Dismissing is not possible here: a dismissed signal "
+            "never reopens, so a person dismisses in the web app. Send "
+            "expected_status to refuse the change when the status changed "
+            "since you read it (a conflict). Setting the current status "
+            "changes nothing."
         ),
         "enabled": True,
         "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
@@ -1178,6 +1219,61 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
     return schema
+
+
+#: Base URLs for the docs' API playground. The cloud host serves the public API
+#: under the same origin the SDKs default to; self-hosters point the variable at
+#: their own backend.
+DOCS_SERVERS: list[dict[str, Any]] = [
+    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
+    {
+        "url": "{baseUrl}",
+        "description": "Self-hosted",
+        "variables": {
+            "baseUrl": {
+                "default": "http://localhost:8000",
+                "description": "Your TraceRoot backend URL",
+            }
+        },
+    },
+]
+
+_SDK_NOTE = (
+    "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only "
+    "where no SDK fits. It accepts a project API key only.</Note>"
+)
+_INGEST_NOTE = (
+    "\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, "
+    "optionally gzip-compressed with `Content-Encoding: gzip`."
+)
+
+
+def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return the copy of the public document that the Mintlify API reference reads.
+
+    Mintlify only reads files inside ``docs/``, so the reference needs its own
+    copy. It is the public document plus what only the docs need: ``servers``
+    for the playground, and a note on each operation hidden from the tool
+    registry (the SDKs' ingest and evaluation-run writes) saying the SDKs call
+    it. ``public.json`` itself stays unchanged, so the tool registry is unaffected.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; not mutated.
+
+    Returns:
+        dict[str, Any]: The docs copy.
+    """
+    docs = copy.deepcopy(schema)
+    docs["servers"] = copy.deepcopy(DOCS_SERVERS)
+    for item in docs["paths"].values():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS or op.get("x-tool", {}).get("enabled", True):
+                continue
+            note = _SDK_NOTE
+            if op.get("operationId") == "ingest_traces":
+                note += _INGEST_NOTE
+            op["x-mint"] = {"content": note}
+    return docs
 
 
 def render(schema: dict[str, Any]) -> str:

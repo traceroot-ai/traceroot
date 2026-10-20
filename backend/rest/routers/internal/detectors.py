@@ -87,6 +87,12 @@ class DetectorRunPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     finding_id: str | None = Field(default=None, alias="findingId")
     status: str
+    # True when the eval recorded inference usage for this run version (the
+    # model was reached and billed, whatever the final status). The usage meter
+    # counts a run when its latest version completed OR used inference; see
+    # migration 016. Omitted/false covers failures before any model call and
+    # pre-migration rows.
+    used_inference: bool = Field(default=False, alias="usedInference")
     # True when the worker emitted a self-trace for this run (set optimistically
     # at emit time); gates the runs-tab link to the run's own trace.
     self_traced: bool = Field(default=False, alias="selfTraced")
@@ -147,6 +153,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "trace_id",
         "finding_id",
         "status",
+        "used_inference",
         "self_traced",
     ]
     vals = [
@@ -156,6 +163,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "{trace_id:String}",
         "{finding_id:Nullable(String)}",
         "{status:String}",
+        "{used_inference:Bool}",
         "{self_traced:Bool}",
     ]
     params = {
@@ -165,6 +173,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "trace_id": body.trace_id,
         "finding_id": body.finding_id,
         "status": body.status,
+        "used_inference": body.used_inference,
         "self_traced": body.self_traced,
     }
     _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
