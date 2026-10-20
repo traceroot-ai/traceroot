@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user" } }, isPending: false }),
+}));
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import type { PendingDecision } from "../hooks/use-ai-chat";
@@ -21,6 +24,10 @@ const mocks = vi.hoisted(() => ({
         }>;
       }
     | undefined,
+  workspaceData: { is_demo: false, role: "ADMIN" },
+  // The demo access check reads the project first; while it is pending, the
+  // panel does not yet know whether the visitor is read-only.
+  accessPending: false,
   onClose: vi.fn(),
   messages: [] as Array<{ id: string; role: string; content: string }>,
   isStreaming: false,
@@ -31,7 +38,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
-    if (queryKey[0] === "project") return { data: mocks.projectData };
+    if (queryKey[0] === "workspace") return { data: mocks.workspaceData };
+    if (queryKey[0] === "project")
+      return { data: mocks.projectData, isPending: mocks.accessPending };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
     return { data: undefined };
   },
@@ -77,8 +86,22 @@ vi.mock("./message-list", () => ({
   ),
 }));
 vi.mock("./message-input", () => ({
-  MessageInput: ({ placeholder }: { placeholder?: string }) => (
-    <div data-testid="message-input">{placeholder ?? ""}</div>
+  MessageInput: ({
+    placeholder,
+    blockedReason,
+    disabled,
+  }: {
+    placeholder?: string;
+    blockedReason?: string;
+    disabled?: boolean;
+  }) => (
+    <div
+      data-testid="message-input"
+      data-blocked-reason={blockedReason}
+      data-disabled={String(!!disabled)}
+    >
+      {placeholder ?? ""}
+    </div>
   ),
 }));
 vi.mock("./session-history", () => ({ SessionHistory: () => null }));
@@ -96,7 +119,9 @@ import { AiAssistantPanel } from "./ai-assistant-panel";
 
 afterEach(() => {
   cleanup();
+  mocks.workspaceData = { is_demo: false, role: "ADMIN" };
   mocks.projectData = undefined;
+  mocks.accessPending = false;
   mocks.llmModels = undefined;
   mocks.messages = [];
   mocks.isStreaming = false;
@@ -290,4 +315,42 @@ describe("AiAssistantPanel", () => {
       expect(screen.queryByText(/Unsupported model/)).toBeNull();
     });
   });
+});
+
+it.each(["VIEWER", "MEMBER"])("keeps the normal Home greeting and composer for demo %s", (role) => {
+  mocks.workspaceData = { is_demo: true, role };
+  mocks.projectData = { workspace_id: "demo" };
+  mocks.llmModels = { systemModels: [], byokProviders: [] };
+  render(
+    <AiAssistantPanel
+      projectId="p1"
+      variant="page"
+      emptyState={<div>Home greeting</div>}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("message-input")).toBeTruthy();
+  expect(screen.queryByTitle("New session")).toBeNull();
+  expect(screen.getByText("Home greeting")).toBeTruthy();
+  expect(screen.getByTestId("message-input").getAttribute("data-blocked-reason")).toContain(
+    "demo project",
+  );
+});
+
+it("keeps the composer on screen, but disabled, while the demo access check runs", () => {
+  mocks.accessPending = true;
+  mocks.projectData = { workspace_id: "ws" };
+  mocks.llmModels = {
+    systemModels: [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "system",
+        models: [{ id: "claude-4", label: "Claude 4" }],
+      },
+    ],
+    byokProviders: [],
+  };
+  render(<AiAssistantPanel projectId="p1" onClose={() => {}} />);
+  expect(screen.getByTestId("message-input").getAttribute("data-disabled")).toBe("true");
 });

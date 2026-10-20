@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
       createdBy: true,
       createTime: true,
       updateTime: true,
+      layout: true,
       widgets: {
         orderBy: { createTime: "asc" as const },
         select: { id: true, title: true, type: true, spec: true, createTime: true },
