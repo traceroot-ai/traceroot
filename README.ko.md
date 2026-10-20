@@ -29,7 +29,7 @@
 
 ## TraceRoot
 
-TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 개선 루프를 완성합니다.
+에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 

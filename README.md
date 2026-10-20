@@ -29,7 +29,7 @@ Open Source AI Agent Improvement Platform
 
 ## TraceRoot
 
-TraceRoot turns production traces into actionable feedback and evals, closing the improvement loop with your coding agent.
+Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
