@@ -152,6 +152,7 @@ function changePreview(preview: ChangePreview, resourceId: string): ReactNode {
           widgetId={resourceId}
           spec={preview.chart.spec}
           rangeId={preview.chart.range.id}
+          bounds={preview.chart.bounds}
         />
       );
     case "alert":
@@ -198,7 +199,16 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
           widgetId={resourceId}
           spec={body.chart.spec}
           rangeId={body.chart.range.id}
+          bounds={body.chart.bounds}
         />
+      );
+    case "notice":
+      // A read that did not answer the widget — a feed, or a reason it
+      // failed — says so in one line instead of drawing a broken chart.
+      return (
+        <p className="break-words text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+          {body.text}
+        </p>
       );
     case "detector":
       return body.prompt === null ? null : <DetectorPromptBlock prompt={body.prompt} />;
@@ -237,7 +247,8 @@ function definitionChips(body: ResourceCardBody): string[] {
   return body.kind === "widget" ||
     body.kind === "detector" ||
     body.kind === "alert" ||
-    body.kind === "delete"
+    body.kind === "delete" ||
+    body.kind === "notice"
     ? body.chips
     : [];
 }

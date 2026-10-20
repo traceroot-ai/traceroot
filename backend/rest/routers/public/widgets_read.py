@@ -27,7 +27,7 @@ from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.dashboards import RangeId
 from rest.schemas.public import WidgetDataResponse, WidgetDetail
 
-router = APIRouter(prefix="/public/widgets", tags=["Dashboards (Public)"])
+router = APIRouter(prefix="/public/widgets", tags=["Widgets"])
 
 
 @router.get("/{widget_id}", response_model=WidgetDetail, operation_id="get_widget")

@@ -5,6 +5,7 @@ import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAiChat } from "./use-ai-chat";
+import { DEMO_EXAMPLES } from "../lib/demo-agent-example";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
@@ -128,6 +129,137 @@ describe("useAiChat session switching", () => {
       expect(result.current.messages.some((m) => m.content === "partial answer")).toBe(true),
     );
   };
+
+  /** Holds every GET of a session list until the returned function is called. */
+  const holdSessionLists = () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answer = fetchMock.getMockImplementation() as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET" && String(input).endsWith("/ai/sessions")) await held;
+      return answer(input, init);
+    });
+    return release;
+  };
+
+  it("opens History for an ordinary member only when this project's list has arrived", async () => {
+    const release = holdSessionLists();
+    const { result } = renderChat();
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleOpenHistory();
+    });
+    expect(result.current.historyOpen).toBe(false);
+    release();
+    await act(async () => {
+      await opening;
+    });
+    expect(result.current.historyOpen).toBe(true);
+    expect(result.current.sessions).toEqual([sessionB]);
+  });
+
+  it("opens a demo visitor's History at once, without the last project's list", async () => {
+    const { result, rerender } = renderHook(
+      ({ projectId, demoReadOnly }: { projectId: string; demoReadOnly: boolean }) =>
+        useAiChat({ projectId, demoReadOnly }),
+      { wrapper, initialProps: { projectId: "own", demoReadOnly: false } },
+    );
+    await act(async () => {
+      await result.current.handleOpenHistory();
+    });
+    expect(result.current.sessions).toEqual([sessionB]);
+    act(() => result.current.setHistoryOpen(false));
+
+    rerender({ projectId: "demo", demoReadOnly: true });
+    const release = holdSessionLists();
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleOpenHistory();
+    });
+    expect(result.current.historyOpen).toBe(true);
+    expect(result.current.sessions.map((session) => session.id)).toEqual(
+      DEMO_EXAMPLES.map(({ session }) => session.id),
+    );
+    // Picking an example closes History; the list that lands later must not
+    // open it again over the transcript.
+    await act(async () => {
+      await result.current.handleSelectSession(result.current.sessions[0]);
+    });
+    expect(result.current.historyOpen).toBe(false);
+    release();
+    await act(async () => {
+      await opening;
+    });
+    expect(result.current.historyOpen).toBe(false);
+  });
+
+  it("keeps the demo example in History after opening RCA and returning Home", async () => {
+    const { result, rerender } = renderHook(
+      ({ initialSessionId }: { initialSessionId?: string }) =>
+        useAiChat({ projectId: "p1", initialSessionId, demoReadOnly: true }),
+      { wrapper, initialProps: { initialSessionId: "rca-1" as string | undefined } },
+    );
+    await waitFor(() => expect(result.current.messages[0]?.content).toBe("history of rca-1"));
+    rerender({ initialSessionId: undefined });
+    await act(async () => {
+      await result.current.handleOpenHistory();
+    });
+    const example = result.current.sessions.find((s) => s.id === "demo-example-policy");
+    expect(example).toBeDefined();
+    await act(async () => {
+      await result.current.handleSelectSession(example!);
+    });
+    expect(result.current.messages.at(-1)?.content).toContain("false positive");
+    await act(async () => {
+      expect(await result.current.handleSend("blocked", MODEL)).toBe(false);
+    });
+    expect(historyFetches).not.toContain("demo-example-policy");
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    expect(result.current.messages[0]?.content).toBe("history of B");
+    await act(async () => {
+      await result.current.handleSelectSession(example!);
+    });
+    expect(result.current.messages.at(-1)?.content).toContain("false positive");
+    act(() => result.current.handleNewSession());
+    expect(result.current.messages).toEqual([]);
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(
+      true,
+    );
+  });
+
+  it("switches through every bundled example without requesting a backend transcript", async () => {
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", demoReadOnly: true }), {
+      wrapper,
+    });
+    for (const example of DEMO_EXAMPLES) {
+      const listed = result.current.sessions.find((session) => session.id === example.session.id);
+      expect(listed).toBeDefined();
+      await act(async () => {
+        await result.current.handleSelectSession(listed!);
+      });
+      expect(result.current.currentSessionId).toBe(example.session.id);
+      expect(result.current.messages).toEqual(example.messages);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not list or load demo examples in ordinary workspaces", async () => {
+    const { result } = renderChat();
+    expect(result.current.sessions.some((session) => session.isExample)).toBe(false);
+    await act(async () => {
+      await result.current.handleSelectSession({ ...DEMO_EXAMPLES[0].session, projectId: "p1" });
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("loads an initialSessionId's history into its bucket on mount", async () => {
     const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }), {
