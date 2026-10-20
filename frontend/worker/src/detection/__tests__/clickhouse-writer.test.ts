@@ -95,6 +95,39 @@ describe("writeDetectorRun", () => {
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.selfTraced).toBe(true);
   });
+
+  it("passes usedInference through in the POST body", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await writeDetectorRun({
+      runId: "r1",
+      detectorId: "d1",
+      projectId: "p1",
+      traceId: "t1",
+      findingId: null,
+      status: "failed",
+      usedInference: true,
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.usedInference).toBe(true);
+  });
+
+  it("omits usedInference when absent so the server default applies", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await writeDetectorRun({
+      runId: "r1",
+      detectorId: "d1",
+      projectId: "p1",
+      traceId: "t1",
+      findingId: null,
+      status: "failed",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect("usedInference" in body).toBe(false);
+  });
 });
 
 describe("writeDetectorFinding", () => {

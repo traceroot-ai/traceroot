@@ -32,6 +32,8 @@ export interface Workspace {
   project_count?: number;
   create_time: string;
   update_time?: string;
+  // Effective read window, including when billing details are hidden. Null means unlimited.
+  retention_days?: number | null;
   // Billing fields
   billingPlan?: string;
   billingCustomerId?: string | null;
