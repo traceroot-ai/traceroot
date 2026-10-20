@@ -65,6 +65,7 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { ApiError } from "@/lib/api/errors";
+import type { TraceSource } from "@/lib/api/traces";
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
 function renderPanel(
@@ -285,6 +286,18 @@ describe("detector self-trace not-yet-ingested state", () => {
     renderPanel({ source: "user" });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("keeps an unknown internal source on the plain error, not the detector copy", () => {
+    // Stands in for an internal source added later: it is internal, so its 404 is
+    // not a customer error, but without a run timestamp the detector branch would
+    // report it as "still being recorded" forever.
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "assistant" as TraceSource });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+    expect(screen.queryByText(/analysis trace has been exported/i)).toBeNull();
   });
 });
 

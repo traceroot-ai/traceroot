@@ -49,6 +49,20 @@ A signal keeps collecting new findings in every state. [Notifications](/detector
 - A dismissed signal stays dismissed.
 - Setting a signal back to **Open** by hand sends no notification and starts no analysis.
 
+## Signals in the API
+
+Scripts can read signals and change their status through the public API:
+
+- `GET /api/v1/public/signals` lists the project's signals, newest first. Filter by `status` or `detector_id`. Merged signals are left out.
+- `GET /api/v1/public/signals/{signal_id}` returns one signal. A merged signal names the signal it moved to in `merged_into_id`.
+- `PATCH /api/v1/public/signals/{signal_id}/status` resolves or reopens a signal. Resolving needs a `reason` (`fixed_elsewhere`, `fixed_by_pr`, `already_fixed_before` or `other`), and `other` also needs a `note`. Send `expected_status` to refuse the change when someone changed the status after you read it.
+
+The [TraceRoot CLI](/cli/get-started) does not have these signal commands yet.
+
+For user-token authentication, include `project_id` as a query parameter on GET requests and in the JSON body on PATCH requests. Listing returns 50 signals by default; increment `page` (starting at 0) to read subsequent pages.
+
+A project API key can read signals but cannot change them. A status change needs a signed-in user with the member role or higher, and it is recorded with that user's name, reason and note, as in the web app. You cannot dismiss a signal through the API: a dismissed signal never reopens, so a person dismisses it in the web app.
+
 ## Root cause analysis
 
 The [TraceRoot Agent](/ai-agent/root-cause-analysis) reads one of the signal's traces and explains the cause. With [GitHub](/ai-agent/github-integration) connected, it also reads the related code and recent commits. The detector's **Root cause analysis** setting decides when it runs:
