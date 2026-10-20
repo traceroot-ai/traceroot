@@ -34,6 +34,8 @@ import {
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
 
+const FAR_FUTURE_END = new Date("2100-01-01T00:00:00Z");
+
 let stripe: Stripe | null = null;
 
 function getStripe(): Stripe {
@@ -60,8 +62,13 @@ export async function runBillingJob(): Promise<void> {
     const workspaces = await prisma.workspace.findMany({
       include: {
         projects: {
-          where: { deleteTime: null },
-          select: { id: true },
+          where: {
+            OR: [
+              { deleteTime: null },
+              { freeQuotaEligible: true, workspace: { billingPlan: PlanType.FREE } },
+            ],
+          },
+          select: { id: true, deleteTime: true, freeQuotaEligible: true },
         },
       },
     });
@@ -111,7 +118,7 @@ async function processWorkspace(
     rcaBlocked: boolean;
     detectorBlocked: boolean;
     currentUsage: any;
-    projects: { id: string }[];
+    projects: { id: string; deleteTime: Date | null; freeQuotaEligible: boolean }[];
   },
   ctx: {
     now: Date;
@@ -119,9 +126,12 @@ async function processWorkspace(
     stripeClient: Stripe | null;
   },
 ): Promise<void> {
-  const projectIds = workspace.projects.map((p) => p.id);
   const plan = workspace.billingPlan as PlanType;
   const isFreePlan = plan === PlanType.FREE;
+  // Eligible projects remain in free-plan accounting after soft deletion.
+  const projectIds = workspace.projects
+    .filter((p) => (isFreePlan ? p.freeQuotaEligible : p.deleteTime === null))
+    .map((p) => p.id);
 
   // =========================================================================
   // 1. Query event usage (traces + spans + detector runs) from ClickHouse
@@ -133,7 +143,10 @@ async function processWorkspace(
 
   if (isFreePlan) {
     start = ctx.allTimeStart;
-    end = ctx.now;
+    // Rewrites refresh ClickHouse version timestamps. A fixed "now" can exclude
+    // the surviving version after a merge, temporarily refunding consumed usage.
+    // Keep free telemetry lifetime-scoped; paid periods below remain bounded.
+    end = FAR_FUTURE_END;
   } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
     // Use billing period dates from Stripe (updated via webhook each month)
     start = workspace.billingPeriodStart;
