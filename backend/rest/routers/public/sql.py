@@ -47,7 +47,7 @@ from rest.services.sql.service import SqlQueryService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/sql", tags=["SQL (Public)"])
+router = APIRouter(prefix="/public/sql", tags=["SQL"])
 
 #: Returned when something fails in a way the caller had no part in. Deliberately
 #: identical for every such case: an error surface that varies with the internal

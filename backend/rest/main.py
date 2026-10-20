@@ -43,6 +43,8 @@ from rest.routers.public.detectors_read import router as public_detectors_read_r
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
+from rest.routers.public.signals_read import router as public_signals_read_router
+from rest.routers.public.signals_write import router as public_signals_write_router
 from rest.routers.public.sql import SqlBodyLimitMiddleware
 from rest.routers.public.sql import router as public_sql_router
 from rest.routers.public.traces import router as public_traces_router
@@ -54,6 +56,7 @@ from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
 from rest.schemas.common import HealthResponse
+from rest.security_headers import SecurityHeadersMiddleware
 from shared.config import settings
 
 app = FastAPI(
@@ -63,8 +66,8 @@ app = FastAPI(
 )
 
 # Compress responses (e.g. large trace payloads). Added before CORS so that
-# CORS remains the outermost middleware and its headers apply to every
-# response, including gzipped ones.
+# CORS wraps it and its headers apply to every response, including gzipped
+# ones.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 # One route reads a caller-authored query, and its field limits only apply once
 # the body has been read and parsed. This bounds the body itself.
@@ -135,6 +138,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it wraps everything, including the responses CORS and the SQL
+# body limit answer on their own.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Trace reading from ClickHouse (user auth via headers from Next.js)
 app.include_router(traces_router, prefix="/api/v1")
@@ -159,6 +165,7 @@ app.include_router(public_dashboards_read_router, prefix="/api/v1")
 app.include_router(public_widgets_query_router, prefix="/api/v1")
 app.include_router(public_widgets_read_router, prefix="/api/v1")
 app.include_router(public_alerts_read_router, prefix="/api/v1")
+app.include_router(public_signals_read_router, prefix="/api/v1")
 
 # Public offline-eval API (dataset authoring + run reporting). Thin authenticated
 # proxy to the Next.js control-plane routes so the SDK stays single-host.
@@ -169,10 +176,11 @@ app.include_router(public_account_read_router, prefix="/api/v1")
 
 # Public write API for user credentials: thin proxies to the Next.js internal
 # write routes (workspace/project account-scope, detector/dashboard/widget/
-# alert project-scope in the body)
+# alert/signal project-scope in the body)
 app.include_router(public_account_write_router, prefix="/api/v1")
 app.include_router(public_project_write_router, prefix="/api/v1")
 app.include_router(public_alerts_write_router, prefix="/api/v1")
+app.include_router(public_signals_write_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
 # project_dashboards, project_widgets, project_alerts and project_evaluations are the

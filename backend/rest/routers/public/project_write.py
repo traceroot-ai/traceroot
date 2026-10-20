@@ -56,7 +56,9 @@ from rest.schemas.public_write import (
     WidgetRow,
 )
 
-router = APIRouter(prefix="/public", tags=["Project (Public)"])
+# Each route carries its resource's tag (not one router-wide tag), so the API
+# reference groups these writes with the reads of the same resource.
+router = APIRouter(prefix="/public")
 
 
 def _detector_fields(detector: Any) -> dict[str, Any]:
@@ -125,6 +127,7 @@ def _widget_fields(widget: Any) -> dict[str, Any]:
 @router.post(
     "/detectors",
     operation_id="create_detector",
+    tags=["Detectors"],
     response_model=CreateDetectorResponse,
     responses=_WRITE_ERROR_RESPONSES,
     summary="Create a detector",
@@ -184,6 +187,7 @@ async def create_detector(
 @router.post(
     "/dashboards",
     operation_id="create_dashboard",
+    tags=["Dashboards"],
     response_model=CreateDashboardResponse,
     responses=_WRITE_ERROR_RESPONSES,
     summary="Create a dashboard",
@@ -229,6 +233,7 @@ async def create_dashboard(
 @router.post(
     "/widgets",
     operation_id="create_widget",
+    tags=["Widgets"],
     response_model=CreateWidgetResponse,
     responses=_WRITE_ERROR_RESPONSES,
     summary="Create a dashboard widget",
@@ -286,6 +291,7 @@ async def create_widget(
 @router.patch(
     "/detectors/{detector_id}",
     operation_id="update_detector",
+    tags=["Detectors"],
     response_model=UpdateDetectorResponse,
     responses=_NAME_CONFLICT_RESPONSES,
     summary="Edit a detector",
@@ -338,6 +344,7 @@ async def update_detector(
 @router.patch(
     "/dashboards/{dashboard_id}",
     operation_id="update_dashboard",
+    tags=["Dashboards"],
     response_model=UpdateDashboardResponse,
     responses=_NAME_CONFLICT_RESPONSES,
     summary="Edit a dashboard",
@@ -390,6 +397,7 @@ async def update_dashboard(
 @router.patch(
     "/widgets/{widget_id}",
     operation_id="update_widget",
+    tags=["Widgets"],
     response_model=UpdateWidgetResponse,
     responses=_WRITE_ERROR_RESPONSES,
     summary="Edit a dashboard widget",
@@ -446,6 +454,7 @@ async def update_widget(
 @router.delete(
     "/detectors/{detector_id}",
     operation_id="delete_detector",
+    tags=["Detectors"],
     response_model=DeleteDetectorResponse,
     responses=_WRITE_ERROR_RESPONSES,
     summary="Delete a detector",
@@ -500,6 +509,7 @@ async def delete_detector(
 @router.delete(
     "/dashboards/{dashboard_id}",
     operation_id="delete_dashboard",
+    tags=["Dashboards"],
     response_model=DeleteDashboardResponse,
     responses={
         **_WRITE_ERROR_RESPONSES,
@@ -560,6 +570,7 @@ async def delete_dashboard(
 @router.delete(
     "/widgets/{widget_id}",
     operation_id="delete_widget",
+    tags=["Widgets"],
     response_model=DeleteWidgetResponse,
     responses=_WRITE_ERROR_RESPONSES,
     summary="Delete a dashboard widget",
