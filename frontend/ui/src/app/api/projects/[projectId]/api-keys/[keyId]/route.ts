@@ -78,6 +78,11 @@ async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
+  // revokeProjectAccessKey checks ADMIN too; checking here keeps the route's
+  // role floor in its own handler.
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.ADMIN);
+  if (accessResult.error) return accessResult.error;
+
   const revokeResult = await revokeProjectAccessKey(user.id, projectId, keyId);
   if (revokeResult.error) return revokeResult.error;
 
