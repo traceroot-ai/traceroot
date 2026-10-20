@@ -45,7 +45,7 @@ _CREDENTIALS = {
 }
 
 # Dependencies that raise the scope requirement above the ``ingest`` floor.
-_ADMIN_SCOPE_DEPENDENCIES = {"require_admin_key_scope", "require_admin_scope"}
+_ADMIN_SCOPE_DEPENDENCIES = {"require_admin_key_scope"}
 
 # (method, path, credential, scope). Sorted by path, then method, then row.
 #

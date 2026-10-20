@@ -35,9 +35,8 @@ API key can reach is reachable with an ``ingest`` key: ingestion, ``whoami``, th
 project-scoped reads, and the evaluation SDK's dataset and run reporting writes,
 which the SDK performs with the same key it sends telemetry with.
 
-To require more on a route, depend on :func:`require_admin_key_scope`, or
-:func:`require_admin_scope` on a key-or-user route, alongside the stamped
-annotation — see ``routers/public/api_keys.py`` for how.
+To require more on a key-only route, depend on :func:`require_admin_key_scope`
+alongside the stamped annotation — see ``routers/public/api_keys.py`` for how.
 ``tests/rest/test_public_route_scopes.py`` pins the credential and scope of every
 public route, so adding one without deciding its scope fails there rather than
 shipping unchecked.
@@ -1061,9 +1060,8 @@ async def _check_session_live(session_id: str) -> bool:
 def require_scope(auth: AuthResult, required: ApiKeyScope) -> None:
     """Refuse an API key whose scope does not cover ``required``.
 
-    The single rule behind every scope refusal on this service, so the two
-    dependencies below cannot drift from each other, and 403 is raised in exactly
-    one place.
+    The single rule behind every scope refusal on this service, so 403 is raised
+    in exactly one place.
 
     A user credential always passes. Scope is a property of a key; a signed-in
     member's authority is their project role, which is checked where roles are
@@ -1115,26 +1113,6 @@ async def require_admin_key_scope(auth: KeyAuth) -> None:
 
     Raises:
         HTTPException: 403 when the key is not ``admin``-scoped.
-    """
-    require_scope(auth, "admin")
-
-
-async def require_admin_scope(auth: _DualAuth) -> None:
-    """Require an ``admin``-scoped key on a key-or-user public route.
-
-    The :data:`DualStampedAuth` counterpart of :func:`require_admin_key_scope`,
-    sharing :func:`authenticate_public_caller` for the same reason. A user
-    credential passes, since a scope is something only a key carries.
-
-    Args:
-        auth (AuthResult): The resolved credential, supplied by FastAPI via the
-            same inner dependency the stamped annotation uses.
-
-    Returns:
-        None: The request may proceed.
-
-    Raises:
-        HTTPException: 403 when an API key is not ``admin``-scoped.
     """
     require_scope(auth, "admin")
 
