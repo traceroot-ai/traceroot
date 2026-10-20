@@ -35,12 +35,11 @@ interface StackSelectorProps {
  * the agent frameworks somebody arrives looking for by name and the SDKs they
  * would never think to look for under that word. Three groups and a search are
  * two different ways in — browse if you know the shape of what you have, type
- * if you know its name — and either way the answer feeds the key field below,
- * which both routes share, and the install command, the snippet and the docs
- * link on the manual one. The AI route's own section does not take it: its
- * single `traceroot setup` line detects the stack in the repository it is run
- * in rather than taking this page's word for it, and its docs link is the
- * general tracing guide.
+ * if you know its name — and either way the answer feeds the key field below
+ * and the manual walkthrough's install command, snippet and docs link. The
+ * setup command does not take it: its single `traceroot setup` line detects the
+ * stack in the repository it is run in, and its docs link is the general
+ * tracing guide.
  *
  * Filtering never changes the selection. Someone who picks CrewAI and then
  * types "mastra" to see whether it is supported has not chosen Mastra, and
