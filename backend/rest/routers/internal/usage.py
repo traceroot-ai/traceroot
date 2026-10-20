@@ -143,17 +143,47 @@ async def get_usage_details(
     traces = sum(b.traces for b in by_source.values())
     spans = sum(b.spans for b in by_source.values())
 
-    # Detector runs: count every scan attempt recorded by the detector worker
-    # (BYOK + system source both count toward Free-plan hard cap).
-    # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
-    # same pattern as the traces / spans queries above.
+    # Detector runs: count scans recorded by the detector worker (BYOK + system
+    # source both count toward Free-plan hard cap).
+    # A run counts when its latest version completed OR recorded inference
+    # usage (used_inference) — a 'failed' status alone does not prove the model
+    # was never called. The worker's sandbox eval can burn up to two billed
+    # calls and still fail (the model never calls submit_result; TypeSafe bills
+    # a 200 whose answers we reject), and it stamps used_inference from the
+    # token counts the provider reported, so those runs still consume quota and
+    # stay in the paid overage denominator. Only failures before any model call
+    # (missing provider key, unknown model, span download failure) are written
+    # without inference usage and are excluded. `used_inference` is a real
+    # column (migration 016); rows written before it exist read as false, so a
+    # legacy failed run keeps the pre-016 behaviour (not counted) while a
+    # legacy completed run still counts by status.
+    # Collapse before filtering: detector_runs is a ReplacingMergeTree keyed on
+    # (project_id, detector_id, run_id) with timestamp as the version column,
+    # and a retry reuses the run's deterministic run_id — so a stale
+    # 'completed' row can sit next to a newer 'failed' one until background
+    # merge. Filtering raw rows first would count that stale row. The inner
+    # query resolves each run to its latest version (argMax over
+    # (timestamp, status); a same-millisecond tie resolves to 'failed' so an
+    # ambiguous run never consumes quota, and the same tie resolves
+    # used_inference to true so a billed call is never forgotten), the outer
+    # query windows on that collapsed timestamp — latest row wins, then filter
+    # — and counts each qualifying run exactly once. Same construct as the
+    # digest window-summary.
     detector_runs_result = ch.query(
         """
-        SELECT uniqExact(run_id) as total
-        FROM detector_runs
-        WHERE project_id IN {project_ids:Array(String)}
-          AND timestamp >= {start:String}
-          AND timestamp < {end:String}
+        SELECT count() as total
+        FROM (
+            SELECT
+                argMax(status, (timestamp, status)) AS latest_status,
+                argMax(used_inference, (timestamp, status, used_inference)) AS latest_used_inference,
+                max(timestamp) AS ts
+            FROM detector_runs
+            WHERE project_id IN {project_ids:Array(String)}
+            GROUP BY project_id, detector_id, run_id
+        )
+        WHERE ts >= {start:String}
+          AND ts < {end:String}
+          AND (latest_status = 'completed' OR latest_used_inference)
         """,
         parameters={
             "project_ids": project_id_list,

@@ -27,7 +27,7 @@ from rest.routers.alert_read_common import get_alert_detail, list_alerts_page
 from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.public import AlertDetail, PublicAlertListResponse
 
-router = APIRouter(prefix="/public/alerts", tags=["Alerts (Public)"])
+router = APIRouter(prefix="/public/alerts", tags=["Alerts"])
 
 
 @router.get("", response_model=PublicAlertListResponse, operation_id="list_alerts")
