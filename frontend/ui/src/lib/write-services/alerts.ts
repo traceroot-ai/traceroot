@@ -44,6 +44,7 @@ import {
   type AlertRecord,
   type AlertRow,
 } from "@/app/api/projects/[projectId]/alerts/serialize";
+import { postDeletedAlertClose, type DeletedAlertClose } from "@/lib/alerts/post-deleted-close";
 import { writeAudit, type AuditEntry } from "./audit";
 import { requireProjectMember } from "./project-access";
 import type { DeleteResult, EditOutcome, Provenance, ServiceResult, UpdateResult } from "./types";
@@ -583,9 +584,20 @@ export async function setAlertStatus(input: {
 }
 
 /**
- * Hard-delete an alert for a MEMBER of its project. An outstanding page is
- * not notified as resolved; the answer carries `pageCleared` when one was
- * open so the caller can say so.
+ * A delete's outcome, plus the close it owes Slack: like the audit entry, it is only
+ * acted on once the transaction has committed.
+ */
+type DeleteAlertOutcome = Promise<
+  Awaited<EditOutcome<DeleteResult>> & { close?: DeletedAlertClose }
+>;
+
+/**
+ * Hard-delete an alert for a MEMBER of its project, and the answer carries
+ * `pageCleared` when an outstanding page was open. That page is closed in Slack
+ * by this call itself once the delete has committed, best-effort: there is no
+ * rule left for the worker to read a close from. A close an earlier edit or
+ * resume left on the row, and the worker has not sent yet, goes out the same
+ * way: the rule goes, but the page it closes was still seen.
  */
 export async function deleteAlert(input: {
   actorUserId: string;
@@ -598,13 +610,17 @@ export async function deleteAlert(input: {
   if (!reason.ok) return reason;
 
   const { projectId, alertId } = input;
-  const outcome = await prisma.$transaction(async (tx): EditOutcome<DeleteResult> => {
+  const outcome = await prisma.$transaction(async (tx): DeleteAlertOutcome => {
     const access = await requireProjectMember(tx, projectId, input.actorUserId);
     if (!access.ok) return { result: access };
 
+    // Locked for the same reason an edit locks it: the delete reads the page and
+    // the close marker it sends a close for. Unlocked, a tick could take the
+    // marker in between and the close would be sent twice.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: { id: true, name: true, severity: true, alertedAt: true },
+      select: { id: true, name: true, severity: true, alertedAt: true, pendingClose: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -612,7 +628,17 @@ export async function deleteAlert(input: {
     if (count === 0) return { result: ALERT_NOT_FOUND };
 
     const pageCleared = hasOutstandingAlertPage(existing);
+    let close: DeletedAlertClose | undefined;
+    if (pageCleared || existing.pendingClose !== null) {
+      const actor = await tx.user.findUnique({
+        where: { id: input.actorUserId },
+        select: { name: true },
+      });
+      // || not ??: an empty-string name is no name, and the channel never gets an email.
+      close = { projectId, alertId, name: existing.name, actorName: actor?.name || null };
+    }
     return {
+      close,
       result: {
         ok: true,
         data: { id: existing.id, name: existing.name },
@@ -628,5 +654,6 @@ export async function deleteAlert(input: {
   });
 
   if (outcome.audit) await writeAudit(prisma, outcome.audit);
+  if (outcome.close) await postDeletedAlertClose(outcome.close);
   return outcome.result;
 }
