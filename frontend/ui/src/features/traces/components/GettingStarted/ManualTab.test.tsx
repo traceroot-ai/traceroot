@@ -141,21 +141,19 @@ describe("ManualTab", () => {
 });
 
 describe("ManualTab with no stack chosen above it", () => {
-  // Rendered on its own, with no picker above it, the tab has to ask for the
-  // stack and the model key itself — as the six steps it was before the panel
-  // lifted both out. Onboarding's manual step rendered it this way until it
-  // took the panel's shared picker.
+  // The traces page renders the walkthrough this way: the tab asks for the
+  // stack itself, as step 3, and asks for no model key -- the five steps that
+  // page has always shown. The model key is asked for during onboarding.
   const stepNames = () =>
     screen.getAllByText(/^\d+\. /).map((node) => node.textContent?.replace(/^\d+\. /, ""));
 
-  it("is six steps, with the stack picker and the model key back in them", () => {
+  it("is five steps, with the stack picker as step 3 and no model key", () => {
     render(<ManualTab projectId="proj_1" />);
     expect(stepNames()).toEqual([
       "Create an API key",
       "Install SDK",
       "Select your integration",
       "Initialize TraceRoot for OpenAI",
-      "Use your own model key",
       "External integrations",
     ]);
   });
@@ -167,49 +165,60 @@ describe("ManualTab with no stack chosen above it", () => {
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
     ).toBe("true");
-    // The panel's "Frameworks & SDKs" entries land under "Frameworks" here.
+    // The catalogue's "Frameworks & SDKs" entries land under "Frameworks" here.
     expect(within(frameworks).getByRole("radio", { name: "CrewAI" })).toBeDefined();
     expect(within(frameworks).getByRole("radio", { name: "DSPy" })).toBeDefined();
     expect(within(providers).queryByRole("radio", { name: "CrewAI" })).toBeNull();
     expect(screen.queryByLabelText("Search integrations")).toBeNull();
   });
 
-  it("follows its own picker: the snippets, the docs link and the key it asks for", () => {
+  it("follows its own picker: the snippets and the docs link under it", () => {
     const { container } = render(<ManualTab projectId="proj_1" />);
     fireEvent.click(screen.getByRole("radio", { name: "Mastra" }));
 
     expect(screen.getByText("4. Initialize TraceRoot for Mastra")).toBeDefined();
     expect(container.textContent).toContain("@traceroot-ai/mastra");
-    expect(screen.getByRole("link", { name: "View Mastra docs" }).getAttribute("href")).toBe(
-      "https://traceroot.ai/docs/integrations/mastra",
-    );
-    const block = screen.getByTestId("model-provider-block");
-    expect(block.dataset.providerKey).toBe(JSON.stringify(byId("mastra").providerKey));
+    const docs = screen.getByRole("link", { name: "View Mastra docs" });
+    expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/integrations/mastra");
+    // Under the picker, ahead of the snippet heading, rather than beside it.
+    const frameworks = screen.getByRole("radiogroup", { name: "Frameworks" });
+    expect(
+      frameworks.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      docs.compareDocumentPosition(screen.getByText("4. Initialize TraceRoot for Mastra")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
-  it("offers the model key step after the four that produce a trace", () => {
+  it("asks for no model key, on any stack", () => {
     render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("5. Use your own model key")).toBeDefined();
-    expect(screen.getByTestId("model-provider-block").dataset.workspace).toBe("ws_1");
-    expect(screen.getByText("6. External integrations")).toBeDefined();
+    for (const name of ["OpenAI", "Mistral", "CrewAI", "Claude Agent SDK"]) {
+      fireEvent.click(screen.getByRole("radio", { name }));
+      expect(screen.queryByText(/model key/i)).toBeNull();
+      expect(screen.queryByTestId("model-provider-block")).toBeNull();
+    }
+    expect(screen.getByText("5. External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
   });
 
-  it("says both workspace steps are unavailable when the project fetch fails", () => {
+  it("says the workspace step is unavailable when the project fetch fails", () => {
     projectQuery.isLoading = false;
     projectQuery.data = undefined;
     render(<ManualTab projectId="proj_1" />);
     expect(screen.queryByTestId("model-provider-block")).toBeNull();
     expect(screen.queryByTestId("github-connect")).toBeNull();
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(2);
+    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
+    // The picker needs no workspace, so it is still usable.
+    expect(screen.getByRole("radiogroup", { name: "Model Providers" })).toBeDefined();
   });
 
-  it("shows a placeholder for both workspace steps while the project loads", () => {
+  it("shows a placeholder for the integrations while the project loads", () => {
     projectQuery.isLoading = true;
     projectQuery.data = undefined;
     render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("Loading model providers...")).toBeDefined();
     expect(screen.getByText("Loading integrations...")).toBeDefined();
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
+    expect(screen.queryByText("Loading model providers...")).toBeNull();
+    expect(screen.queryByTestId("github-connect")).toBeNull();
   });
 });
