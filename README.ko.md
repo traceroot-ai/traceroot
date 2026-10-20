@@ -29,7 +29,7 @@
 
 ## TraceRoot
 
-TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 개선 루프를 완성합니다.
+에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 | ---- | ----------- |
 | **[추적](https://traceroot.ai/docs/tracing/get-started)** | 각 모델 호출, 도구 호출, 응답과 함께 입력, 출력, 지연 시간, 비용을 확인하세요. |
 | **[탐지](https://traceroot.ai/docs/detectors/get-started)** | 기대하는 동작을 정의하고, 기준에 미치지 못하는 프로덕션 실행을 자동으로 표시하세요. |
-| **신호** | 평가 모델의 출력을 클러스터링해 신호를 만듭니다. 백그라운드 코딩 에이전트가 샌드박스에서 트레이스와 연결된 GitHub 코드를 조사해 수정안을 제안합니다. |
+| **[신호](https://traceroot.ai/docs/signals/introduction)** | 평가 모델의 출력을 클러스터링해 신호를 만듭니다. 백그라운드 코딩 에이전트가 샌드박스에서 트레이스와 연결된 GitHub 코드를 조사해 수정안을 제안합니다. |
 | **[검증](https://traceroot.ai/docs/evals/get-started)** | 데이터셋으로 평가를 실행하고 버전을 비교해 개선 효과를 측정하고 회귀를 발견하세요. |
 
 ### 코딩 에이전트를 위한 설계

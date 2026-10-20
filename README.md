@@ -29,7 +29,7 @@ Open Source AI Agent Improvement Platform
 
 ## TraceRoot
 
-TraceRoot turns production traces into actionable feedback and evals, closing the improvement loop with your coding agent.
+Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -43,7 +43,7 @@ Trace production runs, use detectors to evaluate behavior, and surface recurring
 | ---- | ----------- |
 | **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See each model call, tool call, and response, with inputs, outputs, latency, and cost. |
 | **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
-| **Signals** | Cluster judge outputs into signals. A background coding agent investigates traces and connected GitHub code in a sandbox to suggest fixes. |
+| **[Signals](https://traceroot.ai/docs/signals/introduction)** | Cluster judge outputs into signals. A background coding agent investigates traces and connected GitHub code in a sandbox to suggest fixes. |
 | **[Verify](https://traceroot.ai/docs/evals/get-started)** | Run evals against your datasets and compare versions to measure improvements and catch regressions. |
 
 ### Built for your coding agent
