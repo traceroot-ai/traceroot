@@ -21,7 +21,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
 import type { TraceDetail } from "@/types/api";
-import type { TraceSource } from "@/lib/api/traces";
+import { isCustomerTraffic, type TraceSource } from "@/lib/api/traces";
 import { ApiError } from "@/lib/api/errors";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
@@ -259,7 +259,7 @@ export function TraceViewerPanel({
   // is always empty.
   const { data: traceFindingsData } = useTraceFindings(
     projectId,
-    traceOverride || source === "detector" || source === "agent" ? "" : traceId,
+    traceOverride || !isCustomerTraffic(source) ? "" : traceId,
   );
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
@@ -269,8 +269,7 @@ export function TraceViewerPanel({
   // source = 'user' server-side), so a detector self-trace or an agent (RCA)
   // trace can never carry findings — the tab would only ever render empty.
   // Also hidden under an eval override, whose synthetic id backs no rows.
-  const detectorsHidden =
-    !!traceOverride || !!hideDetectors || source === "detector" || source === "agent";
+  const detectorsHidden = !!traceOverride || !!hideDetectors || !isCustomerTraffic(source);
   // If the tab disappears while active (the detectors page keeps one panel
   // mounted and re-points it from an original trace to a self/agent trace),
   // fall back to the tree view instead of a blank pane.
@@ -496,10 +495,9 @@ export function TraceViewerPanel({
                       // A self-trace or agent trace's id matches no list row's
                       // trace_id, so the receiving page needs the source to
                       // reopen it as one instead of looking it up as an original.
-                      extraParams:
-                        source === "detector" || source === "agent"
-                          ? { ...newTabParams, traceId: traceId, fullscreen: "1", source: source }
-                          : { ...newTabParams, traceId: traceId, fullscreen: "1" },
+                      extraParams: !isCustomerTraffic(source)
+                        ? { ...newTabParams, traceId: traceId, fullscreen: "1", source: source }
+                        : { ...newTabParams, traceId: traceId, fullscreen: "1" },
                     }),
                     "_blank",
                   )
@@ -654,7 +652,7 @@ export function TraceViewerPanel({
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      {(source === "detector" || source === "agent") &&
+                      {!isCustomerTraffic(source) &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
                         source === "agent" ? (
                           // Every way into an agent trace — a Finding ID cell, a tool
@@ -668,23 +666,30 @@ export function TraceViewerPanel({
                             This analysis trace has been exported but isn&rsquo;t ingested yet.
                             Check back in a moment.
                           </p>
-                        ) : // self_traced is set optimistically at emit time, and the SDK
-                        // export is batched, so the trace may not be ingested yet and a
-                        // 404 miss here is expected, not an error. A non-404 failure
-                        // still surfaces as a real error below. Once the export window
-                        // has passed, the stamp is stale: the export failed and nothing
-                        // will arrive, so say so instead of telling the user to keep
-                        // waiting.
-                        isSelfTracePending(runTimestamp) ? (
-                          <p className="text-sm text-muted-foreground">
-                            This detector run&rsquo;s trace is still being recorded. Check back in a
-                            moment.
-                          </p>
+                        ) : source === "detector" ? (
+                          // self_traced is set optimistically at emit time, and the SDK
+                          // export is batched, so the trace may not be ingested yet and a
+                          // 404 miss here is expected, not an error. A non-404 failure
+                          // still surfaces as a real error below. Once the export window
+                          // has passed, the stamp is stale: the export failed and nothing
+                          // will arrive, so say so instead of telling the user to keep
+                          // waiting.
+                          isSelfTracePending(runTimestamp) ? (
+                            <p className="text-sm text-muted-foreground">
+                              This detector run&rsquo;s trace is still being recorded. Check back in
+                              a moment.
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              No trace was recorded for this run — the self-trace export
+                              didn&rsquo;t reach the backend.
+                            </p>
+                          )
                         ) : (
-                          <p className="text-sm text-muted-foreground">
-                            No trace was recorded for this run — the self-trace export didn&rsquo;t
-                            reach the backend.
-                          </p>
+                          // Only the internal kinds above know why their trace can be
+                          // missing; any other internal source gets the plain error
+                          // rather than borrowing a detector run's copy.
+                          <p className="text-sm text-destructive">Error loading trace</p>
                         )
                       ) : (
                         <p className="text-sm text-destructive">Error loading trace</p>

@@ -17,6 +17,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -59,6 +60,9 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(authResult.user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
+  if (isDemoViewer(workspaceId, membershipResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
