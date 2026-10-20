@@ -37,6 +37,41 @@ async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Pro
   return body.time_since_last_span_ms;
 }
 
+/**
+ * Re-evaluate the queued candidate set against the current trace summary after
+ * the quiescence gate. A failure is retryable; an empty result means the latest
+ * settled trace no longer matches any candidate's trigger conditions.
+ */
+async function fetchEligibleDetectorIds(
+  projectId: string,
+  traceId: string,
+  detectorIds: string[],
+): Promise<string[]> {
+  const query = new URLSearchParams({ project_id: projectId });
+  for (const detectorId of detectorIds) query.append("detector_ids", detectorId);
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/internal/traces/${encodeURIComponent(traceId)}/eligible-detectors?${query.toString()}`,
+    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch eligible detectors for trace ${traceId}: HTTP ${response.status}`,
+    );
+  }
+
+  const body = (await response.json()) as { detector_ids?: unknown };
+  if (
+    !Array.isArray(body.detector_ids) ||
+    !body.detector_ids.every((id): id is string => typeof id === "string")
+  ) {
+    throw new Error(`Invalid eligible-detectors response for trace ${traceId}`);
+  }
+
+  const requested = new Set(detectorIds);
+  return [...new Set(body.detector_ids.filter((id) => requested.has(id)))];
+}
+
 /** Hash a string to 32 lowercase hex chars (first 128 bits of sha256). */
 function hash32(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 32);
@@ -533,7 +568,26 @@ export async function handleDetectorRunJob(
   const timeSinceLastSpanMs = await fetchTimeSinceLastSpanMs(projectId, traceId);
 
   if (timeSinceLastSpanMs >= EVALUATOR_DELAY) {
-    await processTrace(traceId, projectId, detectorIds);
+    const eligibleDetectorIds = await fetchEligibleDetectorIds(projectId, traceId, detectorIds);
+
+    // The eligibility query takes time. Re-check quiescence afterward so a
+    // span arriving while eligibility was being read triggers another wait.
+    const quietSinceEligibilityMs = await fetchTimeSinceLastSpanMs(projectId, traceId);
+    if (quietSinceEligibilityMs < EVALUATOR_DELAY) {
+      const delayMs = EVALUATOR_DELAY - quietSinceEligibilityMs;
+      console.log(
+        `[Detector] settle-wait trace=${traceId} quiet=${Math.round(quietSinceEligibilityMs / 1000)}s ` +
+          `re-check in ${Math.round(delayMs / 1000)}s after eligibility check`,
+      );
+      await job.moveToDelayed(Date.now() + delayMs, token);
+      throw new DelayedError();
+    }
+
+    if (eligibleDetectorIds.length === 0) {
+      console.log(`[Detector] No eligible detectors after settlement: trace=${traceId}`);
+      return;
+    }
+    await processTrace(traceId, projectId, eligibleDetectorIds);
     return;
   }
 
