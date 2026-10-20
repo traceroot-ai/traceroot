@@ -114,7 +114,7 @@ describe("useProjectTraceWait", () => {
       new Map([["p-1", { kind: "unknown" }]]),
       USER,
     );
-    expect(mocks.findFirstTrace).toHaveBeenCalledWith(["p-1"], settled, USER);
+    expect(mocks.findFirstTrace).toHaveBeenCalledWith("p-1", settled, USER);
   });
 
   it("opens the trace once one arrives, and stops looking", async () => {
@@ -183,10 +183,51 @@ describe("useProjectTraceWait", () => {
 
     expect(result.current).toEqual({ kind: "waiting" });
     expect(mocks.findFirstTrace).toHaveBeenCalledWith(
-      ["p-1"],
+      "p-1",
       new Map([["p-1", { kind: "empty" }]]),
       USER,
     );
+  });
+
+  it("stops early, and says why, when the search stops being able to read", async () => {
+    // The line was drawn, so the baseline has nothing to say about a session
+    // that expires afterwards. Without counting the search, the page would wait
+    // out the budget and then report that no trace arrived.
+    mocks.findFirstTrace.mockRejectedValue(new Error("unauthorized"));
+    const { result } = watch();
+
+    // The first round only draws the line, and the round past the limit shows
+    // that the wait stopped searching rather than carrying on.
+    for (let round = 0; round <= MAX_UNREADABLE_ROUNDS; round += 1) {
+      await nextRound();
+    }
+
+    expect(mocks.findFirstTrace).toHaveBeenCalledTimes(MAX_UNREADABLE_ROUNDS);
+    expect(result.current).toEqual({
+      kind: "gave-up",
+      fallbackUrl: "/projects/p-1/traces",
+      unreadable: true,
+    });
+  });
+
+  it("starts the count over once a search reads the project", async () => {
+    // Failures that a good read separates are blips, not a tab that has lost
+    // the account, so only a run of them in a row ends the wait.
+    for (let failure = 1; failure < MAX_UNREADABLE_ROUNDS; failure += 1) {
+      mocks.findFirstTrace.mockRejectedValueOnce(new Error("offline"));
+    }
+    mocks.findFirstTrace.mockResolvedValueOnce(null);
+    mocks.findFirstTrace.mockRejectedValue(new Error("offline"));
+    const { result } = watch();
+
+    // After the round that draws the line: failures to one short of the limit,
+    // the good read, then as many again — past the limit had it not reset.
+    for (let round = 0; round < 2 * MAX_UNREADABLE_ROUNDS - 1; round += 1) {
+      await nextRound();
+    }
+
+    expect(mocks.findFirstTrace).toHaveBeenCalledTimes(2 * MAX_UNREADABLE_ROUNDS - 1);
+    expect(result.current).toEqual({ kind: "waiting" });
   });
 
   it("gives up on the project's own traces page when the budget runs out", async () => {

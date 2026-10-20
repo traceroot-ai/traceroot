@@ -2,21 +2,16 @@
  * Finding the first trace a setup run produces, from the browser tab that
  * started it.
  *
- * Two pages watch for this, and they know different amounts about where to
- * look. The device page approves a terminal before that terminal has chosen a
- * project, so it has a *set* of places a trace could land and that set can grow
- * while it watches. The onboarding page made the project itself, so it has one
- * id and no guessing to do. What they share is everything after "which
- * projects": where each one stood when the wait began, and which row in it is
- * the trace the run produced.
+ * The onboarding page is what watches for this. It made the project itself, so
+ * it has the id to look in and no guessing to do. What lives here is
+ * everything after "which project": where it stood when the wait began, and
+ * which row in it is the trace the run produced.
  *
  * So this module takes project ids and never discovers them. Deciding what to
- * watch — and in what order — is the caller's, because only the caller knows
- * how firmly it can bind a trace to its own run.
+ * watch is the caller's.
  *
- * Everything here is a read. Neither page may create a workspace or a project
- * on the user's behalf (see the device page's own notes on why), so a wait that
- * finds nowhere to look simply finds nothing.
+ * Everything here is a read, so a wait that finds nowhere to look simply finds
+ * nothing.
  */
 import { getTraces } from "@/lib/api/traces";
 import type { TraceApiUser } from "@/lib/api/client";
@@ -36,8 +31,8 @@ const PROBE_PAGE_SIZE = 10;
  *
  * `unknown` is its own answer rather than a missing entry, because absence from
  * the baseline means something else entirely — it means the project did not
- * exist yet — and conflating the two would rank a project we merely failed to
- * read above a project the terminal actually just created.
+ * exist yet, so anything in it qualifies — and conflating the two would let a
+ * project we merely failed to read match a trace that was already there.
  */
 export type BaselineEntry =
   | { kind: "newest"; at: string }
@@ -169,39 +164,26 @@ function firstTraceAfter(traces: TraceListItem[], cut: string | null): TraceList
 }
 
 /**
- * One round of looking: the first trace to arrive in any of `projectIds` since
- * the baseline was taken, or null when none has.
+ * One round of looking: the first trace to arrive in `projectId` since the
+ * baseline was taken, or null when none has.
  *
- * The ids are searched in the order given and the first match wins, so a caller
- * that can rank its candidates should rank them before calling. A caller
- * watching exactly one project has nothing to rank and gets the only answer
- * there is.
+ * A read that fails is thrown rather than answered with null. Null says the
+ * project was read and nothing new was in it, which a failed read cannot say.
  */
 export async function findFirstTrace(
-  projectIds: string[],
+  projectId: string,
   baseline: TraceBaseline,
   user: TraceApiUser | undefined,
 ): Promise<FirstTrace | null> {
-  for (const projectId of projectIds) {
-    const entry = baseline.get(projectId);
-    if (entry?.kind === "unknown") {
-      // No line to compare against, so any trace here could be one that was
-      // already present. Skipped until the baseline for it settles.
-      continue;
-    }
-    let traces: TraceListItem[];
-    try {
-      traces = await probeTraces(projectId, user, PROBE_PAGE_SIZE);
-    } catch {
-      // One unreadable project does not end the round; another may hold the trace.
-      continue;
-    }
-    const match = firstTraceAfter(traces, entry?.kind === "newest" ? entry.at : null);
-    if (match) {
-      return { projectId, traceId: match.trace_id };
-    }
+  const entry = baseline.get(projectId);
+  if (entry?.kind === "unknown") {
+    // No line to compare against, so any trace here could be one that was
+    // already present. Skipped until the baseline for it settles.
+    return null;
   }
-  return null;
+  const traces = await probeTraces(projectId, user, PROBE_PAGE_SIZE);
+  const match = firstTraceAfter(traces, entry?.kind === "newest" ? entry.at : null);
+  return match ? { projectId, traceId: match.trace_id } : null;
 }
 
 /** The dashboard's deep link to one trace, the destination a finished wait offers. */

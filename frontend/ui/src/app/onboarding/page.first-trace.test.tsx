@@ -6,8 +6,7 @@
  * onboarding suite leans on testing-library's waitFor, which polls on real
  * ones. The mocks stop at the API client, so the module that decides *which*
  * trace belongs to this run is the real one here — which is the point, because
- * what this page claims over the device page is that the question has only one
- * possible answer.
+ * what this page claims is that the question has only one possible answer.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -160,9 +159,8 @@ afterEach(() => {
 
 describe("the hand-back step's first-trace watch", () => {
   it("watches the project it just made, and only that one", async () => {
-    // The whole of this page's advantage over the device page, which has to
-    // approve a terminal before that terminal has picked a project and so ends
-    // up watching several and ranking them. Here the id is already in hand.
+    // The page made the project, so the id is already in hand and there is
+    // nothing else to watch or rank.
     await reachHandback();
     await rounds(2);
 
@@ -191,12 +189,11 @@ describe("the hand-back step's first-trace watch", () => {
     tracePage = [trace("t-run", "2026-05-01T10:05:00Z")];
     await rounds(1);
 
-    // Both waiting pages end the same way: the trace the run was for is what
-    // the person lands on, without having to ask for it.
+    // The wait ends where the person wanted to be: on the trace the run was
+    // for, without having to ask for it.
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
     // Once. The effect is keyed on the wait object's identity, so a settled
-    // wait that re-rendered would push again — and the device-page twin pins
-    // this same count for the same reason.
+    // wait that re-rendered would push again.
     expect(mocks.push).toHaveBeenCalledTimes(1);
     // The link stays in the arrival line as the way forward if that push is
     // slow or refused, so the state is never a statement with no exit.
