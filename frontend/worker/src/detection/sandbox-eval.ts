@@ -12,6 +12,7 @@ import {
 } from "@traceroot/core/model-resolver";
 import {
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
   isDecisionAdapter,
   LLMAdapter,
 } from "@traceroot/core/llm-providers";
@@ -43,7 +44,7 @@ export interface EvalResult {
   inferenceOutputTokens: number;
   /** Source attribution for billing — preserved on error paths so failures still attribute. */
   inferenceSource: "system" | "byok";
-  /** Model id reported by pi-ai (e.g. "claude-haiku-4-5"); null on early-exit error paths. */
+  /** Model id reported by pi-ai (e.g. "gpt-6-luna"); null on early-exit error paths. */
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
   inferenceProvider: string | null;
@@ -52,8 +53,8 @@ export interface EvalResult {
 const MAX_ATTEMPTS = 2;
 /**
  * Hard character cap on per-trace context sent to the judge.
- * Set at ~19% of claude-haiku-4-5's 200k-token window (~37k tokens at 4 chars/token),
- * leaving generous headroom for the system prompt + tool definitions + response budget.
+ * ~37k tokens at 4 chars/token: under 20% of a 200k-token window, the smallest
+ * among the system models a detector can run on, leaving generous headroom for the system prompt + tool definitions + response budget.
  * Smart compression (type-aware truncation + path-based dedup + base64
  * stripping) is a future improvement when we see real customer complaints
  * about traces being truncated. For now, rely on this hard cap.
@@ -120,7 +121,8 @@ function errorResult(
  *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
  *   2. System source → env var (pi-ai owns the provider→env-var mapping)
  *   3. System source fallback → any enabled BYOK row in the workspace whose
- *      adapter maps to the same pi-ai provider (matches agent behavior)
+ *      adapter is that provider itself. OpenAI-compatible adapters (DeepSeek,
+ *      xAI, …) don't count: a system model calls the provider's own endpoint.
  */
 export async function resolveDetectorApiKey(
   workspaceId: string,
@@ -132,7 +134,7 @@ export async function resolveDetectorApiKey(
   const envKey = getEnvApiKey(piProvider);
   if (envKey) return envKey;
 
-  return findByokKeyForPiProvider(workspaceId, piProvider);
+  return findByokKeyForPiProvider(workspaceId, piProvider, { nativeOnly: true });
 }
 
 /**
@@ -149,9 +151,8 @@ export async function runDetectionForTrace(params: {
   const { traceId, spansJsonl, detector, workspaceId } = params;
   // A null source means "never set" — legacy rows, and API clients that
   // omitted the field. Every UI path writes "system" and reads null back as
-  // "system", so treat it as system here too. Unpinned detectors therefore
-  // screen on the fixed default, not an availability-aware pick: a deployment
-  // with no key for that provider fails them rather than substituting.
+  // "system", so treat it as system here too. Unpinned detectors screen on the
+  // fixed default, or on the fixed fallback when no OpenAI key resolves.
   const source = detector.detectionSource ?? "system";
 
   // 1. BYOK config
@@ -205,10 +206,16 @@ export async function runDetectionForTrace(params: {
     return errorResult(`Detection model "${modelId}" is not a known system model`, source);
   }
 
-  const model = resolvePiModel(modelId, providerConfig);
+  let model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
-  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  let apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  // Only an unpinned detector falls back; a pinned one fails visibly instead
+  // of screening on a model nobody chose.
+  if (!apiKey && source === "system" && !detector.detectionModel) {
+    model = resolvePiModel(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+    apiKey = await resolveDetectorApiKey(workspaceId, null, model.provider);
+  }
   if (!apiKey) {
     return errorResult(`No API key configured for provider "${model.provider}"`, source);
   }

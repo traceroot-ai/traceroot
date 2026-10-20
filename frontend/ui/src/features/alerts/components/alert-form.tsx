@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import {
   DEFAULT_ALERT_NO_DATA_MODE,
@@ -31,6 +32,8 @@ interface AlertFormProps {
   /** Present in edit mode; the rule the submit PATCHes. */
   alertId?: string;
   initialDraft?: AlertDraft;
+  /** Edit mode only: the stored rule has an alert open that a rule change would close. */
+  hasOpenPage?: boolean;
 }
 
 // The draft rule the form edits. `view` is carried but never rendered: only
@@ -67,8 +70,9 @@ const INITIAL_DRAFT: AlertDraft = {
  * route seeds `initialDraft` from the loaded rule, so the first render already
  * previews the right metric.
  */
-export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) {
+export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: AlertFormProps) {
   const router = useRouter();
+  const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const [draft, setDraft] = useState<AlertDraft>(initialDraft ?? INITIAL_DRAFT);
   const createAlert = useCreateAlert(projectId);
   const updateAlert = useUpdateAlert(projectId);
@@ -126,7 +130,11 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
       renotify: draft.renotify,
       noDataMode: draft.noDataMode,
     };
-    const options = { onSuccess: () => router.push(`/projects/${projectId}/alerts`) };
+    // Both saves return to the list page the user came from. A created rule is
+    // no exception: the list is oldest-first, so a new rule lands on the last
+    // page. Resetting to the first page would not reliably show it either, and
+    // would lose the user's place.
+    const options = { onSuccess: () => router.push(listHref) };
     // The whole rule goes on every edit, not a diff: the route's change
     // detection compares values, so unchanged fields stay unchanged.
     if (alertId !== undefined) updateAlert.mutate({ alertId, input }, options);
@@ -184,11 +192,18 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
             {submitError && (
               <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
             )}
+            {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
+            {isEdit && hasOpenPage && !submitError && (
+              <p className="mr-auto text-[12px] text-muted-foreground">
+                This alert is open. Saving a change to its conditions will close it and post an [OK]
+                to Slack.
+              </p>
+            )}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/projects/${projectId}/alerts`)}
+              onClick={() => router.push(listHref)}
               className="h-7 text-[12px]"
             >
               Cancel
