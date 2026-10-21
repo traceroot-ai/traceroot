@@ -72,3 +72,31 @@ test("the agent page is labelled Agent in the sidebar, expanded and collapsed", 
   await agent.hover();
   await expect(page.getByRole("tooltip")).toHaveText("Agent");
 });
+
+test("links hovered while expanded don't leave tooltips open after collapsing", async ({
+  context,
+  page,
+}) => {
+  await login(context, ids.user);
+  await page.goto(`/projects/${ids.project}/home`);
+  const links = page.locator("nav a");
+  // Retry the hover: one that lands before hydration opens nothing
+  for (const link of await links.all()) {
+    await expect(async () => {
+      await page.mouse.move(800, 400);
+      await link.hover();
+      await expect(link).toHaveAttribute("data-state", /open/, { timeout: 1000 });
+    }).toPass();
+  }
+  await page.mouse.move(800, 400);
+  await expect(links.first()).toHaveAttribute("data-state", "closed");
+
+  await page.getByRole("button", { name: "Toggle sidebar" }).click();
+  await page.mouse.move(800, 400);
+  await expect(links.first()).toHaveText("");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  await links.nth(2).hover();
+  await expect(page.getByRole("tooltip")).toHaveCount(1);
+  await expect(page.getByRole("tooltip")).toHaveText("Detectors");
+});
