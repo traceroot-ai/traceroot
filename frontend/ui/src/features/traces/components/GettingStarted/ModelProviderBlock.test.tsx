@@ -66,11 +66,13 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 import { ApiError } from "@/lib/api/errors";
+import standardPrices from "../../../../../../packages/core/src/standard-model-prices.json";
 import {
   INLINE_ADAPTERS,
   isInlineConfigurable,
   keyFieldIntro,
   ModelProviderBlock,
+  SEEDED_MODELS,
   SETTINGS_ONLY_ADAPTERS,
   settingsOnlyReason,
   storedKeyCopy,
@@ -271,8 +273,35 @@ describe("probe before store", () => {
   });
 });
 
+describe("the models a saved key starts with", () => {
+  /** Whether usage on `id` has a price: by name, or by the entry's `matchPattern`. */
+  function priced(id: string): boolean {
+    return standardPrices.some(
+      (entry) =>
+        entry.modelName === id ||
+        (entry.matchPattern !== "" &&
+          new RegExp(entry.matchPattern.replace(/^\(\?i\)/, ""), "i").test(id)),
+    );
+  }
+
+  it.each(INLINE_ADAPTERS)("seeds a few catalogue models for %s, every one priced", (adapter) => {
+    // `customModels` is what the assistant and detector pickers offer, and a
+    // model with no standard price is priced at $0 there. The whole catalogue
+    // carried ids like that.
+    const seeded = SEEDED_MODELS[adapter] ?? [];
+    const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
+
+    expect(seeded.length).toBeGreaterThan(0);
+    expect(seeded.length).toBeLessThanOrEqual(3);
+    for (const id of seeded) {
+      expect(catalogue).toContain(id);
+      expect(priced(id), `${id} has no standard price`).toBe(true);
+    }
+  });
+});
+
 describe("what the write sends", () => {
-  it("seeds the selected adapter's curated model list alongside the key", async () => {
+  it("seeds the selected adapter's short model list alongside the key", async () => {
     renderBlock();
     fireEvent.change(await screen.findByLabelText("Model provider"), {
       target: { value: "openai" },
@@ -295,7 +324,7 @@ describe("what the write sends", () => {
       adapter: "openai",
       provider: ADAPTER_CONFIG.openai.label,
       apiKey: "sk-openai",
-      customModels: ADAPTER_MODELS.openai!.map((m) => m.id),
+      customModels: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
     });
   });
 });
@@ -724,11 +753,11 @@ describe("no adapter a pasted key fully configures", () => {
   it("says why rather than throwing through the whole panel", async () => {
     // INLINE_ADAPTERS is derived once at module load, so an empty list can only
     // be reached by reloading the module over an empty catalogue: with no
-    // curated models anywhere, every adapter fails the second half of the
-    // rule. The adapter the binding names then has nowhere to be configured,
-    // and the form must not be drawn over it — this block renders inline in the
-    // same panel as the API key, the SDK install and the stack picker, so a
-    // throw from here would take all three with it.
+    // catalogue anywhere there is nothing left to seed, and every adapter fails
+    // the second half of the rule. The adapter the binding names then has
+    // nowhere to be configured, and the form must not be drawn over it — this
+    // block renders inline in the same panel as the API key, the SDK install
+    // and the stack picker, so a throw from here would take all three with it.
     vi.resetModules();
     vi.doMock("@traceroot/core", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@traceroot/core")>()),
