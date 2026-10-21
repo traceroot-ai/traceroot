@@ -4,12 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import {
-  ADAPTER_CONFIG,
-  ADAPTER_MODELS,
-  PROVIDER_PRIORITY,
-  type LLMAdapter,
-} from "@traceroot/core";
+import { ADAPTER_CONFIG, ADAPTER_MODELS, LLMAdapter, PROVIDER_PRIORITY } from "@traceroot/core";
 import { ProviderIcon } from "@/components/icons/provider-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,15 +27,15 @@ import type { ProviderKeyBinding } from "./integrations";
  * An adapter qualifies on two counts. A single pasted key has to be the whole
  * credential — `credentialType: "api-key"` with no base URL to ask for — which
  * leaves out Azure OpenAI (needs a base URL) and AWS Bedrock (an access-key
- * pair or a default-credentials toggle, plus a region). And there has to be a
- * curated catalogue to record, which leaves out OpenRouter: `listWorkspaceModels`
- * builds a BYOK provider's models purely from the row's `customModels`, so a
- * row saved with a key and nothing to seed is accepted, looks saved, and offers
- * no model anywhere.
+ * pair or a default-credentials toggle, plus a region). And there have to be
+ * models to seed — see {@link SEEDED_MODELS} — which leaves out OpenRouter:
+ * `listWorkspaceModels` builds a BYOK provider's models purely from the row's
+ * `customModels`, so a row saved with a key and nothing to seed is accepted,
+ * looks saved, and offers no model anywhere.
  *
  * Takes the entries rather than looking them up so each half of the rule can be
  * checked on its own: in today's tables the two exclude the same three
- * adapters, so a future adapter that needs a base URL *and* ships a catalogue
+ * adapters, so a future adapter that needs a base URL *and* has models to seed
  * would otherwise slip in on a condition nothing exercises.
  */
 export function isInlineConfigurable(
@@ -59,6 +54,39 @@ function keyIsWholeCredential(config: Parameters<typeof isInlineConfigurable>[0]
 }
 
 /**
+ * The models a key saved here starts with: per adapter, the newest priced model
+ * in each of the provider's price tiers, at most three.
+ *
+ * Not the whole catalogue. `customModels` is what every model picker in the
+ * workspace offers for the provider, so seeding `ADAPTER_MODELS` gave the
+ * assistant and detector pickers a dozen ids or more, and some of those have no
+ * entry in the standard price table, where their usage is priced at $0. A short
+ * list is also closer to the settings form, which starts from none and adds
+ * models one at a time; more can be added there. The tests hold every id here
+ * to the catalogue and the price table, so a catalogue refresh that drops or
+ * unprices one fails there rather than in a workspace's bill.
+ */
+export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
+  [LLMAdapter.ANTHROPIC]: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  [LLMAdapter.OPENAI]: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
+  [LLMAdapter.DEEPSEEK]: ["deepseek-v4-pro", "deepseek-v4-flash"],
+  [LLMAdapter.XAI]: ["grok-4.7", "grok-4.20"],
+  [LLMAdapter.MOONSHOT]: ["kimi-k3", "kimi-k2.6"],
+  [LLMAdapter.ZAI]: ["glm-5.2", "glm-5-turbo"],
+  [LLMAdapter.GOOGLE]: ["gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-3-flash-preview"],
+};
+
+/**
+ * The seeded models still in the adapter's catalogue. A model the catalogue no
+ * longer lists is one the pickers cannot resolve, so it is not stored even
+ * while the list above still names it.
+ */
+export function seedFor(adapter: LLMAdapter): string[] {
+  const catalogue = new Set((ADAPTER_MODELS[adapter] ?? []).map((model) => model.id));
+  return (SEEDED_MODELS[adapter] ?? []).filter((id) => catalogue.has(id));
+}
+
+/**
  * The adapters this step offers inline, in the order the product ranks
  * providers.
  *
@@ -67,7 +95,7 @@ function keyIsWholeCredential(config: Parameters<typeof isInlineConfigurable>[0]
  * provider surface offers.
  */
 export const INLINE_ADAPTERS: LLMAdapter[] = PROVIDER_PRIORITY.filter((adapter) =>
-  isInlineConfigurable(ADAPTER_CONFIG[adapter], ADAPTER_MODELS[adapter]),
+  isInlineConfigurable(ADAPTER_CONFIG[adapter], seedFor(adapter)),
 );
 
 /**
@@ -95,8 +123,7 @@ class ProbeRejected extends Error {
  */
 export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "model-list" | null {
   const config = ADAPTER_CONFIG[adapter];
-  const catalogue = ADAPTER_MODELS[adapter];
-  if (isInlineConfigurable(config, catalogue)) return null;
+  if (isInlineConfigurable(config, seedFor(adapter))) return null;
   return keyIsWholeCredential(config) ? "model-list" : "more-than-a-key";
 }
 
@@ -335,14 +362,14 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
       if (!probe.success) {
         throw new ProbeRejected(probe.error || "Connection failed", probe.detail);
       }
-      // Seed the curated catalogue alongside the key: the model pickers build a
-      // BYOK provider's models from `customModels` alone, so a key on its own
-      // would store a provider that offers nothing.
+      // Seed a few models alongside the key: the model pickers build a BYOK
+      // provider's models from `customModels` alone, so a key on its own would
+      // store a provider that offers nothing. See {@link SEEDED_MODELS}.
       return createModelProvider(workspaceId, {
         adapter: chosen,
         provider: ADAPTER_CONFIG[chosen].label,
         apiKey: credential,
-        customModels: (ADAPTER_MODELS[chosen] ?? []).map((model) => model.id),
+        customModels: seedFor(chosen),
       });
     },
     // The binding this save belongs to travels with it, so the callbacks below
@@ -589,6 +616,11 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
         {bound.kind === "suggested" && (
           <Select
             value={adapter}
+            // Held while a save runs. The guard on the save's callbacks compares
+            // the stack, and switching provider here keeps the stack, so a
+            // rejection that settled after a switch landed under the new
+            // provider's field, naming a key it was never sent.
+            disabled={saveMutation.isPending}
             onValueChange={(value) => {
               setOverride(value as LLMAdapter);
               // A key belongs to the provider that issued it, and so does the
