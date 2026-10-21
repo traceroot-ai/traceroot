@@ -28,6 +28,12 @@ vi.mock("next/navigation", () => ({
 }));
 // ProjectBreadcrumb pulls layout/workspace context we don't mount here.
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+// The views ask the project role whether to offer writes; the stubbed fetch
+// does not answer that lookup, so the role is set here.
+const access = vi.hoisted(() => ({ canEdit: true }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => access.canEdit,
+}));
 // react-resizable-panels needs a real ResizeObserver (absent in jsdom); the panel
 // split is pure layout, so stub it to plain divs like the trace-viewer tests do.
 vi.mock("@/components/ui/resizable", () => ({
@@ -225,7 +231,10 @@ beforeEach(() => {
     };
   }) as unknown as typeof fetch;
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  access.canEdit = true;
+});
 
 function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -294,6 +303,16 @@ describe("Dataset detail — versions", () => {
     expect(screen.getByRole("button", { name: /Row/ }).hasAttribute("disabled")).toBe(true);
     // The request carried the requested snapshot.
     expect(requests.some((r) => r.url.includes("version_id=dv1"))).toBe(true);
+  });
+});
+
+describe("Dataset detail — a viewer", () => {
+  it("shows the rows, but no Row button and no row actions", async () => {
+    access.canEdit = false;
+    mountDetail();
+    expect(await screen.findByText(/charged twice/)).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Row/ })).toBeNull();
+    expect(screen.queryByLabelText("Row actions")).toBeNull();
   });
 });
 

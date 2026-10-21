@@ -12,6 +12,7 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
@@ -70,6 +71,8 @@ export default function TracesPage() {
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
 
   const retention = useRetention(projectId);
+  // A viewer (every demo visitor) cannot add test cases to a dataset.
+  const canEdit = useCanEditProject(projectId);
 
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
@@ -375,20 +378,24 @@ export default function TracesPage() {
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
           // Offline eval: save any span (or the trace root) as a dataset test case.
-          spanHeaderAction={(selection: TraceSelection) => (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 gap-1.5 text-[12px]"
-              onClick={() => {
-                setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
-                setSaveOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-              Add to datasets
-            </Button>
-          )}
+          spanHeaderAction={
+            canEdit
+              ? (selection: TraceSelection) => (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1.5 text-[12px]"
+                    onClick={() => {
+                      setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+                      setSaveOpen(true);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" aria-hidden />
+                    Add to datasets
+                  </Button>
+                )
+              : undefined
+          }
           // Offline eval: while the "Save as test case" drawer is open, clicking a
           // different span in the tree retargets the drawer to that span.
           onSelectionChange={(selection: TraceSelection) => {

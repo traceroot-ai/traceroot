@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { useSeedTraceIO } from "@/features/offline-eval/components";
 import { TraceViewerPanel } from "@/features/traces/components";
 import { useTrace } from "@/features/traces/hooks";
@@ -172,6 +173,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
  * reconstructed eval-shaped trace built from the result + its scores.
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
+  // A viewer (every demo visitor) cannot add test cases to a dataset.
+  const canEdit = useCanEditProject(projectId);
   const { data, isLoading, error } = useEvaluationRun(projectId, runId);
   const runsListHref = useListReturnHref(
     `evaluations:${projectId}`,
@@ -300,9 +303,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           // selected span (or the trace root) of this result's trace as a test case.
           // Only for a REAL ingested trace — a reconstructed result has no telemetry
           // trace id, and SaveTestCaseDrawer refuses to render without one, so the
-          // button would be a no-op. Omit it there rather than show a dead control.
+          // button would be a no-op. Omit it there rather than show a dead control,
+          // and omit it for a viewer, whose save the API would refuse.
           spanHeaderAction={
-            useRealTrace
+            useRealTrace && canEdit
               ? (selection) => (
                   <Button
                     variant="outline"

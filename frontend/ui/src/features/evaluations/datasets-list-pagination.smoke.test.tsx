@@ -29,6 +29,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/p1/datasets",
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+// The view asks the project role whether to offer writes; the stubbed fetch
+// does not answer that lookup.
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => true,
+}));
 
 import { DatasetsView } from "./views/datasets-view";
 

@@ -11,6 +11,7 @@ import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
 import { Table, TBody, Td, Th, THead, TR, TRHead, TableEmpty } from "@/components/ui/table";
 import { useDatasets, useDeleteDataset, useEvaluations } from "../hooks";
@@ -24,6 +25,8 @@ import { DeleteDatasetDialog } from "../components/delete-dataset-dialog";
  * panels.
  */
 export function DatasetsView({ projectId }: { projectId: string }) {
+  // A viewer (every demo visitor) reads datasets but cannot add, edit or delete one.
+  const canEdit = useCanEditProject(projectId);
   const router = useRouter();
   const { toast } = useToast();
 
@@ -97,9 +100,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       <ProjectBreadcrumb projectId={projectId} current="Datasets" />
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <h1 className="text-[13px] font-medium">Datasets</h1>
-        <Button size="sm" className="h-7 text-[12px]" onClick={() => setNewOpen(true)}>
-          New Dataset
-        </Button>
+        {canEdit && (
+          <Button size="sm" className="h-7 text-[12px]" onClick={() => setNewOpen(true)}>
+            New Dataset
+          </Button>
+        )}
       </div>
 
       {/* No date filter here: the list has no date predicate to apply one to
@@ -123,7 +128,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
               <Th className="w-[110px] text-right">Items</Th>
               <Th className="w-[90px] text-right">Versions</Th>
               <Th className="w-[110px] text-right">Evaluations</Th>
-              <Th className="w-[56px] text-right">Actions</Th>
+              <Th className="w-[56px] text-right">{canEdit && "Actions"}</Th>
             </TRHead>
           </THead>
           <TBody>
@@ -175,10 +180,12 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                       {evalCountByDataset.get(dataset.id) ?? 0}
                     </Td>
                     <Td className="text-right">
-                      <DatasetActionsMenu
-                        onEdit={() => setEditing(dataset)}
-                        onDelete={() => setDeleteTarget(dataset)}
-                      />
+                      {canEdit && (
+                        <DatasetActionsMenu
+                          onEdit={() => setEditing(dataset)}
+                          onDelete={() => setDeleteTarget(dataset)}
+                        />
+                      )}
                     </Td>
                   </TR>
                 );

@@ -19,6 +19,12 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/p1/datasets",
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+// The views ask the project role whether to offer writes; the stubbed fetch
+// does not answer that lookup, so the role is set here.
+const access = vi.hoisted(() => ({ canEdit: true }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => access.canEdit,
+}));
 
 import { DatasetsView } from "./views/datasets-view";
 
@@ -78,7 +84,10 @@ beforeEach(() => {
     return { ok: true, status: 200, json: async () => payloadFor(String(url), method) };
   }) as unknown as typeof fetch;
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  access.canEdit = true;
+});
 
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -96,6 +105,16 @@ async function rowAction(name: "Edit" | "Delete") {
   fireEvent.click(await screen.findByLabelText("Row actions"));
   fireEvent.click(await screen.findByText(name));
 }
+
+describe("a viewer's dataset list", () => {
+  it("offers no New Dataset and no row actions", async () => {
+    access.canEdit = false;
+    mount();
+    expect(await screen.findByText("Billing routing")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "New Dataset" })).toBeNull();
+    expect(screen.queryByLabelText("Row actions")).toBeNull();
+  });
+});
 
 describe("New dataset panel", () => {
   it("stays disabled until a name is typed, then POSTs name + description", async () => {

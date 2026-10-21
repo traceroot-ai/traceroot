@@ -19,6 +19,12 @@ vi.mock("next/navigation", () => ({
 }));
 // ProjectBreadcrumb pulls layout/workspace context we don't mount here.
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+// The views ask the project role whether to offer writes; the stubbed fetch
+// does not answer that lookup, so the role is set here.
+const access = vi.hoisted(() => ({ canEdit: true }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => access.canEdit,
+}));
 
 import { DatasetsView } from "./views/datasets-view";
 import { EvaluationsView } from "./views/evaluations-view";
@@ -271,7 +277,10 @@ beforeEach(() => {
     json: async () => payloadFor(String(url)),
   })) as unknown as typeof fetch;
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  access.canEdit = true;
+});
 
 function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -312,6 +321,21 @@ describe("real Datasets + Evaluations views render server data", () => {
     // identify the two runs (#27 → git:4a91c02, #26 → git:0000000).
     expect(await screen.findByText("git:4a91c02")).toBeDefined();
     expect(screen.getByText("git:0000000")).toBeDefined();
+  });
+
+  it("lets a viewer compare runs, but offers no way to delete one", async () => {
+    access.canEdit = false;
+    mount(<EvaluationsView projectId="p1" />);
+    await screen.findByText("git:4a91c02");
+    expect(screen.queryAllByLabelText("Row actions")).toHaveLength(0);
+
+    fireEvent.click(screen.getByLabelText("Select all runs"));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Actions \(2 selected\)/ }), {
+      button: 0,
+      pointerType: "mouse",
+    });
+    expect(await screen.findByRole("menuitem", { name: "Compare" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
   });
 
   it("the run action menu deletes a run after confirming", async () => {

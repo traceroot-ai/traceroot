@@ -26,6 +26,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { cn } from "@/lib/utils";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import {
@@ -98,6 +99,8 @@ export function DatasetDetailView({
     selectedVersionId,
   );
   const del = useDeleteTestCase(projectId, datasetId);
+  // A viewer (every demo visitor) reads the rows but cannot add, edit or delete one.
+  const canEdit = useCanEditProject(projectId);
 
   // "+ Row" and the row action menu open the editor; delete opens a confirm.
   const [editorMode, setEditorMode] = React.useState<TestCaseEditorMode | null>(null);
@@ -247,16 +250,18 @@ export function DatasetDetailView({
             searchPlaceholder="Search..."
           >
             <div className="ml-auto flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 text-[12px]"
-                onClick={() => setEditorMode({ kind: "create" })}
-                disabled={!isCurrentVersion}
-              >
-                <Plus className="h-3.5 w-3.5" aria-hidden />
-                Row
-              </Button>
+              {canEdit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-[12px]"
+                  onClick={() => setEditorMode({ kind: "create" })}
+                  disabled={!isCurrentVersion}
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                  Row
+                </Button>
+              )}
               {hasVersions && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[12px] text-muted-foreground">Version</span>
@@ -308,7 +313,9 @@ export function DatasetDetailView({
                     <Th>Input</Th>
                     <Th>Expected</Th>
                     <Th>Metadata</Th>
-                    {isCurrentVersion && <Th className="w-[70px] text-right">Actions</Th>}
+                    {isCurrentVersion && canEdit && (
+                      <Th className="w-[70px] text-right">Actions</Th>
+                    )}
                   </TRHead>
                 </THead>
                 <TBody>
@@ -344,7 +351,7 @@ export function DatasetDetailView({
                         <Td className="max-w-[320px] truncate">{orDash(tc.input || null)}</Td>
                         <Td className="max-w-[320px] truncate">{orDash(tc.expected)}</Td>
                         <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
-                        {isCurrentVersion && (
+                        {isCurrentVersion && canEdit && (
                           <Td className="text-right">
                             <DatasetActionsMenu
                               onEdit={() =>

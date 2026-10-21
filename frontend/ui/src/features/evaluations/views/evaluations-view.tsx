@@ -25,6 +25,7 @@ import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change"
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
@@ -100,12 +101,15 @@ function RunTableRow({
   run: r,
   projectId,
   onDelete,
+  canEdit,
   selected,
   onToggleSelect,
 }: {
   run: RunRow;
   projectId: string;
   onDelete: () => void;
+  /** False for a viewer, who cannot delete runs: no row menu. */
+  canEdit: boolean;
   selected: boolean;
   onToggleSelect: () => void;
 }) {
@@ -157,9 +161,7 @@ function RunTableRow({
       <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
         {formatElapsed(avgDurationMs)}
       </Td>
-      <Td className="text-right">
-        <DatasetActionsMenu onDelete={onDelete} />
-      </Td>
+      <Td className="text-right">{canEdit && <DatasetActionsMenu onDelete={onDelete} />}</Td>
     </TR>
   );
 }
@@ -168,6 +170,8 @@ function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
   const del = useDeleteRuns(projectId);
+  // A viewer (every demo visitor) compares runs but cannot delete them.
+  const canEdit = useCanEditProject(projectId);
   const [deleteRun, setDeleteRun] = React.useState<RunRow | null>(null);
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
@@ -365,12 +369,14 @@ function RunsTab({ projectId }: { projectId: string }) {
                     <span className="ml-auto text-[10px] text-muted-foreground">pick 2+</span>
                   )}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => setBulkDeleteOpen(true)}
-                  className="text-[12px] text-destructive"
-                >
-                  Delete
-                </DropdownMenuItem>
+                {canEdit && (
+                  <DropdownMenuItem
+                    onSelect={() => setBulkDeleteOpen(true)}
+                    className="text-[12px] text-destructive"
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -404,7 +410,7 @@ function RunsTab({ projectId }: { projectId: string }) {
               <Th className="w-[100px] text-right">Avg Cost</Th>
               <Th className="w-[90px] text-right">Duration</Th>
               <Th className="w-[100px] text-right">Avg Duration</Th>
-              <Th className="w-[70px] text-right">Actions</Th>
+              <Th className="w-[70px] text-right">{canEdit && "Actions"}</Th>
             </TRHead>
           </THead>
           <TBody>
@@ -431,6 +437,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                   run={r}
                   projectId={projectId}
                   onDelete={() => setDeleteRun(r)}
+                  canEdit={canEdit}
                   selected={selectedIds.has(r.id)}
                   onToggleSelect={() => toggleSelect(r.id)}
                 />
