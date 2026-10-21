@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildContentSecurityPolicy, cspHeaderName, REPORTING_ENDPOINTS } from "@/lib/csp";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 
 // Every page carries a Content-Security-Policy with a fresh nonce (lib/csp.ts).
 // Next.js reads the nonce from the policy on the request and adds it to its own
@@ -58,7 +59,17 @@ export function proxy(req: NextRequest) {
   // No token → redirect to sign-in
   if (!token) {
     const signInUrl = new URL("/auth/sign-in", req.url);
-    signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
+    // The query is part of the destination, not decoration: /onboarding keeps
+    // its pointer back to a waiting `traceroot setup` run in ?callbackUrl, so a
+    // pathname-only value returns the visitor to a bare page with nothing left
+    // to hand the terminal back to. Validated here as well as on the sign-in
+    // page, because the path is attacker-shaped — a request to `//host/x`
+    // arrives as a protocol-relative pathname — and the value we hand onward
+    // should already be a normalized same-origin target.
+    signInUrl.searchParams.set(
+      "callbackUrl",
+      safeCallbackUrl(`${req.nextUrl.pathname}${req.nextUrl.search}`),
+    );
     return NextResponse.redirect(signInUrl);
   }
 
