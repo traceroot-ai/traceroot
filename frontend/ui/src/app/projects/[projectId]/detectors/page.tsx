@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-retur
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
@@ -80,6 +81,9 @@ export default function DetectorsPage() {
   const [selectedDetectorId, setSelectedDetectorId] = useState<string | null>(null);
 
   const { data: project } = useProject(projectId);
+  // A viewer (every demo visitor) cannot create, edit or delete detectors,
+  // but can still open one to read its prompt and filters.
+  const canEdit = useCanEditProject(projectId);
   const retention = useRetention(projectId);
 
   const {
@@ -184,13 +188,15 @@ export default function DetectorsPage() {
         {/* Page header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <h1 className="text-[13px] font-medium">Detectors</h1>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-          >
-            New Detector
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              className="h-7 text-[12px]"
+              onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
+            >
+              New Detector
+            </Button>
+          )}
         </div>
 
         {/* Search / time-range filter */}
@@ -224,13 +230,15 @@ export default function DetectorsPage() {
               <p className="text-[12px] text-muted-foreground">
                 Create a detector to automatically analyze your traces.
               </p>
-              <Button
-                size="sm"
-                className="mt-1 h-7 text-[12px]"
-                onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-              >
-                New Detector
-              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  className="mt-1 h-7 text-[12px]"
+                  onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
+                >
+                  New Detector
+                </Button>
+              )}
             </div>
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
@@ -382,20 +390,26 @@ export default function DetectorsPage() {
                                 setActionsOpen(null);
                               }}
                             >
-                              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                              Edit
+                              {canEdit ? (
+                                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                              )}
+                              {canEdit ? "Edit" : "View"}
                             </button>
-                            <button
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget({ id: detector.id, name: detector.name });
-                                setActionsOpen(null);
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Delete
-                            </button>
+                            {canEdit && (
+                              <button
+                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ id: detector.id, name: detector.name });
+                                  setActionsOpen(null);
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </button>
+                            )}
                           </PopoverContent>
                         </Popover>
                       </td>
@@ -424,6 +438,7 @@ export default function DetectorsPage() {
           detectorId={selectedDetectorId}
           projectId={projectId}
           workspaceId={project?.workspace_id}
+          readOnly={!canEdit}
           onClose={closePanel}
           onNavigate={navigateDetector}
           canNavigateUp={detectors.findIndex((d) => d.id === selectedDetectorId) > 0}

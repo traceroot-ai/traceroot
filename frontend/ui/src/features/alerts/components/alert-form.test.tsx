@@ -129,6 +129,7 @@ describe("AlertForm", () => {
       alertId?: string;
       initialDraft?: AlertDraft;
       hasOpenPage?: boolean;
+      readOnly?: boolean;
       schemaPending?: boolean;
       schemaError?: boolean;
       /** A background refetch failed but the cached schema is still there. */
@@ -264,6 +265,14 @@ describe("AlertForm", () => {
     openSelect("aggregation");
     const options = await screen.findAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual(NUMBER_AGGS);
+  });
+
+  it("shows a viewer the rule with every field locked and nothing to save", () => {
+    renderForm({ alertId: "alert-1", readOnly: true });
+
+    expect(screen.getByLabelText("name").closest("fieldset")?.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save Alert" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
   it("blocks the save until the name and the threshold are both real", () => {

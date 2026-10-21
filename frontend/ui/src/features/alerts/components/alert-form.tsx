@@ -34,6 +34,8 @@ interface AlertFormProps {
   initialDraft?: AlertDraft;
   /** Edit mode only: the stored rule has an alert open that a rule change would close. */
   hasOpenPage?: boolean;
+  /** Show the rule without letting the user change or save it: a viewer's view. */
+  readOnly?: boolean;
 }
 
 // The draft rule the form edits. `view` is carried but never rendered: only
@@ -70,7 +72,13 @@ const INITIAL_DRAFT: AlertDraft = {
  * route seeds `initialDraft` from the loaded rule, so the first render already
  * previews the right metric.
  */
-export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: AlertFormProps) {
+export function AlertForm({
+  projectId,
+  alertId,
+  initialDraft,
+  hasOpenPage,
+  readOnly = false,
+}: AlertFormProps) {
   const router = useRouter();
   const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const [draft, setDraft] = useState<AlertDraft>(initialDraft ?? INITIAL_DRAFT);
@@ -151,68 +159,76 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
             action bar stays in reach. `min-h-0` is what lets a flex child
             shrink to scroll. */}
         <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          {/* In the order the rule reads: which spans, what is computed and
+          {/* A disabled fieldset keeps every field readable but unchangeable. */}
+          <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-3">
+            {/* In the order the rule reads: which spans, what is computed and
               compared over them, then when and whom it tells. */}
-          <ScopeSection
-            projectId={projectId}
-            filters={draft.filters}
-            onFiltersChange={(filters) => setDraft((d) => ({ ...d, filters }))}
-          />
+            <ScopeSection
+              projectId={projectId}
+              filters={draft.filters}
+              onFiltersChange={(filters) => setDraft((d) => ({ ...d, filters }))}
+            />
 
-          <ConditionSection
-            view={draft.view}
-            measureId={draft.measureId}
-            aggregation={draft.aggregation}
-            operator={draft.operator}
-            threshold={draft.threshold}
-            window={draft.window}
-            onMeasureChange={handleMeasureChange}
-            onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
-            onOperatorChange={(operator) => setDraft((d) => ({ ...d, operator }))}
-            onThresholdChange={(threshold) => setDraft((d) => ({ ...d, threshold }))}
-            onWindowChange={(window) => setDraft((d) => ({ ...d, window }))}
-          />
+            <ConditionSection
+              view={draft.view}
+              measureId={draft.measureId}
+              aggregation={draft.aggregation}
+              operator={draft.operator}
+              threshold={draft.threshold}
+              window={draft.window}
+              onMeasureChange={handleMeasureChange}
+              onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
+              onOperatorChange={(operator) => setDraft((d) => ({ ...d, operator }))}
+              onThresholdChange={(threshold) => setDraft((d) => ({ ...d, threshold }))}
+              onWindowChange={(window) => setDraft((d) => ({ ...d, window }))}
+            />
 
-          <NotificationsSection
-            projectId={projectId}
-            noDataMode={draft.noDataMode}
-            renotify={draft.renotify}
-            name={draft.name}
-            onNoDataModeChange={(noDataMode) => setDraft((d) => ({ ...d, noDataMode }))}
-            onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
-            onNameChange={(name) => setDraft((d) => ({ ...d, name }))}
-          />
+            <NotificationsSection
+              projectId={projectId}
+              noDataMode={draft.noDataMode}
+              renotify={draft.renotify}
+              name={draft.name}
+              onNoDataModeChange={(noDataMode) => setDraft((d) => ({ ...d, noDataMode }))}
+              onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
+              onNameChange={(name) => setDraft((d) => ({ ...d, name }))}
+            />
+          </fieldset>
         </div>
 
-        <div className="shrink-0 bg-background pt-3">
-          <div className="flex items-center justify-end gap-2">
-            {!isEdit && (
-              <AlertsCapacityNotice capacity={capacity} className="mr-auto text-muted-foreground" />
-            )}
-            {submitError && (
-              <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
-            )}
-            {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
-            {isEdit && hasOpenPage && !submitError && (
-              <p className="mr-auto text-[12px] text-muted-foreground">
-                This alert is open. Saving a change to its conditions will close it and post an [OK]
-                to Slack.
-              </p>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(listHref)}
-              className="h-7 text-[12px]"
-            >
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" className="h-7 text-[12px]" disabled={!canSubmit}>
-              {isEdit ? "Save Alert" : "Create Alert"}
-            </Button>
+        {!readOnly && (
+          <div className="shrink-0 bg-background pt-3">
+            <div className="flex items-center justify-end gap-2">
+              {!isEdit && (
+                <AlertsCapacityNotice
+                  capacity={capacity}
+                  className="mr-auto text-muted-foreground"
+                />
+              )}
+              {submitError && (
+                <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
+              )}
+              {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
+              {isEdit && hasOpenPage && !submitError && (
+                <p className="mr-auto text-[12px] text-muted-foreground">
+                  This alert is open. Saving a change to its conditions will close it and post an
+                  [OK] to Slack.
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(listHref)}
+                className="h-7 text-[12px]"
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" className="h-7 text-[12px]" disabled={!canSubmit}>
+                {isEdit ? "Save Alert" : "Create Alert"}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </form>
 
       <AlertPreview

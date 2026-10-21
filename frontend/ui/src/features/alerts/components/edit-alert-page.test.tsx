@@ -4,7 +4,7 @@ import { render, cleanup, screen } from "@testing-library/react";
 import { ApiError } from "@/lib/api/client";
 import type { AlertRecord } from "../hooks/use-alerts";
 
-const mocks = vi.hoisted(() => ({ useAlert: vi.fn() }));
+const mocks = vi.hoisted(() => ({ useAlert: vi.fn(), canEdit: true }));
 
 // Partial: `isAlertGone` is the classification under test, so only the load is controlled.
 vi.mock("../hooks/use-alerts", async (importOriginal) => ({
@@ -13,6 +13,9 @@ vi.mock("../hooks/use-alerts", async (importOriginal) => ({
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => mocks.canEdit,
+}));
 vi.mock("./alert-form", () => ({
   AlertForm: (props: Record<string, unknown>) => (
     <pre data-testid="form">{JSON.stringify(props)}</pre>
@@ -57,6 +60,7 @@ describe("EditAlertPage", () => {
   afterEach(() => {
     cleanup();
     mocks.useAlert.mockReset();
+    mocks.canEdit = true;
   });
 
   it("opens the form on the stored rule rather than on an empty draft", () => {
@@ -81,7 +85,18 @@ describe("EditAlertPage", () => {
         name: "Checkout latency",
       },
       hasOpenPage: false,
+      readOnly: false,
     });
+  });
+
+  it("shows a viewer the rule read-only, under a title that does not offer an edit", () => {
+    mocks.canEdit = false;
+    mocks.useAlert.mockReturnValue(loaded(storedAlert));
+
+    renderPage();
+
+    expect(JSON.parse(screen.getByTestId("form").textContent ?? "").readOnly).toBe(true);
+    expect(screen.getByText("Alert - Checkout latency")).toBeTruthy();
   });
 
   it("tells the form when the stored rule has an alert open that a save could close", () => {

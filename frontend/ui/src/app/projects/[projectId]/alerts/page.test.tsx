@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   useSetAlertStatus: vi.fn(),
   deleteFailure: null as Error | null,
   statusFailure: null as Error | null,
+  canEdit: true,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -88,6 +89,9 @@ vi.mock("@/features/alerts/hooks/use-alerts", () => ({
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 // The page resolves the workspace per row badge. Unresolved here: reason shows, link does not.
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => mocks.canEdit,
+}));
 vi.mock("@/features/alerts/components/delete-alert-dialog", () => ({
   // The stub surfaces whatever failure it is handed, wherever the page reports it.
   DeleteAlertDialog: ({
@@ -155,6 +159,7 @@ afterEach(() => {
   mocks.statusMutate.mockClear();
   mocks.keyword = "";
   mocks.capacity = undefined;
+  mocks.canEdit = true;
   mocks.useAlertList.mockReset();
   mocks.useAlertList.mockReturnValue(populatedList);
   resetMutationMocks();
@@ -209,6 +214,20 @@ describe("AlertsPage", () => {
 
     expect(screen.queryByTestId("onboarding")).toBeNull();
     expect(screen.getByText("Loading alerts...")).toBeTruthy();
+  });
+
+  it("offers a viewer no New Alert, and a row menu that only opens the alert", () => {
+    mocks.canEdit = false;
+    render(<AlertsPage />);
+    expect(screen.queryByRole("button", { name: "New Alert" })).toBeNull();
+
+    openRowMenu();
+    expect(screen.getByRole("link", { name: "View" }).getAttribute("href")).toBe(
+      "/projects/proj-1/alerts/alert-1",
+    );
+    expect(screen.queryByRole("link", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
   it("pauses and resumes an alert from its row menu", () => {

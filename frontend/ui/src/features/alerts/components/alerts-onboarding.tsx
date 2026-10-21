@@ -9,6 +9,8 @@ import { Step } from "./step";
 
 interface AlertsOnboardingProps {
   projectId: string;
+  /** False for a viewer, who cannot create alerts: no New Alert link. */
+  canEdit?: boolean;
 }
 
 /**
@@ -16,7 +18,7 @@ interface AlertsOnboardingProps {
  * only destination offered: webhooks and GitHub Actions are deferred, and an
  * inert row for a channel that cannot be connected is worse than no row.
  */
-export function AlertsOnboarding({ projectId }: AlertsOnboardingProps) {
+export function AlertsOnboarding({ projectId, canEdit = true }: AlertsOnboardingProps) {
   const { data: project } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const { data: slack } = useSlackStatus(workspaceId);
@@ -68,13 +70,15 @@ export function AlertsOnboarding({ projectId }: AlertsOnboardingProps) {
           title="Create an alert"
           description="Choose a metric — latency, cost, or token usage — and the threshold that triggers the alert."
         >
-          <Link
-            href={`/projects/${projectId}/alerts/new`}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            New Alert
-          </Link>
+          {canEdit && (
+            <Link
+              href={`/projects/${projectId}/alerts/new`}
+              className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              New Alert
+            </Link>
+          )}
         </Step>
       </div>
     </div>

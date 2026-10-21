@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { MoreHorizontal, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { Eye, MoreHorizontal, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
@@ -17,6 +17,8 @@ interface AlertsTableProps {
   alerts: AlertSummary[];
   projectId: string;
   workspaceId?: string;
+  /** False for a viewer: the row menu then only opens the alert to read it. */
+  canEdit?: boolean;
   onToggleStatus: (alert: AlertSummary) => void;
   onDelete: (alert: AlertSummary) => void;
   isStatusPending: boolean;
@@ -26,6 +28,7 @@ export function AlertsTable({
   alerts,
   projectId,
   workspaceId,
+  canEdit = true,
   onToggleStatus,
   onDelete,
   isStatusPending,
@@ -97,39 +100,47 @@ export function AlertsTable({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-36 p-1">
-                    <button
-                      className={cn(ACTION_ITEM, "hover:bg-muted/60 disabled:opacity-50")}
-                      disabled={isStatusPending}
-                      onClick={() => {
-                        onToggleStatus(alert);
-                        setActionsOpen(null);
-                      }}
-                    >
-                      {isStopped ? (
-                        <Play className="h-3.5 w-3.5 text-muted-foreground" />
-                      ) : (
-                        <Pause className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                      {isStopped ? "Resume" : "Pause"}
-                    </button>
+                    {canEdit && (
+                      <button
+                        className={cn(ACTION_ITEM, "hover:bg-muted/60 disabled:opacity-50")}
+                        disabled={isStatusPending}
+                        onClick={() => {
+                          onToggleStatus(alert);
+                          setActionsOpen(null);
+                        }}
+                      >
+                        {isStopped ? (
+                          <Play className="h-3.5 w-3.5 text-muted-foreground" />
+                        ) : (
+                          <Pause className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                        {isStopped ? "Resume" : "Pause"}
+                      </button>
+                    )}
                     <Link
                       href={`/projects/${projectId}/alerts/${alert.id}`}
                       className={cn(ACTION_ITEM, "hover:bg-muted/60")}
                       onClick={() => setActionsOpen(null)}
                     >
-                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                      Edit
+                      {canEdit ? (
+                        <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                      {canEdit ? "Edit" : "View"}
                     </Link>
-                    <button
-                      className={cn(ACTION_ITEM, "text-destructive hover:bg-destructive/10")}
-                      onClick={() => {
-                        onDelete(alert);
-                        setActionsOpen(null);
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </button>
+                    {canEdit && (
+                      <button
+                        className={cn(ACTION_ITEM, "text-destructive hover:bg-destructive/10")}
+                        onClick={() => {
+                          onDelete(alert);
+                          setActionsOpen(null);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    )}
                   </PopoverContent>
                 </Popover>
               </td>

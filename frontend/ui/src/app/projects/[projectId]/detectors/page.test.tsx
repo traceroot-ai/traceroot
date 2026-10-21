@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   search: "",
   useDetectorList: vi.fn(),
   clampToTotal: vi.fn(),
+  canEdit: true,
   signalCounts: {
     data: { counts: { "det-1": 2 } } as { counts: Record<string, number> } | undefined,
   },
@@ -119,6 +120,9 @@ vi.mock("@/ee/features/signals/hooks", () => ({
 }));
 
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => mocks.canEdit,
+}));
 vi.mock("@/lib/hooks/use-retention", () => ({
   useRetention: () => ({
     retentionDays: 15,
@@ -155,6 +159,7 @@ afterEach(() => {
   mocks.useDetectorList.mockReturnValue(defaultDetectorList);
   mocks.signalCounts = { data: { counts: { "det-1": 2 } } };
   mocks.clampToTotal.mockClear();
+  mocks.canEdit = true;
 });
 
 describe("DetectorsPage", () => {
@@ -276,6 +281,22 @@ describe("DetectorsPage", () => {
     expect(screen.queryByRole("link", { name: "View signals for My Detector" })).toBeNull();
     // The other counts loaded, so they still link.
     expect(screen.getByRole("link", { name: "View judge runs for My Detector" })).toBeTruthy();
+  });
+
+  it.each([
+    [true, ["Edit", "Delete"]],
+    [false, ["View"]],
+  ])("offers New Detector and the row actions by role (can edit: %s)", (canEdit, actions) => {
+    mocks.canEdit = canEdit;
+    render(<DetectorsPage />);
+    expect(!!screen.queryByText("New Detector")).toBe(canEdit);
+
+    const row = screen.getByText("My Detector").closest("tr")!;
+    fireEvent.click(row.querySelector("button")!);
+    for (const label of ["Edit", "View", "Delete"]) {
+      expect(!!screen.queryByRole("button", { name: label })).toBe(actions.includes(label));
+    }
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("shows the empty state with its glyph when the project has no detectors", () => {

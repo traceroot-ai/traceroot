@@ -9,6 +9,7 @@ import { ListPagination } from "@/components/list-pagination";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useProject } from "@/features/projects/hooks";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { AlertsOnboarding } from "@/features/alerts/components/alerts-onboarding";
 import { AlertsCapacityNotice } from "@/features/alerts/components/alerts-capacity-notice";
 import { AlertsTable } from "@/features/alerts/components/alerts-table";
@@ -57,6 +58,9 @@ export default function AlertsPage() {
 
   const { data: capacity } = useAlertCapacity(projectId);
   const { data: project } = useProject(projectId);
+  // A viewer (every demo visitor) can open an alert to read it, but not
+  // create, pause, edit or delete one.
+  const canEdit = useCanEditProject(projectId);
 
   const deleteMutation = useDeleteAlert(projectId);
   const statusMutation = useSetAlertStatus(projectId);
@@ -98,14 +102,16 @@ export default function AlertsPage() {
                   {capacity.used} of {capacity.max} alerts used
                 </span>
               )}
-              <Button
-                size="sm"
-                className="h-7 text-[12px]"
-                disabled={isAtAlertCapacity(capacity)}
-                onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
-              >
-                New Alert
-              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  disabled={isAtAlertCapacity(capacity)}
+                  onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
+                >
+                  New Alert
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -136,7 +142,7 @@ export default function AlertsPage() {
               </p>
             </div>
           ) : isEmptyProject ? (
-            <AlertsOnboarding projectId={projectId} />
+            <AlertsOnboarding projectId={projectId} canEdit={canEdit} />
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">
@@ -162,6 +168,7 @@ export default function AlertsPage() {
                 alerts={alerts}
                 projectId={projectId}
                 workspaceId={project?.workspace_id}
+                canEdit={canEdit}
                 onToggleStatus={handleToggleStatus}
                 onDelete={(alert) =>
                   setDeleteTarget({

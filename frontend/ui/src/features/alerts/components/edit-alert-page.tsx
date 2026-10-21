@@ -3,6 +3,7 @@
 import { hasOutstandingAlertPage } from "@traceroot/core";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { AlertForm, type AlertDraft } from "./alert-form";
@@ -36,6 +37,9 @@ function toDraft(alert: AlertRecord): AlertDraft {
 export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
   const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const { data: alert, isPending, error } = useAlert(projectId, alertId);
+  // A viewer (every demo visitor) reads the rule; only a member can save it.
+  const canEdit = useCanEditProject(projectId);
+  const title = canEdit ? "Edit Alert" : "Alert";
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -45,7 +49,7 @@ export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
         <PageBackHeader
           backHref={listHref}
           backLabel="Alerts"
-          title={alert ? `Edit Alert - ${alert.name}` : "Edit Alert"}
+          title={alert ? `${title} - ${alert.name}` : title}
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
@@ -71,6 +75,7 @@ export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
               alertId={alertId}
               initialDraft={toDraft(alert)}
               hasOpenPage={hasOutstandingAlertPage(alert)}
+              readOnly={!canEdit}
             />
           )}
         </div>

@@ -28,6 +28,8 @@ interface DetectorPanelProps {
   detectorId: string;
   projectId: string;
   workspaceId?: string;
+  /** Show the detector without letting the user change it: a viewer's view. */
+  readOnly?: boolean;
   onClose: () => void;
   onNavigate?: (direction: "up" | "down") => void;
   canNavigateUp?: boolean;
@@ -38,6 +40,7 @@ export function DetectorPanel({
   detectorId,
   projectId,
   workspaceId,
+  readOnly = false,
   onClose,
   onNavigate,
   canNavigateUp,
@@ -228,118 +231,123 @@ export function DetectorPanel({
 
       {/* Scrollable form body */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-        {/* Name */}
-        <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Name</span>
+        {/* A disabled fieldset keeps every field readable but unchangeable. */}
+        <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-3">
+          {/* Name */}
+          <div className="border border-border">
+            <div className="border-b border-border bg-muted/50 px-3 py-1.5">
+              <span className="text-[12px] font-medium text-muted-foreground">Name</span>
+            </div>
+            <div className="p-3">
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="h-7 text-[13px]"
+              />
+            </div>
           </div>
-          <div className="p-3">
-            <Input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="h-7 text-[13px]"
+
+          {/* Models */}
+          <div className="border border-border">
+            <div className="border-b border-border bg-muted/50 px-3 py-1.5">
+              <span className="text-[12px] font-medium text-muted-foreground">Model</span>
+            </div>
+            {/* Detector Model — per-detector, editable */}
+            <div className="p-3">
+              <ModelSelector
+                value={editModelSelection}
+                onChange={setEditModelSelection}
+                workspaceId={workspaceId}
+                defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                allowDecisionModels
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Used to evaluate each trace for this detector.
+              </p>
+            </div>
+          </div>
+
+          {/* Prompt */}
+          <div className="border border-border">
+            <div className="border-b border-border bg-muted/50 px-3 py-1.5">
+              <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
+            </div>
+            <div className="p-3">
+              <textarea
+                value={editPrompt}
+                onChange={(e) => setEditPrompt(e.target.value)}
+                rows={10}
+                className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {/* Filter */}
+          <div className="border border-border">
+            <TriggerEditor
+              conditions={editConditions}
+              projectId={projectId}
+              onChange={setEditConditions}
+              asCard
             />
           </div>
-        </div>
 
-        {/* Models */}
-        <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Model</span>
+          {/* Sampling */}
+          <div className="border border-border">
+            <div className="border-b border-border bg-muted/50 px-3 py-1.5">
+              <span className="text-[12px] font-medium text-muted-foreground">Sampling</span>
+            </div>
+            <div className="flex items-center gap-3 p-3">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={editSampleRate}
+                onChange={(e) => setEditSampleRate(Number(e.target.value))}
+                className="flex-1 cursor-pointer accent-foreground"
+              />
+              <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
+                {editSampleRate}%
+              </span>
+            </div>
           </div>
-          {/* Detector Model — per-detector, editable */}
-          <div className="p-3">
-            <ModelSelector
-              value={editModelSelection}
-              onChange={setEditModelSelection}
-              workspaceId={workspaceId}
-              defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
-              allowDecisionModels
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Used to evaluate each trace for this detector.
-            </p>
-          </div>
-        </div>
 
-        {/* Prompt */}
-        <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
-          </div>
-          <div className="p-3">
-            <textarea
-              value={editPrompt}
-              onChange={(e) => setEditPrompt(e.target.value)}
-              rows={10}
-              className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
-        </div>
-
-        {/* Filter */}
-        <div className="border border-border">
-          <TriggerEditor
-            conditions={editConditions}
+          <SignalsCard
+            idPrefix="edit-detector"
+            enableSignals={editEnableSignals}
+            onEnableSignalsChange={setEditEnableSignals}
+            enableRca={editEnableRca}
+            onEnableRcaChange={setEditEnableRca}
             projectId={projectId}
-            onChange={setEditConditions}
-            asCard
+            rcaModel={project?.rca_model}
+            workspaceId={workspaceId}
           />
-        </div>
-
-        {/* Sampling */}
-        <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Sampling</span>
-          </div>
-          <div className="flex items-center gap-3 p-3">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={editSampleRate}
-              onChange={(e) => setEditSampleRate(Number(e.target.value))}
-              className="flex-1 cursor-pointer accent-foreground"
-            />
-            <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
-              {editSampleRate}%
-            </span>
-          </div>
-        </div>
-
-        <SignalsCard
-          idPrefix="edit-detector"
-          enableSignals={editEnableSignals}
-          onEnableSignalsChange={setEditEnableSignals}
-          enableRca={editEnableRca}
-          onEnableRcaChange={setEditEnableRca}
-          projectId={projectId}
-          rcaModel={project?.rca_model}
-          workspaceId={workspaceId}
-        />
+        </fieldset>
 
         {/* Save / Cancel */}
-        <div className="flex items-center justify-end gap-2 pt-1">
-          {conditionsError && (
-            <span className="text-[12px] text-destructive">{conditionsError}</span>
-          )}
-          <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={
-              updateMutation.isPending ||
-              !detector ||
-              detector.id !== detectorId ||
-              conditionsError !== null
-            }
-            className="h-7 text-[12px]"
-          >
-            {updateMutation.isPending ? "Saving..." : "Save"}
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center justify-end gap-2 pt-1">
+            {conditionsError && (
+              <span className="text-[12px] text-destructive">{conditionsError}</span>
+            )}
+            <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={
+                updateMutation.isPending ||
+                !detector ||
+                detector.id !== detectorId ||
+                conditionsError !== null
+              }
+              className="h-7 text-[12px]"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

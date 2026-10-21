@@ -73,6 +73,13 @@ describe("AlertsOnboarding", () => {
     );
   });
 
+  it("offers a viewer, who cannot create alerts, no New Alert link", () => {
+    withSlack({ connected: true, teamName: "Acme", channel: { id: "c1", name: "oncall" } });
+    render(<AlertsOnboarding projectId="proj-1" canEdit={false} />);
+
+    expect(screen.queryByRole("link", { name: /new alert/i })).toBeNull();
+  });
+
   it("omits deferred and undecided channels", () => {
     withSlack({ connected: false });
     render(<AlertsOnboarding projectId="proj-1" />);

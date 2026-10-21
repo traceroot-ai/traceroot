@@ -124,6 +124,14 @@ describe("DetectorPanel", () => {
     expect(rcaMode().value).toBe("automatic");
   });
 
+  it("shows a viewer the detector without letting them change or save it", () => {
+    mocks.detector = baseDetector;
+    render(<DetectorPanel detectorId="det-1" projectId="proj-1" readOnly onClose={vi.fn()} />);
+    expect(promptBox().value).toBe("Find slow spans");
+    expect(promptBox().closest("fieldset")?.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
   it("adopts a remote toggle change while preserving an in-progress prompt edit", () => {
     mocks.detector = baseDetector;
     const { rerender } = renderPanel();
