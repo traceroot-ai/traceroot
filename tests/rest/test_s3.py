@@ -32,6 +32,8 @@ def test_create_missing_bucket_in_configured_region(monkeypatch, region, endpoin
         create_params["CreateBucketConfiguration"] = {"LocationConstraint": region}
 
     with closing(service._get_client()) as client, Stubber(client) as stub:
+        if endpoint is not None:
+            assert client.meta.endpoint_url == endpoint
         stub.add_client_error(
             "head_bucket",
             service_error_code="404",
