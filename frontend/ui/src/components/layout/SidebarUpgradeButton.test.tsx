@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { SidebarUpgradeButton } from "./SidebarUpgradeButton";
-import { PlanType } from "@traceroot/core";
+import { PlanType, Role } from "@traceroot/core";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Define mock functions so they can be changed inside test cases
@@ -38,24 +38,36 @@ describe("SidebarUpgradeButton", () => {
     cleanup();
   });
 
-  it("should return disabled button when workspace is loading or undefined", () => {
+  it("should render nothing while the workspace is loading or undefined", () => {
     mockUseProject.mockReturnValue({ data: undefined });
     mockUseWorkspace.mockReturnValue({ data: undefined });
 
     renderWithProvider(<SidebarUpgradeButton projectId="p1" collapsed={false} />);
 
-    const button = screen.getByRole("button") as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(button.textContent).toContain("Upgrade");
+    expect(screen.queryByRole("button")).toBeNull();
     expect(mockUseProject).toHaveBeenCalledWith("p1");
     expect(mockUseWorkspace).toHaveBeenCalledWith("");
   });
+
+  it.each([Role.MEMBER, Role.VIEWER])(
+    "should render nothing for a %s, who cannot change the plan",
+    (role) => {
+      mockUseProject.mockReturnValue({ data: { workspace_id: "w1" } });
+      mockUseWorkspace.mockReturnValue({ data: { id: "w1", role, billingPlan: PlanType.FREE } });
+
+      renderWithProvider(<SidebarUpgradeButton projectId="p1" collapsed={false} />);
+
+      expect(screen.queryByRole("button")).toBeNull();
+      expect(screen.queryByTestId("pricing-dialog")).toBeNull();
+    },
+  );
 
   it("should return enabled button and show Upgrade text when not collapsed and workspace is loaded", () => {
     mockUseProject.mockReturnValue({ data: { workspace_id: "w1" } });
     mockUseWorkspace.mockReturnValue({
       data: {
         id: "w1",
+        role: Role.ADMIN,
         billingPlan: PlanType.FREE,
         billingSubscriptionId: null,
       },
@@ -77,6 +89,7 @@ describe("SidebarUpgradeButton", () => {
     mockUseWorkspace.mockReturnValue({
       data: {
         id: "w1",
+        role: Role.ADMIN,
         billingPlan: PlanType.PRO,
         billingSubscriptionId: "sub_123",
       },
@@ -103,6 +116,7 @@ describe("SidebarUpgradeButton", () => {
     mockUseWorkspace.mockReturnValue({
       data: {
         id: "w1",
+        role: Role.ADMIN,
         // no billingPlan
       },
     });
@@ -123,6 +137,7 @@ describe("SidebarUpgradeButton", () => {
     mockUseWorkspace.mockReturnValue({
       data: {
         id: "w1",
+        role: Role.ADMIN,
         billingPlan: PlanType.PRO,
       },
     });

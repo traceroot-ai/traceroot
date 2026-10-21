@@ -1,7 +1,7 @@
 /**
  * Workspace feature utilities
  */
-import { Role } from "@traceroot/core";
+import { hasMinRole, Role } from "@traceroot/core";
 
 /**
  * Format workspace creation date for display
@@ -31,6 +31,17 @@ export function getRoleLabel(role: Role): string {
  */
 export function isAdminRole(role: Role): boolean {
   return role === Role.ADMIN;
+}
+
+/**
+ * Whether a workspace role can create projects and change what is in them
+ * (detectors, alerts, dashboards, datasets, evaluation runs, signal status).
+ * The API routes for those writes require MEMBER or higher, so the UI hides
+ * their controls from a VIEWER, which every demo visitor is. An unknown role
+ * (still loading) counts as no.
+ */
+export function canEditProjects(role: Role | undefined): boolean {
+  return role !== undefined && hasMinRole(role, Role.MEMBER);
 }
 
 /**

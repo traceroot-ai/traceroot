@@ -4,12 +4,16 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   readOnly: false,
+  canEdit: true,
   mutate: vi.fn(),
   isPending: false,
   isError: false,
 }));
 vi.mock("@/features/ai-assistant/hooks/use-demo-agent-access", () => ({
   useDemoAgentAccess: () => ({ readOnly: mocks.readOnly, loading: false }),
+}));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => mocks.canEdit,
 }));
 vi.mock("../hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks")>();
@@ -28,6 +32,7 @@ import { RunRca } from "./run-rca";
 afterEach(() => {
   cleanup();
   mocks.readOnly = false;
+  mocks.canEdit = true;
   mocks.mutate.mockReset();
   mocks.isPending = false;
   mocks.isError = false;
@@ -82,6 +87,13 @@ describe("RunRca", () => {
       "Analysis could not start. Please try again.",
     );
   });
+});
+
+it("offers a viewer of another workspace no run, but still its state", () => {
+  mocks.canEdit = false;
+  render(<RunRca projectId="p1" signalId="s1" state="failed" available />);
+  expect(screen.getByText("The last analysis failed.")).toBeTruthy();
+  expect(screen.queryByRole("button")).toBeNull();
 });
 
 it("hides execution for a read-only demo visitor", () => {

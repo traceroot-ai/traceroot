@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { useSetSignalStatus } from "../hooks";
 
 export const STATUS_LABELS: Record<SignalStatus, string> = {
@@ -79,6 +80,8 @@ export function SignalStatusControl({
   status: SignalStatus;
 }) {
   const mutation = useSetSignalStatus(projectId, signalId);
+  // A viewer (every demo visitor) sees the status but cannot change it.
+  const canEdit = useCanEditProject(projectId);
   // The target status, and the status seen when the dialog opened: the save
   // sends the latter, so a change made meanwhile gets the server's conflict.
   const [closing, setClosing] = useState<{
@@ -111,7 +114,7 @@ export function SignalStatusControl({
 
   return (
     <>
-      <Select value={status} onValueChange={onPick} disabled={mutation.isPending}>
+      <Select value={status} onValueChange={onPick} disabled={!canEdit || mutation.isPending}>
         <SelectTrigger className="h-8 w-[160px] text-[13px]" aria-label="Signal status">
           <SelectValue />
         </SelectTrigger>

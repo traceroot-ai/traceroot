@@ -2,8 +2,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }));
+const mocks = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false, canEdit: true }));
 
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => mocks.canEdit,
+}));
 vi.mock("../hooks", () => ({
   useSetSignalStatus: () => ({
     mutate: mocks.mutate,
@@ -19,13 +22,15 @@ vi.mock("@/components/ui/select", () => ({
   Select: ({
     value,
     onValueChange,
+    disabled,
     children,
   }: {
     value: string;
     onValueChange: (v: string) => void;
+    disabled?: boolean;
     children: React.ReactNode;
   }) => (
-    <select value={value} onChange={(e) => onValueChange(e.target.value)}>
+    <select value={value} disabled={disabled} onChange={(e) => onValueChange(e.target.value)}>
       <option value="" />
       {children}
     </select>
@@ -52,6 +57,7 @@ afterEach(() => {
   cleanup();
   mocks.mutate.mockReset();
   mocks.isPending = false;
+  mocks.canEdit = true;
 });
 
 describe("SignalStatusControl", () => {
@@ -88,6 +94,17 @@ describe("SignalStatusControl", () => {
       change: { status: "open" },
       expectedStatus: "resolved",
     });
+  });
+
+  it("shows a viewer the status without letting them change it", () => {
+    mocks.canEdit = false;
+    render(
+      <SignalStatusControl projectId="p1" signalId="s1" title="Tool times out" status="open" />,
+    );
+
+    const statusSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+    expect(statusSelect.value).toBe("open");
+    expect(statusSelect.disabled).toBe(true);
   });
 
   it("disables Cancel while the status save is pending", () => {

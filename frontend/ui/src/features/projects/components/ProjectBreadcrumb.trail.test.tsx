@@ -54,6 +54,7 @@ beforeEach(() => {
   state.workspace = {
     id: "ws-1",
     name: "Acme",
+    role: "MEMBER",
     projects: [
       { id: "proj-1", name: "Billing" },
       { id: "proj-2", name: "Search" },
@@ -141,6 +142,14 @@ describe("ProjectBreadcrumb trail", () => {
 
     act(() => items[1].createNew!.onSelect());
     expect(screen.getByTestId("create-project").dataset.open).toBe("true");
+  });
+
+  it("offers a viewer no New project, which the API would refuse", () => {
+    state.workspace = { ...(state.workspace as object), role: "VIEWER" };
+    render(<ProjectBreadcrumb projectId="proj-1" />);
+    const items = pushedItems();
+    expect(items[0].createNew?.label).toBe("New workspace");
+    expect(items[1].createNew).toBeUndefined();
   });
 
   it("omits the project dialog until the workspace is known", () => {

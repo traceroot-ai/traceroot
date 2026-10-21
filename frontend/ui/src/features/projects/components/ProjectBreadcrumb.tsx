@@ -9,7 +9,7 @@ import { projectSwitchHref } from "../utils";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
 import { useWorkspace, useWorkspaces } from "@/features/workspaces/hooks";
-import { workspaceSwitchHref } from "@/features/workspaces/utils";
+import { canEditProjects, workspaceSwitchHref } from "@/features/workspaces/utils";
 
 interface ProjectBreadcrumbProps {
   projectId: string;
@@ -80,7 +80,9 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
           label: "Projects",
           href: `/workspaces/${project?.workspace_id}/projects`,
         },
-        createNew: { label: "New project", onSelect: () => setCreateProjectOpen(true) },
+        createNew: canEditProjects(workspace?.role)
+          ? { label: "New project", onSelect: () => setCreateProjectOpen(true) }
+          : undefined,
       },
     ];
 

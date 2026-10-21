@@ -1,6 +1,7 @@
 "use client";
 
 import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import { Button } from "@/components/ui/button";
 import { rcaInProgress, useRequestSignalRca } from "../hooks";
 
@@ -25,6 +26,8 @@ export function RunRca({
   showState?: boolean;
 }) {
   const { readOnly, loading } = useDemoAgentAccess(projectId);
+  // A viewer of any other workspace cannot start a run either: the route requires MEMBER.
+  const canEdit = useCanEditProject(projectId);
   const request = useRequestSignalRca(projectId, signalId);
   if (loading) return null;
   if (!available) {
@@ -55,14 +58,16 @@ export function RunRca({
       {readOnly ? (
         <p className="text-[12px] text-muted-foreground">Demo analyses are read-only.</p>
       ) : (
-        <Button
-          size="sm"
-          className="h-7 text-[12px]"
-          disabled={running}
-          onClick={() => request.mutate()}
-        >
-          {running ? "Running…" : "Run root cause analysis"}
-        </Button>
+        canEdit && (
+          <Button
+            size="sm"
+            className="h-7 text-[12px]"
+            disabled={running}
+            onClick={() => request.mutate()}
+          >
+            {running ? "Running…" : "Run root cause analysis"}
+          </Button>
+        )
       )}
     </div>
   );

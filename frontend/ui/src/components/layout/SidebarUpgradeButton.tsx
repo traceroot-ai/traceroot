@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
+import { isAdminRole } from "@/features/workspaces/utils";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 
 interface SidebarUpgradeButtonProps {
@@ -27,19 +28,22 @@ export function SidebarUpgradeButton({
   const workspaceId = propWorkspaceId || project?.workspace_id || "";
   const { data: workspace } = useWorkspace(workspaceId);
 
+  // Only a workspace admin can change the plan: the billing routes refuse
+  // everyone else, so every demo visitor would get an error. Waiting for the
+  // workspace record also makes the dialog act on the real plan; opening it
+  // with the FREE fallback could route a subscribed workspace to checkout
+  // instead of change-plan.
+  if (!workspace || !isAdminRole(workspace.role)) return null;
+
   return (
     <>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             className={cn(
-              "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50 disabled:opacity-50",
+              "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50",
               collapsed ? "justify-center px-2" : "px-3",
             )}
-            // Wait for the workspace record so the dialog acts on the real plan;
-            // opening it with the FREE fallback could route a subscribed
-            // workspace to checkout instead of change-plan.
-            disabled={!workspace}
             onClick={() => setShowPricingDialog(true)}
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0" />

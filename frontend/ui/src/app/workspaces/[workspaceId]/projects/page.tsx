@@ -7,6 +7,7 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { CreateProjectDialog, ProjectCard } from "@/features/projects/components";
 import { useWorkspace } from "@/features/workspaces/hooks";
+import { canEditProjects } from "@/features/workspaces/utils";
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function ProjectsPage() {
               View and manage projects in this workspace
             </p>
           </div>
-          <CreateProjectDialog workspaceId={workspaceId} />
+          {canEditProjects(workspace?.role) && <CreateProjectDialog workspaceId={workspaceId} />}
         </div>
 
         {/* Loading State */}
