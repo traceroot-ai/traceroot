@@ -233,13 +233,18 @@ describe("probe before store", () => {
 });
 
 describe("the models a saved key starts with", () => {
-  /** Whether usage on `id` has a price: by name, or by the entry's `matchPattern`. */
+  /**
+   * Whether usage on `id` has a price: an entry that matches it by name or by
+   * its `matchPattern`, and charges something. An entry whose rates are all zero
+   * prices the usage at $0 as surely as no entry does.
+   */
   function priced(id: string): boolean {
     return standardPrices.some(
       (entry) =>
-        entry.modelName === id ||
-        (entry.matchPattern !== "" &&
-          new RegExp(entry.matchPattern.replace(/^\(\?i\)/, ""), "i").test(id)),
+        Object.values(entry.prices).some((rate) => typeof rate === "number" && rate > 0) &&
+        (entry.modelName === id ||
+          (entry.matchPattern !== "" &&
+            new RegExp(entry.matchPattern.replace(/^\(\?i\)/, ""), "i").test(id))),
     );
   }
 
