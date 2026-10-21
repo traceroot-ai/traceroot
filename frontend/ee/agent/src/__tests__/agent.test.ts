@@ -1,16 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BeforeToolCallContext } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import {
+  fetchProviderConfig,
+  resolvePiModel,
+  type ProviderModelConfig,
+} from "@traceroot/core/model-resolver";
 import { getOrCreateAgent, type AgentRunnerConfig } from "../agent.js";
 import { pendingDecisions } from "../pending-decisions.js";
 
-// Keep the module graph off Prisma and the DB: the agent cache logic under
-// test only needs a context-loading stub and a resolvable model.
+// Keep database access mocked. Cache tests use a stub model; Google request
+// tests opt into the real resolver to check its metadata through the SDK.
 vi.mock("@traceroot/core", () => ({
-  ADAPTER_TO_PI_AI: {},
+  ADAPTER_TO_PI_AI: { google: "google" },
   BEDROCK_USE_DEFAULT_CREDENTIALS: "__bedrock_default__",
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
 }));
+vi.mock("../../../../packages/core/src/lib/prisma.ts", () => ({ prisma: {} }));
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: vi.fn(() => ({ id: "test-model", provider: "anthropic" })),
   fetchProviderConfig: vi.fn(async () => null),
@@ -111,5 +118,86 @@ describe("getOrCreateAgent", () => {
 
     expect(second.agent).toBe(first.agent);
     expect(second.agent.state.systemPrompt).toBe("Currently viewing Trace ID: T2");
+  });
+});
+
+async function createGoogleAgent(id: string, sessionId = `model-${id}`) {
+  const providerConfig: ProviderModelConfig = {
+    adapter: "google",
+    key: "offline-workspace-key",
+    baseUrl: "https://proxy.example.com/google",
+    config: null,
+  };
+  const actual = await vi.importActual<typeof import("@traceroot/core/model-resolver")>(
+    "@traceroot/core/model-resolver",
+  );
+  vi.mocked(resolvePiModel).mockReturnValueOnce(actual.resolvePiModel(id, providerConfig));
+  vi.mocked(fetchProviderConfig).mockResolvedValueOnce(providerConfig);
+  return getOrCreateAgent({
+    ...config(sessionId, []),
+    model: id,
+    providerName: "workspace-google",
+    source: "byok",
+  });
+}
+
+describe("BYOK Google requests", () => {
+  it.each([
+    ["gemini-3.6-flash", "MINIMAL"],
+    ["gemini-3.8-flash", "LOW"],
+    ["gemini-3-flash-preview", "MINIMAL"],
+  ])(
+    "sends the lowest supported thinking level for %s through the real agent SDK",
+    async (id, level) => {
+      const { agent } = await createGoogleAgent(id);
+      expect(agent.state.thinkingLevel).toBe("off");
+      expect(await agent.getApiKey!("google")).toBe("offline-workspace-key");
+      expect(agent.state.model.baseUrl).toBe("https://proxy.example.com/google");
+
+      // Capture the SDK's actual request, then stop before any provider I/O.
+      const correctPayload = agent.onPayload!;
+      let captured: unknown;
+      agent.onPayload = async (payload, model) => {
+        const result = await correctPayload(payload, model);
+        captured = result ?? payload;
+        throw new Error("offline request captured");
+      };
+      await agent.prompt("Hello");
+      expect(captured).toMatchObject({
+        model: id,
+        config: { thinkingConfig: { thinkingLevel: level } },
+      });
+      expect(
+        (captured as { config: { thinkingConfig: object } }).config.thinkingConfig,
+      ).not.toHaveProperty("includeThoughts");
+      expect(agent.state.messages.at(-1)).toMatchObject({
+        stopReason: "error",
+        errorMessage: "offline request captured",
+      });
+    },
+  );
+
+  it("retains supported levels and other request settings after a registry update", async () => {
+    const { agent } = await createGoogleAgent("gemini-3.8-flash", "registry-update-session");
+    const model = { ...agent.state.model, reasoning: true };
+    for (const level of ["LOW", "MEDIUM", "HIGH"]) {
+      const payload = { config: { temperature: 0.5, thinkingConfig: { thinkingLevel: level } } };
+      await agent.onPayload!(payload, model);
+      expect(payload.config).toEqual({
+        temperature: 0.5,
+        thinkingConfig: { thinkingLevel: level },
+      });
+    }
+    const payload = { config: { temperature: 0.5, thinkingConfig: { thinkingLevel: "MINIMAL" } } };
+    await agent.onPayload!(payload, model);
+    expect(payload.config).toEqual({ temperature: 0.5, thinkingConfig: { thinkingLevel: "LOW" } });
+  });
+
+  it("does not rewrite an explicitly selected non-Google protocol", async () => {
+    const { agent } = await createGoogleAgent("gemini-3.8-flash", "protocol-override-session");
+    const model: Model<Api> = { ...agent.state.model, api: "openai-completions" };
+    const payload = { config: { thinkingConfig: { thinkingLevel: "MINIMAL" } } };
+    await agent.onPayload!(payload, model);
+    expect(payload.config.thinkingConfig.thinkingLevel).toBe("MINIMAL");
   });
 });

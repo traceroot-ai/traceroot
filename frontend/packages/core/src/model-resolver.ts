@@ -57,12 +57,45 @@ export function isSystemModelId(modelId: string): boolean {
   return systemModelLookup.has(modelId);
 }
 
+type FallbackMetadata = Pick<Model<Api>, "contextWindow" | "maxTokens" | "reasoning" | "input">;
+
+// Metadata for models missing from the pinned pi-ai registry. Keep these scoped
+// to the adapter: a free-text model on an unrelated endpoint may share the id.
+const glm45Metadata: FallbackMetadata = {
+  contextWindow: 131072,
+  maxTokens: 98304,
+  reasoning: true,
+  input: ["text"],
+};
+
+const geminiFlashMetadata: FallbackMetadata = {
+  contextWindow: 1048576,
+  maxTokens: 65536,
+  reasoning: true,
+  input: ["text", "image"],
+};
+const fallbackMetadata: Partial<Record<string, Partial<Record<string, FallbackMetadata>>>> = {
+  zai: {
+    "glm-4.5": glm45Metadata,
+    "glm-4.5-air": glm45Metadata,
+  },
+  google: {
+    "gemini-3.6-flash": geminiFlashMetadata,
+    "gemini-3.8-flash": geminiFlashMetadata,
+  },
+};
+
 /**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
  */
-function buildFallbackModel(modelId: string, apiProtocol: string, provider: string): Model<Api> {
+function buildFallbackModel(
+  modelId: string,
+  apiProtocol: string,
+  provider: string,
+  adapter = provider,
+): Model<Api> {
   // pi-ai's getModel is typed to known provider IDs; BYOK adapter→provider maps
   // (e.g. deepseek → openai) are valid lookups.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,6 +114,7 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
     maxTokens: 64000,
+    ...fallbackMetadata[adapter]?.[modelId],
   } as Model<Api>;
 }
 
@@ -158,7 +192,12 @@ export function resolvePiModel(
         modelProtocols?.[fallbackModelId] ||
         defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
         "openai-completions";
-      const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
+      const model = buildFallbackModel(
+        fallbackModelId,
+        apiProtocol,
+        piAIProvider,
+        providerConfig.adapter,
+      );
       const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
       if (baseUrl) {
         (model as { baseUrl: string }).baseUrl = baseUrl;
