@@ -27,6 +27,7 @@ import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
 import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
+import { FirstTraceLine } from "@/components/first-trace-line";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
 import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
 import { cn } from "@/lib/utils";
@@ -68,9 +69,34 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
 // what makes the empty background actually fill the screen, and `min-h-` rather
 // than `h-` is what lets the box grow past the viewport once the step after the
 // form is taller than it, instead of clipping the top of the card.
+//
+// Anchored at the top rather than centred, which is the whole of the layout fix.
+// A centred column places its content from that content's own height, and the
+// steps are nowhere near the same height: the manual walkthrough carries a
+// twenty-card stack picker, a key field and two snippets, so at 1440x900 its
+// document ran 1642px while the hand-back step fitted inside the 900px viewport.
+// Centred, that put the header 248px down on the hand-back step and 16px down on
+// the manual one — the icon, the heading and the description jumped 232px up the
+// screen the moment the user pressed "Set up manually", and every step sat at a
+// different height. `pt-24` fixes the header's distance from the top of the
+// viewport at 96px on every step, because 96px is a number rather than a function
+// of what is underneath it.
+//
+// 96px is higher up than the centred hand-back step used to sit, which is what
+// was asked for, and it is six times the frame's old 16px padding — a deliberate
+// band of space rather than a header clinging to the top edge, at a laptop
+// viewport and at phone width alike. `pb-16` keeps the tall step from ending
+// flush against the bottom of the viewport. `min-h-screen` rather than
+// `h-screen` is what keeps the overflow scrollable instead of clipped, which is
+// what both extremes need. The manual step runs past any viewport. The hand-back
+// step fits a 390x844 phone exactly and takes about 100px of scroll on a 320x568
+// one, where it used to fit: its content is 511px and the frame now adds 160px
+// around it. That is the price of the anchor, and it is the right way round —
+// a short step that scrolls a little on the smallest phone in exchange for a
+// header that never moves.
 function StandaloneFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen flex-col items-center bg-background px-4 pb-16 pt-24">
       {children}
     </div>
   );
@@ -558,18 +584,30 @@ function OnboardingContent() {
   return (
     <StandaloneFrame>
       {/* The walkthrough is five numbered steps with code in them, so its step
-          gets a wider column than a two-field form needs. Same centred frame
-          either way — the point of keeping it is that the flow still visibly
-          has an end. */}
+          gets a wider column than a two-field form needs. Same top-anchored
+          frame either way — the point of keeping it is that the flow still
+          visibly has an end. */}
       <div className={cn("w-full", showManualStep ? "max-w-2xl" : "max-w-md")}>
         {/* Header. The logo is here because the sidebar carried the only one on
             this page, and the shell it belonged to is gone — /auth and /device
             front their cards the same way, which is the run of screens this
-            page sits in the middle of. */}
+            page sits in the middle of.
+            Everything that is the same on every step lives in this block, which
+            is the block `StandaloneFrame` pins to the top of the viewport. */}
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <Logo size="lg" />
           <div>
-            <h1 className="text-lg font-semibold">Setup</h1>
+            {/* The first run, named as one. "Setup" is the word this product
+                already uses for two other things — the `traceroot setup`
+                command this page hands over to, and the settings screens a
+                returning account goes to — and a heading that reads like a
+                settings tab is the wrong frame for the only page an account
+                sees once. "Get started" is also what the traces panel calls
+                this same content, so the two surfaces now agree. The line
+                under it is what says which of the two routes you are on, and
+                it carries more now that the step below says what the command
+                does. */}
+            <h1 className="text-lg font-semibold">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
               {/* "The rest happens in your terminal" stops being true the
                   moment the user says they would rather it did not. */}
@@ -579,6 +617,32 @@ function OnboardingContent() {
                   ? `${createdWhat} created — the rest happens in your terminal`
                   : "Set up your workspace and first project"}
             </p>
+          </div>
+          {/* The watch for this run's first trace, said once for the whole flow.
+              It used to be rendered by each step — under the "is ready" line on
+              the hand-back step, and in `StackAndModelKey`'s `afterStack` slot on
+              the manual one — which made it a line about whichever step was
+              showing. It is not: the watch is the page's, it runs across both
+              steps, and the thing it reports is what the whole flow is for. So it
+              reads as part of the header, in the one place that does not move.
+
+              The slot is held open at two rows of the line's own 11px/1.5 type
+              whether or not there is anything in it, which is what keeps the card
+              below from stepping down. The line is absent until a project exists
+              and its states are different lengths — the out-of-budget and
+              could-not-read ones wrap to two rows at phone width and the waiting
+              and arrived ones do not — so a slot
+              that collapsed to its content would move everything under it on the
+              first render after Create and again on every change of state. That is
+              the same complaint this layout fix is about, one notch smaller.
+              `items-start` rather than `items-center`: the line's own top edge is
+              then the top of the slot in every state, so growing to the second row
+              grows downwards into space already reserved instead of shifting the
+              first row up. `min-h-` rather than `h-`, so a width narrow enough to
+              wrap to three rows grows rather than clipping the text — below 320px,
+              which is narrower than this page is built for. */}
+          <div className="flex min-h-[33px] w-full items-start justify-center">
+            {createdProject ? <FirstTraceLine wait={traceWait} /> : null}
           </div>
         </div>
 
@@ -605,7 +669,6 @@ function OnboardingContent() {
                   // unlike the workspace list, it has something to say to an
                   // account whose only project is empty.
                   onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
-                  wait={traceWait}
                 />
               ) : (
                 <CliHandbackStep
@@ -624,7 +687,6 @@ function OnboardingContent() {
                   // routes this user back here, and nothing shows them a project
                   // they cannot open.
                   onSkip={() => router.push("/workspaces")}
-                  wait={traceWait}
                 />
               )
             ) : (
