@@ -300,6 +300,26 @@ describe("PATCH", () => {
     expect(prismaMock.dataset.update).not.toHaveBeenCalled();
   });
 
+  it("saves a description-only edit on a dataset whose name another dataset already shares", async () => {
+    // The edit panel always sends the name. An unchanged name must not hit the clash
+    // check, or a dataset already sharing its name could never be edited.
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where
+          ? { name: "beta" }
+          : { id: "ds1", key: "Beta", name: "Beta", clientDatasetId: "ds_beta" },
+    );
+    prismaMock.dataset.update.mockResolvedValue({ id: "ds1" });
+
+    const res = await PATCH(jsonReq({ name: "Beta", description: "new" }), params);
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.dataset.update).toHaveBeenCalledWith({
+      where: { id: "ds1" },
+      data: { name: "Beta", description: "new" },
+    });
+  });
+
   it("409s when a concurrent write wins the rename race (P2002 from the unique index)", async () => {
     // Both pre-checks clear (name-clash lookup → null), but the update loses to the DB index.
     prismaMock.dataset.findFirst.mockImplementation(

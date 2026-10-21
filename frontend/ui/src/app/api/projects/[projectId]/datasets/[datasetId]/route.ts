@@ -91,8 +91,10 @@ async function handlePATCH(req: NextRequest, { params }: RouteParams) {
 
   // A dataset's name is its human identity: renaming onto a name another dataset in the
   // project already uses would deduplicate them, so deny it (case-insensitive). Excludes
-  // this dataset itself, so keeping (or re-casing) its own name is allowed.
-  if (parsed.data.name !== undefined) {
+  // this dataset itself, so keeping (or re-casing) its own name is allowed. Skipped when
+  // the name is unchanged: the edit panel always sends it, and a description-only save
+  // must not be refused for a name this dataset already shares.
+  if (parsed.data.name !== undefined && parsed.data.name !== existing.name) {
     const clash = await prisma.dataset.findFirst({
       where: {
         // Every dataset, not only legacy UI rows with a null clientDatasetId: datasets
