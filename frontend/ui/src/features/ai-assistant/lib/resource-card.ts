@@ -398,12 +398,12 @@ function detectorChips(args: Record<string, unknown>): string[] {
   return chips;
 }
 
-/** "2000" as "2,000 ms", "5" as "$5": the threshold in the rule's unit. */
 const SMALL_CURRENCY_THRESHOLD_FORMAT = new Intl.NumberFormat("en-US", {
   maximumSignificantDigits: 3,
   useGrouping: false,
 });
 
+/** "2000" as "2,000 ms", "5" as "$5": the threshold in the rule's unit. */
 function thresholdWords(measure: string, aggregation: string, threshold: number): string {
   const unit = getAlertUnit(measure, aggregation);
   const value =
