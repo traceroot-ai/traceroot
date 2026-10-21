@@ -20,6 +20,13 @@ model AccessKey {
   secretHash  String    @unique @map("secret_hash") @db.VarChar
   keyHint     String    @map("key_hint") @db.VarChar
   name        String?   @db.VarChar
+  // "admin" (everything this project allows) or "ingest" (send telemetry only).
+  // Defaults to ingest: a key minted without an explicit scope is the one that
+  // ships inside an instrumented application, so the narrow scope is the safe
+  // thing to hand out. Keys that predate this column were backfilled to admin
+  // by the migration — a migration must not silently revoke live credentials —
+  // which is why the column default and that backfill value differ.
+  scope       String    @default("ingest") @db.VarChar
   expireTime  DateTime? @map("expire_time") @db.Timestamp(6)
   lastUseTime DateTime? @map("last_use_time") @db.Timestamp(6)
   createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, PublicUpdateDatasetRequestSchema } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import { getDatasetDetail } from "@/lib/eval/dataset-read";
 import { evalReadResponse } from "@/lib/eval/read-result";
 import { resolvePublicDataset } from "@/lib/eval/versions";
@@ -11,7 +11,7 @@ type RouteParams = { params: Promise<{ datasetId: string }> };
 // learns its current published version to pin (API-key auth, snake_case body). The read
 // is shared with the internal route (`getDatasetDetail`).
 export async function GET(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { datasetId } = await params;
   return evalReadResponse(await getDatasetDetail({ projectId: auth.projectId, datasetId }));
@@ -20,7 +20,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 // PATCH /api/public/datasets/[datasetId] — dataset metadata only (A3). Never
 // mutates a published version; publish test-case changes via .../versions.
 export async function PATCH(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
   const { datasetId } = await params;
