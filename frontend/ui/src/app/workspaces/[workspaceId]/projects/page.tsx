@@ -23,13 +23,15 @@ export default function ProjectsPage() {
   }, [user, router]);
 
   // Get workspace with projects
-  const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session);
+  const { data: workspace, isLoading, isError } = useWorkspace(workspaceId, !!session);
 
   if (!user) {
     return null;
   }
 
   const projects = workspace?.projects || [];
+  // A failed lookup leaves the check to the API, as useCanEditProject does.
+  const canCreateProject = canEditProjects(workspace?.role) || (isError && !workspace);
 
   return (
     <div className="h-full overflow-auto bg-background">
@@ -44,7 +46,7 @@ export default function ProjectsPage() {
               View and manage projects in this workspace
             </p>
           </div>
-          {canEditProjects(workspace?.role) && <CreateProjectDialog workspaceId={workspaceId} />}
+          {canCreateProject && <CreateProjectDialog workspaceId={workspaceId} />}
         </div>
 
         {/* Loading State */}

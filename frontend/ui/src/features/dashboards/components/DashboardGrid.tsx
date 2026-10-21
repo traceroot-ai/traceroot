@@ -84,8 +84,15 @@ export function DashboardGrid({
   );
 
   const handleChange = (next: Layout) => {
-    if (readOnly) return;
     const mapped: LayoutItem[] = next.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
+
+    // A read-only grid never saves, so every layout it sees counts as sent.
+    // The role loads after the grid can mount: once it says editor, the next
+    // real change still differs from this baseline and is saved.
+    if (readOnly) {
+      lastSentRef.current = JSON.stringify(mapped);
+      return;
+    }
 
     // Lazy-init: on the first call (mount-fire from react-grid-layout) treat the
     // incoming layout as already-sent so we don't PATCH unless it truly changed.

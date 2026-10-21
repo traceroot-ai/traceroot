@@ -45,6 +45,12 @@ describe("useCanEditProject", () => {
     expect(mocks.useWorkspace).toHaveBeenCalledWith("w1");
   });
 
+  it("keeps a cached viewer role in charge when a refetch fails", () => {
+    mocks.project = { data: { workspace_id: "w1" }, isError: false };
+    mocks.workspace = { data: { id: "w1", role: "VIEWER" }, isError: true };
+    expect(canEdit()).toBe(false);
+  });
+
   it("says yes when the lookup fails, since the API stays the real check", () => {
     mocks.project = { data: undefined, isError: true };
     expect(canEdit()).toBe(true);

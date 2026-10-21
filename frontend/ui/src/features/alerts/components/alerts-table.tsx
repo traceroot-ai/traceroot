@@ -18,7 +18,7 @@ interface AlertsTableProps {
   projectId: string;
   workspaceId?: string;
   /** False for a viewer: the row menu then only opens the alert to read it. */
-  canEdit?: boolean;
+  canEdit: boolean;
   onToggleStatus: (alert: AlertSummary) => void;
   onDelete: (alert: AlertSummary) => void;
   isStatusPending: boolean;
@@ -28,7 +28,7 @@ export function AlertsTable({
   alerts,
   projectId,
   workspaceId,
-  canEdit = true,
+  canEdit,
   onToggleStatus,
   onDelete,
   isStatusPending,

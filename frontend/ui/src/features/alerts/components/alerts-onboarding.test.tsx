@@ -27,7 +27,7 @@ describe("AlertsOnboarding", () => {
 
   it("prompts to connect when Slack is not connected", () => {
     withSlack({ connected: false });
-    render(<AlertsOnboarding projectId="proj-1" />);
+    render(<AlertsOnboarding projectId="proj-1" canEdit />);
 
     expect(screen.getByText("Connect Slack")).toBeTruthy();
     expect(screen.getByRole("link", { name: /connect slack/i }).getAttribute("href")).toBe(
@@ -37,7 +37,7 @@ describe("AlertsOnboarding", () => {
 
   it("shows the live connection instead of a connect prompt once Slack is set up", () => {
     withSlack({ connected: true, teamName: "Acme", channel: { id: "c1", name: "oncall" } });
-    render(<AlertsOnboarding projectId="proj-1" />);
+    render(<AlertsOnboarding projectId="proj-1" canEdit />);
 
     expect(screen.queryByText("Connect Slack")).toBeNull();
     expect(screen.getByText("Acme")).toBeTruthy();
@@ -47,7 +47,7 @@ describe("AlertsOnboarding", () => {
 
   it("flags a connected workspace that has not picked a channel", () => {
     withSlack({ connected: true, teamName: "Acme", channel: null });
-    render(<AlertsOnboarding projectId="proj-1" />);
+    render(<AlertsOnboarding projectId="proj-1" canEdit />);
 
     expect(screen.getByText(/No channel selected/)).toBeTruthy();
     expect(
@@ -59,14 +59,14 @@ describe("AlertsOnboarding", () => {
   it("offers no destination row before the workspace is known", () => {
     mocks.useProject.mockReturnValue({ data: undefined });
     mocks.useSlackStatus.mockReturnValue({ data: undefined });
-    render(<AlertsOnboarding projectId="proj-1" />);
+    render(<AlertsOnboarding projectId="proj-1" canEdit />);
 
     expect(screen.queryByText("Connect Slack")).toBeNull();
   });
 
   it("links the create action at the alert form", () => {
     withSlack({ connected: true, teamName: "Acme", channel: { id: "c1", name: "oncall" } });
-    render(<AlertsOnboarding projectId="proj-1" />);
+    render(<AlertsOnboarding projectId="proj-1" canEdit />);
 
     expect(screen.getByRole("link", { name: /new alert/i }).getAttribute("href")).toBe(
       "/projects/proj-1/alerts/new",
@@ -82,7 +82,7 @@ describe("AlertsOnboarding", () => {
 
   it("omits deferred and undecided channels", () => {
     withSlack({ connected: false });
-    render(<AlertsOnboarding projectId="proj-1" />);
+    render(<AlertsOnboarding projectId="proj-1" canEdit />);
 
     expect(screen.queryByText(/webhook/i)).toBeNull();
     expect(screen.queryByText(/github/i)).toBeNull();

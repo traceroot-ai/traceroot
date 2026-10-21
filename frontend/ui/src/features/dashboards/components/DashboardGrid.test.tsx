@@ -165,6 +165,41 @@ describe("DashboardGrid", () => {
     });
   });
 
+  describe("read-only, then editable once the role loads", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("saves the first change made after the grid turns editable", () => {
+      vi.useFakeTimers();
+      const onLayoutChange = vi.fn();
+      const layout: LayoutItem[] = [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }];
+      const grid = (readOnly: boolean) => (
+        <DashboardGrid
+          projectId="p1"
+          widgets={[widget("w1")]}
+          layout={layout}
+          range={RANGE}
+          width={1000}
+          readOnly={readOnly}
+          onLayoutChange={onLayoutChange}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      );
+      const { rerender } = render(grid(true));
+      latestProps().onLayoutChange(layout); // the mount-fire, while the role loads
+
+      rerender(grid(false));
+      const moved: LayoutItem[] = [{ i: "w1", x: 2, y: 0, w: 4, h: 4 }];
+      latestProps().onLayoutChange(moved);
+      vi.advanceTimersByTime(600);
+
+      expect(onLayoutChange).toHaveBeenCalledTimes(1);
+      expect(onLayoutChange).toHaveBeenCalledWith(moved);
+    });
+  });
+
   describe("handleChange debounce", () => {
     const widgets = [widget("w1"), widget("w2")];
     const initialLayout: LayoutItem[] = [

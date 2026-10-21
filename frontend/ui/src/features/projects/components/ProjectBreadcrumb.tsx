@@ -5,11 +5,12 @@ import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useProject } from "../hooks";
+import { useCanEditProject } from "../hooks/use-can-edit-project";
 import { projectSwitchHref } from "../utils";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
 import { useWorkspace, useWorkspaces } from "@/features/workspaces/hooks";
-import { canEditProjects, workspaceSwitchHref } from "@/features/workspaces/utils";
+import { workspaceSwitchHref } from "@/features/workspaces/utils";
 
 interface ProjectBreadcrumbProps {
   projectId: string;
@@ -45,6 +46,7 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
   const { data: project } = useProject(projectId);
   const { data: workspaces } = useWorkspaces();
   const { data: workspace } = useWorkspace(project?.workspace_id || "", !!project?.workspace_id);
+  const canEdit = useCanEditProject(projectId);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   // Depend on the trail's content, not its array identity, so an inline-literal
@@ -80,7 +82,7 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
           label: "Projects",
           href: `/workspaces/${project?.workspace_id}/projects`,
         },
-        createNew: canEditProjects(workspace?.role)
+        createNew: canEdit
           ? { label: "New project", onSelect: () => setCreateProjectOpen(true) }
           : undefined,
       },
@@ -98,7 +100,17 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
     return () => setHeaderContent(null);
     // trailKey encodes `trail`'s content (see above); listing trail itself would churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setHeaderContent, project, workspace, workspaces, projectId, current, trailKey, pathname]);
+  }, [
+    setHeaderContent,
+    project,
+    workspace,
+    workspaces,
+    canEdit,
+    projectId,
+    current,
+    trailKey,
+    pathname,
+  ]);
 
   return (
     <>

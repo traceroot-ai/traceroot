@@ -29,10 +29,10 @@ export function SidebarUpgradeButton({
   const { data: workspace } = useWorkspace(workspaceId);
 
   // Only a workspace admin can change the plan: the billing routes refuse
-  // everyone else, so every demo visitor would get an error. Waiting for the
-  // workspace record also makes the dialog act on the real plan; opening it
-  // with the FREE fallback could route a subscribed workspace to checkout
-  // instead of change-plan.
+  // everyone else, so every demo visitor would get an error. The button also
+  // waits for the workspace record, and stays hidden if that lookup fails:
+  // with the FREE fallback, the dialog could route a subscribed workspace to
+  // checkout instead of change-plan.
   if (!workspace || !isAdminRole(workspace.role)) return null;
 
   return (

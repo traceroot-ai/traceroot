@@ -303,7 +303,9 @@ export function DatasetDetailView({
               <EmptyState>
                 {keyword
                   ? "No cases match your search."
-                  : "To populate this dataset, manually create a row or insert data programmatically."}
+                  : canEdit
+                    ? "To populate this dataset, manually create a row or insert data programmatically."
+                    : "This dataset has no rows yet."}
               </EmptyState>
             ) : (
               <Table>

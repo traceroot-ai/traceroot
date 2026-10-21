@@ -10,7 +10,7 @@ import { Step } from "./step";
 interface AlertsOnboardingProps {
   projectId: string;
   /** False for a viewer, who cannot create alerts: no New Alert link. */
-  canEdit?: boolean;
+  canEdit: boolean;
 }
 
 /**
@@ -18,7 +18,7 @@ interface AlertsOnboardingProps {
  * only destination offered: webhooks and GitHub Actions are deferred, and an
  * inert row for a channel that cannot be connected is worse than no row.
  */
-export function AlertsOnboarding({ projectId, canEdit = true }: AlertsOnboardingProps) {
+export function AlertsOnboarding({ projectId, canEdit }: AlertsOnboardingProps) {
   const { data: project } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const { data: slack } = useSlackStatus(workspaceId);

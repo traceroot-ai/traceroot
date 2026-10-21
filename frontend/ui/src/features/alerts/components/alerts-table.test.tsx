@@ -45,6 +45,7 @@ const renderTable = (alert: AlertSummary, overrides: Record<string, unknown> = {
     <AlertsTable
       alerts={[alert]}
       projectId="proj-1"
+      canEdit
       onToggleStatus={onToggleStatus}
       onDelete={onDelete}
       isStatusPending={false}
