@@ -63,9 +63,18 @@ import { runBillingJob } from "../usageMetering.js";
 // currentUsage as the previous run saved it, fed back into the next run.
 let savedUsage: unknown = null;
 
+// Meter events Stripe accepted: recorded only when create resolves.
+type MeterEvent = { event_name: string; payload: { value: string } };
+const acceptedEvents: MeterEvent[] = [];
+
 beforeEach(() => {
   vi.clearAllMocks();
   savedUsage = null;
+  acceptedEvents.length = 0;
+  mocks.meterEventsCreate.mockImplementation(async (event: MeterEvent) => {
+    acceptedEvents.push(event);
+    return {};
+  });
   process.env.STRIPE_SECRET_KEY = "sk_test_ai_delta";
   mocks.workspaceFindMany.mockImplementation(async () => [
     {
@@ -96,18 +105,14 @@ afterEach(() => {
   delete process.env.STRIPE_SECRET_KEY;
 });
 
-// Units of ai_usage meter events that Stripe accepted (calls that did not throw).
 function acceptedAiUnits(): number {
-  return mocks.meterEventsCreate.mock.calls.reduce((sum, [event], i) => {
-    const accepted = mocks.meterEventsCreate.mock.results[i]?.type === "return";
-    return event.event_name === "ai_usage" && accepted ? sum + Number(event.payload.value) : sum;
-  }, 0);
+  return acceptedEvents
+    .filter((event) => event.event_name === "ai_usage")
+    .reduce((sum, event) => sum + Number(event.payload.value), 0);
 }
 
 describe("AI run overage delta after a failed Stripe report", () => {
   it("does not re-report units Stripe already accepted", async () => {
-    mocks.meterEventsCreate.mockResolvedValue({});
-
     // Hour 1: 150 runs, 50 over the 100 included = 1 block = 1000 units.
     mocks.aiRunCount.mockResolvedValue(150);
     await runBillingJob();
@@ -115,9 +120,8 @@ describe("AI run overage delta after a failed Stripe report", () => {
 
     // Hour 2: 250 runs = 2000 units, a delta of 1000, but Stripe fails.
     mocks.aiRunCount.mockResolvedValue(250);
-    mocks.meterEventsCreate.mockImplementationOnce(() => {
-      throw new Error("stripe 503");
-    });
+    // Stripe rejects the create promise, as a real 503 does.
+    mocks.meterEventsCreate.mockRejectedValueOnce(new Error("stripe 503"));
     await runBillingJob();
     expect(acceptedAiUnits()).toBe(1000);
 
