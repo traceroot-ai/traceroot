@@ -12,7 +12,12 @@ vi.mock("@traceroot/core", async (importOriginal) => {
   };
 });
 
-import { isInlineConfigurable, settingsOnlyReason } from "./ModelProviderBlock";
+import {
+  isInlineConfigurable,
+  SEEDED_MODELS,
+  seedFor,
+  settingsOnlyReason,
+} from "./ModelProviderBlock";
 
 type Credential = { credentialType: "api-key" | "aws"; requiresBaseUrl: boolean };
 
@@ -26,8 +31,10 @@ const emptyList: [] = [];
 const aList = [{ id: "a-model", label: "a-model" }];
 
 /**
- * Every entry the two signatures allow — each credential shape, and a catalogue
- * that is missing, empty or has a model in it — with what the step makes of it.
+ * Every entry the two signatures allow — each credential shape, and a list of
+ * models to seed that is missing, empty or has a model in it — with what the
+ * step makes of it. The list is the seeded models still in the catalogue, so a
+ * row puts the same models in both.
  * The two functions state the credential half of one rule, so they have to
  * agree on every row: no reason exactly when the adapter is offered inline.
  */
@@ -64,17 +71,24 @@ describe("the inline rule and the reason it gives, over every typed entry", () =
     const adapter = LLMAdapter.OPENAI;
     const realConfig = ADAPTER_CONFIG[adapter];
     const realModels = ADAPTER_MODELS[adapter];
+    const realSeeds = SEEDED_MODELS[adapter];
     try {
       for (const row of RULE) {
         ADAPTER_CONFIG[adapter] = { label: "An adapter", ...row.config };
-        if (row.catalogue === undefined) delete ADAPTER_MODELS[adapter];
-        else ADAPTER_MODELS[adapter] = [...row.catalogue];
+        if (row.catalogue === undefined) {
+          delete ADAPTER_MODELS[adapter];
+          delete SEEDED_MODELS[adapter];
+        } else {
+          ADAPTER_MODELS[adapter] = [...row.catalogue];
+          SEEDED_MODELS[adapter] = row.catalogue.map((model) => model.id);
+        }
 
         expect(settingsOnlyReason(adapter), JSON.stringify(row)).toBe(row.reason);
       }
     } finally {
       ADAPTER_CONFIG[adapter] = realConfig;
       ADAPTER_MODELS[adapter] = realModels;
+      SEEDED_MODELS[adapter] = realSeeds;
     }
   });
 
@@ -83,7 +97,7 @@ describe("the inline rule and the reason it gives, over every typed entry", () =
     // its entry matches, including the internal `typesafe` one no surface offers.
     for (const adapter of Object.values(LLMAdapter)) {
       const { credentialType, requiresBaseUrl } = ADAPTER_CONFIG[adapter];
-      const catalogue = catalogueState(ADAPTER_MODELS[adapter]);
+      const catalogue = catalogueState(seedFor(adapter));
       const row = RULE.find(
         (candidate) =>
           candidate.config.credentialType === credentialType &&
@@ -92,7 +106,7 @@ describe("the inline rule and the reason it gives, over every typed entry", () =
       );
       expect(row, adapter).toBeDefined();
       expect(settingsOnlyReason(adapter), adapter).toBe(row!.reason);
-      expect(isInlineConfigurable(ADAPTER_CONFIG[adapter], ADAPTER_MODELS[adapter]), adapter).toBe(
+      expect(isInlineConfigurable(ADAPTER_CONFIG[adapter], seedFor(adapter)), adapter).toBe(
         row!.inline,
       );
     }
