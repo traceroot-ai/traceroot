@@ -7,6 +7,7 @@ import DashboardIndexPage from "./page";
 const replace = vi.fn();
 const push = vi.fn();
 let searchParams = new URLSearchParams();
+let canEdit = true;
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
   useRouter: () => ({ replace, push }),
@@ -14,6 +15,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => canEdit,
+}));
 
 // The dialogs carry their own tests; here they only need to mount.
 vi.mock("@/features/dashboards/components/CreateDashboardDialog", () => ({
@@ -78,6 +82,7 @@ describe("DashboardIndexPage", () => {
     push.mockReset();
     refetch.mockReset();
     searchParams = new URLSearchParams();
+    canEdit = true;
   });
 
   it("shows a loading state while the dashboard list is in flight", () => {
@@ -125,6 +130,17 @@ describe("DashboardIndexPage", () => {
     expect(screen.getAllByText("—")).toHaveLength(2);
     // no marker glyph on the default dashboard — its row reads like any other
     expect(screen.queryByText("⌂")).toBeNull();
+  });
+
+  it("lets a viewer open dashboards, but not add, rename or delete one", () => {
+    canEdit = false;
+    mockDashboards([OVERVIEW, COSTS]);
+    render(<DashboardIndexPage />);
+
+    expect(screen.queryByRole("button", { name: "＋ New dashboard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dashboard actions" })).toBeNull();
+    fireEvent.click(screen.getByText("Costs"));
+    expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d2");
   });
 
   it("keeps showing the list when a delete brings it down to one row", () => {

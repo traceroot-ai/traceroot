@@ -87,6 +87,24 @@ describe("WidgetCard menu gating", () => {
     expect(onEdit).toHaveBeenCalledTimes(1);
   });
 
+  it("gives a viewer's card no drag handle and no options menu", () => {
+    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
+    render(
+      <WidgetCard
+        projectId="p1"
+        widget={makeWidget()}
+        range={RANGE}
+        readOnly
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("My widget")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Widget options" })).toBeNull();
+    expect(screen.queryByText("⠿")).toBeNull();
+  });
+
   it("hides Edit for a non-query widget", async () => {
     renderCard(makeWidget({ type: "trace_feed", spec: { limit: 5 } }));
 

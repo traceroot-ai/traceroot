@@ -20,6 +20,7 @@ export function DashboardGrid({
   layout,
   range,
   width,
+  readOnly = false,
   onLayoutChange,
   onEdit,
   onDelete,
@@ -29,6 +30,12 @@ export function DashboardGrid({
   layout: LayoutItem[];
   range: TimeRange;
   width: number;
+  /**
+   * A viewer's grid: no drag, no resize, no widget menu, and no layout save.
+   * The 30s poll can make react-grid-layout report a layout change with no
+   * user action, and a viewer's save would only be refused.
+   */
+  readOnly?: boolean;
   onLayoutChange: (layout: LayoutItem[]) => void;
   onEdit: (w: Widget) => void;
   onDelete: (w: Widget) => void;
@@ -77,6 +84,7 @@ export function DashboardGrid({
   );
 
   const handleChange = (next: Layout) => {
+    if (readOnly) return;
     const mapped: LayoutItem[] = next.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
 
     // Lazy-init: on the first call (mount-fire from react-grid-layout) treat the
@@ -104,7 +112,8 @@ export function DashboardGrid({
       className="layout"
       layout={fullLayout}
       gridConfig={{ cols: COLS, rowHeight: ROW_HEIGHT }}
-      dragConfig={{ handle: ".drag-handle" }}
+      dragConfig={{ enabled: !readOnly, handle: ".drag-handle" }}
+      resizeConfig={{ enabled: !readOnly }}
       width={width}
       onLayoutChange={handleChange}
     >
@@ -114,6 +123,7 @@ export function DashboardGrid({
             projectId={projectId}
             widget={w}
             range={range}
+            readOnly={readOnly}
             onEdit={() => onEdit(w)}
             onDelete={() => onDelete(w)}
           />

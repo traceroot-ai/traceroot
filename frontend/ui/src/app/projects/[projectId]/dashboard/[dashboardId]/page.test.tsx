@@ -38,7 +38,11 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
+let canEdit = true;
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/features/projects/hooks/use-can-edit-project", () => ({
+  useCanEditProject: () => canEdit,
+}));
 
 const updateLayout: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
   {
@@ -149,6 +153,7 @@ describe("DashboardDetailPage", () => {
     updateLayout.mutate.mockReset();
     removeWidget.mutate.mockReset();
     lastGridProps = null;
+    canEdit = true;
     mockDetail({ ...DASH_A, layout: [], widgets: [] });
   });
 
@@ -197,12 +202,27 @@ describe("DashboardDetailPage", () => {
     expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d1/widgets/new");
   });
 
-  it("shows the create-widget button and passes no readOnly prop for the default dashboard", () => {
+  it("shows the create-widget button and an editable grid for the default dashboard", () => {
     mockDetail({ ...DASH_B, layout: [], widgets: [WIDGET] });
     renderPage();
 
     expect(screen.getAllByRole("button", { name: "＋ Create widget" }).length).toBe(1);
-    expect(lastGridProps?.readOnly).toBeUndefined();
+    expect(lastGridProps?.readOnly).toBe(false);
+  });
+
+  it("shows a viewer a read-only grid and no create-widget button", () => {
+    canEdit = false;
+    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+    expect(lastGridProps?.readOnly).toBe(true);
+
+    cleanup();
+    mockDetail({ ...DASH_A, layout: [], widgets: [] });
+    renderPage();
+    expect(screen.getByText("No widgets yet.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
   });
 
   it("holds the create-widget button until the dashboard detail loads", () => {

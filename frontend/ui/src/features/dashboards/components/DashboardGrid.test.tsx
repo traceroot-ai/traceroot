@@ -126,6 +126,45 @@ describe("DashboardGrid", () => {
     });
   });
 
+  describe("read-only", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("turns off drag and resize, and never saves a layout", () => {
+      vi.useFakeTimers();
+      const onLayoutChange = vi.fn();
+      const layout: LayoutItem[] = [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }];
+      const { unmount } = render(
+        <DashboardGrid
+          projectId="p1"
+          widgets={[widget("w1")]}
+          layout={layout}
+          range={RANGE}
+          width={1000}
+          readOnly
+          onLayoutChange={onLayoutChange}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />,
+      );
+      const props = latestProps() as unknown as {
+        dragConfig: { enabled: boolean };
+        resizeConfig: { enabled: boolean };
+        onLayoutChange: (l: LayoutItem[]) => void;
+      };
+      expect(props.dragConfig.enabled).toBe(false);
+      expect(props.resizeConfig.enabled).toBe(false);
+
+      // A poll can make react-grid-layout report a new layout with no drag.
+      props.onLayoutChange(layout);
+      props.onLayoutChange([{ i: "w1", x: 2, y: 0, w: 4, h: 4 }]);
+      vi.advanceTimersByTime(600);
+      unmount();
+      expect(onLayoutChange).not.toHaveBeenCalled();
+    });
+  });
+
   describe("handleChange debounce", () => {
     const widgets = [widget("w1"), widget("w2")];
     const initialLayout: LayoutItem[] = [

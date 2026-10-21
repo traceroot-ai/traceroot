@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useCanEditProject } from "@/features/projects/hooks/use-can-edit-project";
 import {
   isDashboardGone,
   useDashboard,
@@ -33,6 +34,8 @@ export default function DashboardDetailPage() {
 
   // ── retention — presets beyond the plan's window are locked (same as lists) ──
   const retention = useRetention(projectId);
+  // A viewer (every demo visitor) reads the dashboard but cannot change it.
+  const canEdit = useCanEditProject(projectId);
 
   // ── time range — the same URL-synced filter AND default the trace list uses ──
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
@@ -143,7 +146,7 @@ export default function DashboardDetailPage() {
           <div className="flex items-center gap-2">
             {/* Held back until the detail loads so it can't act on a
                 dashboard the app doesn't know yet. */}
-            {dashboard && (
+            {dashboard && canEdit && (
               <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
                 ＋ Create widget
               </Button>
@@ -175,9 +178,11 @@ export default function DashboardDetailPage() {
           ) : widgets.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">No widgets yet.</p>
-              <Button size="sm" className="text-[12px]" onClick={openCreate}>
-                ＋ Create widget
-              </Button>
+              {canEdit && (
+                <Button size="sm" className="text-[12px]" onClick={openCreate}>
+                  ＋ Create widget
+                </Button>
+              )}
             </div>
           ) : (
             <DashboardGrid
@@ -186,6 +191,7 @@ export default function DashboardDetailPage() {
               layout={layout}
               range={range}
               width={width}
+              readOnly={!canEdit}
               onLayoutChange={handleLayoutChange}
               onEdit={openEdit}
               onDelete={handleDelete}
