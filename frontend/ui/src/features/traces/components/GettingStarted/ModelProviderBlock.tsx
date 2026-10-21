@@ -81,7 +81,7 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
  * longer lists is one the pickers cannot resolve, so it is not stored even
  * while the list above still names it.
  */
-function seedFor(adapter: LLMAdapter): string[] {
+export function seedFor(adapter: LLMAdapter): string[] {
   const catalogue = new Set((ADAPTER_MODELS[adapter] ?? []).map((model) => model.id));
   return (SEEDED_MODELS[adapter] ?? []).filter((id) => catalogue.has(id));
 }
@@ -135,8 +135,7 @@ function joinLabels(labels: string[]): string {
  */
 export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "model-list" | null {
   const config = ADAPTER_CONFIG[adapter];
-  const catalogue = ADAPTER_MODELS[adapter];
-  if (isInlineConfigurable(config, catalogue)) return null;
+  if (isInlineConfigurable(config, seedFor(adapter))) return null;
   return keyIsWholeCredential(config) ? "model-list" : "more-than-a-key";
 }
 
@@ -706,6 +705,11 @@ export function ModelProviderBlock({
         {bound.kind === "suggested" && (
           <Select
             value={adapter}
+            // Held while a save runs. The guard on the save's callbacks compares
+            // the stack, and switching provider here keeps the stack, so a
+            // rejection that settled after a switch landed under the new
+            // provider's field, naming a key it was never sent.
+            disabled={saveMutation.isPending}
             onValueChange={(value) => {
               setOverride(value as LLMAdapter);
               // A key belongs to the provider that issued it, and so does the

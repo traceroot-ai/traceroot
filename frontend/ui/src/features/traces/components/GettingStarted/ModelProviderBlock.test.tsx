@@ -42,16 +42,19 @@ vi.mock("@/components/ui/select", () => ({
   Select: ({
     value,
     onValueChange,
+    disabled,
     children,
   }: {
     value: string;
     onValueChange: (v: string) => void;
+    disabled?: boolean;
     children: React.ReactNode;
   }) => (
     <select
       aria-label="Model provider"
       role="combobox"
       value={value}
+      disabled={disabled}
       onChange={(e) => onValueChange(e.target.value)}
     >
       {children}
@@ -385,6 +388,30 @@ describe("switching provider", () => {
     expect(
       (screen.getByRole("button", { name: "Verify and save" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it("cannot be switched while a save is still waiting on the probe", async () => {
+    // The save's callbacks tell their own stack from the one on screen, but a
+    // switch here keeps the stack. Switched mid-probe, an OpenAI rejection
+    // showed "Invalid API key" under the Anthropic field.
+    let answer: (result: { success: boolean; error?: string }) => void = () => {};
+    mocks.testModelProvider.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+
+    renderBlock("ws-1", { kind: "suggested", adapter: "openai" });
+    await fillKey("sk-openai");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    const select = screen.getByLabelText("Model provider") as HTMLSelectElement;
+    await waitFor(() => expect(select.disabled).toBe(true));
+    await act(async () => answer({ success: false, error: "Invalid API key" }));
+
+    expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe("openai");
   });
 });
 
@@ -841,7 +868,7 @@ describe("the key the selected stack asks for", () => {
       adapter: "google",
       provider: ADAPTER_CONFIG.google.label,
       apiKey: "sk-google",
-      customModels: ADAPTER_MODELS.google!.map((m) => m.id),
+      customModels: SEEDED_MODELS.google,
     });
   });
 
