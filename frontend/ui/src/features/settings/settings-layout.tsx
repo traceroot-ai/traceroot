@@ -24,6 +24,7 @@ export type WorkspaceSettingsTab =
   | "general"
   | "members"
   | "model-providers"
+  | "model-pricing"
   | "integrations"
   | "billing";
 export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
@@ -37,6 +38,12 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
     // The model concept, not the agent one — DOMAIN_ICONS.agent is the Bot glyph.
     icon: DOMAIN_ICONS.model,
     href: "model-providers",
+  },
+  {
+    id: "model-pricing",
+    label: "Model Pricing",
+    icon: DOMAIN_ICONS.cost,
+    href: "model-pricing",
   },
   { id: "integrations", label: "Integrations", icon: Puzzle, href: "integrations" },
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },

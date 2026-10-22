@@ -36,6 +36,7 @@ const OTHER_VIEWER = { is_demo: false, role: "VIEWER" };
 const DENIED_WORKSPACE_TABS: WorkspaceSettingsTab[] = [
   "members",
   "model-providers",
+  "model-pricing",
   "integrations",
   "billing",
 ];

@@ -58,6 +58,17 @@ export {
   type LLMModelsResponse,
 } from "./model-providers";
 
+// Custom Model Pricing APIs
+export {
+  getCustomModelPrices,
+  createCustomModelPrice,
+  updateCustomModelPrice,
+  deleteCustomModelPrice,
+  type CustomModelPrice,
+  type CreateCustomModelPriceInput,
+  type UpdateCustomModelPriceInput,
+} from "./custom-model-prices";
+
 // Trace APIs
 export { getTraces, getTrace, getSpanIO, tracesExist } from "./traces";
 
