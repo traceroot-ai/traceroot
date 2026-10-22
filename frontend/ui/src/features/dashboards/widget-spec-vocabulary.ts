@@ -1,4 +1,5 @@
 import registrySnapshot from "./widget-registry.generated.json";
+import { MAX_KEY_LENGTH } from "@/features/filters/predicate";
 import { BREAKDOWN_UNSUPPORTED_DISPLAYS, DISPLAY_TYPES } from "./types";
 import type { WidgetSpec, WidgetSchemaField } from "./types";
 
@@ -16,9 +17,6 @@ import type { WidgetSpec, WidgetSchemaField } from "./types";
 type RegistryView = { fields: Record<string, WidgetSchemaField> };
 
 const REGISTRY = registrySnapshot as Record<string, RegistryView>;
-
-// MAX_KEY_LENGTH in backend/rest/services/filters/translate.py.
-const MAX_FILTER_KEY_LENGTH = 256;
 
 /**
  * Read one entry out of a registry record by a caller-supplied name.
@@ -154,12 +152,12 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
       };
     }
     // Spread counts code points, as Python's len() does; .length counts UTF-16 units.
-    if (filter.key !== undefined && [...filter.key].length > MAX_FILTER_KEY_LENGTH) {
+    if (filter.key !== undefined && [...filter.key].length > MAX_KEY_LENGTH) {
       return {
         ok: false,
         error:
           `key on field "${filter.field}" on view "${spec.view}" exceeds ` +
-          `${MAX_FILTER_KEY_LENGTH} characters`,
+          `${MAX_KEY_LENGTH} characters`,
       };
     }
     if (
