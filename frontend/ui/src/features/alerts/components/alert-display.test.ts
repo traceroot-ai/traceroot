@@ -217,7 +217,7 @@ describe("resolveAlertDisplayState", () => {
         }).detail ?? "";
 
       expect(detail).toContain(
-        "Once fixed in workspace settings, it is sent on the next evaluation while the rule is still in the same state",
+        "After the configuration issue is fixed, this notification will be sent on the next evaluation, provided the rule remains in the same state",
       );
       // Nothing was rolled back here: the failure is recorded, not reverted.
       expect(detail).not.toContain("could not be rolled back");

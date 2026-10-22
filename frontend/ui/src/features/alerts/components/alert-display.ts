@@ -137,7 +137,7 @@ function describeUndelivered(alert: AlertDisplayInput): string | undefined {
 
   if (reason !== null && SLACK_CONFIGURATION_FAILURES.has(reason)) {
     return replayable
-      ? `${reasonText} Once fixed in workspace settings, it is sent on the next evaluation while the rule is still in the same state.`
+      ? `${reasonText} After the configuration issue is fixed, this notification will be sent on the next evaluation, provided the rule remains in the same state.`
       : `${reasonText} The missed notification will not be sent again; later notifications will deliver once the setting is fixed.`;
   }
 

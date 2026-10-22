@@ -137,7 +137,7 @@ describe("AlertListCard", () => {
 
     expect(
       await screen.findByText(
-        "No Slack channel is set for this workspace, so nothing was sent. Choose one in workspace settings. Once fixed in workspace settings, it is sent on the next evaluation while the rule is still in the same state.",
+        "No Slack channel is set for this workspace, so nothing was sent. Choose one in workspace settings. After the configuration issue is fixed, this notification will be sent on the next evaluation, provided the rule remains in the same state.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/will not be sent again/)).toBeNull();
