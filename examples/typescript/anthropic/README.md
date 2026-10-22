@@ -12,7 +12,7 @@ pnpm demo
 
 ## What it does
 
-Runs two demo queries through a ReAct agent backed by `claude-sonnet-4-5-20250929`:
+Runs two demo queries through a ReAct agent backed by `claude-sonnet-5-5`:
 
 1. Weather comparison (San Francisco vs Tokyo)
 2. Stock price lookup + calculation (NVDA +10%)
