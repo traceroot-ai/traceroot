@@ -373,10 +373,12 @@ class TestGetTraceSkeleton:
                 ]
             )
 
+        mock_prices = {"input": 0.00001, "output": 0.00003}
         service, _ = _make_service(side_effect)
-        span = service.get_trace("proj", "abc123")["spans"][0]
-        assert span["cost"] == 0.05
-        assert span["cost_details"] == {}
+        with patch("rest.services.trace_reader.get_model_price", return_value=mock_prices):
+            span = service.get_trace("proj", "abc123")["spans"][0]
+            assert span["cost"] == 0.05
+            assert span["cost_details"] == {}
 
     def test_returns_none_when_trace_missing(self):
         def side_effect(query, parameters=None):

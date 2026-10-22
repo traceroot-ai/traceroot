@@ -91,6 +91,9 @@ class TestSuppliedCostIngest:
 
     def test_gen_ai_usage_cost_precedence_over_catalog_pricing(self):
         """Supplied cost beats computed catalog pricing (e.g. enterprise discounted rate)."""
+        from unittest.mock import patch
+
+        mock_prices = {"input": 0.00001, "output": 0.00003}
         span = make_span(self.TRACE, self.SPAN)
         # gpt-4o is a standard catalog model with non-zero pricing
         span["attributes"] = [
@@ -99,12 +102,13 @@ class TestSuppliedCostIngest:
             make_attr("llm.token_count.prompt", 500),
             make_attr("llm.token_count.completion", 100),
         ]
-        transformed = self._transform(span)
-        # Must adopt the caller-supplied 0.000123, not the standard catalog calculated cost
-        assert transformed["cost"] == 0.000123
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            transformed = self._transform(span)
+            # Catalog would compute 500 * 0.00001 + 100 * 0.00003 = 0.008, but supplied cost wins!
+            assert transformed["cost"] == 0.000123
 
-        meta = json.loads(transformed["metadata"])
-        assert meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
+            meta = json.loads(transformed["metadata"])
+            assert meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
 
     def test_openinference_llm_cost_attribute(self):
         """OpenInference llm.cost attribute is honored on spans."""
@@ -117,6 +121,20 @@ class TestSuppliedCostIngest:
         ]
         transformed = self._transform(span)
         assert transformed["cost"] == 0.0089
+        meta = json.loads(transformed["metadata"])
+        assert meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
+
+    def test_openinference_llm_cost_total_attribute(self):
+        """OpenInference semconv 0.1.41 llm.cost.total attribute is honored."""
+        span = make_span(self.TRACE, self.SPAN)
+        span["attributes"] = [
+            make_attr("llm.model_name", "mistral-large"),
+            make_attr("llm.cost.total", 0.042),
+            make_attr("llm.token_count.prompt", 400),
+            make_attr("llm.token_count.completion", 150),
+        ]
+        transformed = self._transform(span)
+        assert transformed["cost"] == 0.042
         meta = json.loads(transformed["metadata"])
         assert meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
 
@@ -166,7 +184,7 @@ class TestSuppliedCostIngest:
         span = make_span(self.TRACE, self.SPAN)
         span["attributes"] = [
             make_attr("traceroot.llm.model", "custom-service"),
-            make_attr("claude_agent_sdk.total_cost_usd", 0.055),
+            make_attr("traceroot.llm.cost", 0.055),
         ]
         transformed = self._transform(span)
         assert transformed["cost"] == 0.055
@@ -241,6 +259,46 @@ class TestSuppliedCostIngest:
         meta = json.loads(transformed["metadata"]) if transformed.get("metadata") else {}
         # Must NOT carry "supplied" when the worker didn't assign a supplied cost
         assert meta.get(COST_SOURCE) != COST_SOURCE_SUPPLIED
+
+    def test_claude_agent_sdk_query_agent_span_does_not_double_count_cost(self):
+        """Claude Agent SDK puts total_cost_usd on the ClaudeAgent.query AGENT wrapper span,
+        while its child LLM span carries tokens priced by catalog. The AGENT wrapper must
+        NOT adopt the cost, avoiding double-counting in trace sum(cost)."""
+        from unittest.mock import patch
+
+        mock_prices = {"input": 0.00001, "output": 0.00003}
+        agent_span_id = "11" * 8
+        llm_span_id = "22" * 8
+        agent_span = make_span(self.TRACE, agent_span_id)
+        agent_span["name"] = "ClaudeAgent.query"
+        agent_span["attributes"] = [
+            make_attr("openinference.span.kind", "AGENT"),
+            make_attr("claude_agent_sdk.total_cost_usd", 0.03678),
+        ]
+
+        llm_span = make_span(self.TRACE, llm_span_id, parent_span_id_hex=agent_span_id)
+        llm_span["name"] = "anthropic.messages.create"
+        llm_span["attributes"] = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("traceroot.llm.model", "claude-3-5-sonnet-20241022"),
+            make_attr("llm.token_count.prompt", 2000),
+            make_attr("llm.token_count.completion", 559),
+        ]
+
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, transformed = transform_otel_to_clickhouse(
+                make_otel_payload([agent_span, llm_span]), "proj-1"
+            )
+
+        agent_record = next(s for s in transformed if s["span_id"] == agent_span_id)
+        llm_record = next(s for s in transformed if s["span_id"] == llm_span_id)
+
+        # Child LLM span gets priced by catalog
+        assert llm_record.get("cost") is not None
+        assert llm_record["cost"] > 0
+
+        # Aggregate AGENT span must NOT adopt cost
+        assert agent_record.get("cost") is None
 
 
 class TestSpanCostDetailsSuppression:

@@ -113,6 +113,11 @@ def _span_aggregates_child_usage(
     operation_name = attrs.get("gen_ai.operation.name")
     if isinstance(operation_name, str) and operation_name.lower() in _AGGREGATE_USAGE_OPERATIONS:
         return True
+    # Claude Agent SDK query wrapper span (ClaudeAgent.query) aggregates the cumulative
+    # cost/usage of its child LLM turns (anthropic.messages.create). Adopting the total
+    # on the wrapper span would double-count against the child spans priced by the catalog.
+    if span_kind != SpanKind.LLM and "claude_agent_sdk.total_cost_usd" in attrs:
+        return True
     # Fallback for a wrapper that reaches us without an operation name — an emitter
     # version that stops setting one would otherwise silently resume double-pricing,
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
@@ -165,6 +170,7 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # -> cost pipeline (parse_supplied_cost). Extracted into dedicated cost column.
         "traceroot.llm.cost",
         "claude_agent_sdk.total_cost_usd",
+        "llm.cost.total",
         "llm.cost",
         "llm.usage.cost",
     }
@@ -213,6 +219,7 @@ _SUPPLIED_COST_KEYS = (
     "traceroot.llm.cost",
     "claude_agent_sdk.total_cost_usd",
     "gen_ai.usage.cost",
+    "llm.cost.total",
     "llm.cost",
     "llm.usage.cost",
 )
@@ -1258,10 +1265,13 @@ def transform_otel_to_clickhouse(
                 # Fallback for spans where cost was supplied directly by the caller
                 # but neither token-pricing branch priced it (e.g. unpriced model with no tokens,
                 # or non-LLM span with provider-reported cost).
+                # Aggregate wrapper spans (like invoke_agent or ClaudeAgent.query) and spans
+                # without tokens must not adopt caller aggregate totals that duplicate child spans.
                 if (
                     span_record.get("cost") is None
                     and supplied_cost is not None
                     and not aggregate_wrapper
+                    and "claude_agent_sdk.total_cost_usd" not in span_attrs
                 ):
                     span_record["cost"] = supplied_cost
                     span_attrs[COST_SOURCE] = COST_SOURCE_SUPPLIED
