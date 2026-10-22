@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { hasOutstandingAlertPage } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
@@ -29,7 +30,11 @@ export default function AlertsPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
 
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+    hasOpenPage: boolean;
+  } | null>(null);
 
   const { state, queryOptions, updateKeyword, updateLimit, goToPage } = useListPageState();
   // The page lives in the URL; recorded so an alert's Back, Cancel and Save
@@ -158,7 +163,13 @@ export default function AlertsPage() {
                 projectId={projectId}
                 workspaceId={project?.workspace_id}
                 onToggleStatus={handleToggleStatus}
-                onDelete={(alert) => setDeleteTarget({ id: alert.id, name: alert.name })}
+                onDelete={(alert) =>
+                  setDeleteTarget({
+                    id: alert.id,
+                    name: alert.name,
+                    hasOpenPage: hasOutstandingAlertPage(alert),
+                  })
+                }
                 isStatusPending={statusMutation.isPending}
               />
             </>
@@ -179,6 +190,7 @@ export default function AlertsPage() {
       {deleteTarget && (
         <DeleteAlertDialog
           alertName={deleteTarget.name}
+          hasOpenPage={deleteTarget.hasOpenPage}
           isOpen={true}
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleDeleteConfirm}

@@ -11,7 +11,9 @@ const notifySignupSlack = vi.hoisted(() => vi.fn());
 const ensureContact = vi.hoisted(() => vi.fn());
 const isProductMailConfigured = vi.hoisted(() => vi.fn());
 const sendWelcomeEmail = vi.hoisted(() => vi.fn());
+const ensureDemoMembership = vi.hoisted(() => vi.fn());
 vi.mock("@/env", () => ({ env: envState }));
+vi.mock("@/lib/demo-workspace", () => ({ ensureDemoMembership }));
 vi.mock("@traceroot/core/email", () => ({ ensureContact, isProductMailConfigured }));
 vi.mock("@/lib/email/welcome/send-welcome-email", () => ({ sendWelcomeEmail }));
 vi.mock("@traceroot/core", () => ({
@@ -61,6 +63,13 @@ it("does nothing, and logs nothing, when nothing is configured", async () => {
 it("does nothing for a user created through the admin plugin", async () => {
   await onUserCreated(user, { path: "/admin/create-user" });
   for (const fn of everything) expect(fn).not.toHaveBeenCalled();
+});
+
+it("adds every new account to the demo workspace, admin-created ones too", async () => {
+  await onUserCreated(user, { path: "/sign-up/email" });
+  await onUserCreated(user, { path: "/admin/create-user" });
+  expect(ensureDemoMembership).toHaveBeenCalledTimes(2);
+  expect(ensureDemoMembership).toHaveBeenCalledWith("u1");
 });
 
 it("runs only the welcome when Slack is unset, and only Slack when mail is unconfigured", async () => {
