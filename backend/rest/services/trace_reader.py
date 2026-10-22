@@ -1,5 +1,6 @@
 """Service for reading traces from ClickHouse."""
 
+import json
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -9,6 +10,8 @@ from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.enums import EVALUATION_SPAN_KINDS
 from shared.span_attributes import (
+    COST_SOURCE,
+    COST_SOURCE_SUPPLIED,
     SPAN_IDS_PATH,
     SPAN_PATH,
     SPAN_TREE_ATTRIBUTES,
@@ -248,15 +251,17 @@ def span_cost_details(
     input_tokens: int | None,
     output_tokens: int | None,
     usage_details: dict[str, int],
+    is_supplied_cost: bool = False,
 ) -> dict[str, float]:
     """Per-category dollar breakdown for a stored span.
 
     Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
     cache counts in usage_details, then prices each bucket with the model's current
     rates. Display-only: the values sum to the span's stored `cost` when rates are
-    unchanged. Returns {} when the model has no known prices.
+    unchanged. Returns {} when the model has no known prices or when the span cost
+    was explicitly supplied by the caller (preventing popup disagreement, #2176).
     """
-    if not model_name:
+    if not model_name or is_supplied_cost:
         return {}
     cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
     cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
@@ -935,6 +940,22 @@ class TraceReaderService:
 
         spans = []
         for row in spans_result.result_rows:
+            raw_meta = row[15]
+            is_supplied_cost = False
+            if raw_meta:
+                if isinstance(raw_meta, dict):
+                    is_supplied_cost = raw_meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
+                elif isinstance(raw_meta, str) and COST_SOURCE in raw_meta:
+                    try:
+                        parsed_meta = json.loads(raw_meta)
+                        if isinstance(parsed_meta, dict):
+                            is_supplied_cost = parsed_meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
+                    except Exception:
+                        is_supplied_cost = (
+                            f'"{COST_SOURCE}": "{COST_SOURCE_SUPPLIED}"' in raw_meta
+                            or f'"{COST_SOURCE}":"{COST_SOURCE_SUPPLIED}"' in raw_meta
+                        )
+            cost_val = float(row[10]) if row[10] is not None else None
             spans.append(
                 {
                     "span_id": row[0],
@@ -947,7 +968,7 @@ class TraceReaderService:
                     "status": row[7],
                     "status_message": row[8],
                     "model_name": row[9],
-                    "cost": float(row[10]) if row[10] is not None else None,
+                    "cost": cost_val,
                     "input_tokens": int(row[11]) if row[11] is not None else None,
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
@@ -957,6 +978,7 @@ class TraceReaderService:
                         int(row[11]) if row[11] is not None else None,  # input_tokens
                         int(row[12]) if row[12] is not None else None,  # output_tokens
                         dict(row[14]) if row[14] else {},  # usage_details
+                        is_supplied_cost=is_supplied_cost,
                     ),
                     # Already reduced to the span-path subset by the query.
                     "metadata": row[15],

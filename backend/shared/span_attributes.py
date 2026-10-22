@@ -53,3 +53,12 @@ the tree paths: they are the sender's account of its own capture, and a reader
 who cannot see them reads a cut value as the whole one. The agent self-trace
 sets them (design B7/B8); any sender may.
 """
+
+COST_SOURCE = "traceroot.cost_source"
+"""Identifies the origin of a span's cost: 'supplied', 'catalog', or 'estimated'."""
+
+COST_SOURCE_SUPPLIED = "supplied"
+COST_SOURCE_CATALOG = "catalog"
+COST_SOURCE_ESTIMATED = "estimated"
+
+COST_ATTRIBUTES = (COST_SOURCE,)
