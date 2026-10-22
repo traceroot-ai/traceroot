@@ -485,9 +485,11 @@ def registry_schema() -> dict:
 
 def render_registry_snapshot() -> str:
     """Deterministic serialization of :func:`registry_schema` for the checked-in
-    frontend snapshot (``widget-registry.generated.json``), which the write
-    service validates widget specs against. Sorted keys, matching the public
-    OpenAPI artifact's rendering convention, so drift checks diff cleanly.
+    frontend snapshot (``widget-registry.generated.json``). The write service
+    validates widget specs against it on the server, and the alert form imports
+    it in the browser for its Measure hover text, so it ships in the client
+    bundle too. Sorted keys, matching the public OpenAPI artifact's rendering
+    convention, so drift checks diff cleanly.
 
     Returns:
         str: The registry schema as pretty-printed JSON with a trailing newline.
