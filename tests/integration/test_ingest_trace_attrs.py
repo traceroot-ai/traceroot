@@ -130,8 +130,9 @@ def test_root_batch_takes_ids_from_the_newest_stored_version(gateway, monkeypatc
     """With two stored versions, the lookup reads the newest, not whichever comes first."""
     trace_id = "6b" * 16
     start = datetime(2026, 1, 15, 1, 0, tzinfo=UTC)
-    # One insert per version: ReplacingMergeTree collapses equal keys within a single
-    # insert, so only separate parts leave both versions for the lookup to choose from.
+    # One insert per version: with optimize_on_insert (on by default) ReplacingMergeTree
+    # collapses equal keys within a single insert, so only separate parts leave both
+    # versions for the lookup to choose from.
     for user_id, updated in (
         (None, datetime(2026, 1, 15, 1, 0, 1, tzinfo=UTC)),
         ("u-new", datetime(2026, 1, 15, 1, 0, 2, tzinfo=UTC)),
