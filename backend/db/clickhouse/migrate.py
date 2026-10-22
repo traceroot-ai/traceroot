@@ -8,9 +8,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
+# goose speaks ClickHouse's native protocol (tcp://), so it needs the native
+# port — CLICKHOUSE_NATIVE_PORT (9000), not CLICKHOUSE_PORT (8123, the HTTP port
+# used by the app's clickhouse-connect client). These are distinct env vars in
+# shared.config.ClickHouseSettings; using CLICKHOUSE_PORT here would point goose
+# at the HTTP port and break migrations.
 DEFAULTS = {
     "CLICKHOUSE_HOST": "localhost",
-    "CLICKHOUSE_PORT": "9000",
+    "CLICKHOUSE_NATIVE_PORT": "9000",
     "CLICKHOUSE_USER": "clickhouse",
     "CLICKHOUSE_PASSWORD": "clickhouse",
     "CLICKHOUSE_DATABASE": "default",
@@ -52,7 +57,7 @@ def goose_dbstring(env: dict[str, str] | None = None) -> str:
     values = {**DEFAULTS, **(env or {})}
     return (
         "tcp://"
-        f"{values['CLICKHOUSE_HOST']}:{values['CLICKHOUSE_PORT']}"
+        f"{values['CLICKHOUSE_HOST']}:{values['CLICKHOUSE_NATIVE_PORT']}"
         f"?username={values['CLICKHOUSE_USER']}"
         f"&password={values['CLICKHOUSE_PASSWORD']}"
         f"&database={values['CLICKHOUSE_DATABASE']}"
