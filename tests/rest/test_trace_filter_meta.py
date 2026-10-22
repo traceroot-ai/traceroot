@@ -663,7 +663,13 @@ class TestGetDistinctMetadataKeys:
         assert query_text.count("arrayJoin(mapKeys(metadata_map))") == 2
         assert "FROM spans" in query_text
         assert "FROM traces" in query_text
-        assert query_text.count("project_id = {project_id:String}") == 2
+        # Each scan's own WHERE line; the evaluation-exclusion sub-selects scope themselves.
+        scan_wheres = [
+            line
+            for line in query_text.splitlines()
+            if line.strip().startswith("WHERE project_id = {project_id:String}")
+        ]
+        assert len(scan_wheres) == 2
         assert "GROUP BY value" in query_text
         assert kwargs["parameters"]["project_id"] == "p1"
 
@@ -880,6 +886,60 @@ class TestDiscoveryWindowRuleIsShared:
 
         assert dropdown_window == keys_window
         assert dropdown_window["start_after"] < end  # defaulted, not left open
+
+
+# Every public discovery method, with the tables its query scans in UNION ALL order.
+_DISCOVERY_SCANS = {
+    "get_distinct_span_values": (
+        lambda svc: svc.get_distinct_span_values(project_id="p1", column="model_name"),
+        ["spans"],
+    ),
+    "get_distinct_trace_values": (
+        lambda svc: svc.get_distinct_trace_values(project_id="p1", column="user_id"),
+        ["traces"],
+    ),
+    "get_distinct_metadata_keys": (
+        lambda svc: svc.get_distinct_metadata_keys(project_id="p1"),
+        ["spans", "traces"],
+    ),
+}
+
+
+class TestDiscoveryEvaluationRuleIsShared:
+    """Every discovery surface hides offline-evaluation traces, because there is one
+    exclusion rule rather than one per surface. An option only an eval trace carries would
+    be offered, then match nothing in the list that hides those traces. Checked per scan:
+    a surface that unions two tables must exclude in both halves."""
+
+    def _service(self, monkeypatch, mock_client):
+        import rest.services.trace_discovery as discovery_mod
+
+        monkeypatch.setattr(discovery_mod, "get_clickhouse_client", lambda: mock_client)
+        return discovery_mod.TraceDiscoveryService()
+
+    @pytest.mark.parametrize("surface", list(_DISCOVERY_SCANS))
+    def test_every_scan_of_every_surface_excludes_evaluation_traces(self, monkeypatch, surface):
+        discover, tables = _DISCOVERY_SCANS[surface]
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        discover(svc)
+
+        halves = mock_client.query.call_args[0][0].split("UNION ALL")
+        assert len(halves) == len(tables)
+        for half, table in zip(halves, tables):
+            # Aliased `t` so the shared `t.trace_id NOT IN (...)` predicate binds.
+            assert f"FROM {table} AS t" in half
+            assert "t.trace_id NOT IN (SELECT trace_id FROM traces" in half
+            assert "is_evaluation = 1" in half
+
+    def test_the_rule_covers_every_discovery_method(self):
+        """A new discovery surface has to join the table above to pass."""
+        from rest.services.trace_discovery import TraceDiscoveryService
+
+        public = {name for name in vars(TraceDiscoveryService) if name.startswith("get_")}
+        assert set(_DISCOVERY_SCANS) == public
 
 
 class TestGetTraceDiscoveryService:
