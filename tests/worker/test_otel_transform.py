@@ -1984,7 +1984,11 @@ class TestManualUsageAttribute:
             )
             expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
         else:
-            span = make_span("aa" * 16, "bb" * 8, attributes=[cost_attr])
+            span = make_span(
+                "aa" * 16,
+                "bb" * 8,
+                attributes=[make_attr("traceroot.span.type", "llm"), cost_attr],
+            )
             expected = None
         payload = make_otel_payload([span], scope_name="traceroot")
         with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
