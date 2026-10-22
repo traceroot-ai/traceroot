@@ -1937,14 +1937,26 @@ class TestManualUsageAttribute:
         )
         assert span["cost"] == pytest.approx(expected)
 
-    def test_reported_cost_replaces_list_price(self):
+    @pytest.mark.parametrize(
+        ("reported", "expected"),
+        [
+            (0.0123, 0.0123),
+            (0, 0.0),
+            # Unusable values fall back to the list price (None).
+            ("abc", None),
+            (-1, None),
+            (True, None),
+            (float("nan"), None),
+        ],
+    )
+    def test_reported_cost_replaces_list_price(self, reported, expected):
         from unittest.mock import patch
 
         payload = make_otel_payload(
             [
                 self._manual_span(
                     {"input_tokens": 1000, "output_tokens": 200},
-                    make_attr("llm.cost.total", 0.0123),
+                    make_attr("llm.cost.total", reported),
                 )
             ],
             scope_name="traceroot",
@@ -1953,45 +1965,11 @@ class TestManualUsageAttribute:
             _, spans = transform_otel_to_clickhouse(payload, "proj-1")
 
         span = spans[0]
-        assert span["cost"] == 0.0123
+        if expected is None:
+            expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
+        assert span["cost"] == pytest.approx(expected)
         assert span["input_tokens"] == 1000
         assert span["output_tokens"] == 200
-
-    def test_reported_zero_cost_is_kept(self):
-        from unittest.mock import patch
-
-        payload = make_otel_payload(
-            [
-                self._manual_span(
-                    {"input_tokens": 1000, "output_tokens": 200},
-                    make_attr("llm.cost.total", 0),
-                )
-            ],
-            scope_name="traceroot",
-        )
-        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
-            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-
-        assert spans[0]["cost"] == 0.0
-
-    @pytest.mark.parametrize("junk", ["abc", -1, True, float("nan")])
-    def test_unusable_reported_cost_falls_back_to_list_price(self, junk):
-        from unittest.mock import patch
-
-        payload = make_otel_payload(
-            [
-                self._manual_span(
-                    {"input_tokens": 1000, "output_tokens": 200},
-                    make_attr("llm.cost.total", junk),
-                )
-            ],
-            scope_name="traceroot",
-        )
-        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
-            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-
-        expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
-        assert spans[0]["cost"] == pytest.approx(expected)
 
     @pytest.mark.parametrize("agent_span", [False, True], ids=["no-model", "agent-span"])
     def test_reported_cost_ignored_outside_llm_spans(self, agent_span):
