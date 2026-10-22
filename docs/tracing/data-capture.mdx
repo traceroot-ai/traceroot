@@ -62,9 +62,9 @@ Pass a `redact` function to `initialize()`. It receives each finished span's att
 
     def clean(value):
         if isinstance(value, str):
-            return PII.sub("[redacted]", value)
+            return PII.sub("[REDACTED]", value)
         if isinstance(value, (list, tuple)):
-            return [PII.sub("[redacted]", v) if isinstance(v, str) else v for v in value]
+            return [PII.sub("[REDACTED]", v) if isinstance(v, str) else v for v in value]
         return value
 
     def redact(attributes: dict) -> dict:
@@ -79,7 +79,7 @@ Pass a `redact` function to `initialize()`. It receives each finished span's att
 
     const PII = /[\w.+-]+@[\w-]+\.[\w.]+|(?<![\w-])(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?![\w-])/g;
 
-    const clean = (value: string) => value.replace(PII, '[redacted]');
+    const clean = (value: string) => value.replace(PII, '[REDACTED]');
 
     TraceRoot.initialize({
       redact: (attributes) =>
@@ -104,11 +104,13 @@ The function runs in your app on every finished span as it ends, including spans
 |---|---|
 | Span attributes from your code and from integrations | User ID and session ID |
 | Input, output, metadata, and prompt recorded by `observe` | Model name and token usage |
-| Event attributes, such as exception messages | Environment and tags |
-| The status message | Span paths and git context |
+| LLM model parameters | Environment and tags |
+| Eval errors and score comments | Span paths and git context |
+| Event attributes, such as exception messages | Span type keys, such as `openinference.span.kind` and `gen_ai.operation.name` |
+| The status message | Exception types on exception events |
 | | Span names, links, and resource attributes |
 
-Return every key you want to keep. Held-back fields are never passed in and are added back automatically.
+Return every key you want to keep. Held-back fields are never passed in and are added back automatically. Tool-call arguments and results from GenAI instrumentation count as content, so a function that drops them can turn a tool span into a plain span.
 
 <Warning>
 If the function raises or returns anything other than a dict (Python) or object (TypeScript), span and trace metadata are dropped and every other value except numbers and booleans is sent as `[redaction failed]`.
@@ -119,6 +121,8 @@ Only what TraceRoot receives is redacted. Other span processors or exporters in 
 <Note>
 User and session IDs are sent as given, so use a non-personal ID (an internal ID, not an email address). Keep personal data out of tags and span names.
 </Note>
+
+Eval results are redacted too. Before an eval result or run is uploaded, its text fields go through the same function as one flat dict holding whichever of these keys are present: `input`, `expected_output`, `candidate_output`, `task_error`, `explanation`, `error`, `string_value`, and `metadata` (the run metadata, as JSON text). Each score's text is passed separately. If the function fails, those fields are sent as `[redaction failed]` and the run metadata is left out; required fields the function removes are sent empty. Datasets and scorer definitions you upload are not redacted.
 
 The trace view marks spans the function ran on as **Redacted by your app**. To catch names and addresses, call your own PII detection library inside the function.
 
