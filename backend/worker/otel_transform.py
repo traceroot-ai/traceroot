@@ -158,8 +158,8 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
-        # -> cost column (OpenInference caller-reported total). Consumed only when a
-        # model name is present, like traceroot.llm.usage above.
+        # -> cost column (OpenInference caller-reported total). Consumed only on LLM
+        # spans with a model name; elsewhere it is dropped, like traceroot.llm.usage.
         "llm.cost.total",
     }
 )
@@ -1196,9 +1196,10 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = usage["cost"]
 
                     # A caller-reported total (OpenInference llm.cost.total) replaces
-                    # the list price computed above; tokens stay as computed. Not on
-                    # aggregate wrappers, whose totals restate their children's.
-                    if not aggregate_wrapper:
+                    # the list price computed above on LLM spans; tokens stay as
+                    # computed. Not on aggregate wrappers, whose totals restate their
+                    # children's.
+                    if not aggregate_wrapper and span_kind == SpanKind.LLM:
                         reported_cost = _usable_cost(span_attrs.get("llm.cost.total"))
                         if reported_cost is not None:
                             span_record["cost"] = reported_cost

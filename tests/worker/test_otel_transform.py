@@ -1993,20 +1993,26 @@ class TestManualUsageAttribute:
         expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
         assert spans[0]["cost"] == pytest.approx(expected)
 
-    def test_reported_cost_without_model_is_ignored(self):
-        payload = make_otel_payload(
-            [
-                make_span(
-                    "aa" * 16,
-                    "bb" * 8,
-                    attributes=[make_attr("llm.cost.total", 0.0123)],
-                )
-            ],
-            scope_name="traceroot",
-        )
-        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+    @pytest.mark.parametrize("agent_span", [False, True], ids=["no-model", "agent-span"])
+    def test_reported_cost_ignored_outside_llm_spans(self, agent_span):
+        from unittest.mock import patch
 
-        assert spans[0].get("cost") is None
+        cost_attr = make_attr("llm.cost.total", 0.0123)
+        if agent_span:
+            span = self._manual_span(
+                {"input_tokens": 1000, "output_tokens": 200},
+                make_attr("openinference.span.kind", "AGENT"),
+                cost_attr,
+            )
+            expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
+        else:
+            span = make_span("aa" * 16, "bb" * 8, attributes=[cost_attr])
+            expected = None
+        payload = make_otel_payload([span], scope_name="traceroot")
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0].get("cost") == pytest.approx(expected)
 
     def test_manual_net_input_floors_uncached_and_prices_cache_in_full(self):
         from unittest.mock import patch
