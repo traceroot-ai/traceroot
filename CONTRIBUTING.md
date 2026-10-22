@@ -24,6 +24,7 @@ On Windows or in environments without tmux, use `make dev-lite` instead.
 ## Before You Start
 
 - Check for an existing issue before starting larger work, or open one first so the change has clear scope.
+- If an issue has an assignee, please do not start work on it unless the assignee or a core member agrees. Ask in the issue first, even if it looks inactive. This applies to every issue, including bugs, security, perf, and docs issues.
 - If an issue has the `needs approval` label, please wait until a core member removes it before starting work — we want to confirm direction first. Bugs, security, perf, and docs issues are exempt: feel free to start right away.
 - If you do not have push access, fork the repo first, create your branch from `main`, push to your fork, and open the PR back to `traceroot-ai/traceroot`.
 - If you have push access, still create a branch from `main` and open a PR instead of working directly on `main`.
