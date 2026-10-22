@@ -177,4 +177,4 @@ When you already know what a call cost (a negotiated rate, a gateway's bill, an 
   </Tab>
 </Tabs>
 
-A reported cost replaces TraceRoot's computed price for that LLM span. Tokens are still recorded, but the per-category cost breakdown is not shown for that span. The cost is read from the OpenInference `llm.cost.total` attribute, so integrations that already report it (for example the LiteLLM and Agno instrumentors) are used automatically.
+A reported cost applies to LLM spans and replaces TraceRoot's computed price for that span. Tokens are still recorded, but the per-category cost breakdown is not shown for that span. The cost is read from the OpenInference `llm.cost.total` attribute, so OpenInference instrumentors that already report it, such as Agno, are used automatically.
