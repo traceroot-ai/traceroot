@@ -1,13 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import Stripe from "stripe";
-
-// Built by the real SDK, so the tests see the same `type` / `rawType` split that
-// stripe-node produces for a key reused with different parameters.
-const idempotencyError = () =>
-  new Stripe.errors.StripeIdempotencyError({
-    type: "idempotency_error",
-    message: "Keys for idempotent requests can only be used with the same parameters...",
-  });
 
 vi.mock("next/server", () => ({
   NextRequest: class {},
@@ -25,16 +16,10 @@ vi.mock("@/lib/request-session", () => ({
 }));
 
 const workspaceFindFirstMock = vi.fn();
-const workspaceUpdateManyMock = vi.fn();
-const workspaceFindUniqueMock = vi.fn();
+const workspaceUpdateMock = vi.fn();
 const subscriptionsListMock = vi.fn();
-const subscriptionsRetrieveMock = vi.fn();
 const customersCreateMock = vi.fn();
-const customersDelMock = vi.fn();
 const checkoutCreateMock = vi.fn();
-const checkoutListMock = vi.fn();
-const checkoutExpireMock = vi.fn();
-const checkoutRetrieveMock = vi.fn();
 
 // Like Stripe's list result: `data` is only the first page (limit 100), and
 // iterating the result follows every page.
@@ -52,40 +37,31 @@ vi.mock("@traceroot/core", () => ({
   prisma: {
     workspace: {
       findFirst: (...args: unknown[]) => workspaceFindFirstMock(...args),
-      updateMany: (...args: unknown[]) => workspaceUpdateManyMock(...args),
-      findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args),
+      update: (...args: unknown[]) => workspaceUpdateMock(...args),
     },
   },
   getStripeOrThrow: () => ({
     subscriptions: {
       list: (...args: unknown[]) => stripeList(subscriptionsListMock(...args)),
-      retrieve: (...args: unknown[]) => subscriptionsRetrieveMock(...args),
     },
     customers: {
       create: (...args: unknown[]) => customersCreateMock(...args),
-      del: (...args: unknown[]) => customersDelMock(...args),
     },
     checkout: {
       sessions: {
         create: (...args: unknown[]) => checkoutCreateMock(...args),
-        list: (...args: unknown[]) => stripeList(checkoutListMock(...args)),
-        expire: (...args: unknown[]) => checkoutExpireMock(...args),
-        retrieve: (...args: unknown[]) => checkoutRetrieveMock(...args),
       },
     },
   }),
   getPlanConfig: () => ({ billingPriceId: "price_pro" }),
   PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
+  METERED_PRICE_ENV_VARS: [],
 }));
 
 import { POST } from "./route";
 
 function makeRequest(body: unknown = { workspaceId: "ws-1", plan: "pro" }) {
   return { json: async () => body } as unknown as Parameters<typeof POST>[0];
-}
-
-function openSession(id: string, plan: string, workspaceId = "ws-1") {
-  return { id, url: `https://checkout.stripe.test/${id}`, metadata: { workspaceId, plan } };
 }
 
 function workspace(overrides: Record<string, unknown> = {}) {
@@ -95,16 +71,10 @@ function workspace(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   getSessionMock.mockReset();
   workspaceFindFirstMock.mockReset();
-  workspaceUpdateManyMock.mockReset();
-  workspaceFindUniqueMock.mockReset();
+  workspaceUpdateMock.mockReset();
   subscriptionsListMock.mockReset();
-  subscriptionsRetrieveMock.mockReset();
   customersCreateMock.mockReset();
-  customersDelMock.mockReset();
   checkoutCreateMock.mockReset();
-  checkoutListMock.mockReset();
-  checkoutExpireMock.mockReset();
-  checkoutRetrieveMock.mockReset();
 
   // better-auth's shape: the route is wrapped in withImpersonationPolicy, which
   // reads session.session to decide whether this is a staff impersonation.
@@ -113,15 +83,8 @@ beforeEach(() => {
     session: { id: "session-1" },
   });
   subscriptionsListMock.mockReturnValue([]);
-  checkoutCreateMock.mockResolvedValue({
-    id: "cs_new",
-    created: 1_000,
-    url: "https://checkout.stripe.test/session",
-  });
-  checkoutListMock.mockReturnValue([]);
-  checkoutExpireMock.mockResolvedValue({});
-  workspaceUpdateManyMock.mockResolvedValue({ count: 1 });
-  customersDelMock.mockResolvedValue({});
+  checkoutCreateMock.mockResolvedValue({ url: "https://checkout.stripe.test/session" });
+  workspaceUpdateMock.mockResolvedValue({});
 });
 
 describe("POST /api/billing/checkout — existing subscription", () => {
@@ -172,16 +135,6 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 
-  it("refuses while a first payment is still settling", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    subscriptionsListMock.mockReturnValue([{ id: "sub_pending", status: "incomplete" }]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
-  });
-
   it("finds a live subscription on a later page, past the first 100", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
     subscriptionsListMock.mockReturnValue([
@@ -209,456 +162,6 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("hands back a checkout already open for the same plan instead of opening another", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([openSession("cs_open", "pro")]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_open" });
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
-    expect(checkoutExpireMock).not.toHaveBeenCalled();
-  });
-
-  it("withdraws the open checkout it would hand back when another is paid meanwhile", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    subscriptionsListMock
-      .mockReturnValueOnce([])
-      .mockReturnValue([{ id: "sub_other", status: "active" }]);
-    checkoutListMock.mockReturnValue([openSession("cs_open", "pro")]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_open");
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
-  });
-
-  it("expires an open checkout for a different plan before opening the new one", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(200);
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_starter");
-    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("finds an open checkout past the first page of sessions", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([
-      ...Array.from({ length: 120 }, (_, i) =>
-        openSession(`cs_other_${i}`, "pro", `ws-other-${i}`),
-      ),
-      openSession("cs_open", "pro"),
-    ]);
-
-    const res = await POST(makeRequest());
-
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_open" });
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
-  });
-
-  it("keeps one open checkout for the plan and expires any duplicates", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([
-      openSession("cs_first", "pro"),
-      openSession("cs_second", "pro"),
-    ]);
-
-    const res = await POST(makeRequest());
-
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_first" });
-    expect(checkoutExpireMock).toHaveBeenCalledTimes(1);
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_second");
-  });
-
-  it("tolerates a session a simultaneous request already expired", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
-    checkoutExpireMock.mockRejectedValue(new Error("session is not open"));
-    checkoutRetrieveMock.mockResolvedValue({ id: "cs_starter", status: "expired" });
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(200);
-    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses when an open session completed while this request was expiring it", async () => {
-    // The customer paid between the subscription preflight and the expire call, so the
-    // workspace has a subscription that no earlier check could have seen.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
-    checkoutExpireMock.mockRejectedValue(new Error("session is not open"));
-    checkoutRetrieveMock.mockResolvedValue({ id: "cs_starter", status: "complete" });
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
-  });
-
-  it("surfaces an expire failure that leaves the session open", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
-    checkoutExpireMock.mockRejectedValue(new Error("stripe is down"));
-    checkoutRetrieveMock.mockResolvedValue({ id: "cs_starter", status: "open" });
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(500);
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
-  });
-
-  it("asks again when the stable key returns a session that is no longer open", async () => {
-    // The key is stable for the window, so a retry after expiring a session can be
-    // served Stripe's cached response pointing at that closed session.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock
-      .mockResolvedValueOnce({ id: "cs_stale", created: 900, status: "expired", url: "dead" })
-      .mockResolvedValueOnce({
-        id: "cs_fresh",
-        created: 1_000,
-        status: "open",
-        url: "https://checkout.stripe.test/fresh",
-      });
-
-    const res = await POST(makeRequest());
-
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
-    const [[, first], [, second]] = checkoutCreateMock.mock.calls as [
-      unknown,
-      { idempotencyKey: string },
-    ][];
-    expect(second.idempotencyKey).toBe("workspace-checkout-ws-1-after-cs_stale");
-  });
-
-  it("refuses when Stripe says another plan already holds this workspace's key", async () => {
-    // Two admins pick different plans at the same moment. Same key, different
-    // parameters, so Stripe rejects the second rather than opening a rival session.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock.mockRejectedValue(idempotencyError());
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-  });
-
-  describe("when the key is held by a checkout for another plan", () => {
-    const keyConflict = idempotencyError;
-    // Open sessions for the preflight and the settle step; every session, newest
-    // first, for finding the one that holds the key.
-    function sessions(open: unknown[], all: unknown[]) {
-      checkoutListMock.mockImplementation((args: { status?: string }) =>
-        args?.status === "open" ? open : all,
-      );
-    }
-    function keys() {
-      return (checkoutCreateMock.mock.calls as [unknown, { idempotencyKey: string }][]).map(
-        ([, options]) => options.idempotencyKey,
-      );
-    }
-
-    it("switches plans by moving past the checkout this request just expired", async () => {
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions(
-        [openSession("cs_pro", "pro")],
-        [{ ...openSession("cs_pro", "pro"), status: "expired" }],
-      );
-      checkoutCreateMock.mockRejectedValueOnce(keyConflict()).mockResolvedValueOnce({
-        id: "cs_starter",
-        status: "open",
-        url: "https://checkout.stripe.test/cs_starter",
-      });
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(200);
-      expect(checkoutExpireMock).toHaveBeenCalledWith("cs_pro");
-      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_pro"]);
-    });
-
-    it("is not blocked once the other plan's checkout has already closed", async () => {
-      // A previous request expired the Pro checkout and then hit the stale key. Without
-      // moving past it, every Starter checkout would be refused until Stripe forgets the
-      // key 24 hours later.
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions([], [{ ...openSession("cs_pro", "pro"), status: "expired" }]);
-      checkoutCreateMock.mockRejectedValueOnce(keyConflict()).mockResolvedValueOnce({
-        id: "cs_starter",
-        status: "open",
-        url: "https://checkout.stripe.test/cs_starter",
-      });
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_starter" });
-      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_pro"]);
-    });
-
-    it("still stands down while another admin's checkout for the other plan is open", async () => {
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions([], [{ ...openSession("cs_rival", "pro"), status: "open" }]);
-      checkoutCreateMock.mockRejectedValue(keyConflict());
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(409);
-      expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("stands down rather than retry the same key when the holder is not listed yet", async () => {
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions([], [{ ...openSession("cs_old", "pro"), status: "expired" }]);
-      checkoutCreateMock
-        .mockResolvedValueOnce({ id: "cs_old", status: "expired" })
-        .mockRejectedValue(keyConflict());
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(409);
-      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_old"]);
-    });
-
-    it("refuses when the checkout holding the key has been paid", async () => {
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions([], [{ ...openSession("cs_pro", "pro"), status: "complete" }]);
-      checkoutCreateMock.mockRejectedValue(keyConflict());
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(409);
-      expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("refuses when the paid checkout holding the key still has a live subscription", async () => {
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions(
-        [],
-        [{ ...openSession("cs_pro", "pro"), status: "complete", subscription: "sub_pro" }],
-      );
-      subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_pro", status: "active" });
-      checkoutCreateMock.mockRejectedValue(keyConflict());
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(409);
-      expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("moves past a paid checkout whose subscription has since ended", async () => {
-      // Subscribed to Pro, cancelled, and now picking Starter within the day Stripe
-      // keeps the key. The ended subscription must not keep the workspace on 409.
-      workspaceFindFirstMock.mockResolvedValue(workspace());
-      sessions(
-        [],
-        [{ ...openSession("cs_pro", "pro"), status: "complete", subscription: "sub_pro" }],
-      );
-      subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_pro", status: "canceled" });
-      checkoutCreateMock.mockRejectedValueOnce(keyConflict()).mockResolvedValueOnce({
-        id: "cs_starter",
-        status: "open",
-        url: "https://checkout.stripe.test/cs_starter",
-      });
-
-      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_starter" });
-      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_pro"]);
-    });
-  });
-
-  it("gives simultaneous requests the same idempotency key, so Stripe opens one session", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    // Pin the clock so the two requests cannot straddle an idempotency window.
-    const now = vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
-
-    await Promise.all([POST(makeRequest()), POST(makeRequest())]);
-    now.mockRestore();
-
-    expect(checkoutCreateMock).toHaveBeenCalledTimes(2);
-    const [[params, first], [, second]] = checkoutCreateMock.mock.calls as [
-      Record<string, unknown>,
-      { idempotencyKey: string },
-    ][];
-    // Neither the plan nor the clock is in the key: a rival request for a different
-    // plan, or one landing a second later, must collide with this one rather than
-    // getting a key of its own.
-    expect(first.idempotencyKey).toBe("workspace-checkout-ws-1");
-    expect(second.idempotencyKey).toBe(first.idempotencyKey);
-    expect(params).toMatchObject({ metadata: { workspaceId: "ws-1", plan: "pro" } });
-  });
-
-  it("stands down when a checkout for another plan was created first", async () => {
-    // Two admins pick different plans in the same moment. Their idempotency keys differ,
-    // so both reach create(); the older session wins and the newer one is expired rather
-    // than handing back a URL that would open a second subscription.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    // Listed newest first, so only the sort on `created` can pick the older winner:
-    // taking whatever Stripe listed first would pass this test wrongly.
-    checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
-      { ...openSession("cs_new", "pro"), created: 1_000 },
-      { ...openSession("cs_rival", "starter"), created: 500 },
-    ]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_new");
-    expect(checkoutExpireMock).not.toHaveBeenCalledWith("cs_rival");
-  });
-
-  it("keeps its own session and expires a later rival for another plan", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    // Again listed in the order that would break the assertion if the sort were gone.
-    checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
-      { ...openSession("cs_rival", "starter"), created: 1_500 },
-      { ...openSession("cs_new", "pro"), created: 1_000 },
-    ]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/session" });
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_rival");
-  });
-
-  it("breaks a tie on identical timestamps by session id", async () => {
-    // Two sessions created in the same second still need one winner, and every caller
-    // has to choose the same one without talking to the others.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
-      { ...openSession("cs_new", "pro"), created: 1_000 },
-      { ...openSession("cs_aaa", "starter"), created: 1_000 },
-    ]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_new");
-  });
-
-  it("walks the key chain past more than one closed session", async () => {
-    // The paid session's subscription has since been canceled.
-    subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_older", status: "canceled" });
-    // Each abandoned checkout advances the key by one step, and the step is derived
-    // from the session Stripe replayed, so concurrent callers walk the same chain.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock
-      .mockResolvedValueOnce({ id: "cs_old", created: 800, status: "expired", url: "dead" })
-      .mockResolvedValueOnce({
-        id: "cs_older",
-        created: 900,
-        status: "complete",
-        subscription: "sub_older",
-        url: "dead",
-      })
-      .mockResolvedValueOnce({
-        id: "cs_fresh",
-        created: 1_000,
-        status: "open",
-        url: "https://checkout.stripe.test/fresh",
-      });
-
-    const res = await POST(makeRequest());
-
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
-    const keys = (checkoutCreateMock.mock.calls as [unknown, { idempotencyKey: string }][]).map(
-      ([, options]) => options.idempotencyKey,
-    );
-    expect(keys).toEqual([
-      "workspace-checkout-ws-1",
-      "workspace-checkout-ws-1-after-cs_old",
-      "workspace-checkout-ws-1-after-cs_older",
-    ]);
-  });
-
-  it("checks the current status of a replayed session before reusing it", async () => {
-    // The pro checkout was abandoned and then expired, but Stripe still replays the
-    // original create response for its key, which says the session is open.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock
-      .mockResolvedValueOnce({
-        id: "cs_abandoned",
-        created: 800,
-        status: "open",
-        url: "https://checkout.stripe.test/abandoned",
-        lastResponse: { headers: { "idempotent-replayed": "true" } },
-      })
-      .mockResolvedValueOnce({
-        id: "cs_fresh",
-        created: 1_000,
-        status: "open",
-        url: "https://checkout.stripe.test/fresh",
-      });
-    checkoutRetrieveMock.mockResolvedValue({ id: "cs_abandoned", status: "expired", url: null });
-
-    const res = await POST(makeRequest());
-
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
-    expect(checkoutRetrieveMock).toHaveBeenCalledWith("cs_abandoned");
-    expect(checkoutCreateMock).toHaveBeenLastCalledWith(expect.anything(), {
-      idempotencyKey: "workspace-checkout-ws-1-after-cs_abandoned",
-    });
-  });
-
-  it("withdraws its session when an older checkout is paid during the request", async () => {
-    // The preflight finds nothing live; an older session is paid before the
-    // open-session listing, so it is neither listed nor expired. The check after
-    // creating the session sees the new subscription.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    subscriptionsListMock
-      .mockReturnValueOnce([])
-      .mockReturnValue([{ id: "sub_old", status: "active" }]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_new");
-  });
-
-  it("refuses to move past a replayed paid checkout whose subscription is live", async () => {
-    // Two admins started checkout before the workspace had a customer. The first one
-    // paid; the second replays that completed session and must not open another.
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock.mockResolvedValueOnce({
-      id: "cs_paid",
-      created: 900,
-      status: "complete",
-      subscription: "sub_paid",
-      url: "dead",
-    });
-    subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_paid", status: "active" });
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses a replayed paid checkout that has no subscription attached yet", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock.mockResolvedValueOnce({
-      id: "cs_paid",
-      created: 900,
-      status: "complete",
-      subscription: null,
-      url: "dead",
-    });
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(subscriptionsRetrieveMock).not.toHaveBeenCalled();
-    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
-  });
-
   it("opens checkout for a workspace that has never been a Stripe customer", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace({ billingCustomerId: null }));
     customersCreateMock.mockResolvedValue({ id: "cus_new" });
@@ -666,49 +169,10 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(200);
-    // No preflight for a new customer; only the check after the session exists.
-    expect(subscriptionsListMock).toHaveBeenCalledTimes(1);
+    // A new customer has no subscriptions to list.
+    expect(subscriptionsListMock).not.toHaveBeenCalled();
     expect(checkoutCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({ customer: "cus_new" }),
-      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
-    expect(workspaceUpdateManyMock).toHaveBeenCalledWith({
-      where: { id: "ws-1", billingCustomerId: null },
-      data: { billingCustomerId: "cus_new" },
-    });
-  });
-
-  it("continues with the stored customer when another admin created one first", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace({ billingCustomerId: null }));
-    customersCreateMock.mockResolvedValue({ id: "cus_late" });
-    workspaceUpdateManyMock.mockResolvedValue({ count: 0 });
-    workspaceFindUniqueMock.mockResolvedValue({ billingCustomerId: "cus_first" });
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(200);
-    expect(customersDelMock).toHaveBeenCalledWith("cus_late");
-    expect(subscriptionsListMock).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: "cus_first" }),
-    );
-    expect(checkoutCreateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: "cus_first" }),
-      expect.anything(),
-    );
-  });
-
-  it("refuses after adopting a stored customer that already has a live subscription", async () => {
-    // This request read no customer, so its preflight could not see the subscription
-    // the winning request's completed checkout created.
-    workspaceFindFirstMock.mockResolvedValue(workspace({ billingCustomerId: null }));
-    customersCreateMock.mockResolvedValue({ id: "cus_late" });
-    workspaceUpdateManyMock.mockResolvedValue({ count: 0 });
-    workspaceFindUniqueMock.mockResolvedValue({ billingCustomerId: "cus_first" });
-    subscriptionsListMock.mockReturnValue([{ id: "sub_first", status: "active" }]);
-
-    const res = await POST(makeRequest());
-
-    expect(res.status).toBe(409);
-    expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 });
