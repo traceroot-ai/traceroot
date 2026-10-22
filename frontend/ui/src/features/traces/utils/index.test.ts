@@ -422,13 +422,17 @@ describe("getTraceCostBreakdown", () => {
   });
 
   it("returns null when a costed span has no cost_details", () => {
+    const priced = makeSpan({ span_id: "a", cost: 0.03, cost_details: { output_cost: 0.03 } });
     const trace = {
-      spans: [
-        makeSpan({ span_id: "a", cost: 0.03, cost_details: { output_cost: 0.03 } }),
-        makeSpan({ span_id: "b", cost: 0.0123, cost_details: {} }),
-      ],
+      spans: [priced, makeSpan({ span_id: "b", cost: 0.0123, cost_details: {} })],
     } as unknown as TraceDetail;
     expect(getTraceCostBreakdown(trace)).toBeNull();
+
+    // A $0 span without details cannot skew the totals, so the popup stays.
+    const withFree = {
+      spans: [priced, makeSpan({ span_id: "c", cost: 0, cost_details: {} })],
+    } as unknown as TraceDetail;
+    expect(getTraceCostBreakdown(withFree)?.output_cost).toBeCloseTo(0.03, 6);
   });
 });
 
