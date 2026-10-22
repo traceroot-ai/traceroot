@@ -122,7 +122,7 @@ Only what TraceRoot receives is redacted. Other span processors or exporters in 
 User and session IDs are sent as given, so use a non-personal ID (an internal ID, not an email address). Keep personal data out of tags and span names.
 </Note>
 
-Eval results are redacted too. Before an eval result or run is uploaded, its text fields go through the same function as one flat dict holding whichever of these keys are present: `input`, `expected_output`, `candidate_output`, `task_error`, `explanation`, `error`, `string_value`, and `metadata` (the run metadata, as JSON text). Each score's text is passed separately. If the function fails, those fields are sent as `[redaction failed]` and the run metadata is left out; required fields the function removes are sent empty. Datasets and scorer definitions you upload are not redacted.
+Eval results are redacted too. Before an eval result or run is uploaded, its text fields go through the same function as one flat dict holding whichever of these keys are present: `input`, `expected_output`, `candidate_output`, `task_error`, `explanation`, `error`, `string_value`, and `metadata` (the run metadata, as JSON text). Each score's text is passed separately. If the function fails, those fields are sent as `[redaction failed]` and the run metadata is left out; required fields the function removes are sent empty. Datasets are not redacted, including the one `evaluate()` uploads before each run, so a case's input and expected output reach TraceRoot as given. Keep personal data out of datasets. Scorer definitions are not redacted either.
 
 The trace view marks spans the function ran on as **Redacted by your app**. To catch names and addresses, call your own PII detection library inside the function.
 
