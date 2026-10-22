@@ -175,7 +175,7 @@ describe("resolvePiModel", () => {
           baseUrl: cfg.baseUrl,
           contextWindow,
           maxTokens,
-          reasoning: true,
+          reasoning: adapter === "google",
         });
       } finally {
         lookup.mockReset();

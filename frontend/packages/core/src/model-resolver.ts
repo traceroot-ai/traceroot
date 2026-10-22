@@ -64,7 +64,7 @@ type FallbackMetadata = Pick<Model<Api>, "contextWindow" | "maxTokens" | "reason
 const glm45Metadata: FallbackMetadata = {
   contextWindow: 131072,
   maxTokens: 98304,
-  reasoning: true,
+  reasoning: false,
   input: ["text"],
 };
 
