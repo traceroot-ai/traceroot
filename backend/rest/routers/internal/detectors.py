@@ -318,7 +318,7 @@ async def list_detector_runs(
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE {where_clause}
-        ORDER BY r.timestamp DESC
+        ORDER BY r.timestamp DESC, r.run_id DESC
         LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
     """
     data_params = {**params, "limit": limit, "offset": offset}
