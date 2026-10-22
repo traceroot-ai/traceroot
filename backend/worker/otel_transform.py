@@ -691,6 +691,10 @@ def transform_otel_to_clickhouse(
     # when the first span in a batch isn't the closest-to-root span for that trace.
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
     trace_git_attrs: dict[str, dict[str, str | None]] = {}
+    # Trace-level metadata collected from any span, like user_id/session_id below:
+    # update_current_trace() can stamp it on a child span (a nested @observe
+    # function), and the child often arrives in an earlier batch than the root.
+    trace_metadata_attrs: dict[str, Any] = {}
 
     # Trace-level fields collected from ANY span in the batch and applied post-loop.
     # Both are attached to the shallow (eager) trace record as well as the root-upgraded
@@ -1219,13 +1223,19 @@ def transform_otel_to_clickhouse(
                 span_git_ref = str_or_none(span_attrs.get("traceroot.git.ref"))
                 span_git_repo = str_or_none(span_attrs.get("traceroot.git.repo"))
 
+                span_metadata = span_attrs.get("traceroot.trace.metadata")
                 if trace_id not in trace_attrs:
                     trace_attrs[trace_id] = {"user_id": None, "session_id": None}
                 if trace_id not in trace_git_attrs:
                     trace_git_attrs[trace_id] = {"git_ref": None, "git_repo": None}
+                if trace_id not in trace_metadata_attrs:
+                    trace_metadata_attrs[trace_id] = None
 
                 if not parent_span_id:
                     # Root span: always use its values if present (overwrites child values)
+                    trace_metadata_attrs[trace_id] = (
+                        span_metadata if span_metadata is not None else trace_metadata_attrs[trace_id]
+                    )
                     trace_attrs[trace_id]["user_id"] = (
                         span_user_id or trace_attrs[trace_id]["user_id"]
                     )
@@ -1240,6 +1250,11 @@ def transform_otel_to_clickhouse(
                     )
                 else:
                     # Child span: only set if not already set (first child wins)
+                    trace_metadata_attrs[trace_id] = (
+                        trace_metadata_attrs[trace_id]
+                        if trace_metadata_attrs[trace_id] is not None
+                        else span_metadata
+                    )
                     trace_attrs[trace_id]["user_id"] = (
                         trace_attrs[trace_id]["user_id"] or span_user_id
                     )
@@ -1367,6 +1382,15 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["user_id"] = attrs["user_id"]
             if attrs["session_id"] and not traces[trace_id].get("session_id"):
                 traces[trace_id]["session_id"] = attrs["session_id"]
+
+    # Trace-level metadata follows the same rule (#2688): the value stamped on a
+    # child span by update_current_trace() must reach the trace row, while the
+    # root span's own metadata (already applied above) keeps priority.
+    for trace_id, metadata in trace_metadata_attrs.items():
+        if metadata is not None and trace_id in traces and not traces[trace_id].get("metadata"):
+            traces[trace_id]["metadata"] = (
+                json.dumps(metadata) if not isinstance(metadata, str) else metadata
+            )
 
     # Git repo/ref are stamped on every SDK span, but the root span often arrives
     # last in live streaming. Promote the first child values so repo/ref are visible
