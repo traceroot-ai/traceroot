@@ -27,30 +27,65 @@ PID = "acme_corp:proj.123-abc"
 class FakeResult:
     def __init__(self, rows: list[list[Any]], columns: list[str] | None = None) -> None:
         self.result_rows = rows
-        self.column_names = columns or ["span_id"]
+        # `None` is "whatever the default is"; `[]` is the driver reporting no
+        # column metadata at all, which is what it does for a result with no rows.
+        self.column_names = ["span_id"] if columns is None else columns
         # Real driver type objects, as clickhouse-connect returns them.
         self.column_types = [get_from_name("String")] * len(self.column_names)
         self.summary = {"read_rows": "42", "read_bytes": "4096"}
 
 
-class FakeClient:
-    """Records the call and returns canned rows, or raises what it was given."""
+def _describe_rows(columns: list[tuple[str, str]]) -> list[list[Any]]:
+    """One row per column, as ClickHouse answers a DESCRIBE.
 
-    def __init__(self, rows: list[list[Any]] | None = None, raises: Exception | None = None):
+    Name first and type second, then five fields this service never reads. They
+    are carried anyway so a test cannot pass by reading a two-element row that
+    the server does not send.
+    """
+    return [[name, ch_type, "", "", "", "", ""] for name, ch_type in columns]
+
+
+class FakeClient:
+    """Records the call and returns canned rows, or raises what it was given.
+
+    A DESCRIBE is answered separately, because the service issues one only for a
+    result the driver did not describe, and what it returns is a different shape
+    from the query's own answer.
+    """
+
+    def __init__(
+        self,
+        rows: list[list[Any]] | None = None,
+        raises: Exception | None = None,
+        columns: list[str] | None = None,
+        describes: list[tuple[str, str]] | None = None,
+        describe_raises: Exception | None = None,
+    ):
         self.rows = rows if rows is not None else []
         self.raises = raises
+        self.columns = columns
+        self.describes = describes
+        self.describe_raises = describe_raises
         self.calls: list[dict[str, Any]] = []
 
     def query(self, query: str, parameters: Any = None, settings: Any = None) -> FakeResult:
         self.calls.append({"query": query, "parameters": parameters, "settings": settings})
+        if query.lstrip().startswith("DESCRIBE"):
+            if self.describe_raises is not None:
+                raise self.describe_raises
+            return FakeResult(_describe_rows(self.describes or []), ["name", "type"])
         if self.raises is not None:
             raise self.raises
-        return FakeResult(self.rows)
+        return FakeResult(self.rows, self.columns)
 
     @property
     def last(self) -> dict[str, Any]:
         assert self.calls, "client was never called"
         return self.calls[-1]
+
+    @property
+    def describe_calls(self) -> list[dict[str, Any]]:
+        return [c for c in self.calls if c["query"].lstrip().startswith("DESCRIBE")]
 
 
 def _service(client: FakeClient, ceiling: int = 100) -> SqlQueryService:
@@ -460,6 +495,97 @@ class TestResultShape:
         client = FakeClient(rows=[["s1"]])
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert result.elapsed_ms >= 0
+
+
+# ---------------------------------------------------------------------------
+# An empty result still says what it is empty of
+# ---------------------------------------------------------------------------
+class TestEmptyResultColumns:
+    """The driver reports no column names or types for a result with no rows.
+
+    Every other test in this file has rows behind it, which is why none of them
+    could fail on the answer being shapeless. An empty answer is the ordinary
+    answer to a time-windowed query over a quiet day, so the service asks the
+    server to describe the statement it has just run. These tests pin that the
+    ask happens, that it asks about the right statement, and that the answer is
+    passed through as given; what ClickHouse actually names a projection is
+    pinned against a real server in tests/integration.
+    """
+
+    def test_the_columns_come_from_the_server(self) -> None:
+        client = FakeClient(
+            rows=[], columns=[], describes=[("span_id", "String"), ("hits", "UInt64")]
+        )
+        result = _service(client).run("SELECT span_id, count() AS hits FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [
+            ("span_id", "String"),
+            ("hits", "UInt64"),
+        ]
+        assert result.rows == []
+        assert result.row_count == 0
+
+    def test_the_server_is_asked_about_the_sql_that_just_ran(self) -> None:
+        # Not the caller's statement and not the rewritten one, but the wrapped
+        # form that was executed: that is the query whose answer was empty, and
+        # the only one whose shape is the answer's shape.
+        client = FakeClient(rows=[], columns=[], describes=[("span_id", "String")])
+        _service(client).run("SELECT span_id FROM spans", PID)
+        executed, described = client.calls[0]["query"], client.calls[1]["query"]
+        assert described == f"DESCRIBE (\n{executed}\n)"
+
+    def test_the_describe_carries_the_same_parameters(self) -> None:
+        # The scope bind among them. Without it the describe fails with code 456
+        # and the caller gets a shapeless answer for no reason.
+        client = FakeClient(rows=[], columns=[], describes=[("span_id", "String")])
+        _service(client).run("SELECT span_id FROM spans", PID, parameters={"v": "x"})
+        assert client.calls[1]["parameters"] == client.calls[0]["parameters"]
+        assert client.calls[1]["parameters"] == {"v": "x", "scope_project_id": PID}
+
+    def test_nothing_is_described_when_the_driver_answered(self) -> None:
+        # Rows behind it: the driver's own names and types are the contract, and
+        # the server is not asked a second question.
+        client = FakeClient(rows=[["s1"]], columns=["renamed_by_the_server"])
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("renamed_by_the_server", "String")]
+        assert client.describe_calls == []
+
+    def test_a_repeated_name_is_reported_as_the_server_reports_it(self) -> None:
+        # ClickHouse resolves `SELECT span_id AS a, a` to two columns both called
+        # `a`. Whatever it says is passed through, duplicates included, because a
+        # list that silently disagrees with the answer is worse than no list.
+        client = FakeClient(rows=[], columns=[], describes=[("a", "String"), ("a", "String")])
+        result = _service(client).run("SELECT span_id AS a, a FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("a", "String"), ("a", "String")]
+
+    def test_a_failed_describe_leaves_the_answer_as_it_was(self) -> None:
+        # The query already succeeded. Failing to describe it must not turn a
+        # good answer into an error, so the columns stay empty and the rest of
+        # the result is untouched.
+        client = FakeClient(
+            rows=[], columns=[], describe_raises=ClickHouseError("Code: 241. DB::Exception: boom")
+        )
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.describe_calls, "the describe was never attempted, so nothing was contained"
+        assert result.columns == []
+        assert result.rows == []
+        assert result.row_count == 0
+        assert result.truncated is False
+
+    def test_a_describe_that_fails_outside_the_driver_is_contained_too(self) -> None:
+        # Not every failure here is a ClickHouseError: a connection reset on the
+        # second call arrives as something else entirely.
+        client = FakeClient(rows=[], columns=[], describe_raises=OSError("connection reset"))
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.describe_calls, "the describe was never attempted, so nothing was contained"
+        assert result.columns == []
+
+    def test_a_describe_that_answers_nothing_describes_nothing(self) -> None:
+        # The columns come from the rows of the answer, never from the header
+        # ClickHouse puts on a DESCRIBE, which names its own seven fields.
+        client = FakeClient(rows=[], columns=[], describes=[])
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.describe_calls, "the describe was never attempted, so nothing was measured"
+        assert result.columns == []
 
 
 # ---------------------------------------------------------------------------
