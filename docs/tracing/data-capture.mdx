@@ -11,8 +11,8 @@ TraceRoot spans can contain application data. Review the defaults before tracing
 |---|---|---|
 | Observed function arguments | Captured as span input | Set `capture_input=False` in Python or `captureInput: false` in TypeScript |
 | Observed function return values | Captured as span output | Set `capture_output=False` in Python or `captureOutput: false` in TypeScript |
-| Auto-instrumented LLM prompts and completions | Captured when the integration exposes content | Only the TypeScript Pi integrations expose a content filter (`captureContent`); other integrations do not |
-| Tool arguments and results | Captured when the integration exposes tool I/O | Only the TypeScript Pi integrations expose a tool I/O capture option (`captureToolIo: false`); other integrations do not |
+| Auto-instrumented LLM prompts and completions | Captured when the integration exposes content | Rewrite or blank values with [`redact`](#redact-personal-data-before-export); the TypeScript Pi integrations also expose a content filter (`captureContent`) |
+| Tool arguments and results | Captured when the integration exposes tool I/O | Rewrite or blank values with [`redact`](#redact-personal-data-before-export); the TypeScript Pi integrations also expose a tool I/O capture option (`captureToolIo: false`) |
 | Git repository and ref | Trace-level metadata when resolved | Automatically resolved even when not explicitly provided; there is no git-context opt-out. Disable tracing entirely to prevent export; see [Git Context](/tracing/git-context) |
 | Source file, line, and function | Added by `observe` / `@observe` | Disable tracing entirely if source location must not leave the process |
 
@@ -48,6 +48,80 @@ Capture settings prevent the selected values from being written to spans. They d
 
 These flags apply only to the span created by that `observe` call. Auto-instrumented child calls can still capture their own inputs and outputs according to the integration's settings.
 
+## Redact personal data before export
+
+Pass a `redact` function to `initialize()`. It receives each finished span's attributes and returns them, so anything it removes never reaches TraceRoot. This example blanks email addresses and phone numbers in string values:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import re
+    import traceroot
+
+    PII = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+|(?<![\w-])(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?![\w-])")
+
+    def clean(value):
+        if isinstance(value, str):
+            return PII.sub("[redacted]", value)
+        if isinstance(value, (list, tuple)):
+            return [PII.sub("[redacted]", v) if isinstance(v, str) else v for v in value]
+        return value
+
+    def redact(attributes: dict) -> dict:
+        return {key: clean(value) for key, value in attributes.items()}
+
+    traceroot.initialize(redact=redact)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    const PII = /[\w.+-]+@[\w-]+\.[\w.]+|(?<![\w-])(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?![\w-])/g;
+
+    const clean = (value: string) => value.replace(PII, '[redacted]');
+
+    TraceRoot.initialize({
+      redact: (attributes) =>
+        Object.fromEntries(
+          Object.entries(attributes).map(([key, value]) => [
+            key,
+            typeof value === 'string'
+              ? clean(value)
+              : Array.isArray(value) && value.every((v): v is string => typeof v === 'string')
+                ? value.map(clean)
+                : value,
+          ]),
+        ),
+    });
+    ```
+  </Tab>
+</Tabs>
+
+The function runs in your app on every finished span as it ends, including spans from other libraries' instrumentation, so keep it fast. In Python it can run on several threads at once, so keep it thread-safe. Only new traces are affected.
+
+| Passed to `redact` | Held back and sent as is |
+|---|---|
+| Span attributes from your code and from integrations | User ID and session ID |
+| Input, output, metadata, and prompt recorded by `observe` | Model name and token usage |
+| Event attributes, such as exception messages | Environment and tags |
+| The status message | Span paths and git context |
+| | Span names, links, and resource attributes |
+
+Return every key you want to keep. Held-back fields are never passed in and are added back automatically.
+
+<Warning>
+If the function raises or returns anything other than a dict (Python) or object (TypeScript), span and trace metadata are dropped and every other value except numbers and booleans is sent as `[redaction failed]`.
+</Warning>
+
+Only what TraceRoot receives is redacted. Other span processors or exporters in your app still receive the original span.
+
+<Note>
+User and session IDs are sent as given, so use a non-personal ID (an internal ID, not an email address). Keep personal data out of tags and span names.
+</Note>
+
+The trace view marks spans the function ran on as **Redacted by your app**. To catch names and addresses, call your own PII detection library inside the function.
+
 ## Redact Pi content before export
 
 The TypeScript Pi instrumentation accepts a `captureContent` callback. It runs before content is attached to a span and can return replacement text or `undefined` to omit that item.
@@ -80,7 +154,7 @@ TraceRoot.initialize({
 });
 ```
 
-The callback form is available in the TypeScript Pi instrumentation. The Python SDK does not currently provide an equivalent general redaction callback. For Python, disable input/output capture on observed functions and avoid placing sensitive values in metadata or manually updated span fields.
+The callback form is available in the TypeScript Pi instrumentation. For other integrations and for Python, use [`redact`](#redact-personal-data-before-export) above.
 
 ## Disable tracing entirely
 
@@ -103,6 +177,7 @@ You can also pass `enabled=False` to Python's `initialize()` or `enabled: false`
 
 - Classify prompts, completions, function arguments, tool I/O, metadata, tags, and source paths before enabling tracing in production.
 - Disable capture as close as possible to the function or integration that handles sensitive data.
+- Use `redact` to strip personal data that has to stay in captured content.
 - Never attach secrets to metadata or manual span updates.
 - Verify a representative exported trace in a non-production project before rollout.
 - Apply your organization's retention, access-control, and data-processing requirements to the TraceRoot deployment you use.
