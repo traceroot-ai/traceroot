@@ -25,4 +25,22 @@ describe("GettingStarted integrations", () => {
       'baseURL: "https://openrouter.ai/api/v1"',
     );
   });
+
+  it("includes LiveKit Agents with dark logo, Python and TypeScript snippets", () => {
+    const livekit = INTEGRATIONS.find((integration) => integration.id === "livekit");
+
+    expect(livekit).toMatchObject({
+      name: "LiveKit Agents",
+      href: "https://traceroot.ai/docs/integrations/livekit",
+      category: "framework",
+      logo: "/logo/integrations/livekit.svg",
+      logoDark: "/logo/integrations/livekit-dark.svg",
+    });
+    expect(livekit?.languages.python?.installCommand).toBe("pip install traceroot livekit-agents");
+    expect(livekit?.languages.python?.initSnippet).toContain("Integration.LIVEKIT");
+    expect(livekit?.languages.typescript?.installCommand).toBe(
+      "npm install @traceroot-ai/traceroot @livekit/agents",
+    );
+    expect(livekit?.languages.typescript?.initSnippet).toContain("livekitAgents");
+  });
 });
