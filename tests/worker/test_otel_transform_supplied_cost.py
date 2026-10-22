@@ -214,6 +214,34 @@ class TestSuppliedCostIngest:
         transformed = self._transform(span)
         assert transformed.get("cost") is None
 
+    def test_malformed_higher_priority_cost_does_not_shadow_valid_lower_priority(self):
+        """A malformed higher-priority cost (empty string, negative) does not shadow a valid lower-priority cost."""
+        span = make_span(self.TRACE, self.SPAN)
+        span["attributes"] = [
+            make_attr("traceroot.llm.model", "unpriced-model"),
+            make_attr("traceroot.llm.cost", ""),  # malformed higher priority key
+            make_attr("claude_agent_sdk.total_cost_usd", -1.0),  # invalid negative
+            make_attr("llm.cost", 0.032),  # valid lower priority key
+        ]
+        transformed = self._transform(span)
+        assert transformed["cost"] == 0.032
+        meta = json.loads(transformed["metadata"])
+        assert meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
+
+    def test_sender_provided_cost_source_is_stripped_and_untrusted(self):
+        """Callers cannot spoof server-authored traceroot.cost_source provenance."""
+        span = make_span(self.TRACE, self.SPAN)
+        span["attributes"] = [
+            make_attr("traceroot.llm.model", "unpriced-model"),
+            make_attr("traceroot.cost_source", "supplied"),  # sender tries to spoof provenance
+            # Note: NO valid cost attribute is supplied!
+        ]
+        transformed = self._transform(span)
+        assert transformed.get("cost") is None
+        meta = json.loads(transformed["metadata"]) if transformed.get("metadata") else {}
+        # Must NOT carry "supplied" when the worker didn't assign a supplied cost
+        assert meta.get(COST_SOURCE) != COST_SOURCE_SUPPLIED
+
 
 class TestSpanCostDetailsSuppression:
     """Verifies that span_cost_details suppresses recomputed breakdown for supplied spans (#2176)."""

@@ -795,6 +795,8 @@ def transform_otel_to_clickhouse(
 
                 # Parse attributes
                 span_attrs = attributes_to_dict(otel_span.get("attributes", []))
+                # Server-authored provenance attributes must not be spoofed by callers:
+                span_attrs.pop(COST_SOURCE, None)
 
                 # Determine span kind
                 otel_kind = otel_span.get("kind")
@@ -929,7 +931,13 @@ def transform_otel_to_clickhouse(
 
                 # Check for caller- or instrumentor-supplied dollar cost.
                 # Precedence: supplied cost beats computed pricing ("supplied beats computed").
-                supplied_cost = parse_supplied_cost(first_present(span_attrs, _SUPPLIED_COST_KEYS))
+                # Iterate keys in order so a malformed higher-priority cost (empty string,
+                # negative, NaN) does not shadow a valid lower-priority cost.
+                supplied_cost = None
+                for _cost_key in _SUPPLIED_COST_KEYS:
+                    supplied_cost = parse_supplied_cost(span_attrs.get(_cost_key))
+                    if supplied_cost is not None:
+                        break
                 if supplied_cost is None:
                     raw_manual_usage = span_attrs.get("traceroot.llm.usage")
                     if isinstance(raw_manual_usage, (str, dict)):

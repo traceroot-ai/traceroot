@@ -1,6 +1,5 @@
 """Service for reading traces from ClickHouse."""
 
-import json
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -916,7 +915,8 @@ class TraceReaderService:
                         '{SPAN_PATH}', tree_name_path
                     ))
                 ) AS metadata,
-                git_source_file, git_source_line, git_source_function, error_type
+                git_source_file, git_source_line, git_source_function, error_type,
+                cost_supplied
             FROM (
                 SELECT
                     span_id, trace_id, parent_span_id, name, span_kind,
@@ -925,7 +925,8 @@ class TraceReaderService:
                     usage_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
-                    git_source_file, git_source_line, git_source_function, error_type
+                    git_source_file, git_source_line, git_source_function, error_type,
+                    JSONExtractString(ifNull(metadata, ''), '{COST_SOURCE}') = '{COST_SOURCE_SUPPLIED}' AS cost_supplied
                 FROM spans
                 WHERE {spans_where_clause}
                 ORDER BY ch_update_time DESC
@@ -940,21 +941,7 @@ class TraceReaderService:
 
         spans = []
         for row in spans_result.result_rows:
-            raw_meta = row[15]
-            is_supplied_cost = False
-            if raw_meta:
-                if isinstance(raw_meta, dict):
-                    is_supplied_cost = raw_meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
-                elif isinstance(raw_meta, str) and COST_SOURCE in raw_meta:
-                    try:
-                        parsed_meta = json.loads(raw_meta)
-                        if isinstance(parsed_meta, dict):
-                            is_supplied_cost = parsed_meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
-                    except Exception:
-                        is_supplied_cost = (
-                            f'"{COST_SOURCE}": "{COST_SOURCE_SUPPLIED}"' in raw_meta
-                            or f'"{COST_SOURCE}":"{COST_SOURCE_SUPPLIED}"' in raw_meta
-                        )
+            is_supplied_cost = bool(row[20]) if len(row) > 20 else False
             cost_val = float(row[10]) if row[10] is not None else None
             spans.append(
                 {
