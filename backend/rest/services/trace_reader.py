@@ -943,6 +943,10 @@ class TraceReaderService:
 
         spans = []
         for row in spans_result.result_rows:
+            cost = float(row[10]) if row[10] is not None else None
+            input_tokens = int(row[11]) if row[11] is not None else None
+            output_tokens = int(row[12]) if row[12] is not None else None
+            usage_details = dict(row[14]) if row[14] else {}
             spans.append(
                 {
                     "span_id": row[0],
@@ -955,17 +959,13 @@ class TraceReaderService:
                     "status": row[7],
                     "status_message": row[8],
                     "model_name": row[9],
-                    "cost": float(row[10]) if row[10] is not None else None,
-                    "input_tokens": int(row[11]) if row[11] is not None else None,
-                    "output_tokens": int(row[12]) if row[12] is not None else None,
+                    "cost": cost,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
-                    "usage_details": dict(row[14]) if row[14] else {},
+                    "usage_details": usage_details,
                     "cost_details": span_cost_details(
-                        row[9],  # model_name
-                        int(row[11]) if row[11] is not None else None,  # input_tokens
-                        int(row[12]) if row[12] is not None else None,  # output_tokens
-                        dict(row[14]) if row[14] else {},  # usage_details
-                        float(row[10]) if row[10] is not None else None,  # cost
+                        row[9], input_tokens, output_tokens, usage_details, cost
                     ),
                     # Already reduced to the span-path subset by the query.
                     "metadata": row[15],
