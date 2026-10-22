@@ -193,7 +193,6 @@ Both `update_current_span` and `update_current_trace` accept **keyword-only argu
 | `model` | `str \| None` | LLM model name (e.g. `"gpt-4o"`, `"claude-3-5-sonnet"`). |
 | `model_parameters` | `dict[str, Any] \| None` | Model parameters (e.g. `{"temperature": 0.7, "max_tokens": 1024}`). |
 | `usage` | `dict[str, int] \| None` | Token usage dict (e.g. `{"input_tokens": 100, "output_tokens": 50}`). |
-| `cost` | `float \| None` | Total cost of this LLM call in USD. Replaces TraceRoot's computed price for the span. |
 | `prompt` | `Any` | Prompt or messages payload sent to the model. |
 
 ### `update_current_trace` Parameters

@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-TraceRoot captures token usage from instrumented LLM calls. It calculates cost when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span, or uses the cost you [report directly](#report-cost-directly).
+TraceRoot captures token usage from instrumented LLM calls. It calculates cost only when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span.
 
 <Tabs>
   <Tab title="Python">
@@ -44,8 +44,7 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost w
 1. **Auto-instrumentation** — TraceRoot integrations capture token usage from the provider response automatically.
 2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
 3. **Model matching** — The reported model ID is matched against TraceRoot's pricing table, including supported provider-prefixed and hosted aliases.
-4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost unless you [report one](#report-cost-directly).
-5. **Reported cost** — If the span carries a cost you reported, it is stored in place of the calculated cost from step 4. Tokens are unchanged.
+4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost.
 
 ## Pricing coverage
 
@@ -60,7 +59,7 @@ Pricing entries currently cover these model families:
 - Z.AI (GLM)
 - TypeSafe AI (JEV)
 
-Coverage is based on model-ID patterns, not merely the provider or integration name. Notable model families without pricing entries include Mistral, Groq-hosted models, Amazon Nova and Titan, and Meta Llama. Routed models, such as models called through OpenRouter or Bedrock, are priced only when the routed model ID matches a pricing entry. If you call these through your own instrumented code, you can [report the cost directly](#report-cost-directly).
+Coverage is based on model-ID patterns, not merely the provider or integration name. Notable model families without pricing entries include Mistral, Groq-hosted models, Amazon Nova and Titan, and Meta Llama. Routed models, such as models called through OpenRouter or Bedrock, are priced only when the routed model ID matches a pricing entry.
 
 ## What Gets Tracked
 
@@ -71,7 +70,7 @@ Each LLM span captures:
 | Input tokens | Tokens in the prompt/messages |
 | Output tokens | Tokens in the completion/response |
 | Total tokens | Sum of input and output |
-| Cost (USD) | Calculated when the model ID matches the pricing table, or the cost you report |
+| Cost (USD) | Calculated only when the model ID matches the pricing table |
 
 ## Viewing Costs
 
@@ -152,34 +151,3 @@ For custom or unsupported providers, report token usage manually:
   In Python, use `input_tokens` and `output_tokens` (and `reasoning_tokens`, `cache_read_tokens`, `cache_write_tokens`).
   In TypeScript, use `input`, `output`, `cacheRead`, `cacheWrite`, and `total`.
 </Note>
-
-## Report cost directly
-
-When you already know what a call cost (a negotiated rate, a gateway's bill, an unpriced model), report it with the usage:
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    update_current_span(
-        model="claude-opus-5",
-        usage={"input_tokens": 10, "output_tokens": 20},
-        cost=0.0123,  # USD
-    )
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    updateCurrentSpan({
-      model: 'claude-opus-5',
-      usage: { input: 10, output: 20 },
-      cost: 0.0123, // USD
-    });
-    ```
-  </Tab>
-</Tabs>
-
-<Note>
-  Requires the Python SDK `traceroot` newer than 0.3.0 and the TypeScript SDK `@traceroot-ai/traceroot` newer than 0.5.0.
-</Note>
-
-A reported cost replaces TraceRoot's computed price for that LLM span. Report it together with `model`; a cost without a model name is ignored. Tokens are still recorded. The per-category cost breakdown is shown only when it matches the computed price, so a different reported cost hides it for that span and its trace. The cost is read from the OpenInference `llm.cost.total` attribute, so an OpenInference instrumentor that sets it on an LLM span is used automatically.
