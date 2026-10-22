@@ -55,9 +55,10 @@ sets them (design B7/B8); any sender may.
 """
 
 COST_SOURCE = "traceroot.cost_source"
-"""Identifies the origin of a span's cost: 'supplied', 'catalog', or 'estimated'."""
+"""Identifies the origin of a span's cost: 'supplied', 'custom', 'catalog', or 'estimated'."""
 
 COST_SOURCE_SUPPLIED = "supplied"
+COST_SOURCE_CUSTOM = "custom"
 COST_SOURCE_CATALOG = "catalog"
 COST_SOURCE_ESTIMATED = "estimated"
 

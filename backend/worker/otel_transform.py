@@ -42,7 +42,6 @@ from shared.span_attributes import (
     CAPTURE_MARKER_ATTRIBUTES,
     COST_ATTRIBUTES,
     COST_SOURCE,
-    COST_SOURCE_CATALOG,
     COST_SOURCE_ESTIMATED,
     COST_SOURCE_SUPPLIED,
     SPAN_IDS_PATH,
@@ -1143,7 +1142,7 @@ def transform_otel_to_clickhouse(
                         from worker.tokens.buckets import normalize_token_usage
                         from worker.tokens.pricing import (
                             cost_from_buckets,
-                            get_model_price,
+                            get_model_price_with_source,
                         )
 
                         buckets = normalize_token_usage(
@@ -1191,10 +1190,14 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = supplied_cost
                             span_attrs[COST_SOURCE] = COST_SOURCE_SUPPLIED
                         else:
-                            cost = cost_from_buckets(get_model_price(model_name), buckets)
-                            if cost is not None:
-                                span_record["cost"] = cost
-                                span_attrs[COST_SOURCE] = COST_SOURCE_CATALOG
+                            prices, cost_source = get_model_price_with_source(
+                                model_name, project_id=project_id
+                            )
+                            if prices is not None:
+                                cost = cost_from_buckets(prices, buckets)
+                                if cost is not None:
+                                    span_record["cost"] = cost
+                                    span_attrs[COST_SOURCE] = cost_source
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM

@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from decimal import Decimal
 
 import psycopg2
 
 from shared.config import settings
+from shared.span_attributes import COST_SOURCE_CATALOG, COST_SOURCE_CUSTOM
 
 from .buckets import TokenBuckets, reconcile_cache_write_1h
 from .usage import count_tokens
@@ -22,15 +24,24 @@ from .usage import count_tokens
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# In-memory cache (populated on first call)
+# In-memory caches (with TTL-based refresh per #1096)
 # ---------------------------------------------------------------------------
 
 _cache: list[dict] | None = None
+_cache_loaded_at: float = 0.0
+_CATALOG_CACHE_TTL = 300.0  # 5 minutes
+
+_workspace_prices_cache: dict[str, tuple[float, list[dict]]] = {}
+_WORKSPACE_CACHE_TTL = 60.0  # 60 seconds TTL for workspace custom prices
+
+_project_workspace_cache: dict[str, tuple[float, str | None]] = {}
+_PROJECT_WORKSPACE_CACHE_TTL = 300.0  # 5 minutes TTL for project->workspace mapping
 
 
 def _load_cache() -> list[dict]:
-    global _cache
-    if _cache is not None:
+    global _cache, _cache_loaded_at
+    now = time.monotonic()
+    if _cache is not None and (now - _cache_loaded_at) < _CATALOG_CACHE_TTL:
         return _cache
 
     models: list[dict] = []
@@ -73,29 +84,113 @@ def _load_cache() -> list[dict]:
 
     models = list(by_model.values())
     _cache = models
+    _cache_loaded_at = now
     return _cache
 
 
+def get_workspace_id_for_project(project_id: str | None) -> str | None:
+    """Resolve project_id to its owning workspace_id with in-memory TTL caching."""
+    if not project_id:
+        return None
+    now = time.monotonic()
+    cached = _project_workspace_cache.get(project_id)
+    if cached and now < cached[0]:
+        return cached[1]
+
+    workspace_id = None
+    try:
+        conn = psycopg2.connect(settings.database_url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT workspace_id FROM projects WHERE id = %s", (project_id,))
+                row = cur.fetchone()
+                if row:
+                    workspace_id = str(row[0]) if row[0] is not None else None
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.debug("Failed to lookup workspace_id for project %s: %s", project_id, exc)
+        return None
+
+    _project_workspace_cache[project_id] = (now + _PROJECT_WORKSPACE_CACHE_TTL, workspace_id)
+    return workspace_id
+
+
+def _load_workspace_prices(workspace_id: str) -> list[dict]:
+    """Load workspace-registered custom model prices with 60s TTL cache (#1096)."""
+    now = time.monotonic()
+    cached = _workspace_prices_cache.get(workspace_id)
+    if cached and now < cached[0]:
+        return cached[1]
+
+    models: list[dict] = []
+    try:
+        conn = psycopg2.connect(settings.database_url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT model_name, match_pattern, input_price, output_price, cache_read_price, cache_write_price
+                    FROM workspace_model_prices
+                    WHERE workspace_id = %s
+                    ORDER BY model_name
+                    """,
+                    (workspace_id,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.debug(
+            "Failed to load workspace model prices from DB for workspace %s: %s",
+            workspace_id,
+            exc,
+        )
+        return []
+
+    for (
+        model_name,
+        match_pattern,
+        input_price,
+        output_price,
+        cache_read_price,
+        cache_write_price,
+    ) in rows:
+        prices = {
+            "input": float(input_price or 0.0),
+            "output": float(output_price or 0.0),
+        }
+        if cache_read_price is not None:
+            prices["cacheRead"] = float(cache_read_price)
+        if cache_write_price is not None:
+            prices["cacheWrite"] = float(cache_write_price)
+
+        models.append(
+            {
+                "model_name": model_name,
+                "match_pattern": match_pattern,
+                "prices": prices,
+            }
+        )
+
+    _workspace_prices_cache[workspace_id] = (now + _WORKSPACE_CACHE_TTL, models)
+    return models
+
+
 # ---------------------------------------------------------------------------
-# Public API (unchanged signatures)
+# Public API
 # ---------------------------------------------------------------------------
 
 
-def get_model_price(model: str) -> dict[str, float] | None:
-    """Lookup price for model. Tries exact match, then regex fallback.
-
-    Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
-    (values in USD per token), or None if not found.
-    """
-    cache = _load_cache()
-
+def _get_catalog_price(model: str) -> dict[str, float] | None:
+    catalog = _load_cache()
     # Exact match on model_name
-    for entry in cache:
+    for entry in catalog:
         if entry["model_name"] == model:
             return entry["prices"]
 
     # Regex fallback using match_pattern
-    for entry in cache:
+    for entry in catalog:
         try:
             if re.search(entry["match_pattern"], model, re.IGNORECASE):
                 return entry["prices"]
@@ -103,6 +198,65 @@ def get_model_price(model: str) -> dict[str, float] | None:
             continue
 
     return None
+
+
+def get_model_price(
+    model: str,
+    workspace_id: str | None = None,
+    project_id: str | None = None,
+) -> dict[str, float] | None:
+    """Lookup price for model. Returns dict of USD per-token prices or None."""
+    resolved_workspace_id = workspace_id or get_workspace_id_for_project(project_id)
+    if resolved_workspace_id:
+        ws_prices = _load_workspace_prices(resolved_workspace_id)
+        for entry in ws_prices:
+            if entry["model_name"] == model or entry["model_name"].lower() == model.lower():
+                return entry["prices"]
+        for entry in ws_prices:
+            pattern = entry.get("match_pattern")
+            if pattern:
+                try:
+                    if re.search(pattern, model, re.IGNORECASE):
+                        return entry["prices"]
+                except re.error:
+                    continue
+
+    return _get_catalog_price(model)
+
+
+def get_model_price_with_source(
+    model: str,
+    workspace_id: str | None = None,
+    project_id: str | None = None,
+) -> tuple[dict[str, float] | None, str | None]:
+    """Lookup price and provenance for model.
+
+    Precedence:
+    1. Workspace custom model pricing (exact match, then regex match) -> 'custom'
+    2. Built-in standard catalog (exact match, then regex match) -> 'catalog'
+    3. Not found -> (None, None)
+    """
+    resolved_workspace_id = workspace_id or get_workspace_id_for_project(project_id)
+    if resolved_workspace_id:
+        ws_prices = _load_workspace_prices(resolved_workspace_id)
+        for entry in ws_prices:
+            if entry["model_name"] == model or entry["model_name"].lower() == model.lower():
+                return entry["prices"], COST_SOURCE_CUSTOM
+        for entry in ws_prices:
+            pattern = entry.get("match_pattern")
+            if pattern:
+                try:
+                    if re.search(pattern, model, re.IGNORECASE):
+                        return entry["prices"], COST_SOURCE_CUSTOM
+                except re.error:
+                    continue
+
+    # Fall back to get_model_price (honors patches/mocks in tests)
+    catalog_prices = get_model_price(model)
+    if catalog_prices is not None:
+        return catalog_prices, COST_SOURCE_CATALOG
+
+    return None, None
 
 
 def _rate(prices: dict[str, float], key: str, *fallbacks: str) -> Decimal:

@@ -251,14 +251,16 @@ def span_cost_details(
     output_tokens: int | None,
     usage_details: dict[str, int],
     is_supplied_cost: bool = False,
+    project_id: str | None = None,
 ) -> dict[str, float]:
     """Per-category dollar breakdown for a stored span.
 
     Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
     cache counts in usage_details, then prices each bucket with the model's current
-    rates. Display-only: the values sum to the span's stored `cost` when rates are
-    unchanged. Returns {} when the model has no known prices or when the span cost
-    was explicitly supplied by the caller (preventing popup disagreement, #2176).
+    rates (checking workspace-registered custom pricing first, then standard catalog).
+    Display-only: the values sum to the span's stored `cost` when rates are unchanged.
+    Returns {} when the model has no known prices or when the span cost was
+    explicitly supplied by the caller (preventing popup disagreement, #2176).
     """
     if not model_name or is_supplied_cost:
         return {}
@@ -278,7 +280,10 @@ def span_cost_details(
         cache_write=cache_write,
         cache_write_1h=cache_write_1h,
     )
-    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
+    return (
+        cost_breakdown_from_buckets(get_model_price(model_name, project_id=project_id), buckets)
+        or {}
+    )
 
 
 def _extract_span_path_attr(attribute: str) -> str:
@@ -966,6 +971,7 @@ class TraceReaderService:
                         int(row[12]) if row[12] is not None else None,  # output_tokens
                         dict(row[14]) if row[14] else {},  # usage_details
                         is_supplied_cost=is_supplied_cost,
+                        project_id=project_id,
                     ),
                     # Already reduced to the span-path subset by the query.
                     "metadata": row[15],
