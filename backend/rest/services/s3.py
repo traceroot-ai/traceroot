@@ -88,7 +88,15 @@ class S3Service:
                     create_params["CreateBucketConfiguration"] = {
                         "LocationConstraint": self._region
                     }
-                client.create_bucket(**create_params)
+                try:
+                    client.create_bucket(**create_params)
+                except ClientError as create_error:
+                    # Another worker may have created our bucket after HEAD.
+                    if (
+                        create_error.response.get("Error", {}).get("Code")
+                        != "BucketAlreadyOwnedByYou"
+                    ):
+                        raise
             else:
                 raise
 

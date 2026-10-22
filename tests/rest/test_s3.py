@@ -76,7 +76,7 @@ def test_head_permission_error_is_not_treated_as_missing_bucket(monkeypatch):
         stub.assert_no_pending_responses()
 
 
-def test_create_permission_error_is_propagated(monkeypatch):
+def test_concurrent_bucket_creation_by_same_owner_is_accepted(monkeypatch):
     service = make_service(monkeypatch, "eu-west-1", None)
     with closing(service._get_client()) as client, Stubber(client) as stub:
         stub.add_client_error(
@@ -87,8 +87,36 @@ def test_create_permission_error_is_propagated(monkeypatch):
         )
         stub.add_client_error(
             "create_bucket",
-            service_error_code="AccessDenied",
-            http_status_code=403,
+            service_error_code="BucketAlreadyOwnedByYou",
+            http_status_code=409,
+            expected_params={
+                "Bucket": BUCKET,
+                "CreateBucketConfiguration": {"LocationConstraint": "eu-west-1"},
+            },
+        )
+
+        service.ensure_bucket_exists()
+
+        stub.assert_no_pending_responses()
+
+
+@pytest.mark.parametrize(
+    ("code", "http_status"),
+    [("AccessDenied", 403), ("BucketAlreadyExists", 409), ("InvalidRegion", 400)],
+)
+def test_other_create_errors_are_propagated(monkeypatch, code, http_status):
+    service = make_service(monkeypatch, "eu-west-1", None)
+    with closing(service._get_client()) as client, Stubber(client) as stub:
+        stub.add_client_error(
+            "head_bucket",
+            service_error_code="404",
+            http_status_code=404,
+            expected_params={"Bucket": BUCKET},
+        )
+        stub.add_client_error(
+            "create_bucket",
+            service_error_code=code,
+            http_status_code=http_status,
             expected_params={
                 "Bucket": BUCKET,
                 "CreateBucketConfiguration": {"LocationConstraint": "eu-west-1"},
@@ -99,5 +127,5 @@ def test_create_permission_error_is_propagated(monkeypatch):
             service.ensure_bucket_exists()
 
         assert error.value.operation_name == "CreateBucket"
-        assert error.value.response["Error"]["Code"] == "AccessDenied"
+        assert error.value.response["Error"]["Code"] == code
         stub.assert_no_pending_responses()
