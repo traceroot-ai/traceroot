@@ -1,5 +1,6 @@
 """Service for reading traces from ClickHouse."""
 
+import math
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -248,15 +249,17 @@ def span_cost_details(
     input_tokens: int | None,
     output_tokens: int | None,
     usage_details: dict[str, int],
+    cost: float | None,
 ) -> dict[str, float]:
     """Per-category dollar breakdown for a stored span.
 
     Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
     cache counts in usage_details, then prices each bucket with the model's current
-    rates. Display-only: the values sum to the span's stored `cost` when rates are
-    unchanged. Returns {} when the model has no known prices.
+    rates. Display-only: returned only when the values sum to the span's stored
+    `cost`, so a caller-reported cost or a since-changed rate yields {}. Returns {}
+    when the model has no known prices or the span has no cost.
     """
-    if not model_name:
+    if not model_name or cost is None:
         return {}
     cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
     cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
@@ -274,7 +277,12 @@ def span_cost_details(
         cache_write=cache_write,
         cache_write_1h=cache_write_1h,
     )
-    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
+    details = cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
+    # `cost` is Decimal64(9), so storage rounding stays far below this, while a
+    # caller-reported cost or a since-changed list price differs by much more.
+    if not math.isclose(sum(details.values()), cost, abs_tol=1e-8):
+        return {}
+    return details
 
 
 def _extract_span_path_attr(attribute: str) -> str:
@@ -957,6 +965,7 @@ class TraceReaderService:
                         int(row[11]) if row[11] is not None else None,  # input_tokens
                         int(row[12]) if row[12] is not None else None,  # output_tokens
                         dict(row[14]) if row[14] else {},  # usage_details
+                        float(row[10]) if row[10] is not None else None,  # cost
                     ),
                     # Already reduced to the span-path subset by the query.
                     "metadata": row[15],

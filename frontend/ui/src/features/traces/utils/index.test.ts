@@ -420,6 +420,16 @@ describe("getTraceCostBreakdown", () => {
     const trace = { spans: [makeSpan({ span_id: "a" })] } as unknown as TraceDetail;
     expect(getTraceCostBreakdown(trace)).toBeNull();
   });
+
+  it("returns null when a costed span has no cost_details", () => {
+    const trace = {
+      spans: [
+        makeSpan({ span_id: "a", cost: 0.03, cost_details: { output_cost: 0.03 } }),
+        makeSpan({ span_id: "b", cost: 0.0123, cost_details: {} }),
+      ],
+    } as unknown as TraceDetail;
+    expect(getTraceCostBreakdown(trace)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

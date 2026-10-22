@@ -394,12 +394,16 @@ export function summarizeCostDetails(details: Record<string, number> | undefined
 /**
  * Sum each cost_details category across a trace's spans for the trace-level cost
  * popup (mirrors getTraceTokenUsage). Returns null when no span reports a
- * breakdown, so the trace cost chip renders without a popup.
+ * breakdown, or when any costed span has none (e.g. a caller-reported cost), so
+ * the popup never shows a total that disagrees with the trace cost; the trace
+ * cost chip then renders without a popup.
  */
 export function getTraceCostBreakdown(trace: TraceDetail): Record<string, number> | null {
-  const spansWithDetails = trace.spans.filter(
-    (s) => s.cost_details && Object.keys(s.cost_details).length > 0,
-  );
+  const hasDetails = (s: Span) => !!s.cost_details && Object.keys(s.cost_details).length > 0;
+  if (trace.spans.some((s) => s.cost != null && Number.isFinite(s.cost) && !hasDetails(s))) {
+    return null;
+  }
+  const spansWithDetails = trace.spans.filter(hasDetails);
   if (spansWithDetails.length === 0) return null;
   const merged: Record<string, number> = {};
   for (const key of COST_DETAIL_KEYS) {

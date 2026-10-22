@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-TraceRoot captures token usage from instrumented LLM calls. It calculates cost only when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span.
+TraceRoot captures token usage from instrumented LLM calls. It calculates cost when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span, or uses the cost you [report directly](#report-cost-directly).
 
 <Tabs>
   <Tab title="Python">
@@ -70,7 +70,7 @@ Each LLM span captures:
 | Input tokens | Tokens in the prompt/messages |
 | Output tokens | Tokens in the completion/response |
 | Total tokens | Sum of input and output |
-| Cost (USD) | Calculated only when the model ID matches the pricing table |
+| Cost (USD) | Calculated when the model ID matches the pricing table, or the cost you report |
 
 ## Viewing Costs
 
@@ -151,3 +151,30 @@ For custom or unsupported providers, report token usage manually:
   In Python, use `input_tokens` and `output_tokens` (and `reasoning_tokens`, `cache_read_tokens`, `cache_write_tokens`).
   In TypeScript, use `input`, `output`, `cacheRead`, `cacheWrite`, and `total`.
 </Note>
+
+## Report cost directly
+
+When you already know what a call cost (a negotiated rate, a gateway's bill, an unpriced model), report it with the usage:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    update_current_span(
+        model="claude-opus-5",
+        usage={"input_tokens": 10, "output_tokens": 20},
+        cost=0.0123,  # USD
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    updateCurrentSpan({
+      model: 'claude-opus-5',
+      usage: { input: 10, output: 20 },
+      cost: 0.0123, // USD
+    });
+    ```
+  </Tab>
+</Tabs>
+
+A reported cost replaces TraceRoot's computed price for that LLM span. Tokens are still recorded, but the per-category cost breakdown is not shown for that span. The cost is read from the OpenInference `llm.cost.total` attribute, so integrations that already report it (for example the LiteLLM and Agno instrumentors) are used automatically.

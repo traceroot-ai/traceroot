@@ -34,6 +34,7 @@ OTEL JSON structure (camelCase - standard OTLP format):
 import base64
 import json
 import logging
+import math
 from datetime import UTC, datetime
 from typing import Any
 
@@ -157,6 +158,9 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
+        # -> cost column (OpenInference caller-reported total). Consumed only when a
+        # model name is present, like traceroot.llm.usage above.
+        "llm.cost.total",
     }
 )
 
@@ -194,6 +198,10 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
 # magnitude beyond any shipped context window, so nothing legitimate is near it.
 _MAX_PLAUSIBLE_TOKENS = 10**9
 
+# Upper sanity bound for a caller-reported per-call cost (llm.cost.total), in USD.
+# Same Decimal64(9) `cost` column as above: $10^6 stays three orders inside it.
+_MAX_PLAUSIBLE_COST = 10**6
+
 # Matches the filter's MAX_VALUE_LENGTH: a longer value could never be filtered on.
 _MAX_ERROR_TYPE_LENGTH = 1024
 
@@ -218,6 +226,32 @@ def _usable_token_value(value: Any) -> bool:
     except (TypeError, ValueError, OverflowError):
         return False
     return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
+
+
+def _usable_cost(value: Any) -> float | None:
+    """Parse a caller-reported total cost (``llm.cost.total``) for the cost column.
+
+    Args:
+        value (Any): Raw OTEL attribute value.
+
+    Returns:
+        float | None: The cost in USD when it is a finite, non-negative number below
+            the plausible bound (zero is kept); None when missing or unusable.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        logger.warning("Reported cost is a bool (%r); ignoring it", value)
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("Reported cost is not a usable number (%r); ignoring it", value)
+        return None
+    if not math.isfinite(parsed) or not 0 <= parsed < _MAX_PLAUSIBLE_COST:
+        logger.warning("Reported cost %r is out of range; ignoring it", value)
+        return None
+    return parsed
 
 
 def first_present_number(attrs: dict[str, Any], keys: list[str]) -> Any:
@@ -1160,6 +1194,14 @@ def transform_otel_to_clickhouse(
                             span_record["total_tokens"] = usage["total_tokens"]
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
+
+                    # A caller-reported total (OpenInference llm.cost.total) replaces
+                    # the list price computed above; tokens stay as computed. Not on
+                    # aggregate wrappers, whose totals restate their children's.
+                    if not aggregate_wrapper:
+                        reported_cost = _usable_cost(span_attrs.get("llm.cost.total"))
+                        if reported_cost is not None:
+                            span_record["cost"] = reported_cost
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.
