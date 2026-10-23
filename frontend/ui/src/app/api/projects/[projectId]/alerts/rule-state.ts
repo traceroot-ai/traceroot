@@ -37,6 +37,7 @@ export function alertStateReset() {
     lastNotifyStatus: null,
     lastNotifyError: null,
     lastNotifyAt: null,
+    lastNotifySeverity: null,
   };
 }
 
