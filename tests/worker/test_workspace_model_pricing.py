@@ -157,7 +157,7 @@ class TestWorkspaceModelPricingLookup:
             assert p2[0]["prices"]["input"] == 0.000001
 
             # After TTL expires: reloads updated rates
-            with patch("time.monotonic", return_value=1000000.0):
+            with patch("time.monotonic", return_value=1e12):
                 p3 = _load_workspace_prices("ws_1")
                 assert p3[0]["prices"]["input"] == 0.000005
 
@@ -175,6 +175,51 @@ class TestWorkspaceModelPricingLookup:
             mock_cursor.fetchone.return_value = ("ws_different",)
             wid2 = get_workspace_id_for_project("proj_abc")
             assert wid2 == "ws_123"
+
+    def test_redos_pattern_safety(self):
+        """Pathological regex pattern does not freeze or crash worker."""
+        from worker.tokens.pricing import _match_pattern
+
+        # Catastrophic backtracking pattern: ^(a+)+$
+        catastrophic_pattern = "^(a+)+$"
+        near_match = "a" * 30 + "!"
+        # Should cleanly return False without hanging
+        assert _match_pattern(catastrophic_pattern, near_match) is False
+
+    def test_stale_catalog_cache_fallback_on_db_failure(self):
+        """When catalog cache TTL expires and DB re-read fails, stale cache is preserved."""
+        from worker.tokens import pricing
+
+        pricing._cache = [
+            {"model_name": "stale-model", "match_pattern": None, "prices": {"input": 0.001}}
+        ]
+        pricing._cache_loaded_at = 100.0
+
+        with (
+            patch("time.monotonic", return_value=1000.0),  # > 300s TTL expired
+            patch("psycopg2.connect", side_effect=Exception("Database down")),
+        ):
+            loaded = pricing._load_cache()
+            # Stale cache is returned rather than empty list
+            assert loaded == pricing._cache
+            # _cache_loaded_at is NOT updated so next call still retries
+            assert pricing._cache_loaded_at == 100.0
+
+    def test_cache_bounding_and_pruning(self):
+        """Caches prune expired entries and enforce maximum bounds."""
+        from worker.tokens.pricing import _prune_cache
+
+        test_cache = {f"key_{i}": (50.0, f"val_{i}") for i in range(10)}
+        # Add some already expired entries and some fresh entries
+        test_cache["expired_1"] = (10.0, "old")
+        test_cache["fresh_1"] = (200.0, "new")
+
+        with patch("time.monotonic", return_value=100.0):
+            _prune_cache(test_cache, max_size=5)
+            # Expired entries are removed
+            assert "expired_1" not in test_cache
+            # Size is capped at 5
+            assert len(test_cache) <= 5
 
 
 class TestWorkspaceModelPricingIngest:
@@ -240,6 +285,32 @@ class TestWorkspaceModelPricingIngest:
             meta = json.loads(transformed["metadata"])
             assert meta.get(COST_SOURCE) == COST_SOURCE_SUPPLIED
 
+    def test_text_estimation_uses_workspace_custom_pricing(self):
+        """Text-estimated spans without reported token counts use workspace custom rates."""
+        custom_prices = {"input": 0.000002, "output": 0.000005}
+
+        span = make_span(self.TRACE, self.SPAN)
+        span["attributes"] = [
+            make_attr("traceroot.llm.model", "custom-chat-model"),
+            make_attr("traceroot.span.kind", "llm"),
+            make_attr("traceroot.llm.input", "hello world " * 10),
+            make_attr("traceroot.llm.output", "response text " * 10),
+        ]
+
+        with (
+            patch("worker.tokens.pricing.get_workspace_id_for_project", return_value="ws_1"),
+            patch(
+                "worker.tokens.pricing._load_workspace_prices",
+                return_value=[{"model_name": "custom-chat-model", "prices": custom_prices}],
+            ),
+        ):
+            _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "proj-1")
+            transformed = spans[0]
+
+            assert transformed["cost"] is not None
+            meta = json.loads(transformed["metadata"])
+            assert meta.get(COST_SOURCE) == COST_SOURCE_CUSTOM
+
 
 class TestTraceReaderWorkspaceCostDetails:
     """Verifies that trace reader cost_details breaks down custom model prices accurately."""
@@ -249,9 +320,13 @@ class TestTraceReaderWorkspaceCostDetails:
 
         custom_prices = {"input": 0.000002, "output": 0.000005}
 
-        with patch(
-            "rest.services.trace_reader.get_model_price", return_value=custom_prices
-        ) as mock_get_price:
+        with (
+            patch("worker.tokens.pricing.get_workspace_id_for_project", return_value="ws_1"),
+            patch(
+                "worker.tokens.pricing._load_workspace_prices",
+                return_value=[{"model_name": "my-custom-model", "prices": custom_prices}],
+            ),
+        ):
             details = span_cost_details(
                 model_name="my-custom-model",
                 input_tokens=1000,
@@ -261,7 +336,6 @@ class TestTraceReaderWorkspaceCostDetails:
                 project_id="proj-1",
             )
 
-            mock_get_price.assert_called_with("my-custom-model", project_id="proj-1")
             assert details["input_uncached_cost"] == 0.002
             assert details["output_cost"] == 0.001
             assert sum(details.values()) == 0.003

@@ -15,7 +15,7 @@ CREATE TABLE "workspace_model_prices" (
 );
 
 CREATE UNIQUE INDEX "uq_workspace_model_prices_workspace_model"
-    ON "workspace_model_prices"("workspace_id", "model_name");
+    ON "workspace_model_prices"("workspace_id", LOWER("model_name"));
 
 CREATE INDEX "ix_workspace_model_prices_workspace_id"
     ON "workspace_model_prices"("workspace_id");

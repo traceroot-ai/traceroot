@@ -328,6 +328,7 @@ class TestGetTraceSkeleton:
                         None,
                         None,
                         "TimeoutError",  # error_type
+                        0,  # cost_supplied
                     )
                 ]
             )

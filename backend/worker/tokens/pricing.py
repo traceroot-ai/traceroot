@@ -2,8 +2,8 @@
 
 Prices are loaded from the ``standard_models`` / ``standard_model_prices``
 PostgreSQL tables (synced from standard-model-prices.json by the TS services).
-The in-memory cache is populated on first call and persists for the process
-lifetime (prices only change on deploy/restart).
+The in-memory cache is populated on first call and refreshed every 5 minutes
+(prices are loaded from PostgreSQL).
 """
 
 from __future__ import annotations
@@ -12,6 +12,15 @@ import logging
 import re
 import time
 from decimal import Decimal
+
+try:
+    import regex
+
+    _HAS_REGEX = True
+except ImportError:
+    import re as regex  # type: ignore[no-redef]
+
+    _HAS_REGEX = False
 
 import psycopg2
 
@@ -31,11 +40,33 @@ _cache: list[dict] | None = None
 _cache_loaded_at: float = 0.0
 _CATALOG_CACHE_TTL = 300.0  # 5 minutes
 
+_MAX_CACHE_SIZE = 5000
+
 _workspace_prices_cache: dict[str, tuple[float, list[dict]]] = {}
 _WORKSPACE_CACHE_TTL = 60.0  # 60 seconds TTL for workspace custom prices
 
 _project_workspace_cache: dict[str, tuple[float, str | None]] = {}
 _PROJECT_WORKSPACE_CACHE_TTL = 300.0  # 5 minutes TTL for project->workspace mapping
+
+
+def _prune_cache(cache: dict, max_size: int = _MAX_CACHE_SIZE) -> None:
+    now = time.monotonic()
+    expired = [k for k, (exp, _) in cache.items() if now >= exp]
+    for k in expired:
+        cache.pop(k, None)
+    if len(cache) >= max_size:
+        excess = len(cache) - max_size + 1
+        for k in list(cache.keys())[:excess]:
+            cache.pop(k, None)
+
+
+def _match_pattern(pattern: str, model: str) -> bool:
+    try:
+        if _HAS_REGEX:
+            return bool(regex.search(pattern, model, regex.IGNORECASE, timeout=0.05))
+        return bool(re.search(pattern, model, re.IGNORECASE))
+    except (regex.error, TimeoutError, re.error):
+        return False
 
 
 def _load_cache() -> list[dict]:
@@ -61,12 +92,14 @@ def _load_cache() -> list[dict]:
         finally:
             conn.close()
     except Exception as exc:
-        # DB unavailable — return empty list but do NOT cache,
-        # so the next call will retry the connection.
+        # DB unavailable — return existing cache if available (without updating _cache_loaded_at
+        # so next call retries), otherwise return empty list without caching.
         logger.warning(
             "Failed to load model prices from DB — costs will be None until DB is available. Error: %s",
             exc,
         )
+        if _cache is not None:
+            return _cache
         return []
 
     # Group rows by model_name
@@ -109,9 +142,11 @@ def get_workspace_id_for_project(project_id: str | None) -> str | None:
         finally:
             conn.close()
     except Exception as exc:
-        logger.debug("Failed to lookup workspace_id for project %s: %s", project_id, exc)
+        logger.warning("Failed to lookup workspace_id for project %s: %s", project_id, exc)
         return None
 
+    if len(_project_workspace_cache) >= _MAX_CACHE_SIZE:
+        _prune_cache(_project_workspace_cache)
     _project_workspace_cache[project_id] = (now + _PROJECT_WORKSPACE_CACHE_TTL, workspace_id)
     return workspace_id
 
@@ -141,11 +176,13 @@ def _load_workspace_prices(workspace_id: str) -> list[dict]:
         finally:
             conn.close()
     except Exception as exc:
-        logger.debug(
+        logger.warning(
             "Failed to load workspace model prices from DB for workspace %s: %s",
             workspace_id,
             exc,
         )
+        if cached is not None:
+            return cached[1]
         return []
 
     for (
@@ -173,6 +210,8 @@ def _load_workspace_prices(workspace_id: str) -> list[dict]:
             }
         )
 
+    if len(_workspace_prices_cache) >= _MAX_CACHE_SIZE:
+        _prune_cache(_workspace_prices_cache)
     _workspace_prices_cache[workspace_id] = (now + _WORKSPACE_CACHE_TTL, models)
     return models
 
@@ -191,11 +230,9 @@ def _get_catalog_price(model: str) -> dict[str, float] | None:
 
     # Regex fallback using match_pattern
     for entry in catalog:
-        try:
-            if re.search(entry["match_pattern"], model, re.IGNORECASE):
-                return entry["prices"]
-        except re.error:
-            continue
+        pattern = entry.get("match_pattern")
+        if pattern and _match_pattern(pattern, model):
+            return entry["prices"]
 
     return None
 
@@ -214,12 +251,8 @@ def get_model_price(
                 return entry["prices"]
         for entry in ws_prices:
             pattern = entry.get("match_pattern")
-            if pattern:
-                try:
-                    if re.search(pattern, model, re.IGNORECASE):
-                        return entry["prices"]
-                except re.error:
-                    continue
+            if pattern and _match_pattern(pattern, model):
+                return entry["prices"]
 
     return _get_catalog_price(model)
 
@@ -244,12 +277,8 @@ def get_model_price_with_source(
                 return entry["prices"], COST_SOURCE_CUSTOM
         for entry in ws_prices:
             pattern = entry.get("match_pattern")
-            if pattern:
-                try:
-                    if re.search(pattern, model, re.IGNORECASE):
-                        return entry["prices"], COST_SOURCE_CUSTOM
-                except re.error:
-                    continue
+            if pattern and _match_pattern(pattern, model):
+                return entry["prices"], COST_SOURCE_CUSTOM
 
     # Fall back to get_model_price (honors patches/mocks in tests)
     catalog_prices = get_model_price(model)
@@ -352,18 +381,20 @@ def calculate_cost(
     model: str,
     input_text: str | None,
     output_text: str | None,
-) -> dict[str, int | float | None]:
+    project_id: str | None = None,
+) -> dict[str, int | float | str | None]:
     """Calculate token usage and cost.
 
     Returns:
-        Dict with input_tokens, output_tokens, total_tokens, cost.
+        Dict with input_tokens, output_tokens, total_tokens, cost, cost_source.
         Returns empty values if model not found.
     """
-    result: dict[str, int | float | None] = {
+    result: dict[str, int | float | str | None] = {
         "input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
         "cost": None,
+        "cost_source": None,
     }
 
     if not model:
@@ -377,7 +408,7 @@ def calculate_cost(
     result["output_tokens"] = output_tokens
     result["total_tokens"] = total_tokens
 
-    prices = get_model_price(model)
+    prices, cost_source = get_model_price_with_source(model, project_id=project_id)
     if prices:
         # Text estimation has no cache visibility, so cache buckets are zero.
         # Routing through cost_from_buckets keeps one cost formula across paths.
@@ -390,5 +421,6 @@ def calculate_cost(
                 cache_write=0,
             ),
         )
+        result["cost_source"] = cost_source
 
     return result

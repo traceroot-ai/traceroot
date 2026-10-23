@@ -946,7 +946,7 @@ class TraceReaderService:
 
         spans = []
         for row in spans_result.result_rows:
-            is_supplied_cost = bool(row[20]) if len(row) > 20 else False
+            is_supplied_cost = bool(row[20])
             cost_val = float(row[10]) if row[10] is not None else None
             spans.append(
                 {
