@@ -108,6 +108,34 @@ describe("validateWidgetSpecVocabulary", () => {
     );
   });
 
+  it("requires a key on a keyed filter field, as the compiler does", () => {
+    expect(error(spec({ filters: [{ field: "metadata", op: "=", value: "acme" }] }))).toBe(
+      'filter on field "metadata" on view "spans" requires a key',
+    );
+    expect(
+      validateWidgetSpecVocabulary(
+        spec({ filters: [{ field: "metadata", op: "=", value: "acme", key: "tenant" }] }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects a key on a field that does not take one", () => {
+    expect(
+      error(spec({ filters: [{ field: "name", op: "=", value: "chat", key: "tenant" }] })),
+    ).toBe('field "name" on view "spans" does not take a key');
+  });
+
+  it("caps a filter key at the compiler's 256 characters, counted as code points", () => {
+    const filter = (key: string) => ({ field: "metadata", op: "=", value: "acme", key });
+    expect(error(spec({ filters: [filter("k".repeat(257))] }))).toBe(
+      'key on field "metadata" on view "spans" exceeds 256 characters',
+    );
+    // 256 astral characters are 512 UTF-16 units but 256 characters to Python's len().
+    expect(validateWidgetSpecVocabulary(spec({ filters: [filter("😀".repeat(256))] }))).toEqual({
+      ok: true,
+    });
+  });
+
   it("mirrors the query compiler's float() coercion for number-field filter values", () => {
     // Numeric strings coerce (the compiler applies float(value)) — accepted.
     for (const value of ["500", " 1.5 ", ".5", "5.", "1e3", "1_000", "inf", "NaN", "+2"]) {
