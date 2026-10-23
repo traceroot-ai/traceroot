@@ -96,15 +96,7 @@ export function SessionDetailPanel({
   // so React runs it on unmount and the rail comes back.
   useEffect(() => {
     return registerAiHost();
-  }, [registerAiHost]);
-
-  // Close the assistant when this panel closes or the viewed session changes (#2327).
-  useEffect(() => {
-    return () => {
-      setAiPanelOpen(false);
-      setAiContext(null);
-    };
-  }, [sessionId, setAiPanelOpen, setAiContext]);
+  }, [registerAiHost, sessionId]);
 
   // Close the panel on Escape. A nested Radix overlay (dialog/select/popover/menu) that
   // consumes the Escape calls preventDefault() in the capture phase, before this

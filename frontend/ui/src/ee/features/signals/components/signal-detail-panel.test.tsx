@@ -260,7 +260,7 @@ describe("SignalDetailPanel criteria check", () => {
 });
 
 describe("SignalDetailPanel AI host cleanup", () => {
-  it("clears the AI panel state when the host unmounts, not just the slot", () => {
+  it("releases the AI host registration when the panel unmounts", () => {
     const { unmount } = render(
       <SignalDetailPanel
         projectId="proj-1"
@@ -277,14 +277,10 @@ describe("SignalDetailPanel AI host cleanup", () => {
         onToggleFullscreen={vi.fn()}
       />,
     );
-    expect(layoutMocks.setAiPanelOpen).not.toHaveBeenCalled();
 
     unmount();
 
     expect(layoutMocks.release).toHaveBeenCalledTimes(1);
-    expect(layoutMocks.setAiPanelOpen).toHaveBeenCalledWith(false);
-    expect(layoutMocks.setAiContext).toHaveBeenCalledWith(null);
-    expect(layoutMocks.setAiInitialSessionId).toHaveBeenCalledWith(undefined);
   });
 });
 

@@ -232,20 +232,11 @@ export function TraceViewerPanel({
   // so React runs it on unmount and the rail comes back.
   useEffect(() => {
     // Embedded (inside the assistant panel's sheet) the viewer must not claim
-    // the slot its own host lives in.
+    // the slot its own host lives in. Re-registers per trace, so viewing
+    // another trace releases the host and closes the assistant.
     if (embedded) return;
     return registerAiHost();
-  }, [registerAiHost, embedded]);
-
-  // Close the assistant when this panel closes or the viewed trace changes (#2327).
-  useEffect(() => {
-    if (embedded) return;
-    return () => {
-      setAiPanelOpen(false);
-      setAiContext(null);
-      setAiInitialSessionId(undefined);
-    };
-  }, [traceId, setAiPanelOpen, setAiContext, setAiInitialSessionId, embedded]);
+  }, [registerAiHost, embedded, traceId]);
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());

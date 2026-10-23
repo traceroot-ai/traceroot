@@ -66,23 +66,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
 
-  // Close the global AI panel whenever the user navigates.
-  // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
-  useEffect(() => {
+  const closeAiPanel = useCallback(() => {
     setAiPanelOpen(false);
     setAiContext(null);
     setAiInitialSessionId(undefined);
-  }, [pathname]);
+  }, []);
+
+  // Close the global AI panel whenever the user navigates.
+  // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
+  useEffect(() => {
+    closeAiPanel();
+  }, [pathname, closeAiPanel]);
 
   const registerAiHost = useCallback(() => {
     setAiHostRefCount((c) => c + 1);
     return () => {
       setAiHostRefCount((c) => Math.max(0, c - 1));
-      setAiPanelOpen(false);
-      setAiContext(null);
-      setAiInitialSessionId(undefined);
+      closeAiPanel();
     };
-  }, []);
+  }, [closeAiPanel]);
 
   const viewerOwnsAiSlot = aiHostRefCount > 0;
 
@@ -184,14 +186,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   groupResizeBehavior="preserve-pixel-size"
                   className="min-w-0 border-border"
                 >
-                  <AiAssistantPanel
-                    projectId={projectId}
-                    onClose={() => {
-                      setAiPanelOpen(false);
-                      setAiContext(null);
-                      setAiInitialSessionId(undefined);
-                    }}
-                  />
+                  <AiAssistantPanel projectId={projectId} onClose={closeAiPanel} />
                 </ResizablePanel>
               </>
             )}
