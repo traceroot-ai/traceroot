@@ -66,6 +66,7 @@ traceroot.initialize(
 | `integrations` | `list[Integration] \| None` | `None` | — | List of `Integration` enum members to auto-instrument. |
 | `git_repo` | `str \| None` | auto-detected | `TRACEROOT_GIT_REPO` | Git repository in `owner/repo` format. Auto-detected from CI environment or local git repository if unset. |
 | `git_ref` | `str \| None` | auto-detected | `TRACEROOT_GIT_REF` | Git reference (commit SHA, tag, or branch). Auto-detected from CI environment or local git repository if unset. |
+| `environment` | `str \| None` | `None` | `TRACEROOT_ENVIRONMENT` | Deployment environment name (e.g. `production`, `staging`). |
 
 ## Supported Integrations
 
@@ -272,6 +273,7 @@ All parameters except `integrations` can be configured via environment variables
 | `TRACEROOT_API_KEY` | (required) | `api_key` | TraceRoot API key for authentication. |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | `host_url` | API endpoint URL. |
 | `TRACEROOT_ENABLED` | `true` | `enabled` | Enable/disable tracing. |
+| `TRACEROOT_ENVIRONMENT` | — | `environment` | Deployment environment name (e.g. `production`, `staging`). |
 | `TRACEROOT_FLUSH_INTERVAL` | `5.0` | `flush_interval` | Interval in seconds between automatic flushes. |
 | `TRACEROOT_FLUSH_AT` | `100` | `batch_size` | Batch size before flush (note: maps to `batch_size` in `initialize()`). |
 | `TRACEROOT_TIMEOUT` | `30.0` | `timeout` | HTTP request timeout in seconds. |
