@@ -50,11 +50,6 @@ export function MeasureOption({ value, label, typeLabel, doc, icon }: MeasureOpt
           <MetaChip>Type: {typeLabel}</MetaChip>
         </div>
         <p className="mt-2 text-[12px] leading-snug text-muted-foreground">{doc.description}</p>
-        {doc.unavailable && (
-          <p className="mt-2 border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground">
-            {doc.unavailable}
-          </p>
-        )}
       </TooltipContent>
     </Tooltip>
   );

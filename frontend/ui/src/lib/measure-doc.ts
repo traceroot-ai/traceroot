@@ -6,8 +6,6 @@ export interface MeasureDoc {
   // it the measure's unit, not the result's.
   unit: string;
   description: string;
-  // Why a measure cannot return a number. Absent means available.
-  unavailable?: string;
 }
 
 /**
