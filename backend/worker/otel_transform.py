@@ -739,12 +739,18 @@ def transform_otel_to_clickhouse(
     _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
     _trace_environment: dict[str, str] = {}  # first non-null environment seen
 
-    # Traces whose true local root (a span exported with no parent id at all) has
-    # already been processed in this batch. An entry span whose parent is REMOTE
-    # (another service's, arrived via W3C ``traceparent``) also claims a trace's
-    # root seat — but the true root is the stronger claim and must win whenever
-    # both land in one batch, whichever order they are processed in.
+    # Root-claim bookkeeping for this batch, keyed by trace id. A TRUE local root
+    # (a span exported with no parent id at all) is the trace's authoritative
+    # identity and always claims the root seat; a remote-parent entry may claim
+    # only while no true root has claimed yet — whichever order the two arrive
+    # in. Among remote-parent entries themselves (two services fanning out of one
+    # shared, untraced caller) the FIRST processed entry claims and later ones are
+    # additional views of the same trace, matching the cross-batch rule at the
+    # ingest layer where an entry-only batch can fill an absent row but never
+    # replant an established one. Registration happens only once a span survives
+    # validation — see the claim site in the loop below.
     _true_root_traces: set[str] = set()
+    _remote_root_traces: set[str] = set()
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -779,16 +785,6 @@ def transform_otel_to_clickhouse(
                 )
                 if is_remote_parent_entry:
                     parent_span_id = None
-
-                # Root seat for this span: a parentless span always claims it; a
-                # remote-parent entry claims it only while no true local root has
-                # claimed the trace in this batch — the true root is the stronger
-                # identity and must win regardless of processing order.
-                if parent_span_id is None and not is_remote_parent_entry:
-                    _true_root_traces.add(trace_id)
-                claims_trace_root = not parent_span_id and (
-                    not is_remote_parent_entry or trace_id not in _true_root_traces
-                )
 
                 if not trace_id or not span_id:
                     logger.warning("Skipping span with missing traceId or spanId")
@@ -1290,6 +1286,26 @@ def transform_otel_to_clickhouse(
 
                 spans.append(span_record)
 
+                # Root-seat claim, decided only now that the span is fully
+                # validated and committed as a row: a root-shaped span discarded
+                # by any earlier skip path (missing id, missing timestamp) must
+                # not reserve the seat and block a later, valid remote-parent
+                # entry from establishing the trace's identity. A true local
+                # root always claims; among remote-parent entries the FIRST
+                # eligible one claims and later ones never do.
+                claims_trace_root = False
+                if parent_span_id is None:
+                    if is_remote_parent_entry:
+                        if (
+                            trace_id not in _true_root_traces
+                            and trace_id not in _remote_root_traces
+                        ):
+                            _remote_root_traces.add(trace_id)
+                            claims_trace_root = True
+                    else:
+                        _true_root_traces.add(trace_id)
+                        claims_trace_root = True
+
                 # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
@@ -1303,8 +1319,8 @@ def transform_otel_to_clickhouse(
                     trace_git_attrs[trace_id] = {"git_ref": None, "git_repo": None}
 
                 if claims_trace_root:
-                    # Root span (or a remote-parent entry before the true root
-                    # claimed this batch): always use its values if present
+                    # Root span (or the remote-parent entry that claimed the root
+                    # seat for this trace): always use its values if present
                     # (overwrites child values)
                     trace_attrs[trace_id]["user_id"] = (
                         span_user_id or trace_attrs[trace_id]["user_id"]
@@ -1376,9 +1392,9 @@ def transform_otel_to_clickhouse(
                         _trace_name_candidates[trace_id] = (depth, candidate_name)
 
                 if claims_trace_root:
-                    # Root span arrived (a true local root, or the earliest remote-
-                    # parent entry of the trace in this batch) — upgrade to a full
-                    # trace with rich metadata. A true local root processed later
+                    # Root span arrived (a true local root, or the remote-parent
+                    # entry that claimed the root seat) — upgrade to a full trace
+                    # with rich metadata. A true local root processed later
                     # re-runs this with its own values, so it wins either way.
                     traces[trace_id].update(
                         {

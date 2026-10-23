@@ -25,6 +25,7 @@ from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     PARENT_IS_REMOTE_KEY,
     _parent_context_is_remote,
+    nanos_to_datetime,
     transform_otel_to_clickhouse,
 )
 
@@ -62,6 +63,13 @@ def _remote_entry_payload(span_id_hex: str, flags: int | None) -> dict:
     if flags is not None:
         span["flags"] = flags
     return make_otel_payload([span])
+
+
+def _span_without_start_time(span: dict) -> dict:
+    """Make a span invalid in the way the transformer's second skip path models:
+    a missing startTimeUnixNano discards it after the id checks."""
+    del span["startTimeUnixNano"]
+    return span
 
 
 # -- flags decoder ------------------------------------------------------------
@@ -119,6 +127,16 @@ class TestRemoteParentEntrySpan:
     def test_children_link_to_the_entry_span(self):
         payload = make_otel_payload(
             [
+                # The child is exported FIRST, so the transformer sees it before
+                # the entry: it builds the eager placeholder trace row ("llm-call",
+                # no input), which the entry's claim must then upgrade.
+                make_span(
+                    TRACE_HEX,
+                    CHILD_SPAN_HEX,
+                    name="llm-call",
+                    parent_span_id_hex=ENTRY_SPAN_HEX,
+                    attributes=[make_attr("traceroot.span.type", "LLM")],
+                ),
                 make_span(
                     TRACE_HEX,
                     ENTRY_SPAN_HEX,
@@ -126,13 +144,6 @@ class TestRemoteParentEntrySpan:
                     parent_span_id_hex=REMOTE_PARENT_HEX,
                     attributes=entry_span_attributes(),
                     flags=768,
-                ),
-                make_span(
-                    TRACE_HEX,
-                    CHILD_SPAN_HEX,
-                    name="llm-call",
-                    parent_span_id_hex=ENTRY_SPAN_HEX,
-                    attributes=[make_attr("traceroot.span.type", "LLM")],
                 ),
             ]
         )
@@ -142,7 +153,9 @@ class TestRemoteParentEntrySpan:
         by_id = {s["span_id"]: s for s in spans}
         assert by_id[CHILD_SPAN_HEX]["parent_span_id"] == ENTRY_SPAN_HEX
         assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] is None
-        # The entry's upgrade fires even though the child is processed first.
+        # The entry's upgrade fires even though the child was processed first and
+        # already created the shallow trace row; the child stays a child and never
+        # takes the root seat.
         assert traces[0]["name"] == "handle_request"
         assert traces[0]["input"] == "user question"
 
@@ -267,9 +280,58 @@ class TestTrueRootPrecedence:
         # The entry must not replant the trace row's identity over the true root's.
         assert "input" not in row
 
-    def test_last_remote_entry_finalizes_when_no_true_root_exists(self):
-        """Two services' entries of one rootless trace: the later-processed one wins."""
+    def test_first_remote_entry_claims_and_later_ones_cannot_overwrite(self):
+        """Two services' entries of one rootless trace in one batch: the FIRST
+        processed one claims the root seat, and a later entry — an additional
+        view of the same trace — must not replace the established name, input,
+        output, or start time. This matches the cross-batch ingest rule, where
+        an entry-only batch can fill an absent row but never replants an
+        existing one. Both spans still normalize to parentless entries."""
         second_entry_hex = "01" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                    start_nanos=1705320000000000000,
+                ),
+                make_span(
+                    TRACE_HEX,
+                    second_entry_hex,
+                    name="enqueue_job",
+                    parent_span_id_hex="02" * 8,
+                    flags=768,
+                    start_nanos=1705320009000000000,
+                    attributes=[
+                        make_attr("traceroot.span.input", "second input"),
+                        make_attr("traceroot.span.output", "second output"),
+                    ],
+                ),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        (row,) = traces
+        # The first entry's identity survives; every distinct value the later
+        # entry carries (name, input, output, start time) must not overwrite it.
+        assert row["name"] == "handle_request"
+        assert row["input"] == "user question"
+        assert row["output"] == "final answer"
+        assert row["trace_start_time"] == nanos_to_datetime(1705320000000000000)
+        by_id = {s["span_id"]: s for s in spans}
+        assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] is None
+        assert by_id[ENTRY_SPAN_HEX][PARENT_IS_REMOTE_KEY] is True
+        assert by_id[second_entry_hex]["parent_span_id"] is None
+        assert by_id[second_entry_hex][PARENT_IS_REMOTE_KEY] is True
+
+    def test_remote_entry_followed_by_children_keeps_the_claimed_metadata(self):
+        """Children exported after the entry never take the root seat, so their
+        names/inputs stay off the trace row even when they arrive last."""
         payload = make_otel_payload(
             [
                 make_span(
@@ -282,21 +344,57 @@ class TestTrueRootPrecedence:
                 ),
                 make_span(
                     TRACE_HEX,
-                    second_entry_hex,
-                    name="enqueue_job",
-                    parent_span_id_hex="02" * 8,
-                    flags=768,
+                    CHILD_SPAN_HEX,
+                    name="llm-call",
+                    parent_span_id_hex=ENTRY_SPAN_HEX,
+                    attributes=[
+                        make_attr("traceroot.span.type", "LLM"),
+                        make_attr("traceroot.span.input", "child input"),
+                    ],
                 ),
             ]
         )
 
-        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+        traces, _spans = transform_otel_to_clickhouse(payload, _PROJECT)
 
         (row,) = traces
-        assert row["name"] == "enqueue_job"
-        by_id = {s["span_id"]: s for s in spans}
-        assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] is None
-        assert by_id[second_entry_hex]["parent_span_id"] is None
+        assert row["name"] == "handle_request"
+        assert row["input"] == "user question"
+
+    def test_claims_stay_isolated_across_traces_in_one_batch(self):
+        """Two traces, each with a true root and its own remote entry, in one
+        batch: every trace resolves to its true root regardless of position."""
+        other_trace_hex = "11" * 16
+        other_entry_hex = "12" * 8
+        other_true_root_hex = "13" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+                make_span(TRACE_HEX, TRUE_ROOT_HEX, name="agent-run"),
+                make_span(
+                    other_trace_hex,
+                    other_entry_hex,
+                    name="other-entry",
+                    parent_span_id_hex="14" * 8,
+                    attributes=[make_attr("traceroot.span.input", "other input")],
+                    flags=768,
+                ),
+                make_span(other_trace_hex, other_true_root_hex, name="other-root"),
+            ]
+        )
+
+        traces, _spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        rows = {row["trace_id"]: row for row in traces}
+        assert rows[TRACE_HEX]["name"] == "agent-run"
+        assert rows[other_trace_hex]["name"] == "other-root"
 
     def test_trace_isolation_does_not_leak_remote_root_claims(self):
         """One trace's true root must not disqualify another trace's entry span."""
@@ -321,3 +419,115 @@ class TestTrueRootPrecedence:
         assert rows[TRACE_HEX]["name"] == "handle_request"
         assert rows[TRACE_HEX]["input"] == "user question"
         assert rows[other_hex]["name"] == "other-root"
+
+
+# -- a discarded root-shaped span must not reserve the root seat -------------
+
+
+class TestInvalidRootDoesNotReserveTheSeat:
+    """Root-claim bookkeeping registers only spans that survive validation, so a
+    true-root-shaped span discarded by a skip path (missing id, missing start
+    time) can never block a later valid remote-parent entry from establishing
+    the trace — the trace must not stay a placeholder."""
+
+    def test_true_root_missing_start_time_does_not_block_a_valid_remote_entry(self):
+        payload = make_otel_payload(
+            [
+                # Root-shaped but invalid: no startTimeUnixNano, so the loop
+                # discards it after the id checks.
+                _span_without_start_time(make_span(TRACE_HEX, TRUE_ROOT_HEX, name="agent-run")),
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        (row,) = traces
+        assert row["name"] == "handle_request"
+        assert row["input"] == "user question"
+        assert row["output"] == "final answer"
+        assert row["user_id"] == "u-42"
+        # Only the valid entry produced a span row.
+        assert [s["span_id"] for s in spans] == [ENTRY_SPAN_HEX]
+
+    def test_root_with_missing_span_id_does_not_block_a_valid_remote_entry(self):
+        # spanId decodes to None (empty bytes): the earliest skip path drops it,
+        # and it must leave no claim behind either.
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_HEX, "", name="agent-run"),
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        (row,) = traces
+        assert row["name"] == "handle_request"
+        assert row["input"] == "user question"
+        assert [s["span_id"] for s in spans] == [ENTRY_SPAN_HEX]
+
+    def test_discarded_root_does_not_leak_across_traces(self):
+        """An invalid root of one trace must not contaminate another trace's
+        claims: trace A falls back to its valid remote entry, trace B keeps its
+        own true root."""
+        other_trace_hex = "11" * 16
+        payload = make_otel_payload(
+            [
+                _span_without_start_time(make_span(TRACE_HEX, TRUE_ROOT_HEX, name="agent-run")),
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+                make_span(other_trace_hex, "12" * 8, name="other-root"),
+            ]
+        )
+
+        traces, _spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        rows = {row["trace_id"]: row for row in traces}
+        assert rows[TRACE_HEX]["name"] == "handle_request"
+        assert rows[TRACE_HEX]["input"] == "user question"
+        assert rows[other_trace_hex]["name"] == "other-root"
+
+    def test_a_valid_true_root_still_outranks_the_remote_entry(self):
+        """The invalid-root relaxation must not weaken true-root precedence: a
+        valid true root claiming after the entry still overwrites the row."""
+        payload = make_otel_payload(
+            [
+                _span_without_start_time(make_span(TRACE_HEX, "01" * 8, name="discarded-root")),
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+                make_span(TRACE_HEX, TRUE_ROOT_HEX, name="agent-run"),
+            ]
+        )
+
+        traces, _spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        (row,) = traces
+        assert row["name"] == "agent-run"
+        assert row["user_id"] == "u-42"  # entry's trace.user survives the re-claim
