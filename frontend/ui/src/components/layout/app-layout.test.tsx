@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, act } from "@testing-library/react";
-import { useEffect, useLayoutEffect } from "react";
+import { render, cleanup, screen, act, fireEvent } from "@testing-library/react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { useAiChatContext } from "@/features/ai-assistant/components/ai-chat-context";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
 // irrelevant to the visibility logic under test.
@@ -9,28 +10,46 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/p1/traces",
 }));
 vi.mock("./sidebar", () => ({ Sidebar: () => null }));
-const mockChatState = {
-  messages: [
-    { id: "m1", role: "user", content: "analyze this trace" },
-    { id: "m2", role: "assistant", content: "investigating..." },
-  ],
-  isStreaming: true,
-};
-
-vi.mock("@/features/ai-assistant/components/ai-chat-context", () => ({
-  AiChatProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useAiChatContext: () => mockChatState,
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({ retentionDays: 30 }),
 }));
 
-vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
-  AiAssistantPanel: () => {
-    return (
-      <div data-testid="ai-panel">
-        <span data-testid="stream-status">{mockChatState.isStreaming ? "streaming" : "idle"}</span>
-        <span data-testid="msg-count">{mockChatState.messages.length}</span>
-      </div>
-    );
+vi.mock("@/features/ai-assistant/hooks/use-ai-chat", () => ({
+  useAiChat: () => {
+    const [messages, setMessages] = useState([
+      { id: "m1", role: "user", content: "analyze this trace" },
+      { id: "m2", role: "assistant", content: "investigating..." },
+    ]);
+    const [isStreaming] = useState(true);
+    const appendMessage = (msg: { id: string; role: string; content: string }) => {
+      setMessages((prev) => [...prev, msg]);
+    };
+    return {
+      messages,
+      isStreaming,
+      appendMessage,
+    };
   },
+}));
+
+function MockAiPanel() {
+  const { messages, isStreaming, appendMessage } = useAiChatContext();
+  return (
+    <div data-testid="ai-panel">
+      <span data-testid="stream-status">{isStreaming ? "streaming" : "idle"}</span>
+      <span data-testid="msg-count">{messages.length}</span>
+      <button
+        data-testid="add-msg-btn"
+        onClick={() => appendMessage({ id: "m3", role: "user", content: "followup" })}
+      >
+        Add
+      </button>
+    </div>
+  );
+}
+
+vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
+  AiAssistantPanel: () => <MockAiPanel />,
 }));
 
 vi.mock("@/components/ui/resizable", () => ({
@@ -200,9 +219,27 @@ describe("AppLayout AI host management and assistant dismissal", () => {
     });
     expect(capturedLayout.aiPanelOpen).toBe(true);
 
-    // Panel is mounted in the rail and previous chat history + in-flight stream are intact
+    // Panel is mounted in the rail and backed by the real AiChatProvider context
     expect(screen.getByTestId("ai-panel")).toBeDefined();
     expect(screen.getByTestId("stream-status").textContent).toBe("streaming");
     expect(screen.getByTestId("msg-count").textContent).toBe("2");
+
+    // Send a message to mutate chat state in the real provider context
+    fireEvent.click(screen.getByTestId("add-msg-btn"));
+    expect(screen.getByTestId("msg-count").textContent).toBe("3");
+
+    // Close the panel again (dismissal)
+    act(() => {
+      capturedLayout.setAiPanelOpen(false);
+    });
+    expect(screen.queryByTestId("ai-panel")).toBeNull();
+
+    // Reopen the assistant and assert the mutated chat state and stream survive
+    act(() => {
+      capturedLayout.setAiPanelOpen(true);
+    });
+    expect(screen.getByTestId("ai-panel")).toBeDefined();
+    expect(screen.getByTestId("stream-status").textContent).toBe("streaming");
+    expect(screen.getByTestId("msg-count").textContent).toBe("3");
   });
 });
