@@ -116,6 +116,10 @@ Eval results are redacted too. Datasets and scorer definitions are not, so keep 
 
 The trace view marks every span the function ran on as **Redacted by your app**. A regex will not catch names or addresses. For those, call a PII detection library inside the function.
 
+<Frame caption="Span details: the Redacted by your app label and the redacted input">
+  <img src="/images/span_redacted_v1.png" alt="Span details for update_shipping_contact with a Redacted by your app label, and an input message whose email address and phone number show as [REDACTED]" />
+</Frame>
+
 ## Redact Pi content before export
 
 The TypeScript Pi instrumentation accepts a `captureContent` callback. It runs before content is attached to a span and can return replacement text or `undefined` to omit that item.
