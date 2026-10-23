@@ -331,7 +331,7 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     # Import here to avoid circular imports and ensure fresh connections
     from db.clickhouse.client import get_clickhouse_client
     from rest.services.s3 import get_s3_service
-    from worker.otel_transform import transform_otel_to_clickhouse
+    from worker.otel_transform import PARENT_IS_REMOTE_KEY, transform_otel_to_clickhouse
 
     logger.info(f"Processing S3 traces: {s3_key} for project {project_id}")
 
@@ -346,18 +346,33 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+        # A batch whose root span is a true local root (exported with no parent id
+        # at all) carries the trace's authoritative identity: its trace record may
+        # replace whatever an earlier batch stored. A batch whose only parentless
+        # spans are remote-parent entries (W3C ``traceparent``) carries a second
+        # service's view of a possibly-shared trace — its trace record rides the
+        # same existing-row probe below as batches without any root, so it fills a
+        # gap but never replants an identity the true root already wrote. The
+        # detector enqueue still treats every root-bearing trace the same.
+        locally_rooted_trace_ids = {
+            s["trace_id"]
+            for s in spans
+            if s.get("parent_span_id") is None and not s.get(PARENT_IS_REMOTE_KEY)
+        }
 
         # 3. Insert into ClickHouse
         if traces or spans:
             ch_client = get_clickhouse_client()
 
             if traces:
-                # Only insert a trace record if this batch contains the root span
-                # OR the trace is genuinely new (no existing ClickHouse record).
-                # Intermediate batches without the root span must not overwrite a
-                # correctly-named trace record with a wrong name.
+                # Only insert a trace record if this batch contains the trace's
+                # true root span OR the trace is genuinely new (no existing
+                # ClickHouse record). Intermediate batches — without the root
+                # span, or whose only root-bearing spans are remote-parent
+                # entries — must not overwrite a correctly-named trace record
+                # with a wrong name.
                 trace_records_missing_root = [
-                    t for t in traces if t["trace_id"] not in root_bearing_trace_ids
+                    t for t in traces if t["trace_id"] not in locally_rooted_trace_ids
                 ]
                 if trace_records_missing_root:
                     ids = [t["trace_id"] for t in trace_records_missing_root]
@@ -376,7 +391,7 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                     traces = [
                         t
                         for t in traces
-                        if t["trace_id"] in root_bearing_trace_ids
+                        if t["trace_id"] in locally_rooted_trace_ids
                         or t["trace_id"] not in existing_ids
                     ]
 

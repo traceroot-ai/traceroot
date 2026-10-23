@@ -34,8 +34,14 @@ def make_span(
     end_nanos: int = 1705320001000000000,
     attributes: list[dict] | None = None,
     status_code: int | str = 0,
+    flags: int | None = None,
 ) -> dict:
-    """Build a single OTEL span dict."""
+    """Build a single OTEL span dict.
+
+    ``flags`` is the raw OTLP Span.flags field (uint32). An entry span exported
+    with a remote parent context carries 0x300 (HAS_IS_REMOTE | IS_REMOTE); a
+    local root exports 0x100. Leave it None to omit the field, as OTel JS does.
+    """
     span = {
         "traceId": encode_id(trace_id_hex),
         "spanId": encode_id(span_id_hex),
@@ -47,6 +53,8 @@ def make_span(
     }
     if parent_span_id_hex:
         span["parentSpanId"] = encode_id(parent_span_id_hex)
+    if flags is not None:
+        span["flags"] = flags
     return span
 
 

@@ -422,3 +422,193 @@ class TestUpdateEvalResultCosts:
 
         assert ingest_tasks.backfill_eval_result_costs() == {"projects": 0, "traces": 0}
         assert called == []
+
+
+class TestRemoteParentEntrySpans:
+    """Ingest gating for true local roots vs remote-parent entries (W3C traceparent).
+
+    A called service's entry span is parentless after the OTLP-flags fix, so its
+    batch is root-bearing and its trace record may replace an earlier placeholder.
+    But it is NOT the trace's authoritative identity when a true local root also
+    reaches the project: the true-root batch must keep unconditional replace, and
+    the remote batch must ride the existing-row probe. Detector enqueue treats
+    both as root-bearing either way.
+    """
+
+    TRACE_HEX = "cc" * 16
+    ENTRY_SPAN_HEX = "11" * 8
+    REMOTE_PARENT_HEX = "22" * 8
+    TRUE_ROOT_HEX = "33" * 8
+
+    @pytest.fixture(autouse=True)
+    def skip_live_publish(self, monkeypatch):
+        """Spans here carry traceroot.span.input/output, which triggers the live
+        Redis publish; skip it so these tests never dial localhost:6379."""
+        monkeypatch.setattr("worker.ingest_tasks._publish_live_spans", MagicMock())
+
+    def _entry_batch(self) -> dict:
+        payload = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE_HEX,
+                    self.ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=self.REMOTE_PARENT_HEX,
+                    attributes=[
+                        {"key": "traceroot.span.input", "value": {"stringValue": "user input"}},
+                        {
+                            "key": "traceroot.span.output",
+                            "value": {"stringValue": "user output"},
+                        },
+                        {"key": "traceroot.trace.metadata", "value": {"stringValue": "{}"}},
+                    ],
+                    flags=768,
+                )
+            ]
+        )
+        return payload
+
+    def _true_root_batch(self) -> dict:
+        return make_otel_payload([make_span(self.TRACE_HEX, self.TRUE_ROOT_HEX, name="agent-run")])
+
+    def test_remote_entry_batch_inserts_trace_and_enqueues(
+        self, mock_s3, mock_ch, mock_detector_enqueue
+    ):
+        """Genuinely new: the flagged batch inserts a full trace row and triggers detection."""
+        mock_s3.download_json.return_value = self._entry_batch()
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        result = process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        assert (result["traces"], result["spans"]) == (1, 1)
+        (inserted,) = mock_ch.insert_traces_batch.call_args[0][0]
+        assert inserted["name"] == "handle_request"
+        assert inserted["input"] == "user input"  # full root-upgrade row, not a placeholder
+        mock_ch.insert_spans_batch.assert_called_once()
+        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX})
+
+    def test_existing_row_blocks_the_remote_batch_from_replanting(
+        self, mock_s3, mock_ch, mock_detector_enqueue
+    ):
+        """Probe hit: a remote-entry batch fills no identity, spans still insert, detection fires."""
+        mock_s3.download_json.return_value = self._entry_batch()
+        mock_ch.query.return_value = MagicMock(result_rows=[(self.TRACE_HEX,)])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_ch.insert_traces_batch.assert_not_called()
+        mock_ch.insert_spans_batch.assert_called_once()
+        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX})
+
+    def test_true_root_batch_still_replaces_an_existing_row(
+        self, mock_s3, mock_ch, mock_detector_enqueue
+    ):
+        """Unchanged behavior for a true local root: unconditional replace, no probe."""
+        payload = make_otel_payload(
+            [
+                make_span(self.TRACE_HEX, self.TRUE_ROOT_HEX, name="agent-run"),
+                make_span(
+                    self.TRACE_HEX,
+                    self.ENTRY_SPAN_HEX,
+                    name="llm-call",
+                    parent_span_id_hex=self.TRUE_ROOT_HEX,
+                ),
+            ]
+        )
+        mock_s3.download_json.return_value = payload
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_ch.query.assert_not_called()
+        mock_ch.insert_traces_batch.assert_called_once()
+        mock_detector_enqueue.assert_called_once()
+        _project_id, traces_with_root = mock_detector_enqueue.call_args[0]
+        assert traces_with_root == {self.TRACE_HEX}
+
+    def test_true_root_lands_after_the_remote_batch_and_wins(
+        self, mock_s3, mock_ch, mock_detector_enqueue
+    ):
+        """Remote batch first (new trace → its row), true-root batch second → row is replaced
+        with the true root's identity. Arrival order must not matter."""
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        mock_s3.download_json.return_value = self._entry_batch()
+        process_s3_traces(s3_key="test/1.json", project_id="proj-1")
+        first_row = mock_ch.insert_traces_batch.call_args_list[0][0][0][0]
+        assert first_row["name"] == "handle_request"
+
+        mock_s3.download_json.return_value = self._true_root_batch()
+        process_s3_traces(s3_key="test/2.json", project_id="proj-1")
+        second_row = mock_ch.insert_traces_batch.call_args_list[1][0][0][0]
+        assert second_row["name"] == "agent-run"
+        # Mocked enqueue saw both claim attempts; the one-per-trace dedup is
+        # detector_tasks' Redis-claim concern (covered by that module's tests).
+        assert mock_detector_enqueue.call_count == 2
+
+    def test_replayed_remote_batch_writes_spans_again_but_not_the_row(self, mock_s3, mock_ch):
+        """Delivery retry of the same remote batch: probe hit → the trace row is not
+        duplicated; spans are re-inserted (deduped by ClickHouse); enqueue re-fires."""
+        responses = [
+            MagicMock(result_rows=[]),  # first delivery: genuinely new
+            MagicMock(result_rows=[(self.TRACE_HEX,)]),  # replay: row already exists
+        ]
+        mock_ch.query.side_effect = responses
+        mock_s3.download_json.return_value = self._entry_batch()
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        inserts = mock_ch.insert_traces_batch.call_args_list
+        assert len(inserts) == 1
+        assert mock_ch.insert_spans_batch.call_count == 2
+
+    def test_late_children_of_a_remote_root_enqueue_nothing(
+        self, mock_s3, mock_ch, mock_detector_enqueue
+    ):
+        """Children exported in a later batch: no second detection trigger for the trace."""
+        children_batch = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE_HEX,
+                    "44" * 8,
+                    name="llm-call",
+                    parent_span_id_hex=self.ENTRY_SPAN_HEX,
+                )
+            ]
+        )
+        mock_ch.query.return_value = MagicMock(result_rows=[(self.TRACE_HEX,)])
+        mock_s3.download_json.return_value = children_batch
+
+        process_s3_traces(s3_key="test/later-children.json", project_id="proj-1")
+
+        mock_detector_enqueue.assert_not_called()
+
+    def test_remote_root_and_true_root_of_different_traces_in_one_batch(
+        self, mock_s3, mock_ch, mock_detector_enqueue
+    ):
+        """Cross-trace isolation: each trace's row and trigger treatment stay its own."""
+        other_hex = "dd" * 16
+        mixed = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE_HEX,
+                    self.ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=self.REMOTE_PARENT_HEX,
+                    flags=768,
+                ),
+                make_span(other_hex, "55" * 8, name="other-root"),
+            ]
+        )
+        mock_s3.download_json.return_value = mixed
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        inserted = mock_ch.insert_traces_batch.call_args[0][0]
+        names = {row["trace_id"]: row["name"] for row in inserted}
+        assert names == {self.TRACE_HEX: "handle_request", other_hex: "other-root"}
+        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX, other_hex})
+        spans_inserted = mock_ch.insert_spans_batch.call_args[0][0]
+        remote_span = next(s for s in spans_inserted if s["span_id"] == self.ENTRY_SPAN_HEX)
+        assert remote_span["parent_span_id"] is None  # normalized remote-parent entry
