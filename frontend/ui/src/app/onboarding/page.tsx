@@ -594,7 +594,7 @@ function OnboardingContent() {
             page sits in the middle of.
             Everything that is the same on every step lives in this block, which
             is the block `StandaloneFrame` pins to the top of the viewport. */}
-        <div className="mb-6 flex flex-col items-center gap-2 text-center">
+        <div className="mb-4 flex flex-col items-center gap-2 text-center">
           <Logo size="lg" />
           <div>
             {/* The first run, named as one. "Setup" is the word this product
