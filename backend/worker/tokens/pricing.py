@@ -9,7 +9,6 @@ The in-memory cache is populated on first call and refreshed every 5 minutes
 from __future__ import annotations
 
 import logging
-import re
 import time
 from decimal import Decimal
 
@@ -18,8 +17,6 @@ try:
 
     _HAS_REGEX = True
 except ImportError:
-    import re as regex  # type: ignore[no-redef]
-
     _HAS_REGEX = False
 
 import psycopg2
@@ -61,11 +58,11 @@ def _prune_cache(cache: dict, max_size: int = _MAX_CACHE_SIZE) -> None:
 
 
 def _match_pattern(pattern: str, model: str) -> bool:
+    if not _HAS_REGEX:
+        return False
     try:
-        if _HAS_REGEX:
-            return bool(regex.search(pattern, model, regex.IGNORECASE, timeout=0.05))
-        return bool(re.search(pattern, model, re.IGNORECASE))
-    except (regex.error, TimeoutError, re.error):
+        return bool(regex.search(pattern, model, regex.IGNORECASE, timeout=0.05))
+    except (regex.error, TimeoutError):
         return False
 
 
@@ -143,6 +140,8 @@ def get_workspace_id_for_project(project_id: str | None) -> str | None:
             conn.close()
     except Exception as exc:
         logger.warning("Failed to lookup workspace_id for project %s: %s", project_id, exc)
+        if cached is not None:
+            return cached[1]
         return None
 
     if len(_project_workspace_cache) >= _MAX_CACHE_SIZE:

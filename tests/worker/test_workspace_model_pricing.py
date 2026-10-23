@@ -22,6 +22,7 @@ from shared.span_attributes import (
     COST_SOURCE,
     COST_SOURCE_CATALOG,
     COST_SOURCE_CUSTOM,
+    COST_SOURCE_ESTIMATED,
     COST_SOURCE_SUPPLIED,
 )
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
@@ -39,6 +40,10 @@ class TestWorkspaceModelPricingLookup:
     """Verifies low-level cache loading, matching, and precedence in pricing.py."""
 
     def setup_method(self):
+        _workspace_prices_cache.clear()
+        _project_workspace_cache.clear()
+
+    def teardown_method(self):
         _workspace_prices_cache.clear()
         _project_workspace_cache.clear()
 
@@ -186,14 +191,16 @@ class TestWorkspaceModelPricingLookup:
         # Should cleanly return False without hanging
         assert _match_pattern(catastrophic_pattern, near_match) is False
 
-    def test_stale_catalog_cache_fallback_on_db_failure(self):
+    def test_stale_catalog_cache_fallback_on_db_failure(self, monkeypatch):
         """When catalog cache TTL expires and DB re-read fails, stale cache is preserved."""
         from worker.tokens import pricing
 
-        pricing._cache = [
-            {"model_name": "stale-model", "match_pattern": None, "prices": {"input": 0.001}}
-        ]
-        pricing._cache_loaded_at = 100.0
+        monkeypatch.setattr(
+            pricing,
+            "_cache",
+            [{"model_name": "stale-model", "match_pattern": None, "prices": {"input": 0.001}}],
+        )
+        monkeypatch.setattr(pricing, "_cache_loaded_at", 100.0)
 
         with (
             patch("time.monotonic", return_value=1000.0),  # > 300s TTL expired
@@ -205,11 +212,22 @@ class TestWorkspaceModelPricingLookup:
             # _cache_loaded_at is NOT updated so next call still retries
             assert pricing._cache_loaded_at == 100.0
 
+    def test_stale_project_workspace_mapping_fallback_on_db_failure(self):
+        """When project workspace mapping TTL expires and DB re-read fails, stale mapping is returned."""
+        _project_workspace_cache["proj-stale"] = (50.0, "ws-stale")
+
+        with (
+            patch("time.monotonic", return_value=100.0),
+            patch("psycopg2.connect", side_effect=Exception("Database down")),
+        ):
+            wid = get_workspace_id_for_project("proj-stale")
+            assert wid == "ws-stale"
+
     def test_cache_bounding_and_pruning(self):
         """Caches prune expired entries and enforce maximum bounds."""
         from worker.tokens.pricing import _prune_cache
 
-        test_cache = {f"key_{i}": (50.0, f"val_{i}") for i in range(10)}
+        test_cache = {f"key_{i}": (500.0, f"val_{i}") for i in range(10)}
         # Add some already expired entries and some fresh entries
         test_cache["expired_1"] = (10.0, "old")
         test_cache["fresh_1"] = (200.0, "new")
@@ -309,7 +327,7 @@ class TestWorkspaceModelPricingIngest:
 
             assert transformed["cost"] is not None
             meta = json.loads(transformed["metadata"])
-            assert meta.get(COST_SOURCE) == COST_SOURCE_CUSTOM
+            assert meta.get(COST_SOURCE) == COST_SOURCE_ESTIMATED
 
 
 class TestTraceReaderWorkspaceCostDetails:

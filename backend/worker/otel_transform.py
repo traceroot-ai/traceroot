@@ -1264,9 +1264,7 @@ def transform_otel_to_clickhouse(
                             span_attrs[COST_SOURCE] = COST_SOURCE_SUPPLIED
                         elif usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
-                            span_attrs[COST_SOURCE] = (
-                                usage.get("cost_source") or COST_SOURCE_ESTIMATED
-                            )
+                            span_attrs[COST_SOURCE] = COST_SOURCE_ESTIMATED
 
                 # Fallback for spans where cost was supplied directly by the caller
                 # but neither token-pricing branch priced it (e.g. unpriced model with no tokens,
