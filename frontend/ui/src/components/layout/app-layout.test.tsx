@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, act, fireEvent } from "@testing-library/react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useAiChatContext } from "@/features/ai-assistant/components/ai-chat-context";
+import type { AIMessage } from "@/features/ai-assistant/types";
+import type { useAiChat as useAiChatHook } from "@/features/ai-assistant/hooks/use-ai-chat";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
 // irrelevant to the visibility logic under test.
@@ -16,31 +18,41 @@ vi.mock("@/lib/hooks/use-retention", () => ({
 
 vi.mock("@/features/ai-assistant/hooks/use-ai-chat", () => ({
   useAiChat: () => {
-    const [messages, setMessages] = useState([
-      { id: "m1", role: "user", content: "analyze this trace" },
-      { id: "m2", role: "assistant", content: "investigating..." },
+    const [messages, setMessages] = useState<AIMessage[]>([
+      { id: "m1", role: "user", content: "analyze this trace", timestamp: "2026-01-01" },
+      { id: "m2", role: "assistant", content: "investigating...", timestamp: "2026-01-01" },
     ]);
     const [isStreaming] = useState(true);
-    const appendMessage = (msg: { id: string; role: string; content: string }) => {
-      setMessages((prev) => [...prev, msg]);
+    const handleSend = async (message: string) => {
+      setMessages((prev) => [
+        ...prev,
+        { id: "m3", role: "user", content: message, timestamp: "2026-01-01" },
+      ]);
     };
     return {
       messages,
       isStreaming,
-      appendMessage,
-    };
+      handleSend,
+    } as unknown as ReturnType<typeof useAiChatHook>;
   },
 }));
 
 function MockAiPanel() {
-  const { messages, isStreaming, appendMessage } = useAiChatContext();
+  const { messages, isStreaming, handleSend } = useAiChatContext();
   return (
     <div data-testid="ai-panel">
       <span data-testid="stream-status">{isStreaming ? "streaming" : "idle"}</span>
       <span data-testid="msg-count">{messages.length}</span>
       <button
         data-testid="add-msg-btn"
-        onClick={() => appendMessage({ id: "m3", role: "user", content: "followup" })}
+        onClick={() =>
+          void handleSend("followup", {
+            model: "",
+            provider: "",
+            source: "system",
+            adapter: "",
+          })
+        }
       >
         Add
       </button>
