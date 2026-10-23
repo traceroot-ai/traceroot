@@ -50,7 +50,9 @@ These flags apply only to the span created by that `observe` call. Auto-instrume
 
 ## Redact personal data before export
 
-Pass a `redact` function to `initialize()`. It receives each finished span's attributes and returns them, so anything it removes never reaches TraceRoot. This example blanks email addresses and phone numbers in string values:
+Requires `traceroot` 0.4.0 or later (Python) or `@traceroot-ai/traceroot` 0.6.0 or later (TypeScript).
+
+Pass a `redact` function to `initialize()`. It receives each finished span's attributes and returns what to export, so anything it removes never reaches TraceRoot. This example blanks email addresses and phone numbers:
 
 <Tabs>
   <Tab title="Python">
@@ -98,33 +100,21 @@ Pass a `redact` function to `initialize()`. It receives each finished span's att
   </Tab>
 </Tabs>
 
-The function runs in your app on every finished span as it ends, including spans from other libraries' instrumentation, so keep it fast. In Python it can run on several threads at once, so keep it thread-safe. Only new traces are affected.
+How it works:
 
-| Passed to `redact` | Held back and sent as is |
-|---|---|
-| Span attributes from your code and from integrations | User ID and session ID |
-| Input, output, metadata, and prompt recorded by `observe` | Model name and token usage |
-| LLM model parameters | Environment and tags |
-| Eval errors and score comments | Span paths and git context |
-| Event attributes, such as exception messages | Span type keys, such as `openinference.span.kind` and `gen_ai.operation.name` |
-| The status message | Exception types on exception events |
-| | Span names, links, and resource attributes |
-
-Return every key you want to keep. Held-back fields are never passed in and are added back automatically. Tool-call arguments and results from GenAI instrumentation count as content, so a function that drops them can turn a tool span into a plain span.
+- It runs in your app on every finished span, including spans from other libraries, so keep it fast and synchronous. In Python, keep it thread-safe.
+- It receives span content: `observe` input, output, and metadata, LLM prompts, event attributes such as exception messages, and the status message. Structured values arrive as JSON text.
+- It does not receive bookkeeping: user and session IDs, model name and token usage, tags, environment, span names, and similar. Those are sent as given, so keep personal data out of them and use an internal user ID, not an email address.
+- Return every key you want to keep.
+- Only TraceRoot's copy changes. Other exporters in your app still get the original span.
 
 <Warning>
-If the function raises or returns anything other than a dict (Python) or object (TypeScript), span and trace metadata are dropped and every other value except numbers and booleans is sent as `[redaction failed]`.
+If the function raises or returns anything other than a dict (Python) or object (TypeScript), metadata is dropped and every value except numbers and booleans is sent as `[redaction failed]`. The SDK logs a warning. In TypeScript, pass `logLevel: 'warn'` to `initialize()` to see it.
 </Warning>
 
-Only what TraceRoot receives is redacted. Other span processors or exporters in your app still receive the original span.
+Eval results are redacted too. Datasets and scorer definitions are not, so keep personal data out of them.
 
-<Note>
-User and session IDs are sent as given, so use a non-personal ID (an internal ID, not an email address). Keep personal data out of tags and span names.
-</Note>
-
-Eval results are redacted too. Before an eval result or run is uploaded, its text fields go through the same function as one flat dict holding whichever of these keys are present: `input`, `expected_output`, `candidate_output`, `task_error`, `explanation`, `error`, `string_value`, and `metadata` (the run metadata, as JSON text). Each score's text is passed separately. If the function fails, those fields are sent as `[redaction failed]` and the run metadata is left out; required fields the function removes are sent empty. Datasets are not redacted, including the one `evaluate()` uploads before each run, so a case's input and expected output reach TraceRoot as given. Keep personal data out of datasets. Scorer definitions are not redacted either.
-
-The trace view marks spans the function ran on as **Redacted by your app**. To catch names and addresses, call your own PII detection library inside the function.
+The trace view marks every span the function ran on as **Redacted by your app**. A regex will not catch names or addresses. For those, call a PII detection library inside the function.
 
 ## Redact Pi content before export
 
