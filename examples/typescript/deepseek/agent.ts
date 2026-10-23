@@ -3,7 +3,8 @@
  *
  * DeepSeek's API is OpenAI-wire-compatible, so we use the official `openai`
  * SDK with `baseURL` pointed at DeepSeek and a DeepSeek model name
- * (e.g. "deepseek-chat" for V3, "deepseek-reasoner" for R1).
+ * ("deepseek-flash" or "deepseek-v4-pro"). Thinking mode is turned off on
+ * every request; see `runTurn`.
  * TraceRoot's existing OpenAI instrumentation captures the calls
  * automatically — no extra wiring.
  *
@@ -224,12 +225,11 @@ When answering questions:
 4. Provide a clear, comprehensive answer
 Available tools: weather, web search, stock prices, calculator, current time.`;
 
-class ReActAgent {
+export class ReActAgent {
   private conversationHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  // "deepseek-chat" = V3 (general-purpose, supports tool use).
-  // "deepseek-reasoner" = R1 (reasoning model — thinking-token format isn't
-  // wired into this ReAct loop; use it for non-tool-calling chats).
-  private readonly model = 'deepseek-chat';
+  // "deepseek-flash" = DeepSeek-V4.1-Flash; "deepseek-v4-pro" = DeepSeek-V4-Pro.
+  // Both support tool calling.
+  private readonly model = 'deepseek-flash';
 
   constructor() {
     this.conversationHistory.push({ role: 'system', content: SYSTEM_PROMPT });
@@ -248,12 +248,20 @@ class ReActAgent {
       this.conversationHistory.push({ role: 'user', content: userInput });
 
       for (let i = 0; i < 5; i++) {
-        const completion = await openai.chat.completions.create({
+        // DeepSeek models think by default. In thinking mode, a request with
+        // `tools` must send back every earlier turn's `reasoning_content` or the
+        // API returns 400, and this loop stores final answers without it.
+        // `thinking` isn't in the OpenAI SDK's types; the SDK sends it as-is.
+        const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming & {
+          thinking: { type: 'disabled' };
+        } = {
           model: this.model,
           messages: this.conversationHistory,
           tools: TOOL_SCHEMAS,
           tool_choice: 'auto',
-        });
+          thinking: { type: 'disabled' },
+        };
+        const completion = await openai.chat.completions.create(params);
 
         const msg = completion.choices[0].message;
 
@@ -318,4 +326,7 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+// Run the demo only when executed directly (`pnpm demo`), not when the test imports it.
+if (require.main === module) {
+  main().catch(console.error);
+}
