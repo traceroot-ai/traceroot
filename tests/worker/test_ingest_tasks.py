@@ -1,5 +1,6 @@
 """Unit tests for Celery task logic with mocked S3 + ClickHouse."""
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -133,6 +134,95 @@ class TestProcessS3Traces:
         args, kwargs = mock_ch.query.call_args
         assert "project_id" in args[0]
         assert kwargs["parameters"]["project_id"] == "proj-1"
+
+    def test_root_batch_keeps_trace_attrs_an_earlier_batch_stored(self, mock_s3, mock_ch):
+        """The root's own values win; NULLs are filled from the stored row, not written over it."""
+        trace = "dd" * 16
+        mock_s3.download_json.return_value = make_otel_payload(
+            [
+                make_span(
+                    trace,
+                    "66" * 8,
+                    name="root",
+                    attributes=[
+                        {"key": "traceroot.trace.user_id", "value": {"stringValue": "root-user"}}
+                    ],
+                )
+            ]
+        )
+        mock_ch.query.return_value = MagicMock(
+            result_rows=[(trace, "child-user", "sess-1", '{"plan": "pro"}')]
+        )
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        args, kwargs = mock_ch.query.call_args
+        assert "project_id" in args[0]
+        assert kwargs["parameters"]["ids"] == [trace]
+        assert kwargs["parameters"]["project_id"] == "proj-1"
+        # Bounded below by the root's start (make_span default, 2024-01-15 12:00 UTC) less
+        # a day, so the lookup prunes by date instead of reading the whole project.
+        assert "trace_start_time >=" in args[0]
+        assert kwargs["parameters"]["since"] == datetime(2024, 1, 14, 12, 0)
+        (inserted,) = mock_ch.insert_traces_batch.call_args[0][0]
+        assert inserted["user_id"] == "root-user"
+        assert inserted["session_id"] == "sess-1"
+        assert inserted["metadata"] == '{"plan": "pro"}'
+
+    def test_trace_attr_lookup_names_only_root_bearing_traces(self, mock_s3, mock_ch):
+        """A rootless record in the same batch is not the root's to fill; leave it out."""
+        root_trace = "ab" * 16
+        late_trace = "cd" * 16
+        mock_s3.download_json.return_value = make_otel_payload(
+            [
+                make_span(root_trace, "99" * 8, name="root"),
+                make_span(late_trace, "aa" * 8, name="child", parent_span_id_hex="bb" * 8),
+            ]
+        )
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        lookups = [c for c in mock_ch.query.call_args_list if "user_id" in c.args[0]]
+        assert len(lookups) == 1
+        assert lookups[0].kwargs["parameters"]["ids"] == [root_trace]
+
+    def test_root_batch_for_a_new_trace_keeps_nulls(self, mock_s3, mock_ch):
+        """Nothing stored yet: the record is inserted as the batch built it."""
+        trace = "ee" * 16
+        mock_s3.download_json.return_value = make_otel_payload(
+            [make_span(trace, "77" * 8, name="root")]
+        )
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        (inserted,) = mock_ch.insert_traces_batch.call_args[0][0]
+        assert inserted["user_id"] is None
+        assert inserted["session_id"] is None
+        assert inserted.get("metadata") is None
+
+    def test_root_batch_with_every_trace_attr_skips_the_lookup(self, mock_s3, mock_ch):
+        """A root that sets user, session and metadata itself needs no read before insert."""
+        mock_s3.download_json.return_value = make_otel_payload(
+            [
+                make_span(
+                    "ff" * 16,
+                    "88" * 8,
+                    name="root",
+                    attributes=[
+                        {"key": "traceroot.trace.user_id", "value": {"stringValue": "u"}},
+                        {"key": "traceroot.trace.session_id", "value": {"stringValue": "s"}},
+                        {"key": "traceroot.trace.metadata", "value": {"stringValue": "{}"}},
+                    ],
+                )
+            ]
+        )
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_ch.query.assert_not_called()
+        mock_ch.insert_traces_batch.assert_called_once()
 
     def test_detector_enqueue_not_called_for_empty_batch(
         self, mock_s3, mock_ch, mock_detector_enqueue
