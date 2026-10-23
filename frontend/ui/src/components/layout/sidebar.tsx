@@ -125,12 +125,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     )}
                   >
                     <House className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Home"}
+                    {!collapsed && "Agent"}
                   </Link>
                 </TooltipTrigger>
                 {collapsed && (
                   <TooltipContent side="right" sideOffset={16}>
-                    Home
+                    Agent
                   </TooltipContent>
                 )}
               </Tooltip>
