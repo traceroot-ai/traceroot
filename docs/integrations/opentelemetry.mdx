@@ -106,7 +106,7 @@ Any library that emits OpenTelemetry spans through the global tracer provider no
 
 ## Usage
 
-Create spans with the OpenTelemetry API. The attributes below follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/), so TraceRoot shows the span as an LLM call with its model, tokens, and cost:
+Using the setup above, create spans with the OpenTelemetry API. The attributes below follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/), so TraceRoot shows the span as an LLM call with its model, tokens, and cost:
 
 <Tabs>
   <Tab title="Python">
@@ -131,18 +131,21 @@ Create spans with the OpenTelemetry API. The attributes below follow the [GenAI 
 
     const tracer = trace.getTracer('my-app');
 
-    tracer.startActiveSpan('chat gpt-4o-mini', (span) => {
-      span.setAttribute('gen_ai.operation.name', 'chat');
-      span.setAttribute('gen_ai.request.model', 'gpt-4o-mini');
-      span.setAttribute('gen_ai.usage.input_tokens', 12);
-      span.setAttribute('gen_ai.usage.output_tokens', 8);
-      span.setAttribute('session.id', 'session-123');
-      span.setAttribute('user.id', 'user-456');
-      span.end();
-    });
+    async function main() {
+      tracer.startActiveSpan('chat gpt-4o-mini', (span) => {
+        span.setAttribute('gen_ai.operation.name', 'chat');
+        span.setAttribute('gen_ai.request.model', 'gpt-4o-mini');
+        span.setAttribute('gen_ai.usage.input_tokens', 12);
+        span.setAttribute('gen_ai.usage.output_tokens', 8);
+        span.setAttribute('session.id', 'session-123');
+        span.setAttribute('user.id', 'user-456');
+        span.end();
+      });
 
-    // Flush buffered spans before the process exits.
-    await sdk.shutdown();
+      // Flush buffered spans before the process exits.
+      await sdk.shutdown();
+    }
+    main();
     ```
   </Tab>
 </Tabs>
@@ -206,7 +209,7 @@ TraceRoot maps these span attributes to dedicated fields:
 
 Attributes outside the `gen_ai.*` namespace that TraceRoot doesn't map are kept as span metadata. Setting `traceroot.span.metadata` replaces them with that object.
 
-The root span's name, input, and output become the trace's name, input, and output. Cost is calculated from the model and token counts, as described in [Cost Tracking](/tracing/cost-tracking).
+The root span's name, input, and output become the trace's name, input, and output. Cost is calculated from the token counts when the model ID matches TraceRoot's pricing table, as described in [Cost Tracking](/tracing/cost-tracking).
 
 ## Limitations
 
