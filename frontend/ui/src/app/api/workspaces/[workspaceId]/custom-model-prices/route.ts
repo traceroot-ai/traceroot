@@ -74,6 +74,9 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     Role.ADMIN,
   );
   if (membershipResult.error) return membershipResult.error;
+  if (isDemoViewer(workspaceId, membershipResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const prices = await prisma.workspaceModelPrice.findMany({
     where: { workspaceId },

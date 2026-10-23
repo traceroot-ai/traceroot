@@ -164,9 +164,16 @@ async function handleDELETE(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Custom model price not found", 404);
   }
 
-  await prisma.workspaceModelPrice.delete({
-    where: { id: priceId },
-  });
+  try {
+    await prisma.workspaceModelPrice.delete({
+      where: { id: priceId },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return errorResponse("Custom model price not found", 404);
+    }
+    throw error;
+  }
 
   return successResponse({ deleted: true });
 }

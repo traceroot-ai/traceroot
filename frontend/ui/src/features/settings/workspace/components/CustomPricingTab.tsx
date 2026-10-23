@@ -29,7 +29,16 @@ interface CustomPricingTabProps {
 
 function formatRate(rate: number | null | undefined): string {
   if (rate === null || rate === undefined) return "—";
-  return `$${rate.toFixed(4)} / 1M`;
+  return `$${(rate * 1_000_000).toFixed(4)} / 1M`;
+}
+
+function rateToMillionString(rate: number | null | undefined): string {
+  if (rate === null || rate === undefined) return "";
+  return parseFloat((rate * 1_000_000).toPrecision(10)).toString();
+}
+
+function millionToRate(millionValue: number): number {
+  return Number((millionValue / 1_000_000).toPrecision(10));
 }
 
 export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
@@ -37,6 +46,7 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editPrice, setEditPrice] = useState<CustomModelPrice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CustomModelPrice | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Form state
   const [modelName, setModelName] = useState("");
@@ -47,7 +57,7 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
   const [cacheWritePrice, setCacheWritePrice] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["custom-model-prices", workspaceId],
     queryFn: () => getCustomModelPrices(workspaceId),
   });
@@ -80,7 +90,10 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["custom-model-prices", workspaceId] });
       setDeleteTarget(null);
+      setDeleteError(null);
     },
+    onError: (err) =>
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete custom price"),
   });
 
   function resetForm() {
@@ -109,10 +122,10 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
     setEditPrice(item);
     setModelName(item.modelName);
     setMatchPattern(item.matchPattern || "");
-    setInputPrice(String(item.inputPrice));
-    setOutputPrice(String(item.outputPrice));
-    setCacheReadPrice(item.cacheReadPrice !== null ? String(item.cacheReadPrice) : "");
-    setCacheWritePrice(item.cacheWritePrice !== null ? String(item.cacheWritePrice) : "");
+    setInputPrice(rateToMillionString(item.inputPrice));
+    setOutputPrice(rateToMillionString(item.outputPrice));
+    setCacheReadPrice(rateToMillionString(item.cacheReadPrice));
+    setCacheWritePrice(rateToMillionString(item.cacheWritePrice));
     setSaveError(null);
     setDialogOpen(true);
   }
@@ -170,25 +183,40 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
         id: editPrice.id,
         modelName: trimmedName,
         matchPattern: trimmedPattern ?? null,
-        inputPrice: parsedInput,
-        outputPrice: parsedOutput,
-        cacheReadPrice: parsedCacheRead ?? null,
-        cacheWritePrice: parsedCacheWrite ?? null,
+        inputPrice: millionToRate(parsedInput),
+        outputPrice: millionToRate(parsedOutput),
+        cacheReadPrice: parsedCacheRead !== undefined ? millionToRate(parsedCacheRead) : null,
+        cacheWritePrice: parsedCacheWrite !== undefined ? millionToRate(parsedCacheWrite) : null,
       });
     } else {
       createMutation.mutate({
         modelName: trimmedName,
         matchPattern: trimmedPattern,
-        inputPrice: parsedInput,
-        outputPrice: parsedOutput,
-        cacheReadPrice: parsedCacheRead,
-        cacheWritePrice: parsedCacheWrite,
+        inputPrice: millionToRate(parsedInput),
+        outputPrice: millionToRate(parsedOutput),
+        cacheReadPrice: parsedCacheRead !== undefined ? millionToRate(parsedCacheRead) : undefined,
+        cacheWritePrice:
+          parsedCacheWrite !== undefined ? millionToRate(parsedCacheWrite) : undefined,
       });
     }
   }
 
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading custom model prices...</div>;
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-3 rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+        <p>
+          Failed to load custom model prices:{" "}
+          {error instanceof Error ? error.message : "Failed to fetch"}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="text-xs">
+          Try again
+        </Button>
+      </div>
+    );
   }
 
   const prices = data?.prices ?? [];
@@ -294,8 +322,11 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Model Name</label>
+              <label htmlFor="custom-pricing-model-name" className="text-sm font-medium">
+                Model Name
+              </label>
               <Input
+                id="custom-pricing-model-name"
                 value={modelName}
                 onChange={(e) => setModelName(e.target.value)}
                 placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct"
@@ -306,8 +337,11 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Match Pattern (optional regex)</label>
+              <label htmlFor="custom-pricing-match-pattern" className="text-sm font-medium">
+                Match Pattern (optional regex)
+              </label>
               <Input
+                id="custom-pricing-match-pattern"
                 value={matchPattern}
                 onChange={(e) => setMatchPattern(e.target.value)}
                 placeholder="e.g. ^meta-llama/Llama-3\\.3-.*"
@@ -320,8 +354,11 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Input Price ($ / 1M tokens)</label>
+                <label htmlFor="custom-pricing-input-price" className="text-sm font-medium">
+                  Input Price ($ / 1M tokens)
+                </label>
                 <Input
+                  id="custom-pricing-input-price"
                   type="number"
                   step="0.0001"
                   min="0"
@@ -331,8 +368,11 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Output Price ($ / 1M tokens)</label>
+                <label htmlFor="custom-pricing-output-price" className="text-sm font-medium">
+                  Output Price ($ / 1M tokens)
+                </label>
                 <Input
+                  id="custom-pricing-output-price"
                   type="number"
                   step="0.0001"
                   min="0"
@@ -345,8 +385,11 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Cache Read Price (optional, $/1M)</label>
+                <label htmlFor="custom-pricing-cache-read-price" className="text-sm font-medium">
+                  Cache Read Price (optional, $/1M)
+                </label>
                 <Input
+                  id="custom-pricing-cache-read-price"
                   type="number"
                   step="0.0001"
                   min="0"
@@ -356,8 +399,11 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Cache Write Price (optional, $/1M)</label>
+                <label htmlFor="custom-pricing-cache-write-price" className="text-sm font-medium">
+                  Cache Write Price (optional, $/1M)
+                </label>
                 <Input
+                  id="custom-pricing-cache-write-price"
                   type="number"
                   step="0.0001"
                   min="0"
@@ -394,6 +440,7 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
         onOpenChange={(open) => {
           if (!open) {
             setDeleteTarget(null);
+            setDeleteError(null);
             deleteMutation.reset();
           }
         }}
@@ -407,6 +454,14 @@ export function CustomPricingTab({ workspaceId }: CustomPricingTabProps) {
               for this model will fall back to standard catalog pricing or estimation.
             </DialogDescription>
           </DialogHeader>
+
+          {deleteError && (
+            <div className="flex items-center gap-1 text-xs text-destructive">
+              <XCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{deleteError}</span>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               Cancel

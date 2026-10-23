@@ -9,10 +9,10 @@ const samplePrice: CustomModelPrice = {
   workspaceId: "w1",
   modelName: "meta-llama/Llama-3.3-70B-Instruct",
   matchPattern: "^meta-llama/.*",
-  inputPrice: 0.8,
-  outputPrice: 2.4,
-  cacheReadPrice: 0.2,
-  cacheWritePrice: 1.0,
+  inputPrice: 0.0000008, // $0.80 / 1M tokens
+  outputPrice: 0.0000024, // $2.40 / 1M tokens
+  cacheReadPrice: 0.0000002, // $0.20 / 1M tokens
+  cacheWritePrice: 0.000001, // $1.00 / 1M tokens
   createdBy: "user-1",
   createTime: "2026-10-22T00:00:00.000Z",
   updateTime: "2026-10-22T00:00:00.000Z",
@@ -73,6 +73,19 @@ describe("CustomPricingTab", () => {
     expect(screen.getByRole("button", { name: /add custom price/i })).toBeTruthy();
   });
 
+  it("renders error state when query fails and allows retry", async () => {
+    mocks.getCustomModelPrices.mockRejectedValueOnce(new Error("Network connection error"));
+    renderTab();
+
+    expect(await screen.findByText(/failed to load custom model prices/i)).toBeTruthy();
+    expect(screen.getByText(/network connection error/i)).toBeTruthy();
+
+    mocks.getCustomModelPrices.mockResolvedValueOnce({ prices: [samplePrice] });
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+
+    expect(await screen.findByText("meta-llama/Llama-3.3-70B-Instruct")).toBeTruthy();
+  });
+
   it("renders list of configured custom model prices", async () => {
     mocks.getCustomModelPrices.mockResolvedValue({ prices: [samplePrice] });
     renderTab();
@@ -129,8 +142,8 @@ describe("CustomPricingTab", () => {
       expect(mocks.createCustomModelPrice).toHaveBeenCalledWith("w1", {
         modelName: "mistral-large",
         matchPattern: "^mistral-.*",
-        inputPrice: 2.0,
-        outputPrice: 6.0,
+        inputPrice: 0.000002, // 2.0 / 1M
+        outputPrice: 0.000006, // 6.0 / 1M
         cacheReadPrice: undefined,
         cacheWritePrice: undefined,
       });
@@ -140,7 +153,7 @@ describe("CustomPricingTab", () => {
   it("edits an existing price", async () => {
     mocks.getCustomModelPrices.mockResolvedValue({ prices: [samplePrice] });
     mocks.updateCustomModelPrice.mockResolvedValue({
-      price: { ...samplePrice, inputPrice: 1.2 },
+      price: { ...samplePrice, inputPrice: 0.0000012 },
     });
     renderTab();
 
@@ -151,7 +164,7 @@ describe("CustomPricingTab", () => {
 
     expect(await screen.findByText("Edit Model Price")).toBeTruthy();
 
-    // Change input price
+    // Change input price (original is 0.0000008 * 1M = 0.8)
     const inputPriceField = screen.getByDisplayValue("0.8");
     fireEvent.change(inputPriceField, { target: { value: "1.2" } });
 
@@ -161,17 +174,17 @@ describe("CustomPricingTab", () => {
       expect(mocks.updateCustomModelPrice).toHaveBeenCalledWith("w1", "price-1", {
         modelName: "meta-llama/Llama-3.3-70B-Instruct",
         matchPattern: "^meta-llama/.*",
-        inputPrice: 1.2,
-        outputPrice: 2.4,
-        cacheReadPrice: 0.2,
-        cacheWritePrice: 1.0,
+        inputPrice: 0.0000012, // 1.2 / 1M
+        outputPrice: 0.0000024, // 2.4 / 1M
+        cacheReadPrice: 0.0000002,
+        cacheWritePrice: 0.000001,
       });
     });
   });
 
   it("deletes a custom price via confirmation dialog", async () => {
     mocks.getCustomModelPrices.mockResolvedValue({ prices: [samplePrice] });
-    mocks.deleteCustomModelPrice.mockResolvedValue({ success: true });
+    mocks.deleteCustomModelPrice.mockResolvedValue({ deleted: true });
     renderTab();
 
     expect(await screen.findByText("meta-llama/Llama-3.3-70B-Instruct")).toBeTruthy();
@@ -189,5 +202,19 @@ describe("CustomPricingTab", () => {
     await waitFor(() => {
       expect(mocks.deleteCustomModelPrice).toHaveBeenCalledWith("w1", "price-1");
     });
+  });
+
+  it("displays error message when delete mutation fails", async () => {
+    mocks.getCustomModelPrices.mockResolvedValue({ prices: [samplePrice] });
+    mocks.deleteCustomModelPrice.mockRejectedValueOnce(new Error("Database delete failed"));
+    renderTab();
+
+    expect(await screen.findByText("meta-llama/Llama-3.3-70B-Instruct")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /delete/i }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText("Database delete failed")).toBeTruthy();
   });
 });

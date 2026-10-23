@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-TraceRoot captures token usage from instrumented LLM calls. It calculates cost only when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span.
+TraceRoot captures token usage from instrumented LLM calls and calculates cost using its built-in pricing catalog, workspace-configured custom model pricing, or direct caller-supplied costs.
 
 <Tabs>
   <Tab title="Python">
@@ -89,7 +89,7 @@ If your application, gateway, or instrumentation SDK already knows the billed co
 - `claude_agent_sdk.total_cost_usd` (Anthropic Claude Agent SDK)
 - `gen_ai.usage.cost` (OpenTelemetry GenAI Semantic Conventions)
 - `llm.cost.total` (OpenInference Semantic Conventions)
-- `traceroot.cost` (TraceRoot native attribute)
+- `traceroot.llm.cost` (TraceRoot native attribute)
 
 ### Pricing Precedence Order
 
@@ -97,7 +97,7 @@ When TraceRoot processes an ingested span, it resolves the cost using this hiera
 1. **Supplied span cost**: If a caller or instrumentor provides a valid cost directly on the span.
 2. **Workspace custom price**: If a custom model rate is registered for the workspace matching the model ID.
 3. **TraceRoot catalog price**: Built-in standard model rates.
-4. **Fallback token estimation**: Estimated rates where applicable.
+4. **Fallback token estimation**: When provider token counts are missing, token usage is estimated and cost is calculated using matching model pricing if available.
 
 ## Viewing Costs
 

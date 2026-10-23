@@ -67,7 +67,7 @@ export async function updateCustomModelPrice(
 export async function deleteCustomModelPrice(
   workspaceId: string,
   priceId: string,
-): Promise<{ success: boolean }> {
+): Promise<{ deleted: boolean }> {
   return fetchNextApi(`/workspaces/${workspaceId}/custom-model-prices/${priceId}`, {
     method: "DELETE",
   });
