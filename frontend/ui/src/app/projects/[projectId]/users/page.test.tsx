@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
+import { mockRetention } from "@/test/retention-mock";
 const mocks = vi.hoisted(() => ({
   usersError: null as unknown,
   usersData: undefined as unknown,
@@ -42,14 +43,7 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/lib/hooks/use-retention", () => ({
-  useRetention: () => ({
-    retentionDays: 15,
-    showPricing: false,
-    onUpgradeClick: vi.fn(),
-    closePricing: vi.fn(),
-    workspaceId: "ws-1",
-    billingPlan: "free",
-  }),
+  useRetention: () => mockRetention(),
 }));
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
