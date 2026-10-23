@@ -31,7 +31,7 @@ overrides:
   "brace-expansion@>=5.0.0 <5.0.12": "^5.0.12"
   "browserslist@<4.28.7": "^4.28.7"
   "defu": ">=6.1.5"
-  "dompurify@<3.4.16": "^3.4.16"
+  "dompurify@<3.4.17": "^3.4.17"
   "esbuild@>=0.27.3 <0.28.1": "^0.28.1"
   "fast-xml-parser": ">=5.7.0"
   "fflate@>=0.4.5 <0.4.9": "^0.4.9"
