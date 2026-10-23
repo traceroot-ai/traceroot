@@ -169,6 +169,10 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(200);
+    expect(workspaceUpdateMock).toHaveBeenCalledWith({
+      where: { id: "ws-1" },
+      data: { billingCustomerId: "cus_new" },
+    });
     // A new customer has no subscriptions to list.
     expect(subscriptionsListMock).not.toHaveBeenCalled();
     expect(checkoutCreateMock).toHaveBeenCalledWith(
