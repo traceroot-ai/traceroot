@@ -983,6 +983,18 @@
     }
   },
   {
+    "id": "tr-gemini-3-8-live",
+    "modelName": "gemini-3.8-live",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.8-live(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000075,
+      "output": 0.0000045,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-3-7-flash",
     "modelName": "gemini-3.7-flash",
     "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.7-flash(-[\\d-]+)?$",
