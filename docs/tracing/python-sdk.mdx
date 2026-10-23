@@ -66,6 +66,7 @@ traceroot.initialize(
 | `integrations` | `list[Integration] \| None` | `None` | — | List of `Integration` enum members to auto-instrument. |
 | `git_repo` | `str \| None` | auto-detected | `TRACEROOT_GIT_REPO` | Git repository in `owner/repo` format. Auto-detected from CI environment or local git repository if unset. |
 | `git_ref` | `str \| None` | auto-detected | `TRACEROOT_GIT_REF` | Git reference (commit SHA, tag, or branch). Auto-detected from CI environment or local git repository if unset. |
+| `redact` | `Callable[[dict[str, Any]], dict[str, Any]] \| None` | `None` | — | Rewrites each finished span's attributes before they are sent to TraceRoot. Other exporters in your app still receive the original spans. See [Redact personal data before export](/tracing/data-capture#redact-personal-data-before-export). |
 
 ## Supported Integrations
 
