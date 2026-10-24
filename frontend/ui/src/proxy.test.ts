@@ -57,6 +57,14 @@ function request(path: string, opts?: { token?: boolean; https?: boolean }): Nex
   return new NextRequest(new URL(`${scheme}://localhost:3000${path}`), { headers });
 }
 
+// The sign-in page reads the callback with searchParams.get(), which decodes
+// one layer — so assert on the decoded value a nested callback arrives as.
+function callback(res: Response): string | null {
+  const location = res.headers.get("location");
+  expect(location).toContain("/auth/sign-in");
+  return new URL(location!).searchParams.get("callbackUrl");
+}
+
 describe("proxy middleware", () => {
   it("lets the device page through without a token so it can keep its ?user_code", () => {
     // The bug this guards: redirecting here would drop the query (pathname-only
@@ -97,6 +105,31 @@ describe("proxy middleware", () => {
   it("allows a protected route when a session token is present", () => {
     const res = proxy(request("/projects/p1/traces", { token: true }));
     expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("keeps the query string in the callback so a waiting terminal is still reachable", () => {
+    // /onboarding carries the pointer back to a blocked `traceroot setup` run in
+    // its own ?callbackUrl. A pathname-only value drops it, and the visitor
+    // finishes onboarding with nothing on screen leading back to the terminal.
+    const res = proxy(request("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234"));
+    expect(callback(res)).toBe("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234");
+  });
+
+  it("keeps the query string for any protected page, not just onboarding", () => {
+    const res = proxy(request("/projects/p1/traces?traceId=t1&tab=spans"));
+    expect(callback(res)).toBe("/projects/p1/traces?traceId=t1&tab=spans");
+  });
+
+  it("still sends a bare path when the request has no query", () => {
+    const res = proxy(request("/projects/p1/traces"));
+    expect(callback(res)).toBe("/projects/p1/traces");
+  });
+
+  it("refuses a callback whose path resolves off-origin instead of carrying it onward", () => {
+    // A request to `//host/x` arrives with a protocol-relative pathname, which
+    // re-parses cross-origin wherever it is followed.
+    expect(callback(proxy(request("//evil.example/onboarding?callbackUrl=%2Fdevice")))).toBe("/");
+    expect(callback(proxy(request("/..//evil.example?user_code=ABCD1234")))).toBe("/");
   });
 });
 
