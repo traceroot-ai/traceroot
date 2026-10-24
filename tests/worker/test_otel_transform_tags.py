@@ -114,3 +114,140 @@ def test_tag_keys_stay_out_of_the_metadata_blob():
     )
 
     assert "tag.tags" not in json.loads(span["metadata"])
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        _string("traceroot.trace.tags", json.dumps(["prod", "v2"])),
+        _string("tag.tags", json.dumps(["prod", "v2"])),
+    ],
+    ids=["trace_tags_json_string", "openinference_json_string"],
+)
+def test_json_string_arrays_are_read_on_every_key(attribute):
+    """OTel attributes flatten to strings in some exporters, so every key takes both shapes."""
+    (span,) = _transform(make_span(TRACE, "11" * 8, name="root", attributes=[attribute]))
+
+    assert span["tags"] == ["prod", "v2"]
+
+
+def test_a_plain_string_is_one_tag():
+    (span,) = _transform(
+        make_span(TRACE, "11" * 8, name="root", attributes=[_string("traceroot.span.tags", "prod")])
+    )
+
+    assert span["tags"] == ["prod"]
+
+
+def test_non_string_elements_are_dropped():
+    attribute = {
+        "key": "traceroot.span.tags",
+        "value": {
+            "arrayValue": {
+                "values": [{"stringValue": "prod"}, {"intValue": "7"}, {"boolValue": True}]
+            }
+        },
+    }
+    (span,) = _transform(make_span(TRACE, "11" * 8, name="root", attributes=[attribute]))
+
+    assert span["tags"] == ["prod"]
+
+
+def test_tag_count_is_capped():
+    from worker.otel_transform import MAX_TAGS_PER_SPAN
+
+    values = [f"t{i}" for i in range(MAX_TAGS_PER_SPAN + 5)]
+    (span,) = _transform(
+        make_span(TRACE, "11" * 8, name="root", attributes=[_array("traceroot.span.tags", values)])
+    )
+
+    assert span["tags"] == values[:MAX_TAGS_PER_SPAN]
+
+
+def test_overlong_tags_are_dropped_not_truncated():
+    """A truncated tag is a value nobody sent, and a filter on the real value would miss it."""
+    from worker.otel_transform import MAX_TAG_LENGTH
+
+    (span,) = _transform(
+        make_span(
+            TRACE,
+            "11" * 8,
+            name="root",
+            attributes=[_array("traceroot.span.tags", ["x" * (MAX_TAG_LENGTH + 1), "prod"])],
+        )
+    )
+
+    assert span["tags"] == ["prod"]
+
+
+def test_a_tag_at_the_length_cap_is_kept():
+    from worker.otel_transform import MAX_TAG_LENGTH
+
+    tag = "x" * MAX_TAG_LENGTH
+    (span,) = _transform(
+        make_span(TRACE, "11" * 8, name="root", attributes=[_array("tag.tags", [tag])])
+    )
+
+    assert span["tags"] == [tag]
+
+
+def test_tags_survive_on_a_span_with_explicit_metadata():
+    """The explicit-metadata branch builds the blob from other keys; tags must not ride on it."""
+    (span,) = _transform(
+        make_span(
+            TRACE,
+            "11" * 8,
+            name="root",
+            attributes=[
+                _string("traceroot.span.metadata", json.dumps({"tenant": "acme"})),
+                _array("traceroot.span.tags", ["prod"]),
+            ],
+        )
+    )
+
+    assert span["tags"] == ["prod"]
+    assert json.loads(span["metadata"]) == {"tenant": "acme"}
+
+
+def test_trace_tags_move_from_the_strip_list_to_the_tags_field():
+    """`traceroot.trace.` was already stripped from metadata; it must now land in tags."""
+    (span,) = _transform(
+        make_span(
+            TRACE,
+            "11" * 8,
+            name="root",
+            attributes=[_array("traceroot.trace.tags", ["prod"]), _string("custom.key", "x")],
+        )
+    )
+
+    assert span["tags"] == ["prod"]
+    assert json.loads(span["metadata"]) == {"custom.key": "x"}
+
+
+def test_dropped_tags_are_logged_but_a_repeat_is_not_a_drop(caplog):
+    """A tag past the cap is lost data and is reported; a repeat of a kept tag is not."""
+    from worker.otel_transform import MAX_TAGS_PER_SPAN
+
+    values = [f"t{i}" for i in range(MAX_TAGS_PER_SPAN)]
+    with caplog.at_level("WARNING", logger="worker.otel_transform"):
+        (span,) = _transform(
+            make_span(
+                TRACE,
+                "11" * 8,
+                name="root",
+                attributes=[_array("traceroot.span.tags", [*values, "t0"])],
+            )
+        )
+    assert span["tags"] == values
+    assert not [r for r in caplog.records if "span tag" in r.getMessage()]
+
+    with caplog.at_level("WARNING", logger="worker.otel_transform"):
+        _transform(
+            make_span(
+                TRACE,
+                "11" * 8,
+                name="root",
+                attributes=[_array("traceroot.span.tags", [*values, "extra"])],
+            )
+        )
+    assert [r for r in caplog.records if "Dropped 1 span tag" in r.getMessage()]
