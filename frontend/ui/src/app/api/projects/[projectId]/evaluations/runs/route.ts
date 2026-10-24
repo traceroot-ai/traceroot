@@ -306,8 +306,10 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
     // reported a cost — never a misleading 0.
     const cost = sumOrNull(groups.map((g) => g._sum.cost));
     const caseDurationMs = sumOrNull(groups.map((g) => g._sum.durationMs));
+    // `sampleSeed` is a BIGINT, which JSON cannot serialize, so it stays off the row.
+    const { sampleSeed: _seed, ...runFields } = r;
     return {
-      ...r,
+      ...runFields,
       evaluationName: r.evaluation.name,
       datasetName: datasetName.get(r.datasetId) ?? null,
       datasetVersionLabel: r.datasetVersion.label,
