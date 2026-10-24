@@ -126,10 +126,17 @@ def get_model_price(model: str) -> dict[str, float] | None:
 
     The id is matched as given first, so any pattern that deliberately recognises a
     prefixed form keeps winning exactly as before. Only when nothing matches are
-    gateway prefixes stripped and the passes retried — the fallback is additive, so
-    it can turn a None into a price but never change a price that already resolved.
+    gateway prefixes stripped and the passes retried, so the prefix fallback can turn
+    a None into a price but never change a price that already resolved.
+
+    The specificity ranking in ``_match`` can re-resolve an id that already matched:
+    a dated id such as ``claude-sonnet-4-5-20250929`` moves from the
+    ``claude-sonnet-4`` entry to its own. Surrounding whitespace is dropped first,
+    since ``$`` in a pattern matches before a trailing newline here but not in the
+    TypeScript lookup.
     """
     cache = _load_cache()
+    model = model.strip()
 
     prices = _match(cache, model)
     if prices is not None:

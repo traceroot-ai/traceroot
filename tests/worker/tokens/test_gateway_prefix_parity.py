@@ -47,7 +47,12 @@ def _parse_ts_prefixes() -> set[str]:
     source = LOOKUP_TS.read_text(encoding="utf-8")
     start = source.index("export const GATEWAY_PREFIXES")
     end = source.index("]);", start)
-    return set(_PREFIX_RE.findall(source[start:end]))
+    return set(_PREFIX_RE.findall(_strip_comments(source[start:end])))
+
+
+def _strip_comments(block: str) -> str:
+    """A commented-out entry is not stripped by lookup.ts, so it must not count."""
+    return re.sub(r"//[^\n]*|/\*.*?\*/", "", block, flags=re.S)
 
 
 @requires_frontend
@@ -79,6 +84,16 @@ def test_parse_would_see_a_prefix_that_is_not_plain_lowercase():
     entirely, so a one-sided "vertex-ai" would read as agreement."""
     block = """export const GATEWAY_PREFIXES = new Set(["vertex-ai", "Azure", "a.b"]);"""
     assert set(_PREFIX_RE.findall(block)) == {"vertex-ai", "Azure", "a.b"}
+
+
+def test_parse_skips_commented_out_entries():
+    block = """export const GATEWAY_PREFIXES = new Set([
+  "azure",
+  // "x-ai",
+  /* "groq", */
+  "xai",
+"""
+    assert set(_PREFIX_RE.findall(_strip_comments(block))) == {"azure", "xai"}
 
 
 @requires_frontend

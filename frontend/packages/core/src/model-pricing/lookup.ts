@@ -98,6 +98,10 @@ async function loadCache(): Promise<CachedModel[]> {
  * Keep in sync with GATEWAY_PREFIXES in backend/worker/tokens/types.py — the two
  * lookups must agree on what a model id means. The Python test
  * tests/worker/tokens/test_gateway_prefix_parity.py fails if they drift.
+ *
+ * Hosts that serve open models at their own rates (groq, together_ai,
+ * fireworks_ai) are left out on purpose, as in the worker: stripping them would
+ * bill their ids at the model vendor's first-party price.
  */
 export const GATEWAY_PREFIXES = new Set([
   "amazon_bedrock",
@@ -107,11 +111,9 @@ export const GATEWAY_PREFIXES = new Set([
   "bedrock",
   "bedrock_converse",
   "deepseek",
-  "fireworks_ai",
   "gemini",
   "google",
   "googleai",
-  "groq",
   "litellm",
   "litellm_proxy",
   "mistral",
@@ -122,7 +124,6 @@ export const GATEWAY_PREFIXES = new Set([
   "openai",
   "openrouter",
   "portkey",
-  "together_ai",
   "vertex_ai",
   "vertexai",
   "x-ai",
@@ -193,11 +194,16 @@ function matchPricing(models: CachedModel[], modelId: string): ModelPricing | nu
  *
  * The id is matched as given first, so any pattern that deliberately recognises a
  * prefixed form keeps winning exactly as before. Only when nothing matches are
- * gateway prefixes stripped and the passes retried — the fallback is additive, so
- * it can turn a null into a price but never change a price that already resolved.
+ * gateway prefixes stripped and the passes retried, so the prefix fallback can turn
+ * a null into a price but never change a price that already resolved.
+ *
+ * The specificity ranking in matchPricing can re-resolve an id that already matched:
+ * a dated id such as `claude-sonnet-4-5-20250929` moves from the `claude-sonnet-4`
+ * entry to its own. Surrounding whitespace is dropped first, as the worker does.
  */
-export async function getModelPricing(modelId: string): Promise<ModelPricing | null> {
+export async function getModelPricing(rawModelId: string): Promise<ModelPricing | null> {
   const models = await loadCache();
+  const modelId = rawModelId.trim();
 
   const direct = matchPricing(models, modelId);
   if (direct) return direct;

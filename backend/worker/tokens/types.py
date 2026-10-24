@@ -16,6 +16,11 @@
 # frontend/packages/core/src/model-pricing/lookup.ts — the two lookups must agree
 # on what a model id means. tests/worker/tokens/test_gateway_prefix_parity.py
 # fails if they drift.
+#
+# Hosts that serve open models at their own rates (groq, together_ai,
+# fireworks_ai) are left out on purpose: stripping them would bill
+# `together_ai/moonshotai/Kimi-K2.6` at Moonshot's first-party price, a
+# plausible-looking number the host does not charge. Their ids stay unpriced.
 GATEWAY_PREFIXES = frozenset(
     {
         "amazon_bedrock",
@@ -25,11 +30,9 @@ GATEWAY_PREFIXES = frozenset(
         "bedrock",
         "bedrock_converse",
         "deepseek",
-        "fireworks_ai",
         "gemini",
         "google",
         "googleai",
-        "groq",
         "litellm",
         "litellm_proxy",
         "mistral",
@@ -40,7 +43,6 @@ GATEWAY_PREFIXES = frozenset(
         "openai",
         "openrouter",
         "portkey",
-        "together_ai",
         "vertex_ai",
         "vertexai",
         "x-ai",
@@ -65,9 +67,12 @@ def strip_gateway_prefixes(model: str) -> str:
     part of the model's real name is returned untouched. Bedrock's
     ``us.anthropic.claude-…`` and Vertex's ``model@date`` forms are distinct id
     shapes rather than simple slash prefixes, so they pass through here unchanged.
-    Bedrock's is recognised by the catalogue patterns; the Vertex ``@date`` form is
-    only recognised by the entries that spell out an ``@`` alternation, which 15 of
-    the 19 Claude entries do. Closing that remaining gap belongs with the catalogue
+    Bedrock's is recognised by the catalogue patterns; the Vertex ``@date`` form
+    mostly is not. 15 of the 23 Claude entries carry an ``@`` alternation, but for
+    the 4.x models it is spelled family first (``claude-4-5-sonnet@…``) while Vertex
+    sends ``claude-sonnet-4-5@20250929``, so only 7 entries match ``<name>@date``
+    and ids like ``vertex_ai/claude-sonnet-4-5@20250929`` still price at $0. That gap
+    predates the prefix stripping, and closing it belongs with the catalogue
     patterns rather than here, since it is a suffix rather than a prefix.
 
     The set carries two spellings of several vendors on purpose. A router does not
