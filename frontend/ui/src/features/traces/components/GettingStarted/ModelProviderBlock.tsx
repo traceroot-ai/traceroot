@@ -47,36 +47,51 @@ export function isInlineConfigurable(
 }
 
 /**
- * The models a key saved here starts with: per adapter, the newest priced model
- * in each of the provider's price tiers, at most three.
+ * The models a key saved here starts with besides the provider's default: per
+ * adapter, the newest priced model in each of the provider's other price tiers,
+ * at most two.
  *
  * Not the whole catalogue. `customModels` is what every model picker in the
  * workspace offers for the provider, so seeding `ADAPTER_MODELS` gave the
  * assistant and detector pickers a dozen ids or more, and some of those have no
  * entry in the standard price table, where their usage is priced at $0. A short
  * list is also closer to the settings form, which starts from none and adds
- * models one at a time; more can be added there. The tests hold every id here
- * to the catalogue and the price table, so a catalogue refresh that drops or
- * unprices one fails there rather than in a workspace's bill.
+ * models one at a time; more can be added there. The tests hold every seeded
+ * id, the default among them, to the catalogue and the price table, so a
+ * catalogue refresh that drops or unprices one fails there rather than in a
+ * workspace's bill.
+ *
+ * The list leaves out the provider's default model, which `seedFor` puts first
+ * from the catalogue. A saved key's models are seeded in that order, and
+ * `pickDefaultModel` takes the first model of the highest-priority provider, so
+ * the first one has to be the catalogue's first id: the model the provider
+ * defaulted to before keys were seeded. Taking it from the catalogue keeps the
+ * two the same when a catalogue refresh moves the default. The tests hold them
+ * equal.
  */
 export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
-  [LLMAdapter.ANTHROPIC]: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
-  [LLMAdapter.OPENAI]: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
-  [LLMAdapter.DEEPSEEK]: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  [LLMAdapter.XAI]: ["grok-4.7", "grok-4.20"],
-  [LLMAdapter.MOONSHOT]: ["kimi-k3", "kimi-k2.6"],
-  [LLMAdapter.ZAI]: ["glm-5.2", "glm-5-turbo"],
-  [LLMAdapter.GOOGLE]: ["gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-3-flash-preview"],
+  [LLMAdapter.ANTHROPIC]: ["claude-sonnet-5-5", "claude-haiku-5-5"],
+  [LLMAdapter.OPENAI]: ["gpt-6-astra", "gpt-6-luna"],
+  [LLMAdapter.DEEPSEEK]: ["deepseek-v4-flash"],
+  [LLMAdapter.XAI]: ["grok-4.20"],
+  [LLMAdapter.MOONSHOT]: ["kimi-k2.6"],
+  [LLMAdapter.ZAI]: ["glm-5-turbo"],
+  [LLMAdapter.GOOGLE]: ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
 };
 
 /**
- * The seeded models still in the adapter's catalogue. A model the catalogue no
+ * The models a key saved for the adapter starts with: the catalogue's default,
+ * then the seeded models still in the catalogue. A model the catalogue no
  * longer lists is one the pickers cannot resolve, so it is not stored even
- * while the list above still names it.
+ * while the list above still names it. An adapter the list has no entry for
+ * seeds nothing, whatever its catalogue holds.
  */
-function seedFor(adapter: LLMAdapter): string[] {
-  const catalogue = new Set((ADAPTER_MODELS[adapter] ?? []).map((model) => model.id));
-  return (SEEDED_MODELS[adapter] ?? []).filter((id) => catalogue.has(id));
+export function seedFor(adapter: LLMAdapter): string[] {
+  const seeded = SEEDED_MODELS[adapter];
+  const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((model) => model.id);
+  if (seeded === undefined || catalogue.length === 0) return [];
+  const [first] = catalogue;
+  return [first, ...seeded.filter((id) => id !== first && catalogue.includes(id))];
 }
 
 /**
