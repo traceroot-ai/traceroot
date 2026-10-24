@@ -23,7 +23,7 @@ vi.mock("@traceroot/core", () => ({
       create: (...args: unknown[]) => keyCreateMock(...args),
     },
   },
-  Role: { VIEWER: "viewer", MEMBER: "member", ADMIN: "admin" },
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
 }));
 
 vi.mock("@/lib/api-keys", () => ({
@@ -53,7 +53,7 @@ beforeEach(() => {
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
   projectFindUniqueMock.mockResolvedValue({ id: "proj-1", name: "checkout", workspaceId: "ws-1" });
-  memberFindUniqueMock.mockResolvedValue({ role: "member" });
+  memberFindUniqueMock.mockResolvedValue({ role: "MEMBER" });
   keyFindFirstMock.mockResolvedValue(null);
   keyCreateMock.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
     id: "key-1",
@@ -84,7 +84,7 @@ describe("POST /api/internal/user-create-project-key", () => {
 
   it("mints a key and returns the secret exactly once", async () => {
     // An admin, because the scope asked for here is the one that requires it.
-    memberFindUniqueMock.mockResolvedValue({ role: "admin" });
+    memberFindUniqueMock.mockResolvedValue({ role: "ADMIN" });
 
     const res = await POST(makeRequest({ ...VALID, scope: "admin" }));
     const body = await res.json();
@@ -114,7 +114,7 @@ describe("POST /api/internal/user-create-project-key", () => {
   });
 
   it("refuses a viewer, matching the browser route's threshold", async () => {
-    memberFindUniqueMock.mockResolvedValue({ role: "viewer" });
+    memberFindUniqueMock.mockResolvedValue({ role: "VIEWER" });
 
     const res = await POST(makeRequest(VALID));
 
@@ -142,7 +142,7 @@ describe("POST /api/internal/user-create-project-key", () => {
   });
 
   it("lets a workspace admin mint the admin scope", async () => {
-    memberFindUniqueMock.mockResolvedValue({ role: "admin" });
+    memberFindUniqueMock.mockResolvedValue({ role: "ADMIN" });
 
     const res = await POST(makeRequest({ ...VALID, scope: "admin" }));
 

@@ -7,8 +7,8 @@ import { errorResponse, requireProjectAccess } from "@/lib/auth-helpers";
  *
  * The dashboard's delete, shared with the command line's revoke on a user
  * credential (`/api/internal/user-revoke-project-key`), so the two cannot
- * drift: ADMIN only, and the key is looked up within `projectId`, so a key in
- * another project is "not found" and never deleted.
+ * drift: ADMIN only, and the key is deleted only within `projectId`, so a key
+ * in another project is "not found" and never deleted.
  */
 export async function revokeProjectAccessKey(
   userId: string,
@@ -18,21 +18,19 @@ export async function revokeProjectAccessKey(
   const accessResult = await requireProjectAccess(userId, projectId, Role.ADMIN);
   if (accessResult.error) return { error: accessResult.error };
 
-  // Check access key exists and belongs to this project
-  const accessKey = await prisma.accessKey.findFirst({
+  // One statement scoped to the project, so the check and the delete cannot be
+  // separated: a key another revoke removed in between is "not found", not a
+  // delete that throws.
+  const deleted = await prisma.accessKey.deleteMany({
     where: {
       id: keyId,
       projectId,
     },
   });
 
-  if (!accessKey) {
+  if (deleted.count === 0) {
     return { error: errorResponse("Access key not found", 404) };
   }
-
-  await prisma.accessKey.delete({
-    where: { id: keyId },
-  });
 
   return {};
 }

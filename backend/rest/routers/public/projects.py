@@ -129,7 +129,9 @@ def _project_service_error() -> HTTPException:
     )
 
 
-async def _call_internal(route: str, payload: dict[str, Any]) -> Response:
+async def _call_internal(
+    route: str, payload: dict[str, Any], required: dict[str, type]
+) -> Response:
     """Perform one write against a Next.js internal route.
 
     The control plane owns the workspace/project tables, so the write itself
@@ -141,6 +143,9 @@ async def _call_internal(route: str, payload: dict[str, Any]) -> Response:
         route (str): The internal route name under ``/api/internal/``.
         payload (dict[str, Any]): Request body, including the resolved
             ``userId``.
+        required (dict[str, type]): The fields a success from this route must
+            carry, and their types. A mint that answered 201 without its key
+            would otherwise read as done when nothing usable came back.
 
     Returns:
         Response: The internal route's JSON body and status, relayed verbatim so
@@ -148,7 +153,9 @@ async def _call_internal(route: str, payload: dict[str, Any]) -> Response:
             normalised to ``{"detail": ...}``, the shape public clients expect.
 
     Raises:
-        HTTPException: 503 (fail closed) on a network error or a malformed body.
+        HTTPException: 503 (fail closed) on a network error, a malformed body,
+            an error without a string ``error``, or a success missing a
+            required field.
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -175,11 +182,18 @@ async def _call_internal(route: str, payload: dict[str, Any]) -> Response:
         raise _project_service_error()
 
     if upstream.status_code >= 400:
-        # The internal routes answer `{error}`; public clients read `{detail}`.
-        raise HTTPException(
-            status_code=upstream.status_code,
-            detail=body.get("error", "Project request failed"),
-        )
+        # The internal routes answer `{error}`; public clients read `{detail}`,
+        # always a string. An error body without one is as ambiguous as a
+        # non-JSON body, so it fails closed the same way.
+        error = body.get("error")
+        if not isinstance(error, str):
+            logger.error("Project service returned an error without a message")
+            raise _project_service_error()
+        raise HTTPException(status_code=upstream.status_code, detail=error)
+
+    if any(not isinstance(body.get(field), kind) for field, kind in required.items()):
+        logger.error("Project service returned a success without its required fields")
+        raise _project_service_error()
 
     body.pop("valid", None)
     return Response(
@@ -242,7 +256,7 @@ async def create_project_api_key(
     if body.get("expires_in_days") is not None:
         payload["expiresInDays"] = body["expires_in_days"]
 
-    return await _call_internal("user-create-project-key", payload)
+    return await _call_internal("user-create-project-key", payload, {"id": str, "key": str})
 
 
 @router.delete(
@@ -294,5 +308,5 @@ async def revoke_project_api_key(
         "projectId": project_id,
         "keyId": _path_segment(key_id),
     }
-    await _call_internal("user-revoke-project-key", payload)
+    await _call_internal("user-revoke-project-key", payload, {"deleted": bool})
     return Response(status_code=status.HTTP_204_NO_CONTENT)

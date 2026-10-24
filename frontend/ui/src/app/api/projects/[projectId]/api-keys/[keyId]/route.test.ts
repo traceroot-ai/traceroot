@@ -23,12 +23,15 @@ vi.mock("@/lib/request-session", () => ({
 }));
 
 // The real auth helpers run against this fake, so the role rule under test is
-// the one the route actually applies. `findFirst` honours its `where`, which is
+// the one the route actually applies. `deleteMany` honours its `where`, which is
 // what makes the other-project case mean anything.
 const KEYS = [
   { id: "key-1", projectId: "proj-1" },
   { id: "key-other", projectId: "proj-2" },
 ];
+const deleteMatching = async ({ where }: { where: { id: string; projectId: string } }) => ({
+  count: KEYS.filter((k) => k.id === where.id && k.projectId === where.projectId).length,
+});
 const memberFindUniqueMock = vi.fn();
 const keyDeleteMock = vi.fn();
 vi.mock("@traceroot/core", () => {
@@ -44,14 +47,7 @@ vi.mock("@traceroot/core", () => {
       },
       workspaceMember: { findUnique: (...args: unknown[]) => memberFindUniqueMock(...args) },
       accessKey: {
-        // An absent filter matches any row, as in Prisma.
-        findFirst: async ({ where }: { where: { id: string; projectId?: string } }) =>
-          KEYS.find(
-            (k) =>
-              k.id === where.id &&
-              (where.projectId === undefined || k.projectId === where.projectId),
-          ) ?? null,
-        delete: (...args: unknown[]) => keyDeleteMock(...args),
+        deleteMany: (...args: unknown[]) => keyDeleteMock(...args),
       },
     },
   };
@@ -73,7 +69,7 @@ beforeEach(() => {
   keyDeleteMock.mockReset();
   getRequestSessionMock.mockResolvedValue({ user: { id: "u1" } });
   memberFindUniqueMock.mockResolvedValue({ workspaceId: "ws-1", userId: "u1", role: "ADMIN" });
-  keyDeleteMock.mockResolvedValue({});
+  keyDeleteMock.mockImplementation(deleteMatching);
 });
 
 describe("DELETE /api/projects/[projectId]/api-keys/[keyId]", () => {
@@ -82,14 +78,15 @@ describe("DELETE /api/projects/[projectId]/api-keys/[keyId]", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deleted: true });
-    expect(keyDeleteMock).toHaveBeenCalledWith({ where: { id: "key-1" } });
+    expect(keyDeleteMock).toHaveBeenCalledWith({ where: { id: "key-1", projectId: "proj-1" } });
   });
 
   it("answers 404 for a key in another project and leaves it alone", async () => {
     const res = await revoke("key-other");
 
     expect(res.status).toBe(404);
-    expect(keyDeleteMock).not.toHaveBeenCalled();
+    // The delete is scoped to this project, so it matched nothing.
+    expect(await keyDeleteMock.mock.results[0].value).toEqual({ count: 0 });
   });
 
   it("refuses a member, since deleting a key is reserved for admins", async () => {

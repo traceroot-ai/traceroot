@@ -14,12 +14,15 @@ vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 vi.mock("@/lib/request-session", () => ({ getRequestSession: vi.fn() }));
 
 // The real auth helpers and the real shared revoke run against this fake, so
-// the rule under test is the dashboard's own. `findFirst` honours its `where`,
+// the rule under test is the dashboard's own. `deleteMany` honours its `where`,
 // which is what makes the other-project case mean anything.
 const KEYS = [
   { id: "key-1", projectId: "proj-1" },
   { id: "key-other", projectId: "proj-2" },
 ];
+const deleteMatching = async ({ where }: { where: { id: string; projectId: string } }) => ({
+  count: KEYS.filter((k) => k.id === where.id && k.projectId === where.projectId).length,
+});
 const projectFindUniqueMock = vi.fn();
 const memberFindUniqueMock = vi.fn();
 const keyDeleteMock = vi.fn();
@@ -33,14 +36,7 @@ vi.mock("@traceroot/core", () => {
       project: { findUnique: (...args: unknown[]) => projectFindUniqueMock(...args) },
       workspaceMember: { findUnique: (...args: unknown[]) => memberFindUniqueMock(...args) },
       accessKey: {
-        // An absent filter matches any row, as in Prisma.
-        findFirst: async ({ where }: { where: { id: string; projectId?: string } }) =>
-          KEYS.find(
-            (k) =>
-              k.id === where.id &&
-              (where.projectId === undefined || k.projectId === where.projectId),
-          ) ?? null,
-        delete: (...args: unknown[]) => keyDeleteMock(...args),
+        deleteMany: (...args: unknown[]) => keyDeleteMock(...args),
       },
     },
   };
@@ -69,7 +65,7 @@ beforeEach(() => {
   keyDeleteMock.mockReset();
   projectFindUniqueMock.mockResolvedValue({ id: "proj-1", workspaceId: "ws-1", name: "checkout" });
   memberFindUniqueMock.mockResolvedValue({ workspaceId: "ws-1", userId: "u1", role: "ADMIN" });
-  keyDeleteMock.mockResolvedValue({});
+  keyDeleteMock.mockImplementation(deleteMatching);
 });
 
 describe("POST /api/internal/user-revoke-project-key", () => {
@@ -78,7 +74,7 @@ describe("POST /api/internal/user-revoke-project-key", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deleted: true });
-    expect(keyDeleteMock).toHaveBeenCalledWith({ where: { id: "key-1" } });
+    expect(keyDeleteMock).toHaveBeenCalledWith({ where: { id: "key-1", projectId: "proj-1" } });
     // The role is checked for THIS user in THIS project's workspace.
     expect(memberFindUniqueMock.mock.calls[0][0].where).toEqual({
       workspaceId_userId: { workspaceId: "ws-1", userId: "u1" },
@@ -90,14 +86,27 @@ describe("POST /api/internal/user-revoke-project-key", () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Access key not found" });
-    expect(keyDeleteMock).not.toHaveBeenCalled();
+    // The delete is scoped to this project, so it matched nothing.
+    expect(keyDeleteMock).toHaveBeenCalledWith({
+      where: { id: "key-other", projectId: "proj-1" },
+    });
+    expect(await keyDeleteMock.mock.results[0].value).toEqual({ count: 0 });
   });
 
   it("answers 404 for a key that is already gone", async () => {
     const res = await revoke({ ...VALID, keyId: "key-revoked-earlier" });
 
     expect(res.status).toBe(404);
-    expect(keyDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 when another revoke removed the key first", async () => {
+    // The key existed when the request arrived; a concurrent revoke won the race.
+    keyDeleteMock.mockResolvedValueOnce({ count: 0 });
+
+    const res = await revoke(VALID);
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Access key not found" });
   });
 
   it("answers 404 for a project that does not exist or is deleted", async () => {

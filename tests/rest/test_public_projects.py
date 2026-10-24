@@ -175,6 +175,38 @@ def test_a_non_json_upstream_body_fails_closed_without_leaking_it():
 
 
 @respx.mock
+@pytest.mark.parametrize("upstream_body", [{}, {"error": None}, {"error": {"code": "conflict"}}])
+def test_an_error_without_a_string_message_fails_closed(upstream_body):
+    """`{detail}` is always a string, so an error body that has none is ambiguous."""
+    _mock_account_auth()
+    _mock_internal("user-create-project-key", upstream_body, status_code=409)
+
+    resp = TestClient(app).post(
+        "/api/v1/public/projects/proj-1/api-keys", json={"name": "x"}, headers=USER_HEADER
+    )
+
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "Project service error"}
+
+
+@respx.mock
+@pytest.mark.parametrize("missing", ["id", "key"])
+def test_a_mint_success_without_its_key_fails_closed(missing):
+    """A 201 that carries no usable key must not read as a key minted."""
+    _mock_account_auth()
+    body = {field: value for field, value in CREATED_KEY.items() if field != missing}
+    _mock_internal("user-create-project-key", body, status_code=201)
+
+    resp = TestClient(app).post(
+        "/api/v1/public/projects/proj-1/api-keys", json={"name": "x"}, headers=USER_HEADER
+    )
+
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "Project service error"}
+    assert "tr-secret-value" not in resp.text
+
+
+@respx.mock
 def test_an_unreachable_control_plane_is_a_503():
     _mock_account_auth()
     respx.post(f"{BASE_URL}/api/internal/user-create-project-key").mock(
@@ -369,6 +401,18 @@ def test_revoking_a_key_forwards_the_resolved_user_and_answers_204():
     }
     # The user's credential stays in this process; only the internal secret crosses.
     assert "authorization" not in internal.calls.last.request.headers
+
+
+@respx.mock
+def test_a_revoke_success_that_does_not_say_deleted_fails_closed():
+    """A 204 here tells the CLI its cleanup is done, so it needs the route's word."""
+    _mock_account_auth()
+    _mock_internal("user-revoke-project-key", {"valid": True}, status_code=200)
+
+    resp = TestClient(app).delete(REVOKE_PATH, headers=USER_HEADER)
+
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "Project service error"}
 
 
 @respx.mock
