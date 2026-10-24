@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { AccountLine } from "@/components/account-line";
 
 const FALLBACK_CLIENT_NAME = "A command-line application";
 
@@ -430,34 +431,6 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
   );
 }
 
-type AccountLineProps = {
-  email: string | null;
-  pending: boolean;
-  onSwitchAccount: () => void;
-};
-
-// Which account this is about, and the way out of it. Shared by consent and the
-// setup screen so the two cannot drift: being signed in as the wrong account is
-// the likeliest reason an account the CLI cannot use is looking at either one.
-function AccountLine({ email, pending, onSwitchAccount }: AccountLineProps) {
-  if (!email) {
-    return null;
-  }
-  return (
-    <div className="space-y-0.5 text-[12px] text-muted-foreground">
-      <p>as {email}</p>
-      <button
-        type="button"
-        onClick={onSwitchAccount}
-        disabled={pending}
-        className="underline hover:text-foreground disabled:opacity-50"
-      >
-        Not you? Sign out
-      </button>
-    </div>
-  );
-}
-
 function CodeConfirm({ code }: { code: string }) {
   return (
     <div className="border bg-muted/50 px-3 py-2 text-center">
@@ -602,13 +575,13 @@ function SetupRequired({
   );
 }
 
+// The end of this page. Everything after approval happens in the terminal,
+// which reports its own outcome, so there is nothing left to watch or open here.
 function Approved() {
   return (
     <div className="py-4 text-center">
-      <p className="text-[14px] font-medium">Approved</p>
-      <p className="mt-1 text-[13px] text-muted-foreground">
-        Return to your terminal to finish setting up.
-      </p>
+      <p className="text-[14px] font-medium">Device approved</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">You can close this window now.</p>
     </div>
   );
 }
