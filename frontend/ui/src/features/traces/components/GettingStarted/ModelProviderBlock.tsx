@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
@@ -18,6 +18,7 @@ import {
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { createModelProvider, getModelProviders, testModelProvider } from "@/lib/api";
 import { ApiError, ImpersonationError } from "@/lib/api/errors";
+import type { ProviderKeyBinding } from "./integrations";
 
 /**
  * Whether this step can configure an adapter by itself, from that adapter's two
@@ -41,9 +42,15 @@ export function isInlineConfigurable(
   config: { credentialType: "api-key" | "aws"; requiresBaseUrl: boolean } | undefined,
   catalogue: readonly unknown[] | undefined,
 ): boolean {
-  return (
-    config?.credentialType === "api-key" && !config.requiresBaseUrl && (catalogue?.length ?? 0) > 0
-  );
+  return keyIsWholeCredential(config) && (catalogue?.length ?? 0) > 0;
+}
+
+/**
+ * The credential half of `isInlineConfigurable`, on its own because
+ * `settingsOnlyReason` reports which half an adapter failed.
+ */
+function keyIsWholeCredential(config: Parameters<typeof isInlineConfigurable>[0]): boolean {
+  return config?.credentialType === "api-key" && !config.requiresBaseUrl;
 }
 
 /**
@@ -134,6 +141,20 @@ function joinLabels(labels: string[]): string {
 }
 
 /**
+ * Which clause of `isInlineConfigurable` this adapter fails, or null when it
+ * fails neither and the step can configure it inline.
+ *
+ * Pulled out of the sentence below because the step now reaches it one adapter
+ * at a time as well: a stack bound to Azure, Bedrock or OpenRouter has to be
+ * told why its own key cannot be pasted here, in the same terms as the list.
+ */
+export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "model-list" | null {
+  const config = ADAPTER_CONFIG[adapter];
+  if (isInlineConfigurable(config, seedFor(adapter))) return null;
+  return keyIsWholeCredential(config) ? "model-list" : "more-than-a-key";
+}
+
+/**
  * Why each adapter this step does not offer lives in settings instead, derived
  * from the clause of `isInlineConfigurable` that adapter failed.
  *
@@ -150,11 +171,11 @@ function settingsOnlyNote(): string {
   const needMoreThanAKey: string[] = [];
   const needAModelList: string[] = [];
   for (const adapter of SETTINGS_ONLY_ADAPTERS) {
-    const config = ADAPTER_CONFIG[adapter];
-    if (config.credentialType !== "api-key" || config.requiresBaseUrl) {
-      needMoreThanAKey.push(config.label);
+    const label = ADAPTER_CONFIG[adapter].label;
+    if (settingsOnlyReason(adapter) === "more-than-a-key") {
+      needMoreThanAKey.push(label);
     } else {
-      needAModelList.push(config.label);
+      needAModelList.push(label);
     }
   }
 
@@ -249,8 +270,91 @@ export function storedKeyCopy({
  */
 const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
 
+/**
+ * The line above the key field, said in terms of the stack the user picked.
+ *
+ * The line this replaces — "Optional. Paste a key and the AI assistant,
+ * detector screening and root cause analysis run on your own provider account"
+ * — had to stay vague about whose key, because the provider was a separate
+ * choice made in a dropdown underneath it. Now the picker decides, so the line
+ * can name the provider and say where that answer came from. Which matters most
+ * for the second case: "its example uses OpenAI" is an invitation to change it,
+ * where an unexplained "OpenAI API key" over a LangChain snippet looks like a
+ * requirement.
+ */
+export function keyFieldIntro({
+  stackName,
+  kind,
+  label,
+}: {
+  stackName: string;
+  kind: "fixed" | "suggested";
+  label: string;
+}): string {
+  if (kind === "fixed") {
+    return `Optional. ${stackName} runs on ${label}, so this step takes your ${label} key: paste it and the AI assistant, detector screening and root cause analysis run on your own ${label} account instead of TraceRoot's models.`;
+  }
+  return `Optional. ${stackName} calls whichever provider you give it, and its example uses ${label}. Paste that key — or switch provider — and the AI assistant, detector screening and root cause analysis run on your own account instead of TraceRoot's models.`;
+}
+
+/**
+ * What a stack whose provider cannot be configured from here is told, and why.
+ *
+ * Two different situations, kept apart because the honest sentence differs.
+ * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
+ * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
+ * access-key pair and a region, OpenRouter a model list. `none` covers a
+ * provider there is no adapter for at all, Mistral today: nothing anywhere in
+ * TraceRoot can store that key, so pointing at settings as if it could would
+ * send the user looking for a row that is not there.
+ *
+ * Both forms open by naming the stack and then the provider it calls, which is
+ * the whole point when the two differ. When they are the same company — which
+ * is every provider's own entry, and those are the only entries reaching
+ * either branch today — that opening says nothing and reads as nonsense
+ * ("Mistral calls Mistral", "OpenRouter runs on OpenRouter"), so it is dropped.
+ */
+export function unavailableKeyCopy(
+  binding: ProviderKeyBinding,
+  stackName: string,
+): { state: string; settings: string | null } {
+  if (binding.kind === "none") {
+    const missing = `TraceRoot has no ${binding.provider} adapter for your own keys`;
+    const fallback = "The AI assistant and detectors run on TraceRoot's models.";
+    return {
+      state:
+        stackName === binding.provider
+          ? `${missing}, so there is no key to paste here. ${fallback}`
+          : `${stackName} calls ${binding.provider}, and ${missing}, so there is no ${binding.provider} key to paste here. ${fallback}`,
+      settings: null,
+    };
+  }
+
+  const label = ADAPTER_CONFIG[binding.adapter].label;
+  const why =
+    settingsOnlyReason(binding.adapter) === "more-than-a-key"
+      ? `${label} needs more than a key`
+      : `${label} needs a model list chosen`;
+  return {
+    state:
+      stackName === label
+        ? `${why}, so it cannot be set up from here.`
+        : `${stackName} runs on ${label}, and ${why}, so it cannot be set up from here.`,
+    settings: "Add it in",
+  };
+}
+
 interface ModelProviderBlockProps {
   workspaceId: string;
+  /**
+   * Which provider key the selected stack asks for. The step no longer asks
+   * the user this separately: a LangChain reader is shown an OpenAI field
+   * because LangChain's own example calls OpenAI, and a Mistral reader is told
+   * there is no Mistral adapter rather than handed a field for one.
+   */
+  providerKey: ProviderKeyBinding;
+  /** The selected stack's name, for saying whose key this is and why. */
+  stackName: string;
 }
 
 /**
@@ -268,14 +372,58 @@ interface ModelProviderBlockProps {
  * The step is optional in the structural sense. There is no required field,
  * the manual path completes without touching it, and skipping it writes
  * nothing: a workspace that skips is left exactly as it is today.
+ *
+ * What it does not do is ask which provider. The panel above it already asked
+ * which stack, and that answer contains this one — LangChain's own example
+ * calls OpenAI, Claude Agent SDK can only call Anthropic — so asking again
+ * invites a mismatch between the snippet the reader is about to paste and the
+ * key they are about to store. The binding arrives as `providerKey`; the
+ * dropdown survives only for the stacks where the question is real.
  */
-export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
+export function ModelProviderBlock({
+  workspaceId,
+  providerKey,
+  stackName,
+}: ModelProviderBlockProps) {
   const queryClient = useQueryClient();
-  // Undefined when no adapter qualifies for the inline rule at all, which the
-  // render path below has to survive rather than throw on.
-  const [adapter, setAdapter] = useState<LLMAdapter | undefined>(INLINE_ADAPTERS[0]);
+  // Set only when the user overrides a *suggested* provider. The selection is
+  // the source of truth otherwise, so there is no second piece of state for the
+  // two of them to disagree in.
+  const [override, setOverride] = useState<LLMAdapter | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [failure, setFailure] = useState<{ message: string; detail?: string } | null>(null);
+
+  // Everything above belongs to the stack that was selected when it happened:
+  // the override, the half-typed key, the provider's rejection. React's recipe
+  // for adjusting state when a prop changes drops all three during the render
+  // that first sees a new binding, so none of them can survive under another
+  // provider's label with "Verify and save" ready to send the old key to the
+  // new provider. The bindings are literals in the catalogue, so identity is
+  // stable per entry and re-selecting the same stack changes nothing.
+  //
+  // A save already in flight when that happens is the one case the reset cannot
+  // reach: it settles later, and its callbacks would write to fields that now
+  // belong to another provider -- a success clearing a key just typed for the
+  // new one, a rejection appearing under the new one's label. So the binding is
+  // mirrored into a ref here, the mutation tags itself with the value it started
+  // under, and the callbacks compare the two. A ref rather than this closure
+  // because the callbacks outlive the render that queued them.
+  const liveBinding = useRef(providerKey);
+  const [bindingSeen, setBindingSeen] = useState(providerKey);
+  if (bindingSeen !== providerKey) {
+    setBindingSeen(providerKey);
+    liveBinding.current = providerKey;
+    setOverride(null);
+    setApiKey("");
+    setFailure(null);
+  }
+
+  // Both undefined for a stack whose provider has no adapter at all, which the
+  // render path below has to survive rather than throw on. Splitting the
+  // binding out first is what lets the form below read `bound.kind` as the two
+  // cases that reach it, instead of re-checking the third.
+  const bound = providerKey.kind === "none" ? undefined : providerKey;
+  const adapter = override ?? bound?.adapter;
 
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -324,17 +472,31 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
         customModels: seedFor(chosen),
       });
     },
-    onMutate: () => setFailure(null),
-    onSuccess: () => {
+    // The binding this save belongs to travels with it, so the callbacks below
+    // can tell their own stack from the one on screen now.
+    onMutate: () => {
+      setFailure(null);
+      return { binding: liveBinding.current };
+    },
+    onSuccess: (_stored, _chosen, context) => {
       // The keys the assistant panel, the project home page and the detector
       // agent-model link read, so the stored provider shows up without a reload.
+      // Invalidated whichever stack is on screen: the row was written either
+      // way, and the surfaces that read it are not this step's.
       queryClient.invalidateQueries({ queryKey: ["model-providers", workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["llm-models", workspaceId] });
+      // The field, though, is the new stack's. Clearing it here would throw away
+      // a key typed for a provider this save never touched.
+      if (context?.binding !== liveBinding.current) return;
       setApiKey("");
     },
     // The key stays in the field on every failure: nothing was stored, and it is
-    // the one thing on screen the user cannot retype from memory.
-    onError: (error) => {
+    // the one thing on screen the user cannot retype from memory. A rejection
+    // that arrives after the stack changed is dropped instead: it is the old
+    // provider's answer about the old key, and the fields it would explain are
+    // gone.
+    onError: (error, _chosen, context) => {
+      if (context?.binding !== liveBinding.current) return;
       if (error instanceof ProbeRejected) {
         setFailure({ message: error.message, detail: error.detail });
       } else if (error instanceof ImpersonationError) {
@@ -516,53 +678,85 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
     );
   }
 
-  // No adapter a pasted key fully configures means there is no form to draw,
-  // and `ADAPTER_CONFIG[adapter]` would be a lookup on undefined. A TypeError
-  // thrown from here does not blank this step: the block renders inline in the
-  // Manual tab, so it would take the API key, the SDK install and the
-  // integration picker down with it. Say where the providers live instead.
-  if (!adapter) {
-    return <p className="text-[12px] text-muted-foreground">{settingsOnlyNote()}</p>;
+  // A stack whose provider this step cannot store a key for: no adapter at
+  // all, or one the inline rule excludes. Drawing the field anyway would be a
+  // field that cannot work — and `ADAPTER_CONFIG[adapter]` on the first of
+  // those is a lookup on undefined, which would throw from render and take the
+  // API key, the SDK install and the stack picker down with it, since this
+  // block renders inline in the same panel.
+  if (!bound || !adapter || settingsOnlyReason(adapter) !== null) {
+    const copy = unavailableKeyCopy(adapter ? { kind: "fixed", adapter } : providerKey, stackName);
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        {copy.state}
+        {copy.settings ? (
+          <>
+            {" "}
+            {copy.settings}{" "}
+            <Link href={settingsHref} className="font-medium underline underline-offset-4">
+              Settings &rarr; Model Providers
+            </Link>
+            .
+          </>
+        ) : null}
+      </p>
+    );
   }
+
+  const label = ADAPTER_CONFIG[adapter].label;
 
   return (
     <div className="space-y-2">
       <p className="text-[12px] text-muted-foreground">
-        Optional. Paste a key and the AI assistant, detector screening and root cause analysis run
-        on your own provider account instead of TraceRoot&apos;s models.
+        {keyFieldIntro({ stackName, kind: bound.kind, label })}
       </p>
 
       <div className="flex gap-2">
-        <Select
-          value={adapter}
-          onValueChange={(value) => {
-            setAdapter(value as LLMAdapter);
-            // A key belongs to the provider that issued it, and so does the
-            // rejection the probe came back with. Carrying either across the
-            // switch leaves one provider's error on screen under another
-            // provider's form, with "Verify and save" ready to send the old
-            // key to the new provider.
-            setApiKey("");
-            setFailure(null);
-          }}
-        >
-          <SelectTrigger aria-label="Model provider" className="h-8 w-[180px] shrink-0 text-[12px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {INLINE_ADAPTERS.map((candidate) => (
-              <SelectItem key={candidate} value={candidate}>
-                {ADAPTER_CONFIG[candidate].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Offered only where it is a real question. A provider's own SDK can
+            only use that provider's key, so a dropdown over it would be a
+            choice with one right answer and several wrong ones; a framework
+            that calls whatever it is handed genuinely has to be switchable,
+            and the catalogue's own example is only a starting point. */}
+        {bound.kind === "suggested" && (
+          <Select
+            value={adapter}
+            // Held while a save runs. The guard on the save's callbacks compares
+            // the stack, and switching provider here keeps the stack, so a
+            // rejection that settled after a switch landed under the new
+            // provider's field, naming a key it was never sent.
+            disabled={saveMutation.isPending}
+            onValueChange={(value) => {
+              setOverride(value as LLMAdapter);
+              // A key belongs to the provider that issued it, and so does the
+              // rejection the probe came back with. Carrying either across the
+              // switch leaves one provider's error on screen under another
+              // provider's form, with "Verify and save" ready to send the old
+              // key to the new provider.
+              setApiKey("");
+              setFailure(null);
+            }}
+          >
+            <SelectTrigger
+              aria-label="Model provider"
+              className="h-8 w-[180px] shrink-0 text-[12px]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {INLINE_ADAPTERS.map((candidate) => (
+                <SelectItem key={candidate} value={candidate}>
+                  {ADAPTER_CONFIG[candidate].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Input
           type="password"
-          aria-label="API key"
+          aria-label={`${label} API key`}
           autoComplete="off"
-          placeholder={`${ADAPTER_CONFIG[adapter].label} API key`}
+          placeholder={`${label} API key`}
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
           className="h-8 flex-1 font-mono text-[12px]"

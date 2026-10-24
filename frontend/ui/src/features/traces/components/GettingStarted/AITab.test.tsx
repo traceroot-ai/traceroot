@@ -14,11 +14,26 @@ vi.mock("@/features/projects/hooks", () => ({
   useProject: () => projectQuery,
 }));
 vi.mock("./ApiKeyBlock", () => ({ ApiKeyBlock: () => <div data-testid="api-key-block" /> }));
+// The two buttons stand in, but they carry the one sentence the real ones show
+// when they are handed a workspace id their queries refuse: an empty id
+// disables them, so no role comes back, `canManage` is false, and both offer an
+// admin to ask in place of a Connect button — see
+// `components/github/GitHubConnectButton.tsx` and
+// `components/slack/SlackConnectButton.tsx`. That sentence is the harm the
+// guard on this tab exists to prevent, so the tests have to be able to see it.
 vi.mock("@/components/github/GitHubConnectButton", () => ({
-  GitHubConnectButton: () => <div data-testid="github-connect" />,
+  GitHubConnectButton: ({ workspaceId }: { workspaceId: string }) => (
+    <div data-testid="github-connect">
+      {workspaceId ? null : "GitHub is not connected. Ask a workspace admin to set it up."}
+    </div>
+  ),
 }));
 vi.mock("@/components/slack/SlackConnectButton", () => ({
-  SlackConnectButton: () => <div data-testid="slack-connect" />,
+  SlackConnectButton: ({ workspaceId }: { workspaceId: string }) => (
+    <div data-testid="slack-connect">
+      {workspaceId ? null : "Slack is not connected. Ask a workspace admin to set it up."}
+    </div>
+  ),
 }));
 
 import { AITab } from "./AITab";
@@ -85,6 +100,17 @@ describe("AITab", () => {
     expect(text).toContain("uncommitted changes");
   });
 
+  it("gives the reader something to read before they paste it", () => {
+    // This section had no link of any kind. It points at the page that
+    // documents what the command automates — not the CLI reference, which
+    // covers authenticating and reading traces.
+    render(<AITab projectId="proj_1" />);
+    const docs = screen.getByRole("link", { name: "View the tracing docs" });
+    expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/tracing/get-started");
+    expect(docs.getAttribute("target")).toBe("_blank");
+    expect(docs.getAttribute("rel")).toContain("noopener");
+  });
+
   it("shows no runnable command when the deployment's API URL is not an origin", async () => {
     // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
     // like this reaches the panel. The command rendered for it used to be the
@@ -129,6 +155,21 @@ describe("AITab", () => {
     expect(screen.getByText("External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
+  });
+
+  it("says the workspace step is unavailable when the project fetch fails", () => {
+    // An errored useProject is not a loading state: isLoading drops with no
+    // data behind it. Rendering on `!isLoading` alone gave the card an empty
+    // workspace id — and this is the tab the panel opens on, so the first
+    // thing a customer who has just created a workspace and is its admin was
+    // told is to go and ask an admin, with no Connect button to use instead.
+    projectQuery.isLoading = false;
+    projectQuery.data = undefined;
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(screen.queryByTestId("github-connect")).toBeNull();
+    expect(screen.queryByTestId("slack-connect")).toBeNull();
+    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
+    expect(container.textContent ?? "").not.toContain("Ask a workspace admin");
   });
 
   it("shows a placeholder instead of the integrations while the project loads", () => {

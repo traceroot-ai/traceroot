@@ -5,6 +5,8 @@ import { useProject } from "@/features/projects/hooks";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { setupCommand } from "./commands";
+import { SectionLink } from "./SectionLink";
+import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 
 interface AITabProps {
   projectId: string;
@@ -50,17 +52,30 @@ interface AITabProps {
  * not read that variable, so it is a route that still works rather than a
  * consolation; nothing here offers to fix the configuration, because nothing
  * here can.
+ *
+ * The docs link is the one thing added back. This section used to be the only
+ * part of the panel with nothing to read: two sentences and a command to paste,
+ * and no answer at all for the reader who wants to know what the agent will do
+ * before they let it near their repository. It points at the tracing
+ * get-started page rather than the CLI reference, because that page is the
+ * whole of what the command automates — key, SDK, environment, the one call —
+ * and the CLI page documents authenticating and reading traces instead.
  */
 export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id ?? "";
+  const workspaceId = project?.workspace_id;
   const setup = setupCommand({ projectId });
 
   return (
     <div className="space-y-6">
       {setup.kind === "command" ? (
         <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
+            <SectionLink href="https://traceroot.ai/docs/tracing/get-started">
+              View the tracing docs
+            </SectionLink>
+          </div>
           <CodeBlock label="bash" value={setup.command} />
           <p className="text-[12px] text-muted-foreground">
             Instruments your repo with a coding agent and handles API key configuration. Asks before
@@ -87,8 +102,10 @@ export function AITab({ projectId }: AITabProps) {
         <p className="text-[13px] font-medium text-foreground">External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
-        ) : (
+        ) : workspaceId ? (
           <ExternalIntegrations workspaceId={workspaceId} />
+        ) : (
+          <WorkspaceUnavailable />
         )}
       </div>
     </div>

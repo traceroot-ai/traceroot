@@ -19,6 +19,10 @@ interface GettingStartedProps {
  * the repository — which is the thing a reader weighs before choosing it. The
  * pairing with "Manual" is looser than a strict antonym, and that is the trade:
  * naming the mechanism costs a little symmetry and buys an informed choice.
+ *
+ * Nothing sits above the switch. The stack is picked inside the manual tab, as
+ * one of its steps, and the model key is asked for during onboarding rather
+ * than on this page.
  */
 export function GettingStarted({ projectId }: GettingStartedProps) {
   const [tab, setTab] = useState<Tab>("ai");
