@@ -9,6 +9,30 @@ import {
   METERED_PRICE_ENV_VARS,
 } from "@traceroot/core";
 
+// Subscription statuses that bill now or can start billing. `incomplete` is a
+// first payment still settling (for example a pending 3DS step), which becomes
+// active on success, so a second checkout opened meanwhile would also bill.
+// `paused` bills nothing today but is not terminal either: resuming it alongside a
+// second subscription would bill the workspace twice. Only `canceled` and
+// `incomplete_expired` are ends of the line, and those are absent here deliberately.
+const BILLING_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "incomplete",
+  "paused",
+]);
+
+function alreadySubscribed() {
+  return NextResponse.json(
+    {
+      error: "Workspace already has a subscription. Change the plan instead of starting checkout.",
+    },
+    { status: 409 },
+  );
+}
+
 async function handlePOST(req: NextRequest) {
   try {
     const session = await getRequestSession();
@@ -40,7 +64,32 @@ async function handlePOST(req: NextRequest) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
+    // A subscribed workspace changes plans through change-plan. A checkout session
+    // here would add a second active subscription to the same customer, and both
+    // would bill every period. With a customer on file, Stripe is asked below
+    // instead, so a stored id whose cancellation webhook was missed does not block
+    // a new subscription.
+    if (workspace.billingSubscriptionId && !workspace.billingCustomerId) {
+      return alreadySubscribed();
+    }
+
     const stripe = getStripeOrThrow();
+
+    // The stored subscription id can lag Stripe (a missed or delayed webhook), so
+    // also ask Stripe before opening checkout for an existing customer. The list
+    // uses status "all", which includes ended subscriptions, so a live one can sit
+    // past the first page; iterating the list follows every page.
+    if (workspace.billingCustomerId) {
+      for await (const subscription of stripe.subscriptions.list({
+        customer: workspace.billingCustomerId,
+        status: "all",
+        limit: 100,
+      })) {
+        if (BILLING_STATUSES.has(subscription.status)) {
+          return alreadySubscribed();
+        }
+      }
+    }
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
