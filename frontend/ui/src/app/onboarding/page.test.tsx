@@ -52,23 +52,6 @@ vi.mock("@/lib/api", () => ({
   createProject: mocks.createProject,
   getWorkspaces: mocks.getWorkspaces,
 }));
-vi.mock("@/features/detectors/components/add-detectors-step", () => ({
-  AddDetectorsStep: ({
-    projectId,
-    projectName,
-    onDone,
-  }: {
-    projectId: string;
-    projectName: string;
-    onDone: () => void;
-  }) => (
-    <div data-testid="add-detectors-step" data-project-id={projectId}>
-      <span>{projectName}</span>
-      <button onClick={onDone}>mock-done</button>
-    </div>
-  ),
-}));
-
 import OnboardingPage from "./page";
 
 function makeQueryClient() {
@@ -104,9 +87,15 @@ async function clickCreate() {
   fireEvent.click(create);
 }
 
-async function completeStepOne() {
+// The command lives in a `<pre>` whose line is split into spans for syntax
+// colouring, so it is read off that element rather than matched as one string.
+function shownCommand(): string {
+  return document.querySelector("pre")?.textContent ?? "";
+}
+
+async function reachHandback() {
   await clickCreate();
-  await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+  await waitFor(() => expect(screen.getByText("Finish setting up in your terminal")).toBeDefined());
 }
 
 beforeEach(() => {
@@ -127,33 +116,53 @@ afterEach(() => {
 });
 
 describe("OnboardingPage", () => {
-  it("shows the detectors step after workspace + project creation instead of redirecting", async () => {
+  it("ends a browser-first run on the command that continues it in a terminal", async () => {
+    // The last thing the browser can usefully say. Everything left to do is
+    // against a checkout the dashboard cannot see, so the page stops asking
+    // and hands over the one command that does all of it — carrying the
+    // project it has just made, which the user would otherwise have to name
+    // from memory.
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
-    await completeStepOne();
+    await reachHandback();
 
     expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
     expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "my-llm-project");
-    expect(screen.getByTestId("add-detectors-step").dataset.projectId).toBe("proj-1");
+    expect(shownCommand()).toContain("npx -y traceroot-cli@latest setup");
+    expect(shownCommand()).toContain("--project proj-1");
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("navigates to traces when the detectors step finishes", async () => {
+  it("sends a user who would rather not run the command to the manual walkthrough", async () => {
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
-    await completeStepOne();
+    await reachHandback();
 
-    fireEvent.click(screen.getByRole("button", { name: "mock-done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
   });
 
-  it("hands straight back to a waiting caller instead of asking about detectors", async () => {
+  it("leaves a skipped account somewhere it can act, not back in onboarding", async () => {
+    // Skipping is a way out of signing up, so it has to land on a page that
+    // works: the workspace list, which is where the already-onboarded check
+    // sends an account with nobody waiting. The project exists either way, so
+    // no route sends this user back through onboarding.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await reachHandback();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(mocks.push).toHaveBeenCalledWith("/workspaces");
+  });
+
+  it("hands straight back to a waiting caller instead of showing it the command", async () => {
     // `traceroot setup` is holding a terminal open on the device approval this
-    // page runs ahead of. Detectors only ever run on trace ingest, so asking now
-    // produces nothing and delays the handoff behind a judgement call the user
-    // has no basis to make yet.
+    // page runs ahead of. Telling that user to run `traceroot setup` is telling
+    // them to start the run they are already in the middle of, so the hand-back
+    // step is withheld and the terminal is released instead.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
@@ -162,7 +171,7 @@ describe("OnboardingPage", () => {
     await clickCreate();
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
-    expect(screen.queryByTestId("add-detectors-step")).toBeNull();
+    expect(screen.queryByText("Finish setting up in your terminal")).toBeNull();
   });
 
   it("holds the handoff open until both the workspace and the project exist", async () => {
@@ -227,7 +236,9 @@ describe("OnboardingPage", () => {
     // continues and nothing is pushed. Asserting `push("/")` here used to pass
     // only because the validator answered a rejected value with its fallback,
     // which sent a new account to the root instead of its traces.
-    await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -331,14 +342,14 @@ describe("OnboardingPage", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("stays on the detectors step after the refetch reports the new project", async () => {
+  it("stays on the hand-back page after the refetch reports the new project", async () => {
     // Creating the workspace and project invalidates the very list this page
     // gates itself on, so the refetch comes back describing an account that is
     // now set up. Unless what this page created is excluded, the handoff effect
-    // fires the moment that refetch lands and replaces the detectors step with
-    // a redirect to /workspaces. The second value carries `project_count`, or
-    // the refetched account would read as unfinished and the test would pass
-    // without exercising anything.
+    // fires the moment that refetch lands and replaces the command the user is
+    // about to copy with a redirect to /workspaces. The second value carries
+    // `project_count`, or the refetched account would read as unfinished and
+    // the test would pass without exercising anything.
     mocks.getWorkspaces
       .mockResolvedValueOnce([])
       .mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-1" }]);
@@ -346,13 +357,13 @@ describe("OnboardingPage", () => {
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
 
-    await completeStepOne();
+    await reachHandback();
 
     // Two fetches is also the proof that invalidating the shared "workspaces"
     // key still reaches the per-account entry this page reads: if the two
     // stopped matching, the refetch would never happen and this stays at one.
     await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
-    expect(screen.getByTestId("add-detectors-step")).toBeDefined();
+    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -401,7 +412,7 @@ describe("OnboardingPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
-    await completeStepOne();
+    await reachHandback();
     expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
   });
 
@@ -412,7 +423,7 @@ describe("OnboardingPage", () => {
     mocks.createProject.mockResolvedValue({ id: "proj-2", name: "my-llm-project" });
     renderPage();
 
-    await completeStepOne();
+    await reachHandback();
     expect(mocks.getWorkspaces).not.toHaveBeenCalled();
     expect(mocks.createWorkspace).not.toHaveBeenCalled();
     expect(mocks.createProject).toHaveBeenCalledWith("ws-existing", "my-llm-project");
@@ -424,6 +435,6 @@ describe("OnboardingPage", () => {
     await clickCreate();
 
     await waitFor(() => expect(screen.getByText("workspace boom")).toBeDefined());
-    expect(screen.queryByTestId("add-detectors-step")).toBeNull();
+    expect(screen.queryByText("Finish setting up in your terminal")).toBeNull();
   });
 });
