@@ -86,7 +86,15 @@ function mockFetches(ms: number, spans = "") {
 }
 
 function makeJob(over: Partial<Job<DetectorRunJob>> = {}): Job<DetectorRunJob> {
-  return { data: BASE_JOB, moveToDelayed: vi.fn(), ...over } as unknown as Job<DetectorRunJob>;
+  const job = {
+    data: { ...BASE_JOB },
+    moveToDelayed: vi.fn(),
+    updateData: vi.fn(async (data: DetectorRunJob) => {
+      job.data = data;
+    }),
+    ...over,
+  };
+  return job as unknown as Job<DetectorRunJob>;
 }
 
 type RecordedIo = { input?: string; output?: string; error?: string };
@@ -173,6 +181,161 @@ describe("handleDetectorRunJob — quiescence gate", () => {
   it("throws (for BullMQ retry) when time-since-last-span fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 });
     await expect(handleDetectorRunJob(makeJob())).rejects.toThrow();
+  });
+});
+
+describe("handleDetectorRunJob — result persistence", () => {
+  beforeEach(() => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [], enableSignals: true },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "found it",
+      data: { reason: "fixture" },
+      inferenceCost: 0,
+      inferenceInputTokens: 10,
+      inferenceOutputTokens: 5,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "anthropic",
+    });
+  });
+
+  function retryJob(job: Job<DetectorRunJob>) {
+    return makeJob({ data: JSON.parse(JSON.stringify(job.data)) });
+  }
+
+  it("acknowledges the result checkpoint before writing findings or runs", async () => {
+    const job = makeJob();
+    await handleDetectorRunJob(job);
+
+    expect(job.updateData).toHaveBeenCalledTimes(1);
+    const checkpointOrder = vi.mocked(job.updateData).mock.invocationCallOrder[0];
+    expect(checkpointOrder).toBeLessThan(mockWriteFinding.mock.invocationCallOrder[0]);
+    expect(checkpointOrder).toBeLessThan(mockWriteRun.mock.invocationCallOrder[0]);
+    expect(job.data.result).toMatchObject({
+      findingId: expect.any(String),
+      timestampMs: expect.any(Number),
+      detectors: [{ id: "d1", enableSignals: true }],
+      triggered: [{ detectorId: "d1", usedInference: true, selfTraced: true }],
+    });
+    expect(JSON.parse(job.data.result!.payload)[0].data).toEqual({ reason: "fixture" });
+  });
+
+  it("recovers a failed run write from serialized job data without inference or usage replay", async () => {
+    const failure = new Error("run insert unavailable");
+    mockWriteRun.mockRejectedValueOnce(failure);
+    const job = makeJob();
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    const firstRun = mockWriteRun.mock.calls[0][0];
+
+    mockFetch.mockRejectedValue(new Error("backend reads unavailable"));
+    mockPrisma.detector.findMany.mockRejectedValue(new Error("configuration unavailable"));
+    const retry = retryJob(job);
+    await handleDetectorRunJob(retry);
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.detector.findMany).toHaveBeenCalledTimes(1);
+    expect(retry.updateData).not.toHaveBeenCalled();
+    expect(mockWriteRun).toHaveBeenLastCalledWith(firstRun);
+    expect(mockWriteFinding.mock.calls[1][0]).toEqual(mockWriteFinding.mock.calls[0][0]);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries finding persistence without evaluating again", async () => {
+    const failure = new Error("finding insert unavailable");
+    mockWriteFinding.mockRejectedValueOnce(failure);
+    const job = makeJob();
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+    expect(mockWriteRun).not.toHaveBeenCalled();
+
+    await handleDetectorRunJob(retryJob(job));
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockWriteRun).toHaveBeenCalledTimes(1);
+    expect(mockWriteFinding.mock.calls[1][0]).toEqual(mockWriteFinding.mock.calls[0][0]);
+  });
+
+  it("does not write results when Redis refuses the checkpoint", async () => {
+    const failure = new Error("checkpoint unavailable");
+    const job = makeJob({ updateData: vi.fn().mockRejectedValue(failure) });
+
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+
+    expect(job.data.result).toBeUndefined();
+    expect(mockWriteFinding).not.toHaveBeenCalled();
+    expect(mockWriteRun).not.toHaveBeenCalled();
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+  });
+
+  it("replays a partial write using the same IDs and timestamps for every detector", async () => {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "First", prompt: "p", outputSchema: [], enableSignals: true },
+      { id: "d2", name: "Second", prompt: "p", outputSchema: [], enableSignals: false },
+    ]);
+    mockWriteRun.mockRejectedValueOnce(new Error("first insert failed"));
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+    await expect(handleDetectorRunJob(job)).rejects.toThrow("first insert failed");
+    expect(mockWriteRun).toHaveBeenCalledTimes(2);
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    const writes = mockWriteRun.mock.calls.map(([params]) => params);
+
+    await handleDetectorRunJob(retryJob(job));
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(2);
+    expect(mockWriteRun.mock.calls.slice(2).map(([params]) => params)).toEqual(writes);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detectors: [
+          { id: "d1", enableSignals: true },
+          { id: "d2", enableSignals: false },
+        ],
+      }),
+    );
+  });
+
+  it("keeps failing persistence attempts visible without further model calls", async () => {
+    mockWriteRun.mockRejectedValue(new Error("storage remains unavailable"));
+    const job = makeJob();
+    await expect(handleDetectorRunJob(job)).rejects.toThrow("storage remains unavailable");
+    for (let i = 0; i < 4; i++) {
+      await expect(handleDetectorRunJob(retryJob(job))).rejects.toThrow(
+        "storage remains unavailable",
+      );
+    }
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockWriteRun).toHaveBeenCalledTimes(5);
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    expect(job.data.result).toBeDefined();
+  });
+
+  it("does not create a result checkpoint for a clean evaluation", async () => {
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+    const job = makeJob();
+
+    await handleDetectorRunJob(job);
+
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteFinding).not.toHaveBeenCalled();
+    expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ findingId: null }));
   });
 });
 
