@@ -50,9 +50,16 @@ def _parse_ts_prefixes() -> set[str]:
     return set(_PREFIX_RE.findall(_strip_comments(source[start:end])))
 
 
+# A string literal is matched first and kept, so "//" or "/*" inside a quoted
+# entry is not read as a comment and the entry stays visible to the checks below.
+_STRING_OR_COMMENT_RE = re.compile(
+    r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|//[^\n]*|/\*.*?\*/""", re.S
+)
+
+
 def _strip_comments(block: str) -> str:
     """A commented-out entry is not stripped by lookup.ts, so it must not count."""
-    return re.sub(r"//[^\n]*|/\*.*?\*/", "", block, flags=re.S)
+    return _STRING_OR_COMMENT_RE.sub(lambda m: m.group(0) if m.group(0)[0] in "\"'" else "", block)
 
 
 @requires_frontend
@@ -94,6 +101,16 @@ def test_parse_skips_commented_out_entries():
   "xai",
 """
     assert set(_PREFIX_RE.findall(_strip_comments(block))) == {"azure", "xai"}
+
+
+def test_comment_markers_inside_an_entry_are_not_comments():
+    """A malformed entry must reach the validation below rather than vanish."""
+    block = """export const GATEWAY_PREFIXES = new Set([
+  "a//b", // trailing note
+  "c/*d",
+  "xai",
+"""
+    assert set(_PREFIX_RE.findall(_strip_comments(block))) == {"a//b", "c/*d", "xai"}
 
 
 @requires_frontend
