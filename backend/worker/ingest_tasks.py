@@ -26,6 +26,39 @@ def _root_kind_value(value) -> int:
         return 0
 
 
+# Fields a merged trace row is compared on.  Identity fields describe WHO owns
+# the row; payload fields are the winning root's content.  The split matters at
+# read time: payload columns hold full LLM prompts/responses and are only read
+# when a stored winner is actually being reinserted (see process_s3_traces).
+_TRACE_IDENTITY_FIELDS = (
+    "root_kind",
+    "root_version",
+    "trace_start_time",
+    "name",
+    "source",
+    "user_id",
+    "session_id",
+    "git_ref",
+    "git_repo",
+    "environment",
+    "is_evaluation",
+)
+_TRACE_PAYLOAD_FIELDS = ("input", "output", "metadata")
+_TRACE_COMPARE_FIELDS = _TRACE_IDENTITY_FIELDS + _TRACE_PAYLOAD_FIELDS
+
+
+def _effective_root_version(record: dict) -> int:
+    """The version a record would be written with (mirrors ``_merge_trace_record``)."""
+
+    from shared.trace_identity import trace_root_version
+
+    return int(record.get("root_version") or 0) or trace_root_version(
+        _root_kind_value(record.get("root_kind", 0)),
+        record.get("trace_start_time"),
+        bool(record.get("is_evaluation")),
+    )
+
+
 def _merge_trace_record(incoming: dict, existing: dict | None) -> dict:
     """Merge one replacement row using logical root precedence.
 
@@ -78,7 +111,13 @@ def _merge_trace_record(incoming: dict, existing: dict | None) -> dict:
 
 
 def _trace_rows_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[str, dict]:
-    """Read only the requested logical trace rows using the trace-id sort key."""
+    """Read the identity fields of the requested logical trace rows.
+
+    Payload columns (``input``/``output``/``metadata``) are deliberately NOT
+    selected here — they hold full LLM prompts/responses and are fetched only
+    for rows that will actually be rewritten, by :func:`_trace_payloads_by_id`
+    with identical scoping.  The two queries select the same physical row.
+    """
 
     if not trace_ids:
         return {}
@@ -123,6 +162,46 @@ def _trace_rows_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[
         )
         rows[values["trace_id"]] = values
     return rows
+
+
+def _trace_payloads_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[str, dict]:
+    """Read the payload columns of the requested logical trace rows.
+
+    Runs with the same ``WHERE``, ordering, and ``LIMIT 1 BY`` dedup as
+    :func:`_trace_rows_by_id`, so both queries resolve a trace to the SAME
+    physical row: the payloads returned belong to the logical version the
+    identity probe saw, never to a different one.  Callers fold the returned
+    dicts into the probed rows before re-merging, so a stored winner that is
+    reinserted keeps its real payloads instead of writing NULL over them.
+    """
+
+    if not trace_ids:
+        return {}
+    result = ch_client.query(
+        """
+        SELECT trace_id, input, output, metadata
+        FROM traces
+        WHERE project_id = {project_id:String}
+          AND trace_id IN {trace_ids:Array(String)}
+        ORDER BY root_version DESC, ch_update_time DESC
+        LIMIT 1 BY project_id, trace_id
+        """,
+        parameters={"trace_ids": trace_ids, "project_id": project_id},
+    )
+    payloads: dict[str, dict] = {}
+    for row in result.result_rows:
+        if len(row) == 1:
+            # Compatibility with narrow unit-test doubles that only returned
+            # the existence probe shape.
+            payloads[row[0]] = {}
+            continue
+        values = dict(zip(("trace_id", "input", "output", "metadata"), row))
+        payloads[values["trace_id"]] = {
+            "input": values["input"],
+            "output": values["output"],
+            "metadata": values["metadata"],
+        }
+    return payloads
 
 
 def _json_serializer(obj: object) -> str:
@@ -432,7 +511,11 @@ def finalize_remote_detector_runs(project_id: str, trace_id: str) -> None:
     """
 
     from db.clickhouse.client import get_clickhouse_client
-    from worker.detector_tasks import EVALUATOR_DELAY, enqueue_detector_runs
+    from worker.detector_tasks import (
+        EVALUATOR_DELAY,
+        REMOTE_FINALIZER_ORIGIN,
+        enqueue_detector_runs,
+    )
 
     ch_client = get_clickhouse_client()
     result = ch_client.query(
@@ -454,7 +537,15 @@ def finalize_remote_detector_runs(project_id: str, trace_id: str) -> None:
 
     # The final Redis NX claim and deterministic sampling remain in the normal
     # path, so a caller-root batch racing this task cannot create a duplicate.
-    enqueue_detector_runs(project_id, {trace_id}, raise_on_error=True)
+    # The claim is origin-marked so a caller root that arrives AFTER this
+    # decision re-evaluates the triggers with the complete trace and enqueues
+    # what this partial-data decision missed, instead of losing the claim.
+    enqueue_detector_runs(
+        project_id,
+        {trace_id},
+        raise_on_error=True,
+        claim_origin=REMOTE_FINALIZER_ORIGIN,
+    )
 
 
 @app.task(
@@ -508,29 +599,51 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
             ch_client = get_clickhouse_client()
 
             if traces:
-                existing = _trace_rows_by_id(ch_client, project_id, [t["trace_id"] for t in traces])
+                trace_ids = [t["trace_id"] for t in traces]
+                existing = _trace_rows_by_id(ch_client, project_id, trace_ids)
+
+                # Phase 1 — decide which stored winners a merge would actually
+                # rewrite, so the payload columns are read only for those rows.
+                # An incoming row that strictly wins on root version writes its
+                # own payloads; a stored winner whose identity fields all match
+                # is not rewritten at all (same version => same winning root =>
+                # unchanged payloads).  Only a stored winner that survives with
+                # changed identity fields (e.g. a late user_id or the monotonic
+                # evaluation flag) needs its real payloads fetched, so the
+                # reinsert cannot null them out.
+                premerged: dict[str, dict] = {}
+                payload_read_ids: list[str] = []
+                for incoming in traces:
+                    tid = incoming["trace_id"]
+                    prior = existing.get(tid)
+                    premerged[tid] = _merge_trace_record(incoming, prior)
+                    if prior is None:
+                        continue
+                    if _effective_root_version(incoming) > int(prior.get("root_version") or 0):
+                        continue
+                    if any(
+                        premerged[tid].get(field) != prior.get(field)
+                        for field in _TRACE_IDENTITY_FIELDS
+                    ):
+                        payload_read_ids.append(tid)
+
+                if payload_read_ids:
+                    payloads = _trace_payloads_by_id(ch_client, project_id, payload_read_ids)
+                    for tid, payload in payloads.items():
+                        existing[tid].update(payload)
+
                 merged_traces = []
                 for incoming in traces:
-                    merged = _merge_trace_record(incoming, existing.get(incoming["trace_id"]))
-                    prior = existing.get(incoming["trace_id"])
+                    tid = incoming["trace_id"]
+                    prior = existing.get(tid)
+                    # Re-merge fetched rows now that their payloads are known.
+                    merged = (
+                        _merge_trace_record(incoming, prior)
+                        if tid in payload_read_ids
+                        else premerged[tid]
+                    )
                     if prior is None or any(
-                        merged.get(field) != prior.get(field)
-                        for field in (
-                            "root_kind",
-                            "root_version",
-                            "trace_start_time",
-                            "name",
-                            "source",
-                            "user_id",
-                            "session_id",
-                            "git_ref",
-                            "git_repo",
-                            "input",
-                            "output",
-                            "metadata",
-                            "environment",
-                            "is_evaluation",
-                        )
+                        merged.get(field) != prior.get(field) for field in _TRACE_COMPARE_FIELDS
                     ):
                         merged_traces.append(merged)
 

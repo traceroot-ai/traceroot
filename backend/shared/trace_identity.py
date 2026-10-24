@@ -35,6 +35,8 @@ _LEGACY_RANK = 4
 # many millions of years of range for DateTime64(3) values.
 _MAX_START_MILLIS = (1 << 60) - 1
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
 
 def _version(rank: int, start_time: datetime | None, is_evaluation: bool) -> int:
     if start_time is None:
@@ -42,6 +44,13 @@ def _version(rank: int, start_time: datetime | None, is_evaluation: bool) -> int
     normalized_start = (
         start_time.replace(tzinfo=UTC) if start_time.tzinfo is None else start_time.astimezone(UTC)
     )
+    # A missing start cannot establish an identity, and neither can a
+    # non-positive one: inverted time is maximized at the epoch, so clamping a
+    # malformed timestamp to 0 (as this used to) would mint the LARGEST
+    # in-kind version and let a malformed span outrank every real start for
+    # its trace forever.  Both resolve to the placeholder version instead.
+    if normalized_start <= _EPOCH:
+        return 0
     start_millis = int(normalized_start.timestamp() * 1000)
     start_millis = max(0, min(start_millis, _MAX_START_MILLIS))
     return (rank << 61) | ((_MAX_START_MILLIS - start_millis) << 1) | int(is_evaluation)
@@ -54,9 +63,9 @@ def trace_root_version(
 ) -> int:
     """Return the ReplacingMergeTree version for a trace identity.
 
-    A missing start time cannot establish an identity and receives the
-    placeholder version.  The result is stable across retries and independent
-    of ClickHouse part/insert order.
+    A missing or non-positive start time cannot establish an identity and
+    receives the placeholder version.  The result is stable across retries and
+    independent of ClickHouse part/insert order.
     """
 
     kind = TraceRootKind(int(root_kind))

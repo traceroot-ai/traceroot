@@ -13,11 +13,28 @@
 -- remain placeholders and may be upgraded by a newly classified batch.
 --
 -- SAFETY: ClickHouse does not provide a transaction spanning the backfill and
--- table rename. Pause all writers to `traces` before running this migration
--- and resume them only after goose records it successfully. The existing
--- async S3 queue remains the source of truth while ingestion is paused. The
--- old table is retained as a rollback/reconciliation backstop; never delete it
--- as part of a retry.
+-- table rename, so rows written between the backfill read and the RENAME would
+-- be stranded in traces_old. The pause is enforced by the deployment ordering,
+-- not by this file: docker-compose.prod.yml gates `rest`, `worker`, `detector`
+-- and `agent` behind `migrate-clickhouse` completing successfully
+-- (`service_completed_successfully`), so a stack (re)start cannot run a writer
+-- against the old table after the swap. Running this migration against an
+-- ALREADY-RUNNING stack (e.g. `docker compose run --rm migrate-clickhouse up`,
+-- which is what CI does on an empty database) requires stopping those services
+-- first (`docker compose stop rest worker detector agent`) and starting them
+-- again only after goose records the migration. The async S3 queue remains the
+-- source of truth while ingestion is paused, so queued batches drain after the
+-- restart. The old table is retained as a rollback/reconciliation backstop;
+-- never delete it as part of a retry.
+--
+-- RETRY: this file is safe to re-run when a failure happens at or before the
+-- backfill (the step that fails first in practice): traces_v2 is dropped and
+-- rebuilt from the untouched `traces`. If goose is interrupted AFTER the rename
+-- but before it records the version (a millisecond-scale window), a blind retry
+-- would re-derive identity from the already-rebuilt table and downgrade
+-- classified rows; restore the backstop first
+-- (`RENAME TABLE traces TO traces_rebuild_discard, traces_old TO traces`)
+-- and remove traces_rebuild_discard afterwards.
 DROP TABLE IF EXISTS traces_v2;
 
 CREATE TABLE traces_v2
@@ -75,6 +92,26 @@ PARTITION BY toYYYYMM(trace_start_time)
 ORDER BY (project_id, trace_id)
 SETTINGS deduplicate_merge_projection_mode = 'rebuild';
 
+-- One canonical physical row per logical trace. The old table is ordered by
+-- (project_id, toDate(trace_start_time), trace_id), so two versions of one
+-- trace whose start times crossed a date boundary are separate rows that BOTH
+-- survive there, and unmerged ReplacingMergeTree replays can additionally sit
+-- in the same bucket. The new table is ordered by (project_id, trace_id), so
+-- every copied row for one trace collapses into one logical row and the merge
+-- keeps an ARBITRARY one when their versions tie. Dedup here to the row the
+-- old table's own public view answered from — newest ch_update_time, newest
+-- start time as the tie-break — so the classification below and the surviving
+-- row are deterministic regardless of part/merge order.
+--
+-- The legacy classification is an UNCORRELATED tuple IN over the set of
+-- parentless spans, restricted element-wise to (project_id, trace_id,
+-- span_start_time, name): no span of another project or trace can satisfy a
+-- row's membership. Correlated subqueries (EXISTS referencing the outer row)
+-- are not supported by ClickHouse 25.2 — the repository's default — and fail
+-- the migration outright. The shift operators (`<<`) are likewise not part of
+-- the 25.2 SQL grammar; the constants below are (1 << 60) - 1 and 4 << 61 /
+-- rank from shared/trace_identity.py written out, with `bitShiftLeft` for the
+-- runtime shifts.
 INSERT INTO traces_v2
 (
     trace_id, project_id, trace_start_time, name, source, user_id, session_id,
@@ -86,29 +123,45 @@ SELECT
     git_ref, git_repo, input, output, metadata, ch_create_time, ch_update_time,
     environment, is_evaluation, 'placeholder',
     if(
-        EXISTS(
-            SELECT 1
-            FROM spans AS s
-            WHERE s.project_id = old_traces.project_id
-              AND s.trace_id = old_traces.trace_id
-              AND isNull(s.parent_span_id)
-              AND s.span_start_time = old_traces.trace_start_time
-              AND s.name = old_traces.name
+        (project_id, trace_id, trace_start_time, name) IN (
+            SELECT project_id, trace_id, span_start_time, name
+            FROM spans
+            WHERE isNull(parent_span_id)
         ),
+        -- legacy_trace_version(trace_start_time, is_evaluation): the
+        -- intermediate rank 4 << 61 plus the inverted millisecond start time,
+        -- with the monotonic evaluation bit in bit 0. Legacy rows keep
+        -- root_kind = 'placeholder' and never receive the definite-root rank.
         bitOr(
-            bitShiftLeft(toUInt64(4), 61),
-            bitShiftLeft(
-                toUInt64(
-                    (toInt64((1 << 60) - 1) - greatest(
-                        0, least(toInt64(toUnixTimestamp64Milli(trace_start_time)), (1 << 60) - 1)
-                    ))
-                ),
-                1
-            )
-        ) + toUInt64(is_evaluation),
+            bitOr(
+                bitShiftLeft(toUInt64(4), 61),
+                bitShiftLeft(
+                    toUInt64(
+                        toInt64(1152921504606846975) - greatest(
+                            0,
+                            least(
+                                toInt64(toUnixTimestamp64Milli(trace_start_time)),
+                                toInt64(1152921504606846975)
+                            )
+                        )
+                    ),
+                    1
+                )
+            ),
+            toUInt64(is_evaluation)
+        ),
         toUInt64(0)
     )
-FROM traces AS old_traces;
+FROM
+(
+    SELECT
+        trace_id, project_id, trace_start_time, name, source, user_id, session_id,
+        git_ref, git_repo, input, output, metadata, ch_create_time, ch_update_time,
+        environment, is_evaluation
+    FROM traces AS old_traces
+    ORDER BY ch_update_time DESC, trace_start_time DESC
+    LIMIT 1 BY project_id, trace_id
+);
 
 ALTER TABLE traces_v2 MATERIALIZE PROJECTION traces_by_start_time;
 
@@ -155,9 +208,15 @@ WHERE source = 'user'
   );
 
 -- +goose Down
--- The old table is kept as a backstop by Up. Pause ingestion before rollback,
--- merge rows written to the new table after the swap, and only then restore the
--- old schema; otherwise rollback would silently discard those writes.
+-- The old table is kept as a backstop by Up. Pause ingestion before rollback
+-- (the same writer services Up's safety note names — compose enforces the
+-- pause for stack restarts; stop them manually for a live stack), merge rows
+-- written to the new table after the swap, and only then restore the old
+-- schema; otherwise rollback would silently discard those writes. The copied
+-- rows re-enter the old (project_id, toDate(trace_start_time), trace_id) key:
+-- versions sharing a bucket with a pre-migration row replace it on merge
+-- (their ch_update_time is newer), versions in another bucket survive as the
+-- old table always allowed.
 DROP VIEW IF EXISTS traces_public_v1;
 INSERT INTO traces_old
 (

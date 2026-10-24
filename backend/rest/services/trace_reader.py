@@ -1119,7 +1119,7 @@ class TraceReaderService:
                     SELECT t.session_id, t.trace_start_time
                     FROM traces AS t
                     WHERE {where_clause}
-                    ORDER BY t.ch_update_time DESC
+                    ORDER BY t.root_version DESC, t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 ) AS t
                 GROUP BY t.session_id
@@ -1133,7 +1133,7 @@ class TraceReaderService:
                 FROM traces AS t
                 WHERE {where_clause}
                   AND t.session_id IN (SELECT session_id FROM session_page)
-                ORDER BY t.ch_update_time DESC
+                ORDER BY t.root_version DESC, t.ch_update_time DESC
                 LIMIT 1 BY t.project_id, t.trace_id
             ),
             span_agg AS (
@@ -1186,7 +1186,7 @@ class TraceReaderService:
                 SELECT t.session_id
                 FROM traces AS t
                 WHERE {where_clause}
-                ORDER BY t.ch_update_time DESC
+                ORDER BY t.root_version DESC, t.ch_update_time DESC
                 LIMIT 1 BY t.project_id, t.trace_id
             )
         """

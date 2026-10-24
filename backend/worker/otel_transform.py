@@ -533,6 +533,15 @@ def _remote_flags_are_inconclusive(flags: Any) -> bool:
     )
 
 
+# Spans whose start time is missing have no wire timestamp at all and cannot be
+# stored (span_start_time is not nullable); they are dropped below.  A start at
+# or before the epoch is a different failure: the span itself is real data whose
+# timestamp is malformed.  It is STORED but is barred from the root-seat claim —
+# its inverted-time version would be the largest in its kind and would
+# permanently outrank every real start for the trace.  See the claim site.
+_EPOCH = datetime(1970, 1, 1)
+
+
 def nanos_to_datetime(nanos: int | str | None) -> datetime | None:
     """Convert nanoseconds since epoch to datetime.
 
@@ -815,10 +824,8 @@ def transform_otel_to_clickhouse(
                 start_time = nanos_to_datetime(otel_span.get("startTimeUnixNano"))
                 end_time = nanos_to_datetime(otel_span.get("endTimeUnixNano"))
 
-                if not start_time or start_time <= datetime(1970, 1, 1):
-                    logger.warning(
-                        f"Skipping span {span_id} with missing or non-positive startTimeUnixNano"
-                    )
+                if not start_time:
+                    logger.warning(f"Skipping span {span_id} with missing startTimeUnixNano")
                     continue
 
                 # Parse attributes
@@ -1324,8 +1331,13 @@ def transform_otel_to_clickhouse(
                 # validated and committed as a row.  Local roots outrank
                 # remote-parent entries, and competing remote entries use the
                 # earlier span start time, so input order cannot choose the row.
+                # A span whose start time is at/before the epoch is stored but
+                # never claims: its inverted-time version would be the largest
+                # in its kind and would permanently beat every real start for
+                # the trace (see _EPOCH).  Root eligibility is thus separate
+                # from span validity — the malformed span's data is kept.
                 claims_trace_root = False
-                if parent_span_id is None or is_remote_parent_entry:
+                if (parent_span_id is None or is_remote_parent_entry) and start_time > _EPOCH:
                     candidate_kind = (
                         TraceRootKind.REMOTE_PARENT
                         if is_remote_parent_entry

@@ -23,6 +23,7 @@ import json
 import pytest
 
 from shared.span_attributes import SPAN_IDS_PATH
+from shared.trace_identity import TraceRootKind
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     PARENT_IS_REMOTE_KEY,
@@ -88,14 +89,124 @@ class TestParentContextIsRemote:
         # IS_REMOTE (0x200) without HAS_IS_REMOTE is not emitted by the SDKs.
         assert _parent_context_is_remote(flags) is False
 
-    def test_non_positive_start_time_is_rejected_by_transform(self):
+
+class TestMalformedStartTimes:
+    """Spans with a non-positive start time are real data carrying a malformed
+    timestamp: they are STORED but can never claim the root seat — their
+    inverted-time version would be the largest in-kind version and would
+    permanently outrank every real start for the trace. Root eligibility is
+    therefore separate from span validity. A span with NO wire timestamp at
+    all cannot be stored (span_start_time is not nullable) and is discarded."""
+
+    @pytest.mark.parametrize("nanos", ["0", "-1000"])
+    def test_non_positive_start_time_keeps_the_span_but_not_the_root_seat(self, nanos):
+        span = make_span(TRACE_HEX, ENTRY_SPAN_HEX, name="epoch-span")
+        span["startTimeUnixNano"] = nanos
+
+        traces, spans = transform_otel_to_clickhouse(make_otel_payload([span]), _PROJECT)
+
+        # The span's data survives.
+        assert [s["span_id"] for s in spans] == [ENTRY_SPAN_HEX]
+        assert spans[0]["name"] == "epoch-span"
+        # The trace stays an honest placeholder: nothing was claimed, so a
+        # later valid remote entry or true root can still establish identity.
+        (row,) = traces
+        assert row["root_kind"] == int(TraceRootKind.PLACEHOLDER)
+        assert row["root_version"] == 0
+        assert "input" not in row
+
+    def test_missing_start_time_still_drops_the_span(self):
         span = make_span(TRACE_HEX, ENTRY_SPAN_HEX, name="invalid")
-        span["startTimeUnixNano"] = "0"
+        del span["startTimeUnixNano"]
 
         traces, spans = transform_otel_to_clickhouse(make_otel_payload([span]), _PROJECT)
 
         assert traces == []
         assert spans == []
+
+    def test_epoch_remote_entry_cannot_claim_before_a_valid_remote_entry(self):
+        """A flagged entry span with an epoch start is stored but cannot take
+        the remote-parent root seat; the valid entry in the same batch claims
+        it with its real start time and payloads."""
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    "01" * 8,
+                    name="epoch-entry",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    flags=768,
+                    start_nanos=0,
+                ),
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert [s["span_id"] for s in spans] == ["01" * 8, ENTRY_SPAN_HEX]
+        (row,) = traces
+        assert row["root_kind"] == int(TraceRootKind.REMOTE_PARENT)
+        assert row["name"] == "handle_request"
+        assert row["input"] == "user question"
+        assert row["trace_start_time"] == nanos_to_datetime(1705320000000000000)
+
+    def test_epoch_true_root_cannot_block_a_valid_remote_entry(self):
+        """A root-shaped span with an epoch start reserves nothing: a valid
+        remote-parent entry later in the same batch still establishes the
+        trace as remote-parent (a later true root can still take over)."""
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_HEX, TRUE_ROOT_HEX, name="agent-run", start_nanos=0),
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert [s["span_id"] for s in spans] == [TRUE_ROOT_HEX, ENTRY_SPAN_HEX]
+        (row,) = traces
+        assert row["root_kind"] == int(TraceRootKind.REMOTE_PARENT)
+        assert row["trace_start_time"] == nanos_to_datetime(1705320000000000000)
+
+    def test_epoch_true_root_yields_to_a_later_valid_remote_entry_claim(self):
+        """Ordering within one batch must not matter: valid entry first, epoch
+        root second — the entry's claim stands and the epoch root replaces
+        nothing."""
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=entry_span_attributes(),
+                    flags=768,
+                ),
+                make_span(TRACE_HEX, TRUE_ROOT_HEX, name="agent-run", start_nanos=0),
+            ]
+        )
+
+        traces, _spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        (row,) = traces
+        assert row["root_kind"] == int(TraceRootKind.REMOTE_PARENT)
+        assert row["name"] == "handle_request"
+        assert row["input"] == "user question"
 
 
 # -- transform: flagged entry spans take the root seat -----------------------
@@ -238,6 +349,58 @@ class TestRemoteParentEntrySpan:
         assert traces[0]["input"] == "ts input"
         assert spans[0]["parent_span_id"] == REMOTE_PARENT_HEX
         assert spans[0][PARENT_IS_REMOTE_KEY] is True
+
+    def test_typescript_ordinary_child_missing_from_the_local_batch_stays_ambiguous(self):
+        """KNOWN LIMITATION (documented in the PR): traceroot-ts emits
+        ``ids_path = []`` BOTH for a span started from a remote parent and for
+        an ordinary child whose local parent context it could not resolve (a
+        parent that already ended, or one whose batch has not arrived). Without
+        an SDK change the two are indistinguishable, so the fallback treats the
+        SDK-marked empty path as a provisional remote entry — which is safe
+        because a remote entry never outranks a true root, and a genuinely
+        local parent's batch will arrive and re-plant the row only if the
+        entry's claim was wrong (the ingest layer lets true-root batches
+        replace remote-claimed rows). Non-TypeScript payloads are never
+        affected."""
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    CHILD_SPAN_HEX,
+                    name="orphan-child",
+                    parent_span_id_hex="99" * 8,  # not in this batch
+                    attributes=[
+                        make_attr("traceroot.sdk.name", "traceroot-ts"),
+                        {"key": SPAN_IDS_PATH, "value": {"arrayValue": {"values": []}}},
+                        make_attr("traceroot.span.input", "child input"),
+                    ],
+                )
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert spans[0][PARENT_IS_REMOTE_KEY] is True
+        assert traces[0]["root_kind"] == 1
+
+    def test_non_typescript_empty_attributes_never_infer_a_remote_root(self):
+        """The fallback is gated on the SDK marker: the same empty-ids_path
+        shape from any other emitter keeps today's interpretation."""
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    CHILD_SPAN_HEX,
+                    name="orphan-child",
+                    parent_span_id_hex="99" * 8,
+                    attributes=[{"key": SPAN_IDS_PATH, "value": {"arrayValue": {"values": []}}}],
+                )
+            ]
+        )
+
+        _traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert PARENT_IS_REMOTE_KEY not in spans[0]
 
     def test_typescript_nonempty_ids_path_is_an_ordinary_child(self):
         payload = make_otel_payload(
