@@ -63,7 +63,7 @@ describe("AITab", () => {
   it("leads with the one command that does the whole setup", () => {
     const { container } = render(<AITab projectId="proj_1" />);
     expect(screen.getByText("Run this in your project")).toBeDefined();
-    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@latest setup");
+    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@0.6.0 setup");
   });
 
   it("writes the project this panel is showing into the command", () => {
@@ -119,7 +119,7 @@ describe("AITab", () => {
     const { container } = await renderTabWith("http://:8000");
     const text = container.textContent ?? "";
 
-    expect(text).not.toContain("npx -y traceroot-cli@latest setup");
+    expect(text).not.toContain("npx -y traceroot-cli@");
     // No code block and so no copy button: a command in that frame reads as
     // one to paste whatever the surrounding text says.
     expect(container.querySelector("pre")).toBeNull();
@@ -145,7 +145,7 @@ describe("AITab", () => {
     const { container } = await renderTabWith("https://app.traceroot.ai/api/v1");
     const text = container.textContent ?? "";
 
-    expect(text).toContain("npx -y traceroot-cli@latest setup --project proj_1");
+    expect(text).toContain("npx -y traceroot-cli@0.6.0 setup --project proj_1");
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
     expect(container.querySelector("pre")).not.toBeNull();
   });
