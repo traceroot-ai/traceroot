@@ -141,10 +141,15 @@ export function traceQueryKey(projectId: string, traceId: string, source?: Trace
 
 /**
  * Hook for lazily fetching a single span's full I/O (input/output/metadata).
- * Only fetches when spanId is provided (i.e. the user selected a span); the
- * trace-detail skeleton no longer ships per-span I/O.
+ * Only fetches when spanId is provided and the span is no longer a pending
+ * placeholder; the trace-detail skeleton no longer ships per-span I/O.
  */
-export function useSpanIO(projectId: string, traceId: string, spanId: string | null) {
+export function useSpanIO(
+  projectId: string,
+  traceId: string,
+  spanId: string | null,
+  pending = false,
+) {
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
@@ -153,7 +158,7 @@ export function useSpanIO(projectId: string, traceId: string, spanId: string | n
   return useQuery({
     queryKey: spanIOQueryKey(projectId, traceId, spanId ?? ""),
     queryFn: () => getSpanIO(projectId, traceId, spanId!, user),
-    enabled: sessionReady && !!spanId,
+    enabled: sessionReady && !!spanId && !pending,
     staleTime: SPAN_IO_STALE_TIME_MS,
   });
 }
