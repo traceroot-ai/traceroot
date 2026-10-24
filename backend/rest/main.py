@@ -38,10 +38,12 @@ from rest.routers.public.account_read import router as public_account_read_route
 from rest.routers.public.account_write import router as public_account_write_router
 from rest.routers.public.alerts_read import router as public_alerts_read_router
 from rest.routers.public.alerts_write import router as public_alerts_write_router
+from rest.routers.public.api_keys import router as public_api_keys_router
 from rest.routers.public.dashboards_read import router as public_dashboards_read_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
+from rest.routers.public.projects import router as public_projects_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
 from rest.routers.public.signals_read import router as public_signals_read_router
 from rest.routers.public.signals_write import router as public_signals_write_router
@@ -157,6 +159,7 @@ app.include_router(public_traces_router, prefix="/api/v1")
 
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")
+app.include_router(public_api_keys_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
 app.include_router(public_sql_router, prefix="/api/v1")
@@ -181,6 +184,9 @@ app.include_router(public_account_write_router, prefix="/api/v1")
 app.include_router(public_project_write_router, prefix="/api/v1")
 app.include_router(public_alerts_write_router, prefix="/api/v1")
 app.include_router(public_signals_write_router, prefix="/api/v1")
+# The setup wizard's first-key write: the one project write that has to run on a
+# user credential, because no project key exists yet to authenticate with.
+app.include_router(public_projects_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
 # project_dashboards, project_widgets, project_alerts and project_evaluations are the
