@@ -157,8 +157,74 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
+        # -> tags column (OpenInference using_attributes / usingAttributes tags).
+        "tag.tags",
     }
 )
+
+
+# The attributes a span's tags are read from, in merge order (#1748): traceroot-py
+# @observe(tags=) and traceroot-ts send traceroot.span.tags, traceroot-py
+# update_current_trace(tags=) sends traceroot.trace.tags on whichever span is current,
+# and OpenInference using_attributes / usingAttributes sends tag.tags. Each may arrive
+# as a string array or as a JSON-encoded string array (traceroot-ts sends the latter).
+# All three are in the known-attribute lists above, so the tags column is their only home.
+TAG_ATTRIBUTES = ("traceroot.span.tags", "traceroot.trace.tags", "tag.tags")
+
+# Per-span bounds on what is stored. Tags are labels a person reads and filters by, so
+# these sit far above any real use and only stop a runaway caller from bloating the
+# column. A tag over the length cap is dropped rather than truncated: a truncated tag is a
+# value nobody sent, and a filter on the real value would never match it.
+MAX_TAGS_PER_SPAN = 50
+MAX_TAG_LENGTH = 200
+
+
+def _tag_values(raw: Any) -> list[Any]:
+    """The candidate tag values of one attribute: an array, a JSON-string array, or one
+    plain string. Anything else yields nothing."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, ValueError):
+            return [raw]
+        if isinstance(decoded, list):
+            return decoded
+        return [decoded] if isinstance(decoded, str) else [raw]
+    return []
+
+
+def extract_tags(attrs: dict[str, Any]) -> list[str]:
+    """A span's tags: every tag attribute merged in ``TAG_ATTRIBUTES`` order.
+
+    Values are trimmed; empty and non-string values are dropped, as are values longer
+    than ``MAX_TAG_LENGTH``; duplicates keep their first position; at most
+    ``MAX_TAGS_PER_SPAN`` are kept. A span with no tag attribute gets ``[]``.
+    """
+    tags: dict[str, None] = {}
+    dropped = 0
+    for key in TAG_ATTRIBUTES:
+        for value in _tag_values(attrs.get(key)):
+            if not isinstance(value, str):
+                dropped += 1
+                continue
+            tag = value.strip()
+            if not tag or tag in tags:
+                continue
+            if len(tag) > MAX_TAG_LENGTH or len(tags) >= MAX_TAGS_PER_SPAN:
+                dropped += 1
+                continue
+            tags[tag] = None
+    if dropped:
+        logger.warning(
+            "Dropped %d span tag value(s): not a string, longer than %d characters, "
+            "or past the %d-tag cap",
+            dropped,
+            MAX_TAG_LENGTH,
+            MAX_TAGS_PER_SPAN,
+        )
+    return list(tags)
 
 
 def _is_known_attribute(key: str) -> bool:
@@ -780,6 +846,7 @@ def transform_otel_to_clickhouse(
                     "name": span_name,
                     "span_kind": span_kind,
                     "status": SpanStatus.OK,
+                    "tags": extract_tags(span_attrs),
                 }
                 if isinstance(environment, str):
                     span_record["environment"] = environment
