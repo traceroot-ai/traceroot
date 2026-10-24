@@ -41,8 +41,9 @@ dependencies = [
     # what the allowlist admits without a line of our code changing. Bump it
     # deliberately, with the suite as the gate.
     "sqlglot==26.33.0",
-    # Tokenization
+    # Tokenization & Pattern Matching
     "tiktoken>=0.5.0",
+    "regex>=2024.11.1",
     # PostgreSQL (for standard model pricing lookup)
     "psycopg2-binary>=2.9",
     "bullmq>=2.25,<3",

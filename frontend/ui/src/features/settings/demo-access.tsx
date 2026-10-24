@@ -38,6 +38,10 @@ const WORKSPACE_DEMO_VIEWER_ACCESS: Record<WorkspaceSettingsTab, SettingsAccess>
     "workspace",
     "Model provider settings are not available in this demo workspace. You can connect model providers in your own workspace.",
   ),
+  "model-pricing": denied(
+    "workspace",
+    "Model pricing settings are not available in this demo workspace. You can configure custom model prices in your own workspace.",
+  ),
   integrations: denied(
     "workspace",
     "Integration settings are not available in this demo workspace. You can connect integrations in your own workspace.",

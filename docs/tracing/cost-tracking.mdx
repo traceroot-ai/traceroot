@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-TraceRoot captures token usage from instrumented LLM calls. It calculates cost only when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span.
+TraceRoot captures token usage from instrumented LLM calls and calculates cost using its built-in pricing catalog, workspace-configured custom model pricing, or direct caller-supplied costs.
 
 <Tabs>
   <Tab title="Python">
@@ -44,7 +44,7 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
 1. **Auto-instrumentation** — TraceRoot integrations capture token usage from the provider response automatically.
 2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
 3. **Model matching** — The reported model ID is matched against TraceRoot's pricing table, including supported provider-prefixed and hosted aliases.
-4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost.
+4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. For unpriced models or custom rates, cost can be calculated via **Workspace Custom Model Pricing** or supplied directly on the span.
 
 ## Pricing coverage
 
@@ -70,7 +70,34 @@ Each LLM span captures:
 | Input tokens | Tokens in the prompt/messages |
 | Output tokens | Tokens in the completion/response |
 | Total tokens | Sum of input and output |
-| Cost (USD) | Calculated only when the model ID matches the pricing table |
+| Cost (USD) | Calculated via catalog pricing, workspace custom pricing, or caller-supplied span cost |
+
+## Custom and Caller-Supplied Pricing
+
+For models not in TraceRoot's standard catalog (brand-new releases, fine-tunes, self-hosted deployments, or negotiated enterprise rates), you can supply costs in two ways:
+
+### 1. Workspace Custom Model Pricing
+
+You can register prices once in **Workspace Settings > Model Pricing** without modifying application code:
+- Define prices per million tokens ($/1M) for input, output, cache read, and cache write.
+- Match models by exact identifier or regex pattern (e.g. `^meta-llama/.*`).
+- Custom pricing applies to all future spans ingested within the workspace.
+
+### 2. Caller- and Instrumentor-Supplied Span Costs
+
+If your application, gateway, or instrumentation SDK already knows the billed cost, send it directly on the span using standard OpenTelemetry attributes:
+- `claude_agent_sdk.total_cost_usd` (Anthropic Claude Agent SDK)
+- `gen_ai.usage.cost` (OpenTelemetry GenAI Semantic Conventions)
+- `llm.cost.total` (OpenInference Semantic Conventions)
+- `traceroot.llm.cost` (TraceRoot native attribute)
+
+### Pricing Precedence Order
+
+When TraceRoot processes an ingested span, it resolves the cost using this hierarchy:
+1. **Supplied span cost**: If a caller or instrumentor provides a valid cost directly on the span.
+2. **Workspace custom price**: If a custom model rate is registered for the workspace matching the model ID.
+3. **TraceRoot catalog price**: Built-in standard model rates.
+4. **Fallback token estimation**: When provider token counts are missing, token usage is estimated and cost is calculated using matching model pricing if available.
 
 ## Viewing Costs
 
