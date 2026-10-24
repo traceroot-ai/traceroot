@@ -162,10 +162,12 @@ _TRACES_BASE = f"""
                 NULL
             ) AS duration_ms,
             countIf(status = 'ERROR') AS error_count,
-            sum(cost) AS total_cost,
+            -- Same expressions as the trace-list Cost/Tokens filters: spans with no cost or
+            -- token count store NULL, and the list shows such a trace as $0 / 0 tokens.
+            ifNull(sum(cost), 0) AS total_cost,
             sum(input_tokens) AS input_tokens,
             sum(output_tokens) AS output_tokens,
-            sum(total_tokens) AS total_tokens,
+            ifNull(sum(total_tokens), 0) AS total_tokens,
             sum(cache_read_tokens) AS cache_read_tokens,
             sum(cache_write_tokens) AS cache_write_tokens
         FROM (
