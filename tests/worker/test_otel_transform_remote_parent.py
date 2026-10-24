@@ -1,26 +1,28 @@
 """Root detection for spans whose parent context is REMOTE (W3C traceparent).
 
 A service that is called by another traced service receives the caller's parent
-span id, so its entry span never looks parentless — yet it is the trace's locally
-observable root: without OTLP ``flags`` the trace keeps a placeholder row
+span id, so its entry span is not an ordinary local root — yet it is the trace's
+locally observable provisional identity: without OTLP ``flags`` the trace keeps a
+placeholder row
 (a child's name, no input/output or metadata) and detectors never run, because
 every root consumer keys off an absent ``parent_span_id`` (issue #2710).
 
 The OTLP signal for exactly this is ``Span.flags`` bit pair 0x300
 (``SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE_MASK | SPAN_FLAGS_CONTEXT_IS_REMOTE_MASK``):
 opentelemetry-python exports ``flags=0x300`` on such an entry span and ``0x100``
-on a local root. The fix treats a flagged entry span as parentless — the same
-root seat a true local root occupies — while a true local root present in the
+on a local root. The fix preserves the original parent span id and tracks
+remote-root eligibility separately, while a true local root present in the
 same batch keeps the stronger claim either way (its row must survive a second
-service's entry span that also carries ``0x300``). Emitters that send no flags at
-all (OTel JS) keep today's behavior by design: this file pins that no heuristic
-on their part quietly infers a root.
+service's entry span that also carries ``0x300``). Payloads without the
+TraceRoot SDK marker or an explicit fallback signal keep today's behavior:
+missing flags alone never infers a root.
 """
 
 import json
 
 import pytest
 
+from shared.span_attributes import SPAN_IDS_PATH
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     PARENT_IS_REMOTE_KEY,
@@ -109,8 +111,8 @@ class TestRemoteParentEntrySpan:
         assert row["git_repo"] == "acme/app"
 
         (entry,) = spans
-        # Normalized to the locally observable root the rest of the pipeline keys on.
-        assert entry["parent_span_id"] is None
+        # Root eligibility is separate from the persisted topology.
+        assert entry["parent_span_id"] == REMOTE_PARENT_HEX
         assert entry["name"] == "handle_request"
         # Ingest reads this sentinel; the ClickHouse writer does not (named columns).
         assert entry[PARENT_IS_REMOTE_KEY] is True
@@ -119,7 +121,7 @@ class TestRemoteParentEntrySpan:
         traces, spans = transform_otel_to_clickhouse(
             _remote_entry_payload(ENTRY_SPAN_HEX, flags=768), _PROJECT
         )
-        # The wire span id round-trips; only the remote parent id is normalized.
+        # Both wire span ids round-trip; eligibility is tracked separately.
         assert spans[0]["span_id"] == ENTRY_SPAN_HEX
         (row,) = traces
         assert row["trace_id"] == TRACE_HEX
@@ -152,7 +154,7 @@ class TestRemoteParentEntrySpan:
 
         by_id = {s["span_id"]: s for s in spans}
         assert by_id[CHILD_SPAN_HEX]["parent_span_id"] == ENTRY_SPAN_HEX
-        assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] is None
+        assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] == REMOTE_PARENT_HEX
         # The entry's upgrade fires even though the child was processed first and
         # already created the shallow trace row; the child stays a child and never
         # takes the root seat.
@@ -190,7 +192,7 @@ class TestRemoteParentEntrySpan:
 
     @pytest.mark.parametrize("flags", [None, 0])
     def test_no_remote_flags_keeps_today_s_placeholder_behavior(self, flags):
-        """No flags set (OTel JS): a parented span is never inferred into a root."""
+        """No flags and no SDK fallback marker: a parented span is not inferred into a root."""
         payload = _remote_entry_payload(ENTRY_SPAN_HEX, flags)
 
         traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
@@ -200,6 +202,79 @@ class TestRemoteParentEntrySpan:
         assert row.get("input") is None
         (entry,) = spans
         assert entry["parent_span_id"] == REMOTE_PARENT_HEX
+
+    def test_typescript_empty_ids_path_is_a_guarded_remote_entry_fallback(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="handle_request",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=[
+                        make_attr("traceroot.sdk.name", "traceroot-ts"),
+                        {
+                            "key": SPAN_IDS_PATH,
+                            "value": {"arrayValue": {"values": []}},
+                        },
+                        make_attr("traceroot.span.input", "ts input"),
+                    ],
+                )
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert traces[0]["root_kind"] == 1
+        assert traces[0]["input"] == "ts input"
+        assert spans[0]["parent_span_id"] == REMOTE_PARENT_HEX
+        assert spans[0][PARENT_IS_REMOTE_KEY] is True
+
+    def test_typescript_nonempty_ids_path_is_an_ordinary_child(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="child",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    attributes=[
+                        make_attr("traceroot.sdk.name", "traceroot-ts"),
+                        {
+                            "key": SPAN_IDS_PATH,
+                            "value": {
+                                "arrayValue": {"values": [{"stringValue": REMOTE_PARENT_HEX}]}
+                            },
+                        },
+                    ],
+                )
+            ]
+        )
+
+        _traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert PARENT_IS_REMOTE_KEY not in spans[0]
+
+    def test_typescript_fallback_does_not_override_explicit_local_flags(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_HEX,
+                    ENTRY_SPAN_HEX,
+                    name="child",
+                    parent_span_id_hex=REMOTE_PARENT_HEX,
+                    flags=256,
+                    attributes=[
+                        make_attr("traceroot.sdk.name", "traceroot-ts"),
+                        {"key": SPAN_IDS_PATH, "value": {"arrayValue": {"values": []}}},
+                    ],
+                )
+            ]
+        )
+
+        _traces, spans = transform_otel_to_clickhouse(payload, _PROJECT)
+
+        assert PARENT_IS_REMOTE_KEY not in spans[0]
 
     def test_null_padded_parent_with_remote_flags_is_still_a_true_root(self):
         """An all-zero parent id decodes to absent: the span is a local root regardless."""
@@ -227,8 +302,7 @@ class TestTrueRootPrecedence:
     def test_true_root_wins_when_processed_after_the_entry(self):
         """Both claimants in one batch, entry first: the true root's re-claim must
         overwrite the row's identity (name/start/user) even though the entry already
-        upgraded the row. The entry's input lives on only because the true root
-        carries none of its own (upstream's keep-if-later-root-lacks-it rule)."""
+        upgraded the row. The entry's input must not leak into the winning root row."""
         payload = make_otel_payload(
             [
                 make_span(
@@ -247,7 +321,7 @@ class TestTrueRootPrecedence:
 
         (row,) = traces
         assert row["name"] == "agent-run"  # true root's identity, not the entry's
-        assert row["input"] == "user question"  # entry-enriched; true root had no input
+        assert "input" not in row
         assert row["user_id"] == "u-42"  # entry's trace.user survives the re-claim
 
     def test_true_root_wins_when_processed_before_the_entry(self):
@@ -280,13 +354,13 @@ class TestTrueRootPrecedence:
         # The entry must not replant the trace row's identity over the true root's.
         assert "input" not in row
 
-    def test_first_remote_entry_claims_and_later_ones_cannot_overwrite(self):
-        """Two services' entries of one rootless trace in one batch: the FIRST
-        processed one claims the root seat, and a later entry — an additional
+    def test_earliest_remote_entry_claims_and_later_ones_cannot_overwrite(self):
+        """Two services' entries of one rootless trace in one batch: the earlier
+        span start claims the root seat, and a later entry — an additional
         view of the same trace — must not replace the established name, input,
         output, or start time. This matches the cross-batch ingest rule, where
         an entry-only batch can fill an absent row but never replants an
-        existing one. Both spans still normalize to parentless entries."""
+        existing one. Both spans preserve their original remote parent ids."""
         second_entry_hex = "01" * 8
         payload = make_otel_payload(
             [
@@ -324,9 +398,9 @@ class TestTrueRootPrecedence:
         assert row["output"] == "final answer"
         assert row["trace_start_time"] == nanos_to_datetime(1705320000000000000)
         by_id = {s["span_id"]: s for s in spans}
-        assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] is None
+        assert by_id[ENTRY_SPAN_HEX]["parent_span_id"] == REMOTE_PARENT_HEX
         assert by_id[ENTRY_SPAN_HEX][PARENT_IS_REMOTE_KEY] is True
-        assert by_id[second_entry_hex]["parent_span_id"] is None
+        assert by_id[second_entry_hex]["parent_span_id"] == "02" * 8
         assert by_id[second_entry_hex][PARENT_IS_REMOTE_KEY] is True
 
     def test_remote_entry_followed_by_children_keeps_the_claimed_metadata(self):

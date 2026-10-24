@@ -28,6 +28,10 @@ DETECTOR_RUN_QUEUE = "detector-run"
 # root-bearing batch; the NX lock makes that enqueue exactly-once.
 _LOCK_TTL_SECONDS = 3600
 
+# Separate from the final detector claim.  A remote entry is only a provisional
+# root identity and must be allowed to wait for a later caller root.
+_REMOTE_FINALIZATION_TTL_SECONDS = 3600
+
 # Initial delay on the enqueued job; the worker then waits until the trace has
 # been quiet this long (no new span) before evaluating. Must match the
 # TypeScript EVALUATOR_DELAY constant.
@@ -67,6 +71,37 @@ def _lock_key(project_id: str, trace_id: str) -> str:
         str: The namespaced Redis key for this ``(project, trace)`` claim.
     """
     return f"detector-enq:{project_id}:{trace_id}"
+
+
+def _remote_finalization_key(project_id: str, trace_id: str) -> str:
+    return f"detector-remote-finalize:{project_id}:{trace_id}"
+
+
+def schedule_remote_detector_finalization(project_id: str, trace_ids: set[str]) -> None:
+    """Schedule one post-quiescence decision for provisional remote roots.
+
+    This claim is deliberately separate from :func:`_lock_key`.  If the caller
+    root arrives first, it can take the final claim normally; if no caller root
+    ever arrives, the existing 60-second quiet-window behavior still gives the
+    remote-only trace one final detector decision.
+    """
+
+    if not trace_ids:
+        return
+    redis_client = _get_redis()
+    from worker.ingest_tasks import finalize_remote_detector_runs
+
+    for trace_id in trace_ids:
+        key = _remote_finalization_key(project_id, trace_id)
+        if not redis_client.set(key, "scheduled", nx=True, ex=_REMOTE_FINALIZATION_TTL_SECONDS):
+            continue
+        try:
+            finalize_remote_detector_runs.apply_async(
+                args=[project_id, trace_id], countdown=EVALUATOR_DELAY / 1000
+            )
+        except Exception:
+            _release_lock_if_value(redis_client, key, "scheduled")
+            raise
 
 
 def _release_lock_if_value(redis_client, key: str, expected: str) -> None:
@@ -363,7 +398,7 @@ def _get_trace_summaries(
             WHERE project_id = {project_id:String}
               AND trace_start_time >= {first_span_start:DateTime64(3)}
               AND trace_id IN {trace_ids:Array(String)}
-            ORDER BY ch_update_time DESC
+            ORDER BY root_version DESC, ch_update_time DESC
             LIMIT 1 BY project_id, trace_id
             """,
             parameters={**parameters, "first_span_start": first_span_start},

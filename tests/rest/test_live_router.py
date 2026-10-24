@@ -109,6 +109,19 @@ def parse_sse_events(text: str) -> list[str]:
     return [line for line in text.splitlines() if line.startswith("event:")]
 
 
+def test_remote_parent_entry_is_not_a_live_trace_root():
+    """A preserved remote parent prevents the callee end from closing the stream."""
+    ch = MagicMock()
+    ch.query.return_value.result_rows = [(None, datetime(2026, 9, 20, 10, 1))]
+    with patch("db.clickhouse.client.get_clickhouse_client", return_value=ch):
+        root_end, last_ingest = live_router._completion_state_in_clickhouse(PROJECT_ID, TRACE_ID)
+
+    assert root_end is None
+    assert last_ingest == datetime(2026, 9, 20, 10, 1)
+    sql = ch.query.call_args.args[0]
+    assert "maxIf(span_end_time, isNull(parent_span_id))" in sql
+
+
 async def collect_stream_chunks(response) -> list[str]:
     chunks = []
     async for chunk in response.body_iterator:

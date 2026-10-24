@@ -1,11 +1,13 @@
 """Unit tests for Celery task logic with mocked S3 + ClickHouse."""
 
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
 
 from tests.fixtures.otel_payloads import make_otel_payload, make_span
-from worker.ingest_tasks import process_s3_traces
+from worker.ingest_tasks import _merge_trace_record, process_s3_traces
+from worker.otel_transform import PARENT_IS_REMOTE_KEY
 
 TRACE_HEX = "aa" * 16
 SPAN_HEX = "bb" * 8
@@ -32,6 +34,14 @@ def mock_detector_enqueue(monkeypatch):
     """Mock the detector enqueue so tests never touch Postgres/Redis/BullMQ."""
     mock = MagicMock()
     monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", mock)
+    return mock
+
+
+@pytest.fixture(autouse=True)
+def mock_remote_detector_finalization(monkeypatch):
+    """Keep unit tests at the scheduling boundary without requiring Redis."""
+    mock = MagicMock()
+    monkeypatch.setattr("worker.detector_tasks.schedule_remote_detector_finalization", mock)
     return mock
 
 
@@ -425,15 +435,7 @@ class TestUpdateEvalResultCosts:
 
 
 class TestRemoteParentEntrySpans:
-    """Ingest gating for true local roots vs remote-parent entries (W3C traceparent).
-
-    A called service's entry span is parentless after the OTLP-flags fix, so its
-    batch is root-bearing and its trace record may replace an earlier placeholder.
-    But it is NOT the trace's authoritative identity when a true local root also
-    reaches the project: the true-root batch must keep unconditional replace, and
-    the remote batch must ride the existing-row probe. Detector enqueue treats
-    both as root-bearing either way.
-    """
+    """Ingest gating for true local roots vs remote-parent entries (W3C traceparent)."""
 
     TRACE_HEX = "cc" * 16
     ENTRY_SPAN_HEX = "11" * 8
@@ -444,7 +446,9 @@ class TestRemoteParentEntrySpans:
     def skip_live_publish(self, monkeypatch):
         """Spans here carry traceroot.span.input/output, which triggers the live
         Redis publish; skip it so these tests never dial localhost:6379."""
-        monkeypatch.setattr("worker.ingest_tasks._publish_live_spans", MagicMock())
+        mock = MagicMock()
+        monkeypatch.setattr("worker.ingest_tasks._publish_live_spans", mock)
+        return mock
 
     def _entry_batch(self) -> dict:
         payload = make_otel_payload(
@@ -471,10 +475,38 @@ class TestRemoteParentEntrySpans:
     def _true_root_batch(self) -> dict:
         return make_otel_payload([make_span(self.TRACE_HEX, self.TRUE_ROOT_HEX, name="agent-run")])
 
-    def test_remote_entry_batch_inserts_trace_and_enqueues(
-        self, mock_s3, mock_ch, mock_detector_enqueue
+    def _stored_trace_row(self, *, root_kind: int = 1) -> tuple:
+        """Return the shape selected by ``_trace_rows_by_id``."""
+        from shared.trace_identity import trace_root_version
+
+        start = datetime(2024, 1, 15, 12, 0)
+        return (
+            self.TRACE_HEX,
+            root_kind,
+            trace_root_version(root_kind, start),
+            start,
+            "handle_request" if root_kind == 1 else "agent-run",
+            "user",
+            None,
+            None,
+            None,
+            None,
+            "user input" if root_kind == 1 else None,
+            "user output" if root_kind == 1 else None,
+            "{}" if root_kind == 1 else None,
+            None,
+            0,
+        )
+
+    def test_remote_entry_batch_inserts_trace_and_defers_detector_claim(
+        self,
+        mock_s3,
+        mock_ch,
+        mock_detector_enqueue,
+        mock_remote_detector_finalization,
+        skip_live_publish,
     ):
-        """Genuinely new: the flagged batch inserts a full trace row and triggers detection."""
+        """A flagged batch inserts provisional identity and defers detection."""
         mock_s3.download_json.return_value = self._entry_batch()
         mock_ch.query.return_value = MagicMock(result_rows=[])
 
@@ -485,25 +517,29 @@ class TestRemoteParentEntrySpans:
         assert inserted["name"] == "handle_request"
         assert inserted["input"] == "user input"  # full root-upgrade row, not a placeholder
         mock_ch.insert_spans_batch.assert_called_once()
-        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX})
+        mock_detector_enqueue.assert_not_called()
+        mock_remote_detector_finalization.assert_called_once_with("proj-1", {self.TRACE_HEX})
+        published_spans = skip_live_publish.call_args.args[0]
+        assert PARENT_IS_REMOTE_KEY not in published_spans[0]
 
-    def test_existing_row_blocks_the_remote_batch_from_replanting(
-        self, mock_s3, mock_ch, mock_detector_enqueue
+    def test_established_root_blocks_the_remote_batch_from_replanting(
+        self, mock_s3, mock_ch, mock_detector_enqueue, mock_remote_detector_finalization
     ):
-        """Probe hit: a remote-entry batch fills no identity, spans still insert, detection fires."""
+        """A stored true root wins; the remote batch cannot downgrade it."""
         mock_s3.download_json.return_value = self._entry_batch()
-        mock_ch.query.return_value = MagicMock(result_rows=[(self.TRACE_HEX,)])
+        mock_ch.query.return_value = MagicMock(result_rows=[self._stored_trace_row(root_kind=2)])
 
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         mock_ch.insert_traces_batch.assert_not_called()
         mock_ch.insert_spans_batch.assert_called_once()
-        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX})
+        mock_detector_enqueue.assert_not_called()
+        mock_remote_detector_finalization.assert_called_once_with("proj-1", {self.TRACE_HEX})
 
     def test_true_root_batch_still_replaces_an_existing_row(
         self, mock_s3, mock_ch, mock_detector_enqueue
     ):
-        """Unchanged behavior for a true local root: unconditional replace, no probe."""
+        """A true local root remains eligible for the final detector claim."""
         payload = make_otel_payload(
             [
                 make_span(self.TRACE_HEX, self.TRUE_ROOT_HEX, name="agent-run"),
@@ -519,18 +555,21 @@ class TestRemoteParentEntrySpans:
 
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
-        mock_ch.query.assert_not_called()
+        mock_ch.query.assert_called_once()
         mock_ch.insert_traces_batch.assert_called_once()
         mock_detector_enqueue.assert_called_once()
         _project_id, traces_with_root = mock_detector_enqueue.call_args[0]
         assert traces_with_root == {self.TRACE_HEX}
 
     def test_true_root_lands_after_the_remote_batch_and_wins(
-        self, mock_s3, mock_ch, mock_detector_enqueue
+        self, mock_s3, mock_ch, mock_detector_enqueue, mock_remote_detector_finalization
     ):
         """Remote batch first (new trace → its row), true-root batch second → row is replaced
         with the true root's identity. Arrival order must not matter."""
-        mock_ch.query.return_value = MagicMock(result_rows=[])
+        mock_ch.query.side_effect = [
+            MagicMock(result_rows=[]),
+            MagicMock(result_rows=[self._stored_trace_row()]),
+        ]
 
         mock_s3.download_json.return_value = self._entry_batch()
         process_s3_traces(s3_key="test/1.json", project_id="proj-1")
@@ -541,26 +580,43 @@ class TestRemoteParentEntrySpans:
         process_s3_traces(s3_key="test/2.json", project_id="proj-1")
         second_row = mock_ch.insert_traces_batch.call_args_list[1][0][0][0]
         assert second_row["name"] == "agent-run"
-        # Mocked enqueue saw both claim attempts; the one-per-trace dedup is
-        # detector_tasks' Redis-claim concern (covered by that module's tests).
-        assert mock_detector_enqueue.call_count == 2
+        assert mock_detector_enqueue.call_count == 1
+        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX})
+        mock_remote_detector_finalization.assert_called_once_with("proj-1", {self.TRACE_HEX})
 
-    def test_replayed_remote_batch_writes_spans_again_but_not_the_row(self, mock_s3, mock_ch):
-        """Delivery retry of the same remote batch: probe hit → the trace row is not
-        duplicated; spans are re-inserted (deduped by ClickHouse); enqueue re-fires."""
-        responses = [
-            MagicMock(result_rows=[]),  # first delivery: genuinely new
-            MagicMock(result_rows=[(self.TRACE_HEX,)]),  # replay: row already exists
+    def test_remote_batch_after_true_root_does_not_claim_again(
+        self, mock_s3, mock_ch, mock_detector_enqueue, mock_remote_detector_finalization
+    ):
+        """Caller-first and callee-second delivery keeps one final detector claim."""
+        mock_ch.query.side_effect = [
+            MagicMock(result_rows=[]),
+            MagicMock(result_rows=[self._stored_trace_row(root_kind=2)]),
         ]
-        mock_ch.query.side_effect = responses
+
+        mock_s3.download_json.return_value = self._true_root_batch()
+        process_s3_traces(s3_key="test/caller.json", project_id="proj-1")
+        mock_s3.download_json.return_value = self._entry_batch()
+        process_s3_traces(s3_key="test/callee.json", project_id="proj-1")
+
+        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX})
+        mock_remote_detector_finalization.assert_called_once_with("proj-1", {self.TRACE_HEX})
+        assert mock_ch.insert_traces_batch.call_count == 1
+
+    def test_replayed_remote_batch_writes_spans_again_but_not_the_row(
+        self, mock_s3, mock_ch, mock_remote_detector_finalization
+    ):
+        """Delivery retry writes spans again but leaves row replacement and claim dedup safe."""
+        mock_ch.query.return_value = MagicMock(result_rows=[])
         mock_s3.download_json.return_value = self._entry_batch()
 
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+        mock_ch.query.return_value = MagicMock(result_rows=[self._stored_trace_row()])
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         inserts = mock_ch.insert_traces_batch.call_args_list
         assert len(inserts) == 1
         assert mock_ch.insert_spans_batch.call_count == 2
+        assert mock_remote_detector_finalization.call_count == 2
 
     def test_late_children_of_a_remote_root_enqueue_nothing(
         self, mock_s3, mock_ch, mock_detector_enqueue
@@ -576,7 +632,7 @@ class TestRemoteParentEntrySpans:
                 )
             ]
         )
-        mock_ch.query.return_value = MagicMock(result_rows=[(self.TRACE_HEX,)])
+        mock_ch.query.return_value = MagicMock(result_rows=[self._stored_trace_row()])
         mock_s3.download_json.return_value = children_batch
 
         process_s3_traces(s3_key="test/later-children.json", project_id="proj-1")
@@ -584,7 +640,7 @@ class TestRemoteParentEntrySpans:
         mock_detector_enqueue.assert_not_called()
 
     def test_remote_root_and_true_root_of_different_traces_in_one_batch(
-        self, mock_s3, mock_ch, mock_detector_enqueue
+        self, mock_s3, mock_ch, mock_detector_enqueue, mock_remote_detector_finalization
     ):
         """Cross-trace isolation: each trace's row and trigger treatment stay its own."""
         other_hex = "dd" * 16
@@ -608,7 +664,117 @@ class TestRemoteParentEntrySpans:
         inserted = mock_ch.insert_traces_batch.call_args[0][0]
         names = {row["trace_id"]: row["name"] for row in inserted}
         assert names == {self.TRACE_HEX: "handle_request", other_hex: "other-root"}
-        mock_detector_enqueue.assert_called_once_with("proj-1", {self.TRACE_HEX, other_hex})
+        mock_detector_enqueue.assert_called_once_with("proj-1", {other_hex})
+        mock_remote_detector_finalization.assert_called_once_with("proj-1", {self.TRACE_HEX})
         spans_inserted = mock_ch.insert_spans_batch.call_args[0][0]
         remote_span = next(s for s in spans_inserted if s["span_id"] == self.ENTRY_SPAN_HEX)
-        assert remote_span["parent_span_id"] is None  # normalized remote-parent entry
+        assert remote_span["parent_span_id"] == self.REMOTE_PARENT_HEX
+
+
+class TestTraceRootMerge:
+    """Replacement rows keep root identity deterministic and preserve only safe fields."""
+
+    def _row(self, kind, start, **fields):
+        from shared.trace_identity import trace_root_version
+
+        row = {
+            "trace_id": "trace-1",
+            "project_id": "proj-1",
+            "trace_start_time": start,
+            "name": "trace",
+            "root_kind": kind,
+            "root_version": trace_root_version(kind, start, fields.get("is_evaluation", False)),
+            "is_evaluation": int(fields.pop("is_evaluation", False)),
+        }
+        row.update(fields)
+        return row
+
+    def test_evaluation_and_user_session_state_are_monotonic(self):
+        from datetime import datetime
+
+        stored = self._row(
+            2,
+            datetime(2024, 1, 15, 12),
+            is_evaluation=True,
+            user_id="u-1",
+            session_id="s-1",
+            input="root input",
+        )
+        incoming = self._row(
+            1,
+            datetime(2024, 1, 15, 12, 1),
+            user_id=None,
+            session_id=None,
+            input="callee input",
+        )
+
+        merged = _merge_trace_record(incoming, stored)
+
+        assert merged["root_kind"] == 2
+        assert merged["is_evaluation"] == 1
+        assert merged["user_id"] == "u-1"
+        assert merged["session_id"] == "s-1"
+        assert merged["input"] == "root input"
+
+    def test_winning_root_does_not_inherit_losing_root_io_or_metadata(self):
+        from datetime import datetime
+
+        stored = self._row(
+            1,
+            datetime(2024, 1, 15, 12, 1),
+            name="callee",
+            input="callee input",
+            output="callee output",
+            metadata='{"callee":"yes"}',
+            environment="staging",
+        )
+        incoming = self._row(
+            2,
+            datetime(2024, 1, 15, 12),
+            name="caller",
+            environment="production",
+        )
+
+        merged = _merge_trace_record(incoming, stored)
+
+        assert merged["name"] == "caller"
+        assert "input" not in merged
+        assert "output" not in merged
+        assert "metadata" not in merged
+        assert merged["environment"] == "production"
+
+    def test_earlier_remote_entry_wins_regardless_of_arrival_order(self):
+        from datetime import datetime
+
+        late = self._row(
+            1,
+            datetime(2024, 1, 15, 12, 1),
+            name="late-callee",
+            input="late input",
+        )
+        early = self._row(
+            1,
+            datetime(2024, 1, 15, 12),
+            name="early-callee",
+            input="early input",
+        )
+
+        after_late_then_early = _merge_trace_record(early, late)
+        after_early_then_late = _merge_trace_record(late, early)
+
+        assert after_late_then_early["name"] == "early-callee"
+        assert after_late_then_early["input"] == "early input"
+        assert after_early_then_late["name"] == "early-callee"
+        assert after_early_then_late["input"] == "early input"
+
+    def test_root_version_treats_naive_clickhouse_time_as_utc(self):
+        from datetime import UTC, datetime, timezone
+
+        from shared.trace_identity import trace_root_version
+
+        naive = datetime(2024, 1, 15, 12)
+        aware = naive.replace(tzinfo=UTC)
+        offset = aware.astimezone(timezone(timedelta(hours=5, minutes=30)))
+
+        assert trace_root_version(1, naive) == trace_root_version(1, aware)
+        assert trace_root_version(1, aware) == trace_root_version(1, offset)

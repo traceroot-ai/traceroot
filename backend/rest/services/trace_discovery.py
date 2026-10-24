@@ -302,6 +302,9 @@ class TraceDiscoveryService:
         # keyed on is_evaluation like every list read path. The scan is aliased `t` so the
         # `t.trace_id NOT IN (...)` predicate binds.
         inner_where = f"{inner_where} AND {_evaluation_exclusion(params)}"
+        version_order = (
+            "root_version DESC, ch_update_time DESC" if table == "traces" else "ch_update_time DESC"
+        )
 
         # Dedup ReplacingMergeTree rows to the latest version per logical row BEFORE
         # counting, so a since-updated row can't inflate a value's count or surface a stale
@@ -312,7 +315,7 @@ class TraceDiscoveryService:
                 SELECT {column} AS value
                 FROM {table} AS t
                 WHERE {inner_where}
-                ORDER BY ch_update_time DESC
+                ORDER BY {version_order}
                 LIMIT 1 BY {dedup_keys}
             )
             WHERE value IS NOT NULL AND value != ''
@@ -406,7 +409,7 @@ class TraceDiscoveryService:
                     SELECT project_id, trace_id, metadata_map
                     FROM traces
                     WHERE {trace_where}
-                    ORDER BY ch_update_time DESC
+                    ORDER BY root_version DESC, ch_update_time DESC
                     LIMIT 1 BY project_id, trace_id
                 )
             )

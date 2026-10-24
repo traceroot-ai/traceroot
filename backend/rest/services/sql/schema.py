@@ -176,7 +176,8 @@ VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
 #:
 #: The ``spans`` half is also the half that SURVIVES A MERGE, which is what makes
 #: "any row anywhere flagged" true of the table and not just of the query. Both
-#: tables are ``ReplacingMergeTree(ch_update_time)``: two ``traces`` rows for one
+#: spans are ``ReplacingMergeTree(ch_update_time)``; trace rows use the logical
+#: ``root_version``. Two ``traces`` rows for one
 #: trace collapse when they share the whole sort key, which for ``traces`` means
 #: the same ``toDate(trace_start_time)`` bucket as well as the same ``trace_id``.
 #: When they do, a background merge keeps only the newest and physically deletes

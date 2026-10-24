@@ -150,7 +150,7 @@ _TRACES_BASE = f"""
           AND {_NOT_EVALUATION}
           AND trace_start_time >= {{start_time:DateTime64(3)}}
           AND trace_start_time < {{end_time:DateTime64(3)}}
-        ORDER BY ch_update_time DESC
+        ORDER BY root_version DESC, ch_update_time DESC
         LIMIT 1 BY project_id, trace_id
     ) AS t
     LEFT JOIN (

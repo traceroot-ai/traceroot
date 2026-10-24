@@ -113,6 +113,26 @@ class TestPrimaryEnqueue:
         assert state["detector_ids"] == ["d-pass"]
         assert state["token"]
 
+    def test_complete_trace_can_claim_multiple_eligible_detectors(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """A complete 60-second trace keeps both unconditional and duration detectors."""
+        _patch_detectors(
+            monkeypatch,
+            [
+                _detector("d-any"),
+                _detector(
+                    "d-long",
+                    conditions=[{"field": "duration_ms", "op": ">", "value": 30_000}],
+                ),
+            ],
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 60_000, "is_evaluation": False}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        assert mock_add_job.call_args.args[1]["detectorIds"] == ["d-any", "d-long"]
+
     def test_non_root_batch_enqueues_nothing(self, fake_redis, mock_add_job, monkeypatch):
         """GROUND TRUTH (exactly-once): only the root-bearing batch enqueues. A
         later batch whose trace is NOT in traces_with_root claims nothing and
@@ -193,6 +213,66 @@ class TestPrimaryEnqueue:
 
         assert added == [f"{PROJECT}--{TRACE}"]
         assert _lock_state(fake_redis)["state"] == "pending"
+
+
+class TestRemoteRootFinalization:
+    def test_remote_claim_is_separate_and_deduplicated(self, fake_redis, monkeypatch):
+        finalizer = MagicMock()
+        monkeypatch.setattr("worker.ingest_tasks.finalize_remote_detector_runs", finalizer)
+
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE})
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE})
+
+        key = dt._remote_finalization_key(PROJECT, TRACE)
+        assert fake_redis.store[key] == b"scheduled"
+        finalizer.apply_async.assert_called_once_with(
+            args=[PROJECT, TRACE], countdown=dt.EVALUATOR_DELAY / 1000
+        )
+        # The provisional marker is not the final detector claim.
+        assert dt._lock_key(PROJECT, TRACE) not in fake_redis.store
+
+    def test_remote_finalizer_failure_releases_provisional_claim(self, fake_redis, monkeypatch):
+        finalizer = MagicMock()
+        finalizer.apply_async.side_effect = RuntimeError("broker down")
+        monkeypatch.setattr("worker.ingest_tasks.finalize_remote_detector_runs", finalizer)
+
+        with pytest.raises(RuntimeError, match="broker down"):
+            dt.schedule_remote_detector_finalization(PROJECT, {TRACE})
+
+        assert dt._remote_finalization_key(PROJECT, TRACE) not in fake_redis.store
+
+    def test_finalizer_waits_for_quiescence_before_final_claim(self, monkeypatch):
+        import worker.ingest_tasks as ingest_tasks
+
+        ch = MagicMock()
+        ch.query.return_value.result_rows = [(10_000,)]
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        monkeypatch.setattr(dt, "enqueue_detector_runs", MagicMock())
+        reschedule = MagicMock()
+        monkeypatch.setattr(ingest_tasks.finalize_remote_detector_runs, "apply_async", reschedule)
+
+        ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
+
+        dt.enqueue_detector_runs.assert_not_called()
+        reschedule.assert_called_once_with(
+            args=[PROJECT, TRACE], countdown=(dt.EVALUATOR_DELAY - 10_000) / 1000
+        )
+
+    def test_finalizer_uses_the_normal_claim_after_quiescence(self, monkeypatch):
+        import worker.ingest_tasks as ingest_tasks
+
+        ch = MagicMock()
+        ch.query.return_value.result_rows = [(dt.EVALUATOR_DELAY,)]
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        enqueue = MagicMock()
+        monkeypatch.setattr(dt, "enqueue_detector_runs", enqueue)
+        reschedule = MagicMock()
+        monkeypatch.setattr(ingest_tasks.finalize_remote_detector_runs, "apply_async", reschedule)
+
+        ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
+
+        enqueue.assert_called_once_with(PROJECT, {TRACE})
+        reschedule.assert_not_called()
 
 
 # ── Failure release (token-checked) ─────────────────────────────────────

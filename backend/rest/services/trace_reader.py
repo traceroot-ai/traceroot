@@ -450,6 +450,9 @@ class TraceReaderService:
         # scan is aliased `t` below so this `t.trace_id NOT IN (...)` predicate binds.
         inner_conditions.append(_evaluation_exclusion(params))
         inner_where = " AND ".join(inner_conditions)
+        version_order = (
+            "root_version DESC, ch_update_time DESC" if table == "traces" else "ch_update_time DESC"
+        )
 
         # Dedup ReplacingMergeTree rows to the latest version per logical row BEFORE
         # counting, so a since-updated row can't inflate a value's count or surface a stale
@@ -461,7 +464,7 @@ class TraceReaderService:
                 SELECT {column} AS value
                 FROM {table} AS t
                 WHERE {inner_where}
-                ORDER BY ch_update_time DESC
+                ORDER BY {version_order}
                 LIMIT 1 BY {dedup_keys}
             )
             WHERE value IS NOT NULL AND value != ''
@@ -640,7 +643,7 @@ class TraceReaderService:
         # and never groups by the large input/output text columns. See #963.
         query = f"""
             WITH page AS (
-                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST (correctness),
+                -- Dedup the logical trace by root precedence FIRST (correctness),
                 -- THEN order by start time for pagination.
                 SELECT
                     trace_id, project_id, name, trace_start_time,
@@ -655,7 +658,7 @@ class TraceReaderService:
                         t.user_id, t.session_id, t.input, t.output, t.metadata_map
                     FROM traces AS t
                     WHERE {where_clause}
-                    ORDER BY t.ch_update_time DESC
+                    ORDER BY t.root_version DESC, t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
                 -- trace_id breaks start-time ties (millisecond precision), so OFFSET
@@ -814,8 +817,7 @@ class TraceReaderService:
         source_predicate = f"AND {source_condition}"
 
         # Fetch trace
-        # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
-        # of this trace_id.
+        # Dedup the logical trace row without FINAL: keep the highest root version.
         trace_query = f"""
             SELECT
                 trace_id, project_id, name, trace_start_time,
@@ -823,7 +825,7 @@ class TraceReaderService:
             FROM traces
             WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
             {source_predicate}
-            ORDER BY ch_update_time DESC
+            ORDER BY root_version DESC, ch_update_time DESC
             LIMIT 1 BY trace_id
         """
         trace_result = self._client.query(
