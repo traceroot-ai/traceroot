@@ -1944,6 +1944,7 @@ class TestManualUsageAttribute:
             (0, 0.0),
             # Unusable values fall back to the list price (None).
             ("abc", None),
+            ("0.5", None),
             (-1, None),
             (True, None),
             (float("nan"), None),
@@ -1971,18 +1972,22 @@ class TestManualUsageAttribute:
         assert span["input_tokens"] == 1000
         assert span["output_tokens"] == 200
 
-    @pytest.mark.parametrize("agent_span", [False, True], ids=["no-model", "agent-span"])
-    def test_reported_cost_ignored_outside_llm_spans(self, agent_span):
+    @pytest.mark.parametrize("case", ["no-model", "agent-span", "wrapper"])
+    def test_reported_cost_scope(self, case):
         from unittest.mock import patch
 
+        usage = {"input_tokens": 1000, "output_tokens": 200}
         cost_attr = make_attr("llm.cost.total", 0.0123)
-        if agent_span:
+        if case == "agent-span":
             span = self._manual_span(
-                {"input_tokens": 1000, "output_tokens": 200},
-                make_attr("openinference.span.kind", "AGENT"),
-                cost_attr,
+                usage, make_attr("openinference.span.kind", "AGENT"), cost_attr
             )
-            expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
+            expected = 0.0123
+        elif case == "wrapper":
+            span = self._manual_span(
+                usage, make_attr("gen_ai.operation.name", "invoke_agent"), cost_attr
+            )
+            expected = None
         else:
             span = make_span(
                 "aa" * 16,
