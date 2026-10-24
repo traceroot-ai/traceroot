@@ -214,6 +214,7 @@ class TestGetTraceSkeleton:
                         12,  # git_source_line
                         "fn",  # git_source_function
                         "",  # error_type
+                        [],  # tags
                     )
                 ]
             )
@@ -327,6 +328,7 @@ class TestGetTraceSkeleton:
                         None,
                         None,
                         "TimeoutError",  # error_type
+                        [],  # tags
                     )
                 ]
             )
@@ -645,7 +647,7 @@ class TestListTracesRows:
         ]
         results = iter(
             [
-                _rows([base + [{"tenant_id": "acme-corp"}], base + [None]]),
+                _rows([base + [{"tenant_id": "acme-corp"}, []], base + [None, []]]),
                 _rows([[2]]),
             ]
         )

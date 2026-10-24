@@ -1934,6 +1934,30 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 additionalProperties: false,
                 properties: {
                   field: {
+                    const: "tags",
+                    title: "Tags",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
                     const: "cost",
                     title: "Cost",
                     type: "string",

@@ -335,6 +335,19 @@ def _membership_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: d
     return _span_semijoin((col.name,), where, params)
 
 
+def _array_membership_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
+    """One span semi-join for a predicate on an array column (``tags``).
+
+    "Trace has >=1 span whose array holds any of the values": ``hasAny`` over the column,
+    with the values bound as ``Array(<element type>)``. The same independent-existence
+    semantics as ``_membership_semijoin``, so two predicates on the field require both.
+    """
+    pname = f"f_{col.name}_{idx}"
+    params[pname] = pred.value
+    where = f"WHERE hasAny({col.name}, {{{pname}:Array({col.ch_type})}})"
+    return _span_semijoin((col.name,), where, params)
+
+
 # The Map column a keyed predicate reads. Both `traces` and `spans` carry a column of this
 # name, which is what lets one predicate ask the same question of either row. Named separately
 # from the registry field ("metadata"), which still refers to the original JSON blob column the
@@ -507,6 +520,8 @@ _LEVEL_LOWERING: dict[FilterLevel, Callable[[int, FilterColumn, Predicate, dict]
     # One semi-join per membership predicate (independent existence), each AND-combined via
     # the shared conditions list so every one lands in both the page and count queries.
     FilterLevel.SPAN_MEMBERSHIP: _membership_semijoin,
+    # The same, over an array column: "has a span whose tags include any of these".
+    FilterLevel.SPAN_ARRAY_MEMBERSHIP: _array_membership_semijoin,
     # The same independent existence, widened by an inline trace-row arm because a keyed
     # predicate's key may have been attached at either scope.
     FilterLevel.KEYED_MAP: _keyed_metadata_condition,

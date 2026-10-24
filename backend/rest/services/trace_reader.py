@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from db.clickhouse import get_clickhouse_client
 from db.clickhouse.query_settings import READ_QUERY_SETTINGS
+from rest.services.filters.columns import ARRAY_SPAN_COLUMNS
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.enums import EVALUATION_SPAN_KINDS
@@ -455,6 +456,10 @@ class TraceReaderService:
         # counting, so a since-updated row can't inflate a value's count or surface a stale
         # value. The column non-empty filter runs on the deduped (latest) value in the
         # outer query.
+        # An array column (tags) is unnested AFTER the dedup, so each tag of the latest
+        # span version counts once; unnesting first would let LIMIT 1 BY keep one tag per
+        # span. `column` is registry-resolved, so this membership test is not user input.
+        array_join = "ARRAY JOIN value" if column in ARRAY_SPAN_COLUMNS else ""
         query = f"""
             SELECT value, count() AS n
             FROM (
@@ -464,6 +469,7 @@ class TraceReaderService:
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY {dedup_keys}
             )
+            {array_join}
             WHERE value IS NOT NULL AND value != ''
             GROUP BY value
             ORDER BY n DESC
@@ -676,10 +682,12 @@ class TraceReaderService:
                     countIf(status = 'ERROR') as error_count,
                     sum(input_tokens) as total_input_tokens,
                     sum(output_tokens) as total_output_tokens,
-                    sum(cost) as total_cost
+                    sum(cost) as total_cost,
+                    -- A trace's tags are the union over its spans (#1748).
+                    arraySort(groupUniqArrayArray(tags)) as tags
                 FROM (
                     SELECT trace_id, span_id, status, span_start_time, span_end_time,
-                           input_tokens, output_tokens, cost
+                           input_tokens, output_tokens, cost, tags
                     FROM spans
                     WHERE project_id = {{project_id:String}}
                       AND trace_id IN (SELECT trace_id FROM page)
@@ -703,7 +711,8 @@ class TraceReaderService:
                 sa.total_input_tokens,
                 sa.total_output_tokens,
                 sa.total_cost,
-                p.metadata_map
+                p.metadata_map,
+                sa.tags
             FROM page AS p
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
             ORDER BY p.trace_start_time DESC, p.trace_id DESC
@@ -751,6 +760,7 @@ class TraceReaderService:
                     "total_output_tokens": int(row[12]) if row[12] is not None else 0,
                     "total_cost": float(row[13]) if row[13] is not None else 0.0,
                     "metadata_map": dict(row[14]) if row[14] else {},
+                    "tags": list(row[15]) if row[15] else [],
                 }
             )
 
@@ -911,7 +921,7 @@ class TraceReaderService:
                         '{SPAN_PATH}', tree_name_path
                     ))
                 ) AS metadata,
-                git_source_file, git_source_line, git_source_function, error_type
+                git_source_file, git_source_line, git_source_function, error_type, tags
             FROM (
                 SELECT
                     span_id, trace_id, parent_span_id, name, span_kind,
@@ -920,7 +930,7 @@ class TraceReaderService:
                     usage_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
-                    git_source_file, git_source_line, git_source_function, error_type
+                    git_source_file, git_source_line, git_source_function, error_type, tags
                 FROM spans
                 WHERE {spans_where_clause}
                 ORDER BY ch_update_time DESC
@@ -964,10 +974,13 @@ class TraceReaderService:
                     "git_source_line": int(row[17]) if row[17] is not None else None,
                     "git_source_function": row[18],
                     "error_type": row[19],
+                    "tags": list(row[20]) if row[20] else [],
                 }
             )
 
         trace["spans"] = spans
+        # The trace's tags are the union over its spans, as on the list (#1748).
+        trace["tags"] = sorted({tag for span in spans for tag in span["tags"]})
         return trace
 
     # Blob columns the bulk I/O reader may project, in a fixed order so the
