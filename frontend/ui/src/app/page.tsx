@@ -11,10 +11,15 @@ export default function Home() {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
 
+  // Keyed by account, like /onboarding's copy of this query: one QueryClient
+  // lives as long as the tab, so a bare "workspaces" entry would let the
+  // previous account's list decide where this one is sent — straight past
+  // onboarding, for a new account that has nothing yet. Writers still reach
+  // this entry; react-query matches query keys by prefix.
   const { data: workspaces } = useQuery({
-    queryKey: ["workspaces"],
+    queryKey: ["workspaces", session?.user?.id],
     queryFn: getWorkspaces,
-    enabled: !!session,
+    enabled: !!session?.user?.id,
   });
 
   useEffect(() => {
