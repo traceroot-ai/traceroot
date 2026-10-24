@@ -3,8 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
-import { FirstTraceLine } from "@/components/first-trace-line";
+import { SectionLink } from "@/features/traces/components/GettingStarted/SectionLink";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -24,15 +23,6 @@ interface CliHandbackStepProps {
   onSetUpManually: () => void;
   /** "Skip for now" — into the app with the application still uninstrumented. */
   onSkip: () => void;
-  /**
-   * How the watch for this project's first trace is going.
-   *
-   * Said above the command rather than under it. It is the only line on the
-   * step that reports anything happening, and a user who has pasted the command
-   * is watching their terminal — so when they look back at this tab it has to
-   * be in the part they see first, not under the thing they have already run.
-   */
-  wait: TraceWait;
 }
 
 /**
@@ -55,6 +45,12 @@ interface CliHandbackStepProps {
  * a user who will not paste a CLI invocation into their shell needs a door, and
  * a dead end here is a dead end at the end of signing up.
  *
+ * What is deliberately not here is the line about the first trace. The page
+ * watches for it across both of these steps and says so once, in the header
+ * above the card, so that it reads as the state of the run rather than as part
+ * of whichever step happens to be on screen — and so that it stays in the same
+ * place when the user switches to the manual step. See app/onboarding/page.tsx.
+ *
  * On a deployment whose own origin cannot be resolved there is no command to
  * run, and nothing runnable is drawn: `setupCommand` has no flags to put on the
  * line there, and the line without them is the TraceRoot Cloud one — so a
@@ -71,7 +67,6 @@ export function CliHandbackStep({
   projectName,
   onSetUpManually,
   onSkip,
-  wait,
 }: CliHandbackStepProps) {
   const setup = setupCommand({ projectId });
 
@@ -80,35 +75,43 @@ export function CliHandbackStep({
       {setup.kind === "command" ? (
         <>
           <div>
-            <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
+              {/* Beside the heading rather than under the command, which is where
+                  the traces panel puts the same link over the same command. */}
+              <SectionLink href="https://traceroot.ai/docs/tracing/get-started">
+                View the tracing docs
+              </SectionLink>
+            </div>
+            {/* What the command does, before it is pasted. It printed a command
+                and nothing else: the one thing a reader weighs before handing a
+                CLI their checkout is whether it is going to edit the checkout,
+                and that was the one thing the step did not say. "{projectName} is
+                ready" said nothing the header above had not already said, so this
+                costs no line — it replaces one. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {projectName} is ready. Run this where your application lives.
+              Instruments your repository, writes the API key into it, and waits for the first
+              trace. Run it where {projectName}&apos;s code lives.
             </p>
           </div>
-
-          <FirstTraceLine wait={wait} />
 
           <CodeBlock label="terminal" value={setup.command} />
         </>
       ) : (
-        <>
-          <div>
-            <p className="text-[13px] font-medium">
-              The setup command cannot be shown for this deployment
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
-              to <code className="font-mono">{setup.value}</code>, which is not an origin the
-              command can be pointed at. Without it the command would send sign-in and your first
-              traces to TraceRoot Cloud rather than here, so it is withheld rather than guessed.
-              Correct that value and rebuild the web app, since the value is built into it rather
-              than read at startup; once the rebuilt app is served the command appears here. Until
-              then, &quot;Set up manually&quot; walks through the rest in the browser.
-            </p>
-          </div>
-
-          <FirstTraceLine wait={wait} />
-        </>
+        <div>
+          <p className="text-[13px] font-medium">
+            The setup command cannot be shown for this deployment
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
+            to <code className="font-mono">{setup.value}</code>, which is not an origin the command
+            can be pointed at. Without it the command would send sign-in and your first traces to
+            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
+            value and rebuild the web app, since the value is built into it rather than read at
+            startup; once the rebuilt app is served the command appears here. Until then, &quot;Set
+            up manually&quot; walks through the rest in the browser.
+          </p>
+        </div>
       )}
 
       <div className="flex items-center justify-center gap-2">

@@ -19,17 +19,14 @@ vi.mock("./ModelProviderBlock", () => ({
   ModelProviderBlock: ({
     workspaceId,
     providerKey,
-    stackName,
   }: {
     workspaceId: string;
     providerKey: unknown;
-    stackName: string;
   }) => (
     <div
       data-testid="model-provider-block"
       data-workspace={workspaceId}
       data-provider-key={JSON.stringify(providerKey)}
-      data-stack={stackName}
     />
   ),
 }));
@@ -168,7 +165,7 @@ describe("ManualTab with no stack chosen above it", () => {
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
     ).toBe("true");
-    // Both of the catalogue's non-provider groups land under "Frameworks" here.
+    // The catalogue's "Frameworks & SDKs" entries land under "Frameworks" here.
     expect(within(frameworks).getByRole("radio", { name: "CrewAI" })).toBeDefined();
     expect(within(frameworks).getByRole("radio", { name: "DSPy" })).toBeDefined();
     expect(within(providers).queryByRole("radio", { name: "CrewAI" })).toBeNull();

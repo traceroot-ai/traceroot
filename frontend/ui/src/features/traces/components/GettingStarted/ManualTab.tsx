@@ -21,9 +21,9 @@ import {
 /**
  * The two groups this tab's own picker shows: providers, and everything else.
  *
- * `StackSelector` splits "everything else" into SDKs and agent frameworks, but
- * this picker keeps the two groups the traces page has always shown, so the
- * empty traces page looks as it did.
+ * `StackSelector` calls the second group "Frameworks & SDKs", but this picker
+ * keeps the labels the traces page has always shown, so the empty traces page
+ * looks as it did.
  */
 const OWN_PICKER_GROUPS: {
   key: string;

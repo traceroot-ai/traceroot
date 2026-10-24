@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { CliHandbackStep } from "./cli-handback-step";
 
 vi.mock("next/link", () => ({
@@ -20,7 +19,6 @@ function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = 
       projectName="my-llm-project"
       onSetUpManually={onSetUpManually}
       onSkip={onSkip}
-      wait={{ kind: "waiting" }}
       {...overrides}
     />,
   );
@@ -52,7 +50,6 @@ async function renderStepWith(env: { apiUrl?: string; appUrl?: string }) {
       projectName="my-llm-project"
       onSetUpManually={vi.fn()}
       onSkip={vi.fn()}
-      wait={{ kind: "waiting" }}
     />,
   );
 }
@@ -95,101 +92,44 @@ describe("CliHandbackStep", () => {
   it("names the project so the id in the command is checkable", () => {
     renderStep({ projectName: "checkout-agent" });
 
-    expect(screen.getByText(/checkout-agent is ready/)).toBeDefined();
+    expect(screen.getByText(/checkout-agent's code lives/)).toBeDefined();
   });
 
-  it("says it is watching for the trace the command will produce", () => {
-    // Without this the step gives no sign that anything is listening, so
-    // running the command looks like it leads nowhere.
+  it("leaves the first-trace line to the page", () => {
+    // The page renders it once, in the header above the card, so that it stays
+    // in one place across both steps. A copy here would be a second one on
+    // screen and would move with the step. What the line says, and that it is
+    // announced, is pinned where it now lives: page.first-trace.test.tsx.
     renderStep();
 
-    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
-    // And announced rather than merely shown. The whole premise is that nobody
-    // is looking at this tab, so a state change that only paints is a state
-    // change a screen-reader user never hears about.
-    expect(screen.getByRole("status").textContent).toContain("Waiting for your first trace");
+    expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
+    expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
+    expect(screen.queryByText(/Still no trace/)).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("keeps the hand-back's own wording while it waits", () => {
-    // This step's approved sentence says the page updates, and stays that way.
+  it("keeps the command under the line that names the project", () => {
+    const { container } = renderStep();
+
+    expect(isAbove(screen.getByText(/code lives/), container.querySelector("pre")!)).toBe(true);
+  });
+
+  it("says what the command does, and where it has to be run", () => {
+    // Two facts a reader cannot get from a command they have not run. That it
+    // edits their repository is the one that decides whether they paste it at
+    // all, and the step used to print the command without saying it. That it
+    // runs against their checkout rather than in the dashboard's
+    // terminal-shaped box is the other: pasted in the wrong directory it
+    // writes a key somewhere the application will never read it.
     renderStep();
 
-    expect(
-      screen.getByText("Waiting for your first trace. This page updates when it arrives."),
-    ).toBeDefined();
-  });
-
-  it("announces the arrival from the same region it announced the wait from", () => {
-    // One region for all three states, so the change is announced rather than
-    // the region being mounted alongside its own text — which is not.
-    renderStep({ wait: { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } } });
-
-    expect(screen.getByRole("status").textContent).toContain("Your first trace arrived");
-  });
-
-  it("shows the arrived trace without closing the step down", () => {
-    // The page opens the trace; this step only reports it. Until that push
-    // lands the link is the way through, and neither alternative below is
-    // withdrawn — the arrival adds an exit, it does not remove any.
-    const { onSetUpManually, onSkip } = renderStep({
-      wait: { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
-    });
-
-    expect(screen.getByText(/Your first trace arrived/)).toBeDefined();
-    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
-      "/projects/proj-1/traces?traceId=t-1",
+    const line = screen.getByText(/Instruments your repository/);
+    expect(line.textContent).toContain("writes the API key into it");
+    expect(line.textContent).toContain("waits for the first trace");
+    expect(line.textContent).toContain("Run it where my-llm-project's code lives");
+    expect(screen.getByRole("link", { name: "View the tracing docs" }).getAttribute("href")).toBe(
+      "https://traceroot.ai/docs/tracing/get-started",
     );
-    // Nothing about the arrival closes the step down.
-    expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
-    expect(onSetUpManually).not.toHaveBeenCalled();
-    expect(onSkip).not.toHaveBeenCalled();
-  });
-
-  it("says so, and still points somewhere, when no trace turns up", () => {
-    // The outcome the spinner must never settle into. The run is still going
-    // wherever the command was run; only this page has stopped watching.
-    renderStep({ wait: { kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" } });
-
-    expect(screen.getByText(/Still no trace/)).toBeDefined();
-    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
-      "/projects/proj-1/traces",
-    );
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
-  });
-
-  it("keeps the trace line above the command, in every state it has", () => {
-    // The user's own ask, after watching a competitor: the waiting line goes up,
-    // not at the bottom. It is the only line on the step that reports anything
-    // happening, and someone who has pasted the command is watching their
-    // terminal — so when they glance back at this tab it has to be in the part
-    // they see first, not under the thing they have already run.
-    const states: TraceWait[] = [
-      { kind: "waiting" },
-      { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
-      { kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" },
-    ];
-    const said = [/Waiting for your first trace/, /Your first trace arrived/, /Still no trace/];
-
-    states.forEach((wait, index) => {
-      const { container } = renderStep({ wait });
-      const line = screen.getByText(said[index]!);
-      const command = container.querySelector("pre")!;
-
-      expect(isAbove(screen.getByText(/is ready/), line)).toBe(true);
-      expect(isAbove(line, command)).toBe(true);
-      cleanup();
-    });
-  });
-
-  it("says where the command has to be run", () => {
-    // The one fact a reader cannot get from the command itself: it is run
-    // against their checkout, not in the dashboard's terminal-shaped box. A
-    // user who pastes it into the wrong directory gets a key written somewhere
-    // their application will never read.
-    renderStep();
-
-    expect(screen.getByText(/Run this where your application lives/)).toBeDefined();
   });
 
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {

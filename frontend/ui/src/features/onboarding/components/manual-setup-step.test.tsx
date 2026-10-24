@@ -32,18 +32,15 @@ vi.mock("@/features/traces/components/GettingStarted/ModelProviderBlock", () => 
   ModelProviderBlock: ({
     workspaceId,
     providerKey,
-    stackName,
   }: {
     workspaceId: string;
     providerKey: { kind: string; adapter?: string; provider?: string };
-    stackName: string;
   }) => (
     <div
       data-testid="model-provider-block"
       data-workspace={workspaceId}
       data-kind={providerKey.kind}
       data-adapter={providerKey.adapter ?? ""}
-      data-stack={stackName}
     />
   ),
 }));
@@ -53,14 +50,13 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { ManualSetupStep } from "./manual-setup-step";
 
-function renderStep(wait: TraceWait = { kind: "waiting" }) {
+function renderStep() {
   const onBack = vi.fn();
   const onDone = vi.fn();
   const { container } = render(
-    <ManualSetupStep projectId="proj-1" onBack={onBack} onDone={onDone} wait={wait} />,
+    <ManualSetupStep projectId="proj-1" onBack={onBack} onDone={onDone} />,
   );
   return { container, onBack, onDone };
 }
@@ -88,7 +84,6 @@ describe("what onboarding's manual step asks for", () => {
     renderStep();
 
     expect(screen.getByRole("radiogroup", { name: "Stack" })).toBeDefined();
-    expect(screen.getByLabelText("Search integrations")).toBeDefined();
     expect(screen.getByText("Use your own model key")).toBeDefined();
     expect(keyBlock().dataset.workspace).toBe("ws-1");
   });
@@ -107,7 +102,7 @@ describe("what onboarding's manual step asks for", () => {
   it("drives the snippet and the key off the picker, as the traces panel does", () => {
     const { container } = renderStep();
     expect(container.textContent).toContain("Integration.OPENAI");
-    expect(keyBlock().dataset.stack).toBe("OpenAI");
+    expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("openai");
 
     pickStack("Anthropic");
@@ -115,7 +110,6 @@ describe("what onboarding's manual step asks for", () => {
     expect(container.textContent).toContain("Integration.ANTHROPIC");
     expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("anthropic");
-    expect(keyBlock().dataset.stack).toBe("Anthropic");
 
     // A framework that takes any provider: the key field is told so, and told
     // which one the snippet on screen happens to call.
@@ -123,17 +117,6 @@ describe("what onboarding's manual step asks for", () => {
     expect(screen.getByText(/Initialize TraceRoot for CrewAI/)).toBeDefined();
     expect(keyBlock().dataset.kind).toBe("suggested");
     expect(keyBlock().dataset.adapter).toBe("openai");
-    expect(keyBlock().dataset.stack).toBe("CrewAI");
-  });
-
-  it("holds the selection when a search hides the selected card", () => {
-    renderStep();
-    pickStack("CrewAI");
-    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "dspy" } });
-
-    expect(screen.queryByRole("radio", { name: "CrewAI" })).toBeNull();
-    expect(keyBlock().dataset.stack).toBe("CrewAI");
-    expect(screen.getByText(/Initialize TraceRoot for CrewAI/)).toBeDefined();
   });
 
   it("still ends on the two ways out of the step", () => {
@@ -146,46 +129,29 @@ describe("what onboarding's manual step asks for", () => {
   });
 });
 
-describe("where the first-trace line sits on the manual step", () => {
-  it("sits under the stack picker and above the key field", () => {
-    // The user's own ask, after watching a competitor: the waiting line goes up,
-    // not at the bottom. At the bottom it sat under the key field, both
-    // snippets and the integrations card — unreadable without scrolling past
-    // the whole walkthrough, which is exactly what someone who is watching
-    // their terminal will not do.
+describe("the first-trace line is not this step's to render", () => {
+  it("renders none of its three states", () => {
+    // It used to go in `StackAndModelKey`'s `afterStack` slot, under the stack
+    // picker. The page renders it once instead, in the header above the card, so
+    // that switching to this step does not move it — and so that there is only
+    // ever one of it on screen. The slot it used went with it.
     renderStep();
-    const line = screen.getByText(/Waiting for your first trace/);
 
-    expect(isAbove(screen.getByText("Select your stack"), line)).toBe(true);
-    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
-    expect(isAbove(line, screen.getByText(/Create an API key/))).toBe(true);
+    expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
+    expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
+    expect(screen.queryByText(/Still no trace/)).toBeNull();
   });
 
-  it("reports the arrived trace in that same place, with the link to it", () => {
-    // The page opens the trace; this line only reports it, and keeps the link
-    // as the way through until that push lands.
-    renderStep({ kind: "found", found: { projectId: "proj-1", traceId: "t-1" } });
-    const line = screen.getByText(/Your first trace arrived/);
+  it("still puts the two shared questions above the walkthrough", () => {
+    // What the slot sat between, which has to survive its removal.
+    renderStep();
 
-    expect(isAbove(screen.getByText("Select your stack"), line)).toBe(true);
-    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
-    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
-      "/projects/proj-1/traces?traceId=t-1",
-    );
-    // Nothing about the arrival closes the step down.
-    expect(screen.getByRole("button", { name: "Go to my project" })).toBeDefined();
-    expect(screen.getByRole("radiogroup", { name: "Stack" })).toBeDefined();
-  });
-
-  it("says so in that same place when no trace turns up", () => {
-    renderStep({ kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" });
-    const line = screen.getByText(/Still no trace/);
-
-    expect(isAbove(screen.getByText("Select your stack"), line)).toBe(true);
-    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
-    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
-      "/projects/proj-1/traces",
-    );
+    expect(
+      isAbove(screen.getByText("Select your stack"), screen.getByText("Use your own model key")),
+    ).toBe(true);
+    expect(
+      isAbove(screen.getByText("Use your own model key"), screen.getByText(/Create an API key/)),
+    ).toBe(true);
   });
 });
 
@@ -197,9 +163,8 @@ describe("a workspace that cannot be read", () => {
 
     expect(screen.queryByTestId("model-provider-block")).toBeNull();
     expect(screen.getAllByText(/workspace could not be loaded/).length).toBeGreaterThan(0);
-    // The picker needs no workspace, and neither does the watch.
+    // The picker needs no workspace.
     expect(screen.getByRole("radiogroup", { name: "Stack" })).toBeDefined();
-    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
   });
 
   it("shows a placeholder for the key field while the project loads", () => {
