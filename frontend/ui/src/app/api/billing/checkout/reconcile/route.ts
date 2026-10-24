@@ -1,7 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestSession } from "@/lib/request-session";
-import { prisma, getStripeOrThrow } from "@traceroot/core";
+import { prisma, getStripeOrThrow, PlanType } from "@traceroot/core";
 import { workspaceBillingFromSubscription } from "../../workspace-billing";
 
 const PAID_STATUSES = new Set(["paid", "no_payment_required"]);
@@ -91,6 +91,26 @@ async function handlePOST(req: NextRequest) {
       data: billing,
     });
     if (count === 0) {
+      return NextResponse.json({ reconciled: false });
+    }
+
+    // The deletion webhook can clear the workspace between the status check above
+    // and this write, and the null branch would then put the plan back. Stripe ends
+    // the subscription before it sends that webhook, so reading it again after the
+    // write catches the race: if it has ended since, undo what was just written.
+    const current = await stripe.subscriptions.retrieve(subscription.id);
+    if (!LIVE_SUBSCRIPTION_STATUSES.has(current.status)) {
+      await prisma.workspace.updateMany({
+        where: { id: workspaceId, billingSubscriptionId: subscription.id },
+        data: {
+          billingSubscriptionId: null,
+          billingPriceId: null,
+          billingStatus: null,
+          billingPlan: PlanType.FREE,
+          billingPeriodStart: null,
+          billingPeriodEnd: null,
+        },
+      });
       return NextResponse.json({ reconciled: false });
     }
 

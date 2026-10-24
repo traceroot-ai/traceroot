@@ -36,6 +36,7 @@ vi.mock("@traceroot/core", async () => ({
     >("../../../../../../../packages/core/src/ee/billing/subscriptionItems.ts")
   ).findPlanItem,
   mapPriceIdToPlan: (priceId: string | null) => (priceId === "price_pro" ? "pro" : "free"),
+  PlanType: { FREE: "free" },
   prisma: {
     workspace: {
       findFirst: (...args: unknown[]) => workspaceFindFirstMock(...args),
@@ -96,6 +97,7 @@ beforeEach(() => {
   workspaceFindFirstMock.mockResolvedValue({ id: "ws-1" });
   workspaceUpdateMock.mockResolvedValue({ count: 1 });
   sessionsRetrieveMock.mockResolvedValue(checkoutSession());
+  subscriptionsRetrieveMock.mockResolvedValue(subscription());
 });
 
 describe("POST /api/billing/checkout/reconcile", () => {
@@ -131,6 +133,25 @@ describe("POST /api/billing/checkout/reconcile", () => {
 
     expect(await res.json()).toEqual({ reconciled: true, plan: "pro" });
     expect(subscriptionsRetrieveMock).toHaveBeenCalledWith("sub_1");
+  });
+
+  it("undoes the write when the subscription is canceled while it runs", async () => {
+    // The checkout shows a live subscription, but by the time the write lands the
+    // deletion webhook has cleared the workspace and Stripe reports it canceled.
+    subscriptionsRetrieveMock.mockResolvedValue({ ...subscription(), status: "canceled" });
+
+    const res = await POST(makeRequest());
+
+    expect(await res.json()).toEqual({ reconciled: false });
+    expect(subscriptionsRetrieveMock).toHaveBeenCalledWith("sub_1");
+    expect(workspaceUpdateMock).toHaveBeenCalledTimes(2);
+    const undo = workspaceUpdateMock.mock.calls[1][0] as {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    };
+    // Only the subscription this request wrote is cleared, never a newer one.
+    expect(undo.where).toEqual({ id: "ws-1", billingSubscriptionId: "sub_1" });
+    expect(undo.data).toMatchObject({ billingSubscriptionId: null, billingPlan: "free" });
   });
 
   it("leaves a workspace that is already on a different subscription alone", async () => {
