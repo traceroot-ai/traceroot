@@ -149,3 +149,13 @@ def test_widget_average_cost_per_trace_includes_zero_cost_traces(client, gateway
     """The list shows three traces at $0, $0 and $0.002, so their average is $0.002 / 3."""
     avg = _widget_value(gateway, [], {"measure": "cost", "agg": "avg"})
     assert avg == pytest.approx(0.002 / 3)
+
+
+@pytest.mark.parametrize(
+    ("measure", "expected"),
+    [("total_tokens", 300 / 3), ("input_tokens", 200 / 3), ("output_tokens", 100 / 3)],
+)
+def test_widget_token_averages_divide_by_the_same_traces(client, gateway, measure, expected):
+    """tool_only has no token counts; it counts as 0 in every token average, not only one."""
+    value = _widget_value(gateway, [], {"measure": measure, "agg": "avg"})
+    assert value == pytest.approx(expected)
