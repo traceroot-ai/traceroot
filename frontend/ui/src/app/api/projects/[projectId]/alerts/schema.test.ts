@@ -4,6 +4,8 @@ import {
   ALERT_NAME_MAX,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
+  SpanKind,
+  SpanStatus,
 } from "@traceroot/core";
 import {
   ALERT_FILTERS_MAX,
@@ -256,6 +258,60 @@ describe("alertCreateSchema", () => {
         false,
       );
     });
+
+    it("names the allowed values when a span_kind is one ingest never writes", () => {
+      const result = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "span_kind", op: "=", value: "GENERATION" }] }),
+      );
+
+      expect(firstMessage(result)).toBe(
+        `"GENERATION" is not a valid span_kind; expected one of: ${Object.values(SpanKind).sort().join(", ")}`,
+      );
+    });
+
+    it("names the allowed values when a status is outside the vocabulary", () => {
+      const result = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "status", op: "=", value: "SUCCESS" }] }),
+      );
+
+      expect(firstMessage(result)).toBe(
+        `"SUCCESS" is not a valid status; expected one of: ${Object.values(SpanStatus).sort().join(", ")}`,
+      );
+    });
+
+    it("rejects a lowercase value rather than normalising it", () => {
+      // Ingest stores uppercase, so "error" would never match a stored row.
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "status", op: "=", value: "error" }] }),
+        ).success,
+      ).toBe(false);
+    });
+
+    it("accepts every value the two closed vocabularies declare", () => {
+      for (const value of Object.values(SpanKind)) {
+        expect(
+          alertCreateSchema.safeParse(
+            createBody({ filters: [{ field: "span_kind", op: "=", value }] }),
+          ).success,
+        ).toBe(true);
+      }
+      for (const value of Object.values(SpanStatus)) {
+        expect(
+          alertCreateSchema.safeParse(
+            createBody({ filters: [{ field: "status", op: "=", value }] }),
+          ).success,
+        ).toBe(true);
+      }
+    });
+
+    it("leaves contains unchecked on a closed vocabulary", () => {
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "span_kind", op: "contains", value: "LL" }] }),
+        ).success,
+      ).toBe(true);
+    });
   });
 });
 
@@ -270,6 +326,14 @@ describe("alertUpdateSchema", () => {
     expect(
       alertUpdateSchema.safeParse({ filters: [{ field: "metadata", op: "=", value: "x" }] })
         .success,
+    ).toBe(false);
+  });
+
+  it("rejects a filter value outside the field's vocabulary too", () => {
+    expect(
+      alertUpdateSchema.safeParse({
+        filters: [{ field: "span_kind", op: "=", value: "GENERATION" }],
+      }).success,
     ).toBe(false);
   });
 });
