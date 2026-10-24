@@ -479,13 +479,7 @@ function CasePanel({
   // Claim the AI slot so AppLayout's project rail steps aside and the assistant
   // renders INSIDE this panel (same as the trace viewer). The returned cleanup
   // runs on unmount, handing the rail back.
-  React.useEffect(() => registerAiHost(), [registerAiHost]);
-
-  // Close the assistant when this panel closes. Otherwise, once the panel gives
-  // up the AI host slot on unmount, a still-open `aiPanelOpen` would strand the
-  // assistant as an empty ~400px panel in the app rail — the "white gap" on the
-  // right of the dataset page. Runs before the host-release cleanup above.
-  React.useEffect(() => () => setAiPanelOpen(false), [setAiPanelOpen]);
+  React.useEffect(() => registerAiHost(), [registerAiHost, testCase.testCaseId]);
 
   const panelRef = React.useRef<HTMLDivElement>(null);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);

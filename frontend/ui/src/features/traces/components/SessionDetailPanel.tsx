@@ -96,7 +96,7 @@ export function SessionDetailPanel({
   // so React runs it on unmount and the rail comes back.
   useEffect(() => {
     return registerAiHost();
-  }, [registerAiHost]);
+  }, [registerAiHost, sessionId]);
 
   // Close the panel on Escape. A nested Radix overlay (dialog/select/popover/menu) that
   // consumes the Escape calls preventDefault() in the capture phase, before this

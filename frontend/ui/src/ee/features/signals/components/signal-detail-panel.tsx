@@ -109,18 +109,11 @@ export function SignalDetailPanel({
     useLayout();
   const { data, isPending, isPlaceholderData, error } = useSignal(projectId, signalId, range);
 
-  // Claim the AI slot for this panel, as the session panel does. On unmount,
-  // also clear the AI state: otherwise aiPanelOpen stays true after this host
-  // releases the slot, and the assistant reappears as the global rail panel.
+  // Claim the AI slot for this panel, as the session panel does. On unmount or
+  // signalId change, the host release in AppLayout closes the assistant.
   useEffect(() => {
-    const release = registerAiHost();
-    return () => {
-      release();
-      setAiPanelOpen(false);
-      setAiContext(null);
-      setAiInitialSessionId(undefined);
-    };
-  }, [registerAiHost, setAiPanelOpen, setAiContext, setAiInitialSessionId]);
+    return registerAiHost();
+  }, [registerAiHost, signalId]);
 
   // Escape closes the panel unless a nested overlay takes the key.
   useEffect(() => {
