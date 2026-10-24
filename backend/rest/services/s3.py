@@ -82,7 +82,21 @@ class S3Service:
             error_code = e.response.get("Error", {}).get("Code")
             if error_code == "404":
                 logger.info(f"Creating bucket: {self._bucket_name}")
-                client.create_bucket(Bucket=self._bucket_name)
+                create_params: dict[str, Any] = {"Bucket": self._bucket_name}
+                # S3 uses an omitted location constraint for us-east-1.
+                if self._region != "us-east-1":
+                    create_params["CreateBucketConfiguration"] = {
+                        "LocationConstraint": self._region
+                    }
+                try:
+                    client.create_bucket(**create_params)
+                except ClientError as create_error:
+                    # Another worker may have created our bucket after HEAD.
+                    if (
+                        create_error.response.get("Error", {}).get("Code")
+                        != "BucketAlreadyOwnedByYou"
+                    ):
+                        raise
             else:
                 raise
 
