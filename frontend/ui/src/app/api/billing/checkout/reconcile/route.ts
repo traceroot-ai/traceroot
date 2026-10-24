@@ -8,6 +8,9 @@ const PAID_STATUSES = new Set(["paid", "no_payment_required"]);
 // A paid checkout produces an active or trialing subscription. Anything else means
 // the subscription has since ended or changed, and the webhook owns that state.
 const LIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+// Statuses a subscription cannot leave. Anything else may still be billing, and
+// the webhook brings the workspace up to date for those.
+const ENDED_SUBSCRIPTION_STATUSES = new Set(["canceled", "incomplete_expired"]);
 
 /**
  * Sync a workspace's subscription from Stripe when Checkout redirects back.
@@ -99,7 +102,7 @@ async function handlePOST(req: NextRequest) {
     // the subscription before it sends that webhook, so reading it again after the
     // write catches the race: if it has ended since, undo what was just written.
     const current = await stripe.subscriptions.retrieve(subscription.id);
-    if (!LIVE_SUBSCRIPTION_STATUSES.has(current.status)) {
+    if (ENDED_SUBSCRIPTION_STATUSES.has(current.status)) {
       await prisma.workspace.updateMany({
         where: { id: workspaceId, billingSubscriptionId: subscription.id },
         data: {
