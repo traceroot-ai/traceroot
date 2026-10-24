@@ -158,8 +158,9 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
-        # -> cost column (OpenInference caller-reported total). Consumed only on LLM
-        # spans with a model name; elsewhere it is dropped, like traceroot.llm.usage.
+        # -> cost column (OpenInference caller-reported total). Consumed only on
+        # non-wrapper spans with a model name; elsewhere it is dropped, like
+        # traceroot.llm.usage.
         "llm.cost.total",
     }
 )
@@ -236,12 +237,16 @@ def _usable_cost(value: Any) -> float | None:
 
     Returns:
         float | None: The cost in USD when it is a finite, non-negative number below
-            the plausible bound (zero is kept); None when missing or unusable.
+            the plausible bound (zero is kept); None when missing or unusable. A
+            string is unusable even when numeric: the attribute is a number.
     """
     if value is None or value == "":
         return None
     if isinstance(value, bool):
         logger.warning("Reported cost is a bool (%r); ignoring it", value)
+        return None
+    if isinstance(value, str):
+        logger.warning("Reported cost is not a usable number (%r); ignoring it", value)
         return None
     try:
         parsed = float(value)
@@ -1196,10 +1201,10 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = usage["cost"]
 
                     # A caller-reported total (OpenInference llm.cost.total) replaces
-                    # the list price computed above on LLM spans; tokens stay as
-                    # computed. Not on aggregate wrappers, whose totals restate their
-                    # children's.
-                    if not aggregate_wrapper and span_kind == SpanKind.LLM:
+                    # the list price computed above, on any span we would list-price;
+                    # tokens stay as computed. Not on aggregate wrappers, whose totals
+                    # restate their children's.
+                    if not aggregate_wrapper:
                         reported_cost = _usable_cost(span_attrs.get("llm.cost.total"))
                         if reported_cost is not None:
                             span_record["cost"] = reported_cost
