@@ -15,6 +15,9 @@ vi.mock("./sidebar", () => ({ Sidebar: () => null }));
 vi.mock("@/lib/hooks/use-retention", () => ({
   useRetention: () => ({ retentionDays: 30 }),
 }));
+vi.mock("@/features/ai-assistant/hooks/use-demo-agent-access", () => ({
+  useDemoAgentAccess: () => ({ readOnly: false, loading: false }),
+}));
 
 vi.mock("@/features/ai-assistant/hooks/use-ai-chat", () => ({
   useAiChat: () => {
