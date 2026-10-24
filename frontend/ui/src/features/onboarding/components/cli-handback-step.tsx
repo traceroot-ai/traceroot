@@ -107,8 +107,9 @@ export function CliHandbackStep({
             to <code className="font-mono">{setup.value}</code>, which is not an origin the command
             can be pointed at. Without it the command would send sign-in and your first traces to
             TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
-            value for this deployment and the command appears here; until then, &quot;Set up
-            manually&quot; walks through the rest in the browser.
+            value and rebuild the web app, since the value is built into it rather than read at
+            startup; once the rebuilt app is served the command appears here. Until then, &quot;Set
+            up manually&quot; walks through the rest in the browser.
           </p>
         </div>
       )}
