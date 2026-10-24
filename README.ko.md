@@ -46,21 +46,6 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 | **[신호](https://traceroot.ai/docs/signals/introduction)** | 평가 모델의 출력을 클러스터링해 신호를 만듭니다. 백그라운드 코딩 에이전트가 샌드박스에서 트레이스와 연결된 GitHub 코드를 조사해 수정안을 제안합니다. |
 | **[검증](https://traceroot.ai/docs/evals/get-started)** | 데이터셋으로 평가를 실행하고 버전을 비교해 개선 효과를 측정하고 회귀를 발견하세요. |
 
-### 코딩 에이전트를 위한 설계
-
-에이전트에 맞춰 설계된 CLI로 코딩 에이전트가 TraceRoot를 읽고 쓸 수 있게 하세요. 트레이스, 신호, 홈 작업 공간을 탐색하고 탐지기, 데이터셋, 평가, 대시보드, 알림을 생성하고 수정하는 작업을 모두 코딩 에이전트에서 수행할 수 있습니다.
-
-<p align="center">
-  <a href="https://github.com/traceroot-ai/traceroot-cli">
-    <picture>
-      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
-      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
-      <img src="docs/images/coding-agent-cli-light.gif" alt="코딩 에이전트가 TraceRoot CLI를 통해 홈, 트레이스, 대시보드, 탐지기, 평가, 데이터셋, 알림, 신호에 연결됩니다." width="100%">
-    </picture>
-  </a>
-</p>
-
 ## ⭐ 저장소에 Star를 남겨 주세요
 
 TraceRoot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 발견할 수 있도록 도와주세요.
@@ -71,28 +56,9 @@ TraceRoot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 �
   </a>
 </p>
 
-## TraceRoot 시작하기
-
-### TraceRoot Cloud
-
-[계정을 만들고](https://app.traceroot.ai) 직접 플랫폼을 운영할 필요 없이 시작하세요.
-
-### 셀프 호스팅
-
-Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
-cp .env.example .env
-make prod-lite
-```
-
-[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
-
 ## TraceRoot 설정하기
 
-TraceRoot 인스턴스가 준비되면 대시보드에서 프로젝트를 만들고 첫 트레이스를 전송할 방법을 선택하세요. 코딩 에이전트가 CLI로 계측을 설정하도록 하거나 SDK를 직접 설정할 수 있습니다.
+[TraceRoot 인스턴스](#traceroot-시작하기)(클라우드 또는 셀프 호스팅)가 준비되면 대시보드에서 프로젝트를 만들고 첫 트레이스를 전송할 방법을 선택하세요. 코딩 에이전트가 CLI로 계측을 설정하도록 하거나 SDK를 직접 설정할 수 있습니다.
 
 ### 코딩 에이전트로 설정하기
 
@@ -165,6 +131,25 @@ main().catch(console.error);
 **4. 실행:** `npx tsx example.ts`를 실행한 뒤 프로젝트의 **Traces** 페이지에서 에이전트 실행을 확인하세요. 이 예제는 OpenAI API를 한 번 호출합니다.
 
 </details>
+
+## TraceRoot 시작하기
+
+### TraceRoot Cloud
+
+[계정을 만들고](https://app.traceroot.ai) 직접 플랫폼을 운영할 필요 없이 시작하세요.
+
+### 셀프 호스팅
+
+Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+cp .env.example .env
+make prod-lite
+```
+
+[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
 
 ## 통합
 
