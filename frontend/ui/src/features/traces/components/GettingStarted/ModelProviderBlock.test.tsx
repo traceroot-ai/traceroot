@@ -74,7 +74,7 @@ import {
   INLINE_ADAPTERS,
   isInlineConfigurable,
   ModelProviderBlock,
-  SEEDED_MODELS,
+  seedFor,
   settingsOnlyReason,
   storedKeyCopy,
   unavailableKeyCopy,
@@ -254,7 +254,7 @@ describe("the models a saved key starts with", () => {
     // `customModels` is what the assistant and detector pickers offer, and a
     // model with no standard price is priced at $0 there. The whole catalogue
     // carried ids like that.
-    const seeded = SEEDED_MODELS[adapter] ?? [];
+    const seeded = seedFor(adapter);
     const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
 
     expect(seeded.length).toBeGreaterThan(0);
@@ -263,6 +263,34 @@ describe("the models a saved key starts with", () => {
       expect(catalogue).toContain(id);
       expect(priced(id), `${id} has no standard price`).toBe(true);
     }
+  });
+
+  it.each(INLINE_ADAPTERS)("keeps %s's default model what it was before seeding", (adapter) => {
+    // The first seeded id is the default every picker opens on. Seeding the
+    // newest model of each tier first made OpenAI's the $10 / $50 tier, where
+    // the catalogue's order gives the $2 / $10 one.
+    expect(seedFor(adapter)[0]).toBe(ADAPTER_MODELS[adapter]?.[0]?.id);
+  });
+
+  it("follows the catalogue when a refresh moves a provider's default", () => {
+    // A refresh that put a newer Gemini first, under a seed list that named the
+    // old default first, would have moved Google's default on every saved key.
+    const real = ADAPTER_MODELS.google;
+    try {
+      ADAPTER_MODELS.google = [
+        { id: "gemini-next-flash", label: "gemini-next-flash" },
+        ...(real ?? []),
+      ];
+      expect(seedFor("google")[0]).toBe("gemini-next-flash");
+    } finally {
+      ADAPTER_MODELS.google = real;
+    }
+  });
+
+  it("seeds nothing for an adapter the list has no entry for, whatever its catalogue", () => {
+    // `typesafe` has a catalogue of its own and is offered nowhere.
+    expect(ADAPTER_MODELS.typesafe?.length).toBeGreaterThan(0);
+    expect(seedFor("typesafe")).toEqual([]);
   });
 });
 
@@ -290,7 +318,7 @@ describe("what the write sends", () => {
       adapter: "openai",
       provider: ADAPTER_CONFIG.openai.label,
       apiKey: "sk-openai",
-      customModels: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
+      customModels: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"],
     });
   });
 });
@@ -824,7 +852,7 @@ describe("the key the selected stack asks for", () => {
       adapter: "google",
       provider: ADAPTER_CONFIG.google.label,
       apiKey: "sk-google",
-      customModels: SEEDED_MODELS.google,
+      customModels: seedFor("google"),
     });
   });
 
