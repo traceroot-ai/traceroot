@@ -9,6 +9,8 @@ from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.enums import EVALUATION_SPAN_KINDS
 from shared.span_attributes import (
+    COST_SOURCE,
+    COST_SOURCE_SUPPLIED,
     SPAN_IDS_PATH,
     SPAN_PATH,
     SPAN_TREE_ATTRIBUTES,
@@ -248,15 +250,19 @@ def span_cost_details(
     input_tokens: int | None,
     output_tokens: int | None,
     usage_details: dict[str, int],
+    is_supplied_cost: bool = False,
+    project_id: str | None = None,
 ) -> dict[str, float]:
     """Per-category dollar breakdown for a stored span.
 
     Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
     cache counts in usage_details, then prices each bucket with the model's current
-    rates. Display-only: the values sum to the span's stored `cost` when rates are
-    unchanged. Returns {} when the model has no known prices.
+    rates (checking workspace-registered custom pricing first, then standard catalog).
+    Display-only: the values sum to the span's stored `cost` when rates are unchanged.
+    Returns {} when the model has no known prices or when the span cost was
+    explicitly supplied by the caller (preventing popup disagreement, #2176).
     """
-    if not model_name:
+    if not model_name or is_supplied_cost:
         return {}
     cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
     cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
@@ -274,7 +280,10 @@ def span_cost_details(
         cache_write=cache_write,
         cache_write_1h=cache_write_1h,
     )
-    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
+    return (
+        cost_breakdown_from_buckets(get_model_price(model_name, project_id=project_id), buckets)
+        or {}
+    )
 
 
 def _extract_span_path_attr(attribute: str) -> str:
@@ -911,7 +920,8 @@ class TraceReaderService:
                         '{SPAN_PATH}', tree_name_path
                     ))
                 ) AS metadata,
-                git_source_file, git_source_line, git_source_function, error_type
+                git_source_file, git_source_line, git_source_function, error_type,
+                cost_supplied
             FROM (
                 SELECT
                     span_id, trace_id, parent_span_id, name, span_kind,
@@ -920,7 +930,8 @@ class TraceReaderService:
                     usage_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
-                    git_source_file, git_source_line, git_source_function, error_type
+                    git_source_file, git_source_line, git_source_function, error_type,
+                    JSONExtractString(ifNull(metadata, ''), '{COST_SOURCE}') = '{COST_SOURCE_SUPPLIED}' AS cost_supplied
                 FROM spans
                 WHERE {spans_where_clause}
                 ORDER BY ch_update_time DESC
@@ -935,6 +946,8 @@ class TraceReaderService:
 
         spans = []
         for row in spans_result.result_rows:
+            is_supplied_cost = bool(row[20])
+            cost_val = float(row[10]) if row[10] is not None else None
             spans.append(
                 {
                     "span_id": row[0],
@@ -947,7 +960,7 @@ class TraceReaderService:
                     "status": row[7],
                     "status_message": row[8],
                     "model_name": row[9],
-                    "cost": float(row[10]) if row[10] is not None else None,
+                    "cost": cost_val,
                     "input_tokens": int(row[11]) if row[11] is not None else None,
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
@@ -957,6 +970,8 @@ class TraceReaderService:
                         int(row[11]) if row[11] is not None else None,  # input_tokens
                         int(row[12]) if row[12] is not None else None,  # output_tokens
                         dict(row[14]) if row[14] else {},  # usage_details
+                        is_supplied_cost=is_supplied_cost,
+                        project_id=project_id,
                     ),
                     # Already reduced to the span-path subset by the query.
                     "metadata": row[15],
