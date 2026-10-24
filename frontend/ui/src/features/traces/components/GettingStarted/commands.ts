@@ -1,22 +1,8 @@
-// Single source of truth for the onboarding setup snippets, shared by the AI-tab
-// SetupTabs widget, the Manual-tab CliVerifyCard and the first-run hand-back
-// page, so none of them can drift apart.
+// Single source of truth for the setup command, so the places that show it
+// cannot drift apart: the getting-started panel's AI tab and onboarding's
+// hand-back step both render `setupCommand`.
 
 import { clientEnv } from "@/env.client";
-
-/** Read-only CLI flow: install, authenticate, list traces. */
-export const CLI_COMMANDS = [
-  "npm install -g traceroot-cli",
-  "traceroot login",
-  "traceroot traces list",
-].join("\n");
-
-/** One-prompt instrumentation handoff for any AI coding agent. */
-export const INSTRUMENT_PROMPT =
-  "Install the TraceRoot AI skill from https://github.com/traceroot-ai/traceroot-skills and use it to add tracing to this application with TraceRoot following best practices.";
-
-/** Install the first-party TraceRoot skills into a coding agent. */
-export const SKILLS_COMMAND = "npx skills add traceroot-ai/traceroot-skills";
 
 /**
  * The published CLI the printed command resolves to.
@@ -162,10 +148,11 @@ function appOrigin(appUrl: string | undefined): string | null {
  * A deployment variable this file was given a value it cannot put in a command.
  *
  * Carried out of here rather than swallowed, because the person finishing a
- * first run on a self-hosted install is usually the person who sets these, and
- * the value is already public: `NEXT_PUBLIC_*` is inlined into the client
- * bundle, so naming it on screen discloses nothing a reader could not already
- * read out of the page they are on.
+ * first run, or reading an empty traces page, on a self-hosted install is
+ * usually the person who sets these, and the value is already public:
+ * `NEXT_PUBLIC_*` is inlined into the client bundle, so naming it on screen
+ * discloses nothing a reader could not already read out of the page they are
+ * on.
  */
 export interface UnusableOrigin {
   /** The variable to fix, spelled the way a deployment sets it. */
