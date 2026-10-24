@@ -6,9 +6,9 @@ Non-blocking: exceptions are caught and logged, never re-raised.
 
 Exactly-once triggering: the ingest batch carrying a trace's root span claims
 the trace via a Redis lock, evaluates trigger conditions plus deterministic
-sampling, and enqueues a single delayed BullMQ job. The worker waits until the
-trace has been quiet for EVALUATOR_DELAY (no new span) before evaluating, so
-later batches need no extra enqueue work.
+sampling at root arrival and enqueues the sampled candidates as one delayed
+BullMQ job. Trigger conditions are evaluated against the settled trace after the
+worker's quiescence window, so child spans that arrive later can affect eligibility.
 """
 
 import asyncio
@@ -17,6 +17,7 @@ import json
 import logging
 import operator
 import uuid
+from collections.abc import Collection
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -456,34 +457,29 @@ def _claim_and_enqueue(
     project_id: str,
     trace_id: str,
     detectors: list[dict],
-    summary: dict,
 ) -> None:
-    """Root-bearing batch: claim the trace and enqueue at most one detection job.
+    """Claim a root-bearing trace and enqueue its deterministically sampled candidates.
 
-    Takes the NX claim for ``(project_id, trace_id)``; if it wins, evaluates the
-    trigger conditions plus deterministic sampling and enqueues a single delayed
-    BullMQ job for the detectors that fire. A lost claim (ingest-task retry
-    replay, duplicate root delivery, or a concurrent batch) is a no-op, keeping
-    enqueue exactly-once.
+    ``detectors`` are the active detectors that already passed the evaluation-trace
+    prefilter; trigger conditions are deliberately not evaluated here: a
+    root-bearing batch may not contain the final spans. The delayed worker re-checks
+    the latest trace summary after the quiescence window. The NX claim and
+    deterministic sampling still ensure that duplicate delivery cannot create another
+    job or change a trace's sample decision.
 
     Args:
         redis_client (redis.Redis): Redis client for the NX claim and
             token-checked release.
         project_id (str): Project that owns the trace.
         trace_id (str): Trace whose root span arrived in this batch.
-        detectors (list[dict]): Active detectors, each a dict with ``id``,
-            ``sample_rate`` and ``conditions``.
-        summary (dict): Trace summary fields used for trigger evaluation (e.g.
-            ``environment``).
+        detectors (list[dict]): Active, evaluation-eligible detectors with ``id``
+            and ``sample_rate``.
 
     Returns:
         None: On an enqueue failure the lock value this attempt wrote is
-            released (so a later batch can re-claim) and the error is re-raised
+            released (so a later batch or retry can re-claim) and the error is re-raised
             to the caller, which logs it per-trace without breaking ingestion.
     """
-    # The lock's JSON payload (state/token/detector_ids) is diagnostic only —
-    # nothing reads it back now that re-eval is gone; the key is purely an NX
-    # dedup marker preventing a second enqueue for the same trace.
     key = _lock_key(project_id, trace_id)
     token = uuid.uuid4().hex
     last_written = json.dumps({"state": "deciding", "token": token})
@@ -495,16 +491,16 @@ def _claim_and_enqueue(
         return
 
     try:
-        triggered_ids = [
-            d["id"]
-            for d in detectors
-            if _detector_runs_on_trace(summary, d)
-            and _passes_trigger(summary, d["conditions"])
-            and _sample_passes(trace_id, d["id"], d["sample_rate"])
+        candidate_ids = [
+            detector["id"]
+            for detector in detectors
+            if _sample_passes(trace_id, detector["id"], detector["sample_rate"])
         ]
 
-        if not triggered_ids:
-            # Sticky no: a replay must not re-roll conditions or sampling.
+        if not candidate_ids:
+            # No detector passed deterministic sampling. The evaluation-trace
+            # skip was already applied by the caller, and trigger conditions are
+            # evaluated later against the settled trace.
             redis_client.set(
                 key,
                 json.dumps({"state": "sampled_out", "token": token}),
@@ -516,16 +512,16 @@ def _claim_and_enqueue(
             f"{project_id}--{trace_id}",
             {
                 "traceId": trace_id,
-                "detectorIds": triggered_ids,
+                "detectorIds": candidate_ids,
                 "projectId": project_id,
             },
         )
         redis_client.set(
             key,
-            json.dumps({"state": "pending", "detector_ids": triggered_ids, "token": token}),
+            json.dumps({"state": "pending", "detector_ids": candidate_ids, "token": token}),
             ex=_LOCK_TTL_SECONDS,
         )
-        logger.debug(f"Enqueued detector run: trace={trace_id} detectors={triggered_ids}")
+        logger.debug(f"Enqueued detector candidates: trace={trace_id} detectors={candidate_ids}")
     except Exception:
         # Release only the value this attempt wrote so a later batch or retry
         # can re-claim; a BullMQ job that was already added dedups by jobId.
@@ -533,21 +529,23 @@ def _claim_and_enqueue(
         raise
 
 
-def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
-    """Claim and (conditions + sampling permitting) enqueue detection for traces
-    whose root span arrived in this ingest batch.
+def enqueue_detector_runs(project_id: str, traces_with_root: Collection[str]) -> None:
+    """Claim and enqueue sampled candidates for traces with a new root.
 
-    Called after trace ingestion. Only the root-bearing traces are passed in;
-    batches without a trace's root span enqueue nothing for it (the worker waits
-    out the quiescence window before evaluating, so late spans need no enqueue).
+    Called after trace ingestion. Only root-bearing traces claim a queue slot.
+    Trigger conditions are checked later, after the worker's quiescence window,
+    against the latest trace summary. This prevents the root batch from freezing
+    eligibility before later child spans have arrived.
 
     This function is intentionally non-raising — detector failures must not
     break trace ingestion.
 
     Args:
         project_id (str): Project that owns the traces.
-        traces_with_root (set[str]): Trace IDs whose root span arrived in this
-            batch; each is claimed once and enqueued if it triggers.
+        traces_with_root (Collection[str]): Trace IDs whose root span arrived in
+            this batch; each is claimed once and enqueued if at least one detector
+            passes deterministic sampling. The collection is consumed in the order
+            given, so a caller can pin the order in which traces are claimed.
     """
     if not traces_with_root:
         return
@@ -560,7 +558,7 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             _get_trace_summaries(
                 project_id,
                 root_traces,
-                include_trace_metadata=_has_metadata_condition(detectors),
+                include_trace_metadata=False,
             )
             if detectors
             else {}
@@ -573,18 +571,19 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             if detectors and trace_id not in summaries:
                 logger.debug(f"Trace {trace_id} has no customer spans; not a detector target")
                 continue
+            # Evaluation traces are a stable classification, not a trigger
+            # condition, so they stay a prefilter here (best-effort: the
+            # settlement-time endpoint re-checks the flag authoritatively).
+            # Trigger conditions are deferred to that endpoint.
+            summary = summaries.get(trace_id, {})
+            runnable_detectors = [
+                detector for detector in detectors if _detector_runs_on_trace(summary, detector)
+            ]
             # Per-trace try/except so an unexpected per-trace failure (Redis,
             # BullMQ) only drops the offending trace — remaining traces in the
-            # batch still get enqueued. Malformed conditions no longer raise:
-            # _eval_condition evaluates them False.
+            # batch still get enqueued.
             try:
-                _claim_and_enqueue(
-                    redis_client,
-                    project_id,
-                    trace_id,
-                    detectors,
-                    summaries.get(trace_id, {}),
-                )
+                _claim_and_enqueue(redis_client, project_id, trace_id, runnable_detectors)
             except Exception as trace_err:
                 logger.error(
                     f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",

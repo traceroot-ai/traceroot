@@ -83,7 +83,7 @@ class TestPrimaryEnqueue:
     def test_root_trace_enqueues_one_job_and_marks_pending(
         self, fake_redis, mock_add_job, monkeypatch
     ):
-        """Conditions + deterministic sampling select detectors; one delayed job is added."""
+        """Root arrival selects sampled candidates; conditions wait until settlement."""
         _patch_detectors(
             monkeypatch,
             [
@@ -104,13 +104,13 @@ class TestPrimaryEnqueue:
             f"{PROJECT}--{TRACE}",
             {
                 "traceId": TRACE,
-                "detectorIds": ["d-pass"],
+                "detectorIds": ["d-pass", "d-cond-fail"],
                 "projectId": PROJECT,
             },
         )
         state = _lock_state(fake_redis)
         assert state["state"] == "pending"
-        assert state["detector_ids"] == ["d-pass"]
+        assert state["detector_ids"] == ["d-pass", "d-cond-fail"]
         assert state["token"]
 
     def test_non_root_batch_enqueues_nothing(self, fake_redis, mock_add_job, monkeypatch):
@@ -161,20 +161,50 @@ class TestPrimaryEnqueue:
         mock_add_job.assert_not_called()
         assert _lock_state(fake_redis)["state"] == "sampled_out"
 
-    def test_bad_trace_does_not_drop_rest_of_batch(self, fake_redis, mock_add_job, monkeypatch):
-        """A malformed condition only drops the offending trace."""
+    def test_trigger_conditions_are_deferred_until_settlement(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """A root-time mismatch must not permanently exclude a late qualifying trace."""
         other = "bb" * 16
         _patch_detectors(
             monkeypatch,
-            [_detector("d1", conditions=[{"field": "cost", "op": ">", "value": "not-a-number"}])],
+            [_detector("d1", conditions=[{"field": "errors", "op": ">", "value": 0}])],
         )
-        _patch_summaries(monkeypatch, {TRACE: {"cost": 5}, other: {}})
+        _patch_summaries(monkeypatch, {TRACE: {"errors": 0}, other: {"errors": 0}})
 
         dt.enqueue_detector_runs(PROJECT, {TRACE, other})
 
-        # TRACE raises in float(); `other` has cost missing -> condition False -> sampled_out.
-        assert mock_add_job.call_count == 0
-        assert _lock_state(fake_redis, trace_id=other)["state"] == "sampled_out"
+        assert mock_add_job.call_count == 2
+        assert all(call.args[1]["detectorIds"] == ["d1"] for call in mock_add_job.call_args_list)
+        assert _lock_state(fake_redis, trace_id=TRACE)["state"] == "pending"
+        assert _lock_state(fake_redis, trace_id=other)["state"] == "pending"
+
+    def test_an_unexpected_error_for_one_trace_does_not_drop_the_rest_of_the_batch(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """A per-trace failure (Redis, BullMQ) only drops the offending trace."""
+        other = "bb" * 16
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {TRACE: {}, other: {}})
+
+        def add_job(job_id, data):
+            if data["traceId"] == TRACE:
+                raise RuntimeError("bullmq down")
+            mock_add_job(job_id, data)
+
+        monkeypatch.setattr(dt, "_add_bullmq_job", add_job)
+
+        # An ordered collection, so the failing trace is always claimed first: a
+        # set would let the healthy trace through before the failure and hide a
+        # regression in the per-trace exception handling.
+        dt.enqueue_detector_runs(PROJECT, [TRACE, other])
+
+        # The healthy trace in the same batch is still enqueued ...
+        assert mock_add_job.call_count == 1
+        assert mock_add_job.call_args.args[1]["traceId"] == other
+        assert _lock_state(fake_redis, trace_id=other)["state"] == "pending"
+        # ... and the failed trace released its claim, so a retry can re-claim it.
+        assert dt._lock_key(PROJECT, TRACE) not in fake_redis.store
 
     def test_concurrent_claims_enqueue_exactly_once(self, fake_redis, monkeypatch):
         added = []
@@ -384,8 +414,8 @@ class TestEvalConditionEnvironment:
 class TestEvaluationTraceSkip:
     """The real assertion for the feature: an offline-evaluation trace must not enqueue
     a BullMQ job. These drive ``enqueue_detector_runs`` end to end rather than calling
-    ``_detector_runs_on_trace`` in isolation — removing the guard from the comprehension
-    in ``_claim_and_enqueue`` has to make them fail, otherwise they prove nothing.
+    ``_detector_runs_on_trace`` in isolation — removing the guard from
+    ``enqueue_detector_runs`` has to make them fail, otherwise they prove nothing.
     """
 
     def test_evaluation_trace_enqueues_nothing_and_is_sticky(
