@@ -46,21 +46,6 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 | **[信号](https://traceroot.ai/docs/signals/introduction)** | 将评审输出聚类为信号。后台编程 Agent 在沙箱中结合追踪与已连接的 GitHub 代码，调查问题并提出修复建议。 |
 | **[验证](https://traceroot.ai/docs/evals/get-started)** | 基于数据集运行评测并比较版本，衡量改进效果并发现回归问题。 |
 
-### 为你的编程 Agent 而设计
-
-通过专为 Agent 设计的 CLI，让你的编程 Agent 读写 TraceRoot。探索追踪、信号和主页工作区；创建和更新检测器、数据集、评测、仪表盘和告警，一切都可通过编程 Agent 完成。
-
-<p align="center">
-  <a href="https://github.com/traceroot-ai/traceroot-cli">
-    <picture>
-      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
-      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
-      <img src="docs/images/coding-agent-cli-light.gif" alt="编程 Agent 通过 TraceRoot CLI 连接主页、追踪、仪表盘、检测器、评测、数据集、告警和信号。" width="100%">
-    </picture>
-  </a>
-</p>
-
 ## ⭐ 为仓库点亮 Star
 
 如果你喜欢我们正在构建的产品，请为 TraceRoot 点亮 Star ⭐，帮助更多开发者发现它。
@@ -71,28 +56,9 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
   </a>
 </p>
 
-## 开始使用 TraceRoot
-
-### TraceRoot Cloud
-
-[创建账号](https://app.traceroot.ai)，无需自行部署即可开始使用。
-
-### 自托管
-
-安装 Git、Docker Compose 和 Make 后，在本地运行：
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
-cp .env.example .env
-make prod-lite
-```
-
-打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
-
 ## 配置 TraceRoot
 
-准备好 TraceRoot 实例后，在仪表盘中创建项目，并选择发送第一条追踪的方式：让编程 Agent 通过 CLI 配置埋点，或手动配置 SDK。
+准备好 [TraceRoot 实例](#开始使用-traceroot)（云端或自托管）后，在仪表盘中创建项目，并选择发送第一条追踪的方式：让编程 Agent 通过 CLI 配置埋点，或手动配置 SDK。
 
 ### 使用编程 Agent
 
@@ -165,6 +131,25 @@ main().catch(console.error);
 **4. 运行** `npx tsx example.ts`，然后打开项目的 **Traces** 页面查看 Agent 运行记录。此示例会发起一次 OpenAI API 调用。
 
 </details>
+
+## 开始使用 TraceRoot
+
+### TraceRoot Cloud
+
+[创建账号](https://app.traceroot.ai)，无需自行部署即可开始使用。
+
+### 自托管
+
+安装 Git、Docker Compose 和 Make 后，在本地运行：
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+cp .env.example .env
+make prod-lite
+```
+
+打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
 
 ## 集成
 
