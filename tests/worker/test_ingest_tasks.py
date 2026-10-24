@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.otel_payloads import make_otel_payload, make_span
-from worker.ingest_tasks import _merge_trace_record, process_s3_traces
+from worker.ingest_tasks import _merge_trace_record, _trace_rows_by_id, process_s3_traces
 from worker.otel_transform import PARENT_IS_REMOTE_KEY
 
 TRACE_HEX = "aa" * 16
@@ -143,6 +143,36 @@ class TestProcessS3Traces:
         args, kwargs = mock_ch.query.call_args
         assert "project_id" in args[0]
         assert kwargs["parameters"]["project_id"] == "proj-1"
+
+    def test_trace_probe_keeps_project_id_without_reading_payload_blobs(self, mock_ch):
+        start = datetime(2024, 1, 15, 12)
+        mock_ch.query.return_value = MagicMock(
+            result_rows=[
+                (
+                    TRACE_HEX,
+                    "proj-1",
+                    2,
+                    1,
+                    start,
+                    "root",
+                    "user",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    0,
+                )
+            ]
+        )
+
+        rows = _trace_rows_by_id(mock_ch, "proj-1", [TRACE_HEX])
+
+        assert rows[TRACE_HEX]["project_id"] == "proj-1"
+        sql = mock_ch.query.call_args.args[0].lower()
+        assert " input" not in sql
+        assert " output" not in sql
+        assert " metadata" not in sql
 
     def test_detector_enqueue_not_called_for_empty_batch(
         self, mock_s3, mock_ch, mock_detector_enqueue
@@ -482,6 +512,7 @@ class TestRemoteParentEntrySpans:
         start = datetime(2024, 1, 15, 12, 0)
         return (
             self.TRACE_HEX,
+            "proj-1",
             root_kind,
             trace_root_version(root_kind, start),
             start,
@@ -491,9 +522,6 @@ class TestRemoteParentEntrySpans:
             None,
             None,
             None,
-            "user input" if root_kind == 1 else None,
-            "user output" if root_kind == 1 else None,
-            "{}" if root_kind == 1 else None,
             None,
             0,
         )
@@ -778,3 +806,21 @@ class TestTraceRootMerge:
 
         assert trace_root_version(1, naive) == trace_root_version(1, aware)
         assert trace_root_version(1, aware) == trace_root_version(1, offset)
+
+    def test_legacy_established_row_beats_remote_but_not_true_root(self):
+        from datetime import datetime
+
+        from shared.trace_identity import legacy_trace_version
+
+        start = datetime(2024, 1, 15, 12)
+        legacy = self._row(
+            0,
+            start,
+            name="historical-root",
+            root_version=legacy_trace_version(start),
+        )
+        remote = self._row(1, start, name="callee")
+        root = self._row(2, start, name="caller")
+
+        assert _merge_trace_record(remote, legacy)["name"] == "historical-root"
+        assert _merge_trace_record(root, legacy)["name"] == "caller"

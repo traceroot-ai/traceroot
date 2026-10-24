@@ -568,7 +568,9 @@ def _claim_and_enqueue(
         raise
 
 
-def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
+def enqueue_detector_runs(
+    project_id: str, traces_with_root: set[str], *, raise_on_error: bool = False
+) -> None:
     """Claim and (conditions + sampling permitting) enqueue detection for traces
     whose root span arrived in this ingest batch.
 
@@ -583,6 +585,10 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
         project_id (str): Project that owns the traces.
         traces_with_root (set[str]): Trace IDs whose root span arrived in this
             batch; each is claimed once and enqueued if it triggers.
+        raise_on_error (bool): Propagate detector failures to a retrying caller.
+            Ordinary ingest keeps the historical non-blocking behavior; the
+            post-quiescence finalizer uses this to avoid acknowledging a failed
+            final detector decision.
     """
     if not traces_with_root:
         return
@@ -625,6 +631,8 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
                     f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",
                     exc_info=True,
                 )
+                if raise_on_error:
+                    raise
 
     except Exception as e:
         # Non-blocking: log and return, never raise
@@ -632,3 +640,5 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             f"Failed to enqueue detector runs for project {project_id}: {e}",
             exc_info=True,
         )
+        if raise_on_error:
+            raise

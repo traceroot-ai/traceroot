@@ -826,7 +826,8 @@ def list_trace_counts(
     # chart counts only traces the user can actually see there, never detector or
     # assistant self-traces and offline-eval runs.
     source = f"""
-        SELECT t.trace_id AS id, argMax(t.trace_start_time, t.root_version) AS ts
+        SELECT t.trace_id AS id,
+               argMax(t.trace_start_time, (t.root_version, t.ch_update_time)) AS ts
         FROM traces t
         WHERE t.project_id = {{project_id:String}}
           AND t.trace_id IN (

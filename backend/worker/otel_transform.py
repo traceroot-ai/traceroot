@@ -815,8 +815,10 @@ def transform_otel_to_clickhouse(
                 start_time = nanos_to_datetime(otel_span.get("startTimeUnixNano"))
                 end_time = nanos_to_datetime(otel_span.get("endTimeUnixNano"))
 
-                if not start_time:
-                    logger.warning(f"Skipping span {span_id} with missing startTimeUnixNano")
+                if not start_time or start_time <= datetime(1970, 1, 1):
+                    logger.warning(
+                        f"Skipping span {span_id} with missing or non-positive startTimeUnixNano"
+                    )
                     continue
 
                 # Parse attributes

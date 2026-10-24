@@ -271,8 +271,22 @@ class TestRemoteRootFinalization:
 
         ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
 
-        enqueue.assert_called_once_with(PROJECT, {TRACE})
+        enqueue.assert_called_once_with(PROJECT, {TRACE}, raise_on_error=True)
         reschedule.assert_not_called()
+
+    def test_finalizer_propagates_enqueue_failure_for_celery_retry(self, monkeypatch):
+        import worker.ingest_tasks as ingest_tasks
+
+        ch = MagicMock()
+        ch.query.return_value.result_rows = [(dt.EVALUATOR_DELAY,)]
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        enqueue = MagicMock(side_effect=RuntimeError("redis unavailable"))
+        monkeypatch.setattr(dt, "enqueue_detector_runs", enqueue)
+
+        with pytest.raises(RuntimeError, match="redis unavailable"):
+            ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
+
+        enqueue.assert_called_once_with(PROJECT, {TRACE}, raise_on_error=True)
 
 
 # ── Failure release (token-checked) ─────────────────────────────────────

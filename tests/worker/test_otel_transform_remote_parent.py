@@ -88,6 +88,15 @@ class TestParentContextIsRemote:
         # IS_REMOTE (0x200) without HAS_IS_REMOTE is not emitted by the SDKs.
         assert _parent_context_is_remote(flags) is False
 
+    def test_non_positive_start_time_is_rejected_by_transform(self):
+        span = make_span(TRACE_HEX, ENTRY_SPAN_HEX, name="invalid")
+        span["startTimeUnixNano"] = "0"
+
+        traces, spans = transform_otel_to_clickhouse(make_otel_payload([span]), _PROJECT)
+
+        assert traces == []
+        assert spans == []
+
 
 # -- transform: flagged entry spans take the root seat -----------------------
 

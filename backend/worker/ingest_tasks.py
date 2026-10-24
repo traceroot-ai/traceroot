@@ -35,7 +35,7 @@ def _merge_trace_record(incoming: dict, existing: dict | None) -> dict:
     Evaluation classification is monotonic across all batches.
     """
 
-    from shared.trace_identity import TraceRootKind, trace_root_version
+    from shared.trace_identity import trace_root_version
 
     incoming_kind = _root_kind_value(incoming.get("root_kind", 0))
     incoming = dict(incoming)
@@ -74,8 +74,6 @@ def _merge_trace_record(incoming: dict, existing: dict | None) -> dict:
     # classification win a same-root replacement deterministically.
     if merged["is_evaluation"]:
         merged["root_version"] = int(merged["root_version"]) | 1
-    elif merged.get("root_kind") == int(TraceRootKind.PLACEHOLDER):
-        merged["root_version"] = 0
     return merged
 
 
@@ -86,9 +84,8 @@ def _trace_rows_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[
         return {}
     result = ch_client.query(
         """
-        SELECT trace_id, root_kind, root_version, trace_start_time, name, source,
-               user_id, session_id, git_ref, git_repo, input, output, metadata,
-               environment, is_evaluation
+        SELECT trace_id, project_id, root_kind, root_version, trace_start_time, name, source,
+               user_id, session_id, git_ref, git_repo, environment, is_evaluation
         FROM traces
         WHERE project_id = {project_id:String}
           AND trace_id IN {trace_ids:Array(String)}
@@ -108,6 +105,7 @@ def _trace_rows_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[
             zip(
                 (
                     "trace_id",
+                    "project_id",
                     "root_kind",
                     "root_version",
                     "trace_start_time",
@@ -117,9 +115,6 @@ def _trace_rows_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[
                     "session_id",
                     "git_ref",
                     "git_repo",
-                    "input",
-                    "output",
-                    "metadata",
                     "environment",
                     "is_evaluation",
                 ),
@@ -459,7 +454,7 @@ def finalize_remote_detector_runs(project_id: str, trace_id: str) -> None:
 
     # The final Redis NX claim and deterministic sampling remain in the normal
     # path, so a caller-root batch racing this task cannot create a duplicate.
-    enqueue_detector_runs(project_id, {trace_id})
+    enqueue_detector_runs(project_id, {trace_id}, raise_on_error=True)
 
 
 @app.task(

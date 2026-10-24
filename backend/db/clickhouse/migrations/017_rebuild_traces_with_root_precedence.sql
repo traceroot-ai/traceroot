@@ -6,10 +6,19 @@
 --
 -- Existing rows cannot be classified safely: before remote-parent identity was
 -- persisted, a parentless row could be either a local root or a normalized
--- remote entry.  They intentionally remain placeholders (version 0) and are
--- promoted only by a newly classified ingest batch.
+-- remote entry.  Rows that exactly match a persisted parentless span receive
+-- an intermediate legacy version, but keep `root_kind = placeholder`: this
+-- protects an already-established identity from a new remote entry without
+-- claiming that the historical row was definitely a local root.  Other rows
+-- remain placeholders and may be upgraded by a newly classified batch.
+--
+-- SAFETY: ClickHouse does not provide a transaction spanning the backfill and
+-- table rename. Pause all writers to `traces` before running this migration
+-- and resume them only after goose records it successfully. The existing
+-- async S3 queue remains the source of truth while ingestion is paused. The
+-- old table is retained as a rollback/reconciliation backstop; never delete it
+-- as part of a retry.
 DROP TABLE IF EXISTS traces_v2;
-DROP TABLE IF EXISTS traces_old;
 
 CREATE TABLE traces_v2
 (
@@ -75,16 +84,38 @@ INSERT INTO traces_v2
 SELECT
     trace_id, project_id, trace_start_time, name, source, user_id, session_id,
     git_ref, git_repo, input, output, metadata, ch_create_time, ch_update_time,
-    environment, is_evaluation, 'placeholder', 0
-FROM traces;
+    environment, is_evaluation, 'placeholder',
+    if(
+        EXISTS(
+            SELECT 1
+            FROM spans AS s
+            WHERE s.project_id = old_traces.project_id
+              AND s.trace_id = old_traces.trace_id
+              AND isNull(s.parent_span_id)
+              AND s.span_start_time = old_traces.trace_start_time
+              AND s.name = old_traces.name
+        ),
+        bitOr(
+            bitShiftLeft(toUInt64(4), 61),
+            bitShiftLeft(
+                toUInt64(
+                    (toInt64((1 << 60) - 1) - greatest(
+                        0, least(toInt64(toUnixTimestamp64Milli(trace_start_time)), (1 << 60) - 1)
+                    ))
+                ),
+                1
+            )
+        ) + toUInt64(is_evaluation),
+        toUInt64(0)
+    )
+FROM traces AS old_traces;
 
 ALTER TABLE traces_v2 MATERIALIZE PROJECTION traces_by_start_time;
 
 RENAME TABLE traces TO traces_old, traces_v2 TO traces;
 
 -- Keep the pre-migration table as a backstop, following the established spans
--- rebuild convention.  A later cleanup can drop it after row parity is checked;
--- rerunning this file drops only the previous backstop before rebuilding again.
+-- rebuild convention. A later cleanup can drop it after row parity is checked.
 
 -- Migration 012 created the public view before root_version existed.  Replacing
 -- it here is required both for upgrades (where 012 is already recorded) and for
@@ -124,10 +155,23 @@ WHERE source = 'user'
   );
 
 -- +goose Down
--- The old table is kept as a backstop by Up, so rollback can restore the exact
--- pre-migration schema and data without guessing a root classification.
+-- The old table is kept as a backstop by Up. Pause ingestion before rollback,
+-- merge rows written to the new table after the swap, and only then restore the
+-- old schema; otherwise rollback would silently discard those writes.
 DROP VIEW IF EXISTS traces_public_v1;
-DROP TABLE IF EXISTS traces;
+INSERT INTO traces_old
+(
+    trace_id, project_id, trace_start_time, name, source, user_id, session_id,
+    git_ref, git_repo, input, output, metadata, ch_create_time, ch_update_time,
+    environment, is_evaluation
+)
+SELECT
+    trace_id, project_id, trace_start_time, name, source, user_id, session_id,
+    git_ref, git_repo, input, output, metadata, ch_create_time, ch_update_time,
+    environment, is_evaluation
+FROM traces;
+
+DROP TABLE traces;
 RENAME TABLE traces_old TO traces;
 
 CREATE VIEW traces_public_v1
