@@ -90,13 +90,27 @@ describe("cliHostFlags", () => {
     // `lib/auth-client.ts` points better-auth at localhost:3000 when the app
     // URL is unset, so that is the deployment this one is configured for —
     // naming it beats omitting the flag and pointing the reader at Cloud.
-    for (const appUrl of [undefined, "", "   ", "not-a-url", "mailto:ops@example.com"]) {
+    for (const appUrl of [undefined, "", "   "]) {
       expect(hostFlagsOf({ apiUrl: "/api/v1", appUrl })).toEqual({
         host: "http://localhost:3000",
         authHost: null,
       });
     }
   });
+
+  it.each(["not-a-url", "mailto:ops@example.com"])(
+    "reports the variable when the app URL is set to something that is not an origin (%s)",
+    (appUrl) => {
+      // Unset means localhost:3000 everywhere in the app; a set value that is
+      // not an origin says nothing about where this deployment is, so pointing
+      // the command at localhost:3000 would be a guess.
+      expect(cliHostFlags({ apiUrl: "/api/v1", appUrl })).toEqual({
+        kind: "unresolved",
+        variable: "NEXT_PUBLIC_APP_URL",
+        value: appUrl,
+      });
+    },
+  );
 
   it.each(["http://", "http://[", "//", "http://:8000", "http://%zz.com"])(
     "reports the variable when the API URL is malformed outright (%s)",

@@ -100,28 +100,38 @@ const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+
  * quote character and neither does the argv parsing behind `npx` on Windows: a
  * single-quoted value arrives with the quotes inside it and `setup` stops on an
  * invalid host, so a self-hosted operator pasting the line into cmd.exe could
- * not start at all. Double quotes are stripped by cmd.exe, PowerShell, bash and
- * zsh alike, and what stays live inside them — `"`, `$`, a backtick, `\`, and
- * `%` or `!` under cmd.exe — is exactly what `SHELL_SAFE_ORIGIN` excludes.
+ * not start at all. Double quotes reach `setup` stripped from all four:
+ * PowerShell, bash and zsh remove them, and cmd.exe passes them through to the
+ * program it starts, whose argument parsing removes them. What stays live inside
+ * them — `"`, `$`, a backtick, `\`, and `%` or `!` under cmd.exe — is exactly
+ * what `SHELL_SAFE_ORIGIN` excludes.
  */
 function quotedArg(value: string): string {
   return `"${value}"`;
 }
 
-/** The origin serving the dashboard, falling back to the app's own default. */
-function appOrigin(appUrl: string | undefined): string {
+/**
+ * The origin serving the dashboard: the app's own default when none is set, or
+ * null when one is set but is not an origin.
+ *
+ * Set-but-unusable is not treated as unset. Unset is the deployment the rest of
+ * the app is configured for (see `DEFAULT_APP_ORIGIN`); a value like
+ * `not-a-url` or `mailto:` says nothing about where this deployment is, and a
+ * command pointed at a guess is worse than none. `lib/eval/run-link.ts` falls
+ * back instead, because a run link must not fail the request it rides on.
+ */
+function appOrigin(appUrl: string | undefined): string | null {
   const configured = appUrl?.trim();
   if (!configured) return DEFAULT_APP_ORIGIN;
   try {
     const url = new URL(configured);
     // Only an http(s) origin can serve the dashboard and the browser sign-in.
-    // A value like `mailto:` parses as a URL but cannot host either, so it is
-    // treated as unset rather than passed on. Mirrors `lib/eval/run-link.ts`.
+    // A value like `mailto:` parses as a URL but cannot host either.
     if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
   } catch {
-    // Unparseable: as good as unset.
+    // Unparseable: reported by the caller, with the value that was set.
   }
-  return DEFAULT_APP_ORIGIN;
+  return null;
 }
 
 /**
@@ -192,6 +202,9 @@ export type SetupCommand =
  */
 export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined }): CliHostFlags {
   const app = appOrigin(input.appUrl);
+  if (app === null) {
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_APP_URL", value: input.appUrl ?? "" };
+  }
   let api: string;
   try {
     // `NEXT_PUBLIC_API_URL` is relative on a same-origin deployment (`/api/v1`,
