@@ -220,6 +220,13 @@ async def create_project_api_key(
     the same project it mints into — useful for rotation, useless before the
     first key exists.
 
+    A mint can commit and still lose its reply: the control plane writes the key,
+    then the answer times out, drops, or arrives in a shape this cannot read. The
+    caller then gets a 503 although the key exists, and a retry under the same
+    name gets a 409, because the name is now taken. The secret is not
+    recoverable, since it was only ever in the lost reply, so a caller retries
+    under a new name, and the first key stays live until it is revoked.
+
     Args:
         project_id (str): The project to mint into.
         request (Request): Incoming request; the JSON body carries ``name`` and
