@@ -22,7 +22,7 @@ Setup signs you in, has your coding agent add the TraceRoot SDK, and waits for y
 
 Setup asks only what it can't work out itself. In a monorepo, run it from the service's directory or pass `--service <path>`. For every option, run `npx -y traceroot-cli@latest setup --help`.
 
-Besides the env file and your code, setup keeps a checkpoint and a report of the run in `.traceroot/`, which it git-ignores, and installs the TraceRoot skill for your coding agent. If you cancel or a step fails, it revokes the keys it created and restores your env file. It never reverts your coding agent's edits, so review them with `git diff`.
+Besides the env file and your code, setup keeps a checkpoint and a report of the run in `.traceroot/`, which it git-ignores, and installs the TraceRoot skill for your coding agent. If a run is cancelled or fails, it revokes the keys it created and restores your env file. If it pauses because no trace has arrived or the agent could not finish, it keeps the key so `--resume` can pick up where it stopped. It never reverts your coding agent's edits, so review them with `git diff`.
 
 This configures only the machine you ran it on. Your deployed application needs `TRACEROOT_API_KEY` in its own environment too, plus `TRACEROOT_HOST_URL` if you self-host.
 
