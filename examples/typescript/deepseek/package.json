@@ -3,8 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "demo": "tsx agent.ts",
-    "test": "tsx --test agent.test.ts"
+    "demo": "tsx agent.ts"
   },
   "dependencies": {
     "@traceroot-ai/traceroot": "^0.1.6",

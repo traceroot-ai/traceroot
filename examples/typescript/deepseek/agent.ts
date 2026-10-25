@@ -225,7 +225,7 @@ When answering questions:
 4. Provide a clear, comprehensive answer
 Available tools: weather, web search, stock prices, calculator, current time.`;
 
-export class ReActAgent {
+class ReActAgent {
   private conversationHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [];
   // "deepseek-flash" = DeepSeek-V4.1-Flash; "deepseek-v4-pro" = DeepSeek-V4-Pro.
   // Both support tool calling.
@@ -326,7 +326,4 @@ async function main() {
   }
 }
 
-// Run the demo only when executed directly (`pnpm demo`), not when the test imports it.
-if (require.main === module) {
-  main().catch(console.error);
-}
+main().catch(console.error);
