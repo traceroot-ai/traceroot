@@ -40,6 +40,11 @@ from typing import Any
 from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
 from shared.span_attributes import (
     CAPTURE_MARKER_ATTRIBUTES,
+    COST_ATTRIBUTES,
+    COST_SOURCE,
+    COST_SOURCE_CATALOG,
+    COST_SOURCE_ESTIMATED,
+    COST_SOURCE_SUPPLIED,
     SPAN_IDS_PATH,
     SPAN_PATH,
     SPAN_TREE_ATTRIBUTES,
@@ -108,6 +113,11 @@ def _span_aggregates_child_usage(
     operation_name = attrs.get("gen_ai.operation.name")
     if isinstance(operation_name, str) and operation_name.lower() in _AGGREGATE_USAGE_OPERATIONS:
         return True
+    # Claude Agent SDK query wrapper span (ClaudeAgent.query) aggregates the cumulative
+    # cost/usage of its child LLM turns (anthropic.messages.create). Adopting the total
+    # on the wrapper span would double-count against the child spans priced by the catalog.
+    if span_kind != SpanKind.LLM and "claude_agent_sdk.total_cost_usd" in attrs:
+        return True
     # Fallback for a wrapper that reaches us without an operation name — an emitter
     # version that stops setting one would otherwise silently resume double-pricing,
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
@@ -157,6 +167,12 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
+        # -> cost pipeline (parse_supplied_cost). Extracted into dedicated cost column.
+        "traceroot.llm.cost",
+        "claude_agent_sdk.total_cost_usd",
+        "llm.cost.total",
+        "llm.cost",
+        "llm.usage.cost",
     }
 )
 
@@ -193,6 +209,49 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
 # of the fields stays far inside the Int64 token columns. 10^9 tokens is orders of
 # magnitude beyond any shipped context window, so nothing legitimate is near it.
 _MAX_PLAUSIBLE_TOKENS = 10**9
+
+# Upper sanity bound on dollar cost, sized by the ClickHouse Decimal64(9) column.
+# Strictly under 10^9 (nine integer digits), matching _MAX_PLAUSIBLE_TOKENS ceiling.
+_MAX_PLAUSIBLE_COST = 10**9
+
+# Recognized attribute keys that carry a caller- or instrumentor-supplied dollar cost.
+_SUPPLIED_COST_KEYS = (
+    "traceroot.llm.cost",
+    "claude_agent_sdk.total_cost_usd",
+    "gen_ai.usage.cost",
+    "llm.cost.total",
+    "llm.cost",
+    "llm.usage.cost",
+)
+
+
+def parse_supplied_cost(value: Any) -> float | None:
+    """Safely parse and validate an untrusted caller-supplied cost attribute.
+
+    The cost attribute is untrusted wire input: a non-numeric string, boolean,
+    negative number, NaN, infinity, or value exceeding Decimal64(9) must never
+    crash ingestion or fail ClickHouse batch insertion.
+
+    Args:
+        value (Any): Raw attribute value (float, int, or numeric string).
+
+    Returns:
+        float | None: A validated non-negative float within [0, _MAX_PLAUSIBLE_COST),
+            or None if the value is missing, invalid, or out of range.
+    """
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    import math
+
+    if not math.isfinite(parsed) or parsed < 0 or parsed >= _MAX_PLAUSIBLE_COST:
+        return None
+    return parsed
+
 
 # Matches the filter's MAX_VALUE_LENGTH: a longer value could never be filtered on.
 _MAX_ERROR_TYPE_LENGTH = 1024
@@ -352,10 +411,11 @@ _MANUAL_USAGE_KEYS = (
     "cache_write_tokens",
     "cache_write_1h_tokens",
     "reasoning_tokens",
+    "cost",
 )
 
 
-def parse_manual_usage(raw: Any) -> dict[str, int]:
+def parse_manual_usage(raw: Any) -> dict[str, Any]:
     """Parse the manual usage dict reported via the SDKs' update-span API.
 
     The ``traceroot.llm.usage`` attribute is untrusted wire input: a non-JSON
@@ -372,8 +432,8 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
             or an already-decoded dict).
 
     Returns:
-        dict[str, int]: The recognized usage fields with non-negative int
-            values; empty when the payload is missing or unusable.
+        dict[str, Any]: The recognized usage fields with non-negative int
+            counts or float cost; empty when the payload is missing or unusable.
     """
     if isinstance(raw, str):
         try:
@@ -398,10 +458,19 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
             unrecognized[:10],
             list(_MANUAL_USAGE_KEYS),
         )
-    usage: dict[str, int] = {}
+    usage: dict[str, Any] = {}
     for key in _MANUAL_USAGE_KEYS:
         value = raw.get(key)
         if value is None:
+            continue
+        if key == "cost":
+            parsed_cost = parse_supplied_cost(value)
+            if parsed_cost is not None:
+                usage["cost"] = parsed_cost
+            else:
+                logger.warning(
+                    "Manual usage field cost is not a usable dollar amount (%r); ignoring it", value
+                )
             continue
         # A dropped field is silent data loss from the user's point of view: they
         # reported a count and it is priced as if absent. Warn as int_or_zero does
@@ -733,6 +802,8 @@ def transform_otel_to_clickhouse(
 
                 # Parse attributes
                 span_attrs = attributes_to_dict(otel_span.get("attributes", []))
+                # Server-authored provenance attributes must not be spoofed by callers:
+                span_attrs.pop(COST_SOURCE, None)
 
                 # Determine span kind
                 otel_kind = otel_span.get("kind")
@@ -857,6 +928,36 @@ def transform_otel_to_clickhouse(
                 # absence of output is a property of what the instrumentor recorded,
                 # and stands in for "nothing was produced".
                 errored_without_response = span_is_error and not _has_recorded_response(span_output)
+
+                # Agent-invocation and step spans stamp aggregate
+                # gen_ai.usage.* totals restating the SUM of their LLM
+                # children — the same wrapper pattern as the raw ai.usage.*
+                # keys gated above, moved into the normalized namespace.
+                # Adopting them prices every token twice.
+                aggregate_wrapper = _span_aggregates_child_usage(scope_name, span_kind, span_attrs)
+
+                # Check for caller- or instrumentor-supplied dollar cost.
+                # Precedence: supplied cost beats computed pricing ("supplied beats computed").
+                # Iterate keys in order so a malformed higher-priority cost (empty string,
+                # negative, NaN) does not shadow a valid lower-priority cost.
+                supplied_cost = None
+                for _cost_key in _SUPPLIED_COST_KEYS:
+                    supplied_cost = parse_supplied_cost(span_attrs.get(_cost_key))
+                    if supplied_cost is not None:
+                        break
+                if supplied_cost is None:
+                    raw_manual_usage = span_attrs.get("traceroot.llm.usage")
+                    if isinstance(raw_manual_usage, (str, dict)):
+                        try:
+                            m_dict = (
+                                json.loads(raw_manual_usage)
+                                if isinstance(raw_manual_usage, str)
+                                else raw_manual_usage
+                            )
+                            if isinstance(m_dict, dict) and "cost" in m_dict:
+                                supplied_cost = parse_supplied_cost(m_dict.get("cost"))
+                        except Exception:
+                            pass
 
                 # Model & token fields — extract API-provided counts whenever a model
                 # name is present, not just for LLM spans. Auto-instrumentors
@@ -988,15 +1089,6 @@ def transform_otel_to_clickhouse(
                         ],
                     )
 
-                    # Agent-invocation and step spans stamp aggregate
-                    # gen_ai.usage.* totals restating the SUM of their LLM
-                    # children — the same wrapper pattern as the raw ai.usage.*
-                    # keys gated above, moved into the normalized namespace.
-                    # Adopting them prices every token twice.
-                    aggregate_wrapper = _span_aggregates_child_usage(
-                        scope_name, span_kind, span_attrs
-                    )
-
                     # Manual usage reported via the SDKs' update-span API
                     # (traceroot.llm.usage) — the documented token source for
                     # self-instrumented spans, where no instrumentor maps the
@@ -1025,7 +1117,7 @@ def transform_otel_to_clickhouse(
                             api_cache_write_tokens = manual_usage.get("cache_write_tokens")
                             api_cache_write_1h_tokens = manual_usage.get("cache_write_1h_tokens")
                             api_reasoning_tokens = manual_usage.get("reasoning_tokens")
-                        elif manual_usage:
+                        elif manual_usage and "cost" not in manual_usage:
                             # Recognized fields, but nothing to price against: a
                             # cache or reasoning count alone does not describe a
                             # call. Dropping it silently is the same data loss the
@@ -1095,9 +1187,14 @@ def transform_otel_to_clickhouse(
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
                             )
-                        cost = cost_from_buckets(get_model_price(model_name), buckets)
-                        if cost is not None:
-                            span_record["cost"] = cost
+                        if supplied_cost is not None:
+                            span_record["cost"] = supplied_cost
+                            span_attrs[COST_SOURCE] = COST_SOURCE_SUPPLIED
+                        else:
+                            cost = cost_from_buckets(get_model_price(model_name), buckets)
+                            if cost is not None:
+                                span_record["cost"] = cost
+                                span_attrs[COST_SOURCE] = COST_SOURCE_CATALOG
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
@@ -1158,8 +1255,26 @@ def transform_otel_to_clickhouse(
                             span_record["output_tokens"] = usage["output_tokens"]
                         if usage["total_tokens"] is not None:
                             span_record["total_tokens"] = usage["total_tokens"]
-                        if usage["cost"] is not None:
+                        if supplied_cost is not None:
+                            span_record["cost"] = supplied_cost
+                            span_attrs[COST_SOURCE] = COST_SOURCE_SUPPLIED
+                        elif usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
+                            span_attrs[COST_SOURCE] = COST_SOURCE_ESTIMATED
+
+                # Fallback for spans where cost was supplied directly by the caller
+                # but neither token-pricing branch priced it (e.g. unpriced model with no tokens,
+                # or non-LLM span with provider-reported cost).
+                # Aggregate wrapper spans (like invoke_agent or ClaudeAgent.query) and spans
+                # without tokens must not adopt caller aggregate totals that duplicate child spans.
+                if (
+                    span_record.get("cost") is None
+                    and supplied_cost is not None
+                    and not aggregate_wrapper
+                    and "claude_agent_sdk.total_cost_usd" not in span_attrs
+                ):
+                    span_record["cost"] = supplied_cost
+                    span_attrs[COST_SOURCE] = COST_SOURCE_SUPPLIED
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.
@@ -1179,7 +1294,7 @@ def transform_otel_to_clickhouse(
                 # the prompt and answer through the capture policy).
                 span_path_attrs = {
                     key: span_attrs[key]
-                    for key in (*SPAN_TREE_ATTRIBUTES, *CAPTURE_MARKER_ATTRIBUTES)
+                    for key in (*SPAN_TREE_ATTRIBUTES, *CAPTURE_MARKER_ATTRIBUTES, *COST_ATTRIBUTES)
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
