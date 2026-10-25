@@ -17,6 +17,12 @@ class WhoamiResponse(BaseModel):
     Name fields are nullable: they depend on what the internal key-validation
     contract returns, and the backend never fabricates them. The full API token
     is never included — only ``key_hint``.
+
+    ``key_scope`` is the exception to the nullability above, deliberately. A
+    holder asking what their key may do needs an answer, not a maybe: a null
+    would have to be handled by every caller and would mean the same thing the
+    narrow scope already means. It is a closed set of values rather than a free
+    string so a client can exhaust it.
     """
 
     project_id: str
@@ -25,6 +31,11 @@ class WhoamiResponse(BaseModel):
     workspace_name: str | None
     key_name: str | None
     key_hint: str | None
+    # Spelled out rather than imported from the auth layer: nothing else in this
+    # module reaches into a router, and a response schema should not be what
+    # makes it start. The two are asserted identical by
+    # tests/rest/test_whoami.py::test_reported_scopes_are_the_auth_layers_scopes.
+    key_scope: Literal["ingest", "admin"]
     host: str
     ui_base_url: str
 
@@ -104,6 +115,11 @@ class DetectorResultItem(BaseModel):
     summary: str
     identified: bool
     data: Any | None
+    # The signal (recurring problem) this detector's hit belongs to; None while
+    # the hit is not grouped (signals off for the detector, or not assigned yet).
+    signal_id: str | None = None
+    signal_title: str | None = None
+    signal_status: str | None = None
 
 
 class RCAResult(BaseModel):
@@ -116,6 +132,19 @@ class RCAResult(BaseModel):
 
     status: str
     result: str | None
+    # True when the finding ran no RCA of its own because its hits joined known
+    # signals: ``result`` is then those signals' RCAs, each labelled with the
+    # signal and the trace it analysed.
+    inherited: bool = False
+
+
+class FindingSignal(BaseModel):
+    """The signal one detector's hit in a finding belongs to."""
+
+    detector_id: str
+    signal_id: str
+    signal_title: str
+    signal_status: str
 
 
 class FindingSummary(BaseModel):
@@ -133,6 +162,8 @@ class FindingSummary(BaseModel):
     # index-aligned). Empty when no run row references the finding (e.g.
     # legacy/manually-created findings that predate run recording).
     run_ids: list[str] = []
+    # The signals the finding's hits belong to, one per grouped detector hit.
+    signals: list[FindingSignal] = []
 
 
 class FindingDetail(FindingSummary):
@@ -195,6 +226,13 @@ class WorkspaceListItem(BaseModel):
     id: str
     name: str
     role: str
+    is_demo: bool = Field(
+        default=False,
+        description=(
+            "True for the public demo workspace, which every user can read. It is "
+            "listed last and is not one of the user's own workspaces."
+        ),
+    )
 
 
 class PublicWorkspaceListResponse(BaseModel):
@@ -215,6 +253,9 @@ class ProjectListItem(BaseModel):
     name: str
     workspace_id: str
     workspace_name: str
+    workspace_is_demo: bool = Field(
+        default=False, description="True when the project is in the public demo workspace."
+    )
 
 
 class PublicProjectListResponse(BaseModel):
@@ -263,10 +304,30 @@ class DashboardWidgetItem(BaseModel):
     create_time: datetime
 
 
+class DashboardLayoutItem(BaseModel):
+    """One widget's place on a dashboard's grid, in grid units.
+
+    ``i`` is the widget id; ``x``/``w`` count columns of the twelve-column
+    grid and ``y``/``h`` count rows. A widget with no entry is placed by the
+    dashboard page itself, below everything that has one.
+    """
+
+    i: str
+    x: int
+    y: int
+    w: int
+    h: int
+
+
 class DashboardDetail(DashboardSummary):
-    """One dashboard with its widgets, ordered by creation time."""
+    """One dashboard with its widgets, ordered by creation time.
+
+    ``layout`` is the stored grid placement of the widgets that have one, or
+    None when the dashboard service did not report it.
+    """
 
     widgets: list[DashboardWidgetItem]
+    layout: list[DashboardLayoutItem] | None = None
 
 
 class DashboardWidgetData(BaseModel):
@@ -278,13 +339,15 @@ class DashboardWidgetData(BaseModel):
     is a feed widget (a trace list, not an aggregate — read those with
     ``list_traces`` and the feed's filters); ``error`` carries a short reason
     and no rows — a broken widget, or a query widget past the per-request cap
-    with a reason naming it — so neither fails the whole dashboard.
+    with a reason naming it — so neither fails the whole dashboard. ``spec``
+    is the widget's stored spec whatever the status, so a caller can draw it.
     """
 
     id: str
     title: str
     type: str
     status: Literal["ok", "skipped", "error"]
+    spec: Any | None = None
     columns: list[str] | None = None
     rows: list[list[Any]] | None = None
     meta: dict[str, Any] | None = None
@@ -297,6 +360,8 @@ class DashboardDataResponse(BaseModel):
 
     Widgets keep the dashboard's order. ``window`` is the window they were all
     answered for — the one to name alongside any figure taken from here.
+    ``layout`` is the dashboard's grid placement, as ``get_dashboard`` returns
+    it.
     """
 
     dashboard: DashboardSummary
@@ -305,6 +370,7 @@ class DashboardDataResponse(BaseModel):
     queried: int
     skipped: int
     failed: int
+    layout: list[DashboardLayoutItem] | None = None
 
 
 class WidgetDetail(DashboardWidgetItem):
@@ -323,12 +389,17 @@ class WidgetDetail(DashboardWidgetItem):
 
 
 class WidgetRef(BaseModel):
-    """The identity of the widget a data read answered, with its dashboard."""
+    """The identity of the widget a data read answered, with its dashboard.
+
+    ``spec`` is the stored spec the read ran, as ``get_widget`` returns it.
+    """
 
     id: str
     dashboard_id: str
     title: str
     type: str
+    dashboard_name: str | None = None
+    spec: Any | None = None
 
 
 class WidgetDataResponse(BaseModel):
@@ -516,10 +587,10 @@ class AlertFilterItem(BaseModel):
 class AlertRenotify(BaseModel):
     """How often an alert re-notifies while it stays in the alerting state.
 
-    Kept a single-level object rather than a discriminated union: the tool
-    registry generator refuses nested schema references. The cross-field
-    rule is enforced by a validator instead, so a contradictory stored rule
-    fails the detail read closed rather than passing through half-typed.
+    Kept a single-level object rather than a discriminated union, matching
+    the request-side shape. The cross-field rule is enforced by a validator
+    instead, so a contradictory stored rule fails the detail read closed
+    rather than passing through half-typed.
     """
 
     mode: Literal["OFF", "EVERY"]
@@ -569,3 +640,49 @@ class PublicAlertListResponse(BaseModel):
 
     data: list[AlertSummary]
     meta: AlertListMeta
+
+
+# ── signals ─────────────────────────────────────────────────────────────
+
+# Mirrors SIGNAL_STATUSES in frontend/packages/core/src/ee/signals/constants.ts
+# (a parity test reads that file).
+SignalStatus = Literal["open", "resolved", "dismissed"]
+
+
+class SignalSummary(BaseModel):
+    """A signal: a recurring problem that one detector's findings are grouped into.
+
+    ``reopen_count`` counts the automatic reopens (a new finding after the
+    signal was resolved). ``rca_state`` is the state of the root cause analysis
+    of the current opening, null when none ran for it.
+    """
+
+    signal_id: str
+    detector_id: str
+    detector_name: str | None
+    title: str
+    status: SignalStatus
+    hit_count: int
+    reopen_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    created_at: datetime
+    rca_state: str | None = None
+
+
+class SignalDetail(SignalSummary):
+    """One signal, including when it was resolved and whether it was merged.
+
+    A merged signal is still answered, with ``merged_into_id`` naming the signal
+    its findings moved to; lists leave merged signals out.
+    """
+
+    resolved_at: datetime | None
+    merged_into_id: str | None
+
+
+class PublicSignalListResponse(BaseModel):
+    """Paginated list of the project's signals for the public API (newest first)."""
+
+    data: list[SignalSummary]
+    meta: PaginationMeta

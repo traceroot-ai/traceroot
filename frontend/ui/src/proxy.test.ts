@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { config, proxy } from "./proxy";
 
@@ -6,7 +6,7 @@ import { config, proxy } from "./proxy";
  * The middleware matcher is Next's negative-lookahead form: a path is PROTECTED
  * (the session-cookie middleware runs, redirecting to /auth/sign-in when there's
  * no cookie) iff it matches. Surfaces with their own auth — API-key public routes
- * (requireApiKeyProject), the internal API (X-Internal-Secret), auth routes — MUST
+ * (a per-route Bearer helper), the internal API (X-Internal-Secret), auth routes — MUST
  * be exempt, or their requests get 307'd to sign-in before their handler runs.
  *
  * Regression guard for the api/public omission that 307'd every SDK request.
@@ -26,7 +26,15 @@ describe("middleware matcher exemptions", () => {
     expect(isProtected("/api/auth/callback")).toBe(false);
     expect(isProtected("/api/internal/validate-api-key")).toBe(false);
     expect(isProtected("/api/billing/webhook")).toBe(false);
+    expect(isProtected("/api/email/unsubscribe")).toBe(false);
     expect(isProtected("/api/health")).toBe(false);
+    // Browsers post Content-Security-Policy violation reports without the session.
+    expect(isProtected("/api/csp-report")).toBe(false);
+  });
+
+  it("matches auth pages so they get the Content-Security-Policy; proxy() lets them through", () => {
+    expect(isProtected("/auth/sign-in")).toBe(true);
+    expect(isProtected("/auth/sign-up")).toBe(true);
   });
 
   it("exempts only the exact health path, not neighbours", () => {
@@ -40,12 +48,21 @@ describe("middleware matcher exemptions", () => {
   });
 });
 
-function request(path: string, opts?: { token?: boolean }): NextRequest {
+function request(path: string, opts?: { token?: boolean; https?: boolean }): NextRequest {
   const headers = new Headers();
   if (opts?.token) {
     headers.set("cookie", "better-auth.session_token=a-token");
   }
-  return new NextRequest(new URL(`http://localhost:3000${path}`), { headers });
+  const scheme = opts?.https ? "https" : "http";
+  return new NextRequest(new URL(`${scheme}://localhost:3000${path}`), { headers });
+}
+
+// The sign-in page reads the callback with searchParams.get(), which decodes
+// one layer — so assert on the decoded value a nested callback arrives as.
+function callback(res: Response): string | null {
+  const location = res.headers.get("location");
+  expect(location).toContain("/auth/sign-in");
+  return new URL(location!).searchParams.get("callbackUrl");
 }
 
 describe("proxy middleware", () => {
@@ -54,6 +71,23 @@ describe("proxy middleware", () => {
     // callbackUrl), losing the device code across the sign-in round-trip.
     const res = proxy(request("/device?user_code=ABCD1234"));
     expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("still protects /onboarding, which renders bare but is not public", () => {
+    // /onboarding renders with no app shell around it, exactly as /device does
+    // (see lib/chromeless-routes) — but for an unrelated reason, and the
+    // exemption above must not follow the resemblance. /device is exempt
+    // because it is reachable while SIGNED OUT and owns its own sign-in
+    // round-trip; every action on /onboarding needs a session, and exempting it
+    // would hand the workspace-creation form to anyone with the URL.
+    //
+    // Both halves, because either one alone can be made to pass: the middleware
+    // never runs on a path the matcher does not claim, so dropping /onboarding
+    // from `config.matcher` would make the page public with this redirect still
+    // in place.
+    expect(isProtected("/onboarding")).toBe(true);
+    const res = proxy(request("/onboarding?callbackUrl=%2Fdevice"));
+    expect(res.headers.get("location")).toContain("/auth/sign-in");
   });
 
   it("lets auth pages through without a token", () => {
@@ -71,5 +105,98 @@ describe("proxy middleware", () => {
   it("allows a protected route when a session token is present", () => {
     const res = proxy(request("/projects/p1/traces", { token: true }));
     expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("keeps the query string in the callback so a waiting terminal is still reachable", () => {
+    // /onboarding carries the pointer back to a blocked `traceroot setup` run in
+    // its own ?callbackUrl. A pathname-only value drops it, and the visitor
+    // finishes onboarding with nothing on screen leading back to the terminal.
+    const res = proxy(request("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234"));
+    expect(callback(res)).toBe("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234");
+  });
+
+  it("keeps the query string for any protected page, not just onboarding", () => {
+    const res = proxy(request("/projects/p1/traces?traceId=t1&tab=spans"));
+    expect(callback(res)).toBe("/projects/p1/traces?traceId=t1&tab=spans");
+  });
+
+  it("still sends a bare path when the request has no query", () => {
+    const res = proxy(request("/projects/p1/traces"));
+    expect(callback(res)).toBe("/projects/p1/traces");
+  });
+
+  it("refuses a callback whose path resolves off-origin instead of carrying it onward", () => {
+    // A request to `//host/x` arrives with a protocol-relative pathname, which
+    // re-parses cross-origin wherever it is followed.
+    expect(callback(proxy(request("//evil.example/onboarding?callbackUrl=%2Fdevice")))).toBe("/");
+    expect(callback(proxy(request("/..//evil.example?user_code=ABCD1234")))).toBe("/");
+  });
+});
+
+// NextResponse.next({ request: { headers } }) hands each overridden request header
+// to rendering as x-middleware-request-<name>.
+function forwarded(res: Response, name: string): string | null {
+  return res.headers.get(`x-middleware-request-${name}`);
+}
+
+describe("proxy Content-Security-Policy", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("gives the sign-in page a policy and hands its nonce to rendering", () => {
+    const res = proxy(request("/auth/sign-in"));
+    const policy = res.headers.get("content-security-policy");
+    const nonce = forwarded(res, "x-nonce");
+
+    expect(nonce).toBeTruthy();
+    expect(policy).toContain(`'nonce-${nonce}'`);
+    // Next.js finds the nonce for its own scripts in the request's copy.
+    expect(forwarded(res, "content-security-policy")).toBe(policy);
+  });
+
+  it("names the endpoint the policy's report-to sends reports to on a page served over HTTPS", () => {
+    const res = proxy(request("/auth/sign-in", { https: true }));
+    expect(res.headers.get("content-security-policy")).toContain("report-to csp-endpoint");
+    expect(res.headers.get("reporting-endpoints")).toBe('csp-endpoint="/api/csp-report"');
+  });
+
+  it("leaves report-to and its endpoint out of a page served over plain HTTP, whatever the app URL", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
+    const res = proxy(request("/auth/sign-in"));
+    expect(res.headers.get("content-security-policy")).toContain("report-uri /api/csp-report");
+    expect(res.headers.get("content-security-policy")).not.toContain("report-to");
+    expect(res.headers.get("reporting-endpoints")).toBeNull();
+  });
+
+  it("uses a new nonce for every request", () => {
+    const first = forwarded(proxy(request("/auth/sign-in")), "x-nonce");
+    const second = forwarded(proxy(request("/auth/sign-in")), "x-nonce");
+    expect(first).not.toBe(second);
+  });
+
+  it("adds the policy to the device page and to pages for a signed-in visitor", () => {
+    expect(
+      proxy(request("/device?user_code=ABCD1234")).headers.get("content-security-policy"),
+    ).toContain("'strict-dynamic'");
+    expect(
+      proxy(request("/projects/p1/traces", { token: true })).headers.get("content-security-policy"),
+    ).toContain("frame-ancestors 'none'");
+  });
+
+  it("sends no policy with the sign-in redirect or with API responses", () => {
+    expect(proxy(request("/projects/p1/traces")).headers.get("content-security-policy")).toBeNull();
+    const api = proxy(request("/api/projects/p1/datasets", { token: true }));
+    expect(api.headers.get("content-security-policy")).toBeNull();
+    expect(api.headers.get("reporting-endpoints")).toBeNull();
+    expect(forwarded(api, "x-nonce")).toBeNull();
+  });
+
+  it("only reports violations when CSP_MODE=report-only", () => {
+    vi.stubEnv("CSP_MODE", "report-only");
+    const res = proxy(request("/auth/sign-in"));
+    expect(res.headers.get("content-security-policy")).toBeNull();
+    expect(res.headers.get("content-security-policy-report-only")).toContain("'strict-dynamic'");
+    expect(forwarded(res, "content-security-policy-report-only")).toBeTruthy();
   });
 });

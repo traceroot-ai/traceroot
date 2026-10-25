@@ -95,6 +95,24 @@ class TestListDetectorRuns:
         body = resp.json()
         assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
         assert body["data"][0]["run_id"] == "r1"
+        assert body["data"][0]["signal_gave_up"] is False
+        page_query = " ".join(mock_ch.query.call_args_list[0].args[0].split())
+        assert "ORDER BY r.timestamp DESC, r.run_id DESC LIMIT" in page_query
+
+    def test_flags_a_hit_signal_assignment_gave_up_on(self, client, mock_ch, secret):
+        data = self._fake_data()
+        data.column_names = [*data.column_names, "signal_gave_up"]
+        data.result_rows = [(*data.result_rows[0], 1)]
+        mock_ch.query.side_effect = [data, self._fake_count(1)]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.json()["data"][0]["signal_gave_up"] is True
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        # Only the give-up row (empty signal_id) of this detector's hit counts.
+        assert "signal_id = ''" in data_sql and "AS signal_gave_up" in data_sql
 
     def test_search_query_hits_trace_id_and_joined_summary(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_data(), self._fake_count(0)]
@@ -392,6 +410,28 @@ class TestWriteDetectorRun:
         params = mock_ch.query.call_args.kwargs["parameters"]
         assert "fromUnixTimestamp64Milli" not in sql
         assert "timestamp_ms" not in params
+
+    def test_writes_used_inference_flag(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={**self._body(), "status": "failed", "usedInference": True},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "used_inference" in sql
+        assert params["used_inference"] is True
+
+    def test_defaults_used_inference_to_false_when_absent(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json=self._body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert params["used_inference"] is False
 
 
 # =============================================================================
@@ -744,6 +784,145 @@ class TestListDetectorWindowSummary:
         data = resp.json()["data"]
         assert data["d-a"]["sample_summaries"] == ["kept sentence"]
         assert "d-ghost" not in data
+
+
+# =============================================================================
+# /trace-counts
+# =============================================================================
+
+
+class TestListTraceCounts:
+    URL = "/api/v1/internal/trace-counts"
+
+    def _rows(self, rows: list[tuple]):
+        # Rows are (bucket, count) from the bucketed query.
+        return _make_query_result(rows=rows, column_names=["bucket", "count"])
+
+    def _get(self, client, secret, **extra_params):
+        return client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+                **extra_params,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+    def _sql(self, client, mock_ch, secret, **extra_params):
+        mock_ch.query.side_effect = [self._rows([])]
+        self._get(client, secret, **extra_params)
+        return mock_ch.query.call_args.args[0], mock_ch.query.call_args.kwargs["parameters"]
+
+    def test_returns_counts_per_bucket(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._rows([("2026-04-20", 3), ("2026-04-21", 5)])]
+        resp = self._get(client, secret, detector_id="d-a")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "data": [
+                {"bucket": "2026-04-20", "count": 3},
+                {"bucket": "2026-04-21", "count": 5},
+            ]
+        }
+
+    def test_with_a_detector_counts_checked_traces(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FROM detector_runs" in sql
+        assert "detector_id = {detector_id:String}" in sql
+        assert params["project_id"] == "p1"
+        assert params["detector_id"] == "d-a"
+
+    def test_retries_and_trace_versions_count_once_at_latest_trace_start(
+        self, client, mock_ch, secret
+    ):
+        sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FINAL" not in sql
+        assert "argMax(t.trace_start_time, t.ch_update_time) AS ts" in sql
+        assert "GROUP BY t.trace_id" in sql
+        assert "uniqExact(id)" in sql
+        assert "max(timestamp)" not in sql
+        assert sql.index("GROUP BY t.trace_id") < sql.index("ts >=")
+
+    def test_requires_a_detector(self, client, mock_ch, secret):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_scans_only_the_window(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret)
+        # The inner range keeps the scan inside the window's partitions.
+        assert "trace_start_time >= {start_after:DateTime64(3)}" in sql
+
+    def test_day_buckets_by_local_day(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, tz="America/New_York")
+        assert "toString(toDate(ts, {tz:String}))" in sql
+        assert "GROUP BY bucket" in sql
+        assert "ORDER BY bucket" in sql
+        assert params["tz"] == "America/New_York"
+
+    def test_hour_buckets_by_local_hour(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret, granularity="hour")
+        assert "toStartOfHour(ts, {tz:String})" in sql
+        assert "'%Y-%m-%dT%H:00'" in sql
+
+    def test_unknown_granularity_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, granularity="week")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_tz_defaults_to_utc(self, client, mock_ch, secret):
+        _, params = self._sql(client, mock_ch, secret)
+        assert params["tz"] == "UTC"
+
+    def test_invalid_tz_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="Not/AZone")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_malformed_tz_is_422_not_500(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="../../etc/passwd")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_window_bounds_both_ends(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "ts >= {start_after:DateTime64(3)}" in sql
+        assert "ts < {end_before:DateTime64(3)}" in sql
+        assert "start_after" in params and "end_before" in params
+
+    def test_requires_internal_secret(self, client, mock_ch):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_requires_both_bounds(self, client, mock_ch, secret):
+        for missing in ("start_after", "end_before"):
+            params = {
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            }
+            del params[missing]
+            resp = client.get(self.URL, params=params, headers={"X-Internal-Secret": secret})
+            assert resp.status_code == 422
 
 
 # =============================================================================
@@ -1103,6 +1282,67 @@ def _source_filters(sql: str) -> str:
     return sql.replace("SELECT source,", "").replace("GROUP BY source", "")
 
 
+def _collapse_scopes(sql: str) -> tuple[str, str]:
+    """Split the detector-runs meter SQL into (inner, outer) scopes.
+
+    The meter is ``SELECT count() FROM (<collapse subquery>) WHERE ...``: the
+    inner scope ends at the GROUP BY over the table's dedup key and the outer
+    scope is everything after it. Normalized for case/whitespace-insensitive
+    matching so assertions pin predicate *placement*, not formatting.
+    """
+    norm = " ".join(sql.lower().split())
+    marker = "group by project_id, detector_id, run_id"
+    assert marker in norm, f"collapse subquery missing full dedup key: {sql}"
+    inner, outer = norm.split(marker, 1)
+    return inner, outer
+
+
+def _meter_fake_query(versions: list[tuple[str, str, str, str, bool, str]]):
+    """A mock ``ch.query`` evaluating the meter over fixture versions.
+
+    Mirrors the production query's semantics: collapse each
+    (project_id, detector_id, run_id) to its latest version by
+    (timestamp, status, used_inference) — same-millisecond ties resolve to
+    'failed', and to a billed row — window on the collapsed timestamp, then
+    count runs whose latest version completed or recorded inference usage.
+    Project and window bounds are read from the bound parameters, matching the
+    SQL's parameterized filters; the scope assertions in the tests check the
+    SQL's predicate placement independently.
+
+    Args:
+        versions (list[tuple]): ``(project_id, detector_id, run_id, status,
+            used_inference, timestamp)``; timestamps are the endpoint's
+            normalized ``"YYYY-MM-DD HH:MM:SS"`` strings, so string comparison
+            orders them exactly as ClickHouse would.
+
+    Returns:
+        Callable: A side_effect for ``mock_ch.query``.
+    """
+
+    def fake_query(sql, parameters=None):
+        if "FROM detector_runs" not in sql:
+            return _make_query_result([], ["source", "traces", "spans"])
+        assert parameters is not None
+        wanted = set(parameters["project_ids"])
+        start, end = parameters["start"], parameters["end"]
+        latest: dict[tuple, tuple] = {}
+        for project_id, detector_id, run_id, status, used_inference, ts in versions:
+            if project_id not in wanted:
+                continue
+            key = (project_id, detector_id, run_id)
+            candidate = (ts, status, used_inference)
+            if key not in latest or candidate >= latest[key]:
+                latest[key] = candidate
+        total = sum(
+            1
+            for ts, status, used in latest.values()
+            if start <= ts < end and (status == "completed" or used)
+        )
+        return _make_query_result([(total,)], ["total"])
+
+    return fake_query
+
+
 class TestUsageBillsEveryStoredRow:
     CH_FAMILY = "usage"
     PARAMS: typing.ClassVar[dict[str, str]] = {
@@ -1131,8 +1371,219 @@ class TestUsageBillsEveryStoredRow:
         # at all. Asserted rather than left to the commit message: re-adding a filter here
         # would silently stop billing self-traces again.
         assert "source" not in _source_filters(rows_sql)
-        # detector_runs was never filtered — it is the per-evaluation result record.
+        # detector_runs is filtered by its collapsed latest status/usage, never
+        # by writer: a completed scan counts, and so does a failed scan whose
+        # latest version still reached the model and recorded inference usage —
+        # but BYOK and system scans both count, so no source predicate. The
+        # count predicate applies to the collapsed latest version, never to the
+        # raw rows (see test_usage_details_collapses_retries_before_counting).
         assert "source" not in runs_sql
+        assert "latest_status = 'completed' OR latest_used_inference" in runs_sql
+        assert "AND status = 'completed'" not in runs_sql
+
+    def test_usage_details_collapses_retries_before_counting(self, client, mock_ch, secret):
+        """Each run counts once, by its latest version's status or usage (#2033).
+
+        detector_runs is a ReplacingMergeTree keyed on
+        (project_id, detector_id, run_id) with timestamp as the version
+        column, and a BullMQ retry reuses the run's deterministic run_id — so
+        a stale 'completed' row can sit next to a newer 'failed' one until
+        background merge. The meter must collapse each run to its latest
+        version first (argMax over (timestamp, status)), window on that
+        collapsed timestamp, and only then apply the count predicate: the
+        latest version completed OR recorded inference usage.
+
+        The mock below honors that contract over fixture rows — mirroring the
+        live ClickHouse behavior verified for this query — so the count
+        assertion pins the endpoint plumbing. The mock reads its project and
+        window bounds from the bound parameters, not from the SQL text, so it
+        cannot catch a dropped or misplaced predicate on its own: the
+        scope assertions below do that independently by inspecting the
+        generated SQL's inner (pre-collapse) vs outer (post-collapse) scopes.
+        """
+        # (project_id, detector_id, run_id, status, used_inference, timestamp);
+        # timestamps are the endpoint's normalized "YYYY-MM-DD HH:MM:SS"
+        # strings, so plain string comparison orders them exactly as
+        # ClickHouse would.
+        versions = [
+            ("p1", "d1", "run-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed", "failed", False, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-retry-ok", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-retry-ok", "completed", False, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-twice", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-twice", "completed", False, "2026-07-10 10:05:00"),
+            ("p1", "d2", "run-other-detector", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-tie", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-tie", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-failed-billed", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed-billed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed-billed", "failed", True, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-billed-then-completed", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-billed-then-completed", "completed", False, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-billed-tie", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-billed-tie", "failed", False, "2026-07-10 10:00:00"),
+            (
+                "p1",
+                "d1",
+                "run-billed-stale-unbilled-latest",
+                "failed",
+                True,
+                "2026-07-10 10:00:00",
+            ),
+            (
+                "p1",
+                "d1",
+                "run-billed-stale-unbilled-latest",
+                "failed",
+                False,
+                "2026-07-10 10:05:00",
+            ),
+            ("p1", "d1", "run-legacy-failed", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-legacy-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-at-start", "completed", False, "2026-07-01 00:00:00"),
+            ("p1", "d1", "run-at-end", "completed", False, "2026-08-01 00:00:00"),
+            ("p1", "d1", "run-cross-project", "completed", False, "2026-07-10 10:00:00"),
+            ("p2", "d1", "run-cross-project", "failed", False, "2026-07-10 10:05:00"),
+            ("p2", "d1", "run-other-project-billed", "failed", True, "2026-07-10 10:00:00"),
+        ]
+
+        mock_ch.query.side_effect = _meter_fake_query(versions)
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        # Counted: run-completed, run-retry-ok, run-twice, run-other-detector,
+        # run-failed-billed, run-stale-completed-billed, run-billed-then-completed,
+        # run-billed-tie, run-legacy-completed, run-at-start (inclusive bound),
+        # run-cross-project (p1's completed version; p2's rows are separate
+        # sort keys and p2 is not in the project filter). Excluded:
+        # run-stale-completed (latest is failed and unbilled), run-tie (failed
+        # wins the tie), run-billed-stale-unbilled-latest (the latest version
+        # supersedes the older billed one, exactly as it supersedes status),
+        # run-legacy-failed (pre-016 default classification), run-at-end
+        # (exclusive bound).
+        assert resp.json()["detector_runs"] == 11
+
+        runs_sql = mock_ch.query.call_args_list[1].args[0]
+        inner, outer = _collapse_scopes(runs_sql)
+        # Deduplication: one row per sort-key tuple via the version column,
+        # latest status picked over (timestamp, status) — the same-ms tiebreak
+        # keeps the deterministic failed-wins ordering — and the usage
+        # classification picked with the same ordering, preferring a billed
+        # row on a full tie so a billed call is never forgotten.
+        assert "argmax(status, (timestamp, status))" in inner
+        assert "argmax(used_inference, (timestamp, status, used_inference))" in inner
+        # Project isolation: the parameterized project filter lives in the
+        # inner scope so the collapse sees every version of the project's
+        # runs; the outer scope must not see (or leak) other projects' rows.
+        assert "project_id in {project_ids:array(string)}" in inner
+        assert "project_id" not in outer
+        # Window on the collapsed timestamp, not raw rows: inclusive start,
+        # exclusive end, in the outer scope; no raw timestamp window inside,
+        # so a retry that re-stamps across a boundary is placed by its latest
+        # version instead of being split across windows.
+        assert "ts >= {start:string}" in outer
+        assert "ts < {end:string}" in outer
+        assert "timestamp >=" not in inner
+        assert "timestamp <" not in inner
+        # Counting predicate: latest version completed OR recorded inference
+        # usage, on the collapsed aliases in the outer scope. No raw-row
+        # status/usage filter may appear inside — filtering raw rows first
+        # would count a stale 'completed' version after a retry wrote the run
+        # as 'failed' (P1), and would drop a failed run's billed calls.
+        assert "latest_status = 'completed' or latest_used_inference" in outer
+        assert "status = 'completed'" not in inner
+        assert "used_inference =" not in inner
+        assert "and status = 'completed'" not in runs_sql.lower()
+        # BYOK and system scans both count: never filter by writer.
+        assert "source" not in runs_sql
+
+    def _meter_count(self, client, mock_ch, secret, versions) -> int:
+        """Run /usage/details over ``versions`` and return the detector count."""
+        mock_ch.query.side_effect = _meter_fake_query(versions)
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        return resp.json()["detector_runs"]
+
+    def test_usage_details_counts_a_failed_run_that_used_inference(self, client, mock_ch, secret):
+        """A failure after billed calls is still a scan (maintainer feedback)."""
+        versions = [("p1", "d1", "run-1", "failed", True, "2026-07-10 10:00:00")]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_excludes_a_failed_run_without_inference(self, client, mock_ch, secret):
+        versions = [("p1", "d1", "run-1", "failed", False, "2026-07-10 10:00:00")]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_excludes_failures_before_any_model_call(self, client, mock_ch, secret):
+        """Missing key, unknown model and span-download failures burn no tokens."""
+        versions = [
+            ("p1", "d1", "no-api-key", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "unknown-model", "failed", False, "2026-07-10 10:01:00"),
+            ("p1", "d1", "span-download", "failed", False, "2026-07-10 10:02:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_stale_completed_loses_to_newer_unbilled_failure(
+        self, client, mock_ch, secret
+    ):
+        versions = [
+            ("p1", "d1", "run-1", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "failed", False, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_completed_then_billed_failure_counts_once(self, client, mock_ch, secret):
+        versions = [
+            ("p1", "d1", "run-1", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "failed", True, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_billed_failure_then_completed_counts_once(self, client, mock_ch, secret):
+        versions = [
+            ("p1", "d1", "run-1", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "completed", False, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_latest_version_supersedes_an_older_billed_failure(
+        self, client, mock_ch, secret
+    ):
+        versions = [
+            ("p1", "d1", "run-1", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "failed", False, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_same_timestamp_ties_are_deterministic(self, client, mock_ch, secret):
+        """A completed/failed tie resolves to failed; a billed tie to billed."""
+        tie_status = [
+            ("p1", "d1", "tie-status", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "tie-status", "failed", False, "2026-07-10 10:00:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, tie_status) == 0
+        tie_billed = [
+            ("p1", "d1", "tie-billed", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "tie-billed", "failed", False, "2026-07-10 10:00:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, tie_billed) == 1
+
+    def test_usage_details_legacy_rows_follow_the_default_classification(
+        self, client, mock_ch, secret
+    ):
+        """Pre-016 rows read used_inference=false: completed counts, failed not."""
+        versions = [
+            ("p1", "d1", "legacy-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "legacy-failed", "failed", False, "2026-07-10 10:00:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
 
     def test_usage_details_scans_each_table_once(self, client, mock_ch, secret):
         """The breakdown is the count: one grouped scan per table, not a second pass."""

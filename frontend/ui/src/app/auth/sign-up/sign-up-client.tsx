@@ -34,20 +34,36 @@ type SignUpClientProps = {
 
 // A brand-new account always finishes at onboarding. The one thing that can
 // need to happen first is a pending device authorization — the CLI login flow
-// sends the user through /device before they sign up — so route through it,
-// telling it (via ?next) to continue to onboarding once approved. Anything else
-// goes straight to onboarding; a new user shouldn't be dropped deep in the app.
+// sends the user through /device before they sign up. Onboarding runs *before*
+// that approval, not after: approving releases the waiting terminal, and the
+// CLI's very next call asks which project to use. Approve first and it reads an
+// account that owns nothing, because the workspace does not exist until a human
+// submits the form on the page it was about to be sent to. So onboarding comes
+// first and carries the device URL as its callback. Anything else goes straight
+// to onboarding; a new user shouldn't be dropped deep in the app.
+//
+// This is a shortcut, not the enforcement, and the difference matters because
+// both buttons below share this destination while only one of them is a sign-up:
+// `signIn.social` is better-auth's only social entry point, so Google here signs
+// an existing account straight in, and account linking makes it answer for an
+// existing email account at the same address too. Those land on onboarding
+// without being new. /onboarding and /device each check the account rather than
+// the route, so a wrong guess here normally costs a redirect rather than a
+// second workspace — normally, because /onboarding deliberately falls through to
+// its form when that lookup *fails* (a new account that cannot reach the form
+// could never finish signing up), and a wrong guess plus a failed lookup is the
+// one case where an existing account is offered the duplicate. What the guess
+// buys is two fewer navigations on the common path: a genuine new account goes
+// straight to the form instead of touching /device first only to be sent back.
 function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a
   // new account into the device-authorization flow.
-  const [path, query] = callbackUrl.split("?");
+  const [path] = callbackUrl.split("?");
   if (path !== "/device") {
     return "/onboarding";
   }
-  const params = new URLSearchParams(query ?? "");
-  params.set("next", "/onboarding");
-  return `/device?${params.toString()}`;
+  return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
 function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {

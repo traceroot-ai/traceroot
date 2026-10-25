@@ -7,6 +7,7 @@ import {
   type ParamSchema,
   type RegistryEntry,
 } from "@traceroot-ai/tools";
+import { SpanKind, SpanStatus } from "@traceroot/core";
 import { publicUiUrl } from "./origins.js";
 
 /**
@@ -240,7 +241,9 @@ const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
       "total_tokens_per_second (numeric: sum, avg, min, max, p50, p75, p90, p95, p99); " +
       "trace_id, unique_user_ids, unique_session_ids (aggregation uniq only). The threshold " +
       "is in the measure's unit, so 2 seconds of latency is 2000. Filters are row predicates " +
-      "on model_name, environment, status, span_kind, name, is_root or metadata (with a key). " +
+      "on model_name, environment, status, span_kind, name, is_root or metadata (with a key); " +
+      `span_kind is one of ${Object.values(SpanKind).join(", ")} (LLM calls are LLM), and ` +
+      `status is ${Object.values(SpanStatus).join(" or ")}. ` +
       "renotify {mode: OFF} unless the user asks to be reminded while it stays breached. Strict " +
       "create, never idempotent: alerts share names freely, so to avoid a duplicate list the " +
       "project's alerts first and match the name.",

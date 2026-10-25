@@ -56,7 +56,7 @@ def reports_expected_facts(ctx):
 
 answer_is_grounded = Scorer.llm_judge(
     name="answer_is_grounded",
-    model="gpt-4o-mini",
+    model="gpt-6-luna",
     messages=[
         {
             "role": "system",
@@ -88,7 +88,7 @@ def main() -> None:
         dataset=dataset(),
         task=run_agent,
         scorers=[calls_expected_tools, reports_expected_facts, answer_is_grounded],
-        candidate_version="gpt-4o-mini",
+        candidate_version="gpt-6-luna",
         evaluation_key="agent-tool-eval",
         local=local,
     )

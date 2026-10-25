@@ -4,7 +4,8 @@ import type { AlertRowLike } from "../rule.js";
 import type { AlertRuntimeState } from "../severity-state-machine.js";
 import type { AlertTick } from "../tick.js";
 
-const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<AlertRowLike[]>>();
+// Loosely typed rows: the claim and the close read share this one raw client.
+const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<unknown[]>>();
 const updateMany = vi.fn<(args: Record<string, unknown>) => Promise<{ count: number }>>();
 
 vi.mock("@traceroot/core", async (importOriginal) => {
@@ -20,13 +21,16 @@ const {
   completeAlertEvaluation,
   parkAlertRule,
   recordAlertEvaluationFailure,
+  readStoppedAlertCloses,
   recordAlertNotifyOutcome,
+  restoreAlertPendingClose,
   revertAlertEmissionState,
+  takeAlertPendingClose,
   ALERT_CLAIM_LIMIT,
 } = await import("../claim.js");
 // Imported after the mock factory rather than at the top: a value import from
 // `@traceroot/core` loads the module before the spies above are initialized.
-const { ALERT_WINDOWS } = await import("@traceroot/core");
+const { ALERT_WINDOWS, Prisma: PrismaRuntime } = await import("@traceroot/core");
 // Real, not faked: whether a page survives the race below is a question about
 // what the state machine does next with the row the writes leave behind.
 const { applyAlertStateMachine } = await import("../severity-state-machine.js");
@@ -62,6 +66,11 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
     severity: "OK",
     severityChangedAt: null,
     alertedAt: null,
+    lastNotifyStatus: null,
+    lastNotifyError: null,
+    lastNotifyAt: null,
+    lastNotifySeverity: null,
+    slackUpdatedAt: null,
     ...overrides,
   };
 }
@@ -190,6 +199,20 @@ describe("claimDueAlerts — taking ownership", () => {
     for (const window of Object.keys(ALERT_WINDOWS)) {
       expect(sql).toContain(`WHEN '${window}' THEN`);
     }
+  });
+
+  it("reads back the last delivery, and Slack's settings only for a page that failed", async () => {
+    await claimDueAlerts(TICK);
+    const sql = claimSql().replace(/\s+/g, " ");
+
+    // A page that never went out for want of Slack is retried once Slack is set up,
+    // so the tick needs both sides of that comparison without a query per rule.
+    expect(sql).toContain('last_notify_at AS "lastNotifyAt"');
+    // What the page said, which the rule's own severity may have moved on from.
+    expect(sql).toContain('last_notify_severity AS "lastNotifySeverity"');
+    expect(sql).toContain("CASE WHEN last_notify_status = 'FAILED' THEN");
+    expect(sql).toContain("JOIN slack_integrations s ON s.workspace_id = sp.workspace_id");
+    expect(sql).toContain('END AS "slackUpdatedAt"');
   });
 
   it("returns nothing when every candidate was already held elsewhere", async () => {
@@ -637,11 +660,22 @@ describe("recordAlertNotifyOutcome", () => {
   const at = new Date("2026-08-12T10:40:00.000Z");
 
   it("records a delivery against the rule alone, with no claim to match on", async () => {
-    await recordAlertNotifyOutcome({ alertId: "alert-1", status: "DELIVERED", error: null, at });
+    await recordAlertNotifyOutcome({
+      alertId: "alert-1",
+      status: "DELIVERED",
+      severity: "ALERT",
+      error: null,
+      at,
+    });
 
     expect(updateMany.mock.calls[0][0]).toEqual({
       where: { id: "alert-1" },
-      data: { lastNotifyStatus: "DELIVERED", lastNotifyError: null, lastNotifyAt: at },
+      data: {
+        lastNotifyStatus: "DELIVERED",
+        lastNotifyError: null,
+        lastNotifyAt: at,
+        lastNotifySeverity: "ALERT",
+      },
     });
   });
 
@@ -653,6 +687,7 @@ describe("recordAlertNotifyOutcome", () => {
     await recordAlertNotifyOutcome({
       alertId: "alert-1",
       status: "SUPERSEDED",
+      severity: "OK",
       error: "superseded",
       at,
       notAfter: emittedAt,
@@ -663,7 +698,12 @@ describe("recordAlertNotifyOutcome", () => {
         id: "alert-1",
         OR: [{ lastNotifyAt: null }, { lastNotifyAt: { lt: emittedAt } }],
       },
-      data: { lastNotifyStatus: "SUPERSEDED", lastNotifyError: "superseded", lastNotifyAt: at },
+      data: {
+        lastNotifyStatus: "SUPERSEDED",
+        lastNotifyError: "superseded",
+        lastNotifyAt: at,
+        lastNotifySeverity: "OK",
+      },
     });
   });
 
@@ -671,7 +711,94 @@ describe("recordAlertNotifyOutcome", () => {
     updateMany.mockRejectedValue(new Error("pool timeout"));
 
     await expect(
-      recordAlertNotifyOutcome({ alertId: "alert-1", status: "DELIVERED", error: null, at }),
+      recordAlertNotifyOutcome({
+        alertId: "alert-1",
+        status: "DELIVERED",
+        severity: "ALERT",
+        error: null,
+        at,
+      }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("the close an edit or a resume left on the rule", () => {
+  const marker = {
+    reason: "edited" as const,
+    actorUserId: "user-1",
+    at: "2026-08-12T10:36:00.000Z",
+  };
+
+  it("is flagged by the claim itself, from the row the tick evaluates", async () => {
+    queryRaw.mockResolvedValue([
+      { ...row(), hasPendingClose: true },
+      { ...row({ id: "alert-2" }), hasPendingClose: false },
+      row({ id: "alert-3" }),
+    ]);
+
+    const claims = await claimDueAlerts(TICK);
+
+    // One snapshot for both: read apart, an edit landing between the two reads
+    // would have its new page sent ahead of the close it owes.
+    expect(queryRaw.mock.calls[0][0].sql).toContain(
+      'pending_close IS NOT NULL AS "hasPendingClose"',
+    );
+    expect(claims.map((claim) => claim.hasPendingClose)).toEqual([true, false, false]);
+  });
+
+  it("is read apart only for the rules no claim will reach: paused and parked", async () => {
+    queryRaw.mockResolvedValue([{ id: "alert-9", projectId: "proj-1", name: "Paused rule" }]);
+
+    expect(await readStoppedAlertCloses()).toEqual([
+      { alertId: "alert-9", projectId: "proj-1", name: "Paused rule" },
+    ]);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    expect(sql).toContain("a.pending_close IS NOT NULL");
+    // An ACTIVE rule's close belongs to the tick that claims it, which alone
+    // knows whether a new page is about to follow.
+    expect(sql).toContain("a.status <>");
+    expect(values).toContain("ACTIVE");
+    expect(sql).toContain("p.delete_time IS NULL");
+    expect(values).toContain(ALERT_CLAIM_LIMIT);
+  });
+
+  it("is taken by reading and clearing the marker in one statement", async () => {
+    queryRaw.mockResolvedValue([{ pendingClose: marker }]);
+
+    expect(await takeAlertPendingClose("alert-1")).toEqual(marker);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    // The lock is what makes the marker a mutex, and returning the value that was
+    // cleared is what stops a caller sending a close older than the one it took.
+    expect(sql).toContain("FOR UPDATE");
+    expect(sql).toContain("UPDATE alerts SET pending_close = NULL");
+    expect(sql).toContain('RETURNING taken.pending_close AS "pendingClose"');
+    expect(values).toEqual(["alert-1"]);
+    // A paused rule's close is still owed.
+    expect(sql).not.toContain("status");
+  });
+
+  it("is not this caller's to send once another tick has taken it", async () => {
+    queryRaw.mockResolvedValue([]);
+    expect(await takeAlertPendingClose("alert-1")).toBeNull();
+  });
+
+  it("clears a stored value that is not a marker rather than finding it every tick", async () => {
+    queryRaw.mockResolvedValue([{ pendingClose: { reason: "renamed" } }]);
+
+    expect(await takeAlertPendingClose("alert-1")).toBeNull();
+    expect(console.error).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes back only into an empty marker, so a newer close is never overwritten", async () => {
+    expect(await restoreAlertPendingClose("alert-1", marker)).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "alert-1", pendingClose: { equals: PrismaRuntime.DbNull } },
+      data: { pendingClose: marker },
+    });
+
+    updateMany.mockResolvedValue({ count: 0 });
+    expect(await restoreAlertPendingClose("alert-1", marker)).toBe(false);
   });
 });

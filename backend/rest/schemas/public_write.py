@@ -406,36 +406,31 @@ def _require_bounded_filters(filters: list[AlertFilterItem]) -> list[AlertFilter
     return filters
 
 
-# The item schema is written out rather than referenced: the tool registry
-# generator resolves a request-body $ref one level deep only, and an array
-# whose items point at a component would fail its build. Every property
-# declares a type (a list for the two-armed value) because some model
-# providers reject tool parameters that carry only an anyOf.
-_ALERT_FILTER_ITEM_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "field": {"type": "string", "description": "A span field, e.g. model_name or metadata"},
-        "key": {
-            "type": "string",
-            "description": "The map entry to compare; required for the metadata field",
-        },
-        "op": {"type": "string", "enum": ["=", "contains"]},
-        "value": {"type": ["string", "number"]},
-    },
-    "required": ["field", "op", "value"],
-    "additionalProperties": False,
-}
+# The request-side filter item. The tool registry generator resolves the items
+# reference inline, so the docstring below is what a model reads. Every
+# property declares a type (a list for the two-armed value, no None arm on the
+# key) because some model providers reject tool parameters that carry only an
+# anyOf. Unknown keys are a 422, as the emitted schema says, never a silent
+# drop.
+class AlertFilterItemRequest(AlertFilterItem):
+    """A row predicate an alert's measure is evaluated over."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str = Field(description="A span field, e.g. model_name or metadata")
+    key: str | SkipJsonSchema[None] = Field(
+        None, description="The map entry to compare; required for the metadata field"
+    )
+    value: Annotated[
+        str | Annotated[float, Field(allow_inf_nan=False)],
+        WithJsonSchema({"type": ["string", "number"]}),
+    ]
+
 
 AlertFilters = Annotated[
-    list[AlertFilterItem],
+    list[AlertFilterItemRequest],
     AfterValidator(_require_bounded_filters),
-    WithJsonSchema(
-        {
-            "type": "array",
-            "items": _ALERT_FILTER_ITEM_SCHEMA,
-            "description": "Row predicates the measure is evaluated over",
-        }
-    ),
+    Field(description="Row predicates the measure is evaluated over"),
 ]
 
 
@@ -710,3 +705,59 @@ class DeleteAlertResponse(_DeleteResponse):
 
     page_cleared: bool = False
     alert: DeletedResource
+
+
+# ── signal status ───────────────────────────────────────────────────────
+
+# Mirror RESOLVE_REASONS and SIGNAL_NOTE_MAX_LENGTH in
+# frontend/packages/core/src/ee/signals/constants.ts (a parity test reads it).
+SignalResolveReason = Literal["fixed_elsewhere", "fixed_by_pr", "already_fixed_before", "other"]
+SIGNAL_NOTE_MAX_LENGTH = 4000
+
+
+class SignalStatusRequest(BaseModel):
+    """Body for resolving or reopening a signal.
+
+    Only ``resolved`` and ``open`` are settable here. A dismissed signal never
+    reopens on a new finding, so dismissing stays a decision a person makes in
+    the web app. Resolving needs a ``reason``; the reason ``other`` also needs
+    a ``note``. The write service is the single validator of those rules.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str
+    status: Literal["resolved", "open"]
+    reason: SignalResolveReason | SkipJsonSchema[None] = Field(
+        None, description='Why the signal is resolved; required when status is "resolved"'
+    )
+    note: Annotated[str, Field(max_length=SIGNAL_NOTE_MAX_LENGTH)] | SkipJsonSchema[None] = Field(
+        None, description='A free-text note; required when reason is "other"'
+    )
+    expected_status: Literal["open", "resolved", "dismissed"] | SkipJsonSchema[None] = Field(
+        None,
+        description=(
+            "The status the caller last read. When the signal's current status "
+            "differs, nothing is written and the answer is a 409."
+        ),
+    )
+
+
+class SignalStatusRow(BaseModel):
+    """A signal as the status write returns it."""
+
+    signal_id: str
+    project_id: str
+    detector_id: str
+    title: str
+    status: Literal["open", "resolved", "dismissed"]
+    resolved_at: str | None = Field(json_schema_extra={"format": "date-time"})
+    reopen_count: int
+
+
+class SignalStatusResponse(BaseModel):
+    """The signal after the write. ``changed`` is empty when it already had that status."""
+
+    updated: bool
+    changed: list[str]
+    signal: SignalStatusRow

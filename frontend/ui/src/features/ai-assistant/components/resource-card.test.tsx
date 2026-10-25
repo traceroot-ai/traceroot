@@ -13,8 +13,11 @@ vi.mock("./widget-chart-preview", () => ({
     widgetId,
     spec,
     rangeId,
+    bounds,
   }: Omit<WidgetChart, "range"> & { widgetId: string; rangeId: string }) => (
-    <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}/${rangeId}`}</div>
+    <div data-testid="preview">
+      {`${projectId}/${widgetId}/${spec.display.type}/${rangeId}${bounds ? `/${bounds.start}/${bounds.end}` : ""}`}
+    </div>
   ),
 }));
 
@@ -88,6 +91,39 @@ function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
 const definitionToggle = (title: string) => screen.getByRole("button", { name: title });
 
 describe("ResourceCard footer", () => {
+  it("hands a read's fixed span to the chart preview with its preset id", async () => {
+    const bounds = { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" };
+    render(
+      <ResourceCard
+        model={model({ body: { kind: "widget", chips: [], chart: { ...CHART, bounds } } })}
+      />,
+    );
+    expect((await screen.findByTestId("preview")).textContent).toBe(
+      "p1/w1/line/7d/2026-09-01T00:00:00.000Z/2026-09-08T00:00:00.000Z",
+    );
+  });
+
+  it("says in one line why a read drew no chart, keeping the chips behind the title", () => {
+    render(
+      <ResourceCard
+        model={model({
+          body: {
+            kind: "notice",
+            chips: ["trace feed"],
+            text: "A trace feed: open the dashboard to see its traces.",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("A trace feed: open the dashboard to see its traces.")).toBeTruthy();
+    expect(screen.queryByTestId("preview")).toBeNull();
+    // A one-line notice is not a picture: there is nothing to hide.
+    expect(screen.queryByRole("button", { name: "Hide preview" })).toBeNull();
+    expect(screen.queryByText("trace feed")).toBeNull();
+    fireEvent.click(definitionToggle("Tokens by model"));
+    expect(screen.getByText("trace feed")).toBeTruthy();
+  });
+
   it("names the resource in the footer and shows its meta, with no badge for a fresh create", () => {
     render(<ResourceCard model={model()} />);
     expect(screen.getByText("Tokens by model")).toBeTruthy();
@@ -156,7 +192,7 @@ describe("ResourceCard definition panel", () => {
           meta: ["Detector", "Failure"],
           body: {
             kind: "detector",
-            chips: ["sample 25%", "RCA on"],
+            chips: ["sample 25%", "RCA automatic"],
             prompt: { kind: "standard", templateLabel: "Failure" },
           },
         })}
@@ -167,7 +203,7 @@ describe("ResourceCard definition panel", () => {
     expect(screen.queryByText("sample 25%")).toBeNull();
     fireEvent.click(definitionToggle("Timeout failures"));
     expect(screen.getByText("sample 25%")).toBeTruthy();
-    expect(screen.getByText("RCA on")).toBeTruthy();
+    expect(screen.getByText("RCA automatic")).toBeTruthy();
   });
 
   it("reveals an alert's rule chips and its facts, keeping the badge and chart out of the panel", () => {
