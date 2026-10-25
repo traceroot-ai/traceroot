@@ -3,11 +3,116 @@ title: Get Started
 description: Set up tracing for your AI agent in minutes
 ---
 
-## 1. Get API Keys
+Run this from the root of the repository you want to trace:
 
-Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self-Hosting](/developer/self-hosting).
+```bash
+npx -y traceroot-cli@latest setup
+```
 
-## 2. Install the SDK
+One command signs you in, writes a project API key into your application's env file, has your coding agent add the TraceRoot SDK, and waits for your first trace. `npx` runs the [TraceRoot CLI](/cli/get-started) without installing it, so you don't need the CLI installed or signed in beforehand.
+
+You need:
+
+- Node.js 20.12 or later.
+- A Python or TypeScript/JavaScript application in the repository.
+- Claude Code or Codex installed (the `claude` or `codex` command), if you want setup to make the code change. Without one, setup writes the change out as a task for any coding agent, or prints the steps for you.
+
+To keep the CLI installed instead, run `npm install -g traceroot-cli`, then `traceroot setup`. Every option below works with either form. Prefer to add the SDK by hand? Skip to [Set up manually](#set-up-manually).
+
+<Note>
+  The TraceRoot app shows this command on the **Traces** page of a project with no traces yet, under **Using AI**. Its copy already carries `--project`, plus `--host` and `--auth-host` on a self-hosted deployment, and pins an exact CLI version. Copy that one if you started there.
+</Note>
+
+## What setup does
+
+Setup works through these steps and asks only what it can't work out itself:
+
+1. **Checks the repository.** If git shows uncommitted changes, setup lists them and asks before it continues, so the agent's edits don't get mixed in with yours. The default answer cancels. Outside a git repository it warns that there is no version control to fall back on.
+2. **Signs you in.** Setup reuses a credential the CLI already has: an API key you pass or configure, or the session from `traceroot login`. Otherwise it opens your browser, where you sign in (or create a free account) and approve the terminal. With `--no-browser` it asks you to paste a project API key instead.
+3. **Picks a project.** With one project, setup uses it. With several, it asks which one should receive the traces. With none, it asks for a name, defaulting to the repository's directory name, and creates the project (asking which workspace first, if you belong to several). `--project` picks an existing project by name or ID. Signed in with a project API key, setup uses that key's project.
+4. **Writes a key for your application.** Setup creates an ingest-scoped project API key, which can send traces and nothing else, and writes `TRACEROOT_API_KEY` to the application's `.env.local` if it has one, or to `.env`, which it creates if needed. On a self-hosted deployment it writes `TRACEROOT_HOST_URL` too. A later run reuses the key already in the file instead of creating another. If you signed in with a project API key, setup writes that key, or creates an ingest-scoped one when yours can manage other keys.
+5. **Finds your application.** Setup detects the Python or TypeScript/JavaScript service from its manifest. If the repository has both, it asks which language to instrument. In a monorepo, run setup from the service's directory or pass `--service <path>`.
+6. **Adds tracing.** Setup asks how:
+   - **Run Claude Code for me** or **Run Codex for me**, offered for each agent it finds installed. Setup confirms once more, then runs the agent with permission to edit files in the repository and shows its tool calls as it works. The agent installs the SDK, adds the initialization, and runs your application once so a trace is sent. Afterwards setup checks that the SDK imports and that the initialization is in place.
+   - **Write the task — I'll run my own agent.** Setup writes the task to `.traceroot/prompts/setup-instrument.md` and changes no code. Run it in any coding agent, then run setup again with `--resume`.
+   - **Show me manual instructions.** Setup prints the steps and changes no code.
+7. **Waits for your first trace.** Setup waits up to 120 seconds, and you can press Enter to stop waiting. When the trace arrives, setup prints a link to it and reminds you what production still needs (see [Before you deploy](#before-you-deploy)).
+
+If a run is cancelled or fails, setup revokes the keys it created and puts back what it changed in the env file. It never reverts the agent's edits. A run that pauses, because no trace has arrived yet or the agent couldn't finish, keeps its key so that `--resume` can pick up where it stopped.
+
+### What setup changes
+
+| Path | What changes |
+| :-- | :-- |
+| `.env.local` or `.env` | `TRACEROOT_API_KEY`, plus `TRACEROOT_HOST_URL` on a self-hosted deployment. Setup won't write to an env file that git tracks, and warns if git doesn't ignore the file. It never edits your `.gitignore`. |
+| Your application code | The agent's edits, if an agent ran. Review them with `git diff`. |
+| `.traceroot/` | The CLI's own key for this repository (`config.json`), a checkpoint for `--resume` (`setup.json`), and a report of the run (`setup-report.md`). Setup git-ignores this directory. |
+| `.claude/skills/traceroot-instrument-repo/` | The TraceRoot skill, for Claude Code. For Codex it goes to `~/.codex/skills/` (or `$CODEX_HOME/skills/`), outside the repository, and setup says so. With no agent set up, it goes to `.agents/skills/`. |
+
+A browser sign-in also saves a session in `~/.config/traceroot/credentials.json`, so setup in your next repository skips the browser.
+
+### Options
+
+Run `npx -y traceroot-cli@latest setup --help` for the full list.
+
+| Option | What it does |
+| :-- | :-- |
+| `--project <name-or-id>` | Send traces to this existing project instead of choosing one. Setup doesn't create a project from this option. |
+| `--agent <agent>` | Run this coding agent without asking: `claude` or `codex`. |
+| `--no-instrument` | Don't run an agent. Write the task to `.traceroot/prompts/setup-instrument.md` for an agent you run yourself. |
+| `--manual` | Print the steps instead of running an agent or writing a task. Can't be combined with `--no-instrument`. |
+| `--language <language>` | The language to instrument when the repository has both: `python` or `typescript`. |
+| `--service <path>` | The service directory to instrument, relative to the repository root. |
+| `--no-browser` | Sign in by pasting a project API key instead of in the browser. |
+| `--api-key <key>` | Sign in with this project API key. |
+| `--host <url>` | The API origin of a self-hosted deployment. Defaults to `https://app.traceroot.ai`. |
+| `--auth-host <url>` | The web app origin, where browser sign-in happens, when it differs from `--host`. |
+| `--resume` | Continue from the checkpoint a previous run saved. |
+| `--no-input` | Never prompt. Stop with the option to pass instead. |
+| `--json` | Report progress as JSON events on stdout instead of the interactive output. Implies `--no-input`. |
+| `--trace-timeout <seconds>` | How long to wait for the first trace. Defaults to 120. |
+
+### Self-hosted TraceRoot
+
+Setup talks to TraceRoot Cloud unless you point it at your deployment. Pass your API's origin with `--host`, and your web app's origin with `--auth-host`, because browser sign-in happens on the web app. For a local deployment with the default ports:
+
+```bash
+npx -y traceroot-cli@latest setup --host "http://localhost:8000" --auth-host "http://localhost:3000"
+```
+
+- Pass origins only: scheme, host, and port, without `/api/v1`.
+- If the API and the web app share one origin, `--host` alone is enough.
+- `TRACEROOT_HOST_URL` and `TRACEROOT_AUTH_URL` work in place of the two options.
+- Your deployment's **Traces** page shows the command with its own origins filled in.
+
+See [Self-Hosting](/developer/self-hosting) to run a deployment.
+
+### Run without prompts
+
+Setup never prompts when you pass `--no-input` or `--json`, when the `CI` environment variable is set, or when it isn't attached to a terminal. It can't open a browser or ask questions there, so give it the answers up front:
+
+```bash
+npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
+```
+
+- **Credential.** Pass a project API key with `--api-key` or `TRACEROOT_API_KEY`, or run `traceroot login` first. With none, setup stops and says how to provide one.
+- **Project.** A project API key sets the project. With a `traceroot login` session and several projects, pass `--project`.
+- **Language.** If the repository has both Python and TypeScript, pass `--language`.
+- **Instrumentation.** Setup writes the task file rather than running an agent. Pass `--agent claude` or `--agent codex` to run one anyway; it then starts without the confirmation question.
+- **Uncommitted changes** are left as they are, without a question.
+- **A previous run** is continued only with `--resume`.
+
+When setup stops, it says which option to pass and exits with a code for the kind of failure. The [CLI README](https://github.com/traceroot-ai/traceroot-cli#exit-codes) lists every code.
+
+## Set up manually
+
+These are the steps setup automates, for when you'd rather make the change yourself.
+
+### 1. Get an API key
+
+Create an API key either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self-Hosting](/developer/self-hosting).
+
+### 2. Install the SDK
 
 <Tabs>
   <Tab title="Python">
@@ -22,7 +127,7 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
   </Tab>
 </Tabs>
 
-## 3. Set Environment Variables
+### 3. Set environment variables
 
 <Frame caption="Tracing setup: sidebar, Manual tab, API key field, Generate button">
   <img src="/images/tracing_api_key_v1.png" alt="TraceRoot Tracing page with the Create an API key step highlighted" />
@@ -37,7 +142,7 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 
 *(If you prefer to use a `.env` file, ensure you load it explicitly in your code as shown in the next step.)*
 
-## 4. Instrument Your Code
+### 4. Instrument your code
 
 <Tabs>
   <Tab title="Python">
@@ -73,15 +178,63 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 
 For full SDK details, see the [Python SDK](/tracing/python-sdk) or [TypeScript SDK](/tracing/typescript-sdk).
 
-## 5. View Your Traces
+## See your first trace
 
-Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
+Run your application and exercise the code you instrumented. Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
+
+If setup stopped waiting before the trace arrived, run your application, then have setup look again:
+
+```bash
+npx -y traceroot-cli@latest setup --resume
+```
 
 Prefer the terminal? The [TraceRoot CLI](/cli/get-started) lists, inspects, and exports the same traces without leaving your shell.
 
----
+### Before you deploy
 
-## What's Next?
+Setup configures the machine you ran it on. Your deployed application needs the same variables in its own environment: `TRACEROOT_API_KEY`, and `TRACEROOT_HOST_URL` on a self-hosted deployment. Setup's closing step and `.traceroot/setup-report.md` both name them.
+
+## Troubleshoot
+
+### Setup stopped partway
+
+Ask setup what went wrong, then continue from where it stopped:
+
+```bash
+npx -y traceroot-cli@latest setup doctor
+npx -y traceroot-cli@latest setup --resume
+```
+
+If you ran setup with `--service <path>`, pass the same option to both. In a terminal, running setup again without `--resume` also offers to continue the previous run.
+
+### "setup needs Node 20.12.0 or newer"
+
+Upgrade Node.js and run setup again. The other CLI commands work on Node.js 20.3 and later.
+
+### No trace arrived
+
+The most common cause is that the instrumented code never ran. Run your application once and exercise the instrumented path, then run setup again with `--resume`. If traces still don't show up:
+
+- Neither SDK loads `.env` on its own. Check that your application loads the file setup wrote, or export the variables in your shell.
+- A `TRACEROOT_API_KEY` exported in your shell overrides the env file and sends traces to that key's project. Setup warns when it sees one; unset it and run setup again.
+
+### The agent didn't finish the change
+
+If the agent exits with an error, or finishes without instrumenting the service, setup stops and keeps what it printed in `.traceroot/setup-instrument-output.log`. That file can quote your repository's files, secrets included, so check it before you share it. Fix what blocked the agent and run setup again with `--resume`, or pass `--no-instrument` to run the task yourself. Setup never reverts the agent's edits.
+
+### Your coding agent isn't offered
+
+Setup can run Claude Code and Codex, and only when the `claude` or `codex` command is on your `PATH`. For any other agent, use **Write the task — I'll run my own agent**, or pass `--no-instrument`.
+
+### Self-hosted sign-in fails
+
+Browser sign-in happens on the web app, so pass `--auth-host` with your web app's origin as well as `--host`. See [Self-hosted TraceRoot](#self-hosted-traceroot).
+
+### Still stuck?
+
+Ask on [Discord](https://discord.gg/TM2m3CtKuC) or [open an issue](https://github.com/traceroot-ai/traceroot-cli/issues).
+
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Python SDK" icon="python" href="/tracing/python-sdk">
@@ -90,10 +243,16 @@ Prefer the terminal? The [TraceRoot CLI](/cli/get-started) lists, inspects, and 
   <Card title="TypeScript SDK" icon="js" href="/tracing/typescript-sdk">
     Full API reference for the TypeScript SDK.
   </Card>
+  <Card title="Features" icon="sparkles" href="/tracing/overview">
+    Attach users, sessions, tags, metadata, and more to your traces.
+  </Card>
+  <Card title="Detectors" icon="shield-halved" href="/detectors/introduction#how-to-create-a-detector">
+    Create your first detector and start surfacing failures in your traces.
+  </Card>
   <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
     Auto-debug failing traces with the TraceRoot Agent.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/get-started">
-    Read and export your traces from the terminal.
+    Work with your traces, findings, and evaluations from the terminal.
   </Card>
 </CardGroup>

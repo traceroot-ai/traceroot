@@ -1,17 +1,41 @@
 ---
 title: Get Started
-description: Bring TraceRoot to your terminal
+description: Set up TraceRoot in your repository and work with your project from the terminal
 ---
 
-The TraceRoot CLI wraps the TraceRoot API so you can work with your project directly from the terminal — list, inspect, and export traces, then pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
+The TraceRoot CLI sets up tracing in your repository with one command, then lets you work with your project from the terminal — traces, detector findings, alerts, dashboards, evaluations, and SQL — and pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
 
 Full source and reference live in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repo.
 
+## Set up a repository
+
+Run this from the root of the repository you want to trace:
+
+```bash
+npx -y traceroot-cli@latest setup
+```
+
+Setup signs you in, picks or creates a project, writes a project API key into your application's env file, has Claude Code or Codex add the TraceRoot SDK, and waits for the first trace. It runs whether or not the CLI is installed or signed in, and needs Node.js 20.12 or later. Pass `--no-instrument` to write the change out as a task for another coding agent instead.
+
+[Tracing: Get Started](/tracing/get-started#what-setup-does) walks through each step, the [options](/tracing/get-started#options), [self-hosted deployments](/tracing/get-started#self-hosted-traceroot), and [running without prompts](/tracing/get-started#run-without-prompts).
+
+If a run stops partway, ask setup what went wrong, then continue from where it stopped:
+
+```bash
+npx -y traceroot-cli@latest setup doctor
+npx -y traceroot-cli@latest setup --resume
+```
+
 ## Install
+
+Every command runs through `npx` without an install, as above. To keep the `traceroot` command, install it globally:
 
 ```bash
 npm install -g traceroot-cli
+traceroot setup
 ```
+
+The CLI needs Node.js 20.3 or later; `traceroot setup` needs 20.12 or later.
 
 ## Authenticate
 
@@ -135,7 +159,9 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 
 | Command | What it does |
 | :-- | :-- |
-| `login` | Validate an API key and save credentials. |
+| `setup` | Connect this repository to TraceRoot and see your first trace. See [Tracing: Get Started](/tracing/get-started#options) for its options. |
+| `setup doctor` | Diagnose a setup run that did not complete. Flag: `--service <path>`. |
+| `login` | Sign in through your browser and save the session; with `--api-key`, validate and save a project API key instead. |
 | `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
 | `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
 | `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
@@ -150,11 +176,11 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
 | `sql schema` | List every table and column available to read-only SQL. |
 
-## What's next
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Tracing" icon="route" href="/tracing/get-started">
-    Instrument your app so traces show up for the CLI to read.
+    What setup does step by step, and how to instrument by hand.
   </Card>
   <Card title="Evaluations from the Terminal" icon="terminal" href="/evals/cli">
     Read datasets, evaluations, and past runs.
