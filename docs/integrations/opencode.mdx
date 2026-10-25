@@ -8,7 +8,7 @@ Automatically capture agent turns, LLM calls, tool executions, subagent delegati
 ## Setup
 
 ```bash
-opencode plugin @traceroot-ai/opencode-plugin
+opencode plugin add @traceroot-ai/opencode-plugin
 ```
 
 Or add it directly to your project's `opencode.json` (or global `~/.config/opencode/opencode.json`):
@@ -16,7 +16,7 @@ Or add it directly to your project's `opencode.json` (or global `~/.config/openc
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
+  "plugins": [
     "@traceroot-ai/opencode-plugin"
   ]
 }
