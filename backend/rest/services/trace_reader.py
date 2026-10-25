@@ -51,6 +51,9 @@ INTERNAL_SOURCES = frozenset({DETECTOR_SOURCE, AGENT_SOURCE})
 DISTINCT_VALUES_LIMIT = 100
 DISTINCT_VALUES_CACHE_MAX = 256
 DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
+# Most tags one trace row returns: the union over its spans, first ones in sort order, so
+# a trace with many distinct tags cannot make a list or detail response unbounded.
+MAX_TRACE_TAGS = 200
 
 
 def customer_traffic_only(alias: str = "") -> str:
@@ -684,7 +687,7 @@ class TraceReaderService:
                     sum(output_tokens) as total_output_tokens,
                     sum(cost) as total_cost,
                     -- A trace's tags are the union over its spans (#1748).
-                    arraySort(groupUniqArrayArray(tags)) as tags
+                    arraySlice(arraySort(groupUniqArrayArray(tags)), 1, {MAX_TRACE_TAGS}) as tags
                 FROM (
                     SELECT trace_id, span_id, status, span_start_time, span_end_time,
                            input_tokens, output_tokens, cost, tags
@@ -980,7 +983,7 @@ class TraceReaderService:
 
         trace["spans"] = spans
         # The trace's tags are the union over its spans, as on the list (#1748).
-        trace["tags"] = sorted({tag for span in spans for tag in span["tags"]})
+        trace["tags"] = sorted({tag for span in spans for tag in span["tags"]})[:MAX_TRACE_TAGS]
         return trace
 
     # Blob columns the bulk I/O reader may project, in a fixed order so the
