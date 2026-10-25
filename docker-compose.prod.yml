@@ -54,8 +54,9 @@ services:
       retries: 10
       start_period: 1s
 
+  # Runs PGSTY Silo, a community-maintained MinIO fork, because upstream MinIO images are no longer published.
   minio:
-    image: docker.io/minio/minio:latest
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     restart: always
     command: server /data --console-address ":9001"
     environment:
@@ -74,7 +75,7 @@ services:
       start_period: 1s
 
   minio-init:
-    image: docker.io/minio/mc:latest
+    image: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy

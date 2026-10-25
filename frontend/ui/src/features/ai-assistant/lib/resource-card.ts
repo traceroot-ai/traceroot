@@ -398,9 +398,19 @@ function detectorChips(args: Record<string, unknown>): string[] {
   return chips;
 }
 
+const SMALL_CURRENCY_THRESHOLD_FORMAT = new Intl.NumberFormat("en-US", {
+  maximumSignificantDigits: 3,
+  useGrouping: false,
+});
+
 /** "2000" as "2,000 ms", "5" as "$5": the threshold in the rule's unit. */
 function thresholdWords(measure: string, aggregation: string, threshold: number): string {
-  return withAlertUnit(threshold.toLocaleString("en-US"), getAlertUnit(measure, aggregation));
+  const unit = getAlertUnit(measure, aggregation);
+  const value =
+    unit?.prefix === "$" && Math.abs(threshold) < 1
+      ? SMALL_CURRENCY_THRESHOLD_FORMAT.format(threshold)
+      : threshold.toLocaleString("en-US");
+  return withAlertUnit(value, unit);
 }
 
 /**

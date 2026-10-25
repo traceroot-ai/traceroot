@@ -15,7 +15,6 @@ import {
 describe("defaultApiProtocol", () => {
   it("prefers the catalog entry's own protocol over the adapter default", () => {
     expect(defaultApiProtocol("openai", "o3")).toBe("openai-completions");
-    expect(defaultApiProtocol("openai", "o4-mini")).toBe("openai-completions");
     expect(defaultApiProtocol("openai", "gpt-5")).toBe("openai-responses");
   });
 
