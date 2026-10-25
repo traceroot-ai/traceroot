@@ -51,6 +51,15 @@ def test_tags_is_not_a_detector_trigger_in_v1():
 # --- lowering ----------------------------------------------------------------
 
 
+def test_tags_filter_values_are_trimmed_like_stored_tags():
+    """Stored tags are trimmed at ingest, so an untrimmed filter value could never match."""
+    params = {"project_id": "p1", "start_after": "2026-06-01 00:00:00"}
+    build_conditions([Predicate(field="tags", op="in", value=[" prod ", "v2"])], params)
+
+    (bound,) = [v for k, v in params.items() if k.startswith("f_tags_")]
+    assert bound == ["prod", "v2"]
+
+
 def test_tags_predicate_lowers_to_has_any_over_the_deduped_span_scan():
     params = {"project_id": "p1", "start_after": "2026-06-01 00:00:00"}
     (cond,) = build_conditions([Predicate(field="tags", op="in", value=["prod", "v2"])], params)

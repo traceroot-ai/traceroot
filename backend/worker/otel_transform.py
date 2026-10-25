@@ -169,7 +169,9 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
 # and OpenInference using_attributes / usingAttributes sends tag.tags. Each may arrive
 # as a string array or as a JSON-encoded string array (traceroot-ts sends the latter).
 # All three are in the known-attribute lists above, so the tags column is their only home.
-TAG_ATTRIBUTES = ("traceroot.span.tags", "traceroot.trace.tags", "tag.tags")
+# Trace tags come first: they ride on whichever span is current, so a span already at the
+# cap must not be the one place the trace's tags are lost.
+TAG_ATTRIBUTES = ("traceroot.trace.tags", "traceroot.span.tags", "tag.tags")
 
 # Per-span bounds on what is stored. Tags are labels a person reads and filters by, so
 # these sit far above any real use and only stop a runaway caller from bloating the

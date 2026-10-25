@@ -64,7 +64,7 @@ def test_tags_from_every_key_on_one_span_are_merged_once():
         )
     )
 
-    assert span["tags"] == ["prod", "v2", "beta"]
+    assert span["tags"] == ["v2", "prod", "beta"]
 
 
 def test_tag_set_on_a_nested_span_is_kept_on_that_span():
@@ -162,6 +162,28 @@ def test_tag_count_is_capped():
     )
 
     assert span["tags"] == values[:MAX_TAGS_PER_SPAN]
+
+
+def test_trace_tags_survive_a_span_at_the_cap():
+    """update_current_trace(tags=) lands on whichever span is current. A span already at
+    the cap must not lose the trace's tags, or the trace-level union would miss them."""
+    from worker.otel_transform import MAX_TAGS_PER_SPAN
+
+    span_tags = [f"s{i}" for i in range(MAX_TAGS_PER_SPAN + 10)]
+    (span,) = _transform(
+        make_span(
+            TRACE,
+            "11" * 8,
+            name="root",
+            attributes=[
+                _array("traceroot.span.tags", span_tags),
+                _array("traceroot.trace.tags", ["trace-level"]),
+            ],
+        )
+    )
+
+    assert "trace-level" in span["tags"]
+    assert len(span["tags"]) == MAX_TAGS_PER_SPAN
 
 
 def test_overlong_tags_are_dropped_not_truncated():

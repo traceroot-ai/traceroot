@@ -343,7 +343,8 @@ def _array_membership_semijoin(idx: int, col: FilterColumn, pred: Predicate, par
     semantics as ``_membership_semijoin``, so two predicates on the field require both.
     """
     pname = f"f_{col.name}_{idx}"
-    params[pname] = pred.value
+    # Stored tags are trimmed at ingest; trim the filter values the same way.
+    params[pname] = [value.strip() for value in pred.value]
     where = f"WHERE hasAny({col.name}, {{{pname}:Array({col.ch_type})}})"
     return _span_semijoin((col.name,), where, params)
 
