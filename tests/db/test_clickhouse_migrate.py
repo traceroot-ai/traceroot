@@ -11,7 +11,7 @@ def test_goose_command_uses_env_overrides():
         "up",
         env={
             "CLICKHOUSE_HOST": "clickhouse.internal",
-            "CLICKHOUSE_PORT": "9440",
+            "CLICKHOUSE_NATIVE_PORT": "9440",
             "CLICKHOUSE_USER": "trace",
             "CLICKHOUSE_PASSWORD": "secret",
             "CLICKHOUSE_DATABASE": "events",
@@ -24,6 +24,24 @@ def test_goose_command_uses_env_overrides():
         == "tcp://clickhouse.internal:9440?username=trace&password=secret&database=events"
     )
     assert command[5] == "up"
+
+
+def test_goose_dbstring_uses_native_port_default():
+    # No port supplied -> the native default (9000), never the HTTP default.
+    assert migrate.goose_dbstring() == (
+        "tcp://localhost:9000?username=clickhouse&password=clickhouse&database=default"
+    )
+
+
+def test_goose_dbstring_ignores_http_port():
+    # goose speaks the native protocol, so CLICKHOUSE_PORT (the HTTP port) must
+    # not leak into the DSN — only CLICKHOUSE_NATIVE_PORT controls the port.
+    dbstring = migrate.goose_dbstring(
+        env={"CLICKHOUSE_PORT": "8123", "CLICKHOUSE_NATIVE_PORT": "9000"}
+    )
+
+    assert ":9000?" in dbstring
+    assert "8123" not in dbstring
 
 
 def test_goose_command_create_requires_name():
