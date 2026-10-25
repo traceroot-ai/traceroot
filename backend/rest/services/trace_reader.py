@@ -403,8 +403,9 @@ class TraceReaderService:
     def get_trace_start_time(self, project_id: str, trace_id: str) -> datetime | None:
         """Lightweight query: just the trace's root-span start time.
 
-        Once a root exists its start time is immutable, so positive results are cached
-        for 1 hour. A missing root is not cached because children can arrive first.
+        Positive results are cached for 1 hour. An earlier root arriving within that
+        window is observed after expiry; a missing root is never cached because
+        children can arrive first.
         Used by retention gating on by-id endpoints (span IO, live SSE)
         without the cost of a full get_trace() skeleton fetch.
         """

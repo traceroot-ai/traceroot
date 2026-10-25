@@ -176,6 +176,10 @@ def test_trace_start_time_refreshes_after_root_arrives_late():
     assert service.get_trace_start_time("proj", "trace") == root_start
     assert query_count == 2
 
+    # The positive result is cached, unlike the preceding missing-root lookup.
+    assert service.get_trace_start_time("proj", "trace") == root_start
+    assert query_count == 2
+
 
 class TestGetTraceSkeleton:
     def test_spans_query_omits_io_blobs_and_extracts_only_span_path_attrs(self):
