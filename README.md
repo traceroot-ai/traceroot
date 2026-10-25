@@ -58,24 +58,25 @@ If you like what we’re building, give TraceRoot a star ⭐ to help more develo
 
 ## Setting up TraceRoot
 
-Once you have a [TraceRoot instance](#getting-started-with-traceroot) (cloud or self-hosted), create a project in your dashboard and choose how to send your first trace: let your coding agent set up instrumentation through the CLI, or configure an SDK manually.
+Send your first trace to [TraceRoot Cloud](https://app.traceroot.ai) or your own [TraceRoot instance](#getting-started-with-traceroot): run one command and let your coding agent add the instrumentation, or configure an SDK manually.
 
 ### With your coding agent
 
 <a id="cli-quickstart"></a>
 
-Install the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) and log in:
+Run this from the root of the repository you want to trace:
 
 ```bash
-npm install -g traceroot-cli
-traceroot login
+npx -y traceroot-cli@latest setup
 ```
 
-Then ask your coding agent:
+The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in through your browser (or creates a free account), picks or creates a project, writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
 
-```text
-Use the TraceRoot CLI to set up tracing for this application.
-```
+- Using another coding agent? Pass `--no-instrument` and setup writes the change out as a task for it to run.
+- Self-hosting? Point setup at your instance with `--host` (the API origin) and `--auth-host` (the web app origin).
+- Keeping the CLI? `npm install -g traceroot-cli`, then `traceroot setup`.
+
+See the [setup guide](https://traceroot.ai/docs/tracing/get-started) for each step, every option, and troubleshooting.
 
 ### Manually with an SDK
 
