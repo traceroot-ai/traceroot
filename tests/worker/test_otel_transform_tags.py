@@ -200,6 +200,41 @@ def test_deeply_nested_json_tag_string_is_dropped_not_raised():
     assert span["tags"] == []
 
 
+def test_an_oversized_json_tag_string_is_not_parsed(monkeypatch):
+    """A JSON-string tag attribute far larger than 50 tags of 200 characters can hold is
+    not handed to the JSON parser; it is one over-long value, so it is dropped."""
+    import worker.otel_transform as ot
+
+    raw = json.dumps([f"t{i}" for i in range(100_000)])
+    parsed = []
+    real_loads = ot.json.loads
+    monkeypatch.setattr(
+        ot.json, "loads", lambda s, *a, **k: parsed.append(len(s)) or real_loads(s, *a, **k)
+    )
+
+    assert ot.extract_tags({"traceroot.span.tags": raw}) == []
+    assert len(raw) not in parsed
+
+
+def test_tag_candidates_examined_per_attribute_are_bounded():
+    """Only the first MAX_TAG_CANDIDATES values of one attribute are looked at, so a
+    span with a million array values costs a bounded amount of work."""
+    from worker.otel_transform import MAX_TAG_CANDIDATES, MAX_TAGS_PER_SPAN, extract_tags
+
+    class CountingList(list):
+        reads = 0
+
+        def __iter__(self):
+            for value in super().__iter__():
+                CountingList.reads += 1
+                yield value
+
+    values = CountingList(f"t{i}" for i in range(1_000_000))
+
+    assert extract_tags({"traceroot.span.tags": values}) == values[:MAX_TAGS_PER_SPAN]
+    assert CountingList.reads <= MAX_TAG_CANDIDATES
+
+
 def test_overlong_tags_are_dropped_not_truncated():
     """A truncated tag is a value nobody sent, and a filter on the real value would miss it."""
     from worker.otel_transform import MAX_TAG_LENGTH
