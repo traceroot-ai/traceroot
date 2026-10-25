@@ -1,10 +1,11 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "path";
 export default defineConfig({
   // Next.js sets tsconfig "jsx": "preserve", which esbuild would pass through
   // untransformed; component tests need the automatic runtime instead.
   esbuild: { jsx: "automatic" },
   test: {
+    exclude: [...configDefaults.exclude, "**/.next/**", "e2e/**"],
     environment: "node",
     coverage: {
       provider: "v8",

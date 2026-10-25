@@ -24,6 +24,8 @@ import {
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
   defaultApiProtocol,
+  isDecisionAdapter,
+  isDecisionModelId,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -114,11 +116,22 @@ export function resolvePiModel(
   modelId: string | undefined,
   providerConfig: ProviderModelConfig | null,
 ): Model<Api> {
+  // A decision model id would otherwise fall through to a system model below.
+  if (modelId && isDecisionModelId(modelId)) {
+    throw new Error(`Model "${modelId}" is a decision model and cannot run as a chat model`);
+  }
   const defaultSystemModel = !modelId ? getDefaultSystemModel() : null;
   const effectiveModelId = modelId || defaultSystemModel?.modelId || "claude-sonnet-4-5";
 
   // 1. BYOK
   if (providerConfig) {
+    // A decision adapter has no chat model; falling through would silently run
+    // a system model on the workspace's behalf.
+    if (isDecisionAdapter(providerConfig.adapter)) {
+      throw new Error(
+        `BYOK adapter "${providerConfig.adapter}" is a decision model and cannot run as a chat model`,
+      );
+    }
     const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
     if (piAIProvider) {
       const modelProtocols = (providerConfig.config as Record<string, unknown>)?.modelProtocols as
@@ -232,11 +245,16 @@ export function invalidateProviderConfigCache(workspaceId: string, providerName:
  * First match wins (BYOK rows are workspace-unique by `provider` label, but may
  * share an adapter — order is determined by Prisma's default sort).
  *
+ * `nativeOnly` skips OpenAI-compatible adapters (DeepSeek, xAI, …) that map to
+ * "openai": their keys are only valid on their own base URL, so a caller that
+ * calls the provider's own endpoint (a system model) must not pick them up.
+ *
  * Returns null if no row matches, the row has no encrypted key, or the DB read fails.
  */
 export async function findByokKeyForPiProvider(
   workspaceId: string,
   piProvider: string,
+  opts: { nativeOnly?: boolean } = {},
 ): Promise<string | null> {
   try {
     const rows = await prisma.modelProvider.findMany({
@@ -244,7 +262,10 @@ export async function findByokKeyForPiProvider(
       select: { provider: true, adapter: true },
     });
     for (const row of rows) {
-      if (ADAPTER_TO_PI_AI[row.adapter] === piProvider) {
+      const matches = opts.nativeOnly
+        ? row.adapter === piProvider
+        : ADAPTER_TO_PI_AI[row.adapter] === piProvider;
+      if (matches) {
         const cfg = await fetchProviderConfig(workspaceId, row.provider);
         if (cfg) return cfg.key;
       }

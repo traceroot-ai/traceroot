@@ -1,6 +1,7 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
+import { agentInternalSecret } from "../internal-secret.js";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
@@ -40,12 +41,16 @@ export async function downloadOneTrace(
   // Request the full projection so spans carry per-span input/output/metadata.
   // The dashboard read defaults to a lightweight skeleton (#1040); the agent
   // needs full fidelity for root-cause analysis.
-  const url = `${FASTAPI_URL}/api/v1/projects/${projectId}/traces/${traceId}?fields=full`;
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (traceId === "." || traceId === "..") {
+    throw new Error("Invalid trace ID");
+  }
+  const url = `${FASTAPI_URL}/api/v1/projects/${encodeURIComponent(projectId)}/traces/${encodeURIComponent(traceId)}?fields=full`;
   const res = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
       "x-user-id": userId,
-      "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+      "X-Internal-Secret": agentInternalSecret(),
     },
     signal,
   });
@@ -135,7 +140,7 @@ export function createDownloadTracesTool(
           const { dir, spanCount } = r.value;
           lines.push(`✓ ${traceId} → ${dir}/ (${spanCount} spans)`);
           lines.push(`    cat ${dir}/tree.json | jq .`);
-          lines.push(`    grep GENERATION ${dir}/spans.jsonl`);
+          lines.push(`    grep '"span_kind":"LLM"' ${dir}/spans.jsonl`);
         } else {
           lines.push(`✗ ${traceId} — Error: ${r.reason?.message}`);
         }

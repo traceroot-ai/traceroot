@@ -29,9 +29,12 @@ import {
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
   EVENT_QUOTAS,
+  findPlanItem,
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
+
+const FAR_FUTURE_END = new Date("2100-01-01T00:00:00Z");
 
 let stripe: Stripe | null = null;
 
@@ -53,11 +56,19 @@ export async function runBillingJob(): Promise<void> {
   console.log("[Billing] Starting billing job...");
 
   try {
+    // Every workspace, the demo workspace included: it is on the enterprise
+    // plan with no Stripe subscription, so it is never billed and never sent a
+    // usage email, and its usage numbers stay correct.
     const workspaces = await prisma.workspace.findMany({
       include: {
         projects: {
-          where: { deleteTime: null },
-          select: { id: true },
+          where: {
+            OR: [
+              { deleteTime: null },
+              { freeQuotaEligible: true, workspace: { billingPlan: PlanType.FREE } },
+            ],
+          },
+          select: { id: true, deleteTime: true, freeQuotaEligible: true },
         },
       },
     });
@@ -107,7 +118,7 @@ async function processWorkspace(
     rcaBlocked: boolean;
     detectorBlocked: boolean;
     currentUsage: any;
-    projects: { id: string }[];
+    projects: { id: string; deleteTime: Date | null; freeQuotaEligible: boolean }[];
   },
   ctx: {
     now: Date;
@@ -115,42 +126,43 @@ async function processWorkspace(
     stripeClient: Stripe | null;
   },
 ): Promise<void> {
-  const projectIds = workspace.projects.map((p) => p.id);
   const plan = workspace.billingPlan as PlanType;
   const isFreePlan = plan === PlanType.FREE;
+  // Eligible projects remain in free-plan accounting after soft deletion.
+  const projectIds = workspace.projects
+    .filter((p) => (isFreePlan ? p.freeQuotaEligible : p.deleteTime === null))
+    .map((p) => p.id);
 
   // =========================================================================
   // 1. Query event usage (traces + spans + detector runs) from ClickHouse
   // =========================================================================
-  let usage: { traces: number; spans: number; detectorRuns: number };
-  if (projectIds.length === 0) {
-    usage = { traces: 0, spans: 0, detectorRuns: 0 };
+  // Free plan: total usage (all time)
+  // Paid plans: usage within current billing period (from Stripe webhook)
+  let start: Date;
+  let end: Date;
+
+  if (isFreePlan) {
+    start = ctx.allTimeStart;
+    // Rewrites refresh ClickHouse version timestamps. A fixed "now" can exclude
+    // the surviving version after a merge, temporarily refunding consumed usage.
+    // Keep free telemetry lifetime-scoped; paid periods below remain bounded.
+    end = FAR_FUTURE_END;
+  } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
+    // Use billing period dates from Stripe (updated via webhook each month)
+    start = workspace.billingPeriodStart;
+    end = workspace.billingPeriodEnd;
   } else {
-    // Free plan: total usage (all time)
-    // Paid plans: usage within current billing period (from Stripe webhook)
-    let start: Date;
-    let end: Date;
-
-    if (isFreePlan) {
-      start = ctx.allTimeStart;
-      end = ctx.now;
-    } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
-      // Use billing period dates from Stripe (updated via webhook each month)
-      start = workspace.billingPeriodStart;
-      end = workspace.billingPeriodEnd;
-    } else {
-      // Fallback to calendar month if no billing period set
-      start = new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1);
-      end = new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1);
-    }
-
-    usage = await getWorkspaceUsageDetails({
-      projectIds,
-      start,
-      end,
-    });
+    // Fallback to calendar month if no billing period set
+    start = new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1);
+    end = new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1);
   }
 
+  // A projectless workspace short-circuits to zeros inside getWorkspaceUsageDetails.
+  const usage = await getWorkspaceUsageDetails({ projectIds, start, end });
+
+  // Every stored row, whoever wrote it (747562e2). usage.bySource splits the
+  // same total for display; it deliberately does not feed the cap, so blocking
+  // and the Stripe quantity stay one number.
   const totalEvents = usage.traces + usage.spans;
 
   // =========================================================================
@@ -228,6 +240,7 @@ async function processWorkspace(
     currentUsage: {
       traces: usage.traces,
       spans: usage.spans,
+      bySource: usage.bySource,
       tokens: 0,
       updatedAt: ctx.now.toISOString(),
       ai: {
@@ -606,22 +619,31 @@ type MessageKind = "chat" | "rca" | "detector";
 
 /**
  * Aggregate `aIMessage` rows for one `kind` over a billing window. Returns:
- *   - runsUsedCount: total assistant rows (chat uses this for run-count meter;
- *     rca/detector get their canonical counts from elsewhere)
+ *   - runsUsedCount: usage-carrying assistant rows (chat uses this for the
+ *     run-count meter; rca/detector get their canonical counts from elsewhere)
  *   - systemAgg / byokAgg: cost + token sums split by inference source
  *   - systemByModel / byokByModel: per-(model, provider) breakdowns for UI
  *
- * `inputTokens: { not: null }` filters out incomplete writes; rows with null
- * tokens have null cost too, so this is a no-op for cost sums.
+ * `inputTokens: { not: null }` matters everywhere here: a run persists one
+ * assistant row per text segment (segments are split at tool boundaries) and
+ * only the FINAL segment carries usage, so counting raw assistant rows would
+ * bill each tool boundary as an extra run. Rows with null tokens have null
+ * cost too, so the filter is also a no-op for cost sums.
  */
-async function aggregateMessagesForKind(
+export async function aggregateMessagesForKind(
   workspaceId: string,
   kind: MessageKind,
   periodWindow: { createTime: { gte: Date; lt: Date } },
 ) {
-  const baseWhere = { workspaceId, kind, role: "assistant", ...periodWindow };
-  const systemWhere = { ...baseWhere, isByok: false, inputTokens: { not: null } };
-  const byokWhere = { ...baseWhere, isByok: true, inputTokens: { not: null } };
+  const baseWhere = {
+    workspaceId,
+    kind,
+    role: "assistant",
+    inputTokens: { not: null },
+    ...periodWindow,
+  };
+  const systemWhere = { ...baseWhere, isByok: false };
+  const byokWhere = { ...baseWhere, isByok: true };
 
   const [runsUsedCount, systemAgg, byokAgg, systemByModel, byokByModel] = await Promise.all([
     prisma.aIMessage.count({ where: baseWhere }),
@@ -659,21 +681,23 @@ async function aggregateMessagesForKind(
  * 1. Find the cutoff timestamp (createTime of the first overage message)
  * 2. Aggregate system model cost from that timestamp onward
  */
-async function getOverageSystemModelCost(
+export async function getOverageSystemModelCost(
   workspaceId: string,
   includedRuns: number,
   start: Date,
   end: Date,
 ): Promise<number> {
   // Step 1: Find the cutoff timestamp — the createTime of the first chat
-  // message after the included quota (e.g., the 101st message for Starter/Pro).
+  // run after the included quota (e.g., the 101st run for Starter/Pro).
   // kind="chat" so RCA/detector turns living in the same table don't shift
-  // the cutoff or inflate the cost sum.
+  // the cutoff or inflate the cost sum; inputTokens NOT NULL so the skip
+  // walks over runs (final segments), not every persisted text segment.
   const cutoff = await prisma.aIMessage.findMany({
     where: {
       workspaceId,
       kind: "chat",
       role: "assistant",
+      inputTokens: { not: null },
       createTime: { gte: start, lt: end },
     },
     orderBy: { createTime: "asc" },
@@ -707,15 +731,7 @@ async function updateStripeQuantity(
   try {
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
     // Find the plan item (not the metered usage items — AI runs, RCA runs, detector usage)
-    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
-    const rcaUsagePriceId = process.env.STRIPE_PRICE_ID_RCA_USAGE;
-    const detectorUsagePriceId = process.env.STRIPE_PRICE_ID_DETECTOR_USAGE;
-    const meteredPriceIds = new Set(
-      [aiUsagePriceId, rcaUsagePriceId, detectorUsagePriceId].filter((p): p is string =>
-        Boolean(p),
-      ),
-    );
-    const planItem = subscription.items.data.find((item) => !meteredPriceIds.has(item.price.id));
+    const planItem = findPlanItem(subscription.items.data);
 
     if (!planItem) {
       console.warn(`[Billing] No plan subscription item found for ${subscriptionId}`);

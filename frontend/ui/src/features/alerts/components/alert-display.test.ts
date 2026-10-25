@@ -1,0 +1,166 @@
+import { describe, expect, it } from "vitest";
+import type { AlertSeverity } from "@traceroot/core";
+import {
+  formatAlertWindow,
+  resolveAlertDisplayState,
+  type AlertDisplayInput,
+} from "./alert-display";
+
+// Nothing here reads a clock, so no case can pass or fail because of the day it runs on.
+const RAN_AT = "2026-08-01T12:00:00.000Z";
+
+const stateOf = (facts: Partial<AlertDisplayInput> = {}) =>
+  resolveAlertDisplayState({ status: "ACTIVE", severity: "OK", lastEvaluatedAt: RAN_AT, ...facts });
+
+const DELIVERY_CODES = [
+  "no-channel",
+  "no-bot-token",
+  "bot-token-undecryptable",
+  "retries-exhausted",
+  "permanent-slack-error",
+  "no-entitlement:slack",
+];
+
+describe("resolveAlertDisplayState", () => {
+  it("gives each severity its own label and tone", () => {
+    const badge = (severity: AlertSeverity) => {
+      const { label, tone } = stateOf({ severity });
+      return { label, tone };
+    };
+
+    expect(badge("OK")).toEqual({ label: "OK", tone: "ok" });
+    expect(badge("ALERT")).toEqual({ label: "Alert", tone: "alert" });
+    expect(badge("NO_DATA")).toEqual({ label: "No Data", tone: "warning" });
+    expect(badge("UNKNOWN")).toEqual({ label: "No Data", tone: "warning" });
+  });
+
+  it("waits for a first check only when the row says the rule has never run", () => {
+    const waiting = stateOf({ severity: "UNKNOWN", lastEvaluatedAt: null });
+
+    expect(waiting.label).toBe("No Data");
+    expect(waiting.tone).toBe("warning");
+    expect(waiting.detail).toContain("has not run yet");
+
+    // An omitted timestamp is not the claim that the rule never ran.
+    expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No Data");
+  });
+
+  it("ranks Parked over Paused, Paused over Failing, and Failing over a rule that has never run", () => {
+    const failedFirstRun = {
+      severity: "ALERT" as const,
+      lastError: "ClickHouse read timeout",
+      lastEvaluatedAt: null,
+    };
+
+    // A rule that failed its own first run has already answered, and the answer was a failure.
+    expect(stateOf(failedFirstRun).label).toBe("Failing");
+
+    const paused = stateOf({ ...failedFirstRun, status: "PAUSED" });
+    expect(paused.label).toBe("Paused");
+    expect(paused.isPaused).toBe(true);
+    expect(paused.isStopped).toBe(true);
+
+    const parked = stateOf({ ...failedFirstRun, status: "PARKED" });
+    expect(parked.label).toBe("Parked");
+    expect(parked.isStopped).toBe(true);
+    // Not paused: nobody chose this, and the action that clears it is different.
+    expect(parked.isPaused).toBe(false);
+  });
+
+  it("states the reason once, trusting it to already say what restarts the rule", () => {
+    // Every real parking path bakes "edit and save" into the stored reason
+    // itself (claim.ts's UNEVALUABLE_RULE_ERROR, scheduler.ts's
+    // PARKED_RULE_SUFFIX), so the badge must not repeat it — that reads as the
+    // same sentence twice in one popover.
+    const parked = stateOf({
+      status: "PARKED",
+      lastError: "measure: unknown; open it and save it again to correct them",
+    });
+
+    expect(parked.detail).toBe(
+      "Stopped: measure: unknown; open it and save it again to correct them.",
+    );
+    // The sentence this status exists to stop telling.
+    expect(parked.detail).not.toContain("retry");
+
+    // A row parked with no reason at all is the one case with nothing of its
+    // own to say, so only here does the badge supply the fix itself.
+    const bare = stateOf({ status: "PARKED", lastError: null });
+    expect(bare.detail).toContain("cannot be evaluated");
+    expect(bare.detail).toContain("Edit and save");
+  });
+
+  it("shows Failing on a rule whose last run errored, even while it still holds a green OK", () => {
+    // A green badge here tells the owner a broken rule is watching their service.
+    const state = stateOf({ lastError: "ClickHouse read timeout" });
+
+    expect(state.label).toBe("Failing");
+    expect(state.tone).toBe("alert");
+    expect(state.detail).toContain("ClickHouse read timeout");
+    // And what happens next, which the label has no room for.
+    expect(state.detail).toContain("retry");
+    expect(state.isPaused).toBe(false);
+  });
+
+  it("treats an empty error string as no error, not as a failure", () => {
+    expect(stateOf({ lastError: "" }).label).toBe("OK");
+  });
+
+  it("turns each delivery reason into words, and keeps the raw code out of them", () => {
+    const detailFor = (code: string) =>
+      stateOf({ lastNotifyStatus: "FAILED", lastNotifyError: code }).detail ?? "";
+
+    for (const code of DELIVERY_CODES) {
+      // The run is still what the badge reports; delivery is the reason beneath.
+      expect(stateOf({ lastNotifyStatus: "FAILED", lastNotifyError: code }).label).toBe("OK");
+      expect(detailFor(code)).not.toContain(code);
+    }
+
+    // A reason with no way out of it leaves the reader stuck, so each says where to go.
+    expect(detailFor("no-channel")).toContain(
+      "No Slack channel is set for this workspace, so nothing was sent. Choose one in workspace settings.",
+    );
+    expect(detailFor("no-entitlement:slack")).toContain(
+      "Slack delivery is not included in this workspace's plan.",
+    );
+  });
+
+  it("quotes a code it has no words for, and does not mask the breach behind it", () => {
+    const state = stateOf({
+      severity: "ALERT",
+      lastNotifyStatus: "FAILED",
+      lastNotifyError: "channel revoked",
+    });
+
+    // The breach is the headline: a delivery fault must not demote it.
+    expect(state.label).toBe("Alert");
+    expect(state.tone).toBe("alert");
+    // Nothing is invented for a code nobody mapped; it arrives as it was stored.
+    expect(state.detail).toContain("The last notification could not be sent. (channel revoked)");
+  });
+
+  it("says whether the alert behind an undelivered page was rolled back", () => {
+    const detailFor = (lastNotifyStatus: string) =>
+      stateOf({ severity: "ALERT", lastNotifyStatus, lastNotifyError: "no-channel" }).detail;
+
+    // The rollback is the difference between a breach that pages again and one recorded.
+    expect(detailFor("COMPENSATED")).toContain("rolled back, so the next breach raises it again");
+    expect(detailFor("FAILED")).toContain("could not be rolled back");
+  });
+
+  it("says nothing about delivery when the last page landed", () => {
+    expect(stateOf({ lastNotifyStatus: "DELIVERED" })).toEqual({
+      label: "OK",
+      tone: "ok",
+      isPaused: false,
+      isStopped: false,
+    });
+  });
+});
+
+describe("formatAlertWindow", () => {
+  it("reads as a lookback, not a cadence", () => {
+    expect(formatAlertWindow("10m")).toBe("Last 10m");
+    expect(formatAlertWindow("1h")).toBe("Last 1h");
+  });
+});

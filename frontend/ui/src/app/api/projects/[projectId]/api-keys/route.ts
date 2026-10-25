@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -8,6 +9,9 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
+import { captureServerEvent } from "@/lib/posthog-server";
+import type { ApiKeyScope } from "@/lib/public-auth";
 
 const createAccessKeySchema = z.object({
   name: z.string().max(100, "Name too long").nullable().optional(),
@@ -17,7 +21,7 @@ const createAccessKeySchema = z.object({
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId]/api-keys - List access keys
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -26,6 +30,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const accessKeys = await prisma.accessKey.findMany({
     where: { projectId },
@@ -53,7 +60,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/api-keys - Create a new access key (MEMBER+)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -62,6 +69,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   let body: unknown;
   try {
@@ -91,8 +101,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       secretHash,
       keyHint,
       name: name ?? null,
+      // This is the key the dashboard tells people to paste into `.env`, so it
+      // travels wherever their application runs and gets the narrow scope.
+      // Stated here rather than left to the column default: the scope a key is
+      // minted with is a decision, and it should be readable at the call site
+      // that makes it. An admin-scoped key comes only from a signed-in user's own
+      // credential, never from this route or from another key.
+      scope: "ingest" satisfies ApiKeyScope,
       expireTime: expire_time ? new Date(expire_time) : null,
     },
+  });
+
+  captureServerEvent(user.id, "api_key_created", {
+    workspace_id: accessResult.project.workspaceId,
+    project_id: projectId,
   });
 
   // Return the full access key only once - user must copy it now
@@ -108,3 +130,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

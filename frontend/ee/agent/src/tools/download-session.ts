@@ -2,6 +2,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { downloadOneTrace } from "./download-traces.js";
+import { agentInternalSecret } from "../internal-secret.js";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
@@ -35,12 +36,20 @@ export function createDownloadSessionTool(
         await executor.init();
       }
 
+      // URL parsers normalize standalone dot segments even after percent-encoding.
+      if (params.sessionId === "." || params.sessionId === "..") {
+        return {
+          content: [{ type: "text", text: "Error fetching session: Invalid session ID" }],
+          details: undefined,
+        };
+      }
+
       // Step 1: Fetch session details to get all trace IDs
-      const sessionUrl = `${FASTAPI_URL}/api/v1/projects/${projectId}/sessions/${params.sessionId}`;
+      const sessionUrl = `${FASTAPI_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(params.sessionId)}`;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "x-user-id": userId,
-        "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+        "X-Internal-Secret": agentInternalSecret(),
       };
 
       const sessionRes = await fetch(sessionUrl, { headers, signal });

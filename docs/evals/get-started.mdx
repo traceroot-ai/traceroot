@@ -126,12 +126,20 @@ A scorer receives the case's `input`, `output`, `expected`, and `metadata`, and 
 
 Drop `local` and the run reports to TraceRoot, using the same credentials as the tracing SDK:
 
-```bash .env
-TRACEROOT_API_KEY=your-api-key
-TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
+Neither SDK loads `.env` files automatically; both read the process environment. Export the variables in your shell:
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 ```
 
-`candidate_version` labels what you're testing — a model id, a prompt version, or a git sha. It's what the UI groups and compares runs by.
+*(Prefer a `.env` file? Load it yourself — `load_dotenv()` in Python, `import 'dotenv/config'` in TypeScript — as the [tracing quickstart](/tracing/get-started) shows. Frameworks such as Next.js load `.env` into `process.env` on their own, which is why it can appear to work without that step.)*
+
+`candidate_version` labels what you're testing in each run: a model id, a prompt version, or a git sha. Runs are grouped into one history by `evaluation_key`, which defaults to `name`.
+
+<Frame caption="Evaluations: evaluation name, run name, dataset, cost and duration">
+  <img src="/images/evals_list_v1.png" alt="Evaluations list showing five runs of Support agent golden set with run name, dataset, cost, average cost and duration" />
+</Frame>
 
 ## Next steps
 
@@ -147,5 +155,18 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
   </Card>
   <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
     Per-metric summaries and per-case results.
+  </Card>
+</CardGroup>
+
+## Run the example
+
+Clone the repo and run a complete tool-agent eval end-to-end.
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/agent-eval">
+    Run the Python example
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/agent-eval">
+    Run the TypeScript example
   </Card>
 </CardGroup>

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { prisma } from "@traceroot/core";
@@ -9,7 +10,7 @@ const Body = z.object({
   channelName: z.string().min(1),
 });
 
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
@@ -55,3 +56,4 @@ export async function POST(
   });
   return NextResponse.json({ ok: true, channel: { id: channelId, name: channelName } });
 }
+export const POST = withImpersonationPolicy(handlePOST);

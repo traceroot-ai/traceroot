@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 import { Prisma } from "@prisma/client";
 
 vi.mock("next/server", () => ({ NextRequest: class {} }));
@@ -288,6 +293,27 @@ describe("POST /dashboards — create a named dashboard", () => {
     dashboardCreateMock.mockResolvedValue({ id: "dash-y", name: "Valid" });
     const res = await POST(makePostRequest({ name: "Valid", description: null }), makeParams());
     expect(res.status).toBe(201);
+  });
+
+  it("returns 409 when the name collides on the per-project unique index", async () => {
+    dashboardCreateMock.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError(
+        "Unique constraint failed on the fields: (`project_id`,`name`)",
+        { code: "P2002", clientVersion: "5.22.0" },
+      ),
+    );
+    const res = await POST(makePostRequest({ name: "Costs" }), makeParams());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A dashboard with this name already exists",
+    );
+  });
+
+  it("propagates non-P2002 create failures", async () => {
+    dashboardCreateMock.mockRejectedValue(new Error("Database connection lost"));
+    await expect(POST(makePostRequest({ name: "Costs" }), makeParams())).rejects.toThrow(
+      "Database connection lost",
+    );
   });
 
   it("returns 401 when unauthenticated", async () => {

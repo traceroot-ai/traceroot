@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { PanelLeft } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { isChromelessRoute } from "@/lib/chromeless-routes";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { AiChatProvider } from "@/features/ai-assistant/components/ai-chat-context";
 import type { AiTraceContext } from "@/features/ai-assistant/types";
@@ -90,8 +91,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 
-  // Don't show layout on auth pages
-  if (pathname.startsWith("/auth/")) {
+  // Some surfaces render on their own, with no shell (sidebar, header, user
+  // menu) around them. Which ones — and the reason for each, because they
+  // differ — is in lib/chromeless-routes.
+  if (isChromelessRoute(pathname)) {
     return <>{children}</>;
   }
 

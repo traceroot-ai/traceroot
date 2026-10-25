@@ -27,6 +27,7 @@ import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistan
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn } from "@/lib/utils";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import {
   DatasetActionsMenu,
   EmptyState,
@@ -36,7 +37,7 @@ import {
 } from "@/features/offline-eval/components";
 import { TraceIOSection } from "@/features/traces/components/TraceIOValue";
 import { formatCost, formatElapsed } from "./evaluations-view";
-import { caseDisplayId, truncate } from "@/features/offline-eval/utils";
+import { truncate } from "@/features/offline-eval/utils";
 import { useDataset, useTestCaseRuns, useDeleteTestCase } from "../hooks";
 import { TestCaseEditorModal, type TestCaseEditorMode } from "../components/test-case-editor-modal";
 import { DeleteTestCaseDialog } from "../components/delete-test-case-dialog";
@@ -84,6 +85,10 @@ export function DatasetDetailView({
 }) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
+  const datasetsListHref = useListReturnHref(
+    `datasets:${projectId}`,
+    `/projects/${projectId}/datasets`,
+  );
   // null = the current version. Selecting an older version loads its snapshot
   // (read-only — editing always branches from the current version).
   const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
@@ -153,6 +158,12 @@ export function DatasetDetailView({
       onSuccess: () => {
         toast({ title: "Row deleted", tone: "success" });
         setDeleteRow(null);
+        // The delete published a NEW current version with the row dropped, so drop
+        // any pinned selection and follow it — exactly what the editor's `onSaved`
+        // does after an add/edit. Left pinned, the invalidation re-fetches the now
+        // superseded snapshot: the deleted row stays on screen and the Actions
+        // column vanishes with `isCurrentVersion`, reading as a failed delete.
+        setSelectedVersionId(null);
         // Close the slide-in if it was showing the row we just removed.
         if (openCaseId === target.testCaseId) setOpenCaseId(null);
       },
@@ -183,7 +194,7 @@ export function DatasetDetailView({
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-full flex-col text-[13px]">
           <EvalPageHeader
-            parent={{ label: "Datasets", href: `/projects/${projectId}/datasets` }}
+            parent={{ label: "Datasets", href: datasetsListHref }}
             title={notFound ? "Dataset not found" : "Couldn't load dataset"}
           />
           <EvalBody>
@@ -191,10 +202,7 @@ export function DatasetDetailView({
               {notFound ? (
                 <>
                   No dataset with the id {datasetId}.{" "}
-                  <Link
-                    href={`/projects/${projectId}/datasets`}
-                    className="underline underline-offset-2"
-                  >
+                  <Link href={datasetsListHref} className="underline underline-offset-2">
                     Back to datasets
                   </Link>
                 </>
@@ -224,7 +232,7 @@ export function DatasetDetailView({
           straight at the toolbar. */}
       <ProjectBreadcrumb
         projectId={projectId}
-        trail={[{ label: "Datasets", href: `/projects/${projectId}/datasets` }]}
+        trail={[{ label: "Datasets", href: datasetsListHref }]}
         current={dataset.name}
       />
       <div className="flex h-full flex-col text-[13px]">
@@ -397,7 +405,7 @@ export function DatasetDetailView({
 
       {deleteRow && (
         <DeleteTestCaseDialog
-          rowLabel={caseDisplayId(deleteRow.testCaseId)}
+          rowLabel={deleteRow.testCaseId}
           isOpen
           onClose={() => setDeleteRow(null)}
           onConfirm={confirmDelete}
@@ -509,7 +517,7 @@ function CasePanel({
       ref={panelRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Test case ${caseDisplayId(testCase.testCaseId)}`}
+      aria-label={`Test case ${testCase.testCaseId}`}
       tabIndex={-1}
       className={cn(
         "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200 focus:outline-none",
@@ -525,8 +533,14 @@ function CasePanel({
         <div className="flex min-w-0 items-center gap-2">
           <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-sm font-medium">Row</span>
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {caseDisplayId(testCase.testCaseId)}
+          {/* The real, content-addressed testCaseId — byte-identical to the SDK's
+              stable_case_id and pull_dataset output. CSS truncates for overflow;
+              the title carries the full id and the copy button copies it verbatim. */}
+          <span
+            className="truncate font-mono text-xs text-muted-foreground"
+            title={testCase.testCaseId}
+          >
+            {testCase.testCaseId}
           </span>
           <CopyButton
             value={testCase.testCaseId}

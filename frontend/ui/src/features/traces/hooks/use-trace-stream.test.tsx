@@ -101,7 +101,7 @@ describe("useTraceStream", () => {
     // Reachable because a customer-supplied trace_id can equal a run's dashless run_id:
     // traceId stays put while source flips, and a stale subscription would keep writing
     // the old key. `source` must therefore be in the effect's dependency array.
-    type Props = { source: "detector" | "user" };
+    type Props = { source: "detector" | "agent" | "user" };
     const { rerender } = renderHook(
       ({ source }: Props) => useTraceStream("p1", "t1", true, source),
       { wrapper, initialProps: { source: "detector" } as Props },

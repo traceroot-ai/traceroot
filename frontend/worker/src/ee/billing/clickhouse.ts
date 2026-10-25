@@ -33,24 +33,40 @@ async function internalApiRequest<T>(path: string, params?: Record<string, strin
   return response.json() as Promise<T>;
 }
 
+export type SourceBreakdown = Record<
+  "user" | "detector" | "agent",
+  { traces: number; spans: number }
+>;
+
+function emptyBreakdown(): SourceBreakdown {
+  return {
+    user: { traces: 0, spans: 0 },
+    detector: { traces: 0, spans: 0 },
+    agent: { traces: 0, spans: 0 },
+  };
+}
+
 /**
  * Get detailed usage (traces, spans, detector runs) for a workspace.
  * Detector runs are counted from ClickHouse `detector_runs` so the billing
  * cron is the single source of truth — matching how spans/AI runs work.
+ * The backend always seeds all three `by_source` buckets, so the breakdown
+ * is returned as-is.
  */
 export async function getWorkspaceUsageDetails(params: {
   projectIds: string[];
   start: Date;
   end: Date;
-}): Promise<{ traces: number; spans: number; detectorRuns: number }> {
+}): Promise<{ traces: number; spans: number; detectorRuns: number; bySource: SourceBreakdown }> {
   if (params.projectIds.length === 0) {
-    return { traces: 0, spans: 0, detectorRuns: 0 };
+    return { traces: 0, spans: 0, detectorRuns: 0, bySource: emptyBreakdown() };
   }
 
   const result = await internalApiRequest<{
     traces: number;
     spans: number;
     detector_runs: number;
+    by_source: SourceBreakdown;
   }>("/api/v1/internal/usage/details", {
     project_ids: params.projectIds.join(","),
     start: params.start.toISOString(),
@@ -61,6 +77,7 @@ export async function getWorkspaceUsageDetails(params: {
     traces: result.traces,
     spans: result.spans,
     detectorRuns: result.detector_runs ?? 0,
+    bySource: result.by_source,
   };
 }
 

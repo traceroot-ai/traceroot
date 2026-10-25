@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 
 const mockRequireAuth = vi.fn();
 const mockRequireProjectAccess = vi.fn();
@@ -20,7 +23,10 @@ vi.mock("@traceroot/core", () => ({
 describe("GET /api/projects/[projectId]", () => {
   it("includes rca_provider and rca_source in response", async () => {
     mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
-    mockRequireProjectAccess.mockResolvedValue({ error: null });
+    mockRequireProjectAccess.mockResolvedValue({
+      project: { id: "p1", workspaceId: "ws1" },
+      membership: { workspaceId: "ws1", role: "MEMBER" },
+    });
     mockFindFirst.mockResolvedValue({
       id: "p1",
       workspaceId: "ws1",
@@ -36,9 +42,12 @@ describe("GET /api/projects/[projectId]", () => {
     });
 
     const { GET } = await import("../[projectId]/route");
-    const res = await GET(new Request("http://localhost/"), {
-      params: Promise.resolve({ projectId: "p1" }),
-    } as any);
+    const res = await GET(
+      new Request("http://localhost/") as any,
+      {
+        params: Promise.resolve({ projectId: "p1" }),
+      } as any,
+    );
     const body = await res.json();
     expect(body.rca_provider).toBe("my-openai");
     expect(body.rca_source).toBe("byok");

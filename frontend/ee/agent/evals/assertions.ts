@@ -1,0 +1,529 @@
+import { REGISTRY } from "@traceroot-ai/tools";
+import type {
+  AlertRow,
+  CreatedRows,
+  EvalPrisma,
+  EvalToolCall,
+  EvalToolResult,
+  FetchLike,
+  ProjectRows,
+  TurnTranscript,
+} from "./types.js";
+
+/** Thrown by a scenario assertion; its message is what the scorecard prints. */
+export class EvalAssertionError extends Error {}
+
+export function expectThat(condition: boolean, message: string): asserts condition {
+  if (!condition) throw new EvalAssertionError(message);
+}
+
+/** Every call to `name` the model made, across all of a scenario's turns. */
+export function toolCallsNamed(turns: TurnTranscript[], name: string): EvalToolCall[] {
+  return turns.flatMap((turn) => turn.toolCalls).filter((call) => call.name === name);
+}
+
+/**
+ * Every registry tool that changes state, so a read-only turn still counts as
+ * "no write".
+ *
+ * The HTTP method alone is not the discriminator: `run_widget_query` is a POST
+ * that writes nothing (its policy says so — approvalClass "none"), and
+ * counting it would make every scenario that answers a metric question read
+ * as a write.
+ */
+export const WRITE_TOOL_NAMES = new Set(
+  REGISTRY.filter((entry) => entry.method !== "get" && entry.policy?.approvalClass !== "none").map(
+    (entry) => entry.name,
+  ),
+);
+
+/** The read tools that take a window, and whose window an assertion checks. */
+export const WINDOWED_READ_TOOLS = new Set([
+  "run_widget_query",
+  "get_dashboard_data",
+  "get_widget_data",
+]);
+
+/** Every write-tool call across `turns`. */
+export function writeToolCalls(turns: TurnTranscript[]): EvalToolCall[] {
+  return turns.flatMap((turn) => turn.toolCalls).filter((call) => WRITE_TOOL_NAMES.has(call.name));
+}
+
+/** A question about the data answers itself: nothing in `turns` may write. */
+export function expectNoWrites(turns: TurnTranscript[], what: string): void {
+  const wrote = writeToolCalls(turns);
+  expectThat(
+    wrote.length === 0,
+    `${what} called ${[...new Set(wrote.map((call) => call.name))].join(", ")}; it must write nothing`,
+  );
+}
+
+/**
+ * Every windowed read left the window to the page.
+ *
+ * The panel sends its picker's range alongside the message, and the tools fall
+ * back to the site's 24-hour default when a call names none — so for a message
+ * that names no window, a correct read carries either nothing or the page's
+ * own range, and never bounds of the model's own choosing.
+ */
+export function expectPageWindow(turns: TurnTranscript[], range: string): void {
+  for (const call of turns.flatMap((turn) => turn.toolCalls)) {
+    if (!WINDOWED_READ_TOOLS.has(call.name)) continue;
+    expectThat(
+      call.args.range === undefined || call.args.range === range,
+      `${call.name} asked for range ${JSON.stringify(call.args.range)}; the message named no window, so the page's ${range} has to carry it`,
+    );
+    expectThat(
+      call.args.start_time === undefined && call.args.end_time === undefined,
+      `${call.name} pinned its own bounds (${JSON.stringify(call.args.start_time)} → ${JSON.stringify(call.args.end_time)}); the message named no window, so the page's ${range} has to carry it`,
+    );
+  }
+}
+
+/** Every result `name` produced, across a scenario's turns. */
+export function toolResultsNamed(turns: TurnTranscript[], name: string): EvalToolResult[] {
+  return turns.flatMap((turn) => turn.toolResults).filter((result) => result.name === name);
+}
+
+/** A tool result as searchable text; a result with no payload reads as empty. */
+export function resultText(result: EvalToolResult): string {
+  return JSON.stringify(result.result) ?? "";
+}
+
+/**
+ * Whether a reply states a latency threshold together with its unit, in
+ * threshold context: "exceeds 2,000 ms", "a threshold of 2000 ms", "above
+ * 2 seconds". A unit that merely appears somewhere in the text ("latency is
+ * measured in ms" two sentences before a bare "2000") does not count.
+ */
+export function statesThresholdWithUnit(text: string, thresholdMs: number): boolean {
+  const ms = `\\b${figurePattern(thresholdMs).source}\\s*(?:ms|milliseconds?)\\b`;
+  const seconds =
+    thresholdMs % 1000 === 0 ? `\\b${thresholdMs / 1000}\\s*(?:s|secs?|seconds?)\\b` : null;
+  const valueWithUnit = seconds === null ? `(?:${ms})` : `(?:${ms}|${seconds})`;
+  const lead =
+    "(?:threshold|exceeds?|above|over|beyond|more than|greater than|>|latency|fires?|pages?|alerts?|when|at)";
+  const trail = "(?:threshold|latency)";
+  return new RegExp(
+    `${lead}[^.\\n]{0,60}?${valueWithUnit}|${valueWithUnit}[^.\\n]{0,40}?${trail}`,
+    "i",
+  ).test(text);
+}
+
+/** The status and severity a list_alerts result reports for one alert. */
+export interface ListedAlertState {
+  status: string;
+  severity: string;
+}
+
+/**
+ * The state a clean list_alerts result reports for the alert named `name`:
+ * from the structured details the read attaches beside its text when the
+ * result carries them, otherwise from the text's own row line
+ * ("- id | name | rule | STATUS/SEVERITY | …"). Null when no clean result
+ * lists the alert. An errored result answers nothing.
+ */
+export function listedAlertState(results: EvalToolResult[], name: string): ListedAlertState | null {
+  const wanted = name.trim().toLowerCase();
+  const sameName = (value: unknown) =>
+    typeof value === "string" && value.trim().toLowerCase() === wanted;
+  for (const result of results) {
+    if (result.isError) continue;
+    const payload = result.result as { details?: unknown; content?: unknown } | string | null;
+    const details =
+      payload !== null && typeof payload === "object"
+        ? (payload.details as { alerts?: unknown })
+        : null;
+    if (details && Array.isArray(details.alerts)) {
+      for (const row of details.alerts) {
+        const alert = row as { name?: unknown; status?: unknown; severity?: unknown };
+        if (
+          sameName(alert.name) &&
+          typeof alert.status === "string" &&
+          typeof alert.severity === "string"
+        ) {
+          return { status: alert.status, severity: alert.severity };
+        }
+      }
+    }
+    const text =
+      typeof payload === "string"
+        ? payload
+        : payload !== null && typeof payload === "object" && Array.isArray(payload.content)
+          ? payload.content
+              .map((part) => String((part as { text?: unknown }).text ?? ""))
+              .join("\n")
+          : resultText(result);
+    for (const line of text.split("\n")) {
+      const cells = line
+        .replace(/^-\s*/, "")
+        .split("|")
+        .map((cell) => cell.trim());
+      const state = cells.length >= 4 ? /^([A-Z_]+)\/([A-Z_]+)$/.exec(cells[3]!) : null;
+      if (cells.length >= 4 && sameName(cells[1]) && state) {
+        return { status: state[1]!, severity: state[2]! };
+      }
+    }
+  }
+  return null;
+}
+
+/** Whether a reply says an alert is firing — and does not, in the same breath, say it is not. */
+export function saysFiring(text: string): boolean {
+  return (
+    /\b(?:is|are|currently|now|still)\s+(?:firing|alerting|breach(?:ing|ed)|in breach)\b/i.test(
+      text,
+    ) && !saysNotFiring(text)
+  );
+}
+
+/** Whether a reply says an alert is not firing, or has no state to fire from yet. */
+export function saysNotFiring(text: string): boolean {
+  return /\b(?:not|isn'?t|aren'?t|no(?:ne|thing)?|never)\b[^.]{0,40}\b(?:firing|alerting|breach)|\bunknown\b|no[- ]data|not (?:yet |been )?evaluated|never (?:been )?evaluated|hasn'?t (?:fired|been evaluated|run)/i.test(
+    text,
+  );
+}
+
+/**
+ * How a reply may write one integer: with or without thousands separators, so
+ * "219292", "219,292" and "219 292" all count. Built from the figure rather
+ * than typed out, so a change to the seeded dataset cannot leave a stale
+ * literal behind in a scenario.
+ */
+export function figurePattern(value: number): RegExp {
+  const digits = String(Math.trunc(Math.abs(value)));
+  return new RegExp(digits.replace(/\B(?=(?:\d{3})+$)/g, "[,\\s]?"));
+}
+
+/**
+ * How a reply may name one UTC date: the ISO form the tool results carry, or
+ * either English word order around the month's name, with an optional ordinal
+ * suffix — "2026-08-31", "August 31", "Aug 31st", "31 Aug".
+ *
+ * The month accepts any 3-or-more-letter prefix of its long name, with an
+ * optional abbreviating period, because that is how English month
+ * abbreviations are actually formed and no single pair of spellings covers
+ * them: "Sept 1" sits in the gap between "Sep" and "September". Every en-US
+ * short month name is itself such a prefix, so the short form stays covered.
+ */
+export function dateMentionPattern(isoDate: string): RegExp {
+  const day = Number(isoDate.split("-")[2]);
+  const at = new Date(`${isoDate}T00:00:00Z`);
+  const long = at.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+  // Longest first, so the alternation prefers the fullest spelling it can match.
+  const spellings = Array.from({ length: long.length - 2 }, (_, i) =>
+    long.slice(0, long.length - i),
+  );
+  // Longest first, and closed by a period or a word boundary, so "Sept" is read
+  // as September rather than as the "Sep" inside some longer word.
+  const month = `(?:${spellings.join("|")})(?:\\.|\\b)`;
+  const dayNumber = `0?${day}(?:st|nd|rd|th)?(?!\\d)`;
+  return new RegExp(`(?:${isoDate}|\\b${month}\\s+${dayNumber}|\\b${dayNumber}\\s+${month})`, "i");
+}
+
+/** Whether `text` names `isoDate` in any of those forms. */
+export function mentionsDate(text: string, isoDate: string): boolean {
+  return dateMentionPattern(isoDate).test(text);
+}
+
+/** How much of the agent's answer a failure message quotes. */
+const ANSWER_EXCERPT_CHARS = 240;
+
+function excerptOf(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= ANSWER_EXCERPT_CHARS) return collapsed;
+  return `${collapsed.slice(0, ANSWER_EXCERPT_CHARS)}…`;
+}
+
+/**
+ * Why `name` produced no call.
+ *
+ * An agent that answered without writing anything asked instead of acting —
+ * a scenario-design problem, not the broken tool a bare "was never called"
+ * implies. Quoting the answer tells the two apart without opening the
+ * transcript.
+ */
+function neverCalledMessage(turns: TurnTranscript[], name: string): string {
+  const answer = assistantText(turns).trim();
+  const wrote = turns.some((turn) =>
+    turn.toolCalls.some((call) => WRITE_TOOL_NAMES.has(call.name)),
+  );
+  if (wrote || answer.length === 0) return `${name} was never called`;
+  return `${name} was never called: the agent answered without calling any write tool — "${excerptOf(answer)}"`;
+}
+
+/** The one call to `name`; fails when the model made none or several. */
+export function onlyToolCall(turns: TurnTranscript[], name: string): EvalToolCall {
+  const calls = toolCallsNamed(turns, name);
+  expectThat(calls.length > 0, neverCalledMessage(turns, name));
+  expectThat(calls.length === 1, `${name} was called ${calls.length} times; expected exactly one`);
+  return calls[0]!;
+}
+
+/** A check on one argument's value, for values a scenario cannot pin literally. */
+export type ArgPredicate = (value: unknown) => boolean;
+
+/** What a scenario expects an argument to be: a literal, or a predicate over the value. */
+export type ExpectedArg = ArgPredicate | string | number | boolean | null | object;
+
+/**
+ * The call carried exactly `expected`'s fields — the tool's own `label` aside
+ * — and nothing else. An edit that re-sends a field the user never asked to
+ * change, or a delete that carries a stray field, fails here by name; a
+ * value fails against its literal, or against a predicate for values a
+ * scenario cannot pin (a reason the model words itself).
+ */
+export function expectExactArgs(call: EvalToolCall, expected: Record<string, ExpectedArg>): void {
+  const sent = Object.keys(call.args).filter((field) => field !== "label");
+  const unexpected = sent.filter((field) => !(field in expected)).sort();
+  expectThat(
+    unexpected.length === 0,
+    `${call.name} sent unexpected field${unexpected.length === 1 ? "" : "s"} ${unexpected.join(", ")}; only the fields the user asked to change may travel`,
+  );
+  const missing = Object.keys(expected).filter((field) => !sent.includes(field));
+  expectThat(missing.length === 0, `${call.name} is missing ${missing.join(", ")}`);
+  for (const [field, want] of Object.entries(expected)) {
+    const value = call.args[field];
+    if (typeof want === "function") {
+      expectThat(
+        (want as ArgPredicate)(value),
+        `${call.name} sent ${field} ${JSON.stringify(value)}, which is not the value asked for`,
+      );
+    } else {
+      expectThat(
+        JSON.stringify(value) === JSON.stringify(want),
+        `${call.name} sent ${field} ${JSON.stringify(value)}; expected ${JSON.stringify(want)}`,
+      );
+    }
+  }
+}
+
+/**
+ * The resource id each clean `name` call created, keyed by its tool call id,
+ * read off the receipt details the write tools attach to their results.
+ * The only place the id of a resource a later turn edited or deleted exists,
+ * since the after-rows no longer carry a deleted one.
+ */
+export function createdIds(turns: TurnTranscript[], name: string): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const result of toolResultsNamed(turns, name)) {
+    if (result.isError) continue;
+    const details = (result.result as { details?: { kind?: unknown; resourceId?: unknown } } | null)
+      ?.details;
+    if (details?.kind === "resource_created" && typeof details.resourceId === "string") {
+      ids.set(result.toolCallId, details.resourceId);
+    }
+  }
+  return ids;
+}
+
+/** The user-visible answer text across a scenario's turns. */
+export function assistantText(turns: TurnTranscript[]): string {
+  return turns.map((turn) => turn.assistantText).join("\n");
+}
+
+// A figure in the reply is a number standing on its own, sign included. Digits
+// glued to a word or a hyphen are names — p95, gpt-5, w3 — and a name is not
+// a claim about the data. Tool results source liberally: any digit run in a
+// result can back a figure, so "range 7d" backs a "7 days" in the reply.
+const REPLY_FIGURE = /(?<![\w-])(-?\d[\d,]*(?:\.\d+)?)(%?)(?!\w)/g;
+const SOURCE_FIGURE = /-?\d[\d,]*(?:\.\d+)?/g;
+
+// Ratio and multiplier notation: "3:1", "6.7x". These numerals spell a
+// relation between figures standing next to them, not a metric value the
+// tools were asked for. A slash is deliberately not here: "12/500 traces
+// failed" is two quantities, and both stay checked. A percentage is not here
+// either: it stays a claim unless the reply's own sourced figures in the same
+// sentence reconcile it (see below), because "rose 12%" cites a baseline the
+// reply never states.
+const RATIO_NOTATION = /(?<![\w-])-?\d[\d,]*(?:\.\d+)?\s*(?::\s*-?\d[\d,]*(?:\.\d+)?|x\b|×)/gi;
+
+// Sentence ends: a terminator followed by whitespace or the end, or a line
+// break. A decimal point is followed by a digit, so it never ends a sentence.
+const SENTENCE_END = /[.!?](?=\s|$)|\n/g;
+
+/** Index of the sentence each character position falls in, for one text. */
+function sentenceIndexer(text: string): (at: number) => number {
+  const ends = [...text.matchAll(SENTENCE_END)].map((m) => m.index ?? 0);
+  return (at) => ends.filter((end) => end < at).length;
+}
+
+/** The reply with its ratio notation blanked out, position for position. */
+function maskRatioNotation(text: string): string {
+  return text.replace(RATIO_NOTATION, (match) => " ".repeat(match.length));
+}
+
+// Thousands separators and leading zeros are spelling, not value: "Sep 7" is
+// sourced by a "-07" in a date.
+const normalizeFigure = (figure: string) => figure.replace(/,/g, "").replace(/^(-?)0+(?=\d)/, "$1");
+
+/**
+ * Every figure in the reply must appear in some tool result of the same
+ * conversation: the mechanical form of "never state a number a tool did not
+ * return". Dates are figures too, so the check is deliberately strict — a
+ * reply that quotes a window's date is fine, since the window came back in
+ * the result.
+ *
+ * Sourcing accumulates across the turns of one session, because that is
+ * exactly what the model can see: a figure a tool returned on an earlier turn
+ * is still in its context, so restating it later is memory, not invention.
+ * The set resets when the session id changes, so a scenario that asks the
+ * same question in a fresh session still gets each answer judged on its own.
+ */
+export function noUnsourcedFigures(turns: TurnTranscript[]): void {
+  let sessionId: string | undefined;
+  let sourcedNormalized = new Set<string>();
+
+  for (const turn of turns) {
+    if (turn.sessionId !== sessionId) {
+      sessionId = turn.sessionId;
+      sourcedNormalized = new Set();
+    }
+    const sourced =
+      // A result with no payload sources nothing (stringify gives undefined).
+      turn.toolResults.flatMap((r) => (JSON.stringify(r.result) ?? "").match(SOURCE_FIGURE) ?? []);
+    for (const figure of sourced) {
+      const normalized = normalizeFigure(figure);
+      sourcedNormalized.add(normalized);
+      // Liberal both ways: a "-31" pulled out of a date sources "31" as well
+      // as "-31"; only the reply side is strict about the sign.
+      if (normalized.startsWith("-")) sourcedNormalized.add(normalized.slice(1));
+    }
+
+    const masked = maskRatioNotation(turn.assistantText);
+    const sentenceOf = sentenceIndexer(masked);
+    const matches = [...masked.matchAll(REPLY_FIGURE)].map((m) => ({
+      text: m[1]!,
+      percent: m[2] === "%",
+      sentence: sentenceOf(m.index ?? 0),
+    }));
+    const isSourced = (f: string) => sourcedNormalized.has(normalizeFigure(f));
+    // The figures the reply states and a result backs, per sentence: the only
+    // inputs a share in that sentence may be computed from.
+    const statedIn = new Map<number, number[]>();
+    for (const m of matches) {
+      if (!isSourced(m.text)) continue;
+      statedIn.set(m.sentence, [
+        ...(statedIn.get(m.sentence) ?? []),
+        Number(normalizeFigure(m.text)),
+      ]);
+    }
+    // A percentage is never a reading — no widget result returns one — so it can
+    // only be arithmetic over figures that were returned. Accept it when the
+    // same sentence shows the two sourced figures it reconciles against
+    // ("219,292 of 384,412" is "~57%"), to the rounding the reply itself used.
+    // A share the sentence's own numbers cannot produce, like "rose 12%",
+    // still fails, and every absolute figure stays strictly sourced.
+    const reconcilesAsShare = (f: string, sentence: number) => {
+      const n = normalizeFigure(f);
+      const v = Number(n);
+      if (!Number.isFinite(v)) return false;
+      const stated = statedIn.get(sentence) ?? [];
+      const tolerance = 0.5 * 10 ** -(n.split(".")[1]?.length ?? 0) + 1e-9;
+      return stated.some(
+        (b) => b !== 0 && stated.some((a) => Math.abs((100 * a) / b - v) <= tolerance),
+      );
+    };
+    const unsourced = matches
+      .filter((m) => !isSourced(m.text) && !(m.percent && reconcilesAsShare(m.text, m.sentence)))
+      .map((m) => m.text);
+    expectThat(
+      unsourced.length === 0,
+      `the reply states figures no tool result contained: ${unsourced.join(", ")}`,
+    );
+  }
+}
+
+/** Everything the write tools can create in a project, at one point in time. */
+export async function readProjectRows(prisma: EvalPrisma, projectId: string): Promise<ProjectRows> {
+  const [detectors, dashboards, alerts] = await Promise.all([
+    prisma.detector.findMany({ where: { projectId } }),
+    prisma.dashboard.findMany({ where: { projectId }, include: { widgets: true } }),
+    prisma.alert.findMany({ where: { projectId } }),
+  ]);
+  return { detectors, dashboards, alerts };
+}
+
+/**
+ * A stored alert's threshold as a number. The column is a Decimal, which
+ * Prisma hands back as its own object; its string form is the exact value.
+ */
+export function alertThreshold(row: AlertRow): number {
+  return Number(String(row.threshold));
+}
+
+/**
+ * Rows present in `after` but not `before`.
+ *
+ * Widgets are diffed by id across every dashboard, so one added to a
+ * pre-existing dashboard still reads as newly created.
+ */
+export function newRows(before: ProjectRows, after: ProjectRows): CreatedRows {
+  const detectorIds = new Set(before.detectors.map((row) => row.id));
+  const dashboardIds = new Set(before.dashboards.map((row) => row.id));
+  const widgetIds = new Set(
+    before.dashboards.flatMap((dashboard) => dashboard.widgets.map((widget) => widget.id)),
+  );
+  const alertIds = new Set(before.alerts.map((row) => row.id));
+
+  return {
+    detectors: after.detectors.filter((row) => !detectorIds.has(row.id)),
+    dashboards: after.dashboards.filter((row) => !dashboardIds.has(row.id)),
+    widgets: after.dashboards
+      .flatMap((dashboard) => dashboard.widgets)
+      .filter((widget) => !widgetIds.has(widget.id)),
+    alerts: after.alerts.filter((row) => !alertIds.has(row.id)),
+  };
+}
+
+/** The single row the scenario was expected to create. */
+export function onlyCreated<T extends { id: string }>(rows: T[], label: string): T {
+  expectThat(rows.length > 0, `the turn created no ${label}`);
+  expectThat(rows.length === 1, `the turn created ${rows.length} ${label}s; expected exactly one`);
+  return rows[0]!;
+}
+
+export interface ProbeOptions {
+  /** The FastAPI backend's base URL. */
+  baseUrl: string;
+  projectId: string;
+  userId: string;
+  userEmail?: string;
+  /** Width of the query window ending at `now`. */
+  windowHours?: number;
+  now?: () => Date;
+  fetchImpl?: FetchLike;
+}
+
+/**
+ * Run a stored widget spec through the backend's query route and report the
+ * status. This is the same call the dashboard makes to render a widget, so a
+ * 200 means the spec really is renderable; empty data is fine and expected on
+ * a fixture project with no traces.
+ */
+export async function probeWidgetQuery(spec: unknown, options: ProbeOptions): Promise<number> {
+  const fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
+  const end = (options.now ?? (() => new Date()))();
+  const start = new Date(end.getTime() - (options.windowHours ?? 24) * 60 * 60 * 1000);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-user-id": options.userId,
+  };
+  if (options.userEmail) headers["x-user-email"] = options.userEmail;
+
+  const response = await fetchImpl(
+    `${options.baseUrl.replace(/\/+$/, "")}/projects/${options.projectId}/widgets/query`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        spec,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+      }),
+    },
+  );
+
+  return response.status;
+}

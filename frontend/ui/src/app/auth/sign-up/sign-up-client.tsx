@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,8 +32,50 @@ type SignUpClientProps = {
   googleAuthConfigured: boolean;
 };
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+// A brand-new account always finishes at onboarding. The one thing that can
+// need to happen first is a pending device authorization — the CLI login flow
+// sends the user through /device before they sign up. Onboarding runs *before*
+// that approval, not after: approving releases the waiting terminal, and the
+// CLI's very next call asks which project to use. Approve first and it reads an
+// account that owns nothing, because the workspace does not exist until a human
+// submits the form on the page it was about to be sent to. So onboarding comes
+// first and carries the device URL as its callback. Anything else goes straight
+// to onboarding; a new user shouldn't be dropped deep in the app.
+//
+// This is a shortcut, not the enforcement, and the difference matters because
+// both buttons below share this destination while only one of them is a sign-up:
+// `signIn.social` is better-auth's only social entry point, so Google here signs
+// an existing account straight in, and account linking makes it answer for an
+// existing email account at the same address too. Those land on onboarding
+// without being new. /onboarding and /device each check the account rather than
+// the route, so a wrong guess here normally costs a redirect rather than a
+// second workspace — normally, because /onboarding deliberately falls through to
+// its form when that lookup *fails* (a new account that cannot reach the form
+// could never finish signing up), and a wrong guess plus a failed lookup is the
+// one case where an existing account is offered the duplicate. What the guess
+// buys is two fewer navigations on the common path: a genuine new account goes
+// straight to the form instead of touching /device first only to be sent back.
+function postSignUpDestination(callbackUrl: string): string {
+  // Match the /device path exactly, not by prefix: a startsWith check would also
+  // catch an unrelated future route like /device-settings and wrongly funnel a
+  // new account into the device-authorization flow.
+  const [path] = callbackUrl.split("?");
+  if (path !== "/device") {
+    return "/onboarding";
+  }
+  return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+}
+
+function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Attacker-suppliable query param; only same-origin destinations may pass.
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
+  const destination = postSignUpDestination(callbackUrl);
+  const signInHref =
+    callbackUrl !== "/"
+      ? `/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`
+      : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -61,7 +104,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
       if (error) {
         setError(error.message || "Failed to create account");
       } else {
-        router.push("/onboarding");
+        router.push(destination);
         router.refresh();
       }
     } catch {
@@ -75,7 +118,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
     setIsGoogleLoading(true);
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: "/onboarding",
+      callbackURL: destination,
     });
   }
 
@@ -191,12 +234,20 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/auth/sign-in" className="font-medium text-primary hover:underline">
+            <Link href={signInHref} className="font-medium text-primary hover:underline">
               Sign in
             </Link>
           </p>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+  return (
+    <Suspense>
+      <SignUpContent googleAuthConfigured={googleAuthConfigured} />
+    </Suspense>
   );
 }

@@ -3,7 +3,8 @@
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
-APP_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
+# Only vX.Y.Z tags are platform versions; other tags must not become the label.
+APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
 .PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
 
@@ -22,7 +23,7 @@ dev-autoreload: install-hooks
 
 ## Windows contributors: full dev env without tmux requirement.
 dev-lite: install-hooks
-	@test -f .env || cp .env.example .env
+	@uv run python tmux_tools/launcher.py --env-only
 	@test -d frontend/node_modules || pnpm --dir frontend install
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build

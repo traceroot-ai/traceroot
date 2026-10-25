@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user" } }, isPending: false }),
+}));
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import type { PendingDecision } from "../hooks/use-ai-chat";
 
 const mocks = vi.hoisted(() => ({
   projectData: undefined as { workspace_id: string } | undefined,
@@ -20,14 +24,23 @@ const mocks = vi.hoisted(() => ({
         }>;
       }
     | undefined,
+  workspaceData: { is_demo: false, role: "ADMIN" },
+  // The demo access check reads the project first; while it is pending, the
+  // panel does not yet know whether the visitor is read-only.
+  accessPending: false,
   onClose: vi.fn(),
   messages: [] as Array<{ id: string; role: string; content: string }>,
   isStreaming: false,
+  hasPendingDecision: false,
+  pendingDecision: null as PendingDecision | null,
+  handleDecision: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
-    if (queryKey[0] === "project") return { data: mocks.projectData };
+    if (queryKey[0] === "workspace") return { data: mocks.workspaceData };
+    if (queryKey[0] === "project")
+      return { data: mocks.projectData, isPending: mocks.accessPending };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
     return { data: undefined };
   },
@@ -42,6 +55,9 @@ vi.mock("./ai-chat-context", () => ({
   useAiChatContext: () => ({
     messages: mocks.messages,
     isStreaming: mocks.isStreaming,
+    hasPendingDecision: mocks.hasPendingDecision,
+    pendingDecision: mocks.pendingDecision,
+    handleDecision: mocks.handleDecision,
     sessions: [],
     historyOpen: false,
     currentSessionId: null,
@@ -58,18 +74,60 @@ vi.mock("./ai-chat-context", () => ({
   }),
 }));
 
-vi.mock("./message-list", () => ({ MessageList: () => null }));
-vi.mock("./message-input", () => ({ MessageInput: () => null }));
+// The list's "Open span" is the only caller that passes a span id; the stub
+// exposes that call so the test can drive it without rendering a tool step.
+vi.mock("./message-list", () => ({
+  MessageList: (props: { onOpenTrace?: (traceId: string, spanId?: string) => void }) => (
+    <button
+      type="button"
+      data-testid="open-span"
+      onClick={() => props.onOpenTrace?.("trace-1", "span-t1")}
+    />
+  ),
+}));
+vi.mock("./message-input", () => ({
+  MessageInput: ({
+    placeholder,
+    blockedReason,
+    disabled,
+  }: {
+    placeholder?: string;
+    blockedReason?: string;
+    disabled?: boolean;
+  }) => (
+    <div
+      data-testid="message-input"
+      data-blocked-reason={blockedReason}
+      data-disabled={String(!!disabled)}
+    >
+      {placeholder ?? ""}
+    </div>
+  ),
+}));
 vi.mock("./session-history", () => ({ SessionHistory: () => null }));
+vi.mock("./agent-trace-sheet", () => ({
+  AgentTraceSheet: (props: { traceId: string | null; spanId?: string }) => (
+    <div
+      data-testid="trace-sheet"
+      data-trace-id={props.traceId ?? ""}
+      data-span-id={props.spanId ?? ""}
+    />
+  ),
+}));
 
 import { AiAssistantPanel } from "./ai-assistant-panel";
 
 afterEach(() => {
   cleanup();
+  mocks.workspaceData = { is_demo: false, role: "ADMIN" };
   mocks.projectData = undefined;
+  mocks.accessPending = false;
   mocks.llmModels = undefined;
   mocks.messages = [];
   mocks.isStreaming = false;
+  mocks.hasPendingDecision = false;
+  mocks.pendingDecision = null;
+  mocks.handleDecision.mockReset();
   mocks.onClose.mockReset();
 });
 
@@ -122,6 +180,72 @@ describe("AiAssistantPanel", () => {
     expect(screen.queryByText("greeting")).toBeNull();
   });
 
+  it("hints that a reply revises while a decision is pending", () => {
+    mocks.hasPendingDecision = true;
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("Reply to revise");
+  });
+
+  it("does not hint at revising while a delete is pending — a reply skips it", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Errors",
+      action: "delete",
+      approvalClass: "approval",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Delete widget" })).toBeTruthy();
+  });
+
+  it("keeps the default placeholder when nothing is pending", () => {
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("");
+  });
+
+  it("puts the approval bar for a parked proposal directly above the composer", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Tokens by model",
+      action: "create",
+      approvalClass: "confirm",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const create = screen.getByRole("button", { name: "Create widget" });
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    const input = screen.getByTestId("message-input");
+    expect(create.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(create);
+    expect(mocks.handleDecision).toHaveBeenCalledExactlyOnceWith({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      action: "create",
+    });
+  });
+
+  it("shows no approval bar when nothing is parked", () => {
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.queryByRole("button", { name: /^Create / })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  });
+
   it("lets the no-models gate win over the emptyState", () => {
     mocks.projectData = { workspace_id: "ws-abc" };
     mocks.llmModels = { systemModels: [], byokProviders: [] };
@@ -137,4 +261,96 @@ describe("AiAssistantPanel", () => {
     expect(screen.getByText("No LLM models available")).not.toBeNull();
     expect(screen.queryByText("greeting")).toBeNull();
   });
+
+  it("opens the sheet on the step's trace and span when a tool step's 'Open span' is clicked", () => {
+    mocks.messages = [{ id: "m1", role: "user", content: "hi" }];
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const sheet = screen.getByTestId("trace-sheet");
+    expect(sheet.getAttribute("data-trace-id")).toBe("");
+    fireEvent.click(screen.getByTestId("open-span"));
+    expect(sheet.getAttribute("data-trace-id")).toBe("trace-1");
+    expect(sheet.getAttribute("data-span-id")).toBe("span-t1");
+  });
+
+  describe("decision models (TypeSafe)", () => {
+    const jevOnly = () => ({
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "TypeSafe AI",
+          adapter: "typesafe",
+          source: "byok" as const,
+          models: [{ id: "jev-latest", label: "jev-latest", supported: false }],
+        },
+      ],
+    });
+
+    it("shows the no-models gate for a TypeSafe-only workspace", () => {
+      mocks.projectData = { workspace_id: "ws-abc" };
+      mocks.llmModels = jevOnly();
+
+      render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+      expect(screen.getByText("No LLM models available")).not.toBeNull();
+    });
+
+    it("does not warn that a decision model is unsupported", () => {
+      mocks.projectData = { workspace_id: "ws-abc" };
+      mocks.llmModels = {
+        ...jevOnly(),
+        systemModels: [
+          {
+            provider: "anthropic",
+            adapter: "anthropic",
+            source: "system",
+            models: [{ id: "claude-4", label: "Claude 4" }],
+          },
+        ],
+      };
+
+      render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+      expect(screen.queryByText(/Unsupported model/)).toBeNull();
+    });
+  });
+});
+
+it.each(["VIEWER", "MEMBER"])("keeps the normal Home greeting and composer for demo %s", (role) => {
+  mocks.workspaceData = { is_demo: true, role };
+  mocks.projectData = { workspace_id: "demo" };
+  mocks.llmModels = { systemModels: [], byokProviders: [] };
+  render(
+    <AiAssistantPanel
+      projectId="p1"
+      variant="page"
+      emptyState={<div>Home greeting</div>}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("message-input")).toBeTruthy();
+  expect(screen.queryByTitle("New session")).toBeNull();
+  expect(screen.getByText("Home greeting")).toBeTruthy();
+  expect(screen.getByTestId("message-input").getAttribute("data-blocked-reason")).toContain(
+    "demo project",
+  );
+});
+
+it("keeps the composer on screen, but disabled, while the demo access check runs", () => {
+  mocks.accessPending = true;
+  mocks.projectData = { workspace_id: "ws" };
+  mocks.llmModels = {
+    systemModels: [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "system",
+        models: [{ id: "claude-4", label: "Claude 4" }],
+      },
+    ],
+    byokProviders: [],
+  };
+  render(<AiAssistantPanel projectId="p1" onClose={() => {}} />);
+  expect(screen.getByTestId("message-input").getAttribute("data-disabled")).toBe("true");
 });

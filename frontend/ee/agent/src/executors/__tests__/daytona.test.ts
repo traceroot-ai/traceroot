@@ -21,7 +21,10 @@ const mockDaytona = {
 };
 
 vi.mock("@daytonaio/sdk", () => ({
-  Daytona: vi.fn().mockImplementation(() => mockDaytona),
+  // A function (not an arrow) so vitest 4 can construct it with `new`.
+  Daytona: vi.fn(function Daytona() {
+    return mockDaytona;
+  }),
 }));
 
 import { DaytonaExecutor } from "../daytona.js";

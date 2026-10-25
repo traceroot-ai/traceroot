@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import {
@@ -6,10 +7,11 @@ import {
   requireWorkspaceMembership,
   successResponse,
 } from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 
 // GET /api/github/status?workspaceId=...
 // Returns the workspace's GitHub App installations.
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -21,6 +23,9 @@ export async function GET(request: NextRequest) {
 
   const memberCheck = await requireWorkspaceMembership(user.id, workspaceId);
   if (memberCheck.error) return memberCheck.error;
+  if (isDemoViewer(workspaceId, memberCheck.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const installations = await prisma.gitHubInstallation.findMany({
     where: { workspaceId },
@@ -36,3 +41,4 @@ export async function GET(request: NextRequest) {
     })),
   });
 }
+export const GET = withImpersonationPolicy(handleGET);

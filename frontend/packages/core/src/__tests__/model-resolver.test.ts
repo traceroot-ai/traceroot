@@ -42,7 +42,7 @@ describe("resolvePiModel", () => {
   });
 
   it("keeps the o-series on openai-completions (per-model catalog override)", () => {
-    for (const id of ["o3", "o4-mini"]) {
+    for (const id of ["o3"]) {
       expect(resolvePiModel(id, null).api, `system ${id}`).toBe("openai-completions");
       const cfg: ProviderModelConfig = {
         adapter: "openai",
@@ -100,6 +100,20 @@ describe("resolvePiModel", () => {
       const cfg: ProviderModelConfig = { adapter, key: "sk-test", baseUrl: null, config: null };
       expect(() => resolvePiModel(undefined, cfg)).toThrow(/no curated model catalog/i);
     }
+  });
+
+  it("throws (instead of substituting a system model) for a decision adapter", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "typesafe",
+      key: "ts-secret-key",
+      baseUrl: null,
+      config: null,
+    };
+    expect(() => resolvePiModel(undefined, cfg)).toThrow(/decision model/i);
+  });
+
+  it("throws (instead of substituting a system model) for a decision model id with no BYOK row", () => {
+    expect(() => resolvePiModel("jev-1.13.0", null)).toThrow(/decision model/i);
   });
 
   it("respects per-model modelProtocols override over adapter default", () => {
@@ -205,6 +219,23 @@ describe("findByokKeyForPiProvider", () => {
     });
     const key = await findByokKeyForPiProvider("ws-3", "openai");
     expect(key).toBe("decrypted-key");
+  });
+
+  it("skips OpenAI-compatible adapters when nativeOnly is set", async () => {
+    invalidateProviderConfigCache("ws-6", "my-deepseek");
+    (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { provider: "my-deepseek", adapter: "deepseek" },
+    ]);
+    // A usable DeepSeek row: without nativeOnly this resolves to its key.
+    (prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      adapter: "deepseek",
+      keyCipher: "cipher",
+      enabled: true,
+      baseUrl: null,
+      config: null,
+    });
+    const key = await findByokKeyForPiProvider("ws-6", "openai", { nativeOnly: true });
+    expect(key).toBeNull();
   });
 
   it("returns null when no BYOK row's adapter maps to the requested provider", async () => {

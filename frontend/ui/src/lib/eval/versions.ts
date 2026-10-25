@@ -1,7 +1,7 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
-import { randomUUID } from "crypto";
 import { versionSnowflakeFromMs } from "./snowflake";
 import { decodeJsonValue } from "./json-value";
+import { canonicalJson, LoneSurrogateError } from "./canonical";
 
 /** Deterministic read order for a version's cases (see the ordering note where
  *  it's used): every case a publish writes shares one `create_time` (Postgres'
@@ -67,21 +67,9 @@ function toSeed(c: TestCase): TestCaseSeed {
   };
 }
 
-export function newTestCaseId(): string {
-  return `tc_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-}
-
-/** Deterministic JSON with recursively sorted object keys — so two structurally equal
- *  values compare equal regardless of key order (JSONB round-trips don't preserve it). */
-function canonicalJson(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
-  const o = v as Record<string, unknown>;
-  return `{${Object.keys(o)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
-    .join(",")}}`;
-}
+/** Re-exported from `./canonical`: the id/signature canonicalizer moved to a leaf module
+ *  so the dataset editors can compare by it on the client without dragging Prisma along. */
+export { canonicalJson };
 
 /** A stable signature of a version's semantic CONTENT — the per-case (id, input, expected,
  *  metadata), order-independent. Capture provenance (source fields, review, addedBy,
@@ -95,12 +83,35 @@ export function contentSignature(seeds: TestCaseSeed[]): string {
   const rows = seeds
     .map((s) => ({
       id: s.testCaseId,
-      input: decodeJsonValue(s.input),
-      expected: s.expected == null ? null : decodeJsonValue(s.expected),
-      metadata: s.metadata ?? null,
+      input: signatureField(decodeJsonValue(s.input), s.input),
+      expected: s.expected == null ? null : signatureField(decodeJsonValue(s.expected), s.expected),
+      metadata: signatureField(s.metadata ?? null, null),
     }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return canonicalJson(rows);
+  // `rows` now holds only strings/null, so this can't throw on stored content.
+  return JSON.stringify(rows);
+}
+
+/**
+ * Canonical string for ONE stored field, used only inside `contentSignature`'s equality
+ * check. Existing content must always yield a stable signature: if a value already stored
+ * in this dataset can't be canonicalized (a lone surrogate written before the guards, or
+ * via another path), we must NOT let it fail an unrelated publish that doesn't even touch
+ * that row. So fall back to the raw stored text (or a well-formed JSON rendering) — stable
+ * and identical on both sides of the old-vs-new comparison for an unchanged row. NEW content
+ * is still rejected up front where its id is derived; this only protects the signature scan.
+ */
+function signatureField(decoded: unknown, rawStored: string | null): string {
+  try {
+    return canonicalJson(decoded);
+  } catch (e) {
+    if (e instanceof LoneSurrogateError) {
+      // `JSON.stringify` escapes lone surrogates (well-formed since ES2019), so this
+      // never throws; `rawStored` is the exact stored text, preferred when available.
+      return rawStored ?? JSON.stringify(decoded) ?? "null";
+    }
+    throw e;
+  }
 }
 
 /**
