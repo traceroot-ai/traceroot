@@ -72,9 +72,11 @@ const routes = [
 beforeEach(() => {
   vi.clearAllMocks();
   requireAuth.mockResolvedValue({ user: { id: "caller" } });
+  // Like the real helper, return the caller's membership with the project: the
+  // AI session write routes read its role for the demo read-only check.
   requireProjectAccess.mockResolvedValue({
     project: { workspaceId: "workspace" },
-    membership: { role: "MEMBER" },
+    membership: { workspaceId: "workspace", userId: "caller", role: "MEMBER" },
   });
   fetchMock.mockImplementation(async () => Response.json({ findings: [], runs: [] }));
   vi.stubGlobal("fetch", fetchMock);

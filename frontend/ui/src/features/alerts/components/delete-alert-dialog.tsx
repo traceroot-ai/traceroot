@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 
 interface DeleteAlertDialogProps {
   alertName: string;
+  /** Whether the rule has an alert open, which deleting it closes in Slack. */
+  hasOpenPage?: boolean;
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -23,6 +25,7 @@ interface DeleteAlertDialogProps {
 
 export function DeleteAlertDialog({
   alertName,
+  hasOpenPage,
   isOpen,
   onClose,
   onConfirm,
@@ -47,6 +50,12 @@ export function DeleteAlertDialog({
             cannot be undone.
           </DialogDescription>
         </DialogHeader>
+
+        {hasOpenPage && (
+          <p className="text-[12px] text-muted-foreground">
+            This alert is open. Deleting it will close it and post an [OK] to Slack.
+          </p>
+        )}
 
         <p className="text-[12px] text-muted-foreground">
           Type <span className="font-medium text-foreground">{alertName}</span> to confirm.

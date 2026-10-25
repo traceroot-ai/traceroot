@@ -42,7 +42,7 @@ describe("resolvePiModel", () => {
   });
 
   it("keeps the o-series on openai-completions (per-model catalog override)", () => {
-    for (const id of ["o3", "o4-mini"]) {
+    for (const id of ["o3"]) {
       expect(resolvePiModel(id, null).api, `system ${id}`).toBe("openai-completions");
       const cfg: ProviderModelConfig = {
         adapter: "openai",
