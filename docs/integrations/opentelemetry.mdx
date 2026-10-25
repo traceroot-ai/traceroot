@@ -44,7 +44,7 @@ Only OTLP over HTTP with protobuf encoding is accepted. OTLP/gRPC and OTLP/JSON 
 
 ## Set up
 
-Export the endpoint and your API key. The space after `Bearer` must be written as `%20` in the headers variable:
+Export the endpoint and your API key. Header values in this variable are percent-encoded, so the space after `Bearer` is written as `%20`:
 
 ```bash
 export TRACEROOT_API_KEY="your-api-key"
@@ -86,18 +86,33 @@ To configure the exporter in code instead, pass the endpoint and header directly
     ```python
     import os
 
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
     exporter = OTLPSpanExporter(
         endpoint="https://app.traceroot.ai/api/v1/public/traces",
         headers={"Authorization": f"Bearer {os.environ['TRACEROOT_API_KEY']}"},
     )
+
+    provider = TracerProvider()
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
     ```
   </Tab>
   <Tab title="TypeScript">
     ```typescript
+    import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+    import { NodeSDK } from '@opentelemetry/sdk-node';
+
     const exporter = new OTLPTraceExporter({
       url: 'https://app.traceroot.ai/api/v1/public/traces',
       headers: { Authorization: `Bearer ${process.env.TRACEROOT_API_KEY}` },
     });
+
+    const sdk = new NodeSDK({ traceExporter: exporter });
+    sdk.start();
     ```
   </Tab>
 </Tabs>
@@ -188,6 +203,7 @@ If nothing shows up, enable your exporter's debug logging and check the response
 | Status | Cause |
 |--------|-------|
 | `401` | Missing or invalid API key, or the header is not in the form `Bearer <key>` |
+| `402` | The workspace is over its free plan limit (`Free plan limit exceeded`) |
 | `404` | Wrong path, usually `/v1/traces` appended by `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | `415` | The body is not protobuf, for example from an OTLP/JSON exporter |
 | `429` | Rate limited; exporters retry after the `Retry-After` delay |
@@ -213,8 +229,6 @@ The root span's name, input, and output become the trace's name, input, and outp
 
 ## Limitations
 
-- Only OTLP/HTTP with protobuf encoding is supported; OTLP/gRPC and OTLP/JSON are rejected.
-- The endpoint does not follow the OTLP `/v1/traces` path convention, so `OTEL_EXPORTER_OTLP_ENDPOINT` cannot be used on its own.
 - Frameworks are not auto-instrumented. You only get the spans your code or framework already emits; the TraceRoot SDK adds instrumentation for the [supported integrations](/integrations/overview).
 
 ## Next steps
