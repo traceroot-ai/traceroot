@@ -250,6 +250,17 @@ async function openCase(text: string | RegExp) {
 }
 
 describe("Dataset detail view renders server data", () => {
+  it("renders a copyable dataset id chip and version id copy button in the header", async () => {
+    mountDetail();
+    const datasetCopyBtn = await screen.findByTitle("Copy dataset ID");
+    fireEvent.click(datasetCopyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ds1");
+
+    const versionCopyBtn = await screen.findByTitle("Copy version ID");
+    fireEvent.click(versionCopyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dv2");
+  });
+
   it("shows every test case of the current version", async () => {
     // The dataset name + id live in the top breadcrumb bar (ProjectBreadcrumb),
     // which this harness mocks out; here we assert the rows themselves.
