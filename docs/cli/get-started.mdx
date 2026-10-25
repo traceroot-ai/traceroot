@@ -15,27 +15,27 @@ Run this from the root of the repository you want to trace:
 npx -y traceroot-cli@latest setup
 ```
 
-Setup signs you in, picks or creates a project, writes a project API key into your application's env file, has Claude Code or Codex add the TraceRoot SDK, and waits for the first trace. It runs whether or not the CLI is installed or signed in, and needs Node.js 20.12 or later. Pass `--no-instrument` to write the change out as a task for another coding agent instead.
+Setup signs you in, has your coding agent add the TraceRoot SDK, and waits for your first trace. You don't need to install the CLI or sign in first. See [Tracing](/tracing/get-started) for each step, self-hosted deployments, and what to do if a run stops partway.
 
-[Tracing: Get Started](/tracing/get-started#what-setup-does) walks through each step, the [options](/tracing/get-started#options), [self-hosted deployments](/tracing/get-started#self-hosted-traceroot), and [running without prompts](/tracing/get-started#run-without-prompts).
+### Run without prompts
 
-If a run stops partway, ask setup what went wrong, then continue from where it stopped:
+Setup never prompts when it isn't attached to a terminal, when `CI` is set, or with `--no-input` or `--json`. Pass what it would otherwise ask for:
 
 ```bash
-npx -y traceroot-cli@latest setup doctor
-npx -y traceroot-cli@latest setup --resume
+npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
 ```
+
+A project API key also sets the project. If you signed in with `traceroot login` instead and have several projects, pass `--project`. Without prompts, setup writes the instrumentation task to a file rather than running a coding agent; pass `--agent claude` or `--agent codex` to run one.
 
 ## Install
 
-Every command runs through `npx` without an install, as above. To keep the `traceroot` command, install it globally:
+Every command also runs through `npx`, as above. To keep the `traceroot` command, install the CLI globally:
 
 ```bash
 npm install -g traceroot-cli
-traceroot setup
 ```
 
-The CLI needs Node.js 20.3 or later; `traceroot setup` needs 20.12 or later.
+The CLI needs Node.js 20.3 or later, and `setup` needs 20.12 or later.
 
 ## Authenticate
 
@@ -159,8 +159,8 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 
 | Command | What it does |
 | :-- | :-- |
-| `setup` | Connect this repository to TraceRoot and see your first trace. See [Tracing: Get Started](/tracing/get-started#options) for its options. |
-| `setup doctor` | Diagnose a setup run that did not complete. Flag: `--service <path>`. |
+| `setup` | Connect this repository to TraceRoot and see your first trace. See [Tracing](/tracing/get-started). |
+| `setup doctor` | Diagnose a setup that did not complete. Flag: `--service <path>`. |
 | `login` | Sign in through your browser and save the session; with `--api-key`, validate and save a project API key instead. |
 | `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
 | `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
@@ -180,7 +180,7 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 
 <CardGroup cols={2}>
   <Card title="Tracing" icon="route" href="/tracing/get-started">
-    What setup does step by step, and how to instrument by hand.
+    Set up tracing with one command, or instrument by hand.
   </Card>
   <Card title="Evaluations from the Terminal" icon="terminal" href="/evals/cli">
     Read datasets, evaluations, and past runs.

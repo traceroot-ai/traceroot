@@ -70,13 +70,12 @@ Run this from the root of the repository you want to trace:
 npx -y traceroot-cli@latest setup
 ```
 
-The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in through your browser (or creates a free account), picks or creates a project, writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
+The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in (or creates a free account), writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
 
-- Using another coding agent? Pass `--no-instrument` and setup writes the change out as a task for it to run.
+- Using another coding agent? Setup can write the change out as a task for it to run.
 - Self-hosting? Point setup at your instance with `--host` (the API origin) and `--auth-host` (the web app origin).
-- Keeping the CLI? `npm install -g traceroot-cli`, then `traceroot setup`.
 
-See the [setup guide](https://traceroot.ai/docs/tracing/get-started) for each step, every option, and troubleshooting.
+See the [setup guide](https://traceroot.ai/docs/tracing/get-started) for each step, self-hosting, and troubleshooting.
 
 ### Manually with an SDK
 
