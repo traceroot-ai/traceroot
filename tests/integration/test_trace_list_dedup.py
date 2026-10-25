@@ -489,6 +489,51 @@ def test_list_sessions_aggregates_follow_the_current_rows(reader):
     assert (new["input"], new["output"]) == (FULL_INPUT, FULL_OUTPUT)
 
 
+# September 2026: one session, two single-row traces with no trace-level I/O, nine days
+# apart. The span I/O backfill has always read every trace of the session, not only those
+# inside the list's window, and the dedup-first change must not narrow it.
+SPAN_IO_SESSION = "dedup-session-span-io"
+EARLY, LATE = "dedup-span-io-early", "dedup-span-io-late"
+EARLY_START = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
+LATE_START = datetime(2026, 9, 10, 10, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture(scope="module")
+def span_io_session(seeded):
+    rows, spans = [], []
+    for trace_id, start in ((EARLY, EARLY_START), (LATE, LATE_START)):
+        rows.append(
+            _row(
+                trace_id,
+                start,
+                "session-step",
+                start + timedelta(seconds=5),
+                session=SPAN_IO_SESSION,
+                user="dedup-user-span-io",
+            )
+        )
+        span = _span(PROJECT, f"{trace_id}-root", trace_id, start, updated=start)
+        span.update(input=f'"{trace_id}-in"', output=f'"{trace_id}-out"')
+        spans.append(span)
+    _insert(seeded.admin, "traces", rows)
+    _insert(seeded.admin, "spans", spans)
+
+
+@pytest.mark.usefixtures("span_io_session")
+def test_list_sessions_backfills_span_io_from_the_whole_session(reader):
+    """Windowed to the later trace only: the first input still comes from the earlier
+    trace, as it does on main, and the last output from the later one."""
+    result = reader.list_sessions(
+        PROJECT,
+        limit=100,
+        start_after=LATE_START - timedelta(days=2),
+        end_before=LATE_START + timedelta(days=1),
+    )
+    session = next(s for s in result["data"] if s["session_id"] == SPAN_IO_SESSION)
+    assert session["trace_count"] == 1
+    assert (session["input"], session["output"]) == (f'"{EARLY}-in"', f'"{LATE}-out"')
+
+
 def test_get_session_follows_the_current_rows(reader):
     detail = reader.get_session(PROJECT, OLD_SESSION, start_after=MOVED_WINDOW[0])
     assert detail is not None

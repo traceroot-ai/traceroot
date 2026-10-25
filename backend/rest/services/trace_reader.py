@@ -1189,8 +1189,8 @@ class TraceReaderService:
         # I/O backfill, so the paged sessions, their aggregates, meta.total and the
         # displayed input/output all see the same traces (an eval trace must not supply a
         # session's displayed input/output).
-        if not include_evaluations:
-            conditions.append(_evaluation_exclusion(params))
+        eval_conditions = [] if include_evaluations else [_evaluation_exclusion(params)]
+        conditions.extend(eval_conditions)
 
         bounds = _dedup_bounds(params, "<")
         current = _current_traces(bounds, conditions)
@@ -1298,18 +1298,28 @@ class TraceReaderService:
 
         # Backfill input/output from spans for sessions with empty trace-level I/O
         if session_ids_needing_span_io:
+            session_io_traces = _current_traces(
+                [
+                    "t.project_id = {project_id:String}",
+                    "t.trace_id IN (SELECT trace_id FROM traces"
+                    " WHERE project_id = {project_id:String}"
+                    f" AND {customer_traffic_only()}"
+                    " AND session_id IN ({session_ids:Array(String)}))",
+                ],
+                ["t.session_id IN ({session_ids:Array(String)})", *eval_conditions],
+            )
             # Dedup both sides without FINAL: resolve the sessions' traces first
             # (latest per trace), then dedup only the spans in those traces
             # (scoped via the trace_id IN subquery so we never dedup the whole
             # project), then join + aggregate.
             span_io_query = f"""
                 WITH session_traces AS (
-                    -- The same deduped, filtered traces the sessions were counted from:
-                    -- a trace whose stale row is in a session but whose newest row is
-                    -- not must not lend that session its span I/O (#2708).
+                    -- Every trace of these sessions, not only the window's: the backfill
+                    -- has always read the whole session. Dedup first, then match the
+                    -- session, so a trace whose stale row is in a session but whose newest
+                    -- row is not does not lend that session its span I/O (#2708).
                     SELECT t.session_id, t.trace_id, t.project_id
-                    FROM ({current}) AS t
-                    WHERE t.session_id IN ({{session_ids:Array(String)}})
+                    FROM ({session_io_traces}) AS t
                 ),
                 spans_dedup AS (
                     SELECT trace_id, project_id, input, output, span_start_time, span_end_time
