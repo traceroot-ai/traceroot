@@ -88,7 +88,7 @@ describe("the manual tab", () => {
     expect(
       isAbove(
         screen.getByRole("button", { name: "Manual" }),
-        screen.getByRole("radiogroup", { name: "Model Providers" }),
+        screen.getByRole("radiogroup", { name: "Integration" }),
       ),
     ).toBe(true);
   });
@@ -130,7 +130,7 @@ describe("a workspace that cannot be read", () => {
     expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
     expect(screen.queryByTestId("github-connect")).toBeNull();
     // The stack picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Model Providers" })).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeTruthy();
   });
 
   it("holds the integrations behind a placeholder while the project loads", () => {

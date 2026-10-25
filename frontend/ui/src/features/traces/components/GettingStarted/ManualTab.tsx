@@ -87,26 +87,31 @@ function OwnStackPicker({
         </SectionLink>
       </div>
 
-      {OWN_PICKER_GROUPS.map((group) => {
-        const items = INTEGRATIONS.filter((integration) => group.includes(integration.category));
-        if (items.length === 0) return null;
+      {/* One group for the one choice, as in `StackSelector`: the headings
+          split the cards visually, and a group per heading would be announced
+          as two separate choices. */}
+      <div role="radiogroup" aria-label="Integration" className="space-y-3">
+        {OWN_PICKER_GROUPS.map((group) => {
+          const items = INTEGRATIONS.filter((integration) => group.includes(integration.category));
+          if (items.length === 0) return null;
 
-        return (
-          <div key={group.key} className="space-y-1.5">
-            <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
-            <div role="radiogroup" aria-label={group.label} className="flex flex-wrap gap-2">
-              {items.map((integration) => (
-                <IntegrationPickerCard
-                  key={integration.id}
-                  integration={integration}
-                  selected={selected.id === integration.id}
-                  onSelect={() => onSelect(integration.id)}
-                />
-              ))}
+          return (
+            <div key={group.key} className="space-y-1.5">
+              <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
+              <div className="flex flex-wrap gap-2">
+                {items.map((integration) => (
+                  <IntegrationPickerCard
+                    key={integration.id}
+                    integration={integration}
+                    selected={selected.id === integration.id}
+                    onSelect={() => onSelect(integration.id)}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       <a
         href={selected.href}
