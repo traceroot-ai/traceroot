@@ -85,10 +85,14 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
     from traceroot import Integration
     from openai import OpenAI
 
+    def main():
+        client = OpenAI()
+        # ...your application
+
     if __name__ == "__main__":
         # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
         traceroot.initialize(integrations=[Integration.OPENAI])  # instruments all OpenAI calls
-        main()  # whatever your entry point already runs
+        main()
     ```
   </Tab>
   <Tab title="TypeScript">
@@ -99,13 +103,13 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
+    // The function your entry point calls to start the application
     async function main() {
       // config();
       TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });  // instruments all OpenAI calls
-      // ...whatever your entry point already runs
+      const openai = new OpenAI();
+      // ...your application
     }
-
-    main();
     ```
   </Tab>
 </Tabs>
