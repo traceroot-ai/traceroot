@@ -186,6 +186,20 @@ def test_trace_tags_survive_a_span_at_the_cap():
     assert len(span["tags"]) == MAX_TAGS_PER_SPAN
 
 
+def test_deeply_nested_json_tag_string_is_dropped_not_raised():
+    """A string tag is parsed as JSON. Nesting deep enough to overflow the parser must
+    drop that value, not abort the batch (Python 3.12 raises RecursionError near depth
+    1000; 3.14 near 100000)."""
+    depth = 200_000
+    attribute = {
+        "key": "traceroot.span.tags",
+        "value": {"stringValue": "[" * depth + "]" * depth},
+    }
+    (span,) = _transform(make_span(TRACE, "11" * 8, name="root", attributes=[attribute]))
+
+    assert span["tags"] == []
+
+
 def test_overlong_tags_are_dropped_not_truncated():
     """A truncated tag is a value nobody sent, and a filter on the real value would miss it."""
     from worker.otel_transform import MAX_TAG_LENGTH

@@ -189,7 +189,9 @@ def _tag_values(raw: Any) -> list[Any]:
     if isinstance(raw, str):
         try:
             decoded = json.loads(raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
+            # RecursionError: nesting deep enough to overflow the parser. Treated like
+            # any other non-JSON string, so the length cap drops it.
             return [raw]
         if isinstance(decoded, list):
             return decoded
