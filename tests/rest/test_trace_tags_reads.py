@@ -95,7 +95,8 @@ def test_list_unions_span_tags_per_trace_in_the_span_aggregate():
     assert result["data"][1]["tags"] == []
     query = " ".join(client.query.call_args_list[0].args[0].split())
     agg = query[query.index("span_agg AS (") : query.index("GROUP BY trace_id")]
-    assert "arraySlice(arraySort(groupUniqArrayArray(tags)), 1, 200) as tags" in agg
+    # Bounded aggregate state: at most 200 distinct tags are ever collected per trace.
+    assert "arraySort(groupUniqArrayArray(200)(tags)) as tags" in agg
     # Read from the deduped span rows, so a superseded span version adds no stale tag.
     inner = agg[agg.index("FROM (") :]
     assert "tags" in inner[: inner.index("FROM spans")]
@@ -178,7 +179,7 @@ def test_detail_of_an_untagged_trace_has_empty_tags():
 
 def test_trace_tag_union_is_capped_the_same_way_in_list_and_detail():
     """Many spans with distinct tags must not make one trace row unbounded. Both reads
-    return the first MAX_TRACE_TAGS tags in sort order, so they agree."""
+    return at most MAX_TRACE_TAGS tags, sorted; up to that many they are the same set."""
     from rest.services.trace_reader import MAX_TRACE_TAGS
 
     assert MAX_TRACE_TAGS == 200
