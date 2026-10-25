@@ -182,9 +182,10 @@ MAX_TAGS_PER_SPAN = 50
 MAX_TAG_LENGTH = 200
 # Work bounds, so one attribute cannot cost more than a full set of tags: at most this
 # many values of one attribute are looked at, and a JSON-string attribute longer than
-# this is not parsed (50 tags of 200 characters, even fully \u-escaped, fit in it).
+# this is not parsed. The worst valid full set is 50 tags of 200 non-BMP characters,
+# each written as a \u surrogate pair (12 characters): about 120,000 characters.
 MAX_TAG_CANDIDATES = 4 * MAX_TAGS_PER_SPAN
-MAX_TAG_JSON_CHARS = 64 * 1024
+MAX_TAG_JSON_CHARS = 128 * 1024
 
 
 def _tag_values(raw: Any) -> list[Any]:

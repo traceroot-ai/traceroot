@@ -216,6 +216,18 @@ def test_an_oversized_json_tag_string_is_not_parsed(monkeypatch):
     assert len(raw) not in parsed
 
 
+def test_a_full_set_of_escaped_non_bmp_tags_still_parses():
+    """The worst valid case for the size cutoff: 50 tags of 200 emoji, every one written
+    as a \\u surrogate pair (json.dumps' default). All 50 must survive."""
+    from worker.otel_transform import MAX_TAG_LENGTH, MAX_TAGS_PER_SPAN, extract_tags
+
+    tags = [f"{i:02d}" + "\U0001f600" * (MAX_TAG_LENGTH - 2) for i in range(MAX_TAGS_PER_SPAN)]
+    raw = json.dumps(tags)  # ensure_ascii=True: 12 characters per emoji
+    assert len(raw) > 64 * 1024
+
+    assert extract_tags({"traceroot.span.tags": raw}) == tags
+
+
 def test_tag_candidates_examined_per_attribute_are_bounded():
     """Only the first MAX_TAG_CANDIDATES values of one attribute are looked at, so a
     span with a million array values costs a bounded amount of work."""
