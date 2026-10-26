@@ -439,7 +439,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code was already opened by a different account and is locked to it. Go back to your terminal and run the login command again to get a fresh code.",
+          "This code was already opened by a different account and is locked to it. Go back to your terminal and run the command again to get a fresh code.",
         ),
       ).toBeDefined(),
     );
@@ -464,7 +464,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code has expired. Go back to your terminal and run the login command again.",
+          "This code has expired. Go back to your terminal and run the command again.",
         ),
       ).toBeDefined(),
     );
@@ -535,7 +535,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code has expired. Go back to your terminal and run the login command again.",
+          "This code has expired. Go back to your terminal and run the command again.",
         ),
       ).toBeDefined(),
     );
@@ -574,7 +574,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code has expired. Go back to your terminal and run the login command again.",
+          "This code has expired. Go back to your terminal and run the command again.",
         ),
       ).toBeDefined(),
     );
