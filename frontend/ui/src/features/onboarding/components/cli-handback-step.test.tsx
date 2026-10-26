@@ -132,6 +132,16 @@ describe("CliHandbackStep", () => {
     );
   });
 
+  it("names the Node version setup needs", () => {
+    // `setup` refuses a Node older than 20.12, though the rest of the CLI runs
+    // on 20.3, so a working CLI is no sign this command will start.
+    renderStep();
+
+    expect(screen.getByText(/Instruments your repository/).textContent).toContain(
+      "Needs Node.js 20.12 or later.",
+    );
+  });
+
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {
     // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
     // like this reaches the step. The command it renders carries no `--host`,

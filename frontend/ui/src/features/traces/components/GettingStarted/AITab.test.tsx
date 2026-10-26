@@ -114,6 +114,13 @@ describe("AITab", () => {
     expect(text).not.toContain("stops if you have uncommitted changes");
   });
 
+  it("names the Node version setup needs", () => {
+    // `setup` refuses a Node older than 20.12, though the rest of the CLI runs
+    // on 20.3, so a working CLI is no sign this command will start.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").toContain("Needs Node.js 20.12 or later.");
+  });
+
   it("gives the reader something to read before they paste it", () => {
     // This section had no link of any kind. It points at the page that
     // documents what the command automates — not the CLI reference, which
