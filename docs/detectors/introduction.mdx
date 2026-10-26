@@ -76,7 +76,7 @@ A filter is a list of conditions, and a trace has to satisfy every one of them t
 
 ## Judge with TypeSafe AI
 
-[TypeSafe AI](/ai-agent/byok) offers `jev-1.13.0`, a decision model you can pick as a detector's judge once the provider key is in place. It answers with probabilities over a fixed set of options instead of writing text, so it judges detectors only and is kept out of the chat and root cause analysis model pickers.
+[TypeSafe AI](/ai-agent/byok) offers `jev-1.13.0` and `jev-1.14.0`, decision models you can pick as a detector's judge once the provider key is in place. They answer with probabilities over a fixed set of options instead of writing text, so they judge detectors only and are kept out of the chat and root cause analysis model pickers.
 
 Jev answers two questions about each trace: whether the trace shows the problem your prompt describes, and which category of that problem it is. The trace becomes a finding when the answer to the first question reaches `0.5`.
 
