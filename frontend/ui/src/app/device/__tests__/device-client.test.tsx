@@ -72,6 +72,7 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 
 import { DeviceClient } from "../device-client";
+import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
 
 function setParams(params: Record<string, string>) {
   searchParams = new URLSearchParams(params);
@@ -181,6 +182,31 @@ describe("DeviceClient", () => {
         "Only approve a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
       ),
     ).toBeDefined();
+  });
+
+  it("states the session's idle expiry and where to revoke it", async () => {
+    // The copy spells out the window session-config.ts enforces. A CLI session
+    // is refreshed on use at most once a day, so it can lapse up to a day before
+    // seven idle days: "within seven days" is the claim the code keeps.
+    expect(SESSION_EXPIRES_IN_SECONDS).toBe(7 * 24 * 60 * 60);
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn();
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    // The sentence wraps a link, so match the paragraph's whole text.
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === "P" &&
+          el.textContent ===
+            "Approving signs TraceRoot CLI in to your TraceRoot account. It stays signed in while you use it and signs out within seven days of its last use. You can also revoke it from Active Sessions in your account settings.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole("link", { name: "Active Sessions" }).getAttribute("href")).toBe(
+      "/account/settings/sessions",
+    );
   });
 
   it("warns on the setup screen without naming one CLI command", async () => {

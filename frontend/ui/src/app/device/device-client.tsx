@@ -471,8 +471,8 @@ function Consent({
       <CodeConfirm code={code} />
 
       <p className="text-[12px] text-muted-foreground">
-        Approving signs {clientName} in to your TraceRoot account. It stays signed in until you
-        revoke it from{" "}
+        Approving signs {clientName} in to your TraceRoot account. It stays signed in while you use
+        it and signs out within seven days of its last use. You can also revoke it from{" "}
         <Link href="/account/settings/sessions" className="underline hover:text-foreground">
           Active Sessions
         </Link>{" "}
