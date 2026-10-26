@@ -1,5 +1,6 @@
 "use client";
 
+import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
 import { Button } from "@/components/ui/button";
 import { rcaInProgress, useRequestSignalRca } from "../hooks";
 
@@ -23,7 +24,9 @@ export function RunRca({
   /** False when the caller already says whether it failed or is running (until a new request starts). */
   showState?: boolean;
 }) {
+  const { readOnly, loading } = useDemoAgentAccess(projectId);
   const request = useRequestSignalRca(projectId, signalId);
+  if (loading) return null;
   if (!available) {
     return (
       <p className="text-[12px] text-muted-foreground">
@@ -48,14 +51,19 @@ export function RunRca({
             <p className="text-[12px] text-muted-foreground">The last analysis failed.</p>
           )
         ))}
-      <Button
-        size="sm"
-        className="h-7 text-[12px]"
-        disabled={running}
-        onClick={() => request.mutate()}
-      >
-        {running ? "Running…" : "Run root cause analysis"}
-      </Button>
+      {/* A demo visitor still sees the state above, but cannot start a run. */}
+      {readOnly ? (
+        <p className="text-[12px] text-muted-foreground">Demo analyses are read-only.</p>
+      ) : (
+        <Button
+          size="sm"
+          className="h-7 text-[12px]"
+          disabled={running}
+          onClick={() => request.mutate()}
+        >
+          {running ? "Running…" : "Run root cause analysis"}
+        </Button>
+      )}
     </div>
   );
 }

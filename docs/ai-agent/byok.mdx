@@ -1,9 +1,9 @@
 ---
 title: Bring Your Own Key (BYOK)
-description: Use your own LLM API keys to power the TraceRoot AI agent
+description: Use your own LLM API keys to power the TraceRoot Agent
 ---
 
-By default, TraceRoot provides system models for the AI agent. With BYOK, you can bring your own API keys to control which model is used.
+By default, TraceRoot provides system models for the TraceRoot Agent. With BYOK, you can bring your own API keys to control which model is used.
 
 ## Default Models
 
@@ -22,14 +22,14 @@ OpenAI, Anthropic, DeepSeek, xAI, Moonshot (Kimi), Z.AI (GLM), Google Gemini, Op
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-cyber`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.3-codex`, `gpt-5.2`, `gpt-5`, `gpt-5-mini`, `o3`, `o4-mini` |
-| Anthropic | `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-opus-4-5`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-sonnet-4-5`, `claude-haiku-5-5`, `claude-haiku-4-5`, `claude-fable-5` |
-| Google Gemini | `gemini-3.5-flash`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash`, `gemini-2.5-pro` |
-| DeepSeek | `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-chat` |
-| xAI | `grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.20`, `grok-4` |
-| Moonshot (Kimi) | `kimi-k3`, `kimi-k2.6`, `kimi-k2.5`, `kimi-k2-thinking` |
-| Z.AI (GLM) | `glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-turbo`, `glm-4.7`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.5-flash` |
-| TypeSafe AI | `jev-1.13.0` |
+| OpenAI | `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-cyber`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro`, `gpt-5`, `gpt-5-mini`, `o3` |
+| Anthropic | `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-opus-4-5`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-haiku-4-5`, `claude-fable-5-1`, `claude-fable-5` |
+| Google Gemini | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-2.5-pro` |
+| DeepSeek | `deepseek-v4-pro`, `deepseek-flash`, `deepseek-v4-flash` |
+| xAI | `grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20`, `grok-4.20-0309-non-reasoning`, `grok-4`, `grok-build-0.1` |
+| Moonshot (Kimi) | `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5`, `kimi-k2-thinking` |
+| Z.AI (GLM) | `glm-5.2`, `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.1`, `glm-5`, `glm-5-turbo`, `glm-4.7`, `glm-4.7-flash`, `glm-4.7-flashx`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.5-airx`, `glm-4.5-flash` |
+| TypeSafe AI | `jev-1.13.0`, `jev-1.14.0` |
 
 TypeSafe AI runs detectors only; it does not appear in the chat or RCA model pickers.
 
@@ -44,3 +44,7 @@ TypeSafe AI runs detectors only; it does not appear in the chat or RCA model pic
 5. Save — keys are encrypted at rest and scoped to your workspace
 
 Once configured, the model selector in the AI chat interface will show both system models and your BYOK models.
+
+<Frame caption="Model Providers: Add Provider and configured providers with masked keys">
+  <img src="/images/model_providers_v1.png" alt="Settings page with Model Providers selected, showing Add Provider and Configured Providers with keys masked" />
+</Frame>

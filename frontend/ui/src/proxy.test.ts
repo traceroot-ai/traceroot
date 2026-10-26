@@ -63,12 +63,37 @@ function request(
   });
 }
 
+// The sign-in page reads the callback with searchParams.get(), which decodes
+// one layer — so assert on the decoded value a nested callback arrives as.
+function callback(res: Response): string | null {
+  const location = res.headers.get("location");
+  expect(location).toContain("/auth/sign-in");
+  return new URL(location!).searchParams.get("callbackUrl");
+}
+
 describe("proxy middleware", () => {
   it("lets the device page through without a token so it can keep its ?user_code", () => {
     // The bug this guards: redirecting here would drop the query (pathname-only
     // callbackUrl), losing the device code across the sign-in round-trip.
     const res = proxy(request("/device?user_code=ABCD1234"));
     expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("still protects /onboarding, which renders bare but is not public", () => {
+    // /onboarding renders with no app shell around it, exactly as /device does
+    // (see lib/chromeless-routes) — but for an unrelated reason, and the
+    // exemption above must not follow the resemblance. /device is exempt
+    // because it is reachable while SIGNED OUT and owns its own sign-in
+    // round-trip; every action on /onboarding needs a session, and exempting it
+    // would hand the workspace-creation form to anyone with the URL.
+    //
+    // Both halves, because either one alone can be made to pass: the middleware
+    // never runs on a path the matcher does not claim, so dropping /onboarding
+    // from `config.matcher` would make the page public with this redirect still
+    // in place.
+    expect(matchesProxy("/onboarding")).toBe(true);
+    const res = proxy(request("/onboarding?callbackUrl=%2Fdevice"));
+    expect(res.headers.get("location")).toContain("/auth/sign-in");
   });
 
   it("lets auth pages through without a token", () => {
@@ -83,7 +108,7 @@ describe("proxy middleware", () => {
     expect(location).toContain("callbackUrl=");
   });
 
-  it("keeps campaign parameters on the sign-in page without forwarding other query data", () => {
+  it("preserves the callback query and forwards only campaign fields as sign-in parameters", () => {
     const params = new URLSearchParams({
       utm_source: "github",
       utm_medium: "referral",
@@ -98,7 +123,7 @@ describe("proxy middleware", () => {
 
     expect(location.pathname).toBe("/auth/sign-in");
     expect(Object.fromEntries(location.searchParams)).toEqual({
-      callbackUrl: "/projects/p1/traces",
+      callbackUrl: `/projects/p1/traces?${params}`,
       utm_source: "github",
       utm_medium: "referral",
       utm_campaign: "github-navigation",
@@ -110,6 +135,35 @@ describe("proxy middleware", () => {
   it("allows a protected route when a session token is present", () => {
     const res = proxy(request("/projects/p1/traces", { token: true }));
     expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("keeps the query string in the callback so a waiting terminal is still reachable", () => {
+    // /onboarding carries the pointer back to a blocked `traceroot setup` run in
+    // its own ?callbackUrl. A pathname-only value drops it, and the visitor
+    // finishes onboarding with nothing on screen leading back to the terminal.
+    const res = proxy(request("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234"));
+    expect(callback(res)).toBe("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234");
+  });
+
+  it("keeps the query string for any protected page, not just onboarding", () => {
+    const res = proxy(request("/projects/p1/traces?traceId=t1&tab=spans"));
+    expect(callback(res)).toBe("/projects/p1/traces?traceId=t1&tab=spans");
+  });
+
+  it("still sends a bare path when the request has no query", () => {
+    const res = proxy(request("/projects/p1/traces"));
+    expect(callback(res)).toBe("/projects/p1/traces");
+  });
+
+  it("refuses a callback whose path resolves off-origin instead of carrying it onward", () => {
+    // A request to `//host/x` arrives with a protocol-relative pathname, which
+    // re-parses cross-origin wherever it is followed.
+    const doubleSlash = new NextRequest(
+      "http://localhost:3000//evil.example/onboarding?callbackUrl=%2Fdevice",
+    );
+    const dotSegment = new NextRequest("http://localhost:3000/..//evil.example?user_code=ABCD1234");
+    expect(callback(proxy(doubleSlash))).toBe("/");
+    expect(callback(proxy(dotSegment))).toBe("/");
   });
 });
 
@@ -180,7 +234,7 @@ describe("campaign attribution at the proxy entry", () => {
     expect(landing.headers.get("content-security-policy")).toBeNull();
     expect(location.pathname).toBe("/auth/sign-in");
     expect(Object.fromEntries(location.searchParams)).toEqual({
-      callbackUrl: "/projects/p1/traces",
+      callbackUrl: `/projects/p1/traces?${new URLSearchParams({ ...utm, token: "private-token" })}`,
       ...utm,
     });
     expect(JSON.parse(cookie.value)).toEqual({ v: 1, capturedAt, utm });

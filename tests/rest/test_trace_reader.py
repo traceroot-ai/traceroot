@@ -655,3 +655,44 @@ class TestListTracesRows:
 
         assert result["data"][0]["metadata_map"] == {"tenant_id": "acme-corp"}
         assert result["data"][1]["metadata_map"] == {}
+
+    def test_page_order_breaks_start_time_ties_by_trace_id(self):
+        """Traces sharing a start time must page in a fixed order, so OFFSET pages are
+        disjoint: without a trace_id tie-breaker a tied trace can be skipped or
+        repeated across pages (#1747). Both the paged CTE and the final select carry it.
+        """
+        results = iter([_rows([]), _rows([[0]])])
+        service, client = _make_service(lambda *a, **kw: next(results))
+
+        service.list_traces(project_id="p1", page=1, limit=5)
+
+        page_query = " ".join(client.query.call_args_list[0].args[0].split())
+        assert "ORDER BY trace_start_time DESC, trace_id DESC LIMIT" in page_query
+        assert page_query.endswith("ORDER BY p.trace_start_time DESC, p.trace_id DESC")
+
+
+@pytest.mark.parametrize(
+    ("method_name", "page_order", "result_order"),
+    [
+        (
+            "list_sessions",
+            "ORDER BY max(t.trace_start_time) DESC, t.session_id DESC LIMIT",
+            "ORDER BY last_trace_time DESC, td.session_id DESC",
+        ),
+        (
+            "list_users",
+            "ORDER BY last_trace_time DESC, user_id DESC LIMIT",
+            "ORDER BY up.last_trace_time DESC, up.user_id DESC",
+        ),
+    ],
+)
+def test_aggregate_page_order_breaks_time_ties_by_id(method_name, page_order, result_order):
+    """Both page membership and displayed order need the same tie-breaker (#2618)."""
+    results = iter([_rows([]), _rows([[0]])])
+    service, client = _make_service(lambda *a, **kw: next(results))
+
+    getattr(service, method_name)(project_id="p1", page=1, limit=3)
+
+    page_query = " ".join(client.query.call_args_list[0].args[0].split())
+    assert page_order in page_query
+    assert page_query.endswith(result_order)

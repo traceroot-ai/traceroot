@@ -1,16 +1,10 @@
 import { Queue, Worker, type Job } from "bullmq";
-import {
-  ALERT_CLOSE_MAX_RESENDS,
-  decryptKey,
-  hasEntitlement,
-  prisma,
-  type AlertStatus,
-  type PlanType,
-} from "@traceroot/core";
+import { ALERT_CLOSE_MAX_RESENDS, decryptKey, prisma, type AlertStatus } from "@traceroot/core";
 import {
   buildAlertBlocks,
   buildAlertClosedBlocks,
   createSlackClient,
+  resolveAlertChannel,
   type WebClient,
 } from "@traceroot/slack";
 import {
@@ -180,46 +174,6 @@ async function checkAlertStillSendable(payload: AlertNotificationJob): Promise<A
     return blocked(payload, "SUPERSEDED", "superseded", new Date(emission.evaluatedAt));
   }
   return { ok: true };
-}
-
-interface AlertSlackTarget {
-  channelId: string;
-  encryptedBotToken: string;
-}
-
-type ChannelResolution = { ok: true; target: AlertSlackTarget } | { ok: false; reason: string };
-
-/**
- * A project-level channel overrides the workspace default, matching the detector
- * digest. Every miss carries a reason: a send that quietly does nothing is invisible.
- */
-async function resolveAlertChannel(projectId: string): Promise<ChannelResolution> {
-  // Re-checked here, not just at claim time: a deleted project must not be linked to in Slack.
-  const project = await prisma.project.findUnique({
-    where: { id: projectId, deleteTime: null },
-    select: {
-      alertConfig: { select: { slackChannelId: true } },
-      workspace: {
-        select: {
-          billingPlan: true,
-          slackIntegration: { select: { channelId: true, botToken: true } },
-        },
-      },
-    },
-  });
-  if (!project) return { ok: false, reason: "project-missing" };
-
-  const plan = (project.workspace?.billingPlan ?? "free") as PlanType;
-  if (!hasEntitlement(plan, "slack-integration")) {
-    return { ok: false, reason: `no-entitlement plan=${plan}` };
-  }
-
-  const slack = project.workspace?.slackIntegration ?? null;
-  const channelId = project.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
-  if (!channelId) return { ok: false, reason: "no-channel" };
-  if (!slack?.botToken) return { ok: false, reason: "no-bot-token" };
-
-  return { ok: true, target: { channelId, encryptedBotToken: slack.botToken } };
 }
 
 // Errors Slack recovers from itself. Any other is config or payload: retrying changes nothing.
@@ -481,23 +435,16 @@ async function resolveActor(userId: string): Promise<string | null> {
  *
  * The rule's status is not consulted. Pausing stops a rule from paging; it does not
  * make the page it already sent any less discarded, and a close held for the resume
- * leaves the channel reading an alert nobody is evaluating. Only a rule that is gone
- * has nothing to close. A channel no retry can reach drops the close, since the page
- * it would close cannot have been delivered through that channel either; a failure a
- * retry may get past is rethrown, and the caller puts the close back once the job's
- * attempts run out.
+ * leaves the channel reading an alert nobody is evaluating. Nor is whether the rule
+ * still exists: a close an edit queued is the only close its page gets when the rule
+ * is deleted before the job runs, since the take already cleared the marker the
+ * delete reads to decide on a close of its own. A channel no retry can reach drops the
+ * close, since the page it would close cannot have been delivered through that channel
+ * either; a failure a retry may get past is rethrown, and the caller puts the close
+ * back once the job's attempts run out.
  */
 export async function sendAlertClose(job: AlertCloseJob): Promise<void> {
   const tag = `alert=${job.alertId} project=${job.projectId} close=${job.reason}`;
-
-  const alert = await prisma.alert.findUnique({
-    where: { id: job.alertId },
-    select: { id: true },
-  });
-  if (alert === null) {
-    logInfo(`slack skip ${tag} reason=alert-deleted`);
-    return;
-  }
 
   const resolution = await resolveAlertChannel(job.projectId);
   if (!resolution.ok) {

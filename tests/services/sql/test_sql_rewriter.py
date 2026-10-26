@@ -552,6 +552,24 @@ UNSCOPEABLE_SHAPES = [
     ("under an OR", "WHERE span_start_time >= '2026-09-01' OR name = 'x'"),
     ("inside a NOT", "WHERE NOT (span_start_time >= '2026-09-01')"),
     ("compared to itself", "WHERE span_start_time >= span_start_time"),
+    ("a negated BETWEEN", "WHERE span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'"),
+    ("a negated equality", "WHERE NOT (span_start_time = '2026-09-01')"),
+    # The sharp one. Both halves mention the column, the first is scopeable and
+    # does fill a lower bound, so the query cannot be refused for having produced
+    # no bounds at all. Only insisting that every mention became a bound stops the
+    # view being scoped to a window the negated half does not describe.
+    (
+        "a negated BETWEEN beside a scopeable window",
+        "WHERE span_start_time >= '2026-01-01'"
+        " AND span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'",
+    ),
+    (
+        "a BETWEEN under an OR",
+        "WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02' OR name = 'x'",
+    ),
+    # It excludes an instant rather than bounding one, so there is no window to
+    # hand the view and nothing safe to expand it into.
+    ("an inequality", "WHERE span_start_time != '2026-09-01'"),
 ]
 
 SCOPEABLE_STILL = [
@@ -570,6 +588,81 @@ SCOPEABLE_STILL = [
     (
         "a relative window",
         "SELECT count() FROM spans WHERE span_start_time >= now() - INTERVAL 1 HOUR",
+    ),
+]
+
+# Sugar for a window the mapping already reads, and the pair of comparisons each
+# one expands to. Without the expansion the left column is refused and the right
+# column runs.
+EQUIVALENT_SPELLINGS = [
+    (
+        "BETWEEN",
+        "span_start_time BETWEEN '2026-09-01' AND '2026-09-02'",
+        "span_start_time >= '2026-09-01' AND span_start_time <= '2026-09-02'",
+    ),
+    (
+        "equality",
+        "span_start_time = '2026-09-01'",
+        "span_start_time >= '2026-09-01' AND span_start_time <= '2026-09-01'",
+    ),
+    (
+        "mirrored equality",
+        "'2026-09-01' = span_start_time",
+        "span_start_time >= '2026-09-01' AND span_start_time <= '2026-09-01'",
+    ),
+]
+
+# Negated sugar. The NOT sits directly above the node in the first two and two
+# levels further out in the last two, where AND is the direct parent, so a guard
+# that looked only at the parent would miss them.
+NEGATED_SUGAR = [
+    ("a negated BETWEEN", "span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'"),
+    ("a negated equality", "NOT (span_start_time = '2026-09-01')"),
+    (
+        "a BETWEEN under an outer NOT",
+        "NOT (name = 'x' AND span_start_time BETWEEN '2026-09-01' AND '2026-09-02')",
+    ),
+    (
+        "an equality under an outer NOT",
+        "NOT (name = 'x' AND span_start_time = '2026-09-01')",
+    ),
+]
+
+# The same sugar with a NOT on a different conjunct. The negation is nowhere
+# above the time predicate, so the window it describes is still the caller's.
+NOT_ON_ANOTHER_CONJUNCT = [
+    (
+        "a BETWEEN beside a negated name filter",
+        "NOT (name = 'x') AND span_start_time BETWEEN '2026-09-01' AND '2026-09-02'",
+    ),
+    (
+        "an equality beside a negated name filter",
+        "NOT (name = 'x') AND span_start_time = '2026-09-01'",
+    ),
+]
+
+# Sugar carrying a bound the view cannot take. In the BETWEEN cases the other
+# side is perfectly scopeable, which is what makes them the interesting ones: the
+# expansion has to account for each half separately or the good half answers for
+# the one that was left open. None of these mentions a second time column, so the
+# only thing that can refuse them is that accounting.
+SUGAR_WITH_AN_UNSCOPEABLE_BOUND = [
+    (
+        "BETWEEN whose upper bound is another column",
+        "SELECT count() FROM spans WHERE span_start_time BETWEEN '2026-09-01' AND span_end_time",
+    ),
+    (
+        "BETWEEN whose lower bound is another column",
+        "SELECT count() FROM spans WHERE span_start_time BETWEEN span_end_time AND '2026-09-02'",
+    ),
+    (
+        "BETWEEN whose lower bound is a subquery",
+        "SELECT count() FROM spans WHERE span_start_time BETWEEN"
+        " (SELECT min(span_end_time) FROM spans) AND '2026-09-02'",
+    ),
+    (
+        "equality against another column",
+        "SELECT count() FROM spans WHERE span_start_time = span_end_time",
     ),
 ]
 
@@ -674,6 +767,91 @@ class TestTimeRange:
         assert self.SHIFT in exclusive and self.SHIFT not in inclusive
         assert "1900-01-01" not in exclusive and "2299-12-31" not in exclusive
 
+    @pytest.mark.parametrize(
+        ("label", "sugared", "expanded"),
+        EQUIVALENT_SPELLINGS,
+        ids=[e[0] for e in EQUIVALENT_SPELLINGS],
+    )
+    def test_sugar_reaches_the_view_as_the_window_it_expands_to(
+        self, label: str, sugared: str, expanded: str
+    ) -> None:
+        # Character for character, because the bounds decide which rows reach the
+        # dedup: two spellings of one window that disagreed there would answer
+        # differently, and the pair on the right is the spelling already measured
+        # against ClickHouse.
+        sugared_call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {sugared}", PID)[0],
+            "spans_public_v1",
+        )
+        expanded_call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {expanded}", PID)[0],
+            "spans_public_v1",
+        )
+        assert sugared_call == expanded_call, label
+        # Neither side fell back to a sentinel, which would prune nothing.
+        assert "1900-01-01" not in sugared_call and "2299-12-31" not in sugared_call
+
+    def test_the_callers_own_predicate_is_left_as_written(self) -> None:
+        # Only the copy read for bounds is expanded. The WHERE clause that filters
+        # is still the caller's, so rewriting it could only be a way to get it wrong.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02'",
+            PID,
+        )
+        assert "WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02'" in rendered
+
+    @pytest.mark.parametrize("label,clause", NEGATED_SUGAR, ids=[n[0] for n in NEGATED_SUGAR])
+    def test_the_expansion_leaves_a_negated_predicate_alone(self, label: str, clause: str) -> None:
+        # A negated predicate names the window the caller excluded, so expanding
+        # it produces a pair of comparisons describing exactly the window that
+        # must not reach the view. Nothing reads that pair today, because the
+        # extraction descends only through AND and parentheses, so the re-walk
+        # refuses these queries either way. The expansion still has to stay off
+        # them: an extraction taught to descend into NOT would otherwise find a
+        # ready-made window and scope the view to it.
+        import sqlglot
+
+        where = (
+            sqlglot.parse_one(f"SELECT count() FROM spans WHERE {clause}", dialect="clickhouse")
+            .args["where"]
+            .this
+        )
+        expanded = rewriter_mod._desugar_equivalents(where, "span_start_time", {"spans"}, False)
+        assert expanded.sql(dialect="clickhouse") == where.sql(dialect="clickhouse"), label
+        assert not list(expanded.find_all(exp.GTE)), label
+        assert not list(expanded.find_all(exp.LTE)), label
+
+    @pytest.mark.parametrize(
+        "label,clause", NOT_ON_ANOTHER_CONJUNCT, ids=[n[0] for n in NOT_ON_ANOTHER_CONJUNCT]
+    )
+    def test_a_negation_elsewhere_does_not_cost_the_window(self, label: str, clause: str) -> None:
+        # The other side of the guard above. A NOT on some other conjunct says
+        # nothing about the time predicate beside it, so the window still has to
+        # reach the view; refusing or opening a side here would charge the caller
+        # for a negation that was never on the time column.
+        call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {clause}", PID)[0],
+            "spans_public_v1",
+        )
+        assert "start_time = toTimeZone(toDateTime64('2026-09-01', 3), timezone())" in call, label
+        assert "1900-01-01" not in call and "2299-12-31" not in call, label
+
+    @pytest.mark.parametrize(
+        "label,sql",
+        SUGAR_WITH_AN_UNSCOPEABLE_BOUND,
+        ids=[s[0] for s in SUGAR_WITH_AN_UNSCOPEABLE_BOUND],
+    )
+    def test_sugar_carrying_a_bound_the_view_cannot_take_refuses_the_query(
+        self, label: str, sql: str
+    ) -> None:
+        # The expansion gives each half its own column node so that each is
+        # accounted for separately. Sharing one node would let the mapped side
+        # answer for the side that stayed open, and the view would then resolve
+        # rows over a window wider than the caller asked for, which is the silent
+        # hazard the re-walk exists to prevent.
+        with pytest.raises(SqlValidationError, match="cannot be scoped"):
+            scope_and_render(sql, PID)
+
     def test_a_relative_exclusive_bound_is_shifted_without_being_evaluated(self) -> None:
         call = _view_call(
             scope_and_render(
@@ -768,6 +946,28 @@ class TestTimeRange:
         # And it names nothing internal.
         for leak in ("public_v1", "scope_project_id", PID):
             assert leak not in str(exc.value)
+
+    def test_the_refusal_names_the_comparisons_that_can_be_scoped(self) -> None:
+        # Pinned because the sentence this replaced described a rule the caller had
+        # not broken: `!=` wraps nothing in a function and sits under no OR, so a
+        # refusal naming those sends the caller off to rewrite something else.
+        with pytest.raises(SqlValidationError) as exc:
+            scope_and_render("SELECT count() FROM spans WHERE span_start_time != '2026-09-01'", PID)
+        message = str(exc.value)
+        for comparison in (">=", ">", "<", "<=", "=", "BETWEEN"):
+            assert comparison in message, comparison
+        assert "wrapping it in a function" not in message
+        assert "placing it under OR" not in message
+
+    def test_the_refusal_names_the_column_it_could_not_scope(self) -> None:
+        # Either table's clock can be filtered on, and a message that always named
+        # the spans column would point a traces caller at a line they never wrote.
+        with pytest.raises(SqlValidationError) as exc:
+            scope_and_render(
+                "SELECT count() FROM traces WHERE trace_start_time != '2026-09-01'", PID
+            )
+        assert "trace_start_time" in str(exc.value)
+        assert "span_start_time" not in str(exc.value)
 
     @pytest.mark.parametrize("label,sql", SCOPEABLE_STILL, ids=[s[0] for s in SCOPEABLE_STILL])
     def test_what_was_always_fine_is_still_fine(self, label: str, sql: str) -> None:

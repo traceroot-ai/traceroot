@@ -86,7 +86,7 @@ For a judge, the model and the prompt are the scorer. Write the prompt with `{{i
 
     is_grounded = Scorer.llm_judge(
         name="is_grounded",
-        model="claude-haiku-4-5",
+        model="claude-haiku-5-5",
         messages=[
             {"role": "system", "content": "Reply 1.0 if the answer states concrete values, else 0.0."},
             {"role": "user", "content": "ANSWER:\n{{output}}"},
@@ -102,7 +102,7 @@ For a judge, the model and the prompt are the scorer. Write the prompt with `{{i
 
     const isGrounded = Scorer.llmJudge({
       name: "is_grounded",
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-5-5",
       messages: [
         { role: "system", content: "Reply 1.0 if the answer states concrete values, else 0.0." },
         { role: "user", content: "ANSWER:\n{{output}}" },
@@ -125,7 +125,7 @@ To fill in your own placeholders, pass a function that returns the template valu
     ```python
     @Scorer.llm_judge(
         name="comparison_present",
-        model="claude-haiku-4-5",
+        model="claude-haiku-5-5",
         messages=[{"role": "user", "content": "Does {{answer}} compare {{cities}}? Reply 1.0 or 0.0."}],
         value_type="numeric",
         threshold=1.0,
@@ -139,7 +139,7 @@ To fill in your own placeholders, pass a function that returns the template valu
     const comparisonPresent = Scorer.llmJudge(
       {
         name: "comparison_present",
-        model: "claude-haiku-4-5",
+        model: "claude-haiku-5-5",
         messages: [{ role: "user", content: "Does {{answer}} compare {{cities}}? Reply 1.0 or 0.0." }],
         valueType: "numeric",
         threshold: 1.0,

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode } from "lucide-react";
+import { ChevronRight, EyeOff, GitBranch, GitCommitHorizontal, FileCode } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
@@ -56,17 +56,29 @@ interface SpanInfoPanelProps {
   extraTags?: ReactNode;
 }
 
-/** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
-function stripInternalMetadata(raw: string | null | undefined): string | null {
-  if (!raw) return raw ?? null;
+/** Set by an SDK whose redaction function ran on this span before export. */
+const REDACTED_ATTRIBUTE = "traceroot.redacted";
+
+/**
+ * Drop internal `traceroot.span.*` keys and the redaction marker (shown as a header chip) so
+ * the Metadata panel shows only user metadata. Not the whole `traceroot.` namespace: SDK
+ * helpers record user-set values such as `traceroot.llm.model_parameters` here too.
+ */
+function splitInternalMetadata(raw: string | null | undefined): {
+  metadata: string | null;
+  redacted: boolean;
+} {
+  if (!raw) return { metadata: raw ?? null, redacted: false };
   try {
     const parsed = JSON.parse(raw);
     const filtered = Object.fromEntries(
-      Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
+      Object.entries(parsed).filter(
+        ([k]) => !k.startsWith("traceroot.span.") && k !== REDACTED_ATTRIBUTE,
+      ),
     );
-    return JSON.stringify(filtered);
+    return { metadata: JSON.stringify(filtered), redacted: parsed[REDACTED_ATTRIBUTE] === true };
   } catch {
-    return raw;
+    return { metadata: raw, redacted: false };
   }
 }
 
@@ -119,7 +131,7 @@ export function SpanInfoPanel({
   const rawMetadata = isTrace
     ? trace.metadata
     : (spanIO?.metadata ?? selection.span.metadata ?? null);
-  const metadata = stripInternalMetadata(rawMetadata);
+  const { metadata, redacted } = splitInternalMetadata(rawMetadata);
 
   // Trace-level aggregates (also the diff baseline source for the trace selection).
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
@@ -208,6 +220,15 @@ export function SpanInfoPanel({
             <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
               <DOMAIN_ICONS.model className="h-3 w-3" />
               {selection.span.model_name}
+            </div>
+          )}
+          {!isTrace && redacted && (
+            <div
+              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs"
+              title="Your app ran its redaction function on this span before sending it. Anything it removed never reached TraceRoot."
+            >
+              <EyeOff className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">Redacted by your app</span>
             </div>
           )}
           {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (

@@ -58,11 +58,16 @@ const boundedName = (field: string, max: number) => {
   }, message);
 };
 
-const jsonObject = (message: string, required: boolean) =>
-  z.unknown().superRefine((value, ctx) => {
+const jsonObject = (message: string, required: boolean) => {
+  const schema = z.unknown().superRefine((value, ctx) => {
     if (!required && value === undefined) return;
     if (!isPlainObject(value)) ctx.addIssue({ code: "custom", message });
   });
+  // zod 4.4+ treats a missing key as invalid for z.unknown(); .optional() keeps
+  // an omitted optional field valid. A required field still reaches the refine
+  // with undefined (only the key's presence is optional) and gets the message.
+  return required ? schema : schema.optional();
+};
 
 const dashboardSchema = z.object({
   name: boundedName("name", DASHBOARD_NAME_MAX),
@@ -406,12 +411,15 @@ const widgetPatchSchema = z.object({
   title: widgetSchema.shape.title.optional(),
   spec: jsonObject("spec must be a JSON object", false),
   // Nullable: null resets the display config to the column default.
-  displayConfig: z.unknown().superRefine((value, ctx) => {
-    if (value === undefined || value === null) return;
-    if (!isPlainObject(value)) {
-      ctx.addIssue({ code: "custom", message: "displayConfig must be a JSON object" });
-    }
-  }),
+  displayConfig: z
+    .unknown()
+    .superRefine((value, ctx) => {
+      if (value === undefined || value === null) return;
+      if (!isPlainObject(value)) {
+        ctx.addIssue({ code: "custom", message: "displayConfig must be a JSON object" });
+      }
+    })
+    .optional(),
 });
 
 const DASHBOARD_NOT_FOUND = { ok: false, status: 404, error: "Dashboard not found" } as const;

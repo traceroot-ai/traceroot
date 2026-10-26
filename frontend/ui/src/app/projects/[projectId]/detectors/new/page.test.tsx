@@ -4,11 +4,15 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { getTemplate } from "@/features/detectors/templates";
 
+import { ApiError } from "@/lib/api/client";
+
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
   selectorProps: null as Record<string, unknown> | null,
   editedConditions: [] as Array<Record<string, unknown>>,
+  createMutationError: null as (Error & { status?: number }) | null,
+  resetMutation: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -16,7 +20,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutateAsync: mocks.mutateAsync,
+    isPending: false,
+    isError: mocks.createMutationError !== null,
+    error: mocks.createMutationError,
+    reset: () => {
+      mocks.resetMutation();
+      mocks.createMutationError = null;
+    },
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
@@ -75,6 +88,8 @@ afterEach(() => {
   mocks.push.mockClear();
   mocks.selectorProps = null;
   mocks.editedConditions = [];
+  mocks.createMutationError = null;
+  mocks.resetMutation.mockClear();
 });
 
 const createButton = () =>
@@ -192,5 +207,37 @@ describe("NewDetectorPage — the conditions it submits", () => {
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
       triggerConditions: [{ field: "duration_ms", op: ">", value: 4500 }],
     });
+  });
+});
+
+describe("NewDetectorPage — creation error handling", () => {
+  it("displays duplicate name error below name field and clears on edit", async () => {
+    const errorMsg = "A detector with this name already exists";
+    mocks.createMutationError = new ApiError(409, errorMsg);
+    mocks.mutateAsync.mockRejectedValueOnce(mocks.createMutationError);
+
+    render(<NewDetectorPage />);
+    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const errorEl = screen.getByText(errorMsg);
+    expect(errorEl).toBeDefined();
+    expect(nameInput.parentElement?.contains(errorEl)).toBe(true);
+
+    fireEvent.change(nameInput, { target: { value: "New Name" } });
+    expect(mocks.resetMutation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(errorMsg)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
+  });
+
+  it("displays unrelated create errors in footer instead of below name field", () => {
+    const errorMsg = "Workspace does not have access to selected model";
+    mocks.createMutationError = new ApiError(400, errorMsg);
+
+    render(<NewDetectorPage />);
+    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const errorEl = screen.getByText(errorMsg);
+    expect(errorEl).toBeDefined();
+    expect(nameInput.parentElement?.contains(errorEl)).toBe(false);
   });
 });
