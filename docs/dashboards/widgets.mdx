@@ -44,8 +44,8 @@ The underlying dataset to query:
 ### Filters (`filters`)
 
 An array of filter predicates applied to the query. Each filter includes:
-- `field` (string): The field to filter. On `spans` these are `name`, `span_kind`, `status`, `error_type`, `model_name`, `environment`, `is_root` and `metadata`, plus the numeric measures below.
-- `op` (string): Operators are per field — `=`, `contains` and `in` on string dimensions, `>`, `>=`, `<`, `<=` and `=` on numeric ones.
+- `field` (string): The field to filter. On `spans` these are `name`, `span_kind`, `status`, `error_type`, `model_name`, `environment`, `is_root`, and `metadata`, plus the numeric measures below. Note that `is_root` and `metadata` carry `in_builder=False`, so they are available via the API and alerts but do not appear in the builder UI.
+- `op` (string): Operators are per field — string dimensions take `=`, `contains`, and `in` (with two exceptions: `is_root` accepts only `=`, and `metadata` accepts only `=` and `contains`), while numeric measures take `>`, `>=`, `<`, `<=`, and `=`.
 - `value` (string, number, or array of strings): The value to compare against. The `in` operator takes a list of 1 to 100 non-empty strings (for example, `["LLM", "CHAIN"]`), while all other operators take a single string or number. Empty strings and non-finite numbers (`NaN`, `Infinity`) are rejected.
 - `key` (string, optional): Required when querying keyed fields such as span attributes or custom trace metadata.
 
@@ -61,7 +61,7 @@ Example filter:
 ### Metric (`metric`)
 
 Defines the quantitative measure and the aggregation function plotted on the y-axis:
-- `measure` (string): The metric to aggregate. On `spans` these are `duration_ms`, `cost`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens` and `tokens_per_second`, plus the `"count"` sentinel.
+- `measure` (string): The metric to aggregate. On `spans` these are `duration_ms`, `cost`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens`, `tokens_per_second`, and `trace_id`, plus the `"count"` sentinel.
 - `agg` (string): One of 11 aggregation functions — `count`, `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99` and `uniq`. The `pNN` functions are percentiles, so `p50` is the median, and `uniq` is an approximate distinct count (HyperLogLog).
 
 <Warning>
@@ -85,8 +85,6 @@ TraceRoot supports 7 display types. Depending on the visualization type, specifi
 | `number` | Single stat counter / KPI tile | **Rejected**. Must be `null`; renders exactly one headline number. |
 | `table` | Tabular breakdown of values | **Optional**. Displays aggregated rows with optional groupings. |
 | `histogram` | Value frequency distribution | **Rejected**. Must be `null`; compiles into automated value bins. |
-
-A `pie` or `bar` widget missing a breakdown is rejected with a validation error (`"<type> requires a breakdown dimension"`), and passing a breakdown to a `number` or `histogram` widget is rejected to prevent silent group truncation.
 
 ## Trace feed widget specification
 
