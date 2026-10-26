@@ -149,6 +149,7 @@ def test_the_offered_fields_are_the_trace_list_fields_without_trace_id():
         "status",
         "error_type",
         "name",
+        "tags",
     ]
     assert "trace_id" not in [field for field, _ in _parse_offered_fields()]
     # Guards the exclusion above against becoming vacuous if the trace list

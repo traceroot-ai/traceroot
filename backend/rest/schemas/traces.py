@@ -40,6 +40,8 @@ class SpanSkeletonResponse(BaseModel):
     git_source_file: str | None = None
     git_source_line: int | None = None
     git_source_function: str | None = None
+    # The span's own tags as extracted at ingest (#1748); [] for an untagged span.
+    tags: list[str] = []
 
 
 class SpanResponse(SpanSkeletonResponse):
@@ -100,6 +102,8 @@ class TraceListItem(BaseModel):
     # row's cell can differ from what its filter matched — see the comment on the list
     # query in ``trace_reader.list_traces``.
     metadata_map: dict[str, str] = {}
+    # The union of the tags on the trace's spans, sorted (#1748). [] when none carry any.
+    tags: list[str] = []
 
 
 class TraceListResponse(BaseModel):
@@ -133,6 +137,8 @@ class TraceDetailResponse(BaseModel):
     output: str | None
     metadata: str | None
     spans: list[SpanResponse]
+    # The union of ``spans[].tags``, sorted (#1748).
+    tags: list[str] = []
 
 
 class FilterField(BaseModel):

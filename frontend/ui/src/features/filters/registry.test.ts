@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { STATIC_FILTER_FIELDS, type FilterFieldDef } from "./registry";
 
 describe("STATIC_FILTER_FIELDS fallback", () => {
-  it("covers the trace + signal + membership + aggregate tiers", () => {
+  it("covers the trace + signal + membership + array membership + aggregate tiers", () => {
     expect(STATIC_FILTER_FIELDS.map((f) => f.field).sort()).toEqual(
       [
         "cost",
@@ -19,6 +19,7 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
         "signal_id",
         "span_kind",
         "status",
+        "tags",
         "total_tokens",
         "trace_id",
       ].sort(),

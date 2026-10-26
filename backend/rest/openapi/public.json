@@ -3751,6 +3751,14 @@
             "title": "Spans",
             "type": "array"
           },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
           "trace_id": {
             "title": "Trace Id",
             "type": "string"
@@ -3893,6 +3901,14 @@
           "span_count": {
             "title": "Span Count",
             "type": "integer"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
           },
           "total_cost": {
             "anyOf": [
@@ -5683,6 +5699,14 @@
               }
             ],
             "title": "Status Message"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
           },
           "total_tokens": {
             "anyOf": [
@@ -13356,6 +13380,36 @@
                           "field": {
                             "const": "name",
                             "title": "Span name",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "tags",
+                            "title": "Tags",
                             "type": "string"
                           },
                           "op": {
