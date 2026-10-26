@@ -7,7 +7,7 @@ The [TraceRoot Claude Code plugin](https://github.com/traceroot-ai/traceroot-cla
 
 Each conversation turn becomes a live trace in TraceRoot showing LLM calls, tool invocations, token consumption, and nested sub-agent runs — all organized by session.
 
-## Installation
+## Install
 
 Add the repository to your Claude Code plugin marketplace and install — this is what registers the plugin's hooks with Claude Code:
 
@@ -23,7 +23,7 @@ Or run directly from within the Claude Code prompt:
 /plugin install traceroot-observability@traceroot-claude-code-plugin
 ```
 
-## Configuration
+## Set up
 
 Set your TraceRoot API key in your shell profile (e.g. `~/.zshrc` or `~/.bashrc`):
 
@@ -43,7 +43,23 @@ export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
 
 Restart Claude Code or launch a new terminal session. All turns and tool actions will stream to TraceRoot.
 
-## What Gets Captured
+## Usage
+
+Start Claude Code in your terminal as usual:
+
+```bash
+claude
+```
+
+Prompt the assistant or run tasks. The plugin automatically streams traces for every turn, model call, and tool execution in real time.
+
+## Verify
+
+Start a session and confirm traces arrive:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see your Claude Code session traces with turn-by-turn tool executions and model calls.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 | --------- | ----------- |
@@ -52,10 +68,17 @@ Restart Claude Code or launch a new terminal session. All turns and tool actions
 | Tools | File edits, bash commands, searches, and test executions |
 | Tokens | Input and output token counts per model call |
 
-## Repository
+## Limitations
 
-The plugin is open-source on GitHub:
+- Tracing requires Claude Code plugin support and a valid `TRACEROOT_API_KEY`.
 
-<Card title="traceroot-claude-code-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-claude-code-plugin">
-  View source code, releases, and documentation on GitHub
-</Card>
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Claude Code Plugin Repository" icon="github" href="https://github.com/traceroot-ai/traceroot-claude-code-plugin">
+    View source code, releases, and documentation on GitHub.
+  </Card>
+  <Card title="Sessions" icon="clock" href="/tracing/sessions">
+    Learn how TraceRoot groups turns and tool calls by agent session.
+  </Card>
+</CardGroup>

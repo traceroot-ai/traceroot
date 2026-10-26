@@ -7,7 +7,7 @@ Automatically capture AWS Bedrock model calls, Converse API requests, tool/funct
 
 TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and **TypeScript** (via `@aws-sdk/client-bedrock-runtime`).
 
-## Installation
+## Install
 
 <Tabs>
   <Tab title="Python">
@@ -22,7 +22,7 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
   </Tab>
 </Tabs>
 
-## Setup
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -57,10 +57,6 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
 
     ```python
     import boto3
-    import traceroot
-    from traceroot import Integration
-
-    traceroot.initialize(integrations=[Integration.BEDROCK])
 
     client = boto3.client("bedrock-runtime", region_name="us-east-1")
 
@@ -79,16 +75,11 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
     Calls made through `BedrockRuntimeClient` (such as `ConverseCommand`) are automatically traced:
 
     ```typescript
-    import * as bedrockRuntime from '@aws-sdk/client-bedrock-runtime';
     import {
       BedrockRuntimeClient,
       ConverseCommand,
     } from '@aws-sdk/client-bedrock-runtime';
     import { TraceRoot } from '@traceroot-ai/traceroot';
-
-    TraceRoot.initialize({
-      instrumentModules: { bedrock: bedrockRuntime },
-    });
 
     const client = new BedrockRuntimeClient({ region: 'us-east-1' });
 
@@ -107,7 +98,13 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `bedrock.converse` (or `bedrock.converse_stream` when streaming).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute  | Description                                                       |
 | ---------- | ----------------------------------------------------------------- |
@@ -118,6 +115,10 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
 | Tokens     | Input and output token counts                                     |
 | Latency    | Request duration                                                  |
 
+## Limitations
+
+None known.
+
 ## Run the example
 
 Clone the repository and run a complete AWS Bedrock tool-agent:
@@ -125,3 +126,14 @@ Clone the repository and run a complete AWS Bedrock tool-agent:
 <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/bedrock">
   Run the Bedrock Converse tool-agent example
 </Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
+  </Card>
+</CardGroup>

@@ -7,7 +7,7 @@ The [TraceRoot Codex plugin](https://github.com/traceroot-ai/traceroot-codex-plu
 
 Every query becomes **one live trace** — capturing agent turns, model calls, tool executions, file edits, and any subagents spawned — streamed in the background as the agent works and linked to your git repository.
 
-## Installation
+## Install
 
 Add the marketplace and install the plugin:
 
@@ -31,7 +31,7 @@ features.hooks = true
 enabled = true
 ```
 
-## Configuration
+## Set up
 
 Create or update `~/.codex/traceroot.json` with your API key:
 
@@ -46,7 +46,7 @@ Create or update `~/.codex/traceroot.json` with your API key:
 Because Codex hooks run in isolated subprocesses that do not always inherit your shell environment, using `~/.codex/traceroot.json` is recommended over shell environment variables.
 </Note>
 
-### Optional Configuration
+### Optional configuration
 
 Non-sensitive settings (`enabled`, `max_chars`, `debug`, `fail_on_error`) can be specified in project-local `.codex/traceroot.json`, global `~/.codex/traceroot.json`, or environment variables. Sensitive settings (`api_key` and `host_url`) are read only from environment variables or global `~/.codex/traceroot.json` so checked-in repository configs cannot redirect authenticated uploads:
 
@@ -59,7 +59,23 @@ Non-sensitive settings (`enabled`, `max_chars`, `debug`, `fail_on_error`) can be
 | `debug` | `TRACEROOT_CODEX_DEBUG` | `false` | Enable verbose diagnostic logging to stderr. |
 | `fail_on_error` | `TRACEROOT_CODEX_FAIL_ON_ERROR` | `false` | Surface tracing errors instead of swallowing them. Off by default, so tracing never blocks a Codex turn. |
 
-## What Gets Captured
+## Usage
+
+Run queries in OpenAI Codex as usual:
+
+```bash
+codex "Analyze the test suite and fix failing tests"
+```
+
+Every query becomes a live trace in TraceRoot, streamed in the background as the agent works.
+
+## Verify
+
+Run a query and confirm traces arrive:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see your Codex query traces with tool executions and git context.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 | --------- | ----------- |
@@ -68,10 +84,17 @@ Non-sensitive settings (`enabled`, `max_chars`, `debug`, `fail_on_error`) can be
 | Model usage | LLM model names, token counts, and step latencies |
 | Git context | Repository name and active commit hash |
 
-## Repository
+## Limitations
 
-The plugin is open-source on GitHub:
+- Hooks must be enabled via `codex features enable hooks` for the plugin to run.
 
-<Card title="traceroot-codex-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-codex-plugin">
-  View source code, releases, and documentation on GitHub
-</Card>
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Codex Plugin Repository" icon="github" href="https://github.com/traceroot-ai/traceroot-codex-plugin">
+    View source code, releases, and documentation on GitHub.
+  </Card>
+  <Card title="Git Context" icon="git-alt" href="/tracing/git-context">
+    Learn how TraceRoot captures repository and commit metadata on spans.
+  </Card>
+</CardGroup>

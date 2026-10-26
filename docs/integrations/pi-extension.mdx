@@ -11,7 +11,7 @@ Each session sends live traces to TraceRoot with conversation turns, LLM request
 If you are embedding pi inside your own Node.js application instead of using the interactive CLI, see [pi SDK (`@earendil-works/pi-coding-agent`)](/integrations/pi) or [pi Agent Core](/integrations/pi-agent-core).
 </Note>
 
-## Installation
+## Install
 
 Install the extension directly via `pi`:
 
@@ -27,7 +27,7 @@ cd traceroot-pi-extension
 pi install .
 ```
 
-## Configuration
+## Set up
 
 Tracing is opt-in. Set your TraceRoot environment variables in your shell profile (e.g. `~/.bashrc`, `~/.zshrc`):
 
@@ -48,10 +48,42 @@ export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
 
 Restart your terminal, or `source` the profile you edited (e.g. `source ~/.zshrc`), then launch `pi`. All interactions are streamed to your TraceRoot dashboard in real time.
 
-## Repository
+## Usage
 
-The extension is open-source on GitHub:
+Launch `pi` in your terminal as usual:
 
-<Card title="traceroot-pi-extension" icon="github" href="https://github.com/traceroot-ai/traceroot-pi-extension">
-  View source code, releases, and documentation on GitHub
-</Card>
+```bash
+pi
+```
+
+Start prompting the agent. Each conversation turn, LLM query, and tool execution is automatically captured and streamed to TraceRoot.
+
+## Verify
+
+Start a session and confirm traces arrive:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see real-time traces for your interactive CLI session turns.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent session traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+| --------- | ----------- |
+| Sessions  | Full session continuity and conversation history |
+| Turns     | Agent prompt and response turns with latency |
+| Tools     | Tool executions with inputs, outputs, and status |
+| Tokens    | Input and output token counts per model call |
+
+## Limitations
+
+- Interactive session tracing requires `TRACEROOT_ENABLED=true` and a valid `TRACEROOT_API_KEY`.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="pi Extension Repository" icon="github" href="https://github.com/traceroot-ai/traceroot-pi-extension">
+    View source code, releases, and documentation on GitHub.
+  </Card>
+  <Card title="Sessions" icon="clock" href="/tracing/sessions">
+    Learn how TraceRoot organizes multi-turn agent interactions into sessions.
+  </Card>
+</CardGroup>

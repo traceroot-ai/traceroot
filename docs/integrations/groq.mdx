@@ -7,13 +7,13 @@ Automatically capture all Groq chat completion calls, including tool/function ca
 
 TraceRoot instruments the native [`groq`](https://pypi.org/project/groq/) SDK directly via `Integration.GROQ`.
 
-## Installation
+## Install
 
 ```bash
 pip install traceroot groq
 ```
 
-## Setup
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -34,11 +34,6 @@ Once initialized, all Groq completions are captured automatically:
 import os
 from groq import Groq
 
-import traceroot
-from traceroot import Integration
-
-traceroot.initialize(integrations=[Integration.GROQ])
-
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 # This call is automatically traced
@@ -52,7 +47,13 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `Completions` (or `AsyncCompletions` when using `AsyncGroq`).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute  | Description                                                       |
 | ---------- | ----------------------------------------------------------------- |
@@ -63,6 +64,10 @@ print(response.choices[0].message.content)
 | Tokens     | Prompt, completion, and total tokens                              |
 | Latency    | Request duration                                                  |
 
+## Limitations
+
+- Groq auto-instrumentation currently does not support streaming responses.
+
 ## Run the example
 
 Clone the repository and run a complete ReAct tool-agent built with Groq and TraceRoot:
@@ -70,3 +75,14 @@ Clone the repository and run a complete ReAct tool-agent built with Groq and Tra
 <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/groq-tool-agent">
   Run the Groq tool-agent example
 </Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

@@ -3,13 +3,13 @@ title: DeepSeek
 description: Trace DeepSeek model calls through OpenAI-compatible instrumentation
 ---
 
-DeepSeek provides an OpenAI-wire-compatible API. Because of this compatibility, you can use the official `openai` SDK pointing to DeepSeek's base URL (`https://api.deepseek.com`), and TraceRoot captures these calls through its existing OpenAI integration without requiring a separate instrumentor.
+DeepSeek provides an OpenAI-wire-compatible API: use the standard `openai` SDK pointing to DeepSeek's base URL (`https://api.deepseek.com`). TraceRoot captures these calls through its existing OpenAI integration.
 
 <Note>
 DeepSeek has no dedicated instrumentor: tracing goes through `Integration.OPENAI` in Python and `instrumentModules: { openAI }` in TypeScript.
 </Note>
 
-## Installation
+## Install
 
 <Tabs>
   <Tab title="Python">
@@ -24,7 +24,7 @@ DeepSeek has no dedicated instrumentor: tracing goes through `Integration.OPENAI
   </Tab>
 </Tabs>
 
-## Setup
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -111,7 +111,13 @@ DeepSeek has no dedicated instrumentor: tracing goes through `Integration.OPENAI
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ChatCompletion` (`OpenAI Chat Completions` on TypeScript).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute  | Description                                                       |
 | ---------- | ----------------------------------------------------------------- |
@@ -121,6 +127,10 @@ DeepSeek has no dedicated instrumentor: tracing goes through `Integration.OPENAI
 | Tool calls | Function and tool call arguments and results                      |
 | Tokens     | Prompt, completion, and reasoning token counts                    |
 | Latency    | Request duration                                                  |
+
+## Limitations
+
+- DeepSeek requests are traced through the standard OpenAI integration; token pricing requires provider-returned usage headers or recognized model mappings.
 
 ## Run the example
 
@@ -132,5 +142,16 @@ Clone the repository and run a complete ReAct tool-agent using DeepSeek:
   </Card>
   <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/deepseek">
     Run the TypeScript DeepSeek tool-agent example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
   </Card>
 </CardGroup>
