@@ -484,6 +484,54 @@ def test_a_window_spelled_either_way_resolves_the_same_row(gateway, label, predi
     assert rows == [("sem-dedup", "v1")], label
 
 
+#: One window each, spelled as sugar and as the pair of comparisons it expands to.
+#: BETWEEN closes both ends, so the pair it is measured against ends on the same
+#: instant rather than on the exclusive end the half-open cases above use.
+SUGARED_WINDOW = [
+    (
+        "BETWEEN",
+        "span_start_time BETWEEN '2026-09-01 00:00:00' AND '2026-09-04 23:59:59.999'",
+        "span_start_time >= '2026-09-01 00:00:00' AND span_start_time <= '2026-09-04 23:59:59.999'",
+    ),
+    (
+        "equality",
+        "span_start_time = '2026-09-01 00:00:00'",
+        "span_start_time >= '2026-09-01 00:00:00' AND span_start_time <= '2026-09-01 00:00:00'",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "label,sugared,expanded", SUGARED_WINDOW, ids=[s[0] for s in SUGARED_WINDOW]
+)
+def test_sugar_reads_the_rows_its_expansion_reads(gateway, label, sugared, expanded):
+    """Two spellings of one window, so the gateway has to answer them alike.
+
+    Measured against production on 2026-09-19, the sugared spelling was refused
+    outright while the pair ran. The expected rows are read live from the pair
+    rather than written down here, so the two spellings cannot agree by being
+    wrong together.
+    """
+    rows = _values(_rows(gateway, f"SELECT span_id FROM spans WHERE {sugared}", PROJECT_SEM))
+    assert rows, label
+    assert rows == _values(
+        _rows(gateway, f"SELECT span_id FROM spans WHERE {expanded}", PROJECT_SEM)
+    )
+    # And through a view told nothing about the window: the bounds prune the scan,
+    # they never change the answer.
+    assert (
+        _values(
+            _rows(
+                gateway,
+                f"SELECT span_id FROM spans WHERE {sugared}",
+                PROJECT_SEM,
+                open_bounds=True,
+            )
+        )
+        == rows
+    ), label
+
+
 @pytest.mark.parametrize(
     "label,sql",
     [
@@ -511,8 +559,12 @@ def test_bounded_query_matches_its_unbounded_form(gateway, label, sql):
         "SELECT s.span_id FROM spans AS s INNER JOIN traces AS t ON s.trace_id = t.trace_id "
         "WHERE s.span_start_time >= t.trace_start_time",
         "SELECT span_id FROM spans WHERE span_start_time >= (SELECT min(span_start_time) FROM spans)",
+        # Scopeable on its lower side and not on its upper: the expansion has to
+        # account for each half on its own, or the good half answers for the one
+        # left open and the view resolves rows over a window nobody asked for.
+        "SELECT span_id FROM spans WHERE span_start_time BETWEEN '2026-09-01' AND span_end_time",
     ],
-    ids=["column reference bound", "scalar subquery bound"],
+    ids=["column reference bound", "scalar subquery bound", "half-scopeable BETWEEN"],
 )
 def test_a_non_constant_bound_is_refused(gateway, sql):
     # These used to run with that side left open, which agreed with the open-bounds

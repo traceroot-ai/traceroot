@@ -1121,7 +1121,7 @@ class TraceReaderService:
                     LIMIT 1 BY t.project_id, t.trace_id
                 ) AS t
                 GROUP BY t.session_id
-                ORDER BY max(t.trace_start_time) DESC
+                ORDER BY max(t.trace_start_time) DESC, t.session_id DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             traces_dedup AS (
@@ -1171,7 +1171,7 @@ class TraceReaderService:
             FROM traces_dedup AS td
             LEFT JOIN span_agg AS sa ON td.trace_id = sa.trace_id
             GROUP BY td.session_id
-            ORDER BY last_trace_time DESC
+            ORDER BY last_trace_time DESC, td.session_id DESC
         """
 
         result = self._client.query(query, parameters=params)
@@ -1535,7 +1535,7 @@ class TraceReaderService:
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
                 GROUP BY user_id
-                ORDER BY last_trace_time DESC
+                ORDER BY last_trace_time DESC, user_id DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             user_traces AS (
@@ -1572,7 +1572,7 @@ class TraceReaderService:
                 st.total_cost
             FROM user_page AS up
             LEFT JOIN span_totals AS st ON up.user_id = st.user_id
-            ORDER BY up.last_trace_time DESC
+            ORDER BY up.last_trace_time DESC, up.user_id DESC
         """
 
         result = self._client.query(query, parameters=params)

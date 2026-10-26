@@ -49,6 +49,40 @@ def test_excludes_internal_session_and_project_routes():
     assert "/health" not in paths
 
 
+def test_whoami_publishes_the_key_scope_field():
+    """The CLI re-vendors this document rather than hand-rolling the type.
+
+    So the field has to be *in* the document, required, and a closed enum — a
+    client that generates its types from here gets an exhaustive union, and one
+    that validates responses against it rejects a missing scope instead of
+    quietly treating it as unknown.
+    """
+    schema = _schema()
+    whoami_ref = schema["paths"]["/api/v1/public/whoami"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    assert whoami_ref.endswith("/WhoamiResponse")
+    model = schema["components"]["schemas"]["WhoamiResponse"]
+    scope = model["properties"]["key_scope"]
+    assert scope["type"] == "string"
+    assert scope["enum"] == ["ingest", "admin"]
+    assert "key_scope" in model["required"]
+    # Alongside the identity fields it belongs with, not in place of them.
+    for field in ("key_name", "key_hint"):
+        assert field in model["properties"]
+
+
+def test_whoami_needs_no_credential_beyond_the_key_it_already_takes():
+    """Reading a key's own scope introduces no new permission.
+
+    The document is the statement of that: whoami carries the same bearer
+    security as before and nothing else, so a client cannot read this field as a
+    hint that some other credential is now involved.
+    """
+    whoami = _schema()["paths"]["/api/v1/public/whoami"]["get"]
+    assert whoami["security"] == [{"BearerAuth": []}]
+
+
 def test_export_response_model_present_and_referenced():
     schema = _schema()
     export_op = schema["paths"]["/api/v1/public/traces/{trace_id}/export"]["get"]
@@ -460,6 +494,9 @@ EXPECTED_OPERATION_IDS = {
         "delete": "delete_alert",
     },
     "/api/v1/public/alerts/{alert_id}/status": {"patch": "set_alert_status"},
+    "/api/v1/public/signals": {"get": "list_signals"},
+    "/api/v1/public/signals/{signal_id}": {"get": "get_signal"},
+    "/api/v1/public/signals/{signal_id}/status": {"patch": "set_signal_status"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/widgets/query": {"post": "run_widget_query"},
     "/api/v1/public/widgets/{widget_id}": {
@@ -565,6 +602,8 @@ def test_x_tool_enabled_set_and_shape():
         "get_dashboard",
         "list_alerts",
         "get_alert",
+        "list_signals",
+        "get_signal",
         "list_workspaces",
         "list_projects",
         "create_workspace",
@@ -586,6 +625,7 @@ def test_x_tool_enabled_set_and_shape():
         "update_widget",
         "update_alert",
         "set_alert_status",
+        "set_signal_status",
         "delete_workspace",
         "delete_project",
         "delete_detector",
@@ -625,6 +665,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/widgets/{widget_id}/data",
     "/api/v1/public/alerts",
     "/api/v1/public/alerts/{alert_id}",
+    "/api/v1/public/signals",
+    "/api/v1/public/signals/{signal_id}",
     "/api/v1/public/datasets",
     "/api/v1/public/datasets/{dataset_id}",
     "/api/v1/public/datasets/{dataset_id}/versions",
@@ -944,9 +986,9 @@ def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
     assert tool["policy"] == policy
 
 
-# The thirteen edit operations, pinned to their exact write-tool policy. Role
+# The edit operations, pinned to their exact write-tool policy. Role
 # floors follow the cookie routes (renaming a workspace or changing a project's
-# retention is administrative; the four project resources take MEMBER).
+# retention is administrative; the project resources take MEMBER).
 # Updates are "confirm" like the creates; deletes are "approval" — the class
 # that parks on a destructive card attended and is blocked unattended.
 _CONFIRM = "confirm"
@@ -985,6 +1027,11 @@ _EDIT_TOOL_POLICIES = {
     "set_alert_status": (
         "patch",
         "/api/v1/public/alerts/{alert_id}/status",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "set_signal_status": (
+        "patch",
+        "/api/v1/public/signals/{signal_id}/status",
         {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
     ),
     "delete_workspace": (
@@ -1321,6 +1368,7 @@ def test_each_resource_has_one_tag():
         "Detectors",
         "Offline Eval",
         "Sessions",
+        "Signals",
         "SQL",
         "Traces",
         "Whoami",

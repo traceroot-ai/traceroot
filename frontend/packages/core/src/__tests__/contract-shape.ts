@@ -68,6 +68,11 @@ const isNullNode = (node: JsonSchema) => node?.type === "null";
 
 /** `anyOf: [T, null]` (either order) → `[T, true]`; anything else → `[node, false]`. */
 function unwrapNullable(node: JsonSchema): [JsonSchema, boolean] {
+  // zod 4.4+ may spell a nullable primitive as `type: [T, "null"]` instead of an anyOf.
+  if (Array.isArray(node.type) && node.type.includes("null")) {
+    const rest = (node.type as string[]).filter((t) => t !== "null");
+    if (rest.length === 1) return [{ ...node, type: rest[0] }, true];
+  }
   const variants = node.anyOf ?? node.oneOf;
   if (Array.isArray(variants) && variants.length === 2) {
     if (isNullNode(variants[1])) return [variants[0], true];
@@ -198,7 +203,13 @@ export function contractShapes(module: Record<string, unknown>): Record<string, 
 
   const shapes: Record<string, Shape> = {};
   for (const [name, schema] of models) {
-    const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as JsonSchema;
+    let json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as JsonSchema & {
+      $defs?: Record<string, JsonSchema>;
+    };
+    // zod 4.4+ emits a registered root schema as `$ref` into `$defs`; read the model itself.
+    if (typeof json.$ref === "string" && json.$defs?.[refName(json.$ref)]) {
+      json = json.$defs[refName(json.$ref)];
+    }
     shapes[name] = json.oneOf || json.anyOf ? unionShape(json) : objectShape(json);
   }
   return shapes;

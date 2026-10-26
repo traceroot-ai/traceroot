@@ -382,6 +382,22 @@ describe("buildAlertClosedBlocks", () => {
     expect(sectionTexts(unnamed)[0]).toContain("Rule edited, previous alert closed.");
   });
 
+  it("says a delete closed it, that nothing follows, and links to no page that is gone", () => {
+    const deleted = buildAlertClosedBlocks({ ...closedBase, reason: "deleted" });
+    const sections = sectionTexts(deleted);
+
+    expect((deleted.blocks as any[])[0].text.text).toBe("[OK] Checkout p95 latency");
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toContain("Rule deleted by Ada, previous alert closed.");
+    expect(sections[0]).toContain("nothing more is announced for it");
+    expect(sections[0]).not.toContain("announced as a new alert");
+    expect(JSON.stringify(deleted.blocks)).not.toContain("/alerts/al_1");
+    expect(deleted.text).toContain("Rule deleted by Ada");
+    expect(deleted.color).toBe(ALERT_SEVERITY_COLORS.OK);
+    const context = (deleted.blocks as any[]).find((b) => b.type === "context");
+    expect(context.elements[0].text).toBe("Closed by a rule delete, not by a recovery");
+  });
+
   it("keeps the close reason in the fallback text however long the rule's name is", () => {
     const message = buildAlertClosedBlocks({ ...closedBase, name: "n".repeat(400) });
 

@@ -17,6 +17,12 @@ class WhoamiResponse(BaseModel):
     Name fields are nullable: they depend on what the internal key-validation
     contract returns, and the backend never fabricates them. The full API token
     is never included — only ``key_hint``.
+
+    ``key_scope`` is the exception to the nullability above, deliberately. A
+    holder asking what their key may do needs an answer, not a maybe: a null
+    would have to be handled by every caller and would mean the same thing the
+    narrow scope already means. It is a closed set of values rather than a free
+    string so a client can exhaust it.
     """
 
     project_id: str
@@ -25,6 +31,11 @@ class WhoamiResponse(BaseModel):
     workspace_name: str | None
     key_name: str | None
     key_hint: str | None
+    # Spelled out rather than imported from the auth layer: nothing else in this
+    # module reaches into a router, and a response schema should not be what
+    # makes it start. The two are asserted identical by
+    # tests/rest/test_whoami.py::test_reported_scopes_are_the_auth_layers_scopes.
+    key_scope: Literal["ingest", "admin"]
     host: str
     ui_base_url: str
 
@@ -215,6 +226,13 @@ class WorkspaceListItem(BaseModel):
     id: str
     name: str
     role: str
+    is_demo: bool = Field(
+        default=False,
+        description=(
+            "True for the public demo workspace, which every user can read. It is "
+            "listed last and is not one of the user's own workspaces."
+        ),
+    )
 
 
 class PublicWorkspaceListResponse(BaseModel):
@@ -235,6 +253,9 @@ class ProjectListItem(BaseModel):
     name: str
     workspace_id: str
     workspace_name: str
+    workspace_is_demo: bool = Field(
+        default=False, description="True when the project is in the public demo workspace."
+    )
 
 
 class PublicProjectListResponse(BaseModel):
@@ -619,3 +640,49 @@ class PublicAlertListResponse(BaseModel):
 
     data: list[AlertSummary]
     meta: AlertListMeta
+
+
+# ── signals ─────────────────────────────────────────────────────────────
+
+# Mirrors SIGNAL_STATUSES in frontend/packages/core/src/ee/signals/constants.ts
+# (a parity test reads that file).
+SignalStatus = Literal["open", "resolved", "dismissed"]
+
+
+class SignalSummary(BaseModel):
+    """A signal: a recurring problem that one detector's findings are grouped into.
+
+    ``reopen_count`` counts the automatic reopens (a new finding after the
+    signal was resolved). ``rca_state`` is the state of the root cause analysis
+    of the current opening, null when none ran for it.
+    """
+
+    signal_id: str
+    detector_id: str
+    detector_name: str | None
+    title: str
+    status: SignalStatus
+    hit_count: int
+    reopen_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    created_at: datetime
+    rca_state: str | None = None
+
+
+class SignalDetail(SignalSummary):
+    """One signal, including when it was resolved and whether it was merged.
+
+    A merged signal is still answered, with ``merged_into_id`` naming the signal
+    its findings moved to; lists leave merged signals out.
+    """
+
+    resolved_at: datetime | None
+    merged_into_id: str | None
+
+
+class PublicSignalListResponse(BaseModel):
+    """Paginated list of the project's signals for the public API (newest first)."""
+
+    data: list[SignalSummary]
+    meta: PaginationMeta

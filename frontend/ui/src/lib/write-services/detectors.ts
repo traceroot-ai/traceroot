@@ -54,11 +54,15 @@ const sampleRateSchema = z
 // Validated against the trigger-field registry — an unknown field or
 // operator would be stored fine but never match at evaluation time,
 // silently disabling the detector.
-const triggerConditionsSchema = z.unknown().superRefine((value, ctx) => {
-  if (value === undefined) return;
-  const error = validateTriggerConditions(value);
-  if (error) ctx.addIssue({ code: "custom", message: error });
-});
+// .optional(): zod 4.4+ rejects a missing key on a bare z.unknown() field.
+const triggerConditionsSchema = z
+  .unknown()
+  .superRefine((value, ctx) => {
+    if (value === undefined) return;
+    const error = validateTriggerConditions(value);
+    if (error) ctx.addIssue({ code: "custom", message: error });
+  })
+  .optional();
 
 // Templates whose canonical instructions a caller may adopt by omitting
 // prompt. Derived from the template data so the set cannot drift; blank is
