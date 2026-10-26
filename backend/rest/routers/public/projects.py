@@ -225,7 +225,7 @@ async def create_project_api_key(
     caller then gets a 503 although the key exists, and a retry under the same
     name gets a 409, because the name is now taken. The secret is not
     recoverable, since it was only ever in the lost reply, so a caller retries
-    under a new name, and the first key stays live until it is revoked.
+    under a new name, and the first key stays live until it expires or is revoked.
 
     Args:
         project_id (str): The project to mint into.
