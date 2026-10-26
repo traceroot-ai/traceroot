@@ -139,6 +139,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0"
+                  aria-label="Toggle sidebar"
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 >
                   <PanelLeft className="h-4 w-4" />

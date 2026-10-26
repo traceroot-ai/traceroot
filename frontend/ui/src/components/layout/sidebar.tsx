@@ -79,8 +79,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       ? `/workspaces/${workspaceId}/settings`
       : null;
 
+  // Content only mounts when collapsed, so close on trigger leave instead of
+  // relying on the content; otherwise expanded hovers stack up on collapse
   return (
-    <TooltipProvider delayDuration={0}>
+    <TooltipProvider delayDuration={0} disableHoverableContent>
       <div
         className={cn(
           "flex h-screen shrink-0 flex-col border-r bg-background transition-all duration-200",
@@ -125,12 +127,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     )}
                   >
                     <House className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Home"}
+                    {!collapsed && "Agent"}
                   </Link>
                 </TooltipTrigger>
                 {collapsed && (
                   <TooltipContent side="right" sideOffset={16}>
-                    Home
+                    Agent
                   </TooltipContent>
                 )}
               </Tooltip>
