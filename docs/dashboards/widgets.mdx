@@ -44,7 +44,7 @@ The underlying dataset to query:
 ### Filters (`filters`)
 
 An array of filter predicates applied to the query. Each filter includes:
-- `field` (string): The field to filter. On `spans` these are `name`, `span_kind`, `status`, `error_type`, `model_name`, `environment`, `is_root`, and `metadata`, plus the numeric measures below. Note that `is_root` and `metadata` carry `in_builder=False`, so they are available via the API and alerts but do not appear in the builder UI.
+- `field` (string): The field to filter. On `spans` these are `name`, `span_kind`, `status`, `error_type`, `model_name`, `environment`, `is_root`, and `metadata`, plus the numeric measures below. Note that `is_root` and `metadata` are available via the API and alerts but do not appear in the builder UI.
 - `op` (string): Operators are per field — string dimensions take `=`, `contains`, and `in` (with two exceptions: `is_root` accepts only `=`, and `metadata` accepts only `=` and `contains`), while numeric measures take `>`, `>=`, `<`, `<=`, and `=`.
 - `value` (string, number, or array of strings): The value to compare against. The `in` operator takes a list of 1 to 100 non-empty strings (for example, `["LLM", "CHAIN"]`), while all other operators take a single string or number. Empty strings and non-finite numbers (`NaN`, `Infinity`) are rejected.
 - `key` (string, optional): Required when querying keyed fields such as span attributes or custom trace metadata.
