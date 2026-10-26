@@ -145,11 +145,13 @@ main().catch(console.error);
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-cp .env.example .env
+test -f .env || cp .env.example .env
 make prod-lite
 ```
 
 打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
+
+生产部署可使用 [Helm chart](https://github.com/traceroot-ai/traceroot-k8s) 或 [AWS Terraform 模块](https://github.com/traceroot-ai/traceroot-terraform-aws)。
 
 ## 集成
 

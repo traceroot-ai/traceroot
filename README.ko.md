@@ -145,11 +145,13 @@ Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-cp .env.example .env
+test -f .env || cp .env.example .env
 make prod-lite
 ```
 
 [localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
+
+프로덕션 배포에는 [Helm 차트](https://github.com/traceroot-ai/traceroot-k8s) 또는 [AWS Terraform 모듈](https://github.com/traceroot-ai/traceroot-terraform-aws)을 사용하세요.
 
 ## 통합
 
