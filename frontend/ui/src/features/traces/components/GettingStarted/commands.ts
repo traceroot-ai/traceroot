@@ -28,6 +28,19 @@ import { clientEnv } from "@/env.client";
  */
 const SETUP_CLI_VERSION = "0.6.0";
 
+/**
+ * The oldest Node.js the pinned CLI's `setup` will run on, as both places that
+ * show the command state it.
+ *
+ * Mirrors `MIN_SETUP_NODE` in the CLI at `SETUP_CLI_VERSION`, and is checked
+ * against it whenever that pin moves. It is not the package's `engines` floor
+ * (`>=20.3`): `setup` alone needs `node:util`'s `styleText`, so it refuses
+ * anything older than this while every other command still runs. A reader on
+ * an older Node 20 would otherwise learn that from an error after pasting a
+ * line they were told would just work.
+ */
+export const SETUP_NODE_VERSION = "20.12";
+
 /** The invocation, before the flags this page is able to fill in. */
 const SETUP_BASE = `npx -y traceroot-cli@${SETUP_CLI_VERSION} setup`;
 
@@ -266,9 +279,10 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * `npx -y` rather than a global install: someone reading this has not decided
  * to keep a CLI yet, and asking them to install one before they have seen a
  * trace is a commitment ahead of the payoff. It authenticates in the browser,
- * creates the key, instruments the service with a coding agent, runs the
- * application and waits for the first trace — which is why none of those are
- * separate steps anywhere that shows this command.
+ * creates the key, instruments the service — by running a coding agent, by
+ * writing the task for one, or by printing the steps — runs the application
+ * and waits for the first trace, which is why none of those are separate steps
+ * anywhere that shows this command.
  *
  * The flags are what the caller has and the bare command does not. The project,
  * because the caller already has one in hand: without it a user with more than

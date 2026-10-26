@@ -2,7 +2,10 @@
 
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
-import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
+import {
+  SETUP_NODE_VERSION,
+  setupCommand,
+} from "@/features/traces/components/GettingStarted/commands";
 import { SectionLink } from "@/features/traces/components/GettingStarted/SectionLink";
 
 interface CliHandbackStepProps {
@@ -88,10 +91,13 @@ export function CliHandbackStep({
                 CLI their checkout is whether it is going to edit the checkout,
                 and that was the one thing the step did not say. "{projectName} is
                 ready" said nothing the header above had not already said, so this
-                costs no line — it replaces one. */}
+                costs no line — it replaces one. The Node floor is the one
+                precondition the command cannot meet for itself; without it
+                an older Node 20 learns of it from an error after pasting. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
               Instruments your repository, writes the API key into it, and waits for the first
-              trace. Run it where {projectName}&apos;s code lives.
+              trace. Run it where {projectName}&apos;s code lives. Needs Node.js{" "}
+              {SETUP_NODE_VERSION} or later.
             </p>
           </div>
 

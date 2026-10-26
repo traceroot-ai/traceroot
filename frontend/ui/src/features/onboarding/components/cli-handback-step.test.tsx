@@ -132,6 +132,24 @@ describe("CliHandbackStep", () => {
     );
   });
 
+  it("names the Node.js version setup needs", () => {
+    // `setup` refuses anything older than 20.12 even though the rest of the
+    // CLI runs on 20.3. This is the last page of signing up, and an older
+    // Node 20 would otherwise learn it from an error after pasting.
+    renderStep();
+
+    expect(screen.getByText(/Instruments your repository/).textContent).toContain(
+      "Needs Node.js 20.12 or later.",
+    );
+  });
+
+  it("states no Node.js version where no command is shown", async () => {
+    // The requirement belongs to a command; with none on screen it is noise.
+    const { container } = await renderStepWith({ apiUrl: "http://:8000" });
+
+    expect(container.textContent ?? "").not.toContain("Node.js");
+  });
+
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {
     // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
     // like this reaches the step. The command it renders carries no `--host`,

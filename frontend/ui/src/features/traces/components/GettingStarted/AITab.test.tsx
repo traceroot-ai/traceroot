@@ -82,24 +82,43 @@ describe("AITab", () => {
     expect(container.textContent ?? "").not.toContain("Create an API key");
   });
 
-  it("describes the command in two sentences, not a list of stages", () => {
+  it("describes the command in a few sentences, not a list of stages", () => {
     // A bulleted account of every stage competes with the command for the
     // attention of someone who just wants to know what to paste.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain("Instruments your repository with a coding agent");
+    expect(text).toContain("Instruments your repository");
     expect(text).toContain("writes the API key into it");
     expect(text).toContain("waits for the first trace");
     expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 
+  it("does not promise that a coding agent does the work", () => {
+    // Setup instruments by running an agent, writing the task for one, or
+    // printing the steps — and unattended it writes the task.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").not.toContain("coding agent");
+  });
+
   it("keeps the sentence that is consent rather than description", () => {
-    // The command edits a repository and launches an agent. That is the one
-    // line that changes whether somebody pastes it.
+    // The command edits a repository. That is the one line that changes
+    // whether somebody pastes it.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
     expect(text).toContain("Asks before editing");
-    expect(text).toContain("uncommitted changes");
+    // Setup asks whether to continue over uncommitted changes, and continues
+    // on Yes; it does not stop. Saying it stops puts off a reader with work in
+    // progress and promises a halt an unattended run never makes.
+    expect(text).toContain("before continuing over uncommitted changes");
+    expect(text).not.toContain("stops if you have uncommitted changes");
+  });
+
+  it("names the Node.js version setup needs", () => {
+    // `setup` refuses anything older than 20.12 even though the rest of the
+    // CLI runs on 20.3, so a reader on an older Node 20 would otherwise learn
+    // it from an error after pasting.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").toContain("Needs Node.js 20.12 or later.");
   });
 
   it("gives the reader something to read before they paste it", () => {

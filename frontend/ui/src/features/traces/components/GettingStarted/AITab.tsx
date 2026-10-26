@@ -4,7 +4,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
-import { setupCommand } from "./commands";
+import { SETUP_NODE_VERSION, setupCommand } from "./commands";
 import { SectionLink } from "./SectionLink";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 
@@ -17,21 +17,29 @@ interface AITabProps {
  *
  * One command rather than a sequence of numbered steps, because someone with no
  * traces yet should not have to make decisions before they can act.
- * `traceroot setup` authenticates in the browser, creates the key, has a coding
- * agent instrument the service, runs the application, and waits for the first
- * trace to arrive.
+ * `traceroot setup` authenticates in the browser, creates the key, instruments
+ * the service, runs the application, and waits for the first trace to arrive.
+ * It instruments by running a coding agent, writing the task for one, or
+ * printing the steps, so the description does not promise an agent.
  *
  * So the API-key step is gone rather than moved. "Create an API key" above a
  * command that creates one is asking for work the command exists to do, and the
  * two would drift the first time either changed.
  *
- * The description under the command is two sentences, not a bulleted account of
- * every stage. One line covers it, and the restraint is the point: someone on an empty traces page wants to know what to paste, and a
- * list of what will happen competes with the command for their attention.
+ * The description under the command is a few short sentences, not a bulleted
+ * account of every stage. The restraint is the point: someone on an empty
+ * traces page wants to know what to paste, and a list of what will happen
+ * competes with the command for their attention.
  *
  * The second sentence survives the trim because it is consent rather than
- * description. The command edits a repository and launches an agent; a person
- * is entitled to know that before pasting, not after.
+ * description. The command edits a repository; a person is entitled to know
+ * that before pasting, not after. It says setup asks before continuing over
+ * uncommitted changes, which is what it does, not that it stops: a reader with
+ * work in progress should not be put off by a stop that is only a question.
+ *
+ * The third is the one precondition the command cannot meet for itself:
+ * `setup` refuses a Node older than `SETUP_NODE_VERSION`, and the place a
+ * reader copies the command from is where they should learn that.
  *
  * The command itself is rendered rather than constant, because this page knows
  * the project the reader is looking at and the deployment that served them, and
@@ -78,8 +86,9 @@ export function AITab({ projectId }: AITabProps) {
           </div>
           <CodeBlock label="bash" value={setup.command} />
           <p className="text-[12px] text-muted-foreground">
-            Instruments your repository with a coding agent, writes the API key into it, and waits
-            for the first trace. Asks before editing, and stops if you have uncommitted changes.
+            Instruments your repository, writes the API key into it, and waits for the first trace.
+            Asks before editing, and before continuing over uncommitted changes. Needs Node.js{" "}
+            {SETUP_NODE_VERSION} or later.
           </p>
         </div>
       ) : (
