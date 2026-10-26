@@ -7,7 +7,11 @@ A signal is one problem your agent keeps running into. When a detector flags man
 
 Signals is an extension of [detectors](/detectors/introduction), which judge traces; a signal follows one problem across many traces.
 
-Signals work on every plan, including Free and self-hosted. Root cause analysis is included to run 30 analyses on Free, 100 per billing period on Starter and Pro (extra analyses are billed), and unlimited on Enterprise and self-hosted.
+Signals work on every plan, including Free. Root cause analysis is included to run 30 analyses on Free, 100 per billing period on Starter and Pro (extra analyses are billed), and unlimited on Enterprise and on self-hosted deployments with an OpenAI key.
+
+<Warning>
+  A self-hosted deployment needs `OPENAI_API_KEY` set. Without it, signals are off for every detector: nothing is grouped, no analysis runs and nothing is announced, as if each detector's **Generate signals** were off.
+</Warning>
 
 <Frame caption="Signals page: the signal list, then one signal's status, summary and analysis">
   <img src="/images/signals_page_v1.png" alt="Signals list with one signal's panel open, showing its status, summary, root cause analysis and count over time" />
@@ -17,7 +21,11 @@ Signals work on every plan, including Free and self-hosted. Root cause analysis 
 
 When a detector flags a trace, TraceRoot records a **finding**. Within about a minute, TraceRoot adds the finding to the detector's matching signal, or starts a new signal with a name and a **Summary**. A detector on a [TypeSafe AI](/ai-agent/byok) model groups its findings by the category the model picked.
 
+A signal never spans detectors: it belongs to the detector whose findings it groups. When several detectors flag the same trace, each finding joins a signal of its own detector.
+
 To stop grouping for a detector, turn off **Generate signals** in the **Signals** section of its settings. The detector still records findings, but TraceRoot does not group, analyze or announce them.
+
+A trace's **Detectors** tab shows the signal each finding joined. It shows **Pending** while a finding waits to be grouped, and **Disabled** when the finding is from before **Generate signals** was turned on, its detector has the setting off now, or a self-hosted deployment has no `OPENAI_API_KEY`. A finding that grouping gave up on after repeated attempts shows **Not grouped** on the detector's **Runs** table.
 
 ## Review signals
 
@@ -28,7 +36,7 @@ The date range (**Last 7 days** by default) sets the period for each signal's co
 Select a signal to open its panel:
 
 - **Status**: the signal's state, and the control to change it.
-- **Summary**: what the signal covers.
+- **Summary**: what the signal covers. If it did not pass its check when the signal was created, the panel says so: it may not match the signal's first finding, or may also match another signal's findings. The signal is created either way.
 - **Root Cause Analysis**: the latest analysis, or a **Run root cause analysis** button. When an analysis is shown, **Open in agent** opens it in the TraceRoot Agent for follow-up questions.
 - **Count over time**: of the traces the detector checked, how many this signal affected (**Affected**) and how many it did not (**Unaffected**), over the date range.
 - **Affected traces**: up to 10 recent traces from the date range. **View all** opens them on the Tracing page, filtered to the signal.
@@ -67,10 +75,10 @@ A project API key can read signals but cannot change them. A status change needs
 
 The [TraceRoot Agent](/ai-agent/root-cause-analysis) reads one of the signal's traces and explains the cause. With [GitHub](/ai-agent/github-integration) connected, it also reads the related code and recent commits. The detector's **Root cause analysis** setting decides when it runs:
 
-- **Automatic**: on each new signal, and on a reopened signal when the last analysis is more than 24 hours old.
+- **Automatic**: on each new signal, and on a reopened signal when the signal's last analysis started more than 24 hours ago. An analysis you ran by hand counts; a failed attempt does not, so it never holds back the next one.
 - **Manual**: only when you click **Run root cause analysis** on the signal's panel.
 
-A run starts within about two minutes.
+A run starts within about two minutes. On a self-hosted deployment without `OPENAI_API_KEY`, no analysis can run, and the panel says so instead of offering the button.
 
 ## Next steps
 
