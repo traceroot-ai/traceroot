@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient, Signal } from "@prisma/client";
 import { z } from "zod";
 import {
   DISMISS_REASONS,
@@ -36,7 +36,15 @@ export const signalStatusChangeSchema = z
 export type SignalStatusChange = z.output<typeof signalStatusChangeSchema>;
 
 export type SetSignalStatusResult =
-  | { ok: true; changed: boolean; status: SignalStatus }
+  | {
+      ok: true;
+      changed: boolean;
+      status: SignalStatus;
+      signal: Pick<
+        Signal,
+        "id" | "projectId" | "detectorId" | "title" | "status" | "resolvedAt" | "reopenSeq"
+      >;
+    }
   | { ok: false; code: "not_found" }
   | { ok: false; code: "merged"; mergedIntoId: string }
   | { ok: false; code: "conflict"; status: SignalStatus };
@@ -73,7 +81,16 @@ export async function setSignalStatus(
     // Re-read under the lock: this is the state the write is decided on.
     const current = await tx.signal.findUniqueOrThrow({
       where: { id: signalId },
-      select: { status: true, mergedIntoId: true },
+      select: {
+        id: true,
+        projectId: true,
+        detectorId: true,
+        title: true,
+        status: true,
+        resolvedAt: true,
+        reopenSeq: true,
+        mergedIntoId: true,
+      },
     });
     const status = current.status as SignalStatus;
     if (current.mergedIntoId)
@@ -81,9 +98,9 @@ export async function setSignalStatus(
     if (expectedStatus !== undefined && status !== expectedStatus) {
       return { ok: false, code: "conflict", status };
     }
-    if (status === change.status) return { ok: true, changed: false, status };
+    if (status === change.status) return { ok: true, changed: false, status, signal: current };
 
-    await tx.signal.update({
+    const updated = await tx.signal.update({
       where: { id: signalId },
       data: {
         status: change.status,
@@ -100,7 +117,7 @@ export async function setSignalStatus(
         note: change.note,
       },
     });
-    return { ok: true, changed: true, status: change.status };
+    return { ok: true, changed: true, status: change.status, signal: updated };
   });
 }
 

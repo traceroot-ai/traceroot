@@ -29,7 +29,7 @@ Open Source AI Agent Improvement Platform
 
 ## TraceRoot
 
-TraceRoot turns production traces into actionable feedback and evals, closing the improvement loop with your coding agent.
+Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -43,23 +43,8 @@ Trace production runs, use detectors to evaluate behavior, and surface recurring
 | ---- | ----------- |
 | **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See each model call, tool call, and response, with inputs, outputs, latency, and cost. |
 | **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
-| **Signals** | Cluster judge outputs into signals. A background coding agent investigates traces and connected GitHub code in a sandbox to suggest fixes. |
+| **[Signals](https://traceroot.ai/docs/signals/introduction)** | Cluster judge outputs into signals. A background coding agent investigates traces and connected GitHub code in a sandbox to suggest fixes. |
 | **[Verify](https://traceroot.ai/docs/evals/get-started)** | Run evals against your datasets and compare versions to measure improvements and catch regressions. |
-
-### Built for your coding agent
-
-Give your coding agent read and write access to TraceRoot through an agent-native CLI. Explore traces, signals, and the home workspace; create and update detectors, datasets, evals, dashboards, and alerts—all from your coding agent.
-
-<p align="center">
-  <a href="https://github.com/traceroot-ai/traceroot-cli">
-    <picture>
-      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
-      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
-      <img src="docs/images/coding-agent-cli-light.gif" alt="Your coding agent connects through the TraceRoot CLI to Home, traces, dashboards, detectors, evals, datasets, alerts, and signals." width="100%">
-    </picture>
-  </a>
-</p>
 
 ## ⭐ Star the Repository
 
@@ -71,28 +56,9 @@ If you like what we’re building, give TraceRoot a star ⭐ to help more develo
   </a>
 </p>
 
-## Getting Started With TraceRoot
-
-### TraceRoot Cloud
-
-[Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
-
-### Self-Hosting
-
-With Git, Docker Compose, and Make installed, run locally:
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
-cp .env.example .env
-make prod-lite
-```
-
-Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
-
 ## Setting up TraceRoot
 
-Once you have a TraceRoot instance, create a project in your dashboard and choose how to send your first trace: let your coding agent set up instrumentation through the CLI, or configure an SDK manually.
+Once you have a [TraceRoot instance](#getting-started-with-traceroot) (cloud or self-hosted), create a project in your dashboard and choose how to send your first trace: let your coding agent set up instrumentation through the CLI, or configure an SDK manually.
 
 ### With your coding agent
 
@@ -165,6 +131,25 @@ main().catch(console.error);
 **4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
 
 </details>
+
+## Getting Started With TraceRoot
+
+### TraceRoot Cloud
+
+[Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
+
+### Self-Hosting
+
+With Git, Docker Compose, and Make installed, run locally:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+cp .env.example .env
+make prod-lite
+```
+
+Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
 ## Integrations
 

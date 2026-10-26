@@ -1221,6 +1221,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -1237,12 +1238,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -1389,6 +1400,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -1405,12 +1417,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -1587,7 +1609,7 @@
         "type": "object"
       },
       "DashboardDataResponse": {
-        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.",
+        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.\n``layout`` is the dashboard's grid placement, as ``get_dashboard`` returns\nit.",
         "properties": {
           "dashboard": {
             "$ref": "#/components/schemas/DashboardSummary"
@@ -1595,6 +1617,20 @@
           "failed": {
             "title": "Failed",
             "type": "integer"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DashboardLayoutItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
           },
           "queried": {
             "title": "Queried",
@@ -1627,7 +1663,7 @@
         "type": "object"
       },
       "DashboardDetail": {
-        "description": "One dashboard with its widgets, ordered by creation time.",
+        "description": "One dashboard with its widgets, ordered by creation time.\n\n``layout`` is the stored grid placement of the widgets that have one, or\nNone when the dashboard service did not report it.",
         "properties": {
           "create_time": {
             "format": "date-time",
@@ -1664,6 +1700,20 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "layout": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DashboardLayoutItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1692,6 +1742,40 @@
           "widgets"
         ],
         "title": "DashboardDetail",
+        "type": "object"
+      },
+      "DashboardLayoutItem": {
+        "description": "One widget's place on a dashboard's grid, in grid units.\n\n``i`` is the widget id; ``x``/``w`` count columns of the twelve-column\ngrid and ``y``/``h`` count rows. A widget with no entry is placed by the\ndashboard page itself, below everything that has one.",
+        "properties": {
+          "h": {
+            "title": "H",
+            "type": "integer"
+          },
+          "i": {
+            "title": "I",
+            "type": "string"
+          },
+          "w": {
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "i",
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "title": "DashboardLayoutItem",
         "type": "object"
       },
       "DashboardListItem": {
@@ -1844,7 +1928,7 @@
         "type": "object"
       },
       "DashboardWidgetData": {
-        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
+        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard. ``spec``\nis the widget's stored spec whatever the status, so a caller can draw it.",
         "properties": {
           "columns": {
             "anyOf": [
@@ -1901,6 +1985,15 @@
               }
             ],
             "title": "Rows"
+          },
+          "spec": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
           },
           "status": {
             "enum": [
@@ -3102,6 +3195,12 @@
             "title": "Workspace Id",
             "type": "string"
           },
+          "workspace_is_demo": {
+            "default": false,
+            "description": "True when the project is in the public demo workspace.",
+            "title": "Workspace Is Demo",
+            "type": "boolean"
+          },
           "workspace_name": {
             "title": "Workspace Name",
             "type": "string"
@@ -3495,6 +3594,27 @@
           "data"
         ],
         "title": "PublicProjectListResponse",
+        "type": "object"
+      },
+      "PublicSignalListResponse": {
+        "description": "Paginated list of the project's signals for the public API (newest first).",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SignalSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicSignalListResponse",
         "type": "object"
       },
       "PublicTestCase": {
@@ -5054,6 +5174,335 @@
         "title": "SessionTraceItem",
         "type": "object"
       },
+      "SignalDetail": {
+        "description": "One signal, including when it was resolved and whether it was merged.\n\nA merged signal is still answered, with ``merged_into_id`` naming the signal\nits findings moved to; lists leave merged signals out.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Name"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "merged_into_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged Into Id"
+          },
+          "rca_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rca State"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "detector_id",
+          "detector_name",
+          "title",
+          "status",
+          "hit_count",
+          "reopen_count",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at",
+          "resolved_at",
+          "merged_into_id"
+        ],
+        "title": "SignalDetail",
+        "type": "object"
+      },
+      "SignalStatusRequest": {
+        "additionalProperties": false,
+        "description": "Body for resolving or reopening a signal.\n\nOnly ``resolved`` and ``open`` are settable here. A dismissed signal never\nreopens on a new finding, so dismissing stays a decision a person makes in\nthe web app. Resolving needs a ``reason``; the reason ``other`` also needs\na ``note``. The write service is the single validator of those rules.",
+        "properties": {
+          "expected_status": {
+            "description": "The status the caller last read. When the signal's current status differs, nothing is written and the answer is a 409.",
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Expected Status",
+            "type": "string"
+          },
+          "note": {
+            "description": "A free-text note; required when reason is \"other\"",
+            "maxLength": 4000,
+            "title": "Note",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the signal is resolved; required when status is \"resolved\"",
+            "enum": [
+              "fixed_elsewhere",
+              "fixed_by_pr",
+              "already_fixed_before",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "resolved",
+              "open"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "status"
+        ],
+        "title": "SignalStatusRequest",
+        "type": "object"
+      },
+      "SignalStatusResponse": {
+        "description": "The signal after the write. ``changed`` is empty when it already had that status.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "signal": {
+            "$ref": "#/components/schemas/SignalStatusRow"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "signal"
+        ],
+        "title": "SignalStatusResponse",
+        "type": "object"
+      },
+      "SignalStatusRow": {
+        "description": "A signal as the status write returns it.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "date-time",
+            "title": "Resolved At"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "project_id",
+          "detector_id",
+          "title",
+          "status",
+          "resolved_at",
+          "reopen_count"
+        ],
+        "title": "SignalStatusRow",
+        "type": "object"
+      },
+      "SignalSummary": {
+        "description": "A signal: a recurring problem that one detector's findings are grouped into.\n\n``reopen_count`` counts the automatic reopens (a new finding after the\nsignal was resolved). ``rca_state`` is the state of the root cause analysis\nof the current opening, null when none ran for it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Name"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "rca_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rca State"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "detector_id",
+          "detector_name",
+          "title",
+          "status",
+          "hit_count",
+          "reopen_count",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at"
+        ],
+        "title": "SignalSummary",
+        "type": "object"
+      },
       "SpanResponse": {
         "description": "A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).\n\nThe projection-capable superset returned by the trace get/export endpoints.\nThe blobs default to ``None`` and are populated only when the caller requests\nthe matching field group (``io``/``metadata``; see\n``rest.projection``). The default ``skeleton`` projection leaves them ``None``\nand never runs the bulk span-I/O query, so there is no payload or query-cost\nregression for the dashboard. Keeping the fields present (as ``null``) rather\nthan omitting them is additive: a few bytes per span, and it matches the\nfields the shipped CLI's generated types already declare.\n\nOne internal-only exception: the dashboard's trace-detail read leaves a small\nSDK span-path subset in ``metadata`` on the skeleton, which it needs to\nrebuild the tree of an in-flight trace. The public routes drop it (see\n``rest.projection.drop_span_tree_metadata``), so for API clients the contract\nabove holds exactly: ``metadata`` is ``null`` unless requested.",
         "properties": {
@@ -6045,6 +6494,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -6061,12 +6511,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -6213,6 +6673,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -6229,12 +6690,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -6586,7 +7057,7 @@
         "type": "object"
       },
       "WhoamiResponse": {
-        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.",
+        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.\n\n``key_scope`` is the exception to the nullability above, deliberately. A\nholder asking what their key may do needs an answer, not a maybe: a null\nwould have to be handled by every caller and would mean the same thing the\nnarrow scope already means. It is a closed set of values rather than a free\nstring so a client can exhaust it.",
         "properties": {
           "host": {
             "title": "Host",
@@ -6613,6 +7084,14 @@
               }
             ],
             "title": "Key Name"
+          },
+          "key_scope": {
+            "enum": [
+              "ingest",
+              "admin"
+            ],
+            "title": "Key Scope",
+            "type": "string"
           },
           "project_id": {
             "title": "Project Id",
@@ -6656,6 +7135,7 @@
           "workspace_name",
           "key_name",
           "key_hint",
+          "key_scope",
           "host",
           "ui_base_url"
         ],
@@ -6840,6 +7320,7 @@
             "enum": [
               "=",
               "contains",
+              "in",
               ">",
               ">=",
               "<",
@@ -6856,12 +7337,22 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
               }
             ],
             "title": "Value",
             "type": [
               "string",
-              "number"
+              "number",
+              "array"
             ]
           }
         },
@@ -7017,15 +7508,35 @@
         "type": "object"
       },
       "WidgetRef": {
-        "description": "The identity of the widget a data read answered, with its dashboard.",
+        "description": "The identity of the widget a data read answered, with its dashboard.\n\n``spec`` is the stored spec the read ran, as ``get_widget`` returns it.",
         "properties": {
           "dashboard_id": {
             "title": "Dashboard Id",
             "type": "string"
           },
+          "dashboard_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Name"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "spec": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
           },
           "title": {
             "title": "Title",
@@ -7125,6 +7636,12 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "is_demo": {
+            "default": false,
+            "description": "True for the public demo workspace, which every user can read. It is listed last and is not one of the user's own workspaces.",
+            "title": "Is Demo",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -7301,7 +7818,7 @@
         ],
         "summary": "List Alerts",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name \u2014 never guess an alert id.",
@@ -7411,7 +7928,7 @@
         ],
         "summary": "Create an alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
@@ -7543,7 +8060,7 @@
         ],
         "summary": "Delete an alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Permanently delete an alert. An open page is discarded, not resolved (the response says when one was). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's alerts and matching the name; never delete more than the user named.",
@@ -7647,7 +8164,7 @@
         ],
         "summary": "Get Alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name \u2014 never guess an id.",
@@ -7758,7 +8275,7 @@
         ],
         "summary": "Edit an alert rule",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Edit an alert's rule: name, view, measure, aggregation, filters, window, threshold_operator, threshold, renotify, no_data_mode. Fields left out are untouched; the patch is validated against the stored rule, so an aggregation edit must fit the stored measure. Any edit to an evaluated field (everything but name) resets the alert's evaluation state and clears any open page \u2014 the response reports state_reset and page_cleared, and lists the fields that actually changed. To pause or resume, use set_alert_status instead.",
@@ -7886,7 +8403,7 @@
         ],
         "summary": "Pause or resume an alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Pause (PAUSED) or resume (ACTIVE) an alert without touching its rule \u2014 prefer this over update_alert for pause and resume. Pausing keeps the severity the alert stopped at; resuming is a cold start (evaluation state reset, due now). PARKED is the evaluator's verdict and cannot be requested; pausing a parked alert is a conflict, resume it to run it again. Setting the status the alert already has changes nothing.",
@@ -7973,7 +8490,7 @@
         ],
         "summary": "List Dashboards",
         "tags": [
-          "Dashboards (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "List the project's dashboards (id, name, description, default flag, creator, widget count, timestamps). To resolve a dashboard by name, list here and match its name \u2014 never guess a dashboard id.",
@@ -8073,7 +8590,7 @@
         ],
         "summary": "Create a dashboard",
         "tags": [
-          "Project (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
@@ -8215,7 +8732,7 @@
         ],
         "summary": "Delete a dashboard",
         "tags": [
-          "Project (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Permanently delete a dashboard together with its widgets. A project's last dashboard cannot be deleted. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's dashboards and matching the name; never delete more than the user named.",
@@ -8319,7 +8836,7 @@
         ],
         "summary": "Get Dashboard",
         "tags": [
-          "Dashboards (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name \u2014 never guess an id.",
@@ -8440,7 +8957,7 @@
         ],
         "summary": "Edit a dashboard",
         "tags": [
-          "Project (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Rename a dashboard or change its description. Fields left out are untouched; a null description clears it. Tile layout is not editable here. The response lists the fields that actually changed.",
@@ -8610,7 +9127,7 @@
         ],
         "summary": "Get Dashboard Data",
         "tags": [
-          "Dashboards (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
@@ -8781,7 +9298,7 @@
         ],
         "summary": "Read one dataset version and a page of its test cases",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "Read one immutable dataset version and its test cases (input, expected, metadata, and trace provenance where the case was captured from one). Always pass limit (for example 20) and follow next_cursor until it is null: without limit the whole version comes back in one response, which can be very large.",
@@ -8957,7 +9474,7 @@
         ],
         "summary": "List the project's evaluation datasets",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "List the project's evaluation datasets, newest first, with each dataset's current published version. Filter by a case-insensitive substring of the name. Use this for discovery before reading a specific dataset.",
@@ -9088,7 +9605,7 @@
         ],
         "summary": "Read one evaluation dataset",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "Read one evaluation dataset by id: its name, description, key, and current published version. A dataset with no published version has none, and its cases cannot be read until one exists.",
@@ -9253,7 +9770,7 @@
         ],
         "summary": "List a dataset's published versions",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots: editing a dataset's test cases publishes a new version rather than changing an old one, while renaming a dataset or changing its description publishes nothing.",
@@ -9397,7 +9914,7 @@
         ],
         "summary": "List Detectors",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "List the project's detectors (id, name, template, enabled flag, creation time).",
@@ -9497,7 +10014,7 @@
         ],
         "summary": "Create a detector",
         "tags": [
-          "Project (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions \u2014 a supplied prompt is stored verbatim and overrides the template default.",
@@ -9682,7 +10199,7 @@
         ],
         "summary": "List Findings",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "List detector findings for the project, optionally filtered by detector (id, name, or template), trace id, or time range.",
@@ -9793,7 +10310,7 @@
         ],
         "summary": "Get Finding",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Fetch one detector finding by id, with its full analysis detail.",
@@ -9904,7 +10421,7 @@
         ],
         "summary": "Get Finding By Trace",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Fetch the detector finding attached to a specific trace, if any.",
@@ -10031,7 +10548,7 @@
         ],
         "summary": "Delete a detector",
         "tags": [
-          "Project (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Permanently delete a detector; its existing findings stay readable. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's detectors and matching the name; never delete more than the user named.",
@@ -10145,7 +10662,7 @@
         ],
         "summary": "Get Detector",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
@@ -10266,7 +10783,7 @@
         ],
         "summary": "Edit a detector",
         "tags": [
-          "Project (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Edit a detector: name, prompt, enabled (the pause switch), sample_rate, enable_rca, output_schema, trigger_conditions, or the detection model settings. Send only the fields the user asked to change \u2014 fields left out are untouched, and a null detection_model/detection_provider/detection_source clears it. output_schema and trigger_conditions replace the whole array; [] removes the trigger. The template cannot change. Read the detector first so the proposal names its current values; the response lists the fields that actually changed.",
@@ -10473,7 +10990,7 @@
         ],
         "summary": "List the project's evaluation runs",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "List evaluation runs, newest first. Filter by evaluation_id to see one evaluation's runs, or by status to see only runs in that state. Each row is identity and outcome only: which run it is, what was evaluated, the dataset version it pinned, its status, and when it started and finished. A run's counts and per-scorer means come from get_evaluation_run. Use this to find a run id.",
@@ -10573,7 +11090,7 @@
         ],
         "summary": "Register an evaluation run",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "enabled": false
@@ -10702,7 +11219,7 @@
         ],
         "summary": "Read an evaluation run's summary",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
@@ -10815,7 +11332,7 @@
         ],
         "summary": "Complete/finalize an evaluation run",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "enabled": false
@@ -10926,7 +11443,7 @@
         ],
         "summary": "Upsert one test-case result with scores",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "enabled": false
@@ -11100,7 +11617,7 @@
         ],
         "summary": "List the project's evaluations",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "description": "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation that has never been run reports a null latest_run. Use this to find an evaluation before listing its runs.",
@@ -11111,7 +11628,7 @@
     },
     "/api/v1/public/projects": {
       "get": {
-        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
+        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name, workspace_is_demo).",
         "operationId": "list_projects",
         "parameters": [
           {
@@ -11182,7 +11699,7 @@
         ],
         "summary": "List Projects",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
@@ -11282,7 +11799,7 @@
         ],
         "summary": "Create a project",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "agentHiddenParams": [
@@ -11406,7 +11923,7 @@
         ],
         "summary": "Delete a project",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Delete a project: it drops out of every list and read and its API keys stop authenticating (its data stays for the retention window). Requires ADMIN in the workspace and a reason (3-500 characters) that is recorded on the audit row.",
@@ -11532,7 +12049,7 @@
         ],
         "summary": "Edit a project",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "agentHiddenParams": [
@@ -11702,7 +12219,7 @@
         ],
         "summary": "List Sessions",
         "tags": [
-          "Sessions (Public)"
+          "Sessions"
         ],
         "x-tool": {
           "description": "List recent sessions (groups of traces sharing a session id) for the project, with trace counts and durations. Search by session id substring.",
@@ -11851,12 +12368,392 @@
         ],
         "summary": "Get Session",
         "tags": [
-          "Sessions (Public)"
+          "Sessions"
         ],
         "x-tool": {
           "description": "Fetch one session with all its traces (ids, names, status, I/O summaries). Use before deep-diving individual traces of a conversation.",
           "enabled": true,
           "name": "get_session"
+        }
+      }
+    },
+    "/api/v1/public/signals": {
+      "get": {
+        "description": "List the signals in the caller's project (newest first). Merged signals are left out.",
+        "operationId": "list_signals",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "0-based page index",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "0-based page index",
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only signals with this status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "resolved",
+                    "dismissed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only signals with this status",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Only signals of this detector",
+            "in": "query",
+            "name": "detector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only signals of this detector",
+              "title": "Detector Id"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSignalListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Signals",
+        "tags": [
+          "Signals"
+        ],
+        "x-tool": {
+          "description": "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
+          "enabled": true,
+          "name": "list_signals"
+        }
+      }
+    },
+    "/api/v1/public/signals/{signal_id}": {
+      "get": {
+        "description": "Get one signal of the caller's project. A merged signal names the signal it moved to.",
+        "operationId": "get_signal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signal_id",
+            "required": true,
+            "schema": {
+              "title": "Signal Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Signal not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Signal",
+        "tags": [
+          "Signals"
+        ],
+        "x-tool": {
+          "description": "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals \u2014 never guess an id.",
+          "enabled": true,
+          "name": "get_signal"
+        }
+      }
+    },
+    "/api/v1/public/signals/{signal_id}/status": {
+      "patch": {
+        "description": "Resolve or reopen a signal. Dismissing is not possible here.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Resolving needs a ``reason``; the reason ``other`` also\nneeds a ``note``. A resolved signal opens again by itself when its\ndetector finds the problem in a trace that started after the resolve. Send\n``expected_status`` to refuse the change when someone else changed the\nstatus first. Setting the status the signal already has changes nothing.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    signal_id (str): The signal to change.\n    payload (SignalStatusRequest): The project, the target status, and\n        the reason, note and expected status.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    SignalStatusResponse: The signal with its new status.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "set_signal_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signal_id",
+            "required": true,
+            "schema": {
+              "title": "Signal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The status changed since the caller read it, or the signal was merged"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resolve or reopen a signal",
+        "tags": [
+          "Signals"
+        ],
+        "x-tool": {
+          "description": "Resolve or reopen a signal. Resolving needs a reason (fixed_elsewhere, fixed_by_pr, already_fixed_before, other); 'other' also needs a note. A resolved signal opens again by itself when its detector finds the problem in a trace that started after the resolve. Dismissing is not possible here: a dismissed signal never reopens, so a person dismisses in the web app. Send expected_status to refuse the change when the status changed since you read it (a conflict). Setting the current status changes nothing.",
+          "enabled": true,
+          "name": "set_signal_status",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -11993,7 +12890,7 @@
         ],
         "summary": "Run Sql",
         "tags": [
-          "SQL (Public)"
+          "SQL"
         ],
         "x-tool": {
           "description": "Run one read-only SQL query over the project's own spans and traces and return the rows. Use get_sql_schema first to see the columns available; the query may only read the curated spans and traces tables, and results are capped and may be truncated.",
@@ -12110,7 +13007,7 @@
         ],
         "summary": "Get Sql Schema",
         "tags": [
-          "SQL (Public)"
+          "SQL"
         ],
         "x-tool": {
           "description": "List the tables and columns available to run_sql, with their types. Read this before writing a query: it is the whole surface a query may reference.",
@@ -12742,7 +13639,7 @@
         ],
         "summary": "List Traces",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace. Structured filters (model, environment, cost, tokens, latency, error count, keyed metadata) are available via the typed filters parameter.",
@@ -12853,7 +13750,7 @@
         ],
         "summary": "Ingest Traces",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "enabled": false
@@ -13000,7 +13897,7 @@
         ],
         "summary": "List Trace Filter Values",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "Discover the current values of a categorical trace filter field (e.g. model_name, environment) for the project \u2014 use before filtering the trace list by that field.",
@@ -13139,7 +14036,7 @@
         ],
         "summary": "Get Trace",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "Fetch one trace with its span tree. Defaults to the lightweight skeleton projection; pass fields=full for per-span input/output/metadata.",
@@ -13278,7 +14175,7 @@
         ],
         "summary": "Export Trace",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
@@ -13340,7 +14237,7 @@
         ],
         "summary": "Whoami",
         "tags": [
-          "Whoami (Public)"
+          "Whoami"
         ],
         "x-tool": {
           "description": "Identify the project and workspace the current credential belongs to.",
@@ -13442,7 +14339,7 @@
         ],
         "summary": "Create a dashboard widget",
         "tags": [
-          "Project (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types \u2014 nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting. Pick the view first \u2014 spans and traces expose different fields, and the enums in this schema are the complete field vocabulary for each view. If the user asks for a dimension or metric that exists on neither view, say so and propose the closest available one (for example \"traces by model\" is built on the spans view via model_name).",
@@ -13539,7 +14436,7 @@
         ],
         "summary": "Run Widget Query",
         "tags": [
-          "Dashboards (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Run a widget query and return its rows \u2014 the way to answer a metric question (error counts, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, \u2026) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
@@ -13671,7 +14568,7 @@
         ],
         "summary": "Delete a dashboard widget",
         "tags": [
-          "Project (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Permanently delete one widget from its dashboard (its layout slot is removed with it). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id from the dashboard's detail; never delete more than the user named.",
@@ -13775,7 +14672,7 @@
         ],
         "summary": "Get Widget",
         "tags": [
-          "Dashboards (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Fetch one saved widget's definition by id: its title, type, the query spec exactly as stored (what get_widget_data runs), display config, timestamps, and the id and name of the dashboard it sits on. Resolve a widget id from get_dashboard (which lists a dashboard's widgets) \u2014 never guess an id. For what the widget shows, use get_widget_data.",
@@ -13886,7 +14783,7 @@
         ],
         "summary": "Edit a dashboard widget",
         "tags": [
-          "Project (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Edit a widget's title, spec, or display_config. Fields left out are untouched; a sent spec replaces the whole spec and must be in the dialect of the widget's existing type (query: view/filters/metric/breakdown/display; trace_feed: predicate filters + limit) \u2014 the type itself cannot change. A null display_config resets it. Read the widget's dashboard first so the new spec starts from the current one; the spec schema enumerates the only available views, metrics, filter operators, and display types. The response lists the fields that actually changed.",
@@ -14056,7 +14953,7 @@
         ],
         "summary": "Get Widget Data",
         "tags": [
-          "Dashboards (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Answer one saved widget for a window \u2014 the way to say what a widget shows without re-sending its spec. Prefer this over run_widget_query whenever the widget already exists on a dashboard; run_widget_query is for a spec that is saved nowhere. Takes a widget id plus a window like run_widget_query (range preset or explicit start_time/end_time; neither means the site's default). The answer carries a status: ok with every row the engine returns (a series comes back whole; no row cap), skipped for a trace feed or legacy detector widget (read those with list_traces and the feed's filters), or error with a reason when the stored spec no longer runs. Every figure you report must come from these rows, and name the window it was answered for \u2014 the response echoes it and says when retention clamped it.",
@@ -14067,7 +14964,7 @@
     },
     "/api/v1/public/workspaces": {
       "get": {
-        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
+        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role,\n        is_demo); the public demo workspace, when present, comes last.",
         "operationId": "list_workspaces",
         "responses": {
           "200": {
@@ -14118,7 +15015,7 @@
         ],
         "summary": "List Workspaces",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
@@ -14228,7 +15125,7 @@
         ],
         "summary": "Create a workspace",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Create a workspace administered by the logged-in user. Idempotent: re-creating a same-named workspace the caller already administers returns it instead of duplicating.",
@@ -14370,7 +15267,7 @@
         ],
         "summary": "Delete a workspace",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Permanently delete a workspace and everything in it: every project, its access keys, memberships and invites. Requires ADMIN, the workspace's current name typed as confirmation, and a reason (3-500 characters) that is recorded on the audit row. The caller's only workspace cannot be deleted. Not reversible.",
@@ -14496,7 +15393,7 @@
         ],
         "summary": "Rename a workspace",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Rename a workspace the logged-in user administers. Fields left out are untouched. The response lists the fields that actually changed; a name the caller already uses for another workspace is a conflict.",

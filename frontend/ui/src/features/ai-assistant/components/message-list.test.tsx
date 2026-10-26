@@ -488,6 +488,64 @@ describe("MessageList read result entries", () => {
     expect(screen.queryByText("(get_alert)")).toBeNull();
   });
 
+  it("renders a widget or dashboard read as its card, linked to the dashboard", () => {
+    const window = {
+      start_time: "2026-09-01T00:00:00Z",
+      end_time: "2026-09-08T00:00:00Z",
+      range: "7d",
+      clamped: false,
+    };
+    render(
+      <MessageList
+        messages={[
+          toolEntry(
+            readStep(
+              "get_widget_data",
+              {
+                kind: "widget_read",
+                widget: {
+                  id: "w-1",
+                  title: "Errors over time",
+                  type: "trace_feed",
+                  spec: { limit: 10 },
+                  status: "skipped",
+                  error: null,
+                  dashboard_id: "db1",
+                  dashboard_name: "Overview",
+                },
+                window,
+              },
+              "tcw1",
+            ),
+          ),
+          toolEntry(
+            readStep(
+              "get_dashboard_data",
+              {
+                kind: "dashboard_read",
+                dashboard: { id: "db1", name: "Project overview" },
+                window,
+                widgets: [],
+                layout: [],
+              },
+              "tcd1",
+            ),
+          ),
+        ]}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getByText("Errors over time")).toBeTruthy();
+    expect(screen.getByText("A trace feed: open the dashboard to see its traces.")).toBeTruthy();
+    expect(screen.getByText("Project overview")).toBeTruthy();
+    expect(screen.getByText("Dashboard · 0 widgets")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open widget" }).getAttribute("href")).toBe(
+      "/projects/p1/dashboard/db1",
+    );
+    expect(screen.queryByText("(get_widget_data)")).toBeNull();
+    expect(screen.queryByText("(get_dashboard_data)")).toBeNull();
+  });
+
   it("keeps the plain tool line for a read whose result carries no card details, or failed", () => {
     render(
       <MessageList
