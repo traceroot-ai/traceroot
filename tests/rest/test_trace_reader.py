@@ -214,6 +214,7 @@ class TestGetTraceSkeleton:
                         12,  # git_source_line
                         "fn",  # git_source_function
                         "",  # error_type
+                        0,  # cost_supplied
                     )
                 ]
             )
@@ -255,7 +256,7 @@ class TestGetTraceSkeleton:
         # subquery. Adding a column to one SELECT list and not the other is a
         # ClickHouse UNKNOWN_IDENTIFIER at runtime — i.e. every trace open 500s.
         outer_select = spans_sql.split("FROM (")[0]
-        for alias in ("tree_ids_path", "tree_name_path"):
+        for alias in ("tree_ids_path", "tree_name_path", "cost_supplied"):
             assert f"AS {alias}" in inner_select, f"{alias} not projected by the subquery"
             assert alias in outer_select, f"{alias} not read by the outer SELECT"
         # Uses dedup subquery instead of FINAL for better read performance.
@@ -327,6 +328,7 @@ class TestGetTraceSkeleton:
                         None,
                         None,
                         "TimeoutError",  # error_type
+                        0,  # cost_supplied
                     )
                 ]
             )
@@ -336,6 +338,48 @@ class TestGetTraceSkeleton:
         assert span["status"] == "ERROR"
         assert span["error_type"] == "TimeoutError"
         assert SpanResponse.model_validate(span).error_type == "TimeoutError"
+
+    def test_get_trace_suppresses_cost_details_when_cost_supplied(self):
+        """When cost_supplied is true (1), span cost_details is {} (issue #2176)."""
+
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                trace_row = ("abc123", "proj", "t", datetime(2024, 1, 1)) + (None,) * 7
+                return _rows([trace_row])
+            return _rows(
+                [
+                    (
+                        "span-1",
+                        "abc123",
+                        None,
+                        "call_llm",
+                        "LLM",
+                        datetime(2024, 1, 1),
+                        datetime(2024, 1, 1),
+                        "OK",
+                        None,
+                        "gpt-4o",
+                        0.05,
+                        1000,
+                        200,
+                        1200,
+                        {},
+                        None,
+                        "file.py",
+                        10,
+                        "fn",
+                        "",
+                        1,  # cost_supplied = True
+                    )
+                ]
+            )
+
+        mock_prices = {"input": 0.00001, "output": 0.00003}
+        service, _ = _make_service(side_effect)
+        with patch("rest.services.trace_reader.get_model_price", return_value=mock_prices):
+            span = service.get_trace("proj", "abc123")["spans"][0]
+            assert span["cost"] == 0.05
+            assert span["cost_details"] == {}
 
     def test_returns_none_when_trace_missing(self):
         def side_effect(query, parameters=None):
