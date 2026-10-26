@@ -137,8 +137,12 @@ describe("AITab", () => {
 
     expect(text).toContain("NEXT_PUBLIC_API_URL");
     expect(text).toContain("http://:8000");
-    // Says where a working route is, and promises no repair of its own.
+    // Says where a working route is, and promises no repair of its own. The
+    // manual steps need the API address too, so they are not offered as
+    // independent of it.
     expect(text).toContain("manual tab");
+    expect(text).toContain("TRACEROOT_HOST_URL");
+    expect(text).not.toContain("do not depend on it");
   });
 
   it("keeps the command for a deployment the CLI's own default already serves", async () => {

@@ -60,7 +60,9 @@ interface CliHandbackStepProps {
  * since the person finishing a self-hosted first run is usually the person who
  * can correct it, and the value is already public: it is inlined into this
  * bundle. Both doors stay, because that is the half of this step which still
- * works.
+ * works. The manual one is not independent of the address, though: its steps
+ * send traces to the API only once `TRACEROOT_HOST_URL` names it, so the line
+ * says that the reader sets it there.
  */
 export function CliHandbackStep({
   projectId,
@@ -109,7 +111,9 @@ export function CliHandbackStep({
             TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
             value and rebuild the web app, since the value is built into it rather than read at
             startup; once the rebuilt app is served the command appears here. Until then, &quot;Set
-            up manually&quot; walks through the rest in the browser.
+            up manually&quot; walks through the rest in the browser, where you set{" "}
+            <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
+            address yourself.
           </p>
         </div>
       )}
