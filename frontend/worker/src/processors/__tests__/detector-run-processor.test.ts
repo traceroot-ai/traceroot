@@ -283,15 +283,23 @@ describe("handleDetectorRunJob — result persistence", () => {
     const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
     await expect(handleDetectorRunJob(job)).rejects.toThrow("first insert failed");
     expect(mockWriteRun).toHaveBeenCalledTimes(2);
-    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith(
+      expect.objectContaining({ triggered: [expect.objectContaining({ detectorId: "d2" })] }),
+    );
     const writes = mockWriteRun.mock.calls.map(([params]) => params);
 
     await handleDetectorRunJob(retryJob(job));
 
     expect(mockRunDetection).toHaveBeenCalledTimes(2);
     expect(mockWriteRun.mock.calls.slice(2).map(([params]) => params)).toEqual(writes);
-    expect(mockEnqueueSignalHits).toHaveBeenCalledWith(
+    expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(2);
+    expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        triggered: [
+          expect.objectContaining({ detectorId: "d1" }),
+          expect.objectContaining({ detectorId: "d2" }),
+        ],
         detectors: [
           { id: "d1", enableSignals: true },
           { id: "d2", enableSignals: false },
@@ -315,6 +323,81 @@ describe("handleDetectorRunJob — result persistence", () => {
     expect(mockWriteRun).toHaveBeenCalledTimes(5);
     expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
     expect(job.data.result).toBeDefined();
+  });
+
+  it.each(["d1", "d2"])(
+    "enqueues the healthy detector across exhausted retries when %s keeps failing",
+    async (failedId) => {
+      mockPrisma.detector.findMany.mockResolvedValue(
+        ["d1", "d2"].map((id) => ({
+          id,
+          name: id,
+          prompt: "p",
+          outputSchema: [],
+          enableSignals: true,
+        })),
+      );
+      const failure = new Error("one detector remains unavailable");
+      mockWriteRun.mockImplementation(async ({ detectorId }) => {
+        if (detectorId === failedId) throw failure;
+      });
+      const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+      const healthyId = failedId === "d1" ? "d2" : "d1";
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await expect(handleDetectorRunJob(attempt === 0 ? job : retryJob(job))).rejects.toBe(
+          failure,
+        );
+        expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(attempt + 1);
+        expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith({
+          projectId: BASE_JOB.projectId,
+          detectors: [
+            { id: "d1", enableSignals: true },
+            { id: "d2", enableSignals: true },
+          ],
+          triggered: [expect.objectContaining({ detectorId: healthyId })],
+        });
+      }
+      expect(mockRunDetection).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+      expect(mockWriteRun).toHaveBeenCalledTimes(10);
+      const originalWrites = mockWriteRun.mock.calls.slice(0, 2);
+      for (let attempt = 1; attempt < 5; attempt++) {
+        expect(mockWriteRun.mock.calls.slice(attempt * 2, attempt * 2 + 2)).toEqual(originalWrites);
+      }
+      expect(job.data.result).toBeDefined();
+    },
+  );
+
+  it("still retries the failed write if enqueueing its healthy sibling also fails", async () => {
+    mockPrisma.detector.findMany.mockResolvedValue(
+      ["d1", "d2"].map((id) => ({
+        id,
+        name: id,
+        prompt: "p",
+        outputSchema: [],
+        enableSignals: true,
+      })),
+    );
+    const writeFailure = new Error("run insert unavailable");
+    mockWriteRun.mockRejectedValueOnce(writeFailure);
+    mockEnqueueSignalHits.mockRejectedValueOnce(new Error("signal enqueue unavailable"));
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+
+    await expect(handleDetectorRunJob(job)).rejects.toBe(writeFailure);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledWith(
+      expect.objectContaining({ triggered: [expect.objectContaining({ detectorId: "d2" })] }),
+    );
+    await handleDetectorRunJob(retryJob(job));
+    expect(mockRunDetection).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        triggered: [
+          expect.objectContaining({ detectorId: "d1" }),
+          expect.objectContaining({ detectorId: "d2" }),
+        ],
+      }),
+    );
   });
 
   it("does not create a result checkpoint for a clean evaluation", async () => {

@@ -527,19 +527,26 @@ async function persistTraceResult(
     ),
   );
   const failed = writes.find((r): r is PromiseRejectedResult => r.status === "rejected");
-  if (failed) throw failed.reason;
-
-  console.log(
-    `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
-  );
+  const persisted = triggered.filter((_, i) => writes[i].status === "fulfilled");
 
   // Signals (ee): enqueue assignment for detectors with signals on; the job
   // reads the hits back from ClickHouse. Notifications come only from the
   // signal digest, for new and reopened signals. A failure here must not fail
   // the finding, which is written: the partition is on record in Postgres, or in
   // Redis when Postgres refused it, and the sweeper picks the hits up later.
-  await enqueueSignalHits({ projectId, detectors, triggered }).catch((err) =>
-    console.error(`[Detector] Failed to enqueue signal assignment for finding ${findingId}:`, err),
+  // A failed sibling must not strand these hits when retries are exhausted.
+  if (persisted.length > 0) {
+    await enqueueSignalHits({ projectId, detectors, triggered: persisted }).catch((err) =>
+      console.error(
+        `[Detector] Failed to enqueue signal assignment for finding ${findingId}:`,
+        err,
+      ),
+    );
+  }
+  if (failed) throw failed.reason;
+
+  console.log(
+    `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
 }
 
