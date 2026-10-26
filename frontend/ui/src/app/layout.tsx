@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "./providers";
 import { AppLayout } from "@/components/layout/app-layout";
@@ -12,13 +13,18 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "TraceRoot",
-  description: "Observability and self-improving layer for AI agents",
+  description:
+    "Open source AI agent improvement platform. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.",
   icons: {
     icon: "/images/favicon.ico",
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Set per request by proxy.ts for the page's Content-Security-Policy. Reading it
+  // also renders every page per request, which the policy needs: a prerendered
+  // page has no nonce.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
@@ -27,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <PostHogPageView />
           </Suspense>
           <PostHogIdentifier />
-          <Providers>
+          <Providers nonce={nonce}>
             <AppLayout>{children}</AppLayout>
           </Providers>
         </PHProvider>

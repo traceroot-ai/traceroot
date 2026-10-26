@@ -40,6 +40,12 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 | `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic |
 | `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
 | `tags` | `string[]` | — | Tags to attach |
+| `captureInput` | `boolean` | `true` | Capture the function arguments as span input |
+| `captureOutput` | `boolean` | `true` | Capture the return value as span output |
+
+See [Data Capture and Privacy](/tracing/data-capture) for `captureInput` and `captureOutput` examples that keep sensitive values off spans.
+
+To rewrite personal data in every span before export, pass a `redact` function to `TraceRoot.initialize()`. See [Data Capture and Privacy](/tracing/data-capture#redact-personal-data-before-export).
 
 ## Setting Trace Context
 
@@ -82,7 +88,8 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
   updateCurrentSpan({
     input: { query: userInput },
     output: { response: agentOutput },
-    metadata: { model: 'gpt-4o' },
+    model: 'gpt-4o',
+    usage: { input: 100, output: 50 },
   });
 
   updateCurrentTrace({
@@ -98,9 +105,15 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `name` | `string` | Rename the span after creation |
 | `input` | `unknown` | Input data |
 | `output` | `unknown` | Output data |
 | `metadata` | `Record<string, unknown>` | Custom metadata |
+| `model` | `string` | LLM model name |
+| `modelParameters` | `Record<string, unknown>` | LLM model parameters |
+| `usage` | `TokenUsage` | Token usage (`{ input, output, cacheRead, cacheWrite, total }`) |
+| `prompt` | `unknown` | Prompt or messages sent to the LLM |
+| `attributes` | `Record<string, string \| number \| boolean>` | Arbitrary span attributes |
 
 ### `updateCurrentTrace` Parameters
 
@@ -110,6 +123,40 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `sessionId` | `string` | Session identifier |
 | `tags` | `string[]` | Tags for the trace |
 | `metadata` | `Record<string, unknown>` | Trace-level metadata |
+
+## Flushing and Shutdown
+
+By default, the TypeScript SDK batches spans to optimize performance, flushing them every 5 seconds or when 100 spans are accumulated.
+
+**Important:** The SDK's only automatic shutdown flush is a `beforeExit` hook. Node.js does not emit `beforeExit` on `process.exit()`, unhandled exceptions, or signals like SIGINT/SIGTERM. Serverless runtimes that freeze the process (e.g. AWS Lambda, Cloud Functions) skip it too. In any of these cases, buffered spans will be lost if you exit without flushing explicitly.
+
+To ensure all spans are exported before your script terminates, await `shutdown()` (or `flush()`):
+
+```typescript
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize();
+
+async function main() {
+  try {
+    // ... your application logic ...
+  } finally {
+    // Ensure all batched spans are exported before exiting, even on failure
+    await TraceRoot.shutdown();
+  }
+}
+main();
+```
+
+Alternatively, for tests or short scripts, you can disable batching:
+
+```typescript
+TraceRoot.initialize({ disableBatch: true });
+```
+
+**Note:** Disabling batching does not make the network request synchronous. You still must await `flush()` or `shutdown()` before terminating the process with `process.exit()`.
+
+*(Note: The Python SDK registers an `atexit` handler that flushes spans automatically in most environments. However, `atexit` does not run when a serverless runtime freezes the process — Python handlers there still need `traceroot.flush()` before returning.)*
 
 ## Environment Variables
 

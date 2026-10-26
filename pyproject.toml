@@ -1,7 +1,7 @@
 [project]
 name = "traceroot-platform"
 version = "0.1.0"
-description = "TraceRoot - open-source observability and self-improving layer for AI agents"
+description = "TraceRoot - open source AI agent improvement platform. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

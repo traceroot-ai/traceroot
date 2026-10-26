@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { Message, ProviderStreamOptions, Tool, ToolCall } from "@earendil-works/pi-ai";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import { DIGEST_SUMMARY_SYSTEM_MODEL_ID } from "@traceroot/core/llm-providers";
 import { formatWindowRange } from "@traceroot/slack";
 import { resolveDetectorApiKey } from "../detection/sandbox-eval.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
@@ -192,7 +192,7 @@ export type DigestSummaryResult =
  * failure resolves to `summary: null` when the attempt left a self-trace worth
  * recording, and to null when it did not. Model choice is two clean branches:
  * a valid BYOK config uses the project's rcaModel on that config; everything
- * else (system source, BYOK lookup failure) uses the detector system default.
+ * else (system source, BYOK lookup failure) uses the digest summary system default.
  */
 export async function generateDigestSummary(
   input: DigestSummaryInput,
@@ -212,14 +212,14 @@ export async function generateDigestSummary(
       cfg.rcaSource === "byok" && cfg.rcaProvider
         ? await fetchProviderConfig(cfg.workspaceId, cfg.rcaProvider)
         : null;
-    // System calls always use the cheap detector default; a project's rcaModel
+    // System calls always use the cheap digest summary default; a project's rcaModel
     // is sized for the RCA agent, not a short summarization. BYOK keeps the
     // project's model so the spend stays on their key. resolvePiModel can
     // throw for BYOK adapters when rcaModel is null — caught by the outer
     // try -> summary skipped.
     const model = byokConfig
       ? resolvePiModel(cfg.rcaModel ?? undefined, byokConfig)
-      : resolvePiModel(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+      : resolvePiModel(DIGEST_SUMMARY_SYSTEM_MODEL_ID, null);
 
     const apiKey = await resolveDetectorApiKey(cfg.workspaceId, byokConfig, model.provider);
     if (!apiKey) {

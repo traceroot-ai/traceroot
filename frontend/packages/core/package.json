@@ -33,6 +33,14 @@
     "./model-resolver": {
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
+    },
+    "./signals": {
+      "types": "./src/ee/signals/index.ts",
+      "default": "./src/ee/signals/index.ts"
+    },
+    "./email": {
+      "types": "./src/lib/email/index.ts",
+      "default": "./src/lib/email/index.ts"
     }
   },
   "scripts": {
@@ -52,10 +60,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.9",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "prisma": "^5.22.0",
     "stripe": "^14.0.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

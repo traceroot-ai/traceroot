@@ -5,18 +5,32 @@ description: Auto-instrument Google Gemini API calls via the GenAI SDK
 
 Automatically capture all Gemini model calls made through the `google-genai` SDK.
 
-## Setup
+## Install
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot google-genai
+    ```
+  </Tab>
+</Tabs>
 
-traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
-```
+## Set up
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage
 
-Once initialized, all Gemini calls are captured automatically — including tool calls:
+Once initialized, all Gemini calls are captured automatically — including tool-call requests:
 
 ```python
 import os
@@ -39,30 +53,51 @@ weather_tool = types.Tool(function_declarations=[
 
 # This call is automatically traced
 response = client.models.generate_content(
-    model="gemini-2.5-flash",
+    model="gemini-3.8-flash",
     contents="What's the weather in Tokyo?",
     config=types.GenerateContentConfig(tools=[weather_tool]),
 )
 
-print(response.text)
+# The model asks to call get_weather; run it and send the result back yourself
+print(response.function_calls)
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `GenerateContent` (or `GenerateContentStream` when streaming).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
-| Model | `gemini-2.5-flash`, `gemini-2.0-pro`, etc. |
+| Model | `gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, etc. |
 | Contents | Input messages |
 | Response | Generated text and function calls |
 | Tokens | Input and output token counts |
-| Cost | Calculated from token usage and model pricing |
+| Cost | Calculated when the model ID matches TraceRoot's pricing table |
 | Latency | Request duration |
 
+## Limitations
+
+- When passing Python functions as `tools`, the SDK's automatic function calling executes the entire tool loop inside a single `generate_content` call, which produces one span priced on the final model call only. For accurate per-step spans and cost, pass function declarations or set `automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)` and run the loop manually.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/gemini-tool-agent">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/gemini-tool-agent">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

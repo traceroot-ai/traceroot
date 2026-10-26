@@ -8,9 +8,17 @@ import pytest
 
 import rest.openapi_public as openapi_public
 from rest.main import app
-from rest.openapi_public import PUBLIC_PREFIX, _apply_tool_curation, build_public_schema, render
+from rest.openapi_public import (
+    DOCS_SERVERS,
+    PUBLIC_PREFIX,
+    _apply_tool_curation,
+    build_docs_schema,
+    build_public_schema,
+    render,
+)
 
 ARTIFACT = Path(__file__).resolve().parents[2] / "backend" / "rest" / "openapi" / "public.json"
+DOCS_ARTIFACT = Path(__file__).resolve().parents[2] / "docs" / "api-reference" / "openapi.json"
 
 
 def _schema():
@@ -39,6 +47,40 @@ def test_excludes_internal_session_and_project_routes():
     assert not any(p.startswith("/api/v1/internal/") for p in paths)
     assert not any(p.startswith("/api/v1/projects/") for p in paths)
     assert "/health" not in paths
+
+
+def test_whoami_publishes_the_key_scope_field():
+    """The CLI re-vendors this document rather than hand-rolling the type.
+
+    So the field has to be *in* the document, required, and a closed enum — a
+    client that generates its types from here gets an exhaustive union, and one
+    that validates responses against it rejects a missing scope instead of
+    quietly treating it as unknown.
+    """
+    schema = _schema()
+    whoami_ref = schema["paths"]["/api/v1/public/whoami"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    assert whoami_ref.endswith("/WhoamiResponse")
+    model = schema["components"]["schemas"]["WhoamiResponse"]
+    scope = model["properties"]["key_scope"]
+    assert scope["type"] == "string"
+    assert scope["enum"] == ["ingest", "admin"]
+    assert "key_scope" in model["required"]
+    # Alongside the identity fields it belongs with, not in place of them.
+    for field in ("key_name", "key_hint"):
+        assert field in model["properties"]
+
+
+def test_whoami_needs_no_credential_beyond_the_key_it_already_takes():
+    """Reading a key's own scope introduces no new permission.
+
+    The document is the statement of that: whoami carries the same bearer
+    security as before and nothing else, so a client cannot read this field as a
+    hint that some other credential is now involved.
+    """
+    whoami = _schema()["paths"]["/api/v1/public/whoami"]["get"]
+    assert whoami["security"] == [{"BearerAuth": []}]
 
 
 def test_export_response_model_present_and_referenced():
@@ -92,6 +134,13 @@ def test_committed_artifact_matches_generated():
     """Drift guard: regenerate with `python scripts/sync_public_openapi.py`."""
     assert ARTIFACT.exists(), f"missing artifact: {ARTIFACT}"
     assert ARTIFACT.read_text(encoding="utf-8") == render(_schema())
+
+
+def test_committed_docs_copy_matches_generated():
+    """Drift guard for the API reference's copy: regenerate with
+    `python scripts/sync_public_openapi.py`."""
+    assert DOCS_ARTIFACT.exists(), f"missing artifact: {DOCS_ARTIFACT}"
+    assert DOCS_ARTIFACT.read_text(encoding="utf-8") == render(build_docs_schema(_schema()))
 
 
 def test_drift_is_detectable():
@@ -245,18 +294,87 @@ def test_eval_reporting_routes_document_error_and_auth_contract():
 
 
 def test_untyped_dataset_catch_alls_stay_hidden():
-    """Dataset + dataset-version catch-alls remain unpublished until a later phase."""
+    """The dataset READS are typed and published; the WRITES stay on hidden catch-alls.
+
+    The three GETs are published so a client — including the tool registry — can be
+    generated from them. No policy decision has been made for dataset WRITES, and
+    publishing one would be the first step toward handing it to an agent, so the
+    upsert/patch/publish shapes stay unpublished and the catch-alls keep serving them.
+    """
     paths = _schema()["paths"]
-    assert not any(p.startswith("/api/v1/public/datasets") for p in paths), paths
-    assert not any(p.startswith("/api/v1/public/dataset-versions") for p in paths), paths
+    dataset_paths = {
+        p: set(item) & _METHODS
+        for p, item in paths.items()
+        if p.startswith("/api/v1/public/datasets")
+        or p.startswith("/api/v1/public/dataset-versions")
+    }
+    assert dataset_paths == {
+        "/api/v1/public/datasets": {"get"},
+        "/api/v1/public/datasets/{dataset_id}": {"get"},
+        "/api/v1/public/datasets/{dataset_id}/versions": {"get"},
+        "/api/v1/public/dataset-versions/{version_id}": {"get"},
+    }, dataset_paths
     # The additive per-scorer scores / human-score run subpaths also stay hidden:
-    # only the three explicit reporting paths are published under evaluation-runs.
+    # only the explicitly-typed reporting paths are published under evaluation-runs —
+    # the three write shapes plus the run-summary read.
     eval_paths = {p for p in paths if p.startswith("/api/v1/public/evaluation-runs")}
     assert eval_paths == {
         "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}",
         "/api/v1/public/evaluation-runs/{run_id}/results",
         "/api/v1/public/evaluation-runs/{run_id}/complete",
     }
+    # The read is GET-only and the bare-run shape publishes no other verb: the catch-all
+    # still carries the untyped POST subpaths, and must not leak them into the schema.
+    assert set(paths["/api/v1/public/evaluation-runs/{run_id}"]) == {"get"}
+
+
+def test_read_run_publishes_the_run_summary_only():
+    """The run read answers "what did this run do", and nothing about another run.
+
+    Comparing two runs is its own operation with its own trust rules, so the read takes
+    the run id (and the dual credential's project) alone, returns no `comparison` block,
+    and each score or metric is the run's own mean with its denominator.
+    """
+    schema = _schema()
+    op = schema["paths"]["/api/v1/public/evaluation-runs/{run_id}"]["get"]
+    assert [(p["name"], p["in"]) for p in op.get("parameters", [])] == [
+        ("run_id", "path"),
+        ("project_id", "query"),
+    ]
+    assert "baseline" not in op["x-tool"]["description"]
+
+    components = schema["components"]["schemas"]
+    assert "comparison" not in components["ReadRunResponse"]["properties"]
+    assert "RunComparisonRead" not in components
+    item = components["RunMetricItem"]
+    assert set(item["properties"]) == {
+        "name",
+        "unit",
+        "direction",
+        "value_type",
+        "value",
+        "observed_count",
+    }
+    assert {"value_type", "observed_count"} <= set(item["required"])
+    # The null semantics reach the published contract, not just a source comment.
+    assert "categorical" in item["properties"]["value"]["description"]
+
+
+def test_eval_reads_document_the_errors_a_read_can_return():
+    """A read can be refused for a project the caller can't see (403) or rate-limited
+    (429). It takes no body, so a 413 would be a false promise."""
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/datasets",
+        "/api/v1/public/datasets/{dataset_id}",
+        "/api/v1/public/datasets/{dataset_id}/versions",
+        "/api/v1/public/dataset-versions/{version_id}",
+        "/api/v1/public/evaluation-runs/{run_id}",
+    ):
+        responses = paths[path]["get"]["responses"]
+        assert {"401", "403", "404", "422", "429", "503"} <= set(responses), path
+        assert "413" not in responses, path
 
 
 def test_session_read_routes_document_error_responses():
@@ -376,6 +494,9 @@ EXPECTED_OPERATION_IDS = {
         "delete": "delete_alert",
     },
     "/api/v1/public/alerts/{alert_id}/status": {"patch": "set_alert_status"},
+    "/api/v1/public/signals": {"get": "list_signals"},
+    "/api/v1/public/signals/{signal_id}": {"get": "get_signal"},
+    "/api/v1/public/signals/{signal_id}/status": {"patch": "set_signal_status"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/widgets/query": {"post": "run_widget_query"},
     "/api/v1/public/widgets/{widget_id}": {
@@ -402,7 +523,13 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sql": {"post": "run_sql"},
     "/api/v1/public/sql/schema": {"get": "get_sql_schema"},
     "/api/v1/public/whoami": {"get": "whoami"},
-    "/api/v1/public/evaluation-runs": {"post": "register_run"},
+    "/api/v1/public/datasets": {"get": "list_datasets"},
+    "/api/v1/public/datasets/{dataset_id}": {"get": "get_dataset"},
+    "/api/v1/public/datasets/{dataset_id}/versions": {"get": "list_dataset_versions"},
+    "/api/v1/public/dataset-versions/{version_id}": {"get": "get_dataset_version"},
+    "/api/v1/public/evaluations": {"get": "list_evaluations"},
+    "/api/v1/public/evaluation-runs": {"get": "list_evaluation_runs", "post": "register_run"},
+    "/api/v1/public/evaluation-runs/{run_id}": {"get": "read_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
     "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
 }
@@ -475,6 +602,8 @@ def test_x_tool_enabled_set_and_shape():
         "get_dashboard",
         "list_alerts",
         "get_alert",
+        "list_signals",
+        "get_signal",
         "list_workspaces",
         "list_projects",
         "create_workspace",
@@ -496,12 +625,20 @@ def test_x_tool_enabled_set_and_shape():
         "update_widget",
         "update_alert",
         "set_alert_status",
+        "set_signal_status",
         "delete_workspace",
         "delete_project",
         "delete_detector",
         "delete_dashboard",
         "delete_widget",
         "delete_alert",
+        "get_dataset",
+        "get_dataset_version",
+        "list_dataset_versions",
+        "list_datasets",
+        "get_evaluation_run",
+        "list_evaluations",
+        "list_evaluation_runs",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -528,6 +665,15 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/widgets/{widget_id}/data",
     "/api/v1/public/alerts",
     "/api/v1/public/alerts/{alert_id}",
+    "/api/v1/public/signals",
+    "/api/v1/public/signals/{signal_id}",
+    "/api/v1/public/datasets",
+    "/api/v1/public/datasets/{dataset_id}",
+    "/api/v1/public/datasets/{dataset_id}/versions",
+    "/api/v1/public/dataset-versions/{version_id}",
+    "/api/v1/public/evaluation-runs/{run_id}",
+    "/api/v1/public/evaluations",
+    "/api/v1/public/evaluation-runs",
 ]
 
 
@@ -549,6 +695,14 @@ def test_key_only_ops_have_no_project_id_param():
     # ingestion is key-only and unchanged.
     post_params = paths["/api/v1/public/traces"]["post"].get("parameters", [])
     assert not [q for q in post_params if q["name"] == "project_id"]
+    # So is evaluation reporting: the SDK reports with its API key, never a user login.
+    for path in (
+        "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    ):
+        params = paths[path]["post"].get("parameters", [])
+        assert not [q for q in params if q["name"] == "project_id"], path
 
 
 def _filters_param(schema):
@@ -832,9 +986,9 @@ def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
     assert tool["policy"] == policy
 
 
-# The thirteen edit operations, pinned to their exact write-tool policy. Role
+# The edit operations, pinned to their exact write-tool policy. Role
 # floors follow the cookie routes (renaming a workspace or changing a project's
-# retention is administrative; the four project resources take MEMBER).
+# retention is administrative; the project resources take MEMBER).
 # Updates are "confirm" like the creates; deletes are "approval" — the class
 # that parks on a destructive card attended and is blocked unattended.
 _CONFIRM = "confirm"
@@ -873,6 +1027,11 @@ _EDIT_TOOL_POLICIES = {
     "set_alert_status": (
         "patch",
         "/api/v1/public/alerts/{alert_id}/status",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "set_signal_status": (
+        "patch",
+        "/api/v1/public/signals/{signal_id}/status",
         {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
     ),
     "delete_workspace": (
@@ -1148,3 +1307,70 @@ def test_create_widget_spec_keeps_widget_spec_component_for_parity():
     components = _schema()["components"]["schemas"]
     for name in ("WidgetSpec", "WidgetFilter", "WidgetMetric", "WidgetDisplay"):
         assert name in components
+
+
+# --- API reference (docs copy + grouping) -----------------------------------
+
+
+def test_docs_copy_adds_servers_and_sdk_notes_only():
+    """The docs copy is the public document plus `servers` and the SDK notes;
+    nothing else differs, and the public document itself gains neither."""
+    public = _schema()
+    docs = build_docs_schema(public)
+    assert "servers" not in public
+    assert docs["servers"] == DOCS_SERVERS
+    assert docs["servers"][0]["url"] == "https://app.traceroot.ai"
+
+    stripped = deepcopy(docs)
+    del stripped["servers"]
+    for item in stripped["paths"].values():
+        for op in item.values():
+            op.pop("x-mint", None)
+    assert stripped == public
+
+
+def test_docs_copy_labels_the_sdk_driven_operations():
+    """Every operation hidden from the tool registry is one the SDKs call, and
+    its reference page says so; the ingest page also names its content type."""
+    docs = build_docs_schema(_schema())
+    labelled = {
+        op["operationId"]: op["x-mint"]["content"]
+        for item in docs["paths"].values()
+        for op in item.values()
+        if "x-mint" in op
+    }
+    assert set(labelled) == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+    for content in labelled.values():
+        assert "SDKs call this endpoint" in content
+    assert "application/x-protobuf" in labelled["ingest_traces"]
+
+
+def test_each_resource_has_one_tag():
+    """The API reference groups operations by tag, so every operation carries
+    exactly one tag and every operation on a resource shares it: a write tagged
+    apart from its reads would split the resource across two groups."""
+    tags_by_resource: dict[str, set[str]] = {}
+    for path, item in _schema()["paths"].items():
+        resource = path.removeprefix(PUBLIC_PREFIX).split("/")[0]
+        for method, op in item.items():
+            if method not in _METHODS:
+                continue
+            assert len(op["tags"]) == 1, (method, path, op["tags"])
+            assert "(Public)" not in op["tags"][0], (method, path)
+            tags_by_resource.setdefault(resource, set()).add(op["tags"][0])
+    split = {r: tags for r, tags in tags_by_resource.items() if len(tags) > 1}
+    assert not split, split
+    # And the groups themselves: unrelated resources must not collapse into one tag.
+    assert {next(iter(tags)) for tags in tags_by_resource.values()} == {
+        "Account",
+        "Alerts",
+        "Dashboards",
+        "Detectors",
+        "Offline Eval",
+        "Sessions",
+        "Signals",
+        "SQL",
+        "Traces",
+        "Whoami",
+        "Widgets",
+    }

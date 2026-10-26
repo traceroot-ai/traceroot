@@ -245,11 +245,16 @@ export function invalidateProviderConfigCache(workspaceId: string, providerName:
  * First match wins (BYOK rows are workspace-unique by `provider` label, but may
  * share an adapter — order is determined by Prisma's default sort).
  *
+ * `nativeOnly` skips OpenAI-compatible adapters (DeepSeek, xAI, …) that map to
+ * "openai": their keys are only valid on their own base URL, so a caller that
+ * calls the provider's own endpoint (a system model) must not pick them up.
+ *
  * Returns null if no row matches, the row has no encrypted key, or the DB read fails.
  */
 export async function findByokKeyForPiProvider(
   workspaceId: string,
   piProvider: string,
+  opts: { nativeOnly?: boolean } = {},
 ): Promise<string | null> {
   try {
     const rows = await prisma.modelProvider.findMany({
@@ -257,7 +262,10 @@ export async function findByokKeyForPiProvider(
       select: { provider: true, adapter: true },
     });
     for (const row of rows) {
-      if (ADAPTER_TO_PI_AI[row.adapter] === piProvider) {
+      const matches = opts.nativeOnly
+        ? row.adapter === piProvider
+        : ADAPTER_TO_PI_AI[row.adapter] === piProvider;
+      if (matches) {
         const cfg = await fetchProviderConfig(workspaceId, row.provider);
         if (cfg) return cfg.key;
       }

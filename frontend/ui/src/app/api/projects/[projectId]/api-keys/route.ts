@@ -9,6 +9,9 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
+import { captureServerEvent } from "@/lib/posthog-server";
+import type { ApiKeyScope } from "@/lib/public-auth";
 
 const createAccessKeySchema = z.object({
   name: z.string().max(100, "Name too long").nullable().optional(),
@@ -27,6 +30,9 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const accessKeys = await prisma.accessKey.findMany({
     where: { projectId },
@@ -63,6 +69,9 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   let body: unknown;
   try {
@@ -92,8 +101,20 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       secretHash,
       keyHint,
       name: name ?? null,
+      // This is the key the dashboard tells people to paste into `.env`, so it
+      // travels wherever their application runs and gets the narrow scope.
+      // Stated here rather than left to the column default: the scope a key is
+      // minted with is a decision, and it should be readable at the call site
+      // that makes it. An admin-scoped key comes only from a signed-in user's own
+      // credential, never from this route or from another key.
+      scope: "ingest" satisfies ApiKeyScope,
       expireTime: expire_time ? new Date(expire_time) : null,
     },
+  });
+
+  captureServerEvent(user.id, "api_key_created", {
+    workspace_id: accessResult.project.workspaceId,
+    project_id: projectId,
   });
 
   // Return the full access key only once - user must copy it now

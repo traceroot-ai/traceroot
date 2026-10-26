@@ -20,6 +20,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description: "Row predicates the measure is evaluated over",
           items: {
             additionalProperties: false,
+            description: "A row predicate an alert's measure is evaluated over.",
             properties: {
               field: {
                 description: "A span field, e.g. model_name or metadata",
@@ -283,7 +284,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 'Chart spec over the "spans" view; the enums below are the complete field vocabulary for this view.',
               properties: {
                 breakdown: {
-                  enum: ["name", "span_kind", "model_name", "environment", null],
+                  enum: ["name", "span_kind", "error_type", "model_name", "environment", null],
                   type: ["string", "null"],
                 },
                 display: {
@@ -308,6 +309,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           "name",
                           "span_kind",
                           "status",
+                          "error_type",
                           "model_name",
                           "environment",
                           "is_root",
@@ -326,11 +328,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -338,6 +340,15 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            maxItems: 100,
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
@@ -442,11 +453,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -454,6 +465,15 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            maxItems: 100,
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
@@ -948,6 +968,63 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_dataset",
+    description:
+      "Read one evaluation dataset by id: its name, description, key, and current published version. A dataset with no published version has none, and its cases cannot be read until one exists.",
+    method: "get",
+    path: "/api/v1/public/datasets/{dataset_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dataset_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dataset_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_dataset_version",
+    description:
+      "Read one immutable dataset version and its test cases (input, expected, metadata, and trace provenance where the case was captured from one). Always pass limit (for example 20) and follow next_cursor until it is null: without limit the whole version comes back in one response, which can be very large.",
+    method: "get",
+    path: "/api/v1/public/dataset-versions/{version_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        version_id: {
+          type: "string",
+        },
+        limit: {
+          maximum: 1000,
+          minimum: 1,
+          type: "integer",
+          description:
+            "Test cases per page. Omit it, with no cursor, to receive the whole version in one response, as an SDK pulling the snapshot it will run does; pass it to page.",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["version_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_detector",
     description:
       "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
@@ -966,6 +1043,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["detector_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evaluation_run",
+    description:
+      "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs/{run_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["run_id"],
       additionalProperties: false,
     },
   },
@@ -1040,6 +1139,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["session_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_signal",
+    description:
+      "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/signals/{signal_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        signal_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["signal_id"],
       additionalProperties: false,
     },
   },
@@ -1205,6 +1326,79 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "list_dataset_versions",
+    description:
+      "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots: editing a dataset's test cases publishes a new version rather than changing an old one, while renaming a dataset or changing its description publishes nothing.",
+    method: "get",
+    path: "/api/v1/public/datasets/{dataset_id}/versions",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dataset_id: {
+          type: "string",
+        },
+        limit: {
+          default: 50,
+          description: "Versions per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dataset_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_datasets",
+    description:
+      "List the project's evaluation datasets, newest first, with each dataset's current published version. Filter by a case-insensitive substring of the name. Use this for discovery before reading a specific dataset.",
+    method: "get",
+    path: "/api/v1/public/datasets",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Datasets per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        name: {
+          maxLength: 200,
+          minLength: 1,
+          type: "string",
+          description: "Case-insensitive substring of the name",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_detectors",
     description: "List the project's detectors (id, name, template, enabled flag, creation time).",
     method: "get",
@@ -1228,6 +1422,94 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_evaluation_runs",
+    description:
+      "List evaluation runs, newest first. Filter by evaluation_id to see one evaluation's runs, or by status to see only runs in that state. Each row is identity and outcome only: which run it is, what was evaluated, the dataset version it pinned, its status, and when it started and finished. A run's counts and per-scorer means come from get_evaluation_run. Use this to find a run id.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Runs per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        evaluation_id: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Only this evaluation's runs",
+        },
+        status: {
+          enum: [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled",
+          ],
+          type: "string",
+          description: "Only runs in this status",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_evaluations",
+    description:
+      "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation that has never been run reports a null latest_run. Use this to find an evaluation before listing its runs.",
+    method: "get",
+    path: "/api/v1/public/evaluations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Evaluations per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        name: {
+          maxLength: 200,
+          minLength: 1,
+          type: "string",
+          description: "Case-insensitive substring of the name",
         },
         project_id: {
           type: "string",
@@ -1330,6 +1612,48 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only sessions with traces before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_signals",
+    description:
+      "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
+    method: "get",
+    path: "/api/v1/public/signals",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Items per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        page: {
+          default: 0,
+          description: "0-based page index",
+          maximum: 10000,
+          minimum: 0,
+          type: "integer",
+        },
+        status: {
+          enum: ["open", "resolved", "dismissed"],
+          type: "string",
+          description: "Only signals with this status",
+        },
+        detector_id: {
+          type: "string",
+          description: "Only signals of this detector",
         },
         project_id: {
           type: "string",
@@ -1445,6 +1769,27 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 additionalProperties: false,
                 properties: {
                   field: {
+                    const: "signal_id",
+                    title: "Signal ID",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["eq"],
+                    type: "string",
+                  },
+                  value: {
+                    maxLength: 1024,
+                    minLength: 1,
+                    type: "string",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
                     const: "model_name",
                     title: "Model",
                     type: "string",
@@ -1519,6 +1864,30 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "status",
                     title: "Status",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "error_type",
+                    title: "Error type",
                     type: "string",
                   },
                   op: {
@@ -1803,11 +2172,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     type: "string",
                   },
                   op: {
-                    enum: ["=", "contains", ">", ">=", "<", "<="],
+                    enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                     type: "string",
                   },
                   value: {
-                    type: ["string", "number"],
+                    type: ["string", "number", "array"],
                     anyOf: [
                       {
                         minLength: 1,
@@ -1815,6 +2184,15 @@ export const REGISTRY: readonly RegistryEntry[] = [
                       },
                       {
                         type: "number",
+                      },
+                      {
+                        items: {
+                          minLength: 1,
+                          type: "string",
+                        },
+                        maxItems: 100,
+                        minItems: 1,
+                        type: "array",
                       },
                     ],
                   },
@@ -1905,6 +2283,52 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "set_signal_status",
+    description:
+      "Resolve or reopen a signal. Resolving needs a reason (fixed_elsewhere, fixed_by_pr, already_fixed_before, other); 'other' also needs a note. A resolved signal opens again by itself when its detector finds the problem in a trace that started after the resolve. Dismissing is not possible here: a dismissed signal never reopens, so a person dismisses in the web app. Send expected_status to refuse the change when the status changed since you read it (a conflict). Setting the current status changes nothing.",
+    method: "patch",
+    path: "/api/v1/public/signals/{signal_id}/status",
+    inputSchema: {
+      type: "object",
+      properties: {
+        signal_id: {
+          type: "string",
+        },
+        expected_status: {
+          description:
+            "The status the caller last read. When the signal's current status differs, nothing is written and the answer is a 409.",
+          enum: ["open", "resolved", "dismissed"],
+          type: "string",
+        },
+        note: {
+          description: 'A free-text note; required when reason is "other"',
+          maxLength: 4000,
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+        },
+        reason: {
+          description: 'Why the signal is resolved; required when status is "resolved"',
+          enum: ["fixed_elsewhere", "fixed_by_pr", "already_fixed_before", "other"],
+          type: "string",
+        },
+        status: {
+          enum: ["resolved", "open"],
+          type: "string",
+        },
+      },
+      required: ["signal_id", "project_id", "status"],
+      additionalProperties: false,
+    },
+    bodyParams: ["expected_status", "note", "project_id", "reason", "status"],
+    policy: {
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
     name: "update_alert",
     description:
       "Edit an alert's rule: name, view, measure, aggregation, filters, window, threshold_operator, threshold, renotify, no_data_mode. Fields left out are untouched; the patch is validated against the stored rule, so an aggregation edit must fit the stored measure. Any edit to an evaluated field (everything but name) resets the alert's evaluation state and clears any open page — the response reports state_reset and page_cleared, and lists the fields that actually changed. To pause or resume, use set_alert_status instead.",
@@ -1924,6 +2348,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description: "Row predicates the measure is evaluated over",
           items: {
             additionalProperties: false,
+            description: "A row predicate an alert's measure is evaluated over.",
             properties: {
               field: {
                 description: "A span field, e.g. model_name or metadata",
@@ -2186,7 +2611,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 'Chart spec over the "spans" view; the enums below are the complete field vocabulary for this view.',
               properties: {
                 breakdown: {
-                  enum: ["name", "span_kind", "model_name", "environment", null],
+                  enum: ["name", "span_kind", "error_type", "model_name", "environment", null],
                   type: ["string", "null"],
                 },
                 display: {
@@ -2211,6 +2636,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           "name",
                           "span_kind",
                           "status",
+                          "error_type",
                           "model_name",
                           "environment",
                           "is_root",
@@ -2229,11 +2655,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -2241,6 +2667,15 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            maxItems: 100,
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
@@ -2345,11 +2780,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -2357,6 +2792,15 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            maxItems: 100,
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
