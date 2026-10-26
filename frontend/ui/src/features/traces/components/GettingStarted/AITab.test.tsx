@@ -82,24 +82,36 @@ describe("AITab", () => {
     expect(container.textContent ?? "").not.toContain("Create an API key");
   });
 
-  it("describes the command in two sentences, not a list of stages", () => {
+  it("describes the command in a few sentences, not a list of stages", () => {
     // A bulleted account of every stage competes with the command for the
     // attention of someone who just wants to know what to paste.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain("Instruments your repository with a coding agent");
-    expect(text).toContain("writes the API key into it");
+    expect(text).toContain("Writes the API key into your repository");
     expect(text).toContain("waits for the first trace");
     expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 
+  it("does not say a coding agent always does the work", () => {
+    // Setup asks how to instrument: run an agent, write the task for the
+    // reader's own agent, or print the steps. Unattended, it writes the task.
+    const { container } = render(<AITab projectId="proj_1" />);
+    const text = container.textContent ?? "";
+    expect(text).toContain(
+      "instruments it with a coding agent or hands you the task to run yourself",
+    );
+    expect(text).not.toContain("Instruments your repository with a coding agent");
+  });
+
   it("keeps the sentence that is consent rather than description", () => {
-    // The command edits a repository and launches an agent. That is the one
-    // line that changes whether somebody pastes it.
+    // The command edits a repository and can launch an agent. That is the one
+    // line that changes whether somebody pastes it. Over uncommitted changes
+    // setup asks whether to continue, defaulting to No; it does not stop.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
     expect(text).toContain("Asks before editing");
-    expect(text).toContain("uncommitted changes");
+    expect(text).toContain("asks before continuing over uncommitted changes");
+    expect(text).not.toContain("stops if you have uncommitted changes");
   });
 
   it("gives the reader something to read before they paste it", () => {

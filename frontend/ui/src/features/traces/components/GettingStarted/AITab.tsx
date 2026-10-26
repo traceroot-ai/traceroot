@@ -30,8 +30,9 @@ interface AITabProps {
  * list of what will happen competes with the command for their attention.
  *
  * The second sentence survives the trim because it is consent rather than
- * description. The command edits a repository and launches an agent; a person
- * is entitled to know that before pasting, not after.
+ * description. The command edits a repository and can launch an agent; a person
+ * is entitled to know that before pasting, not after. It says what setup does
+ * over uncommitted changes, which is ask and continue on a yes, not stop.
  *
  * The command itself is rendered rather than constant, because this page knows
  * the project the reader is looking at and the deployment that served them, and
@@ -78,8 +79,9 @@ export function AITab({ projectId }: AITabProps) {
           </div>
           <CodeBlock label="bash" value={setup.command} />
           <p className="text-[12px] text-muted-foreground">
-            Instruments your repository with a coding agent, writes the API key into it, and waits
-            for the first trace. Asks before editing, and stops if you have uncommitted changes.
+            Writes the API key into your repository, instruments it with a coding agent or hands you
+            the task to run yourself, and waits for the first trace. Asks before editing, and asks
+            before continuing over uncommitted changes.
           </p>
         </div>
       ) : (
