@@ -112,6 +112,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `model` | `string` | LLM model name |
 | `modelParameters` | `Record<string, unknown>` | LLM model parameters |
 | `usage` | `TokenUsage` | Token usage (`{ input, output, cacheRead, cacheWrite, total }`) |
+| `cost` | `number` | Total cost of this LLM call in USD. Requires `model` on the same span; otherwise it is ignored. Replaces TraceRoot's computed price for the span |
 | `prompt` | `unknown` | Prompt or messages sent to the LLM |
 | `attributes` | `Record<string, string \| number \| boolean>` | Arbitrary span attributes |
 
