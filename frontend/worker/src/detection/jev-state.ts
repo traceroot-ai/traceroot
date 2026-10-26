@@ -73,7 +73,7 @@ export interface JevState {
 }
 
 /** Parse a string that holds a JSON object, array or string; otherwise keep the text. */
-function parseJsonString(text: string): JsonValue {
+export function parseJsonString(text: string): JsonValue {
   const head = text.trimStart()[0];
   if (head !== "{" && head !== "[" && head !== '"') return text;
   try {
