@@ -167,6 +167,37 @@ describe("DeviceClient", () => {
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
+  // `traceroot login` and `traceroot setup` both reach this page with the same
+  // client id, so the warning can't name either one without misleading the other.
+  it("warns on consent without naming one CLI command", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn();
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    expect(
+      screen.getByText(
+        "Only approve a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("warns on the setup screen without naming one CLI command", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
+    expect(
+      screen.getByText(
+        "Only continue for a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
+      ),
+    ).toBeDefined();
+  });
+
   it("withholds approval from an account with no workspace and offers onboarding", async () => {
     // The terminal must not be released to an account that owns nothing: the
     // CLI's next move is to resolve a workspace and a project, and it can do

@@ -480,8 +480,8 @@ function Consent({
       </p>
 
       <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-        Only approve a code you generated yourself just now. If you didn&apos;t start a traceroot
-        login, deny this.
+        Only approve a code you generated yourself just now. If you didn&apos;t just run a TraceRoot
+        command in your terminal, deny this.
       </p>
 
       <div className="flex gap-2">
@@ -548,8 +548,8 @@ function SetupRequired({
       </p>
 
       <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-        Only continue for a code you generated yourself just now. If you didn&apos;t start a
-        traceroot login, deny this.
+        Only continue for a code you generated yourself just now. If you didn&apos;t just run a
+        TraceRoot command in your terminal, deny this.
       </p>
 
       <div className="flex gap-2">
