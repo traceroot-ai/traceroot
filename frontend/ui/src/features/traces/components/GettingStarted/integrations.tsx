@@ -73,6 +73,8 @@ export const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string 
 
 const PYTHON_INSTALL_COMMAND = "pip install traceroot";
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
+const LIVEKIT_PYTHON_INSTALL_COMMAND = "pip install traceroot livekit-agents";
+const LIVEKIT_TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot @livekit/agents";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
 const PI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent";
@@ -256,6 +258,32 @@ import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
   instrumentModules: { langchain: lcCallbackManager },
+});`,
+      },
+    },
+  },
+  {
+    id: "livekit",
+    name: "LiveKit Agents",
+    href: "https://traceroot.ai/docs/integrations/livekit",
+    category: "framework",
+    logo: "/logo/integrations/livekit.svg",
+    logoDark: "/logo/integrations/livekit-dark.svg",
+    languages: {
+      python: {
+        installCommand: LIVEKIT_PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.LIVEKIT])`,
+      },
+      typescript: {
+        installCommand: LIVEKIT_TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import * as livekitAgents from "@livekit/agents";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { livekitAgents },
 });`,
       },
     },
