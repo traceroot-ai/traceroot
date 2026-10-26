@@ -160,6 +160,8 @@ When you already know what a call cost (a negotiated rate, a gateway's bill, an 
 <Tabs>
   <Tab title="Python">
     ```python
+    from traceroot import update_current_span
+
     update_current_span(
         model="claude-opus-5",
         usage={"input_tokens": 10, "output_tokens": 20},
@@ -169,6 +171,8 @@ When you already know what a call cost (a negotiated rate, a gateway's bill, an 
   </Tab>
   <Tab title="TypeScript">
     ```typescript
+    import { updateCurrentSpan } from '@traceroot-ai/traceroot';
+
     updateCurrentSpan({
       model: 'claude-opus-5',
       usage: { input: 10, output: 20 },
