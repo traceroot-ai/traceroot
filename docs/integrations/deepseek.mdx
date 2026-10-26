@@ -130,7 +130,7 @@ Run your code and confirm the trace arrives:
 
 ## Limitations
 
-- DeepSeek requests are traced through the standard OpenAI integration; token pricing requires provider-returned usage headers or recognized model mappings.
+- DeepSeek requests are traced through the standard OpenAI integration. Cost is calculated when the model ID matches TraceRoot's pricing table, which includes `deepseek-chat` and `deepseek-reasoner`.
 
 ## Run the example
 
