@@ -114,7 +114,10 @@ def _span_aggregates_child_usage(
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
     # nothing when the operation name is present, which is the shape observed today.
     return (
-        isinstance(scope_name, str) and scope_name.lower() == "gen_ai" and span_kind != SpanKind.LLM
+        not operation_name
+        and isinstance(scope_name, str)
+        and scope_name.lower() == "gen_ai"
+        and span_kind != SpanKind.LLM
     )
 
 
@@ -158,9 +161,8 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
-        # -> cost column (OpenInference caller-reported total). Consumed only on
-        # non-wrapper spans with a model name; elsewhere it is dropped, like
-        # traceroot.llm.usage.
+        # -> cost column (OpenInference caller-reported total). Consumed on any
+        # non-wrapper span, with or without a model name.
         "llm.cost.total",
     }
 )
@@ -918,6 +920,12 @@ def transform_otel_to_clickhouse(
                         else None
                     )
                 )
+                # Agent-invocation and step spans stamp aggregate
+                # gen_ai.usage.* totals restating the SUM of their LLM
+                # children — the same wrapper pattern as the raw ai.usage.*
+                # keys gated below, moved into the normalized namespace.
+                # Adopting them prices every token twice.
+                aggregate_wrapper = _span_aggregates_child_usage(scope_name, span_kind, span_attrs)
                 if model_name:
                     span_record["model_name"] = model_name
 
@@ -1025,15 +1033,6 @@ def transform_otel_to_clickhouse(
                             "ai.usage.outputTokenDetails.reasoningTokens",
                             "ai.usage.reasoningTokens",
                         ],
-                    )
-
-                    # Agent-invocation and step spans stamp aggregate
-                    # gen_ai.usage.* totals restating the SUM of their LLM
-                    # children — the same wrapper pattern as the raw ai.usage.*
-                    # keys gated above, moved into the normalized namespace.
-                    # Adopting them prices every token twice.
-                    aggregate_wrapper = _span_aggregates_child_usage(
-                        scope_name, span_kind, span_attrs
                     )
 
                     # Manual usage reported via the SDKs' update-span API
@@ -1200,14 +1199,12 @@ def transform_otel_to_clickhouse(
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
 
-                    # A caller-reported total (OpenInference llm.cost.total) replaces
-                    # the list price computed above, on any span we would list-price;
-                    # tokens stay as computed. Not on aggregate wrappers, whose totals
-                    # restate their children's.
-                    if not aggregate_wrapper:
-                        reported_cost = _usable_cost(span_attrs.get("llm.cost.total"))
-                        if reported_cost is not None:
-                            span_record["cost"] = reported_cost
+                # A reported cost (llm.cost.total) replaces any list price, with or
+                # without a model, so tool and API calls are costed too.
+                if not aggregate_wrapper:
+                    reported_cost = _usable_cost(span_attrs.get("llm.cost.total"))
+                    if reported_cost is not None:
+                        span_record["cost"] = reported_cost
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.
