@@ -98,9 +98,16 @@ describe("AITab", () => {
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
     expect(text).toContain(
-      "instruments it with a coding agent or hands you the task to run yourself",
+      "either has a coding agent instrument it and waits for the first trace, or hands you the task to run yourself.",
     );
     expect(text).not.toContain("Instruments your repository with a coding agent");
+  });
+
+  it("ties the wait for the first trace to the agent route", () => {
+    // A hand-over changes no code, so setup looks for a trace once and ends;
+    // `--resume` looks again. Only the agent route waits.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").not.toContain("yourself, and waits for the first trace");
   });
 
   it("keeps the sentence that is consent rather than description", () => {
@@ -109,9 +116,20 @@ describe("AITab", () => {
     // setup asks whether to continue, defaulting to No; it does not stop.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain("Asks before editing");
-    expect(text).toContain("asks before continuing over uncommitted changes");
+    expect(text).toContain(
+      "asks before editing your code and before continuing over uncommitted changes",
+    );
     expect(text).not.toContain("stops if you have uncommitted changes");
+  });
+
+  it("says the two questions are asked in an interactive terminal only", () => {
+    // Under `--no-input`, `--json`, CI or a pipe setup asks nothing: it writes
+    // the task rather than launching an agent, and notes uncommitted changes and
+    // carries on. A reader whose run is unattended must not count on either.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").toContain(
+      "In an interactive terminal, asks before editing your code and before continuing over uncommitted changes.",
+    );
   });
 
   it("names the Node version setup needs", () => {

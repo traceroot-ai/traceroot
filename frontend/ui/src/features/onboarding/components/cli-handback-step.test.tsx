@@ -123,12 +123,38 @@ describe("CliHandbackStep", () => {
     // writes a key somewhere the application will never read it.
     renderStep();
 
-    const line = screen.getByText(/Instruments your repository/);
-    expect(line.textContent).toContain("writes the API key into it");
+    const line = screen.getByText(/Writes the API key into your repository/);
     expect(line.textContent).toContain("waits for the first trace");
     expect(line.textContent).toContain("Run it where my-llm-project's code lives");
     expect(screen.getByRole("link", { name: "View the tracing docs" }).getAttribute("href")).toBe(
       "https://traceroot.ai/docs/tracing/get-started",
+    );
+  });
+
+  it("does not say setup always instruments the repository itself", () => {
+    // Setup asks how to instrument: run an agent, write the task for the
+    // reader's own agent, or print the steps. Unattended, it writes the task,
+    // and on that route it changes no code, so only the agent route waits for
+    // the first trace. The traces panel says so in the same words.
+    renderStep();
+
+    const line = screen.getByText(/Writes the API key into your repository/);
+    expect(line.textContent).toContain(
+      "either has a coding agent instrument it and waits for the first trace, or hands you the task to run yourself.",
+    );
+    expect(line.textContent).not.toContain("yourself, and waits for the first trace");
+    expect(line.textContent).not.toContain("Instruments your repository");
+  });
+
+  it("says what setup asks before it edits, and where it asks", () => {
+    // The consent the traces panel states, because this is the same command.
+    // Only an interactive terminal gets the questions; unattended, setup asks
+    // nothing, writes the task rather than launching an agent, and carries on
+    // over uncommitted changes.
+    renderStep();
+
+    expect(screen.getByText(/Writes the API key into your repository/).textContent).toContain(
+      "In an interactive terminal, asks before editing your code and before continuing over uncommitted changes.",
     );
   });
 
@@ -137,7 +163,7 @@ describe("CliHandbackStep", () => {
     // on 20.3, so a working CLI is no sign this command will start.
     renderStep();
 
-    expect(screen.getByText(/Instruments your repository/).textContent).toContain(
+    expect(screen.getByText(/Writes the API key into your repository/).textContent).toContain(
       "Needs Node.js 20.12 or later.",
     );
   });

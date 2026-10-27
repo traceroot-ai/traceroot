@@ -29,10 +29,19 @@ interface AITabProps {
  * every stage. One line covers it, and the restraint is the point: someone on an empty traces page wants to know what to paste, and a
  * list of what will happen competes with the command for their attention.
  *
+ * The first sentence keeps the wait for the first trace on the agent route. A
+ * hand-over changes no code, so there setup looks once and ends, and `--resume`
+ * looks again.
+ *
  * The second sentence survives the trim because it is consent rather than
  * description. The command edits a repository and can launch an agent; a person
- * is entitled to know that before pasting, not after. It says what setup does
- * over uncommitted changes, which is ask and continue on a yes, not stop.
+ * is entitled to know that before pasting, not after. It says "your code"
+ * because the API key goes into the env file without a question. It says what
+ * setup does over uncommitted changes, which is ask and continue on a yes, not
+ * stop. And it says where both questions are asked, because only an interactive
+ * terminal gets them: under `--no-input`, `--json`, CI or a pipe, setup writes
+ * the task rather than launching an agent, and notes the uncommitted changes and
+ * carries on.
  *
  * The third is the Node floor. `setup` refuses a Node older than 20.12 while
  * the rest of the CLI runs on 20.3, so a reader whose CLI works can still be
@@ -83,9 +92,10 @@ export function AITab({ projectId }: AITabProps) {
           </div>
           <CodeBlock label="bash" value={setup.command} />
           <p className="text-[12px] text-muted-foreground">
-            Writes the API key into your repository, instruments it with a coding agent or hands you
-            the task to run yourself, and waits for the first trace. Asks before editing, and asks
-            before continuing over uncommitted changes. Needs Node.js 20.12 or later.
+            Writes the API key into your repository, then either has a coding agent instrument it
+            and waits for the first trace, or hands you the task to run yourself. In an interactive
+            terminal, asks before editing your code and before continuing over uncommitted changes.
+            Needs Node.js 20.12 or later.
           </p>
         </div>
       ) : (
