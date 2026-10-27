@@ -1,0 +1,80 @@
+---
+title: OpenCode
+description: Automatically trace OpenCode AI coding agent sessions with TraceRoot
+---
+
+Automatically capture agent turns, LLM calls, tool executions, subagent delegations, and token metrics from [OpenCode](https://opencode.ai) terminal sessions using `@traceroot-ai/opencode-plugin`.
+
+## Setup
+
+```bash
+opencode plugin add @traceroot-ai/opencode-plugin
+```
+
+Or add it directly to your project's `opencode.json` (or global `~/.config/opencode/opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    "@traceroot-ai/opencode-plugin"
+  ]
+}
+```
+
+Enable tracing and set your TraceRoot project API key:
+
+```bash
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="tr-..."
+```
+
+For self-hosted TraceRoot instances:
+
+```bash
+export TRACEROOT_HOST_URL="https://traceroot.your-company.com"
+export TRACEROOT_OTLP_ENDPOINT="https://traceroot.your-company.com/api/v1/public/traces"
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|-----------|---------|-------------|
+| `TRACEROOT_ENABLED` | `false` | Master switch to activate trace emission |
+| `TRACEROOT_API_KEY` | - | TraceRoot project API key |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | TraceRoot base URL |
+| `TRACEROOT_OTLP_ENDPOINT` | Derived from host | Ingest endpoint (`https://app.traceroot.ai/api/v1/public/traces` in cloud, `<TRACEROOT_HOST_URL>/api/v1/public/traces` self-hosted) |
+| `TRACEROOT_CAPTURE_CONTENT` | `true` | Record prompt text and completion output messages |
+| `TRACEROOT_CAPTURE_TOOL_IO` | `true` | Record tool arguments and return values |
+| `TRACEROOT_DEBUG` | `false` | Log diagnostics to stderr |
+
+## Usage
+
+Run OpenCode as usual — sessions are traced automatically when `TRACEROOT_ENABLED=true`:
+
+```bash
+opencode
+```
+
+Each session produces a nested trace tree, with tool spans nested under the LLM span that requested them:
+
+```
+OpenCode Session (session_id)           # SESSION span
+└── Turn 1: user prompt                 # AGENT span
+    └── claude-sonnet-4-6               # LLM span — tokens, latency
+        ├── tool: bash (git status)     # TOOL span — arguments + stdout
+        └── tool: file_edit (main.py)   # TOOL span — diff payload
+    └── Subagent: researcher            # SUBAGENT span
+        └── tool: search_web            # TOOL span
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Sessions | Persistent session identifier grouping all turns |
+| Agent turns | User prompt and turn boundaries |
+| LLM calls | Model identifier, provider, and latency |
+| Tool calls | Tool name, arguments, output, and error status |
+| Subagents | Child agent delegations and executions |
+| Tokens | Input, output, and cache read/write counts |
