@@ -385,3 +385,91 @@ describe("setupCommand", () => {
     expect(line).not.toContain("'");
   });
 });
+
+describe("sdkHostUrl", () => {
+  /** Imports both functions against one stated environment. */
+  async function bothWith(env: { apiUrl?: string; appUrl?: string }) {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", env.apiUrl ?? "/api/v1");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", env.appUrl ?? "");
+    vi.resetModules();
+    return await import("./commands");
+  }
+
+  it("is the origin the setup command passes as --host", async () => {
+    // The manual steps and the command describe the same deployment, so the
+    // SDK's `TRACEROOT_HOST_URL` and the CLI's `--host` cannot be allowed to
+    // disagree.
+    const { sdkHostUrl, setupCommand } = await bothWith({
+      apiUrl: "http://localhost:8000/api/v1",
+      appUrl: "http://localhost:3000",
+    });
+
+    expect(sdkHostUrl()).toEqual({ kind: "resolved", hostUrl: "http://localhost:8000" });
+    expect(lineOf(setupCommand({ projectId: "proj_1" }))).toContain(
+      '--host "http://localhost:8000"',
+    );
+  });
+
+  it("resolves a same-origin API against the app's origin", async () => {
+    const { sdkHostUrl } = await bothWith({ appUrl: "https://traceroot.example.com" });
+
+    expect(sdkHostUrl()).toEqual({ kind: "resolved", hostUrl: "https://traceroot.example.com" });
+  });
+
+  it("is null on TraceRoot Cloud, which both SDKs already default to", async () => {
+    const { sdkHostUrl } = await bothWith({
+      apiUrl: "https://app.traceroot.ai/api/v1",
+      appUrl: "https://app.traceroot.ai",
+    });
+
+    expect(sdkHostUrl()).toEqual({ kind: "resolved", hostUrl: null });
+  });
+
+  it("reports the variable instead of guessing when the API URL is not an origin", async () => {
+    const { sdkHostUrl } = await bothWith({ apiUrl: "http://:8000" });
+
+    expect(sdkHostUrl()).toEqual({
+      kind: "unresolved",
+      variable: "NEXT_PUBLIC_API_URL",
+      value: "http://:8000",
+    });
+  });
+
+  it("is still known when only the app URL is unusable and the API URL is absolute", async () => {
+    // The app URL is only the base a relative API URL resolves against, and the
+    // command's `--auth-host`. The SDKs need neither, so a bad app URL that
+    // withholds the command does not withhold an API origin set in full.
+    const { sdkHostUrl, setupCommand } = await bothWith({
+      apiUrl: "http://localhost:8000/api/v1",
+      appUrl: "not-a-url",
+    });
+
+    expect(sdkHostUrl()).toEqual({ kind: "resolved", hostUrl: "http://localhost:8000" });
+    expect(setupCommand({ projectId: "proj_1" })).toEqual({
+      kind: "unavailable",
+      variable: "NEXT_PUBLIC_APP_URL",
+      value: "not-a-url",
+    });
+  });
+
+  it("is null on TraceRoot Cloud's absolute API URL whatever the app URL holds", async () => {
+    const { sdkHostUrl } = await bothWith({
+      apiUrl: "https://app.traceroot.ai/api/v1",
+      appUrl: "not-a-url",
+    });
+
+    expect(sdkHostUrl()).toEqual({ kind: "resolved", hostUrl: null });
+  });
+
+  it("blames the app URL when the API URL is relative to it", async () => {
+    // A relative API URL has no origin without the app's, so here the app URL
+    // really is what stops it.
+    const { sdkHostUrl } = await bothWith({ apiUrl: "/api/v1", appUrl: "not-a-url" });
+
+    expect(sdkHostUrl()).toEqual({
+      kind: "unresolved",
+      variable: "NEXT_PUBLIC_APP_URL",
+      value: "not-a-url",
+    });
+  });
+});

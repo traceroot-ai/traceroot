@@ -6,6 +6,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
+import { sdkHostUrl } from "./commands";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { SectionLink } from "./SectionLink";
@@ -81,7 +82,7 @@ function OwnStackPicker({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] font-medium text-foreground">3. Select your integration</p>
+        <p className="text-[13px] font-medium text-foreground">4. Select your integration</p>
         <SectionLink href="https://github.com/traceroot-ai/traceroot/issues/new">
           Don&apos;t see yours? Request one
         </SectionLink>
@@ -120,6 +121,72 @@ function OwnStackPicker({
   );
 }
 
+/**
+ * How the key reaches the application, and where its traces go.
+ *
+ * A step of its own because neither SDK loads a `.env` file: both read the
+ * environment of the process they run in. The key in step 1 is shown as a
+ * `.env`-style line, and pasted into `.env` it reached nothing unless the
+ * application loaded the file itself. Both SDKs also default to TraceRoot Cloud
+ * when `TRACEROOT_HOST_URL` is unset, so a self-hosted reader who followed
+ * every other step sent their key and first traces there.
+ *
+ * The host line is drawn only off Cloud, with the origin the setup command
+ * passes as `--host` (see `sdkHostUrl`). When that origin cannot be resolved,
+ * no value is guessed: the reader is told which variable stopped it, that the
+ * API's origin still has to be set by hand, and that correcting the variable
+ * takes a rebuild, since `NEXT_PUBLIC_*` is inlined at build time.
+ *
+ * TypeScript gets dotenv's `config()`, as setup writes it, rather than
+ * `import "dotenv/config"`: a call can be given a `path` to the `.env` file.
+ */
+function EnvironmentStep({ lang }: { lang: Lang }) {
+  const host = sdkHostUrl();
+  const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
+  const lines = ['export TRACEROOT_API_KEY="your_key_here"'];
+  if (hostUrl !== null) lines.push(`export TRACEROOT_HOST_URL="${hostUrl}"`);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] font-medium text-foreground">3. Set environment variables</p>
+      <CodeBlock label="bash" value={lines.join("\n")} />
+      {host.kind === "unresolved" ? (
+        <p className="text-[12px] text-muted-foreground">
+          This page cannot work out this deployment&apos;s API address, because{" "}
+          <code className="font-mono">{host.variable}</code> is set to{" "}
+          <code className="font-mono">{host.value}</code>. Set{" "}
+          <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself,
+          or your traces go to TraceRoot Cloud. Once{" "}
+          <code className="font-mono">{host.variable}</code> is corrected and the web app rebuilt,
+          the address appears here: the value is built into the app rather than read at startup.
+        </p>
+      ) : hostUrl !== null ? (
+        <p className="text-[12px] text-muted-foreground">
+          <code className="font-mono">TRACEROOT_HOST_URL</code> points the SDK at this deployment;
+          without it, your traces go to TraceRoot Cloud.
+        </p>
+      ) : null}
+      <p className="text-[12px] text-muted-foreground">
+        Use the key from step 1. Neither SDK loads a <code className="font-mono">.env</code> file by
+        itself, so export {lines.length > 1 ? "these" : "it"} in the shell that runs your
+        application, or put {lines.length > 1 ? "them" : "it"} in{" "}
+        <code className="font-mono">.env</code> and load that before TraceRoot is initialized:{" "}
+        {lang === "python" ? (
+          <>
+            <code className="font-mono">from dotenv import load_dotenv; load_dotenv()</code>, from
+            the <code className="font-mono">python-dotenv</code> package.
+          </>
+        ) : (
+          <>
+            <code className="font-mono">config()</code>, from the{" "}
+            <code className="font-mono">dotenv</code> package.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 interface ManualTabProps {
   projectId: string;
   /**
@@ -134,15 +201,14 @@ interface ManualTabProps {
 }
 
 /**
- * Instrumenting by hand: the key, the install, the one call that starts
- * tracing, and the external integrations.
+ * Instrumenting by hand: the key, the install, the environment, the one call
+ * that starts tracing, and the external integrations.
  *
- * On the traces page the tab picks the stack itself, as step 3, and asks for
- * no model key — the five steps that page has always shown. The model key is
- * asked for during onboarding instead.
+ * On the traces page the tab picks the stack itself, as step 4, and asks for
+ * no model key. The model key is asked for during onboarding instead.
  *
  * Given an `integration`, the stack has been asked for above this section, so
- * the picker step drops out and the four left are renumbered. The docs link
+ * the picker step drops out and the five left are renumbered. The docs link
  * then sits beside the snippet heading, since there is no picker to sit under.
  */
 export function ManualTab({ projectId, integration }: ManualTabProps) {
@@ -184,6 +250,8 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
         <CodeBlock label="bash" value={config.installCommand} />
       </div>
 
+      <EnvironmentStep lang={resolvedLang} />
+
       {ownsStack && (
         <OwnStackPicker selected={selectedIntegration} onSelect={setSelectedIntegrationId} />
       )}
@@ -191,12 +259,12 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
       <div className="space-y-2">
         {ownsStack ? (
           <p className="text-[13px] font-medium text-foreground">
-            4. Initialize TraceRoot for {selectedIntegration.name}
+            5. Initialize TraceRoot for {selectedIntegration.name}
           </p>
         ) : (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[13px] font-medium text-foreground">
-              3. Initialize TraceRoot for {selectedIntegration.name}
+              4. Initialize TraceRoot for {selectedIntegration.name}
             </p>
             {/* Kept beside the snippet it explains, and it moves with the
                 selection: the page the reader needs is the one for the stack
@@ -212,7 +280,7 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
 
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">
-          {ownsStack ? "5. External integrations" : "4. External integrations"}
+          {ownsStack ? "6. External integrations" : "5. External integrations"}
         </p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
