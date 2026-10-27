@@ -348,6 +348,57 @@ async def list_detector_runs(
 
 
 @router.get(
+    "/traces/{trace_id}/eligible-detectors",
+    dependencies=[Depends(verify_internal_secret)],
+)
+def get_eligible_detectors(
+    trace_id: str,
+    project_id: str,
+    detector_ids: list[str] = Query(default=[]),
+):
+    """Re-evaluate queued detector candidates against the settled trace.
+
+    Called after the worker's quiescence gate, this reads the latest ClickHouse
+    aggregate and current enabled detector conditions. The result is limited to
+    IDs selected by deterministic sampling at root arrival.
+    """
+    requested_ids = list(dict.fromkeys(detector_ids))
+    if not requested_ids:
+        return {"detector_ids": []}
+
+    from worker import detector_tasks
+
+    requested = set(requested_ids)
+    active_by_id = {
+        detector["id"]: detector
+        for detector in detector_tasks._get_active_detectors(project_id)
+        if detector["id"] in requested
+    }
+    candidates = [
+        active_by_id[detector_id] for detector_id in requested_ids if detector_id in active_by_id
+    ]
+    if not candidates:
+        return {"detector_ids": []}
+
+    summaries = detector_tasks._get_trace_summaries(
+        project_id,
+        [trace_id],
+        include_trace_metadata=detector_tasks._has_metadata_condition(candidates),
+    )
+    summary = summaries.get(trace_id)
+    if summary is None:
+        return {"detector_ids": []}
+
+    eligible_ids = [
+        detector["id"]
+        for detector in candidates
+        if detector_tasks._detector_runs_on_trace(summary, detector)
+        and detector_tasks._passes_trigger(summary, detector["conditions"])
+    ]
+    return {"detector_ids": eligible_ids}
+
+
+@router.get(
     "/traces/{trace_id}/spans-jsonl",
     dependencies=[Depends(verify_internal_secret)],
 )
