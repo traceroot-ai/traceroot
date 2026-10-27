@@ -72,6 +72,7 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 
 import { DeviceClient } from "../device-client";
+import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
 
 function setParams(params: Record<string, string>) {
   searchParams = new URLSearchParams(params);
@@ -165,6 +166,64 @@ describe("DeviceClient", () => {
     expect(screen.getByText("as kai@example.com")).toBeDefined();
     expect(screen.getByText("ABCD-1234")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  // `traceroot login` and `traceroot setup` both reach this page with the same
+  // client id, so the warning can't name either one without misleading the other.
+  it("warns on consent without naming one CLI command", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn();
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    expect(
+      screen.getByText(
+        "Only approve a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("states the session's idle expiry, that a browser sign-out keeps it, and where to revoke it", async () => {
+    // The copy spells out the window session-config.ts enforces. A CLI session
+    // is refreshed on use at most once a day, so it can lapse up to a day before
+    // seven idle days: "within seven days" is the claim the code keeps.
+    // Browser sign-out deletes only the cookie's session; the CLI holds its own
+    // session row from the device-token exchange, so it stays signed in.
+    expect(SESSION_EXPIRES_IN_SECONDS).toBe(7 * 24 * 60 * 60);
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn();
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    // The sentence wraps a link, so match the paragraph's whole text.
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === "P" &&
+          el.textContent ===
+            "Approving signs TraceRoot CLI in to your TraceRoot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign TraceRoot CLI out, but you can revoke it from Active Sessions in your account settings.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole("link", { name: "Active Sessions" }).getAttribute("href")).toBe(
+      "/account/settings/sessions",
+    );
+  });
+
+  it("warns on the setup screen without naming one CLI command", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
+    expect(
+      screen.getByText(
+        "Only continue for a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
+      ),
+    ).toBeDefined();
   });
 
   it("withholds approval from an account with no workspace and offers onboarding", async () => {
@@ -439,7 +498,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code was already opened by a different account and is locked to it. Go back to your terminal and run the login command again to get a fresh code.",
+          "This code was already opened by a different account and is locked to it. Go back to your terminal and run the command again to get a fresh code.",
         ),
       ).toBeDefined(),
     );
@@ -464,7 +523,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code has expired. Go back to your terminal and run the login command again.",
+          "This code has expired. Go back to your terminal and run the command again.",
         ),
       ).toBeDefined(),
     );
@@ -535,7 +594,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code has expired. Go back to your terminal and run the login command again.",
+          "This code has expired. Go back to your terminal and run the command again.",
         ),
       ).toBeDefined(),
     );
@@ -574,7 +633,7 @@ describe("DeviceClient", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code has expired. Go back to your terminal and run the login command again.",
+          "This code has expired. Go back to your terminal and run the command again.",
         ),
       ).toBeDefined(),
     );

@@ -5,7 +5,7 @@ describe("mapDeviceErrorMessage", () => {
   it("maps expired_token", () => {
     expect(
       mapDeviceErrorMessage({ error: "expired_token", error_description: "User code has expired" }),
-    ).toBe("This code has expired. Go back to your terminal and run the login command again.");
+    ).toBe("This code has expired. Go back to your terminal and run the command again.");
   });
 
   it("maps access_denied to the locked-to-another-account message", () => {
@@ -15,7 +15,7 @@ describe("mapDeviceErrorMessage", () => {
         error_description: "You are not authorized",
       }),
     ).toBe(
-      "This code was already opened by a different account and is locked to it. Go back to your terminal and run the login command again to get a fresh code.",
+      "This code was already opened by a different account and is locked to it. Go back to your terminal and run the command again to get a fresh code.",
     );
   });
 
@@ -59,8 +59,7 @@ describe("mapDeviceErrorMessage", () => {
   });
 
   it("falls back to a generic message when there is no description", () => {
-    const generic =
-      "Something went wrong. Go back to your terminal and run the login command again.";
+    const generic = "Something went wrong. Go back to your terminal and run the command again.";
     expect(mapDeviceErrorMessage({ error: "some_new_error" })).toBe(generic);
     expect(mapDeviceErrorMessage(null)).toBe(generic);
     expect(mapDeviceErrorMessage(undefined)).toBe(generic);
