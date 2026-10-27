@@ -4,13 +4,13 @@ This directory contains the Mintlify documentation source for TraceRoot.
 
 ## Integration Documentation Template
 
-All framework/provider integration pages under `docs/integrations/` follow a standard structure with eight sections in order:
+New and updated framework/provider integration pages under `docs/integrations/` should follow a standard structure with eight sections in order:
 
 1. **Install (`## Install`)**:
    Provide installation commands (`pip install` and/or `npm install`) for each supported language, explicitly naming `traceroot` or `@traceroot-ai/traceroot`, any required pip extras, and the underlying framework or provider package.
 
 2. **Set up (`## Set up`)**:
-   Show the initialization code snippet (`traceroot.initialize()` or `TraceRoot.initialize()`).
+   Show the integration's required initialization or registration snippet (for example, `traceroot.initialize()`, `TraceRoot.initialize()`, or a provider-specific exporter such as `TraceRootExporter`).
 
 3. **Usage (`## Usage`)**:
    Provide a concise, runnable code sample demonstrating tracing with the provider or framework.
