@@ -510,3 +510,62 @@ def test_root_trace_metadata_wins_over_child():
     traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
 
     assert json.loads(traces[0]["metadata"]) == {"from": "root"}
+
+
+def _child(span_byte: int, start_ns: int, metadata: dict) -> dict:
+    """A child of the root span built by _root_and_child_payload, starting at start_ns."""
+    return {
+        "traceId": _make_trace_id(),
+        "spanId": _make_span_id(span_byte),
+        "parentSpanId": _make_span_id(0x02),
+        "name": f"child-{span_byte}",
+        "kind": "SPAN_KIND_INTERNAL",
+        "startTimeUnixNano": str(start_ns),
+        "endTimeUnixNano": str(start_ns + 1_000_000),
+        "attributes": [_attr("traceroot.trace.metadata", json.dumps(metadata))],
+        "status": {},
+    }
+
+
+def test_trace_metadata_from_two_children_is_merged():
+    """Two nested helpers each call update_current_trace(metadata=...) with different
+    keys. The SDK stamps each dict on its own span and does not merge, so the trace
+    must merge them or one key is lost."""
+    payload = _root_and_child_payload([], [])
+    spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    spans[:] = [
+        _child(0x03, 1700000000100000000, {"plan": "pro"}),
+        _child(0x04, 1700000000200000000, {"tier": "x"}),
+        spans[1],
+    ]
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "pro", "tier": "x"}
+
+
+def test_root_trace_metadata_keys_win_and_child_keys_are_kept():
+    payload = _root_and_child_payload(
+        [_attr("traceroot.trace.metadata", json.dumps({"plan": "root", "region": "eu"}))],
+        [_attr("traceroot.trace.metadata", json.dumps({"plan": "child", "tier": "x"}))],
+    )
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "root", "region": "eu", "tier": "x"}
+
+
+def test_conflicting_child_keys_follow_call_order_not_batch_order():
+    """BatchSpanProcessor exports roughly in end order, so the span that started first
+    (the first call) can arrive last. The earlier start keeps a conflicting key."""
+    payload = _root_and_child_payload([], [])
+    spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    spans[:] = [
+        _child(0x04, 1700000000200000000, {"plan": "second", "b": 2}),
+        _child(0x03, 1700000000100000000, {"plan": "first", "a": 1}),
+        spans[1],
+    ]
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "first", "a": 1, "b": 2}
