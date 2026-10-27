@@ -184,10 +184,12 @@ describe("DeviceClient", () => {
     ).toBeDefined();
   });
 
-  it("states the session's idle expiry and where to revoke it", async () => {
+  it("states the session's idle expiry, that a browser sign-out keeps it, and where to revoke it", async () => {
     // The copy spells out the window session-config.ts enforces. A CLI session
     // is refreshed on use at most once a day, so it can lapse up to a day before
     // seven idle days: "within seven days" is the claim the code keeps.
+    // Browser sign-out deletes only the cookie's session; the CLI holds its own
+    // session row from the device-token exchange, so it stays signed in.
     expect(SESSION_EXPIRES_IN_SECONDS).toBe(7 * 24 * 60 * 60);
     setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
     signedIn();
@@ -201,7 +203,7 @@ describe("DeviceClient", () => {
         (_, el) =>
           el?.tagName === "P" &&
           el.textContent ===
-            "Approving signs TraceRoot CLI in to your TraceRoot account. It stays signed in while you use it and signs out within seven days of its last use. You can also revoke it from Active Sessions in your account settings.",
+            "Approving signs TraceRoot CLI in to your TraceRoot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign TraceRoot CLI out, but you can revoke it from Active Sessions in your account settings.",
       ),
     ).toBeDefined();
     expect(screen.getByRole("link", { name: "Active Sessions" }).getAttribute("href")).toBe(
