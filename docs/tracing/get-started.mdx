@@ -13,18 +13,18 @@ Setup signs you in, has your coding agent add the TraceRoot SDK, and waits for y
 
 ## What setup does
 
-1. Checks for uncommitted changes, so your coding agent's edits don't get mixed in with yours.
+1. Checks for uncommitted changes, since your coding agent's edits would be mixed in with them. If there are any, it asks before continuing; without prompts, it notes them and continues.
 2. Signs you in through your browser, where you can also create a free account.
 3. Picks one of your projects, or creates one.
-4. Writes a project API key as `TRACEROOT_API_KEY` to your application's `.env.local` or `.env`, and refuses an env file that git tracks. The key can send traces but not manage your project.
+4. Writes a project API key as `TRACEROOT_API_KEY` to your application's `.env.local` or `.env`, and refuses an env file that git tracks. The key can send traces and read this project, but not manage its keys.
 5. Adds tracing the way you choose: it runs Claude Code or Codex to make the change, writes the task for another coding agent, or prints the steps.
-6. Waits for your first trace and prints a link to it.
+6. Waits for your first trace and prints a link to it. If setup wrote the task or printed the steps, it checks once and pauses instead. After tracing is added and your application has run, `npx -y traceroot-cli@latest setup --resume` looks again.
 
 Setup asks only what it can't work out itself. In a monorepo, run it from the service's directory or pass `--service <path>`. For every option, run `npx -y traceroot-cli@latest setup --help`.
 
 Besides the env file and your code, setup keeps a checkpoint and a report of the run in `.traceroot/`, which it git-ignores, and installs the TraceRoot skill for your coding agent. When you sign in through the browser, `.traceroot/config.json` also holds an admin key the CLI uses for itself. If a run is cancelled or fails, it revokes the keys it created and restores your env file. If it pauses because no trace has arrived or the agent could not finish, it keeps the key so `--resume` can pick up where it stopped. It never reverts your coding agent's edits, so review them with `git diff`.
 
-This configures only the machine you ran it on. Your deployed application needs `TRACEROOT_API_KEY` in its own environment too, plus `TRACEROOT_HOST_URL` if you self-host.
+This configures only the machine you ran it on. Your deployed application needs `TRACEROOT_API_KEY` in its own environment too, plus `TRACEROOT_HOST_URL`, set to your API's origin (the value you pass setup as `--host`), if you self-host.
 
 ## Self-hosted TraceRoot
 
@@ -69,7 +69,7 @@ Neither SDK loads `.env` files automatically; both read the process environment.
 
 ```bash
 export TRACEROOT_API_KEY="your-api-key"
-export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # self-hosted: your API's origin, e.g. http://localhost:8000
 ```
 
 *(If you prefer to use a `.env` file, ensure you load it explicitly in your code as shown in the next step.)*
@@ -94,6 +94,8 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
         traceroot.initialize(integrations=[Integration.OPENAI])  # instruments all OpenAI calls
         main()
     ```
+
+    If a server such as uvicorn or gunicorn imports your module instead of running it, that block never runs, so initialize where the framework starts up instead.
   </Tab>
   <Tab title="TypeScript">
     Initialize TraceRoot in the function your entry point calls to start, rather than at module scope, so a test that imports the module doesn't send traces.
@@ -111,6 +113,8 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
       // ...your application
     }
     ```
+
+    If a framework loads your module instead of running it, initialize where the framework starts up instead.
   </Tab>
 </Tabs>
 
