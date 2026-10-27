@@ -23,6 +23,7 @@ from clickhouse_connect.driver.exceptions import DatabaseError
 from rest.services.sql import rewriter
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import PUBLIC_TABLES, TABLE_VIEW_MAP
+from rest.services.sql.service import _DESCRIBE, SqlQueryService, _described_columns
 
 from .conftest import (
     DATABASE,
@@ -595,3 +596,116 @@ def test_view_columns_and_types_match_the_contract(gateway, table, view):
     got = [(name, canonical(type_name)) for name, type_name, *_ in described]
     want = [(c.name, canonical(c.type)) for c in PUBLIC_TABLES[table].columns]
     assert got == want
+
+
+# ---------------------------------------------------------------------------
+# 8. A result with no rows is described by the server that answered it
+# ---------------------------------------------------------------------------
+
+#: A project nothing was ever seeded for, so every query over it is scoped to
+#: nothing and comes back empty. That is the ordinary shape of a time-windowed
+#: query over a quiet day, and the only path on which the driver reports no
+#: column metadata at all.
+EMPTY_PROJECT = "proj_never_seeded"
+
+#: Shapes the gateway allows whose answer can be empty, and whose names or types
+#: a reader of the statement gets wrong. The repeated alias is two columns both
+#: called `a`, an unaliased expression is named by its canonical form rather than
+#: the text written, a column taken from a joined alias keeps that qualifier, and
+#: the two ARRAY JOIN shapes put an alias of their own in the row.
+#:
+#: An aggregate with no GROUP BY is deliberately absent: `SELECT count()` answers
+#: one row whatever the scope matches, so the driver always describes it and this
+#: path is never reached. `count()` is covered through the grouped and windowed
+#: forms, whose answers do go empty.
+DESCRIBED: list[tuple[str, str]] = [
+    ("star", "SELECT * FROM spans"),
+    ("explicit", "SELECT span_id, name FROM spans"),
+    ("aliased", "SELECT span_id AS a, name AS b FROM spans"),
+    ("repeated alias", "SELECT span_id AS a, a FROM spans"),
+    ("unaliased expression", "SELECT duration_ms * 2 FROM spans"),
+    ("window", "SELECT span_id, count() OVER () FROM spans"),
+    ("group by", "SELECT name, count() AS hits FROM spans GROUP BY name"),
+    (
+        "array join over a map",
+        "SELECT span_id, k FROM spans AS s ARRAY JOIN mapKeys(s.metadata) AS k",
+    ),
+    ("array join beside a star", "SELECT * FROM spans AS s ARRAY JOIN mapKeys(s.metadata) AS k"),
+    ("cte", "WITH x AS (SELECT span_id FROM spans) SELECT span_id FROM x"),
+    ("scalar cte", "WITH 1 AS one SELECT one, span_id FROM spans"),
+    (
+        "join of both views",
+        "SELECT s.span_id, t.name FROM spans AS s INNER JOIN traces AS t "
+        "ON s.trace_id = t.trace_id",
+    ),
+    (
+        "star over a join",
+        "SELECT * FROM spans AS s INNER JOIN traces AS t ON s.trace_id = t.trace_id",
+    ),
+    ("union", "SELECT span_id AS id FROM spans UNION ALL SELECT trace_id AS id FROM traces"),
+    ("mixed-case table", "SELECT span_id FROM SPANS"),
+]
+
+
+def _run(gw: Gateway, sql: str, project: str):
+    return SqlQueryService(gw.ro, max_rows_ceiling=200).run(sql, project)
+
+
+def test_describing_an_empty_result_needs_no_privilege_the_gateway_lacks(gateway, scoping_mode):
+    """The assumption the whole design rests on, asserted rather than assumed.
+
+    The account runs `DESCRIBE` over the same wrapped statement, on the same
+    connection, with the scope bind supplied, holding nothing but SELECT on the
+    two curated views. If that ever needs a privilege the bootstrap does not
+    grant, an empty answer silently loses its column list and only this fails.
+    """
+    scoped, binds = rewriter.scope_and_render("SELECT span_id, name FROM spans", EMPTY_PROJECT)
+    wrapped = f"SELECT * FROM (\n{scoped}\n) LIMIT 101"
+    # The service's own helper, so a change to the statement it sends is a change
+    # to what this asserts the account may run.
+    described = _described_columns(gateway.ro, wrapped, binds)
+    assert [(c.name, c.type) for c in described] == [("span_id", "String"), ("name", "String")]
+
+
+@pytest.mark.parametrize("label,sql", DESCRIBED, ids=[case[0] for case in DESCRIBED])
+def test_an_empty_result_is_described_as_a_full_one_would_be(gateway, label, sql):
+    """The same statement over a seeded project and over an empty one must agree.
+
+    Exact equality of names AND types, against the driver's own metadata from a
+    run that had rows behind it. That reference is the whole point: it is what
+    the caller would have received, so a describe that merely returns something
+    plausible fails here.
+    """
+    answered = _run(gateway, sql, PROJECT_A)
+    empty = _run(gateway, sql, EMPTY_PROJECT)
+    assert answered.rows, f"{label} returned no rows for a seeded project, so it proves nothing"
+    assert empty.rows == []
+    assert [(c.name, c.type) for c in empty.columns] == [(c.name, c.type) for c in answered.columns]
+
+
+def test_describing_an_empty_result_reads_none_of_its_rows(gateway):
+    """The describe is a question about the shape, not a second execution.
+
+    Measured on the capped project, where a run of the same statement reads every
+    row: the describe selects no marks at all. A describe that started reading
+    parts would double the cost of every empty answer.
+    """
+    scoped, binds = rewriter.scope_and_render("SELECT span_id, name FROM spans", PROJECT_CAP)
+    wrapped = f"SELECT * FROM (\n{scoped}\n) LIMIT 101"
+    # The statement the service sends, not a copy of it, so a change to that
+    # statement is measured here rather than silently left unmeasured.
+    describe_id = gateway.ro.query(_DESCRIBE.format(sql=wrapped), parameters=binds or None).summary[
+        "query_id"
+    ]
+    select_id = gateway.ro.query(wrapped, parameters=binds or None).summary["query_id"]
+
+    gateway.admin.command("SYSTEM FLUSH LOGS")
+    costs = dict(
+        gateway.admin.query(
+            "SELECT query_id, ProfileEvents['SelectedMarks'] FROM system.query_log "
+            "WHERE type = 'QueryFinish' AND query_id IN ({d:String}, {s:String})",
+            parameters={"d": describe_id, "s": select_id},
+        ).result_rows
+    )
+    assert costs[describe_id] == 0
+    assert costs[select_id] > 0, "the reference query read no parts, so the comparison is empty"

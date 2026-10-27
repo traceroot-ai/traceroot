@@ -124,6 +124,17 @@ class TestUnaliasedTableKeepsDefaultAlias:
         rendered, _ = scope_and_render("SELECT count() FROM traces", PID)
         assert "AS traces" in rendered
 
+    def test_a_mixed_case_table_is_aliased_canonically(self) -> None:
+        # Layer 1 matches a table name case-insensitively, so a mixed-case name
+        # reaches here and rewrites like any other. The caller's spelling does
+        # not survive: the default alias is the canonical name, which is what
+        # makes the unqualified columns of the projection resolve on a server
+        # whose identifiers are case-sensitive.
+        rendered, _ = scope_and_render("SELECT span_id FROM SPANS", PID)
+        assert "spans_public_v1" in rendered
+        assert "AS spans" in rendered
+        assert "SPANS" not in rendered
+
 
 # ---------------------------------------------------------------------------
 # 4.  CTE body is rewritten; CTE alias reference is NOT rewritten
