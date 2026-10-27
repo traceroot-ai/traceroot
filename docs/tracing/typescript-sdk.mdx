@@ -82,7 +82,7 @@ await usingAttributes(
 Update the current span or trace programmatically:
 
 ```typescript
-import { updateCurrentSpan, updateCurrentTrace } from '@traceroot-ai/traceroot';
+import { observe, updateCurrentSpan, updateCurrentTrace } from '@traceroot-ai/traceroot';
 
 await observe({ name: 'my_agent', type: 'agent' }, async () => {
   updateCurrentSpan({
