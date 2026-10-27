@@ -1,0 +1,89 @@
+---
+title: pi CLI Extension
+description: Trace interactive pi CLI coding sessions with TraceRoot
+---
+
+The [TraceRoot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension) automatically captures traces from interactive [pi](https://pi.dev) coding-agent terminal sessions.
+
+Each session sends live traces to TraceRoot with conversation turns, LLM requests, tool executions, token usage, and session continuity metadata.
+
+<Note>
+If you are embedding pi inside your own Node.js application instead of using the interactive CLI, see [pi SDK (`@earendil-works/pi-coding-agent`)](/integrations/pi) or [pi Agent Core](/integrations/pi-agent-core).
+</Note>
+
+## Install
+
+Install the extension directly via `pi`:
+
+```bash
+pi install npm:@traceroot-ai/pi-extension
+```
+
+Alternatively, install from source:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-pi-extension.git
+cd traceroot-pi-extension
+pi install .
+```
+
+## Set up
+
+Tracing is opt-in. Set your TraceRoot environment variables in your shell profile (e.g. `~/.bashrc`, `~/.zshrc`):
+
+```bash
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
+
+# Optional: Set host URL if self-hosting TraceRoot
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+```
+
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `TRACEROOT_ENABLED` | Yes | Set to `true` to enable session tracing. |
+| `TRACEROOT_API_KEY` | Yes | Your TraceRoot API key from [app.traceroot.ai](https://app.traceroot.ai). |
+| `TRACEROOT_HOST_URL` | No | Base TraceRoot URL. Defaults to `https://app.traceroot.ai`. |
+| `TRACEROOT_OTLP_ENDPOINT` | No | Custom OTLP endpoint override. |
+
+Restart your terminal, or `source` the profile you edited (e.g. `source ~/.zshrc`), then launch `pi`. All interactions are streamed to your TraceRoot dashboard in real time.
+
+## Usage
+
+Launch `pi` in your terminal as usual:
+
+```bash
+pi
+```
+
+Start prompting the agent. Each conversation turn, LLM query, and tool execution is automatically captured and streamed to TraceRoot.
+
+## Verify
+
+Start a session and confirm traces arrive:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see real-time traces for your interactive CLI session turns.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent session traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+| --------- | ----------- |
+| Sessions  | Full session continuity and conversation history |
+| Turns     | Agent prompt and response turns with latency |
+| Tools     | Tool executions with inputs, outputs, and status |
+| Tokens    | Input and output token counts per model call |
+
+## Limitations
+
+None known.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="pi Extension Repository" icon="github" href="https://github.com/traceroot-ai/traceroot-pi-extension">
+    View source code, releases, and documentation on GitHub.
+  </Card>
+  <Card title="Sessions" icon="clock" href="/tracing/sessions">
+    Learn how TraceRoot organizes multi-turn agent interactions into sessions.
+  </Card>
+</CardGroup>
