@@ -361,13 +361,13 @@ Some tools bill by time, such as a remote browser billed per minute. Time the se
     @observe(name="browse", type="tool")
     def browse(url: str):
         start = time.monotonic()
-        session = httpx.post(API, headers=HEADERS, json={"url": url}).json()
+        session = httpx.post(API, headers=HEADERS, json={"url": url}, timeout=60).json()
         try:
             ...  # drive the browser through session["cdp_url"]
         finally:
-            httpx.delete(f"{API}/{session['session_id']}", headers=HEADERS)
             minutes = (time.monotonic() - start) / 60
             update_current_span(cost=minutes * PRICE_PER_MINUTE)
+            httpx.delete(f"{API}/{session['session_id']}", headers=HEADERS)
     ```
   </Tab>
   <Tab title="TypeScript">
@@ -385,9 +385,9 @@ Some tools bill by time, such as a remote browser billed per minute. Time the se
         try {
           // drive the browser through session.cdp_url
         } finally {
-          await fetch(`${API}/${session.session_id}`, { method: 'DELETE', headers });
           const minutes = (performance.now() - start) / 60000;
           updateCurrentSpan({ cost: minutes * PRICE_PER_MINUTE });
+          await fetch(`${API}/${session.session_id}`, { method: 'DELETE', headers });
         }
       });
     }
