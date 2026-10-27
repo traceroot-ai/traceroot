@@ -76,8 +76,8 @@ Each LLM span captures:
 ## Viewing Costs
 
 In the dashboard, costs are visible at both the span and trace level:
-- **Per span** — see the cost of each individual LLM call
-- **Per trace** — see the total cost aggregated across all LLM calls in the trace
+- **Per span** — see the cost of each individual LLM, tool or API call
+- **Per trace** — see the total cost aggregated across all calls in the trace
 
 <Frame caption="Span cost: cost chip and its input and output cost breakdown">
   <img src="/images/cost_breakdown_v1.png" alt="Trace detail with the LLM span cost chip and its Cost breakdown card highlighted" />
@@ -186,4 +186,200 @@ When you already know what a call cost (a negotiated rate, a gateway's bill, an 
   Requires the Python SDK `traceroot` 0.5.0 or later, or the TypeScript SDK `@traceroot-ai/traceroot` 0.7.0 or later.
 </Note>
 
-A reported cost replaces TraceRoot's computed price for that span. Report it as a number, together with `model`, on the span that made the call; a cost without a model name is ignored. A cost of `0` is accepted and sets the span's cost to zero. Reporting a total on a parent span whose child spans are also priced counts the cost twice. Tokens are still recorded. The per-category cost breakdown is shown only when it matches the computed price, so a different reported cost hides it for that span and its trace. The cost is read from the OpenInference `llm.cost.total` attribute, so an OpenInference instrumentor that sets it is picked up automatically.
+A reported cost replaces TraceRoot's computed price for that span. Report it as a number on the span that made the call. A cost of `0` is accepted and sets the span's cost to zero. Reporting a total on a parent span whose child spans are also priced counts the cost twice. Tokens are still recorded. The per-category cost breakdown is shown only when it matches the computed price, so a different reported cost hides it for that span and its trace. The cost is read from the OpenInference `llm.cost.total` attribute, so an OpenInference instrumentor that sets it is picked up automatically.
+
+### Tool and API calls
+
+A paid tool or API call takes a cost the same way, with no model or token usage needed. Tools bill in different ways, so first work out the dollar amount for the call, then report it on the tool's own span. The cost counts toward the trace total.
+
+| How the tool bills | What to report | Example |
+| --- | --- | --- |
+| [Price in the response](#price-in-the-response) | The price from the response | Exa |
+| [Fixed price per call](#fixed-price-per-call) | Your price per call | PredictLeads |
+| [Credits or quota](#credits-or-quota) | Credits used × your price per credit | Tavily |
+| [Time used](#time-used) | Minutes used × your price per minute | TinyFish browser |
+
+#### Price in the response
+
+Some providers, such as [Exa](https://exa.ai/docs/reference/search), return the dollar cost of each request. Pass it through:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from exa_py import Exa
+    from traceroot import observe, update_current_span
+
+    exa = Exa()
+
+    @observe(name="web_search", type="tool")
+    def web_search(query: str):
+        response = exa.search(query, num_results=3)
+        if response.cost_dollars:
+            update_current_span(cost=response.cost_dollars.total)
+        return response
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import Exa from 'exa-js';
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const exa = new Exa(process.env.EXA_API_KEY);
+
+    async function webSearch(query: string) {
+      return observe({ name: 'web_search', type: 'tool' }, async () => {
+        const response = await exa.search(query, { numResults: 3 });
+        if (response.costDollars) updateCurrentSpan({ cost: response.costDollars.total });
+        return response;
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Some providers settle the price after the call returns. [Apify](https://docs.apify.com/api/v2/actor-run-get), for example, recommends reading a run's cost again about 10 seconds after it finishes. Report the settled value.
+
+#### Fixed price per call
+
+When every call costs the same, report your price on each call. A retry is another call and gets its own cost. Check which responses your provider bills: [PredictLeads](https://docs.predictleads.com/v3), for example, bills a lookup that returns no data yet, but not a rejected one.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+
+    import httpx
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_CALL = 0.04  # your plan's price per request
+    HEADERS = {
+        "X-Api-Key": os.environ["PREDICTLEADS_API_KEY"],
+        "X-Api-Token": os.environ["PREDICTLEADS_API_TOKEN"],
+    }
+
+    @observe(name="company_lookup", type="tool")
+    def company_lookup(domain: str):
+        response = httpx.get(f"https://predictleads.com/api/v3/companies/{domain}", headers=HEADERS)
+        if response.is_success:
+            update_current_span(cost=PRICE_PER_CALL)
+        return response.json()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_CALL = 0.04; // your plan's price per request
+    const headers = {
+      'X-Api-Key': process.env.PREDICTLEADS_API_KEY!,
+      'X-Api-Token': process.env.PREDICTLEADS_API_TOKEN!,
+    };
+
+    async function companyLookup(domain: string) {
+      return observe({ name: 'company_lookup', type: 'tool' }, async () => {
+        const response = await fetch(`https://predictleads.com/api/v3/companies/${domain}`, { headers });
+        if (response.ok) updateCurrentSpan({ cost: PRICE_PER_CALL });
+        return response.json();
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+#### Credits or quota
+
+Some providers bill in credits, and a credit's dollar price depends on your plan. [Tavily](https://docs.tavily.com/documentation/api-reference/endpoint/search) returns the credits a search used when you ask for usage:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from tavily import TavilyClient
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_CREDIT = 0.008  # your plan's price per credit
+
+    client = TavilyClient()
+
+    @observe(name="web_search", type="tool")
+    def web_search(query: str):
+        response = client.search(query, max_results=3, include_usage=True)
+        credits = response.get("usage", {}).get("credits")
+        if credits is not None:
+            update_current_span(cost=credits * PRICE_PER_CREDIT)
+        return response
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { tavily } from '@tavily/core';
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_CREDIT = 0.008; // your plan's price per credit
+
+    const client = tavily({ apiKey: process.env.TAVILY_API_KEY });
+
+    async function webSearch(query: string) {
+      return observe({ name: 'web_search', type: 'tool' }, async () => {
+        const response = await client.search(query, { maxResults: 3, includeUsage: true });
+        const credits = response.usage?.credits;
+        if (credits !== undefined) updateCurrentSpan({ cost: credits * PRICE_PER_CREDIT });
+        return response;
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+#### Time used
+
+Some tools bill by time, such as a remote browser billed per minute. Time the session and multiply by your price per minute. This is an estimate: the provider bills from its own usage records, which can run a little longer. This [TinyFish](https://docs.tinyfish.ai/api-reference/create-a-remote-browser-session) browser session reports its cost when it closes:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import time
+
+    import httpx
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_MINUTE = 0.002  # your price per browser minute
+    API = "https://api.browser.tinyfish.ai"
+    HEADERS = {"X-API-Key": os.environ["TINYFISH_API_KEY"]}
+
+    @observe(name="browse", type="tool")
+    def browse(url: str):
+        start = time.monotonic()
+        session = httpx.post(API, headers=HEADERS, json={"url": url}).json()
+        try:
+            ...  # drive the browser through session["cdp_url"]
+        finally:
+            httpx.delete(f"{API}/{session['session_id']}", headers=HEADERS)
+            minutes = (time.monotonic() - start) / 60
+            update_current_span(cost=minutes * PRICE_PER_MINUTE)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_MINUTE = 0.002; // your price per browser minute
+    const API = 'https://api.browser.tinyfish.ai';
+    const headers = { 'X-API-Key': process.env.TINYFISH_API_KEY!, 'Content-Type': 'application/json' };
+
+    async function browse(url: string) {
+      return observe({ name: 'browse', type: 'tool' }, async () => {
+        const start = performance.now();
+        const session = await (await fetch(API, { method: 'POST', headers, body: JSON.stringify({ url }) })).json();
+        try {
+          // drive the browser through session.cdp_url
+        } finally {
+          await fetch(`${API}/${session.session_id}`, { method: 'DELETE', headers });
+          const minutes = (performance.now() - start) / 60000;
+          updateCurrentSpan({ cost: minutes * PRICE_PER_MINUTE });
+        }
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
