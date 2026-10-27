@@ -90,10 +90,18 @@ export function CliHandbackStep({
                 CLI their checkout is whether it is going to edit the checkout,
                 and that was the one thing the step did not say. "{projectName} is
                 ready" said nothing the header above had not already said, so this
-                costs no line — it replaces one. */}
+                costs no line — it replaces one. It is the traces panel's
+                description, word for word: the same command, run the same way, so
+                the routes it can take and the two questions it asks first read the
+                same in both places. The Node floor is named because `setup`
+                refuses a Node older than 20.12 while the rest of the CLI runs on
+                20.3, and this is where the command is copied from. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Instruments your repository, writes the API key into it, and waits for the first
-              trace. Run it where {projectName}&apos;s code lives.
+              Writes the API key into your repository, then either has a coding agent instrument it
+              and waits for the first trace, or hands you the task to run yourself. In an
+              interactive terminal, asks before editing your code and before continuing over
+              uncommitted changes. Run it where {projectName}&apos;s code lives. Needs Node.js 20.12
+              or later.
             </p>
           </div>
 
