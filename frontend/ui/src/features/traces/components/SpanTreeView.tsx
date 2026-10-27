@@ -399,7 +399,14 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                       {(MODEL_SPAN_KINDS.has(span.span_kind) || span.span_kind === SpanKind.TOOL) &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
+                          <span
+                            className={cn(
+                              "hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground",
+                              span.total_tokens != null
+                                ? "@[190px]:inline-flex"
+                                : "@[100px]:inline-flex",
+                            )}
+                          >
                             <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>
