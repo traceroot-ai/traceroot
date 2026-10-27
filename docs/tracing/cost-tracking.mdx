@@ -237,6 +237,11 @@ Some providers, such as [Exa](https://exa.ai/docs/reference/search), return the 
   </Tab>
 </Tabs>
 
+<Frame caption="Price in the response: the tool span carries the price the search API returned">
+  <img src="/images/tool_cost_price_in_response_v1.png" alt="Span details for an exa_search tool span with a cost of 0.007000, its search query input and the search results output" />
+</Frame>
+
+
 Some providers settle the price after the call returns. [Apify](https://docs.apify.com/api/v2/actor-run-get), for example, recommends reading a run's cost again about 10 seconds after it finishes. Report the settled value.
 
 #### Fixed price per call
@@ -286,6 +291,7 @@ When every call costs the same, report your price on each call. A retry is anoth
   </Tab>
 </Tabs>
 
+
 #### Credits or quota
 
 Some providers bill in credits, and a credit's dollar price depends on your plan. [Tavily](https://docs.tavily.com/documentation/api-reference/endpoint/search) returns the credits a search used when you ask for usage:
@@ -329,6 +335,11 @@ Some providers bill in credits, and a credit's dollar price depends on your plan
     ```
   </Tab>
 </Tabs>
+
+<Frame caption="Credits or quota: one credit at the plan rate on the tool span">
+  <img src="/images/tool_cost_credits_v1.png" alt="Span details for a tavily_search tool span with a cost of 0.008000 and its search query input" />
+</Frame>
+
 
 #### Time used
 
@@ -383,3 +394,7 @@ Some tools bill by time, such as a remote browser billed per minute. Time the se
     ```
   </Tab>
 </Tabs>
+
+<Frame caption="Time used: browser minutes at the per-minute rate on the tool span">
+  <img src="/images/tool_cost_time_used_v1.png" alt="Span details for a tinyfish_open_page tool span with a cost of 0.000092, the page URL input and the loaded page title output" />
+</Frame>
