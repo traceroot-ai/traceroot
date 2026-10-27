@@ -241,7 +241,7 @@ Some providers settle the price after the call returns. [Apify](https://docs.api
 
 #### Fixed price per call
 
-When every call costs the same, report your price on each call. A retry is another call and gets its own cost. Check which responses your provider bills: [PredictLeads](https://docs.predictleads.com/v3), for example, bills a lookup that returns no data yet, but not a rejected one.
+When every call costs the same, report your price on each call. A retry is another call and gets its own cost. TraceRoot records the cost you report, so report it for every response your provider bills. [PredictLeads](https://docs.predictleads.com/v3), for example, bills a lookup that returns no data yet but not a rejected one.
 
 <Tabs>
   <Tab title="Python">
