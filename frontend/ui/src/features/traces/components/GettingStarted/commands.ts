@@ -275,6 +275,16 @@ function thisDeployment(): CliHostFlags {
   });
 }
 
+/** Whether a URL parses without a base, and so names its own origin. */
+function isAbsoluteUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** What the SDKs' `TRACEROOT_HOST_URL` has to be here, or why that cannot be shown. */
 export type SdkHostUrl =
   | {
@@ -301,7 +311,20 @@ export type SdkHostUrl =
  * value is printed inside an `export` line the reader pastes into a shell.
  */
 export function sdkHostUrl(): SdkHostUrl {
-  const flags = thisDeployment();
+  let flags = thisDeployment();
+  // `NEXT_PUBLIC_APP_URL` reaches `--host` only as the base a relative API URL
+  // resolves against; otherwise it is `--auth-host`, which the SDKs have no use
+  // for. So when it is the variable at fault and the API URL is absolute, the
+  // API origin is resolved without it, the app's default standing in for a
+  // base an absolute URL ignores, rather than withheld over a value it does not
+  // depend on.
+  if (
+    flags.kind === "unresolved" &&
+    flags.variable === "NEXT_PUBLIC_APP_URL" &&
+    isAbsoluteUrl(clientEnv.NEXT_PUBLIC_API_URL)
+  ) {
+    flags = cliHostFlags({ apiUrl: clientEnv.NEXT_PUBLIC_API_URL, appUrl: undefined });
+  }
   if (flags.kind === "unresolved") {
     return { kind: "unresolved", variable: flags.variable, value: flags.value };
   }

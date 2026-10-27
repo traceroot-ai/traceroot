@@ -297,7 +297,24 @@ describe("the environment step", () => {
     expect(envBlock(container)).not.toContain("TRACEROOT_HOST_URL");
     expect(text).toContain("NEXT_PUBLIC_API_URL");
     expect(text).toContain("http://:8000");
-    expect(text).toContain("Set TRACEROOT_HOST_URL to that address as well");
+    // Pointed at the API's origin, never at the value just named as unusable.
+    expect(text).toContain("Set TRACEROOT_HOST_URL to the API's origin yourself");
+    expect(text).not.toContain("to that address");
+    // The variable is inlined at build time, so correcting it alone changes
+    // nothing on this page.
+    expect(text).toContain("NEXT_PUBLIC_API_URL is corrected and the web app rebuilt");
+  });
+
+  it("still sets the host when only the app URL is unusable and the API URL is absolute", async () => {
+    // The app URL stops the setup command, whose `--auth-host` it is, but the
+    // SDKs need only the API origin, which an absolute API URL names alone.
+    const { container } = await renderTabWith({
+      apiUrl: "http://localhost:8000/api/v1",
+      appUrl: "not-a-url",
+    });
+
+    expect(envBlock(container)).toContain('export TRACEROOT_HOST_URL="http://localhost:8000"');
+    expect(container.textContent).not.toContain("NEXT_PUBLIC_APP_URL");
   });
 
   it("says neither SDK loads .env, and shows the load for the language on screen", () => {

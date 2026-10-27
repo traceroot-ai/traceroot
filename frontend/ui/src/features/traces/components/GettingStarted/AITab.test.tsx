@@ -137,6 +137,9 @@ describe("AITab", () => {
 
     expect(text).toContain("NEXT_PUBLIC_API_URL");
     expect(text).toContain("http://:8000");
+    // The value is inlined at build time, so a corrected one shows nothing
+    // here until the web app is rebuilt, as onboarding's fallback says too.
+    expect(text).toContain("Correct that value and rebuild the web app");
     // Says where a working route is, and promises no repair of its own. The
     // manual steps need the API address too, so they are not offered as
     // independent of it.

@@ -133,8 +133,9 @@ function OwnStackPicker({
  *
  * The host line is drawn only off Cloud, with the origin the setup command
  * passes as `--host` (see `sdkHostUrl`). When that origin cannot be resolved,
- * no value is guessed: the reader is told which variable stopped it and that
- * the address still has to be set.
+ * no value is guessed: the reader is told which variable stopped it, that the
+ * API's origin still has to be set by hand, and that correcting the variable
+ * takes a rebuild, since `NEXT_PUBLIC_*` is inlined at build time.
  *
  * TypeScript gets dotenv's `config()`, as setup writes it, rather than
  * `import "dotenv/config"`: a call can be given a `path` to the `.env` file.
@@ -154,8 +155,10 @@ function EnvironmentStep({ lang }: { lang: Lang }) {
           This page cannot work out this deployment&apos;s API address, because{" "}
           <code className="font-mono">{host.variable}</code> is set to{" "}
           <code className="font-mono">{host.value}</code>. Set{" "}
-          <code className="font-mono">TRACEROOT_HOST_URL</code> to that address as well, or your
-          traces go to TraceRoot Cloud.
+          <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself,
+          or your traces go to TraceRoot Cloud. Once{" "}
+          <code className="font-mono">{host.variable}</code> is corrected and the web app rebuilt,
+          the address appears here: the value is built into the app rather than read at startup.
         </p>
       ) : hostUrl !== null ? (
         <p className="text-[12px] text-muted-foreground">
