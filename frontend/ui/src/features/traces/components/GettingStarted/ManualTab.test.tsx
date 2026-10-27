@@ -306,7 +306,10 @@ describe("the environment step", () => {
     expect(container.textContent).toContain("from dotenv import load_dotenv; load_dotenv()");
 
     fireEvent.click(screen.getAllByRole("button", { name: "TypeScript" })[0]);
-    expect(container.textContent).toContain('import "dotenv/config";');
+    expect(container.textContent).toContain(
+      "load that before TraceRoot is initialized: config(), from the dotenv package.",
+    );
+    expect(container.textContent).not.toContain("dotenv/config");
     expect(container.textContent).not.toContain("load_dotenv");
   });
 });

@@ -135,6 +135,9 @@ function OwnStackPicker({
  * passes as `--host` (see `sdkHostUrl`). When that origin cannot be resolved,
  * no value is guessed: the reader is told which variable stopped it and that
  * the address still has to be set.
+ *
+ * TypeScript gets dotenv's `config()`, as setup writes it, rather than
+ * `import "dotenv/config"`: a call can be given a `path` to the `.env` file.
  */
 function EnvironmentStep({ lang }: { lang: Lang }) {
   const host = sdkHostUrl();
@@ -172,8 +175,8 @@ function EnvironmentStep({ lang }: { lang: Lang }) {
           </>
         ) : (
           <>
-            <code className="font-mono">import &quot;dotenv/config&quot;;</code> as the first
-            import, from the <code className="font-mono">dotenv</code> package.
+            <code className="font-mono">config()</code>, from the{" "}
+            <code className="font-mono">dotenv</code> package.
           </>
         )}
       </p>
