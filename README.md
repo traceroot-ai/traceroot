@@ -151,11 +151,13 @@ With Git, Docker Compose, and Make installed, run locally:
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-cp .env.example .env
+test -f .env || cp .env.example .env
 make prod-lite
 ```
 
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
+
+For production, use the [Helm chart](https://github.com/traceroot-ai/traceroot-k8s) or [AWS Terraform module](https://github.com/traceroot-ai/traceroot-terraform-aws).
 
 ## Integrations
 
