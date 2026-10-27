@@ -1,4 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
+import * as piAi from "@earendil-works/pi-ai/compat";
+import type { Api, Model } from "@earendil-works/pi-ai";
+
+vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
+  const actual = await importOriginal<typeof piAi>();
+  return { ...actual, getModel: vi.fn(actual.getModel) };
+});
+
+// The SDK's generic signature only accepts known registry ids. Exercise misses
+// and future entries without constraining mocks to the current registry ids.
+const registryLookup = vi.mocked(
+  piAi.getModel as (provider: string, id: string) => Model<Api> | undefined,
+);
 
 // Mock prisma BEFORE importing the resolver so fetchProviderConfig hits the mock.
 vi.mock("../lib/prisma", () => ({
@@ -137,6 +150,75 @@ describe("resolvePiModel", () => {
     };
     const m = resolvePiModel("gpt-5", cfg);
     expect(m.baseUrl).toBe("https://custom.example.com/v1");
+  });
+
+  it.each([
+    { adapter: "zai", id: "glm-4.5", contextWindow: 131072, maxTokens: 98304 },
+    { adapter: "zai", id: "glm-4.5-air", contextWindow: 131072, maxTokens: 98304 },
+    { adapter: "google", id: "gemini-3.6-flash", contextWindow: 1048576, maxTokens: 65536 },
+    { adapter: "google", id: "gemini-3.8-flash", contextWindow: 1048576, maxTokens: 65536 },
+  ])(
+    "uses documented fallback limits for $adapter/$id and preserves routing overrides",
+    ({ adapter, id, contextWindow, maxTokens }) => {
+      const lookup = registryLookup.mockReturnValue(undefined);
+      try {
+        const cfg: ProviderModelConfig = {
+          adapter,
+          key: "workspace-secret",
+          baseUrl: "https://proxy.example.com/v1",
+          config: { modelProtocols: { [id]: "openai-completions" } },
+        };
+        expect(resolvePiModel(id, cfg)).toMatchObject({
+          id,
+          provider: adapter === "zai" ? "openai" : "google",
+          api: "openai-completions",
+          baseUrl: cfg.baseUrl,
+          contextWindow,
+          maxTokens,
+          reasoning: adapter === "google",
+        });
+      } finally {
+        lookup.mockReset();
+      }
+    },
+  );
+
+  it("prefers future registry metadata while retaining workspace routing overrides", () => {
+    const registered = {
+      ...piAi.getModel("google", "gemini-3-flash-preview"),
+      id: "gemini-3.8-flash",
+      contextWindow: 1234567,
+    };
+    const lookup = registryLookup.mockReturnValueOnce(registered);
+    try {
+      expect(
+        resolvePiModel(registered.id, {
+          adapter: "google",
+          key: "workspace-secret",
+          baseUrl: "https://proxy.example.com/v1",
+          config: { modelProtocols: { [registered.id]: "openai-completions" } },
+        }),
+      ).toEqual({
+        ...registered,
+        api: "openai-completions",
+        baseUrl: "https://proxy.example.com/v1",
+      });
+      expect(registered.api).toBe("google-generative-ai");
+    } finally {
+      lookup.mockReset();
+    }
+  });
+
+  it("keeps unknown models and matching ids on unrelated adapters on the generic fallback", () => {
+    for (const [adapter, id] of [
+      ["zai", "custom-model"],
+      ["openai", "glm-4.5"],
+      ["openai", "gemini-3.8-flash"],
+    ]) {
+      expect(
+        resolvePiModel(id, { adapter, key: "workspace-secret", baseUrl: null, config: null }),
+      ).toMatchObject({ contextWindow: 200000, maxTokens: 64000, reasoning: false });
+    }
   });
 });
 
