@@ -1972,7 +1972,9 @@ class TestManualUsageAttribute:
         assert span["input_tokens"] == 1000
         assert span["output_tokens"] == 200
 
-    @pytest.mark.parametrize("case", ["no-model", "agent-span", "wrapper"])
+    @pytest.mark.parametrize(
+        "case", ["no-model", "tool-span", "agent-span", "wrapper", "wrapper-no-model"]
+    )
     def test_reported_cost_scope(self, case):
         from unittest.mock import patch
 
@@ -1988,13 +1990,21 @@ class TestManualUsageAttribute:
                 usage, make_attr("gen_ai.operation.name", "invoke_agent"), cost_attr
             )
             expected = None
-        else:
+        elif case == "wrapper-no-model":
             span = make_span(
                 "aa" * 16,
                 "bb" * 8,
-                attributes=[make_attr("traceroot.span.type", "llm"), cost_attr],
+                attributes=[make_attr("gen_ai.operation.name", "invoke_agent"), cost_attr],
             )
             expected = None
+        else:
+            kind = "llm" if case == "no-model" else "tool"
+            span = make_span(
+                "aa" * 16,
+                "bb" * 8,
+                attributes=[make_attr("traceroot.span.type", kind), cost_attr],
+            )
+            expected = 0.0123
         payload = make_otel_payload([span], scope_name="traceroot")
         with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
             _, spans = transform_otel_to_clickhouse(payload, "proj-1")
