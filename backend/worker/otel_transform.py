@@ -114,7 +114,10 @@ def _span_aggregates_child_usage(
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
     # nothing when the operation name is present, which is the shape observed today.
     return (
-        isinstance(scope_name, str) and scope_name.lower() == "gen_ai" and span_kind != SpanKind.LLM
+        not operation_name
+        and isinstance(scope_name, str)
+        and scope_name.lower() == "gen_ai"
+        and span_kind != SpanKind.LLM
     )
 
 

@@ -1973,13 +1973,23 @@ class TestManualUsageAttribute:
         assert span["output_tokens"] == 200
 
     @pytest.mark.parametrize(
-        "case", ["no-model", "tool-span", "agent-span", "wrapper", "wrapper-no-model"]
+        "case",
+        [
+            "no-model",
+            "tool-span",
+            "agent-span",
+            "wrapper",
+            "wrapper-no-model",
+            "gen-ai-tool",
+            "gen-ai-no-operation",
+        ],
     )
     def test_reported_cost_scope(self, case):
         from unittest.mock import patch
 
         usage = {"input_tokens": 1000, "output_tokens": 200}
         cost_attr = make_attr("llm.cost.total", 0.0123)
+        scope = "gen_ai" if case.startswith("gen-ai") else "traceroot"
         if case == "agent-span":
             span = self._manual_span(
                 usage, make_attr("openinference.span.kind", "AGENT"), cost_attr
@@ -1997,6 +2007,16 @@ class TestManualUsageAttribute:
                 attributes=[make_attr("gen_ai.operation.name", "invoke_agent"), cost_attr],
             )
             expected = None
+        elif case == "gen-ai-tool":
+            span = make_span(
+                "aa" * 16,
+                "bb" * 8,
+                attributes=[make_attr("gen_ai.operation.name", "execute_tool"), cost_attr],
+            )
+            expected = 0.0123
+        elif case == "gen-ai-no-operation":
+            span = make_span("aa" * 16, "bb" * 8, attributes=[cost_attr])
+            expected = None
         else:
             kind = "llm" if case == "no-model" else "tool"
             span = make_span(
@@ -2005,7 +2025,7 @@ class TestManualUsageAttribute:
                 attributes=[make_attr("traceroot.span.type", kind), cost_attr],
             )
             expected = 0.0123
-        payload = make_otel_payload([span], scope_name="traceroot")
+        payload = make_otel_payload([span], scope_name=scope)
         with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
             _, spans = transform_otel_to_clickhouse(payload, "proj-1")
 
