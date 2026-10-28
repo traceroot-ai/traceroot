@@ -177,7 +177,7 @@ async function runSingleDetector(params: {
     id: string;
     name: string;
     prompt: string;
-    outputSchema: Array<{ name: string; type: string }>;
+    outputSchema: ReadonlyArray<unknown>;
     detectionModel: string | null;
     detectionProvider: string | null;
     detectionSource: "system" | "byok" | null;
@@ -386,9 +386,7 @@ async function evaluateTrace(
   // Run all detectors in parallel; collect triggered results
   const settled = await Promise.allSettled(
     detectors.map((detector) => {
-      const outputSchema = Array.isArray(detector.outputSchema)
-        ? (detector.outputSchema as Array<{ name: string; type: string }>)
-        : [];
+      const outputSchema = Array.isArray(detector.outputSchema) ? detector.outputSchema : [];
 
       return runSingleDetector({
         detector: {
