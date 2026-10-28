@@ -349,6 +349,25 @@ def test_a_non_parse_error_never_contributes_a_position(
     assert _message("SELECT 1") == "SQL statement could not be parsed"
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "-- nothing here",
+        "/* nothing here */",
+        "-- a\n-- b",
+        "-- a\n;",
+        "/* x */;",
+        "/* x */ ; /* y */",
+    ],
+)
+def test_comment_only_input_is_empty(sql: str) -> None:
+    assert _message(sql) == "SQL statement must not be empty"
+
+
+def test_a_statement_followed_by_a_comment_is_still_two_statements() -> None:
+    assert _message("SELECT 1; -- note") == "Exactly one SELECT statement is required; got 2"
+
+
 def test_two_statements_keep_their_own_message() -> None:
     assert _message("SELECT 1; SELECT 2") == "Exactly one SELECT statement is required; got 2"
 

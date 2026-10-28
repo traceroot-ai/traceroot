@@ -6,7 +6,7 @@ dependency, no I/O, no side effects.
 
 Policy summary
 --------------
-1.  Empty / whitespace-only SQL is rejected.
+1.  Empty / whitespace-only / comment-only SQL is rejected.
 2.  SQL must parse under the ClickHouse dialect; parse errors are rejected.
     The message gives the line and column of the error, never any of the SQL.
 3.  Exactly one statement is required.
@@ -355,6 +355,12 @@ def validate(sql: str) -> exp.Query:
         raise SqlValidationError(
             f"SQL statement could not be parsed{_parse_error_position(exc)}"
         ) from exc
+
+    # Comment-only input parses to no statements, or to bare ``;`` terminators.
+    # Do not drop the terminators from the list: ``SELECT 1; -- note`` has two
+    # statements and must stay rejected.
+    if all(isinstance(s, exp.Semicolon) for s in statements):
+        raise SqlValidationError("SQL statement must not be empty")
 
     # 3. Exactly one statement required.
     # (Trailing ';' → one statement; 'SELECT 1; SELECT 2' → two → rejected.)
