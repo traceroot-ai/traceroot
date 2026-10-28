@@ -356,8 +356,12 @@ export function getMeasure(view: AlertView, measureId: string): AlertMeasure | u
  * Why this condition can never decide anything on the measure, or null when it
  * can. Against a reading that is never below zero, a negative threshold makes
  * every operator always or never true: `> -5` fires on every window with data.
- * The one check the write service and the form share, so the form refuses
- * exactly what the API would.
+ * At zero the same holds for `>= 0`, which fires on every window with data.
+ * `< 0` stays: on a measure that can be empty, under NOTIFY it is a gap-only
+ * rule, paging when data stops and again when it returns. So do `= 0`, `<= 0`,
+ * `!= 0` and `> 0`, the no-traffic and any-traffic rules. The one check the
+ * write service and the form share, so the form refuses exactly what the API
+ * would.
  */
 export function alertThresholdProblem(
   measure: AlertMeasure,
@@ -367,6 +371,9 @@ export function alertThresholdProblem(
   if (measure.signed) return null;
   const label = measure.label.toLowerCase();
   if (threshold < 0) return `Threshold must be zero or more: ${label} can never be negative`;
+  if (threshold === 0 && operator === ">=") {
+    return `This alert would fire on every window with data: ${label} can never be negative`;
+  }
   return null;
 }
 

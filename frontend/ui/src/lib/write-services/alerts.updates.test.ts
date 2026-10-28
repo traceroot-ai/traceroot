@@ -458,6 +458,18 @@ describe("updateAlert", () => {
       expect(current()).toMatchObject({ name: baseRow.name, threshold: -5 });
     });
 
+    it("refuses an operator-only edit to `>=` against the stored zero threshold", async () => {
+      mockAccess();
+      // Stored as the Decimal the column reads back, which is not `=== 0`.
+      store.set("alert-1", { ...row(), threshold: new Prisma.Decimal(0) });
+      expect(await update({ thresholdOperator: ">=" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "This alert would fire on every window with data: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+    });
+
     it("still renames and pauses a rule stored with a negative threshold, since neither touches its condition", async () => {
       mockAccess();
       store.set("alert-1", row({ threshold: -5 }));

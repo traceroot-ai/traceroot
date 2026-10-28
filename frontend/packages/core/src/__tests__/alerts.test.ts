@@ -44,6 +44,7 @@ import {
   resolveAlertMetricSource,
   windowToMs,
   type AlertFilter,
+  type AlertThresholdOperator,
   alertFiltersToTracePredicates,
   describeAlertFilter,
   withAlertUnit,
@@ -306,10 +307,14 @@ describe("alertThresholdProblem", () => {
   const measures = ALERT_VIEWS.flatMap((view) => ALERT_MEASURES_BY_VIEW[view]);
 
   /** Each measure, operator and threshold the helper answers differently than `refused` says. */
-  function disagreements(thresholds: readonly number[], refused: boolean): string[] {
+  function disagreements(
+    operators: readonly AlertThresholdOperator[],
+    thresholds: readonly number[],
+    refused: boolean,
+  ): string[] {
     const found: string[] = [];
     for (const measure of measures) {
-      for (const operator of ALERT_THRESHOLD_OPERATORS) {
+      for (const operator of operators) {
         for (const threshold of thresholds) {
           if ((alertThresholdProblem(measure, operator, threshold) !== null) !== refused) {
             found.push(`${measure.id} ${operator} ${threshold}`);
@@ -323,17 +328,30 @@ describe("alertThresholdProblem", () => {
   it("refuses a threshold below zero on every measure, under every operator", () => {
     // Against a reading that is never negative, each operator is then always
     // or never true: `> -5` fires on every window with data.
-    expect(disagreements([-0.01, -5], true)).toEqual([]);
+    expect(disagreements(ALERT_THRESHOLD_OPERATORS, [-0.01, -5], true)).toEqual([]);
   });
 
-  it("accepts zero and above on every measure, under every operator", () => {
-    expect(disagreements([0, 0.5, 500], false)).toEqual([]);
+  it("accepts a threshold above zero on every measure, under every operator", () => {
+    expect(disagreements(ALERT_THRESHOLD_OPERATORS, [0.5, 500], false)).toEqual([]);
+  });
+
+  it("refuses the rule on zero that fires on any data", () => {
+    // `>= 0` is true on every window with data.
+    expect(disagreements([">="], [0], true)).toEqual([]);
+  });
+
+  it("keeps the rules on zero that can still decide something on a measure that can be empty", () => {
+    // `< 0` stays: under NOTIFY it is a gap-only rule.
+    expect(disagreements(["<", "=", "<=", "!=", ">"], [0], false)).toEqual([]);
   });
 
   it("names the measure and the fix", () => {
     const latency = getMeasure("SPANS", "latency")!;
     expect(alertThresholdProblem(latency, ">", -5)).toBe(
       "Threshold must be zero or more: latency can never be negative",
+    );
+    expect(alertThresholdProblem(latency, ">=", 0)).toBe(
+      "This alert would fire on every window with data: latency can never be negative",
     );
   });
 
