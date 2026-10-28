@@ -66,7 +66,7 @@ describe("ConditionSection", () => {
     expect(props.onThresholdChange).toHaveBeenCalledWith("12.5");
   });
 
-  it("takes a negative threshold", () => {
+  it("passes a minus sign through, so the form can say why a negative is refused", () => {
     const props = renderSection();
     fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-3" } });
     expect(props.onThresholdChange).toHaveBeenCalledWith("-3");

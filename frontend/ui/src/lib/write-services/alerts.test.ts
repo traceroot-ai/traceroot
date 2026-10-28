@@ -181,6 +181,19 @@ describe("createAlert", () => {
     expect(tx.alert.create).not.toHaveBeenCalled();
   });
 
+  it("rejects a negative threshold on a measure that can never be negative with 400", async () => {
+    // `> -5` on a latency fires on every window with data.
+    mockAccess();
+    const r = await run({ ...validRule, threshold: -5 });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "Threshold must be zero or more: latency can never be negative",
+    });
+    expect(tx.project.findUnique).not.toHaveBeenCalled();
+    expect(tx.alert.create).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when the project does not exist", async () => {
     tx.project.findUnique.mockResolvedValue(null);
     const r = await run();

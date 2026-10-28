@@ -323,6 +323,9 @@ export interface AlertMeasure {
   // Only where the bare number would mislead: a token count names itself, and
   // the id measures have no unit to state.
   unit?: AlertMeasureUnit;
+  // A reading that can go below zero. None can today: each is a count, a
+  // distinct count, a duration, money or tokens.
+  signed?: boolean;
 }
 
 export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> = {
@@ -347,6 +350,24 @@ export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> 
 
 export function getMeasure(view: AlertView, measureId: string): AlertMeasure | undefined {
   return ALERT_MEASURES_BY_VIEW[view].find((m) => m.id === measureId);
+}
+
+/**
+ * Why this condition can never decide anything on the measure, or null when it
+ * can. Against a reading that is never below zero, a negative threshold makes
+ * every operator always or never true: `> -5` fires on every window with data.
+ * The one check the write service and the form share, so the form refuses
+ * exactly what the API would.
+ */
+export function alertThresholdProblem(
+  measure: AlertMeasure,
+  operator: AlertThresholdOperator,
+  threshold: number,
+): string | null {
+  if (measure.signed) return null;
+  const label = measure.label.toLowerCase();
+  if (threshold < 0) return `Threshold must be zero or more: ${label} can never be negative`;
+  return null;
 }
 
 // These count rows or distinct values, so the column's unit does not survive them.

@@ -433,6 +433,40 @@ describe("updateAlert", () => {
     });
   });
 
+  describe("the merged condition, not the patch alone, is what must be able to fire and clear", () => {
+    it("refuses a threshold-only edit below zero on the stored latency measure", async () => {
+      mockAccess();
+      expect(await update({ threshold: -5 })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current().threshold).toBe(500);
+    });
+
+    it("refuses a whole-rule PATCH that carries an unchanged legacy negative threshold", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      // The check judges the submitted rule, not the change: the form sends the whole rule.
+      expect(await update({ threshold: -5, name: "Renamed" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ name: baseRow.name, threshold: -5 });
+    });
+
+    it("still renames and pauses a rule stored with a negative threshold, since neither touches its condition", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await setStatus("PAUSED")).toMatchObject({ ok: true, changed: ["status"] });
+      expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: -5 });
+    });
+  });
+
   describe("a parked rule re-arms on the edit that replaces what it was parked on", () => {
     beforeEach(() => {
       mockAccess();

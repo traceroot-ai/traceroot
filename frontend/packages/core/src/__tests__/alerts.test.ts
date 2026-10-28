@@ -24,10 +24,12 @@ import {
   DEFAULT_ALERT_STATUS,
   DEFAULT_ALERT_VIEW,
   KEYED_ALERT_FILTER_FIELDS,
+  alertThresholdProblem,
   canonicalizeAlertFilters,
   clampRenotifyInterval,
   getAlertUnit,
   getAlertUnitForSource,
+  getMeasure,
   getValidAggregations,
   isAlertAggregation,
   isAlertFilterField,
@@ -295,6 +297,49 @@ describe("what the form offers and what the engine can run", () => {
     }
 
     expect(problems).toEqual([]);
+  });
+});
+
+describe("alertThresholdProblem", () => {
+  // Every measure of every view: each is a count, a distinct count, a duration,
+  // money or tokens.
+  const measures = ALERT_VIEWS.flatMap((view) => ALERT_MEASURES_BY_VIEW[view]);
+
+  /** Each measure, operator and threshold the helper answers differently than `refused` says. */
+  function disagreements(thresholds: readonly number[], refused: boolean): string[] {
+    const found: string[] = [];
+    for (const measure of measures) {
+      for (const operator of ALERT_THRESHOLD_OPERATORS) {
+        for (const threshold of thresholds) {
+          if ((alertThresholdProblem(measure, operator, threshold) !== null) !== refused) {
+            found.push(`${measure.id} ${operator} ${threshold}`);
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  it("refuses a threshold below zero on every measure, under every operator", () => {
+    // Against a reading that is never negative, each operator is then always
+    // or never true: `> -5` fires on every window with data.
+    expect(disagreements([-0.01, -5], true)).toEqual([]);
+  });
+
+  it("accepts zero and above on every measure, under every operator", () => {
+    expect(disagreements([0, 0.5, 500], false)).toEqual([]);
+  });
+
+  it("names the measure and the fix", () => {
+    const latency = getMeasure("SPANS", "latency")!;
+    expect(alertThresholdProblem(latency, ">", -5)).toBe(
+      "Threshold must be zero or more: latency can never be negative",
+    );
+  });
+
+  it("leaves a measure that can go negative to its own threshold", () => {
+    const latency = getMeasure("SPANS", "latency")!;
+    expect(alertThresholdProblem({ ...latency, signed: true }, ">", -5)).toBeNull();
   });
 });
 
