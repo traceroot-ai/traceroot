@@ -8,12 +8,15 @@ Policy summary
 --------------
 1.  Empty / whitespace-only SQL is rejected.
 2.  SQL must parse under the ClickHouse dialect; parse errors are rejected.
+    The message gives the line and column of the error, never any of the SQL.
 3.  Exactly one statement is required.
     Note: a trailing ``;`` produces one statement (it is a statement terminator
     in sqlglot, not a separator).  ``SELECT 1; SELECT 2`` yields two statements
     and is rejected.
 4.  The single statement must be a SELECT or UNION (``exp.Query``).  All write
-    operations, DDL, and control statements are rejected.
+    operations, DDL, and control statements are rejected.  Input that does not
+    open with a statement keyword (a typo such as ``selec x``) is rejected with
+    "must start with SELECT or WITH" instead of the SELECT-only message.
 5.  Every ``exp.Table`` node must reference a bare whitelisted public table name
     (``spans`` or ``traces``), or a CTE alias defined in the same query.
     Rejected: table functions, database/catalog-qualified names, internal view
@@ -49,7 +52,9 @@ from __future__ import annotations
 
 import sqlglot
 import sqlglot.expressions as exp
+from sqlglot.dialects.dialect import Dialect
 from sqlglot.optimizer.scope import build_scope
+from sqlglot.tokens import TokenType
 
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import PUBLIC_TABLES
@@ -242,6 +247,8 @@ _RESERVED_PARAM_PREFIX = "scope_"
 # ``node.name`` is the *argument* text, not the function name.
 _NAME_PRESERVING_FUNC_TYPES = (exp.Anonymous, exp.AnonymousAggFunc, exp.ParameterizedAgg)
 
+_CLICKHOUSE = Dialect.get_or_raise("clickhouse")
+
 
 def _func_name(node: exp.Func) -> str:
     """Return the lowercased canonical name for a function node.
@@ -260,6 +267,50 @@ def _func_name(node: exp.Func) -> str:
     if isinstance(node, _NAME_PRESERVING_FUNC_TYPES):
         return (node.name or "").lower()
     return node.sql_name().lower()
+
+
+def _parse_error_position(exc: Exception) -> str:
+    """Return `` near line L, column C`` for a sqlglot ``ParseError``, else ``""``.
+
+    Only the coordinates are used. The error's description, highlight and
+    context all carry fragments of the SQL, which a validation message never
+    echoes. A ``TokenError`` (e.g. an unterminated string) carries no position.
+    """
+    if not isinstance(exc, sqlglot.errors.ParseError):
+        return ""
+    errors = exc.errors
+    if not isinstance(errors, list) or not errors or not isinstance(errors[0], dict):
+        return ""
+    line, col = errors[0].get("line"), errors[0].get("col")
+    if not isinstance(line, int) or not isinstance(col, int):
+        return ""
+    return f" near line {line}, column {col}"
+
+
+def _opens_with_statement_keyword(sql: str) -> bool:
+    """Return ``True`` if sqlglot dispatched *sql* as a statement.
+
+    sqlglot parses input that does not open with a statement keyword as a bare
+    expression rather than failing, so a misspelt ``selec x`` comes back as the
+    column ``selec`` aliased ``x``. This mirrors ``Parser._parse_statement``:
+    a statement is a leading token in ``STATEMENT_PARSERS`` or the tokenizer's
+    ``COMMANDS``. It only picks the message for input that is already rejected;
+    on any doubt it answers ``True``, which keeps the SELECT-only message.
+    """
+    try:
+        tokens = sqlglot.tokenize(sql, read="clickhouse")
+        if not tokens:
+            return True
+        first = tokens[0].token_type
+        # WITH is dispatched through the expression parser, not STATEMENT_PARSERS,
+        # so ``WITH t AS (...) DELETE ...`` must not be told to start with WITH.
+        return (
+            first is TokenType.WITH
+            or first in _CLICKHOUSE.parser_class.STATEMENT_PARSERS
+            or first in _CLICKHOUSE.tokenizer_class.COMMANDS
+        )
+    except Exception:
+        return True
 
 
 def is_blocked_function(node: exp.Expression) -> bool:
@@ -299,8 +350,11 @@ def validate(sql: str) -> exp.Query:
     except Exception as exc:
         # Never interpolate the sqlglot exception: it embeds the offending SQL
         # fragment (which can carry a project_id or other tenant data). Keep the
-        # original on the exception chain for server-side debugging only.
-        raise SqlValidationError("SQL statement could not be parsed") from exc
+        # original on the exception chain for server-side debugging only. The
+        # line and column are numbers, so they are safe to return.
+        raise SqlValidationError(
+            f"SQL statement could not be parsed{_parse_error_position(exc)}"
+        ) from exc
 
     # 3. Exactly one statement required.
     # (Trailing ';' → one statement; 'SELECT 1; SELECT 2' → two → rejected.)
@@ -309,8 +363,13 @@ def validate(sql: str) -> exp.Query:
 
     tree = statements[0]
 
-    # 4. Must be SELECT / UNION (exp.Query).
+    # 4. Must be SELECT / UNION (exp.Query). Both branches reject; they differ
+    #    only in the message. Input with no statement keyword up front (a typo
+    #    such as `selec x`) parses as a bare expression, and telling its author
+    #    that writes are not permitted points them the wrong way.
     if not isinstance(tree, exp.Query):
+        if not _opens_with_statement_keyword(sql):
+            raise SqlValidationError("SQL statement must start with SELECT or WITH")
         raise SqlValidationError(
             "Only SELECT statements are allowed; write operations and DDL are not permitted"
         )
