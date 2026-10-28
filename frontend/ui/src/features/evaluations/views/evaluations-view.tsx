@@ -65,12 +65,12 @@ function parseUrlDate(raw: string | null): Date | null {
 /** Human elapsed duration; "—" when unknown (never 0). */
 export function formatElapsed(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
-  if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
-  return `${m}m ${rem}s`;
+  const roundedMs = Math.round(ms);
+  if (roundedMs < 1000) return `${roundedMs}ms`;
+  const tenthsOfSecond = Math.round(ms / 100);
+  if (tenthsOfSecond < 600) return `${(tenthsOfSecond / 10).toFixed(1)}s`;
+  const totalSeconds = Math.round(ms / 1000);
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
 }
 
 /** Total run cost; "—" when no case reported a cost (never a misleading $0). */
