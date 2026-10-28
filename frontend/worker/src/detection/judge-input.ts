@@ -6,7 +6,8 @@
  * kept, metadata values that repeat the span's input or output are dropped
  * (as are the Vercel AI SDK copies under known keys, unless the column they
  * copy is empty: then the copy stands in for it), and long metadata values
- * keep only their head and tail.
+ * keep only their head and tail. A span whose input or output is the same text
+ * as a direct child's shows it once, in the child; the span keeps a marker.
  *
  * Step 2 fits the text into the budget in passes: render everything; else
  * shorten every long text to its head and tail but keep LLM outputs whole;
@@ -43,10 +44,15 @@ const SDK_COPY_KEYS = new Map<string, "input" | "output">([
 ]);
 /** Which input copy stands in for an empty input column, most structured first. */
 const INPUT_COPY_PREFERENCE = ["ai.prompt.messages", "ai.toolCall.args", "ai.prompt"];
+/** Keys of the Vercel AI SDK prompt object (ai.generateText's input), in reading order. */
+const PROMPT_KEYS = ["system", "prompt", "messages"];
+/** A parent's text and its child's count as the same when the shorter is this share of the longer. */
+const SAME_TEXT_MIN_RATIO = 0.9;
 
 /** Explains the text format and its markers; appended to the judge's system prompt. */
 export const JUDGE_INPUT_FORMAT_NOTE = `TRACE FORMAT:
 - Each span starts with "[n]", its number in start order; "parent [m]" names the span that contains it.
+- "(same as input of [n])" (or output) means this span's input is the same text as span [n]'s, shown there once; any text after "plus:" is what this span has that [n] lacks.
 - To fit the trace into your context, the monitoring system may shorten long texts. "... (N chars truncated) ..." marks text the monitoring system removed, not the agent. A "[SAMPLED VIEW ...]" line means only some lines are shown; gaps in the line numbers are omitted lines.
 - Never report removed or omitted text as a problem in the trace. Judge only what is shown.`;
 
@@ -56,11 +62,18 @@ interface Field {
   text: string;
   /** LLM outputs survive pass 2 whole. */
   llmOutput?: boolean;
+  /** Set on the fields that show the span's input or output. */
+  of?: Side;
 }
+
+type Side = "input" | "output";
 
 interface SpanBlock {
   header: string;
   fields: Field[];
+  parent?: number;
+  /** Plain text of the input and output, whitespace-normalized, for spotting repeats. */
+  texts: Partial<Record<Side, string>>;
 }
 
 export interface JudgeInput {
@@ -73,6 +86,8 @@ export interface JudgeInput {
     /** Characters each shortened text kept at each end; 0 when nothing was shortened. */
     keep_chars: number;
     dropped_metadata_values: number;
+    /** Inputs and outputs replaced by a "(same as ... of [n])" marker. */
+    collapsed_fields: number;
     shortened_texts: number;
     raw_chars: number;
     final_chars: number;
@@ -159,6 +174,20 @@ function valueFields(label: string, value: JsonValue, llmOutput: boolean): Field
   return [{ label, text: compact(value), llmOutput }];
 }
 
+/** The text a value shows, without JSON shape, so a prompt object and a messages array compare. */
+function plainText(value: JsonValue): string {
+  if (Array.isArray(value) && value.length > 0 && value.every(isMessage))
+    return value.map(messageText).join("\n");
+  if (isMessage(value)) return messageText(value);
+  const keys = isObject(value) ? Object.keys(value) : [];
+  if (isObject(value) && keys.length > 0 && keys.every((k) => PROMPT_KEYS.includes(k))) {
+    return PROMPT_KEYS.filter((k) => value[k] !== undefined && value[k] !== null)
+      .map((k) => plainText(value[k]))
+      .join("\n");
+  }
+  return compact(value);
+}
+
 function canonical(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (isObject(value)) {
@@ -203,6 +232,11 @@ function buildBlock(
   if (parent !== undefined) parts.push(`parent [${parent}]`);
 
   const fields: Field[] = [];
+  const sides: Record<Side, JsonValue[]> = { input: [], output: [] };
+  const add = (of: Side, value: JsonValue, label: string, llmOutput: boolean) => {
+    sides[of].push(value);
+    fields.push(...valueFields(label, value, llmOutput).map((f) => ({ ...f, of })));
+  };
   if (present(row.status_message))
     fields.push({ label: "status message", text: String(row.status_message) });
 
@@ -215,8 +249,8 @@ function buildBlock(
       ? undefined
       : parseDeep(row.output);
   const llmOutput = kind === "LLM";
-  if (input !== undefined) fields.push(...valueFields("input", input, false));
-  if (output !== undefined) fields.push(...valueFields("output", output, llmOutput));
+  if (input !== undefined) add("input", input, "input", false);
+  if (output !== undefined) add("output", output, "output", llmOutput);
 
   const copies = new Set([input, output].filter((v) => v !== undefined).map((v) => canonical(v!)));
   const metadata = typeof row.metadata === "string" ? parseJsonString(row.metadata) : row.metadata;
@@ -235,8 +269,8 @@ function buildBlock(
       // A copy whose column is empty stands in for it: kept whole, and shortened like it.
       const standsIn =
         copyOf === "input" ? key === inputCopy : copyOf === "output" && output === undefined;
-      if (standsIn) {
-        fields.push(...valueFields(`metadata ${key}`, value, copyOf === "output" && llmOutput));
+      if (copyOf && standsIn) {
+        add(copyOf, value, `metadata ${key}`, copyOf === "output" && llmOutput);
         continue;
       }
       if (copyOf || copies.has(canonical(value))) {
@@ -251,7 +285,66 @@ function buildBlock(
     if (present(row[column]))
       fields.push({ label: column.replace(/_/g, " "), text: String(row[column]) });
   }
-  return { header: parts.join(" · "), fields };
+  const texts: SpanBlock["texts"] = {};
+  for (const of of ["input", "output"] as const) {
+    const text = sides[of].map(plainText).join("\n").replace(/\s+/g, " ").trim();
+    if (text) texts[of] = text;
+  }
+  return { header: parts.join(" · "), fields, parent, texts };
+}
+
+/**
+ * What of `text` is not in `other` when the two count as the same text (one
+ * contains the other and the shorter is SAME_TEXT_MIN_RATIO of the longer);
+ * null when they do not.
+ */
+function leftover(text: string, other: string | undefined): string | null {
+  if (!other) return null;
+  const [short, long] = text.length <= other.length ? [text, other] : [other, text];
+  if (short.length < SAME_TEXT_MIN_RATIO * long.length) return null;
+  const at = long.indexOf(short);
+  if (at < 0) return null;
+  if (long === other) return "";
+  return [text.slice(0, at), text.slice(at + short.length)]
+    .map((piece) => piece.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Agent frameworks often record the same prompt or answer on a span and on
+ * its direct child (ai.generateText and its doGenerate). The child keeps the
+ * field; the parent's becomes a marker naming the child, plus any text the
+ * child lacks, so no text that is not repeated is dropped. Returns how many
+ * fields were collapsed.
+ */
+function collapseRepeats(blocks: SpanBlock[]): number {
+  const children = new Map<number, number[]>();
+  blocks.forEach((block, i) => {
+    if (block.parent !== undefined)
+      children.set(block.parent, [...(children.get(block.parent) ?? []), i + 1]);
+  });
+  let collapsed = 0;
+  blocks.forEach((block, i) => {
+    for (const of of ["input", "output"] as const) {
+      const text = block.texts[of];
+      if (!text) continue;
+      for (const child of children.get(i + 1) ?? []) {
+        const rest = leftover(text, blocks[child - 1].texts[of]);
+        if (rest === null) continue;
+        const marker = `(same as ${of} of [${child}])${rest ? ` plus:\n${rest}` : ""}`;
+        // A marker no shorter than the text it replaces saves nothing.
+        if (marker.length >= text.length) break;
+        const at = block.fields.findIndex((f) => f.of === of);
+        const kept = block.fields.filter((f) => f.of !== of);
+        kept.splice(at, 0, { label: of, text: marker });
+        block.fields = kept;
+        collapsed++;
+        break;
+      }
+    }
+  });
+  return collapsed;
 }
 
 function render(
@@ -332,6 +425,7 @@ export function buildJudgeInput(
   });
   const counters = { droppedMetadataValues: 0 };
   const blocks = rows.map((row, i) => buildBlock(row, i + 1, indexById, counters));
+  const collapsedFields = collapseRepeats(blocks);
   const preamble = `TRACE ${traceId} · ${rows.length} spans, in start order`;
 
   const stats = (pass: number, keep: number, text: string, shortened: number): JudgeInput => ({
@@ -342,6 +436,7 @@ export function buildJudgeInput(
       pass,
       keep_chars: keep,
       dropped_metadata_values: counters.droppedMetadataValues,
+      collapsed_fields: collapsedFields,
       shortened_texts: shortened,
       raw_chars: spansJsonl.length,
       final_chars: text.length,

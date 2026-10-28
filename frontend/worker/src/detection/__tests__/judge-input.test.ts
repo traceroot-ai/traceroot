@@ -230,6 +230,125 @@ describe("buildJudgeInput", () => {
     });
   });
 
+  describe("repeats in a direct child", () => {
+    const system = "You are a support agent. Answer from the order record only.";
+    const question = "Where is order O-5521, and when will it arrive?";
+    const answer = "Order O-5521 shipped on Friday and should arrive on Monday by noon.";
+    const agent = (fields: Record<string, unknown> = {}) =>
+      row({
+        span_id: "a1",
+        name: "ai.generateText",
+        span_kind: "AGENT",
+        input: JSON.stringify({
+          system,
+          messages: [{ role: "user", content: [{ type: "text", text: question }] }],
+        }),
+        output: '"ok"',
+        ...fields,
+      });
+    const llm = (fields: Record<string, unknown> = {}) =>
+      row({
+        span_id: "l1",
+        parent_span_id: "a1",
+        name: "ai.generateText.doGenerate",
+        span_kind: "LLM",
+        input: JSON.stringify([
+          { role: "system", content: system },
+          { role: "user", content: [{ type: "text", text: question }] },
+        ]),
+        output: '"ok"',
+        ...fields,
+      });
+
+    it("shows a prompt object once when the child holds it as messages", () => {
+      const { text, stats } = buildJudgeInput("t1", [agent(), llm()].join("\n"));
+
+      expect(stats.collapsed_fields).toBe(1);
+      expect(text).toContain("input: (same as input of [2])");
+      expect(text).toContain(`input system: ${system}`);
+      expect(text.match(/Where is order O-5521/g)).toHaveLength(1);
+    });
+
+    it("keeps both when the texts differ", () => {
+      const other = "Cancel order O-5521 and refund the card it was paid with.";
+      const jsonl = [
+        agent(),
+        llm({ input: JSON.stringify([{ role: "user", content: other }]) }),
+      ].join("\n");
+
+      const { text, stats } = buildJudgeInput("t1", jsonl);
+
+      expect(stats.collapsed_fields).toBe(0);
+      expect(text).toContain(question);
+      expect(text).toContain(other);
+      expect(text).not.toContain("same as");
+    });
+
+    it("compares only direct children, not a grandchild", () => {
+      const step = row({
+        span_id: "s1",
+        parent_span_id: "a1",
+        name: "step",
+        span_kind: "SPAN",
+        input: '"step 1"',
+      });
+      const jsonl = [agent(), step, llm({ span_id: "l1", parent_span_id: "s1" })].join("\n");
+
+      const { text, stats } = buildJudgeInput("t1", jsonl);
+
+      expect(stats.collapsed_fields).toBe(0);
+      expect(text.match(/Where is order O-5521/g)).toHaveLength(2);
+    });
+
+    it("shows an output once when the child repeats it", () => {
+      const jsonl = [
+        agent({ output: JSON.stringify(answer) }),
+        llm({ output: JSON.stringify({ role: "assistant", content: answer }) }),
+      ].join("\n");
+
+      const { text, stats } = buildJudgeInput("t1", jsonl);
+
+      expect(stats.collapsed_fields).toBe(2);
+      expect(text).toContain("output: (same as output of [2])");
+      expect(text).toContain(`output assistant: ${answer}`);
+      expect(text.match(/shipped on Friday/g)).toHaveLength(1);
+    });
+
+    it("names the matching child's number and keeps the other children", () => {
+      const jsonl = [
+        row({ span_id: "r1", name: "request", span_kind: "SPAN" }),
+        agent({ parent_span_id: "r1" }),
+        row({
+          span_id: "t1",
+          parent_span_id: "a1",
+          name: "lookup",
+          span_kind: "TOOL",
+          input: '{"order":"O-5521"}',
+        }),
+        llm(),
+      ].join("\n");
+
+      const { text } = buildJudgeInput("t1", jsonl);
+
+      expect(text).toContain("[2] ai.generateText · AGENT");
+      expect(text).toContain("input: (same as input of [4])");
+      expect(text).toContain("[4] ai.generateText.doGenerate · LLM");
+      expect(text).toContain('input: {"order":"O-5521"}');
+    });
+
+    it("keeps the text the child lacks after the marker", () => {
+      const jsonl = [
+        agent({ input: JSON.stringify(`${question} ${system} Thanks!`) }),
+        llm({ input: JSON.stringify(`${question} ${system}`) }),
+      ].join("\n");
+
+      const { text, stats } = buildJudgeInput("t1", jsonl);
+
+      expect(stats.collapsed_fields).toBe(1);
+      expect(text).toContain("input:\n(same as input of [2]) plus:\nThanks!");
+    });
+  });
+
   it("skips lines that are not JSON objects", () => {
     const { stats } = buildJudgeInput(
       "t1",
