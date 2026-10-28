@@ -42,6 +42,9 @@ import { ManualTab } from "./ManualTab";
 
 const byId = (id: string) => INTEGRATIONS.find((integration) => integration.id === id)!;
 
+/** The cards under one of the picker's headings, found from the heading itself. */
+const pickerGroup = (label: string) => screen.getByText(label).parentElement!;
+
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
@@ -186,10 +189,21 @@ describe("ManualTab with no stack chosen above it", () => {
     ]);
   });
 
+  it("asks for the stack as one named choice, across both headings", () => {
+    // One selection, so one radiogroup: a group per heading is announced as two
+    // independent choices.
+    render(<ManualTab projectId="proj_1" />);
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
+    const picker = screen.getByRole("radiogroup", { name: "Integration" });
+    expect(within(picker).getAllByRole("radio")).toHaveLength(INTEGRATIONS.length);
+    expect(within(picker).getByText("Model Providers")).toBeDefined();
+    expect(within(picker).getByText("Frameworks")).toBeDefined();
+  });
+
   it("groups its own picker as providers and frameworks, starting on OpenAI", () => {
     render(<ManualTab projectId="proj_1" />);
-    const providers = screen.getByRole("radiogroup", { name: "Model Providers" });
-    const frameworks = screen.getByRole("radiogroup", { name: "Frameworks" });
+    const providers = pickerGroup("Model Providers");
+    const frameworks = pickerGroup("Frameworks");
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
     ).toBe("true");
@@ -209,10 +223,8 @@ describe("ManualTab with no stack chosen above it", () => {
     const docs = screen.getByRole("link", { name: "View Mastra docs" });
     expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/integrations/mastra");
     // Under the picker, ahead of the snippet heading, rather than beside it.
-    const frameworks = screen.getByRole("radiogroup", { name: "Frameworks" });
-    expect(
-      frameworks.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const picker = screen.getByRole("radiogroup", { name: "Integration" });
+    expect(picker.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
       docs.compareDocumentPosition(screen.getByText("5. Initialize TraceRoot for Mastra")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -238,7 +250,7 @@ describe("ManualTab with no stack chosen above it", () => {
     expect(screen.queryByTestId("github-connect")).toBeNull();
     expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
     // The picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Model Providers" })).toBeDefined();
+    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeDefined();
   });
 
   it("shows a placeholder for the integrations while the project loads", () => {
