@@ -49,8 +49,9 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
   }
   // A query spec the schema can't read, or that names fields the registry
   // doesn't know, stores fine and then fails at query time forever, with no UI
-  // path to repair it. Refuse both, as the API/agent write path does
-  // (parseWidgetSpec in lib/write-services/dashboards.ts).
+  // path to repair it. Refuse both and store the parsed spec (defaults filled,
+  // undeclared keys dropped), as parseWidgetSpec does on the API/agent path.
+  let storedSpec = spec as object;
   if (type === "query") {
     const parsedSpec = WidgetSpecSchema.safeParse(spec);
     if (!parsedSpec.success) {
@@ -63,6 +64,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     }
     const vocabulary = validateWidgetSpecVocabulary(parsedSpec.data);
     if (!vocabulary.ok) return errorResponse(vocabulary.error, 400);
+    storedSpec = parsedSpec.data;
   }
 
   // The widget row and its grid placement land together — a widget with no
@@ -75,7 +77,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
           dashboardId,
           title: title.trim(),
           type,
-          spec: spec as object,
+          spec: storedSpec,
           displayConfig: (displayConfig as object) ?? {},
         },
       }),

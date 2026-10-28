@@ -428,7 +428,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
       makeParams(),
     )) as MockResponse;
     expect(res.status).toBe(201);
-    // Stored as sent — the route validates the vocabulary without rewriting.
+    // A complete spec round-trips through the schema unchanged.
     const data = (widgetCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
     expect(data.spec).toEqual(spec);
   });
@@ -466,6 +466,29 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
       expect(widgetCreateMock).not.toHaveBeenCalled();
     },
   );
+
+  it("stores the parsed spec, dropping keys the schema doesn't declare", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+    const res = (await POST(
+      makeRequest({
+        title: "W",
+        type: "query",
+        spec: {
+          ...querySpec,
+          limit: 10,
+          filters: [{ field: "span_kind", op: "=", value: "LLM", negate: true }],
+        },
+      }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    const data = (widgetCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data.spec).toEqual({
+      ...querySpec,
+      filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+    });
+  });
 
   it("leaves trace_feed specs to their own validation", async () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
