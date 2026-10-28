@@ -329,7 +329,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   </td>
                   <td className="px-3 py-2">
                     <Badge className="bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-                      {key.scope || "ingest"}
+                      {key.scope}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
