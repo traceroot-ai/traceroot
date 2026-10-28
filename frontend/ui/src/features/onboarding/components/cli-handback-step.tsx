@@ -60,7 +60,9 @@ interface CliHandbackStepProps {
  * since the person finishing a self-hosted first run is usually the person who
  * can correct it, and the value is already public: it is inlined into this
  * bundle. Both doors stay, because that is the half of this step which still
- * works.
+ * works. The manual one is not independent of the address, though: its steps
+ * send traces to the API only once `TRACEROOT_HOST_URL` names it, so the line
+ * says that the reader sets it there.
  */
 export function CliHandbackStep({
   projectId,
@@ -88,10 +90,18 @@ export function CliHandbackStep({
                 CLI their checkout is whether it is going to edit the checkout,
                 and that was the one thing the step did not say. "{projectName} is
                 ready" said nothing the header above had not already said, so this
-                costs no line — it replaces one. */}
+                costs no line — it replaces one. It is the traces panel's
+                description, word for word: the same command, run the same way, so
+                the routes it can take and the two questions it asks first read the
+                same in both places. The Node floor is named because `setup`
+                refuses a Node older than 20.12 while the rest of the CLI runs on
+                20.3, and this is where the command is copied from. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Instruments your repository, writes the API key into it, and waits for the first
-              trace. Run it where {projectName}&apos;s code lives.
+              Writes the API key into your repository, then either has a coding agent instrument it
+              and waits for the first trace, or hands you the task to run yourself. In an
+              interactive terminal, asks before editing your code and before continuing over
+              uncommitted changes. Run it where {projectName}&apos;s code lives. Needs Node.js 20.12
+              or later.
             </p>
           </div>
 
@@ -109,7 +119,9 @@ export function CliHandbackStep({
             TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
             value and rebuild the web app, since the value is built into it rather than read at
             startup; once the rebuilt app is served the command appears here. Until then, &quot;Set
-            up manually&quot; walks through the rest in the browser.
+            up manually&quot; walks through the rest in the browser, where you set{" "}
+            <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
+            address yourself.
           </p>
         </div>
       )}

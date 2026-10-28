@@ -65,6 +65,14 @@ export function StackAndModelKey({ projectId, selected, onSelect }: StackAndMode
             the provider the stack asks for. A heading that renamed itself on
             every selection would move the mode switch and the whole section
             under it, which is the reflow this layout exists to stop. */}
+        {/* Said on screen because the section sits between the stack picker
+            and the API key step, and a field named "OpenAI API key" there reads
+            as a step in instrumenting the application. It is neither required
+            nor read by the application. */}
+        <p className="text-[12px] text-muted-foreground">
+          Optional. This key is for TraceRoot&apos;s AI assistant and detectors, not for your
+          application, which keeps using its own key.
+        </p>
         {projectLoading ? (
           <LoadingState label="Loading model providers..." />
         ) : workspaceId ? (
