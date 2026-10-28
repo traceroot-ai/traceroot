@@ -173,6 +173,63 @@ describe("buildJudgeInput", () => {
     expect(text.split("\n")[0]).toMatch(/^L\d+: TRACE t1 · 200 spans/);
   });
 
+  describe("SDK copies", () => {
+    const prompt = `PROMPT ${"p".repeat(3_000)} END`;
+    const span = (input: string) =>
+      row({
+        span_id: "a1",
+        name: "ai.generateText",
+        span_kind: "AGENT",
+        input,
+        output: '"done"',
+        metadata: JSON.stringify({ "ai.prompt": prompt, "ai.response.text": "done" }),
+      });
+
+    it("keeps a copy whole when its column is empty", () => {
+      const { text, stats } = buildJudgeInput("t1", span(""));
+      expect(stats.dropped_metadata_values).toBe(1);
+      expect(text).toContain(`metadata ai.prompt: ${prompt}`);
+    });
+
+    it("drops a copy when its column is set", () => {
+      const { text, stats } = buildJudgeInput("t1", span('"hi"'));
+      expect(stats.dropped_metadata_values).toBe(2);
+      expect(text).not.toContain("PROMPT");
+    });
+
+    it("keeps an output copy when the output column is empty", () => {
+      const { text, stats } = buildJudgeInput(
+        "t1",
+        row({
+          span_id: "a1",
+          name: "ai.generateText",
+          span_kind: "AGENT",
+          input: '"hi"',
+          metadata: JSON.stringify({ "ai.prompt": "hi", "ai.response.text": "ANSWER" }),
+        }),
+      );
+      expect(stats.dropped_metadata_values).toBe(1);
+      expect(text).toContain("metadata ai.response.text: ANSWER");
+    });
+
+    it("keeps only one input copy when ai.prompt and ai.prompt.messages are both present", () => {
+      const messages = JSON.stringify([{ role: "user", content: "MESSAGES" }]);
+      const { text, stats } = buildJudgeInput(
+        "t1",
+        row({
+          span_id: "a1",
+          name: "ai.generateText",
+          span_kind: "AGENT",
+          output: '"done"',
+          metadata: JSON.stringify({ "ai.prompt": prompt, "ai.prompt.messages": messages }),
+        }),
+      );
+      expect(stats.dropped_metadata_values).toBe(1);
+      expect(text).toContain("MESSAGES");
+      expect(text).not.toContain("PROMPT");
+    });
+  });
+
   it("skips lines that are not JSON objects", () => {
     const { stats } = buildJudgeInput(
       "t1",

@@ -4,16 +4,17 @@
  *
  * Step 1 slims every span: only the columns that describe what happened are
  * kept, metadata values that repeat the span's input or output are dropped
- * (as are the Vercel AI SDK copies under known keys), and long metadata
- * values keep only their head and tail.
+ * (as are the Vercel AI SDK copies under known keys, unless the column they
+ * copy is empty: then the copy stands in for it), and long metadata values
+ * keep only their head and tail.
  *
- * Step 2 fits the text into the budget in passes, after PostHog's trace
- * judge: render everything; else shorten every long text to its head and tail
- * but keep LLM outputs whole; else shorten LLM outputs too; else number the
- * lines and keep an even sample of them. Unlike PostHog, a pass keeps as much
- * of each head and tail as the budget allows (SHORTEN_KEEP_CHARS at least),
- * so a trace just over the budget loses little. Every span keeps a place in
- * the text, and each cut leaves a marker the system prompt explains.
+ * Step 2 fits the text into the budget in passes: render everything; else
+ * shorten every long text to its head and tail but keep LLM outputs whole;
+ * else shorten LLM outputs too; else number the lines and keep an even sample
+ * of them. A pass keeps as much of each head and tail as the budget allows
+ * (SHORTEN_KEEP_CHARS at least), so a trace just over the budget loses
+ * little. Every span keeps a place in the text, and each cut leaves a marker
+ * the system prompt explains.
  */
 
 import { parseJsonString } from "./jev-state.js";
@@ -30,16 +31,18 @@ const PRESERVE_HEADER_LINES = 3;
 const SAMPLING_MAX_ITERATIONS = 10;
 const SAMPLING_REDUCTION_FACTOR = 0.9;
 
-/** Vercel AI SDK attributes that hold copies of the span's input or output. */
-const SDK_COPY_KEYS = new Set([
-  "ai.prompt",
-  "ai.prompt.messages",
-  "ai.response.text",
-  "ai.response.object",
-  "ai.response.toolCalls",
-  "ai.toolCall.args",
-  "ai.toolCall.result",
+/** Vercel AI SDK attributes that hold copies of the span's input or output, and which one. */
+const SDK_COPY_KEYS = new Map<string, "input" | "output">([
+  ["ai.prompt", "input"],
+  ["ai.prompt.messages", "input"],
+  ["ai.response.text", "output"],
+  ["ai.response.object", "output"],
+  ["ai.response.toolCalls", "output"],
+  ["ai.toolCall.args", "input"],
+  ["ai.toolCall.result", "output"],
 ]);
+/** Which input copy stands in for an empty input column, most structured first. */
+const INPUT_COPY_PREFERENCE = ["ai.prompt.messages", "ai.toolCall.args", "ai.prompt"];
 
 /** Explains the text format and its markers; appended to the judge's system prompt. */
 export const JUDGE_INPUT_FORMAT_NOTE = `TRACE FORMAT:
@@ -211,16 +214,32 @@ function buildBlock(
     row.output === null || row.output === undefined || row.output === ""
       ? undefined
       : parseDeep(row.output);
+  const llmOutput = kind === "LLM";
   if (input !== undefined) fields.push(...valueFields("input", input, false));
-  if (output !== undefined) fields.push(...valueFields("output", output, kind === "LLM"));
+  if (output !== undefined) fields.push(...valueFields("output", output, llmOutput));
 
   const copies = new Set([input, output].filter((v) => v !== undefined).map((v) => canonical(v!)));
   const metadata = typeof row.metadata === "string" ? parseJsonString(row.metadata) : row.metadata;
   if (isObject(metadata)) {
+    // ai.prompt.messages and ai.prompt hold the same prompt, so one copy stands in for the input.
+    const inputCopy =
+      input === undefined
+        ? INPUT_COPY_PREFERENCE.find(
+            (k) => metadata[k] !== undefined && metadata[k] !== null && metadata[k] !== "",
+          )
+        : undefined;
     for (const [key, raw] of Object.entries(metadata)) {
       if (raw === null || raw === "") continue;
       const value = parseDeep(raw);
-      if (SDK_COPY_KEYS.has(key) || copies.has(canonical(value))) {
+      const copyOf = SDK_COPY_KEYS.get(key);
+      // A copy whose column is empty stands in for it: kept whole, and shortened like it.
+      const standsIn =
+        copyOf === "input" ? key === inputCopy : copyOf === "output" && output === undefined;
+      if (standsIn) {
+        fields.push(...valueFields(`metadata ${key}`, value, copyOf === "output" && llmOutput));
+        continue;
+      }
+      if (copyOf || copies.has(canonical(value))) {
         counters.droppedMetadataValues++;
         continue;
       }
@@ -258,7 +277,7 @@ function render(
   return { text: out.join("\n"), shortened };
 }
 
-/** Number the lines, then keep an even sample of them under `budget`, as PostHog does. */
+/** Number the lines, then keep an even sample of them under `budget`. */
 export function sampleLines(text: string, budget: number): string {
   if (text.length <= budget) return text;
   const lines = text.split("\n");
