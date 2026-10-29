@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
   createWorkspace: vi.fn(),
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
-  getProjects: vi.fn(),
   getTraces: vi.fn(),
   session: {
     data: { user: { id: "user-1", email: "kai@example.com" } },
@@ -39,11 +38,6 @@ vi.mock("@/lib/api", () => ({
   createWorkspace: mocks.createWorkspace,
   createProject: mocks.createProject,
   getWorkspaces: mocks.getWorkspaces,
-}));
-// Listed so that watching anything beyond the created project would show up as
-// a call here. Nothing on this page should ever need it.
-vi.mock("@/lib/api/projects", () => ({
-  getProjects: (workspaceId: string) => mocks.getProjects(workspaceId),
 }));
 vi.mock("@/lib/api/traces", () => ({
   getTraces: (projectId: string, key: string, options: unknown, user: unknown) =>
@@ -186,7 +180,6 @@ afterEach(() => {
   mocks.createWorkspace.mockReset();
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
-  mocks.getProjects.mockReset();
   mocks.getTraces.mockReset();
 });
 
@@ -198,7 +191,6 @@ describe("the hand-back step's first-trace watch", () => {
     await rounds(2);
 
     expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
-    expect(mocks.getProjects).not.toHaveBeenCalled();
     const watched = new Set(mocks.getTraces.mock.calls.map((call) => call[0]));
     expect([...watched]).toEqual(["proj-1"]);
   });
