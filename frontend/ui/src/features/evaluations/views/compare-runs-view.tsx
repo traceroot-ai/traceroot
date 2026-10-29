@@ -40,7 +40,10 @@ const fmtScoreNumber = (v: number) => (isUnitScore(v) ? pctFraction(v) : fmtPlai
 /** A score change reads in the scale of the two scores it compares: on a 1–5 rubric
  *  4 -> 5 is +1, not +100%, even though the difference itself falls in [0,1]. */
 const fmtScoreDelta = (delta: number, value: number, base: number) =>
-  isUnitScore(value) && isUnitScore(base) ? pctFraction(delta) : fmtPlainNumber(delta);
+  isUnitScore(value) && isUnitScore(base)
+    ? pctFraction(delta)
+    : // Round off float noise (4.1 - 3.1 = 0.9999999999999996) so a whole point reads "1".
+      fmtPlainNumber(Math.round(delta * 100) / 100);
 const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
 const fmtCost = (n: number) => `$${n.toFixed(4)}`;
 /** A scorer's value as a comparable number (booleans/pass-fail fold to 1/0). */

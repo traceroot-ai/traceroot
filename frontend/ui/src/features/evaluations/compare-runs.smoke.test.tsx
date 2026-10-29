@@ -180,6 +180,26 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row).queryByText("+100.0%")).toBeNull();
   });
 
+  it("shows a whole-point rubric change as a whole number despite float noise", () => {
+    // 4.1 - 3.1 is 0.9999999999999996 in floating point.
+    const rubric = (run: typeof OPUS, v: number) => ({
+      ...run,
+      results: run.results.map((r) =>
+        r.testCaseId === "ticket-05"
+          ? { ...r, scores: [score("routing_accuracy", v), score("is_known_category", 1)] }
+          : { ...r, scores: [score("routing_accuracy", 4), score("is_known_category", 1)] },
+      ),
+    });
+    const resp: Record<string, unknown> = { opus: rubric(OPUS, 3.1), sonnet: rubric(SONNET, 4.1) };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: resp[id], isLoading: false, isError: false })),
+    );
+    mount();
+    const row = screen.getByText(/double-charged and I want a refund/).closest("tr") as HTMLElement;
+    expect(within(row).getByText("+1")).toBeTruthy();
+    expect(within(row).queryByText("+1.00")).toBeNull();
+  });
+
   it("filters rows by the search box", () => {
     mount();
     expect(screen.getByText(/my invoice looks wrong/)).toBeTruthy();
