@@ -256,11 +256,13 @@ function buildBlock(
   const metadata = typeof row.metadata === "string" ? parseJsonString(row.metadata) : row.metadata;
   if (isObject(metadata)) {
     // ai.prompt.messages and ai.prompt hold the same prompt, so one copy stands in for the input.
+    // An empty copy ("[]") stands in for nothing, so the next one in the order does.
     const inputCopy =
       input === undefined
-        ? INPUT_COPY_PREFERENCE.find(
-            (k) => metadata[k] !== undefined && metadata[k] !== null && metadata[k] !== "",
-          )
+        ? INPUT_COPY_PREFERENCE.find((k) => {
+            const value = metadata[k] === undefined ? null : parseDeep(metadata[k]);
+            return value !== null && value !== "" && !(Array.isArray(value) && !value.length);
+          })
         : undefined;
     for (const [key, raw] of Object.entries(metadata)) {
       if (raw === null || raw === "") continue;
@@ -337,7 +339,8 @@ function collapseRepeats(blocks: SpanBlock[]): number {
         if (marker.length >= text.length) break;
         const at = block.fields.findIndex((f) => f.of === of);
         const kept = block.fields.filter((f) => f.of !== of);
-        kept.splice(at, 0, { label: of, text: marker });
+        // The marker keeps the replaced field's LLM-output flag, so pass 2 keeps its "plus:" text whole.
+        kept.splice(at, 0, { label: of, text: marker, llmOutput: block.fields[at]?.llmOutput });
         block.fields = kept;
         collapsed++;
         break;
