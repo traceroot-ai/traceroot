@@ -70,7 +70,7 @@ Run this from the root of the repository you want to trace:
 npx -y traceroot-cli@latest setup
 ```
 
-The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in (or creates a free account), writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
+The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in through your browser (where you can create a free account), writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
 
 - Using another coding agent? Setup can write the change out as a task for it to run.
 - Self-hosting? Point setup at your instance with `--host` (the API origin) and `--auth-host` (the web app origin).
@@ -84,7 +84,7 @@ Prefer to configure instrumentation yourself? Use the **[Python SDK](https://git
 <details>
 <summary>Run a minimal TypeScript example</summary>
 
-You need Node.js and npm, a TraceRoot project API key, and an OpenAI API key. For self-hosting, replace the cloud host URL below with your instance URL.
+You need Node.js and npm, a TraceRoot project API key, and an OpenAI API key. For self-hosting, replace the host URL below with your instance's API origin (for example `http://localhost:8000`).
 
 **1. Install the SDK** in your TypeScript project:
 

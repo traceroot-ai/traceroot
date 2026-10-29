@@ -15,7 +15,7 @@ Run this from the root of the repository you want to trace:
 npx -y traceroot-cli@latest setup
 ```
 
-Setup signs you in, has your coding agent add the TraceRoot SDK, and waits for your first trace. You don't need to install the CLI or sign in first. See [Tracing](/tracing/get-started) for each step, self-hosted deployments, and what to do if a run stops partway.
+Setup signs you in, has your coding agent add the TraceRoot SDK, and waits for your first trace; no install or sign-in needed first. [Tracing](/tracing/get-started) covers each step, self-hosting, and troubleshooting.
 
 ### Run without prompts
 
@@ -25,7 +25,7 @@ Setup never prompts when it isn't attached to a terminal, when `CI` is set, or w
 npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
 ```
 
-A project API key also sets the project. If you signed in with `traceroot login` instead and have several projects, pass `--project`. Without prompts, setup writes the instrumentation task to a file rather than running a coding agent; pass `--agent claude` or `--agent codex` to run one.
+A project API key also sets the project. If you signed in with `traceroot login` instead and have several projects, pass `--project`. Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to a file rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one.
 
 ## Install
 
@@ -49,7 +49,7 @@ Run `traceroot login` to sign in through your browser:
 traceroot login
 ```
 
-This initiates an OAuth device flow (RFC 8628), opens your browser to authorize access, and saves a session credential to `~/.config/traceroot/credentials.json`. The session token is exchanged for a short-lived access token, refreshed automatically as it expires.
+This opens your browser to approve the sign-in and saves a session to `~/.config/traceroot/credentials.json`, which refreshes automatically.
 
 ### API key login (CI & scripts)
 
@@ -138,7 +138,7 @@ So `--fields full`, or `--fields io,metadata`, includes span I/O in the JSON pay
 
 ## Read evaluations
 
-The CLI also reads your offline [evaluations](/evals/introduction) — the datasets you run against and the runs that scored them, so a run id no longer has to come from the web app.
+The CLI also reads your offline [evaluations](/evals/introduction): the datasets you run against and the runs that scored them.
 
 ```bash
 # Which evaluations exist, and how each one's latest run ended
