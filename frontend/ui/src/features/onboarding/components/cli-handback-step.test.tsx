@@ -71,7 +71,7 @@ describe("CliHandbackStep", () => {
     // `--project` answers "which project?" from memory, and a wrong answer
     // sends their first traces somewhere they will not look.
     const command = container.querySelector("pre")?.textContent ?? "";
-    expect(command).toContain("npx -y traceroot-cli@0.6.0 setup");
+    expect(command).toContain("npx -y traceroot-cli@0.6.1 setup");
     expect(command).toContain("--project proj-1");
   });
 
@@ -215,7 +215,7 @@ describe("CliHandbackStep", () => {
     // The whole line, not a prefix of it: on Cloud the unflagged command is the
     // correct one, so a stray `--host` here would be the error in reverse.
     expect(container.querySelector("pre")?.textContent).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj-1",
+      "npx -y traceroot-cli@0.6.1 setup --project proj-1",
     );
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
   });

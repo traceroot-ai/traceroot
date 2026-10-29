@@ -28,7 +28,7 @@ import { clientEnv } from "@/env.client";
  * escape character in Windows `cmd.exe`, and this line has to survive being
  * pasted into whatever shell the reader happens to have open.
  */
-const SETUP_CLI_VERSION = "0.6.0";
+const SETUP_CLI_VERSION = "0.6.1";
 
 /** The invocation, before the flags this page is able to fill in. */
 const SETUP_BASE = `npx -y traceroot-cli@${SETUP_CLI_VERSION} setup`;

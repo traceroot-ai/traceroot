@@ -238,7 +238,7 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj_1",
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1",
     );
   });
 
@@ -247,9 +247,9 @@ describe("setupCommand", () => {
     // id no real project has is dropped rather than quoted into the line.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
-    expect(lineOf(setupCommand({ projectId: "" }))).toBe("npx -y traceroot-cli@0.6.0 setup");
+    expect(lineOf(setupCommand({ projectId: "" }))).toBe("npx -y traceroot-cli@0.6.1 setup");
     expect(lineOf(setupCommand({ projectId: "proj 1; rm -rf ~" }))).toBe(
-      "npx -y traceroot-cli@0.6.0 setup",
+      "npx -y traceroot-cli@0.6.1 setup",
     );
   });
 
@@ -259,7 +259,7 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj_1",
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1",
     );
   });
 
@@ -273,7 +273,7 @@ describe("setupCommand", () => {
     });
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj_1 " +
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
         '--host "http://localhost:8000" --auth-host "http://localhost:3000"',
     );
   });
@@ -285,7 +285,7 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({});
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
-      'npx -y traceroot-cli@0.6.0 setup --project proj_1 --host "http://localhost:3000"',
+      'npx -y traceroot-cli@0.6.1 setup --project proj_1 --host "http://localhost:3000"',
     );
   });
 
@@ -300,7 +300,7 @@ describe("setupCommand", () => {
     });
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj_1 " +
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
         '--host "http://[::1]:8000" --auth-host "http://[::1]:3000"',
     );
   });
@@ -315,7 +315,7 @@ describe("setupCommand", () => {
     });
 
     expect(lineOf(setupCommand({ projectId: "proj_1" }))).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj_1 " +
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
         '--host "http://app_internal:8000" --auth-host "http://web_1:3000"',
     );
   });
@@ -364,7 +364,7 @@ describe("setupCommand", () => {
 
     expect(setupCommand({ projectId: "proj_1" })).toEqual({
       kind: "command",
-      command: "npx -y traceroot-cli@0.6.0 setup --project proj_1",
+      command: "npx -y traceroot-cli@0.6.1 setup --project proj_1",
     });
   });
 
