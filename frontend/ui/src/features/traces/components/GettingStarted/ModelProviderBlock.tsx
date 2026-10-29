@@ -28,10 +28,11 @@ import type { ProviderKeyBinding } from "./integrations";
  * credential — `credentialType: "api-key"` with no base URL to ask for — which
  * leaves out Azure OpenAI (needs a base URL) and AWS Bedrock (an access-key
  * pair or a default-credentials toggle, plus a region). And there have to be
- * models to seed — see {@link SEEDED_MODELS} — which leaves out OpenRouter:
- * `listWorkspaceModels` builds a BYOK provider's models purely from the row's
- * `customModels`, so a row saved with a key and nothing to seed is accepted,
- * looks saved, and offers no model anywhere.
+ * models to seed — see {@link SEEDED_MODELS} — which leaves out adapters
+ * without a curated catalogue (OpenRouter takes a free-text model ID input
+ * directly in this step instead): `listWorkspaceModels` builds a BYOK provider's
+ * models purely from the row's `customModels`, so a row saved with a key and
+ * nothing to seed is accepted, looks saved, and offers no model anywhere.
  *
  * Takes the entries rather than looking them up so each half of the rule can be
  * checked on its own: in today's tables the two exclude the same three
@@ -306,6 +307,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   // two of them to disagree in.
   const [override, setOverride] = useState<LLMAdapter | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [modelId, setModelId] = useState("");
   const [failure, setFailure] = useState<{ message: string; detail?: string } | null>(null);
 
   // Everything above belongs to the stack that was selected when it happened:
@@ -330,6 +332,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
     liveBinding.current = providerKey;
     setOverride(null);
     setApiKey("");
+    setModelId("");
     setFailure(null);
   }
 
@@ -339,6 +342,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   // cases that reach it, instead of re-checking the third.
   const bound = providerKey.kind === "none" ? undefined : providerKey;
   const adapter = override ?? bound?.adapter;
+  const needsModelId = adapter === LLMAdapter.OPENROUTER;
 
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -380,11 +384,14 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
       // Seed a few models alongside the key: the model pickers build a BYOK
       // provider's models from `customModels` alone, so a key on its own would
       // store a provider that offers nothing. See {@link SEEDED_MODELS}.
+      // OpenRouter has no curated catalogue and takes a free-text model ID
+      // entered directly in this step.
+      const customModels = chosen === LLMAdapter.OPENROUTER ? [modelId.trim()] : seedFor(chosen);
       return createModelProvider(workspaceId, {
         adapter: chosen,
         provider: ADAPTER_CONFIG[chosen].label,
         apiKey: credential,
-        customModels: seedFor(chosen),
+        customModels,
       });
     },
     // The binding this save belongs to travels with it, so the callbacks below
@@ -404,6 +411,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
       // a key typed for a provider this save never touched.
       if (context?.binding !== liveBinding.current) return;
       setApiKey("");
+      setModelId("");
     },
     // The key stays in the field on every failure: nothing was stored, and it is
     // the one thing on screen the user cannot retype from memory. A rejection
@@ -594,12 +602,15 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   }
 
   // A stack whose provider this step cannot store a key for: no adapter at
-  // all, or one the inline rule excludes. Drawing the field anyway would be a
-  // field that cannot work — and `ADAPTER_CONFIG[adapter]` on the first of
-  // those is a lookup on undefined, which would throw from render and take the
-  // API key, the SDK install and the stack picker down with it, since this
-  // block renders inline in the same panel.
-  if (!bound || !adapter || settingsOnlyReason(adapter) !== null) {
+  // all, or one the step excludes (Azure needs a base URL; Bedrock needs
+  // AWS credentials). OpenRouter takes free-text model IDs rather than a
+  // curated catalogue, so this step collects the model ID inline rather
+  // than rejecting it for having nothing to seed.
+  if (
+    !bound ||
+    !adapter ||
+    (adapter !== LLMAdapter.OPENROUTER && settingsOnlyReason(adapter) !== null)
+  ) {
     const copy = unavailableKeyCopy(adapter ? { kind: "fixed", adapter } : providerKey);
     return (
       <p className="text-[12px] text-muted-foreground">
@@ -619,6 +630,15 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   }
 
   const label = ADAPTER_CONFIG[adapter].label;
+
+  const handleSave = () => {
+    if (!adapter) return;
+    if (needsModelId && modelId.trim() === "") {
+      setFailure({ message: "A model ID is required" });
+      return;
+    }
+    saveMutation.mutate(adapter);
+  };
 
   return (
     <div className="space-y-2">
@@ -644,6 +664,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
               // provider's form, with "Verify and save" ready to send the old
               // key to the new provider.
               setApiKey("");
+              setModelId("");
               setFailure(null);
             }}
           >
@@ -669,15 +690,33 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
           autoComplete="off"
           placeholder={`${label} API key`}
           value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
+          onChange={(event) => {
+            setApiKey(event.target.value);
+            if (failure) setFailure(null);
+          }}
           className="h-8 flex-1 font-mono text-[12px]"
         />
+
+        {needsModelId && (
+          <Input
+            type="text"
+            aria-label="Model ID"
+            autoComplete="off"
+            placeholder="e.g. openai/gpt-4o"
+            value={modelId}
+            onChange={(event) => {
+              setModelId(event.target.value);
+              if (failure) setFailure(null);
+            }}
+            className="h-8 flex-1 font-mono text-[12px]"
+          />
+        )}
 
         <Button
           variant="outline"
           size="sm"
           className="shrink-0"
-          onClick={() => saveMutation.mutate(adapter)}
+          onClick={handleSave}
           disabled={saveMutation.isPending || apiKey.trim() === ""}
         >
           {saveMutation.isPending ? "Verifying..." : "Verify and save"}

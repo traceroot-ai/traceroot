@@ -130,6 +130,12 @@ async function fillKey(value = "sk-test-key") {
   return field as HTMLInputElement;
 }
 
+async function fillModelId(value = "openai/gpt-4o") {
+  const field = await screen.findByLabelText("Model ID");
+  fireEvent.change(field, { target: { value } });
+  return field as HTMLInputElement;
+}
+
 beforeEach(() => {
   mocks.getModelProviders.mockResolvedValue({ byokEnabled: true, providers: [] });
   mocks.testModelProvider.mockResolvedValue({ success: true });
@@ -949,11 +955,10 @@ describe("the key the selected stack asks for", () => {
   });
 
   it("says why an offered adapter still cannot be set up from here", async () => {
-    // OpenRouter is one of the three the inline rule excludes, and the reason
-    // it gives is the clause it actually failed: its key is the whole
-    // credential, it just ships no curated model list.
-    renderBlock("ws-1", { kind: "fixed", adapter: "openrouter" });
-    expect(await screen.findByText(/^OpenRouter needs a model list chosen\./)).toBeTruthy();
+    // Azure OpenAI needs more than a key (it needs a base URL), and AWS Bedrock
+    // needs AWS credentials, so neither can be configured inline from here.
+    renderBlock("ws-1", { kind: "fixed", adapter: "azure" });
+    expect(await screen.findByText(/^Azure OpenAI needs more than a key\./)).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.getByRole("link", { name: /Settings/ })).toBeTruthy();
   });
@@ -1092,5 +1097,134 @@ describe("skipping the step", () => {
     expect(
       (screen.getByRole("button", { name: "Verify and save" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe("configuring OpenRouter inline", () => {
+  const OPENROUTER: ProviderKeyBinding = { kind: "fixed", adapter: "openrouter" };
+
+  it("shows both an API key field and a model-ID field", async () => {
+    renderBlock("ws-1", OPENROUTER);
+    const keyField = await screen.findByLabelText("OpenRouter API key");
+    expect(keyField).toBeTruthy();
+    expect(keyField.getAttribute("type")).toBe("password");
+    expect(keyField.getAttribute("placeholder")).toBe("OpenRouter API key");
+
+    const modelField = await screen.findByLabelText("Model ID");
+    expect(modelField).toBeTruthy();
+    expect(modelField.getAttribute("placeholder")).toBe("e.g. openai/gpt-4o");
+
+    const button = screen.getByRole("button", { name: "Verify and save" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
+  it("checks the key with the existing connection test before saving", async () => {
+    let releaseProbe: (result: { success: boolean }) => void = () => {};
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean }>((resolve) => {
+        releaseProbe = resolve;
+      }),
+    );
+
+    renderBlock("ws-1", OPENROUTER);
+    await fillKey("sk-openrouter-key");
+    await fillModelId("openai/gpt-4o");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "openrouter",
+      apiKey: "sk-openrouter-key",
+    });
+    expect(screen.getByRole("button", { name: "Verifying..." })).toBeTruthy();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+
+    releaseProbe({ success: true });
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+  });
+
+  it("stores customModels holding the entered model ID and confirms naming OpenRouter", async () => {
+    renderBlock("ws-1", OPENROUTER);
+    await fillKey("  sk-openrouter-key  ");
+    await fillModelId("  anthropic/claude-3.5-sonnet  ");
+
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "mp-or",
+          adapter: "openrouter",
+          provider: "OpenRouter",
+          keyPreview: "sk-ope...key",
+          customModels: ["anthropic/claude-3.5-sonnet"],
+          enabled: true,
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.createModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "openrouter",
+      provider: "OpenRouter",
+      apiKey: "sk-openrouter-key",
+      customModels: ["anthropic/claude-3.5-sonnet"],
+    });
+
+    expect(
+      await screen.findByText(
+        /^Verified and saved\. The AI assistant and detectors now run on your own OpenRouter account\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("sk-ope...key")).toBeTruthy();
+  });
+
+  it("refuses to save when model ID is empty or whitespace-only, and says a model ID is required", async () => {
+    renderBlock("ws-1", OPENROUTER);
+    await fillKey("sk-openrouter-key");
+    const modelField = await screen.findByLabelText("Model ID");
+
+    // Empty model ID
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    expect(await screen.findByText("A model ID is required")).toBeTruthy();
+    expect(mocks.testModelProvider).not.toHaveBeenCalled();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+
+    // Whitespace-only model ID
+    fireEvent.change(modelField, { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    expect(await screen.findByText("A model ID is required")).toBeTruthy();
+    expect(mocks.testModelProvider).not.toHaveBeenCalled();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+
+    // Clearing the error when user types a model ID
+    fireEvent.change(modelField, { target: { value: "meta-llama/llama-3.3-70b-instruct" } });
+    expect(screen.queryByText("A model ID is required")).toBeNull();
+
+    // Now save succeeds
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+  });
+
+  it("clears model ID and errors when switching away from OpenRouter", async () => {
+    const { tree, rerender } = renderSwitchable(OPENROUTER);
+    await fillKey("sk-or-key");
+    await fillModelId("openai/gpt-4o");
+
+    // Switch to OpenAI (which only takes a key and has no model ID input)
+    rerender(tree(OPENAI));
+    expect(screen.queryByLabelText("Model ID")).toBeNull();
+    const openAIKey = (await screen.findByLabelText("OpenAI API key")) as HTMLInputElement;
+    expect(openAIKey.value).toBe("");
+
+    // Switch back to OpenRouter
+    rerender(tree(OPENROUTER));
+    const orModel = (await screen.findByLabelText("Model ID")) as HTMLInputElement;
+    const orKey = (await screen.findByLabelText("OpenRouter API key")) as HTMLInputElement;
+    expect(orModel.value).toBe("");
+    expect(orKey.value).toBe("");
+    expect(screen.queryByText("A model ID is required")).toBeNull();
   });
 });
