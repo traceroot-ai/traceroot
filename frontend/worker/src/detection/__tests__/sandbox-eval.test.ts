@@ -525,7 +525,7 @@ describe("runDetectionForTrace", () => {
     }
   });
 
-  it("truncates spansJsonl at 150000 chars", async () => {
+  it("sends the trace as compacted text under 150000 chars and explains the markers", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
         {
@@ -538,7 +538,16 @@ describe("runDetectionForTrace", () => {
       stopReason: "toolUse",
     });
 
-    const longSpans = "x".repeat(200_000);
+    const longSpans = Array.from({ length: 20 }, (_, i) =>
+      JSON.stringify({
+        span_id: `s${i}`,
+        name: `tool-${i}`,
+        span_kind: "TOOL",
+        input: JSON.stringify("q"),
+        output: JSON.stringify("x".repeat(20_000)),
+        metadata: "{}",
+      }),
+    ).join("\n");
     await runDetectionForTrace({
       traceId: "t",
       spansJsonl: longSpans,
@@ -546,10 +555,17 @@ describe("runDetectionForTrace", () => {
       workspaceId: "ws-1",
     });
 
-    const ctxArg = mockComplete.mock.calls[0][1] as { messages: { content: string }[] };
+    const ctxArg = mockComplete.mock.calls[0][1] as {
+      systemPrompt: string;
+      messages: { content: string }[];
+    };
     const userMessage = ctxArg.messages[0].content;
     expect(typeof userMessage).toBe("string");
     expect((userMessage as string).length).toBeLessThan(152_000);
+    // Every span keeps a place, unlike a cut at the end of raw JSONL.
+    expect(userMessage).toContain("[20] tool-19 · TOOL");
+    expect(userMessage).toContain("chars truncated");
+    expect(ctxArg.systemPrompt).toContain("chars truncated");
   });
 
   it("returns error when complete() throws", async () => {
