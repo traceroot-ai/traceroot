@@ -51,7 +51,7 @@ Call `update_current_trace` / `updateCurrentTrace` from within any observed func
     async function handleRequest(query: string, userId: string) {
       return observe({ name: 'handle_request', type: 'agent' }, async () => {
         updateCurrentTrace({ userId });
-        return process(query);
+        return handleQuery(query);
       });
     }
     ```

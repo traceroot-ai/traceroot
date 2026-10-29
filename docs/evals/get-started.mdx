@@ -62,8 +62,8 @@ The task is the system under evaluation. It maps an `input` to an `output`, and 
     ```typescript
     const CAPITALS: Record<string, string> = { France: "Paris", Japan: "Tokyo" };
 
-    function task(input: { country: string }) {
-      return CAPITALS[input.country] ?? "";
+    function task(input: unknown) {
+      return CAPITALS[(input as { country: string }).country] ?? "";
     }
     ```
   </Tab>
