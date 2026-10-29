@@ -1456,9 +1456,9 @@
     "matchPattern": "(?i)^(mistral\\/)?ministral-8b-latest(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
-      "input": 0.0000001,
-      "output": 0.0000001,
-      "cacheRead": 0.00000001,
+      "input": 0.00000015,
+      "output": 0.00000015,
+      "cacheRead": 0.000000015,
       "cacheWrite": null
     }
   },
@@ -1468,9 +1468,9 @@
     "matchPattern": "(?i)^(mistral\\/)?ministral-3b-latest(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
-      "input": 0.00000004,
-      "output": 0.00000004,
-      "cacheRead": 0.000000004,
+      "input": 0.0000001,
+      "output": 0.0000001,
+      "cacheRead": 0.00000001,
       "cacheWrite": null
     }
   },

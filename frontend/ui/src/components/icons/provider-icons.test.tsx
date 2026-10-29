@@ -11,12 +11,18 @@ describe("provider-icons", () => {
     const svg = container.querySelector("svg");
     expect(svg).toBeTruthy();
     expect(svg?.getAttribute("class")).toContain("h-5 w-5");
+    const path = container.querySelector("path");
+    expect(path).toBeTruthy();
+    expect(path?.getAttribute("d")).toContain("M17.143");
   });
-
   it("renders MistralIcon via ProviderIcon", () => {
     const { container } = render(<ProviderIcon adapter="mistral" className="h-4 w-4" />);
     const svg = container.querySelector("svg");
     expect(svg).toBeTruthy();
     expect(svg?.getAttribute("class")).toContain("h-4 w-4");
+    const path = container.querySelector("path");
+    expect(path).toBeTruthy();
+    expect(path?.getAttribute("d")).toContain("M17.143");
+    expect(container.querySelector("circle")).toBeNull();
   });
 });

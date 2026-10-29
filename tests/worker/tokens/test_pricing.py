@@ -677,8 +677,8 @@ class TestMistralModelIds:
             ("mistral-large-latest", 0.0000005, 0.0000015, 0.00000005),
             ("mistral-small-latest", 0.00000015, 0.0000006, 0.000000015),
             ("codestral-latest", 0.0000003, 0.0000009, 0.00000003),
-            ("ministral-8b-latest", 0.0000001, 0.0000001, 0.00000001),
-            ("ministral-3b-latest", 0.00000004, 0.00000004, 0.000000004),
+            ("ministral-8b-latest", 0.00000015, 0.00000015, 0.000000015),
+            ("ministral-3b-latest", 0.0000001, 0.0000001, 0.00000001),
             ("pixtral-large-latest", 0.000002, 0.000006, 0.0000002),
         ],
     )

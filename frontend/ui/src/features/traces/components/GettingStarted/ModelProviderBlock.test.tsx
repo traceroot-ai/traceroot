@@ -859,6 +859,7 @@ describe("the key the selected stack asks for", () => {
 
   it("renders a key field and saves Mistral with its seeded models and label", async () => {
     renderBlock("ws-1", { kind: "fixed", adapter: "mistral" });
+    await screen.findByLabelText("Mistral API key");
     await fillKey("sk-mistral");
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
 
@@ -871,7 +872,7 @@ describe("the key the selected stack asks for", () => {
       adapter: "mistral",
       provider: "Mistral",
       apiKey: "sk-mistral",
-      customModels: seedFor("mistral"),
+      customModels: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
     });
   });
 
