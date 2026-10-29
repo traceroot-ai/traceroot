@@ -642,6 +642,67 @@ class TestXAIModelIds:
         assert result["cost"] > 0
 
 
+class TestMistralModelIds:
+    @pytest.mark.parametrize(
+        "model_id, expected_name",
+        [
+            ("mistral-large-latest", "mistral-large-latest"),
+            ("mistral/mistral-large-latest", "mistral-large-latest"),
+            ("mistral-small-latest", "mistral-small-latest"),
+            ("mistral/mistral-small-latest", "mistral-small-latest"),
+            ("codestral-latest", "codestral-latest"),
+            ("mistral/codestral-latest", "codestral-latest"),
+            ("ministral-8b-latest", "ministral-8b-latest"),
+            ("ministral-3b-latest", "ministral-3b-latest"),
+            ("pixtral-large-latest", "pixtral-large-latest"),
+        ],
+    )
+    def test_matches_expected_model(self, model_id, expected_name, real_cache):
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [expected_name], (
+            f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
+        )
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+        assert price is not None, f"Expected {model_id} to match {expected_name}"
+        assert price[MATCHED_MODEL_NAME] == expected_name
+
+    @pytest.mark.parametrize(
+        "model_name, input_rate, output_rate, cache_read_rate",
+        [
+            ("mistral-large-latest", 0.0000005, 0.0000015, 0.00000005),
+            ("mistral-small-latest", 0.00000015, 0.0000006, 0.000000015),
+            ("codestral-latest", 0.0000003, 0.0000009, 0.00000003),
+            ("ministral-8b-latest", 0.0000001, 0.0000001, 0.00000001),
+            ("ministral-3b-latest", 0.00000004, 0.00000004, 0.000000004),
+            ("pixtral-large-latest", 0.000002, 0.000006, 0.0000002),
+        ],
+    )
+    def test_mistral_absolute_rates(self, model_name, input_rate, output_rate, cache_read_rate):
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == model_name), None)
+        assert entry is not None, f"{model_name} missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(input_rate)
+        assert prices["output"] == pytest.approx(output_rate)
+        assert prices["cacheRead"] == pytest.approx(cache_read_rate)
+        assert prices["cacheWrite"] is None
+
+    def test_mistral_large_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("mistral-large-latest", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
+
+
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestCalculateCost:
     def test_known_model_with_text(self):

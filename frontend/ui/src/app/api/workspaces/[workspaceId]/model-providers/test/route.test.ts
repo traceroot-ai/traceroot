@@ -27,6 +27,7 @@ vi.mock("@traceroot/core", () => ({
     MOONSHOT: "moonshot",
     ZAI: "zai",
     TYPESAFE: "typesafe",
+    MISTRAL: "mistral",
   },
   ADAPTER_DEFAULT_BASE_URL: {
     openai: "https://api.openai.com/v1",
@@ -38,6 +39,7 @@ vi.mock("@traceroot/core", () => ({
     moonshot: "https://api.moonshot.ai/v1",
     zai: "https://open.bigmodel.cn/api/paas/v4",
     typesafe: "https://api.typesafe.ai/v1",
+    mistral: "https://api.mistral.ai",
   },
   prisma: {
     modelProvider: {
@@ -405,6 +407,26 @@ describe("POST model-providers/test - error responses", () => {
       "https://api.typesafe.ai/v1/models",
       expect.objectContaining({ headers: { Authorization: "Bearer ts-key" } }),
     );
+  });
+
+  it("mistral sends the key as a Bearer token to /v1/models", async () => {
+    fetchMock.mockResolvedValue(okResponse());
+    await POST(makeRequest({ adapter: "mistral", apiKey: "mistral-key" }), makeParams());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mistral.ai/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer mistral-key" } }),
+    );
+  });
+
+  it("mistral 401 maps to Invalid API key", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: async () => ({ detail: "Invalid API Key" }),
+    });
+    const res = await POST(makeRequest({ adapter: "mistral", apiKey: "bad" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
   });
 
   it("anthropic 403 maps to API lacks permission", async () => {

@@ -26,6 +26,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
   LLMAdapter.TYPESAFE,
+  LLMAdapter.MISTRAL,
 ] as const;
 
 const testSchema = z.object({
@@ -49,12 +50,18 @@ type RouteParams = { params: Promise<{ workspaceId: string }> };
 // timeout; a merely unparseable/empty body falls back to the HTTP status line.
 async function readErrorMessage(res: Response, signal: AbortSignal): Promise<string | undefined> {
   try {
-    const body = (await res.json()) as { error?: { message?: unknown } | string };
+    const body = (await res.json()) as {
+      error?: { message?: unknown } | string;
+      detail?: unknown;
+    };
     if (body?.error && typeof body.error === "object" && "message" in body.error) {
       return body.error.message ? String(body.error.message) : undefined;
     }
     if (typeof body?.error === "string") {
       return body.error;
+    }
+    if (typeof body?.detail === "string") {
+      return body.detail;
     }
     return undefined;
   } catch (err) {
@@ -289,6 +296,16 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
         // list names aliases (jev-latest), not every version /systemone accepts.
         const typesafeBase = adapterBaseUrl(adapter, baseUrl);
         const check = await checkEndpoint(`${typesafeBase}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
+        break;
+      }
+
+      case "mistral": {
+        const mistralBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${mistralBase}/v1/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)

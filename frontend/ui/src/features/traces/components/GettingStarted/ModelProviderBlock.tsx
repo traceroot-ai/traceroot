@@ -84,6 +84,7 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
   [LLMAdapter.MOONSHOT]: ["kimi-k2.6"],
   [LLMAdapter.ZAI]: ["glm-5-turbo"],
   [LLMAdapter.GOOGLE]: ["gemini-3.1-pro-preview", "gemini-3-flash-preview"],
+  [LLMAdapter.MISTRAL]: ["mistral-small-latest", "codestral-latest"],
 };
 
 /**
@@ -235,14 +236,13 @@ const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
  * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
  * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
  * access-key pair and a region, OpenRouter a model list. `none` covers a
- * provider there is no adapter for at all, Mistral today: nothing anywhere in
+ * provider there is no adapter for at all: nothing anywhere in
  * TraceRoot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
  *
  * Neither line names the selected stack. It is on screen a few lines above,
  * checked, and for every entry that reaches here it is also the provider's own
- * name — so saying it produced "Mistral calls Mistral, and TraceRoot has no
- * Mistral adapter".
+ * name.
  */
 export function unavailableKeyCopy(binding: ProviderKeyBinding): {
   state: string;
@@ -270,8 +270,8 @@ interface ModelProviderBlockProps {
   /**
    * Which provider key the selected stack asks for. The step no longer asks
    * the user this separately: a LangChain reader is shown an OpenAI field
-   * because LangChain's own example calls OpenAI, and a Mistral reader is told
-   * there is no Mistral adapter rather than handed a field for one.
+   * because LangChain's own example calls OpenAI, and a Mistral reader is shown
+   * a Mistral field.
    */
   providerKey: ProviderKeyBinding;
 }

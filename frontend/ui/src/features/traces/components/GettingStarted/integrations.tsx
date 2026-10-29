@@ -476,8 +476,8 @@ traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
     name: "Mistral",
     href: "https://traceroot.ai/docs/integrations/mistral",
     category: "provider",
-    // The Mistral SDK, and MISTRAL_API_KEY — but LLMAdapter has no Mistral adapter.
-    providerKey: { kind: "none", provider: "Mistral" },
+    // This entry is the Mistral SDK itself.
+    providerKey: { kind: "fixed", adapter: LLMAdapter.MISTRAL },
     logo: "/logo/integrations/mistral.svg",
     languages: {
       python: {
