@@ -71,7 +71,7 @@ describe("the empty traces page", () => {
 });
 
 describe("the manual tab", () => {
-  it("picks the stack itself, as step 3, below the switch", () => {
+  it("picks the stack itself, as step 4, below the switch", () => {
     render(<GettingStarted projectId="proj_1" />);
     pickMode("Manual");
 
@@ -81,6 +81,7 @@ describe("the manual tab", () => {
     expect(steps).toEqual([
       "Create an API key",
       "Install SDK",
+      "Set environment variables",
       "Select your integration",
       "Initialize TraceRoot for OpenAI",
       "External integrations",
@@ -98,7 +99,7 @@ describe("the manual tab", () => {
     pickMode("Manual");
     pickStack("CrewAI");
 
-    expect(screen.getByText("4. Initialize TraceRoot for CrewAI")).toBeTruthy();
+    expect(screen.getByText("5. Initialize TraceRoot for CrewAI")).toBeTruthy();
     // The snippet's body, not its heading: the heading would still read "for
     // CrewAI" over OpenAI's code.
     expect(container.textContent).toContain("Integration.CREWAI");

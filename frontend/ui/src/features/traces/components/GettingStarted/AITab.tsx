@@ -48,10 +48,10 @@ interface AITabProps {
  * What is drawn instead names the variable and the value it holds, since the
  * person looking at an empty traces page on a self-hosted install is usually
  * the person who can correct it, and the value is already public — it is
- * inlined into this bundle. The manual tab is mentioned because its steps do
- * not read that variable, so it is a route that still works rather than a
- * consolation; nothing here offers to fix the configuration, because nothing
- * here can.
+ * inlined into this bundle. The manual tab is mentioned as a route that still
+ * works, but not as one independent of this value: its steps need the same API
+ * address, as `TRACEROOT_HOST_URL`, and say so when they cannot show it.
+ * Nothing here offers to fix the configuration, because nothing here can.
  *
  * The docs link is the one thing added back. This section used to be the only
  * part of the panel with nothing to read: two sentences and a command to paste,
@@ -92,8 +92,10 @@ export function AITab({ projectId }: AITabProps) {
             <code className="font-mono">{setup.value}</code>, which is not an origin the command can
             be pointed at. Without it the command would send sign-in and your first traces to
             TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
-            value for this deployment and the command appears here; the steps on the manual tab do
-            not depend on it.
+            value and rebuild the web app, since the value is built into it rather than read at
+            startup; once the rebuilt app is served the command appears here. The steps on the
+            manual tab need this deployment&apos;s API address as well, set as{" "}
+            <code className="font-mono">TRACEROOT_HOST_URL</code>.
           </p>
         </div>
       )}
