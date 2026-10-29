@@ -160,6 +160,26 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row).getByText("−100.0%")).toBeTruthy();
   });
 
+  it("shows a rubric score's change in points, not as a percentage", () => {
+    // routing_accuracy on a 1–5 rubric: opus scores ticket-05 a 4, sonnet a 5.
+    const rubric = (run: typeof OPUS, v: number) => ({
+      ...run,
+      results: run.results.map((r) =>
+        r.testCaseId === "ticket-05"
+          ? { ...r, scores: [score("routing_accuracy", v), score("is_known_category", 1)] }
+          : { ...r, scores: [score("routing_accuracy", 4), score("is_known_category", 1)] },
+      ),
+    });
+    const resp: Record<string, unknown> = { opus: rubric(OPUS, 4), sonnet: rubric(SONNET, 5) };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: resp[id], isLoading: false, isError: false })),
+    );
+    mount();
+    const row = screen.getByText(/double-charged and I want a refund/).closest("tr") as HTMLElement;
+    expect(within(row).getByText("+1")).toBeTruthy();
+    expect(within(row).queryByText("+100.0%")).toBeNull();
+  });
+
   it("filters rows by the search box", () => {
     mount();
     expect(screen.getByText(/my invoice looks wrong/)).toBeTruthy();
