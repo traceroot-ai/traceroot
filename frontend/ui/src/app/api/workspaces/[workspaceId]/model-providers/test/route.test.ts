@@ -429,6 +429,21 @@ describe("POST model-providers/test - error responses", () => {
     expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
   });
 
+  it("mistral surfaces detail on non-401 error", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ detail: "Invalid request payload" }),
+    });
+    const res = await POST(makeRequest({ adapter: "mistral", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connection failed",
+      detail: "Invalid request payload",
+    });
+  });
+
   it("anthropic 403 maps to API lacks permission", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
