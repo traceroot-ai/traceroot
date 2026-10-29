@@ -66,6 +66,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     data: {
       status: c.status,
       ...(scorersChanged ? { scorers: mergedScorers as unknown as Prisma.InputJsonValue } : {}),
+      // NOTE this is the run's completeness counter, NOT its dataset coverage. Coverage
+      // (dataset_case_count + run_selection) is selection identity, known before the
+      // first case runs, written once at registration and deliberately absent from this
+      // request — so a completion counter can never retroactively redefine which slice
+      // of the dataset the run set out to measure.
       ...(c.case_count != null ? { caseCount: c.case_count } : {}),
       ...(c.scored_count != null ? { scoredCount: c.scored_count } : {}),
       ...(c.task_error_count != null ? { taskErrorCount: c.task_error_count } : {}),
