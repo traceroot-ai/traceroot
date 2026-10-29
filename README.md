@@ -157,6 +157,10 @@ make prod-lite
 
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
+### One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/TraceRoot/)
+
 ## Integrations
 
 ### Native SDKs
