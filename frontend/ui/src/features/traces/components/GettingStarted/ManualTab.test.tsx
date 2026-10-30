@@ -97,13 +97,17 @@ describe("ManualTab", () => {
 
   it("ends the numbered steps on the request that sends the first trace", () => {
     // Without it the walkthrough stopped at the snippet, and a reader who never
-    // ran the code never saw a trace.
+    // ran the code never saw a trace. GitHub and Slack follow it, unnumbered.
     render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    const run = screen.getByText("5. Run your application");
+    const request = screen.getByText(
+      "Make an LLM request through the code you instrumented to send your first trace.",
+    );
+    const integrations = screen.getByText("External integrations");
+    expect(run.compareDocumentPosition(request) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
-      screen.getByText(
-        "Make an LLM request through the code you instrumented to send your first trace.",
-      ),
-    ).toBeDefined();
+      request.compareDocumentPosition(integrations) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("does not pick the stack or the model key for itself", () => {
