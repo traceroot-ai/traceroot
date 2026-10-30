@@ -114,7 +114,7 @@ If the function raises or returns anything other than a dict (Python) or object 
 
 Eval results are redacted too. Datasets and scorer definitions are not, so keep personal data out of them.
 
-A regex will not catch names or addresses. For those, call a detection service, for example [Presidio](https://microsoft.github.io/presidio/) in your own infrastructure. This example sends each string to one that takes and returns `{ text }`:
+A regex will not catch names or addresses. For those, call a detection service you run, for example a small one in front of [Presidio](https://microsoft.github.io/presidio/). This example sends each string to a service that takes and returns `{ text }`:
 
 ```typescript
 import { TraceRoot } from '@traceroot-ai/traceroot';
