@@ -142,6 +142,26 @@ class S3Service:
         response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
         return response["Body"].read()
 
+    def upload_bytes(self, s3_key: str, data: bytes, content_type: str) -> None:
+        """Upload bytes to S3 exactly as given.
+
+        No ``ContentEncoding`` is set, even for gzip data, so the object reads
+        back byte-for-byte instead of being decompressed in transit.
+
+        Args:
+            s3_key: Full S3 key path
+            data: The object's content
+            content_type: MIME type stored as the object's ``ContentType``
+        """
+        client = self._get_client()
+        client.put_object(
+            Bucket=self._bucket_name,
+            Key=s3_key,
+            Body=data,
+            ContentType=content_type,
+        )
+        logger.debug(f"Uploaded {len(data)} bytes to s3://{self._bucket_name}/{s3_key}")
+
 
 # Global singleton instance
 _s3_service: S3Service | None = None
