@@ -477,6 +477,19 @@ describe("updateAlert", () => {
       expect(await setStatus("PAUSED")).toMatchObject({ ok: true, changed: ["status"] });
       expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: -5 });
     });
+
+    it("renames a stored `< -5` gap-only rule and moves it onto `< 0`, which pages on the same gaps", async () => {
+      mockAccess();
+      store.set("alert-1", row({ thresholdOperator: "<", threshold: -5, noDataMode: "NOTIFY" }));
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await update({ threshold: 0 })).toMatchObject({ ok: true, changed: ["threshold"] });
+      expect(current()).toMatchObject({
+        name: "Renamed",
+        thresholdOperator: "<",
+        threshold: 0,
+        noDataMode: "NOTIFY",
+      });
+    });
   });
 
   describe("a parked rule re-arms on the edit that replaces what it was parked on", () => {

@@ -173,7 +173,11 @@ export function ConditionSection({
               </Select>
             </div>
           </div>
-          {thresholdProblem && <p className="text-[12px] text-destructive">{thresholdProblem}</p>}
+          {thresholdProblem && (
+            <p role="alert" className="text-[12px] text-destructive">
+              {thresholdProblem}
+            </p>
+          )}
         </div>
       </TooltipProvider>
     </SectionBox>

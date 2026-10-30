@@ -171,6 +171,14 @@ describe("validateAlertCreate", () => {
       error: "Invalid aggregation for measure",
     });
   });
+
+  it("accepts `< 0` under NOTIFY, the gap-only rule on a measure that is never negative", () => {
+    const gapOnly = { ...validRule, thresholdOperator: "<", threshold: 0, noDataMode: "NOTIFY" };
+    expect(validateAlertCreate(gapOnly)).toMatchObject({
+      ok: true,
+      rule: { thresholdOperator: "<", threshold: 0, noDataMode: "NOTIFY" },
+    });
+  });
 });
 
 describe("createAlert", () => {

@@ -72,6 +72,12 @@ describe("ConditionSection", () => {
     expect(props.onThresholdChange).toHaveBeenCalledWith("-3");
   });
 
+  it("announces why the threshold is refused, so a screen reader hears why Save is off", () => {
+    const reason = "Threshold must be zero or more: count can never be negative";
+    renderSection({ threshold: "-3", thresholdProblem: reason });
+    expect(screen.getByRole("alert").textContent).toBe(reason);
+  });
+
   it("reads the window as a lookback and emits the bare token", () => {
     const props = renderSection();
     // The sentence supplies the words, so the option is the token alone.
