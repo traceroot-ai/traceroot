@@ -59,15 +59,16 @@ vi.mock("@/components/ui/select", () => ({
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DetectorsTab } from "./DetectorsTab";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, ImpersonationError } from "@/lib/api/errors";
 
 function renderTab() {
   const qc = new QueryClient();
-  return render(
+  const result = render(
     <QueryClientProvider client={qc}>
       <DetectorsTab projectId="p1" />
     </QueryClientProvider>,
   );
+  return { ...result, queryClient: qc };
 }
 
 afterEach(() => {
@@ -168,7 +169,8 @@ describe("DetectorsTab email permissions", () => {
     mocks.workspace.role = "ADMIN";
     mocks.project.alert_emails = ["existing@example.com"];
     mocks.updateProject.mockRejectedValueOnce(new ApiError(403, "Requires ADMIN role or higher"));
-    renderTab();
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
     const input = screen.getByRole("textbox");
     const emailSection = input.closest("fieldset")!;
@@ -192,6 +194,34 @@ describe("DetectorsTab email permissions", () => {
     });
     expect((input as HTMLInputElement).value).toBe("existing@example.com");
     expect(save.matches(":disabled")).toBe(true);
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["workspace", "w1"],
+      });
+    });
+  });
+
+  it("preserves the draft when impersonation prevents saving", async () => {
+    mocks.project.alert_emails = ["existing@example.com"];
+    mocks.updateProject.mockRejectedValueOnce(
+      new ImpersonationError("This impersonation session is read-only."),
+    );
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    const save = within(input.closest("fieldset")!).getByRole("button", { name: /^save$/i });
+    fireEvent.change(input, { target: { value: "updated@example.com" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This impersonation session is read-only.",
+    );
+    expect(input.value).toBe("updated@example.com");
+    expect(save.matches(":disabled")).toBe(false);
+    expect(invalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ["workspace", "w1"],
+    });
   });
 
   it("keeps the email draft available for retry after a server error", async () => {

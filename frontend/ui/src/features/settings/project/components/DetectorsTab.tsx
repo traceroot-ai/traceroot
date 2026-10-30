@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow, Role } from "@traceroot/core";
 import { updateProject } from "@/lib/api";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
 import { useWorkspace } from "@/features/settings/workspace/hooks";
@@ -80,7 +80,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       });
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 403) {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof ImpersonationError) &&
+        error.status === 403
+      ) {
         setEmailAddresses(project?.alert_emails ?? []);
         queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
       }
