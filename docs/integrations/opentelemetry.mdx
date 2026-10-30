@@ -79,43 +79,7 @@ Then register the OTLP exporter with the OpenTelemetry SDK. The exporter picks u
   </Tab>
 </Tabs>
 
-To configure the exporter in code instead, pass the endpoint and header directly:
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    import os
-
-    from opentelemetry import trace
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
-    exporter = OTLPSpanExporter(
-        endpoint="https://app.traceroot.ai/api/v1/public/traces",
-        headers={"Authorization": f"Bearer {os.environ['TRACEROOT_API_KEY']}"},
-    )
-
-    provider = TracerProvider()
-    provider.add_span_processor(BatchSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
-    import { NodeSDK } from '@opentelemetry/sdk-node';
-
-    const exporter = new OTLPTraceExporter({
-      url: 'https://app.traceroot.ai/api/v1/public/traces',
-      headers: { Authorization: `Bearer ${process.env.TRACEROOT_API_KEY}` },
-    });
-
-    const sdk = new NodeSDK({ traceExporter: exporter });
-    sdk.start();
-    ```
-  </Tab>
-</Tabs>
+To configure the exporter in code instead of the environment, pass the endpoint and header to it directly: `endpoint` and `headers` for `OTLPSpanExporter` in Python, `url` and `headers` for `OTLPTraceExporter` in TypeScript.
 
 Any library that emits OpenTelemetry spans through the global tracer provider now exports to TraceRoot as well.
 
