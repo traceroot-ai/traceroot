@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from unittest.mock import MagicMock
 
 import boto3
 import pytest
@@ -23,6 +24,7 @@ from tests.fixtures.images import (
     make_webp_vp8l,
     make_webp_vp8x,
 )
+from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.attachment_extraction import (
     TRUNCATION_MARKER,
     _cut_to_size,
@@ -795,3 +797,129 @@ class TestAttachmentSettings:
         monkeypatch.setenv(name, "0")
         with pytest.raises(ValidationError):
             AttachmentSettings()
+
+
+class IngestS3(FakeS3):
+    """FakeS3 that also serves one staged batch."""
+
+    def __init__(self, payload: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.payload = payload
+
+    def download_json(self, key: str) -> dict:
+        return self.payload
+
+
+class TestProcessS3Traces:
+    TRACE = "aa" * 16
+    ROOT = "11" * 8
+    CHILD = "22" * 8
+
+    @pytest.fixture()
+    def ingest(self, monkeypatch):
+        """Run process_s3_traces on a batch, with ClickHouse, Redis and detectors mocked."""
+        ch = MagicMock()
+        published: list[list[dict]] = []
+        enqueue = MagicMock()
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", enqueue)
+        monkeypatch.setattr(
+            "worker.ingest_tasks._publish_live_spans",
+            lambda spans, project_id: published.append(copy.deepcopy(spans)),
+        )
+
+        def run(s3: IngestS3) -> dict:
+            from worker.ingest_tasks import process_s3_traces
+
+            monkeypatch.setattr("rest.services.s3.get_s3_service", lambda: s3)
+            return process_s3_traces(s3_key="events/otel/key.json", project_id=PROJECT)
+
+        return run, ch, published, enqueue
+
+    def payload(self, image: bytes, mime: str) -> dict:
+        url = data_url(image, mime)
+        return make_otel_payload(
+            [
+                make_span(
+                    self.TRACE,
+                    self.ROOT,
+                    name="root",
+                    attributes=[
+                        make_attr("traceroot.span.input", json.dumps({"screenshot": url})),
+                        make_attr("traceroot.span.output", url),
+                    ],
+                ),
+                make_span(
+                    self.TRACE,
+                    self.CHILD,
+                    name="tool",
+                    parent_span_id_hex=self.ROOT,
+                    attributes=[
+                        make_attr(
+                            "traceroot.span.output",
+                            json.dumps({"mime_type": mime, "data": b64(image)}),
+                        )
+                    ],
+                ),
+            ]
+        )
+
+    def test_every_reader_sees_references(self, ingest):
+        run, ch, published, enqueue = ingest
+        image = make_png(2, 2)
+        ref = ref_for(image, "image/png")
+        s3 = IngestS3(self.payload(image, "image/png"))
+
+        result = run(s3)
+
+        assert result["spans"] == 2
+        assert s3.objects == {attachment_key(PROJECT, sha(image)): (image, "image/png")}
+        assert s3.puts == [attachment_key(PROJECT, sha(image))]
+
+        inserted_spans = {s["span_id"]: s for s in ch.insert_spans_batch.call_args[0][0]}
+        assert json.loads(inserted_spans[self.ROOT]["input"]) == {"screenshot": ref}
+        assert inserted_spans[self.ROOT]["output"] == ref
+        assert json.loads(inserted_spans[self.CHILD]["output"])["data"] == ref
+
+        (trace_row,) = ch.insert_traces_batch.call_args[0][0]
+        assert json.loads(trace_row["input"]) == {"screenshot": ref}
+        assert trace_row["output"] == ref
+
+        (live_spans,) = published
+        assert {s["span_id"]: s.get("output") for s in live_spans}[self.ROOT] == ref
+        enqueue.assert_called_once()
+
+        everything = json.dumps([inserted_spans, trace_row, live_spans], default=str)
+        assert b64(image) not in everything
+
+    def test_storage_error_fails_the_task_before_any_insert(self, ingest):
+        run, ch, published, enqueue = ingest
+        error = ClientError({"Error": {"Code": "SlowDown"}}, "PutObject")
+        s3 = IngestS3(self.payload(make_gif(), "image/gif"), put_error=error)
+
+        with pytest.raises(ClientError):
+            run(s3)
+
+        ch.insert_spans_batch.assert_not_called()
+        ch.insert_traces_batch.assert_not_called()
+        assert published == []
+        enqueue.assert_not_called()
+
+    def test_batch_without_images_never_touches_attachment_storage(self, ingest):
+        run, ch, _, _ = ingest
+        payload = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE,
+                    self.ROOT,
+                    attributes=[make_attr("traceroot.span.input", '{"q": "plain"}')],
+                )
+            ]
+        )
+        s3 = IngestS3(payload)
+
+        run(s3)
+
+        assert s3.heads == [] and s3.puts == []
+        (span_row,) = ch.insert_spans_batch.call_args[0][0]
+        assert span_row["input"] == '{"q": "plain"}'
