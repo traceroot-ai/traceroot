@@ -324,9 +324,10 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
     Args:
         s3_key: S3 key of the staged batch; its suffix names the format
         project_id: Project ID for the traces
-        received_at: ISO-8601 UTC time the API received the batch. Optional and
-            not used yet; accepting it lets this worker run tasks queued by an
-            API that already sends it
+        received_at: ISO-8601 UTC time the API received the batch. The inserted
+            spans and root-bearing traces are versioned by it, so a batch sent later
+            wins over one sent earlier whatever order they are processed in. A task
+            queued without it versions them by insert time
 
     Returns:
         Dict with counts of inserted traces and spans
@@ -386,11 +387,18 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                     ]
 
                 if traces:
-                    ch_client.insert_traces_batch(traces)
+                    from worker.row_versions import receive_time, version_trace_rows
+
+                    ch_client.insert_traces_batch(
+                        version_trace_rows(traces, root_bearing_trace_ids),
+                        version_time=receive_time(received_at),
+                    )
                     logger.info(f"Inserted {len(traces)} traces into ClickHouse")
 
             if spans:
-                ch_client.insert_spans_batch(spans)
+                from worker.row_versions import receive_time
+
+                ch_client.insert_spans_batch(spans, version_time=receive_time(received_at))
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
