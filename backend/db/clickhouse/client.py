@@ -76,18 +76,27 @@ class ClickHouseClient:
         )
         return cls(client)
 
-    def insert_traces_batch(self, traces: list[dict[str, Any]]) -> None:
+    def insert_traces_batch(
+        self, traces: list[dict[str, Any]], version_time: datetime | None = None
+    ) -> None:
         """Insert multiple trace records.
 
         Args:
             traces (list[dict[str, Any]]): Trace records; an optional
                 "source" field distinguishes detector self-traces from
-                customer traffic and defaults to "user".
+                customer traffic and defaults to "user". An optional
+                "ch_update_time" field sets that record's version and wins
+                over ``version_time``.
+            version_time (datetime | None): Written as ``ch_update_time``, the
+                ReplacingMergeTree version, so the row with the latest version
+                survives whatever order rows are inserted in. Defaults to the
+                insert time.
         """
         if not traces:
             return
 
         now = datetime.now(UTC)
+        version = version_time or now
         rows = []
         for t in traces:
             rows.append(
@@ -105,7 +114,7 @@ class ClickHouseClient:
                     t.get("output"),
                     t.get("metadata"),
                     now,  # ch_create_time
-                    now,  # ch_update_time
+                    t.get("ch_update_time") or version,  # ch_update_time
                     t.get("environment"),
                     1 if t.get("is_evaluation") else 0,
                 ]
@@ -187,18 +196,25 @@ class ClickHouseClient:
             settings={"lightweight_deletes_sync": 2},
         )
 
-    def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:
+    def insert_spans_batch(
+        self, spans: list[dict[str, Any]], version_time: datetime | None = None
+    ) -> None:
         """Insert multiple span records.
 
         Args:
             spans (list[dict[str, Any]]): Span records; an optional
                 "source" field distinguishes detector self-traces from
                 customer traffic and defaults to "user".
+            version_time (datetime | None): Written as ``ch_update_time``, the
+                ReplacingMergeTree version, so the row with the latest version
+                survives whatever order rows are inserted in. Defaults to the
+                insert time.
         """
         if not spans:
             return
 
         now = datetime.now(UTC)
+        version = version_time or now
         rows = []
         for s in spans:
             rows.append(
@@ -228,7 +244,7 @@ class ClickHouseClient:
                     s.get("git_source_line"),
                     s.get("git_source_function"),
                     now,  # ch_create_time
-                    now,  # ch_update_time
+                    version,  # ch_update_time
                     s.get("environment"),
                     1 if s.get("is_evaluation") else 0,
                 ]
