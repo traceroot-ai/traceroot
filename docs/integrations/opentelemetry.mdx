@@ -79,7 +79,7 @@ Then register the OTLP exporter with the OpenTelemetry SDK. The exporter picks u
   </Tab>
 </Tabs>
 
-To configure the exporter in code instead of the environment, pass the endpoint and header to it directly: `endpoint` and `headers` for `OTLPSpanExporter` in Python, `url` and `headers` for `OTLPTraceExporter` in TypeScript.
+To configure the exporter in code instead of the environment, pass the same full URL you set in `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, plus the `Authorization` header: `endpoint` and `headers` for `OTLPSpanExporter` in Python, `url` and `headers` for `OTLPTraceExporter` in TypeScript.
 
 Any library that emits OpenTelemetry spans through the global tracer provider now exports to TraceRoot as well.
 
