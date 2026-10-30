@@ -1,5 +1,7 @@
 "use client";
 
+import { createContext, useContext, useState, type ReactNode } from "react";
+
 export type Media = { src: string; kind: "image" | "audio" };
 
 // Raster images + audio. image/svg+xml is excluded because data-URI SVG can
@@ -81,6 +83,61 @@ export function InlineMedia({ src, kind }: Media) {
     <img
       src={src}
       alt="Inline image"
+      className="my-1 max-h-64 max-w-full rounded border border-border"
+    />
+  );
+}
+
+// Ingest moves span images into storage and leaves this reference to the image's
+// content hash in their place (the format is defined in backend/shared/attachments.py).
+// Like a data URI above, only a whole value is a reference.
+const ATTACHMENT_REF =
+  /^traceroot-attachment:\/\/v1\/sha256\/([0-9a-f]{64})\?mime=image\/(?:png|jpeg|gif|webp)&bytes=[0-9]+$/;
+
+/** The span whose text holds a reference. The image is served only for a span that references it. */
+export type AttachmentSource = { projectId: string; traceId: string; spanId: string };
+
+/** Returns the content hash when the whole value is an attachment reference, or null. */
+export function attachmentHash(value: string): string | null {
+  return ATTACHMENT_REF.exec(value)?.[1] ?? null;
+}
+
+/** Same-origin URL of the route that streams an attachment for a span. */
+export function attachmentUrl(source: AttachmentSource, hash: string): string {
+  const { projectId, traceId, spanId } = source;
+  return (
+    `/api/projects/${encodeURIComponent(projectId)}/traces/${encodeURIComponent(traceId)}` +
+    `/spans/${encodeURIComponent(spanId)}/attachments/${hash}`
+  );
+}
+
+/**
+ * The span whose I/O is being rendered. Without one (a session's trace list, a
+ * dataset item) there is no span to load the image through, so a reference stays text.
+ */
+export const AttachmentSourceContext = createContext<AttachmentSource | null>(null);
+
+export function AttachmentImage({ hash, fallback }: { hash: string; fallback: ReactNode }) {
+  const source = useContext(AttachmentSourceContext);
+  // Keyed by URL so a different image in the same place gets its own attempt.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (!source) return <>{fallback}</>;
+
+  const src = attachmentUrl(source, hash);
+  if (failedSrc === src) {
+    return (
+      <span className="my-1 inline-block rounded border border-dashed border-border px-2 py-1 text-muted-foreground">
+        Image unavailable
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt="Span image"
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailedSrc(src)}
       className="my-1 max-h-64 max-w-full rounded border border-border"
     />
   );
