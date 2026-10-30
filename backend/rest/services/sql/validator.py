@@ -281,6 +281,30 @@ def is_blocked_function(node: exp.Expression) -> bool:
     return name in BLOCKED_FUNCTIONS or any(name.startswith(p) for p in BLOCKED_PREFIXES)
 
 
+# Statement keywords that sqlglot recognises as starting a statement.
+# Used to distinguish a typo from a genuine write/DDL statement.
+_STMT_KEYWORDS = frozenset({
+    "SELECT", "WITH", "INSERT", "DELETE", "UPDATE", "DROP", "ALTER",
+    "TRUNCATE", "SET", "USE", "DESCRIBE", "GRANT", "EXPLAIN",
+    "SHOW", "OPTIMIZE", "SYSTEM",
+})
+
+def _first_keyword(sql: str) -> str | None:
+    """Return the first word if it looks like a statement keyword, else None."""
+    s = sql.lstrip()
+    if not s:
+        return None
+    # Strip leading comments
+    while s.startswith("--"):
+        nl = s.find("\n")
+        s = s[nl + 1:] if nl != -1 else ""
+        if not s:
+            return None
+    # First token up to whitespace or punctuation
+    import re
+    m = re.match(r"([A-Za-z_][A-Za-z0-9_]*)", s)
+    return m.group(1).upper() if m else None
+
 def validate(sql: str) -> exp.Query:
     """Parse and validate *sql* against the read-only analytics contract.
 
@@ -293,27 +317,49 @@ def validate(sql: str) -> exp.Query:
     if not sql or not sql.strip():
         raise SqlValidationError("SQL statement must not be empty")
 
+    # 1b. Fast path: check if first word is a statement keyword but not SELECT/WITH
+    first_kw = _first_keyword(sql)
+    if first_kw and first_kw not in ("SELECT", "WITH"):
+        if first_kw in _STMT_KEYWORDS:
+            # Known write/DDL/control keyword -> existing message
+            raise SqlValidationError(
+                "Only SELECT statements are allowed; write operations and DDL are not permitted"
+            )
+        # Not a statement keyword -> likely a typo
+        raise SqlValidationError("SQL statement must start with SELECT or WITH")
+
     # 2. Parse as ClickHouse dialect; any parse error is a validation failure.
     try:
         statements = [s for s in sqlglot.parse(sql, read="clickhouse") if s is not None]
     except Exception as exc:
-        # Never interpolate the sqlglot exception: it embeds the offending SQL
-        # fragment (which can carry a project_id or other tenant data). Keep the
-        # original on the exception chain for server-side debugging only.
-        raise SqlValidationError("SQL statement could not be parsed") from exc
+        # Extract line/column from sqlglot ParseError without leaking SQL text
+        line = col = None
+        if hasattr(exc, "errors") and exc.errors:
+            # sqlglot ParseError has .errors list with line/col
+            e0 = exc.errors[0]
+            line = e0.get("line")
+            col = e0.get("col")
+        elif hasattr(exc, "line"):
+            line = exc.line
+            col = getattr(exc, "col", None)
+        msg = "SQL statement could not be parsed"
+        if line is not None and col is not None:
+            msg += f" near line {line}, column {col}"
+        raise SqlValidationError(msg) from exc
 
     # 3. Exactly one statement required.
     # (Trailing ';' → one statement; 'SELECT 1; SELECT 2' → two → rejected.)
     if len(statements) != 1:
+        if len(statements) == 0:
+            raise SqlValidationError("SQL statement must not be empty")
         raise SqlValidationError(f"Exactly one SELECT statement is required; got {len(statements)}")
 
     tree = statements[0]
 
     # 4. Must be SELECT / UNION (exp.Query).
     if not isinstance(tree, exp.Query):
-        raise SqlValidationError(
-            "Only SELECT statements are allowed; write operations and DDL are not permitted"
-        )
+        # Expression (e.g. "1 + 1", "selec x") parsed but not a statement
+        raise SqlValidationError("SQL statement must start with SELECT or WITH")
 
     # 5. Placeholders must be VALUE parameters. Besides `{name:String}`, ClickHouse
     #    supports `{name:Identifier}`, which the SERVER substitutes as a table or
