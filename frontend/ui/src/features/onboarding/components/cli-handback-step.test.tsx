@@ -114,48 +114,32 @@ describe("CliHandbackStep", () => {
     expect(isAbove(screen.getByText(/code lives/), container.querySelector("pre")!)).toBe(true);
   });
 
-  it("says what the command does, and where it has to be run", () => {
+  it("says where to run the command and that it asks before editing", () => {
     // Two facts a reader cannot get from a command they have not run. That it
-    // edits their repository is the one that decides whether they paste it at
-    // all, and the step used to print the command without saying it. That it
-    // runs against their checkout rather than in the dashboard's
-    // terminal-shaped box is the other: pasted in the wrong directory it
-    // writes a key somewhere the application will never read it.
+    // asks before editing their code is the one that decides whether they
+    // paste it at all. That it runs against their checkout rather than in the
+    // dashboard's terminal-shaped box is the other: pasted in the wrong
+    // directory it writes a key somewhere the application will never read it.
+    // What it does is on the docs page, so the line stops there.
     renderStep();
 
-    const line = screen.getByText(/Writes the API key into your repository/);
-    expect(line.textContent).toContain("waits for the first trace");
-    expect(line.textContent).toContain("Run it where my-llm-project's code lives");
+    expect(screen.getByText(/code lives/).textContent).toBe(
+      "Run it where my-llm-project's code lives. It asks before editing your code. Needs Node.js 20.12 or later.",
+    );
     expect(screen.getByRole("link", { name: "View the tracing docs" }).getAttribute("href")).toBe(
       "https://traceroot.ai/docs/tracing/get-started",
     );
   });
 
-  it("does not say setup always instruments the repository itself", () => {
+  it("promises neither a coding agent nor a wait for the first trace", () => {
     // Setup asks how to instrument: run an agent, write the task for the
-    // reader's own agent, or print the steps. Unattended, it writes the task,
-    // and on that route it changes no code, so only the agent route waits for
-    // the first trace. The traces panel says so in the same words.
-    renderStep();
+    // reader's own agent, or print the steps. On a hand-over it changes no
+    // code, so only the agent route waits for the first trace.
+    const { container } = renderStep();
+    const text = container.textContent ?? "";
 
-    const line = screen.getByText(/Writes the API key into your repository/);
-    expect(line.textContent).toContain(
-      "either has a coding agent instrument it and waits for the first trace, or hands you the task to run yourself.",
-    );
-    expect(line.textContent).not.toContain("yourself, and waits for the first trace");
-    expect(line.textContent).not.toContain("Instruments your repository");
-  });
-
-  it("says what setup asks before it edits, and where it asks", () => {
-    // The consent the traces panel states, because this is the same command.
-    // Only an interactive terminal gets the questions; unattended, setup asks
-    // nothing, writes the task rather than launching an agent, and carries on
-    // over uncommitted changes.
-    renderStep();
-
-    expect(screen.getByText(/Writes the API key into your repository/).textContent).toContain(
-      "In an interactive terminal, asks before editing your code and before continuing over uncommitted changes.",
-    );
+    expect(text).not.toContain("coding agent");
+    expect(text).not.toContain("waits for the first trace");
   });
 
   it("names the Node version setup needs", () => {
@@ -163,9 +147,7 @@ describe("CliHandbackStep", () => {
     // on 20.3, so a working CLI is no sign this command will start.
     renderStep();
 
-    expect(screen.getByText(/Writes the API key into your repository/).textContent).toContain(
-      "Needs Node.js 20.12 or later.",
-    );
+    expect(screen.getByText(/code lives/).textContent).toContain("Needs Node.js 20.12 or later.");
   });
 
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {

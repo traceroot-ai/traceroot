@@ -85,23 +85,17 @@ export function CliHandbackStep({
                 View the tracing docs
               </SectionLink>
             </div>
-            {/* What the command does, before it is pasted. It printed a command
-                and nothing else: the one thing a reader weighs before handing a
-                CLI their checkout is whether it is going to edit the checkout,
-                and that was the one thing the step did not say. "{projectName} is
-                ready" said nothing the header above had not already said, so this
-                costs no line — it replaces one. It is the traces panel's
-                description, word for word: the same command, run the same way, so
-                the routes it can take and the two questions it asks first read the
-                same in both places. The Node floor is named because `setup`
-                refuses a Node older than 20.12 while the rest of the CLI runs on
-                20.3, and this is where the command is copied from. */}
+            {/* Only what a reader needs before pasting; what the command does is
+                on the docs page linked above. Where to run it, because pasted in
+                the wrong directory it writes the key where the application never
+                reads it. That it asks before editing their code, which is what
+                decides whether they paste it at all. And the Node floor, because
+                `setup` refuses a Node older than 20.12 while the rest of the CLI
+                runs on 20.3. The traces panel says the last two in the same
+                words. */}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Writes the API key into your repository, then either has a coding agent instrument it
-              and waits for the first trace, or hands you the task to run yourself. In an
-              interactive terminal, asks before editing your code and before continuing over
-              uncommitted changes. Run it where {projectName}&apos;s code lives. Needs Node.js 20.12
-              or later.
+              Run it where {projectName}&apos;s code lives. It asks before editing your code. Needs
+              Node.js 20.12 or later.
             </p>
           </div>
 

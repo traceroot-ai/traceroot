@@ -82,32 +82,24 @@ describe("AITab", () => {
     expect(container.textContent ?? "").not.toContain("Create an API key");
   });
 
-  it("describes the command in a few sentences, not a list of stages", () => {
-    // A bulleted account of every stage competes with the command for the
-    // attention of someone who just wants to know what to paste.
+  it("says only what decides whether to paste the command", () => {
+    // An account of what setup does competes with the command for the attention
+    // of someone who just wants to know what to paste; the docs link has it.
     const { container } = render(<AITab projectId="proj_1" />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Writes the API key into your repository");
-    expect(text).toContain("waits for the first trace");
+    expect(screen.getByText(/asks before editing your code/).textContent).toBe(
+      "It asks before editing your code. Needs Node.js 20.12 or later.",
+    );
     expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 
-  it("does not say a coding agent always does the work", () => {
+  it("promises neither a coding agent nor a wait for the first trace", () => {
     // Setup asks how to instrument: run an agent, write the task for the
-    // reader's own agent, or print the steps. Unattended, it writes the task.
+    // reader's own agent, or print the steps. A hand-over changes no code, so
+    // setup looks for a trace once and ends; only the agent route waits.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain(
-      "either has a coding agent instrument it and waits for the first trace, or hands you the task to run yourself.",
-    );
-    expect(text).not.toContain("Instruments your repository with a coding agent");
-  });
-
-  it("ties the wait for the first trace to the agent route", () => {
-    // A hand-over changes no code, so setup looks for a trace once and ends;
-    // `--resume` looks again. Only the agent route waits.
-    const { container } = render(<AITab projectId="proj_1" />);
-    expect(container.textContent ?? "").not.toContain("yourself, and waits for the first trace");
+    expect(text).not.toContain("coding agent");
+    expect(text).not.toContain("waits for the first trace");
   });
 
   it("keeps the sentence that is consent rather than description", () => {
@@ -116,20 +108,8 @@ describe("AITab", () => {
     // setup asks whether to continue, defaulting to No; it does not stop.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain(
-      "asks before editing your code and before continuing over uncommitted changes",
-    );
+    expect(text).toContain("It asks before editing your code.");
     expect(text).not.toContain("stops if you have uncommitted changes");
-  });
-
-  it("says the two questions are asked in an interactive terminal only", () => {
-    // Under `--no-input`, `--json`, CI or a pipe setup asks nothing: it writes
-    // the task rather than launching an agent, and notes uncommitted changes and
-    // carries on. A reader whose run is unattended must not count on either.
-    const { container } = render(<AITab projectId="proj_1" />);
-    expect(container.textContent ?? "").toContain(
-      "In an interactive terminal, asks before editing your code and before continuing over uncommitted changes.",
-    );
   });
 
   it("names the Node version setup needs", () => {
