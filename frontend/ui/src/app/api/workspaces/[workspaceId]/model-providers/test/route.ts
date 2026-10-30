@@ -138,18 +138,28 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
     return errorResponse(result.error.issues[0].message, 400);
   }
 
-  const { adapter, baseUrl, awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } =
-    result.data;
+  const { awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } = result.data;
+  let { adapter, baseUrl } = result.data;
 
-  // Resolve API key: use provided key, or fetch from DB via providerId
+  // Resolve API key: use provided key, or fetch from DB via providerId.
+  // When providerId supplies the stored key, destination and adapter are derived
+  // from the stored provider record so callers cannot redirect saved credentials
+  // to an arbitrary host (SSRF / credential exfiltration).
   let apiKey = result.data.apiKey;
   if (!apiKey && result.data.providerId) {
     const provider = await prisma.modelProvider.findFirst({
       where: { id: result.data.providerId, workspaceId },
-      select: { keyCipher: true },
+      select: { keyCipher: true, adapter: true, baseUrl: true },
     });
     if (provider?.keyCipher) {
       apiKey = decryptKey(provider.keyCipher);
+      if (
+        provider.adapter &&
+        ADAPTER_VALUES.includes(provider.adapter as (typeof ADAPTER_VALUES)[number])
+      ) {
+        adapter = provider.adapter as (typeof ADAPTER_VALUES)[number];
+      }
+      baseUrl = provider.baseUrl ?? undefined;
     }
   }
 

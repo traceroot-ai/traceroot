@@ -282,7 +282,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "codestral-latest", label: "codestral-latest" },
     { id: "ministral-8b-latest", label: "ministral-8b-latest" },
     { id: "ministral-3b-latest", label: "ministral-3b-latest" },
-    { id: "pixtral-large-latest", label: "pixtral-large-latest" },
   ],
 };
 

@@ -555,7 +555,11 @@ describe("POST model-providers/test - amazon-bedrock (no network)", () => {
 
 describe("POST model-providers/test - stored key resolution", () => {
   it("decrypts the stored key when only providerId is supplied", async () => {
-    prismaFindFirstMock.mockResolvedValue({ keyCipher: "cipher" });
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "openai",
+      baseUrl: null,
+    });
     decryptKeyMock.mockReturnValue("decrypted-key");
     fetchMock.mockResolvedValue(okResponse());
 
@@ -580,6 +584,88 @@ describe("POST model-providers/test - stored key resolution", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/models",
       expect.objectContaining({ headers: { Authorization: "Bearer undefined" } }),
+    );
+  });
+
+  it("rejects destination override and uses stored baseUrl when providerId supplies key", async () => {
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "mistral",
+      baseUrl: "https://stored-mistral.example",
+    });
+    decryptKeyMock.mockReturnValue("decrypted-key");
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(
+      makeRequest({
+        adapter: "mistral",
+        providerId: "prov-1",
+        baseUrl: "https://attacker.example",
+      }),
+      makeParams(),
+    );
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stored-mistral.example/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("attacker.example"),
+      expect.anything(),
+    );
+  });
+
+  it("rejects destination override and uses default baseUrl when stored provider has no baseUrl", async () => {
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "mistral",
+      baseUrl: null,
+    });
+    decryptKeyMock.mockReturnValue("decrypted-key");
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(
+      makeRequest({
+        adapter: "mistral",
+        providerId: "prov-1",
+        baseUrl: "https://attacker.example",
+      }),
+      makeParams(),
+    );
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mistral.ai/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("attacker.example"),
+      expect.anything(),
+    );
+  });
+
+  it("derives adapter from stored provider when providerId supplies key", async () => {
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "mistral",
+      baseUrl: null,
+    });
+    decryptKeyMock.mockReturnValue("decrypted-key");
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        providerId: "prov-1",
+      }),
+      makeParams(),
+    );
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mistral.ai/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
     );
   });
 });

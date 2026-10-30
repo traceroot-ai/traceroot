@@ -648,12 +648,24 @@ class TestMistralModelIds:
         [
             ("mistral-large-latest", "mistral-large-latest"),
             ("mistral/mistral-large-latest", "mistral-large-latest"),
+            ("mistral-large-2512", "mistral-large-latest"),
+            ("mistral/mistral-large-2512", "mistral-large-latest"),
             ("mistral-small-latest", "mistral-small-latest"),
             ("mistral/mistral-small-latest", "mistral-small-latest"),
+            ("mistral-small-2603", "mistral-small-latest"),
+            ("mistral/mistral-small-2603", "mistral-small-latest"),
             ("codestral-latest", "codestral-latest"),
             ("mistral/codestral-latest", "codestral-latest"),
+            ("codestral-2508", "codestral-latest"),
+            ("mistral/codestral-2508", "codestral-latest"),
             ("ministral-8b-latest", "ministral-8b-latest"),
+            ("mistral/ministral-8b-latest", "ministral-8b-latest"),
+            ("ministral-8b-2512", "ministral-8b-latest"),
+            ("mistral/ministral-8b-2512", "ministral-8b-latest"),
             ("ministral-3b-latest", "ministral-3b-latest"),
+            ("mistral/ministral-3b-latest", "ministral-3b-latest"),
+            ("ministral-3b-2512", "ministral-3b-latest"),
+            ("mistral/ministral-3b-2512", "ministral-3b-latest"),
             ("pixtral-large-latest", "pixtral-large-latest"),
         ],
     )
@@ -694,6 +706,17 @@ class TestMistralModelIds:
     def test_mistral_large_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             result = calculate_cost("mistral-large-latest", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
+
+    def test_mistral_versioned_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("mistral-large-2512", "Hello world", "Hi there")
 
         assert result["input_tokens"] is not None
         assert result["input_tokens"] > 0

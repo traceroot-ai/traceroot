@@ -1417,7 +1417,7 @@
   {
     "id": "tr-mistral-large-latest",
     "modelName": "mistral-large-latest",
-    "matchPattern": "(?i)^(mistral\\/)?mistral-large-latest(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(mistral\\/)?mistral-large-(latest|2512)(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
       "input": 0.0000005,
@@ -1429,7 +1429,7 @@
   {
     "id": "tr-mistral-small-latest",
     "modelName": "mistral-small-latest",
-    "matchPattern": "(?i)^(mistral\\/)?mistral-small-latest(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(mistral\\/)?mistral-small-(latest|2603)(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
       "input": 0.00000015,
@@ -1441,7 +1441,7 @@
   {
     "id": "tr-codestral-latest",
     "modelName": "codestral-latest",
-    "matchPattern": "(?i)^(mistral\\/)?codestral-latest(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(mistral\\/)?codestral-(latest|2508)(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
       "input": 0.0000003,
@@ -1453,7 +1453,7 @@
   {
     "id": "tr-ministral-8b-latest",
     "modelName": "ministral-8b-latest",
-    "matchPattern": "(?i)^(mistral\\/)?ministral-8b-latest(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(mistral\\/)?ministral-8b-(latest|2512)(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
       "input": 0.00000015,
@@ -1465,7 +1465,7 @@
   {
     "id": "tr-ministral-3b-latest",
     "modelName": "ministral-3b-latest",
-    "matchPattern": "(?i)^(mistral\\/)?ministral-3b-latest(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(mistral\\/)?ministral-3b-(latest|2512)(-[\\d-]+)?$",
     "provider": "mistral",
     "prices": {
       "input": 0.0000001,
