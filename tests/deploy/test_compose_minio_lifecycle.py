@@ -18,7 +18,7 @@ import yaml
 
 _ROOT = Path(__file__).resolve().parents[2]
 _LIFECYCLE = _ROOT / "docker" / "minio" / "lifecycle.json"
-_COMPOSE = [_ROOT / "docker-compose.yml"]
+_COMPOSE = [_ROOT / "docker-compose.yml", _ROOT / "docker-compose.prod.yml"]
 
 # Stands in for `mc`. `ilm rule import` replaces the bucket's whole lifecycle config
 # with stdin, as the real command does. Any other `ilm` use fails, so an entrypoint
