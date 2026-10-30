@@ -821,6 +821,9 @@ class TestProcessS3Traces:
         ch = MagicMock()
         published: list[list[dict]] = []
         enqueue = MagicMock()
+        monkeypatch.setattr(
+            settings, "attachments", AttachmentSettings(enabled=True, project_ids="")
+        )
         monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
         monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", enqueue)
         monkeypatch.setattr(

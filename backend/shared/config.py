@@ -104,13 +104,23 @@ class S3Settings(BaseSettings):
 
 
 class AttachmentSettings(BaseSettings):
-    """Limits the ingest worker applies when it moves images out of span text.
+    """Whether the ingest worker moves images out of span text, and the limits it applies.
 
-    Env vars: ATTACHMENT_MAX_IMAGE_BYTES, ATTACHMENT_MAX_IMAGE_DIMENSION,
-    ATTACHMENT_MAX_SPAN_BYTES
+    Off by default. Once enabled it runs for every project, or only for the projects
+    in ``project_ids`` when that lists any.
+
+    Env vars: ATTACHMENT_ENABLED, ATTACHMENT_PROJECT_IDS, ATTACHMENT_MAX_IMAGE_BYTES,
+    ATTACHMENT_MAX_IMAGE_DIMENSION, ATTACHMENT_MAX_SPAN_BYTES
     """
 
     model_config = SettingsConfigDict(env_prefix="ATTACHMENT_")
+
+    # Until this is set, span text is stored as sent, images and all, and a span over
+    # max_span_bytes is not cut.
+    enabled: bool = False
+    # Comma-separated project ids to extract for once enabled; empty means every
+    # project. A plain string, because a list field would be read from env as JSON.
+    project_ids: str = ""
 
     # Decoded size above which an image is replaced by a placeholder, not stored.
     max_image_bytes: int = Field(5 * 1024 * 1024, gt=0)
@@ -119,6 +129,13 @@ class AttachmentSettings(BaseSettings):
     # Bound on a span's input + output + metadata in UTF-8 bytes, applied after
     # images are replaced. A span over it has its largest field(s) cut to fit.
     max_span_bytes: int = Field(8 * 1024 * 1024, gt=0)
+
+    def applies_to(self, project_id: str) -> bool:
+        """Return whether images are extracted from ``project_id``'s ingest batches."""
+        if not self.enabled:
+            return False
+        listed = {entry.strip() for entry in self.project_ids.split(",")} - {""}
+        return not listed or project_id in listed
 
 
 class RedisSettings(BaseSettings):
