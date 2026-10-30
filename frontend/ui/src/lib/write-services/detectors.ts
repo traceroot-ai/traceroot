@@ -69,6 +69,18 @@ const triggerConditionsSchema = z
 // excluded because its prompt is empty.
 const STANDARD_TEMPLATE_IDS = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank").map((t) => t.id);
 
+// Valid outputSchema entry types (validated at runtime)
+const OUTPUT_SCHEMA_TYPES = ["string", "number", "boolean"] as const;
+
+const outputSchemaEntrySchema = z.object({
+  name: nonEmptyString("name"),
+  type: z.string().refine((t) => OUTPUT_SCHEMA_TYPES.includes(t as typeof OUTPUT_SCHEMA_TYPES[number]), "type must be string, number, or boolean"),
+  description: z.string().optional(),
+});
+
+// outputSchema: array of validated entries (objects with name, type, optional description)
+const outputSchemaArraySchema = z.array(outputSchemaEntrySchema, "outputSchema must be an array of objects with name and type (string|number|boolean)").optional();
+
 // Mirrors the cookie route's validation verbatim so both write surfaces
 // reject the same payloads with the same messages — except prompt, which
 // only this surface may omit to adopt a standard template's instructions.
@@ -79,7 +91,7 @@ const inputSchema = z
     template: nonEmptyString("template"),
     prompt: nonEmptyString("prompt").optional(),
     sampleRate: sampleRateSchema.optional(),
-    outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
+    outputSchema: outputSchemaArraySchema,
     triggerConditions: triggerConditionsSchema,
     detectionSource: z
       .union(
