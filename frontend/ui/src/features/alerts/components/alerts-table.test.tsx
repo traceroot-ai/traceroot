@@ -31,6 +31,7 @@ const makeAlert = (overrides: Partial<AlertSummary> = {}): AlertSummary => ({
   lastErrorAt: null,
   lastNotifyStatus: null,
   lastNotifyError: null,
+  lastNotifySeverity: null,
   lastNotifyAt: null,
   createTime: ago(30 * 24 * HOUR),
   updateTime: ago(30 * 24 * HOUR),
