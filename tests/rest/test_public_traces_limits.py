@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from rest.main import app
+from rest.openapi_public import build_public_schema
 from rest.routers.public.traces import AuthResult, _read_capped_body, authenticate_api_key
 from shared.bounded_gzip import GzipTooLargeError, gunzip, iter_gunzip
 from shared.config import IngestSettings, settings
@@ -257,3 +258,8 @@ class TestReadCappedBody:
     async def test_body_without_a_length_is_joined(self):
         request = _FakeRequest({}, [b"ab", b"", b"cd"])
         assert await _read_capped_body(request, 4) == b"abcd"
+
+
+def test_public_schema_documents_the_413():
+    responses = build_public_schema(app)["paths"]["/api/v1/public/traces"]["post"]["responses"]
+    assert responses["413"]["description"] == "Request body too large"
