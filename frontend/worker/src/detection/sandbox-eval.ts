@@ -300,7 +300,7 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
       if (toolCall) {
         const args = toolCall.arguments as Partial<SubmitResultInput>;
         return {
-          identified: Boolean(args.identified),
+          identified: (args.identified as any) === true || String(args.identified).toLowerCase() === "true" || (args.identified as any) === 1 || (args.identified as any) === "1",
           summary: typeof args.summary === "string" ? args.summary : "",
           data: (args.data as Record<string, unknown>) ?? {},
           inferenceCost,
