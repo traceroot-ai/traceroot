@@ -133,6 +133,18 @@ export function SpanInfoPanel({
     : (spanIO?.metadata ?? selection.span.metadata ?? null);
   const { metadata, redacted } = splitInternalMetadata(rawMetadata);
 
+  // Image references load through the span whose text holds them. Trace input and
+  // output are the root span's, so they load through the root span. Trace metadata
+  // has no span behind it, and an evaluation's reconstructed trace has no stored
+  // spans, so references there stay text.
+  const attachmentSpanId = isTrace
+    ? trace.spans.find((s) => !s.parent_span_id && !s.pending)?.span_id
+    : selection.span.span_id;
+  const ioAttachments =
+    !isEvalShaped && attachmentSpanId
+      ? { projectId, traceId: trace.trace_id, spanId: attachmentSpanId }
+      : null;
+
   // Trace-level aggregates (also the diff baseline source for the trace selection).
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
   const traceCostDetails = isTrace ? getTraceCostBreakdown(trace) : null;
@@ -406,6 +418,7 @@ export function SpanInfoPanel({
           content={input}
           loading={ioLoading}
           onCopy={input ? () => copyToClipboard(input) : undefined}
+          attachmentSource={ioAttachments}
         />
         <TraceIOSection
           key={`${selectionId}:output`}
@@ -413,6 +426,7 @@ export function SpanInfoPanel({
           content={output}
           loading={ioLoading}
           onCopy={output ? () => copyToClipboard(output) : undefined}
+          attachmentSource={ioAttachments}
         />
         <TraceIOSection
           key={`${selectionId}:metadata`}
@@ -420,6 +434,7 @@ export function SpanInfoPanel({
           content={metadata}
           loading={ioLoading}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
+          attachmentSource={isTrace ? null : ioAttachments}
         />
       </div>
     </div>
