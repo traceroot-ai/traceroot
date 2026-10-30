@@ -103,6 +103,24 @@ class S3Settings(BaseSettings):
     region: str = "us-east-1"
 
 
+class AttachmentSettings(BaseSettings):
+    """Limits the ingest worker applies when it moves images out of span text.
+
+    Env vars: ATTACHMENT_MAX_IMAGE_BYTES, ATTACHMENT_MAX_IMAGE_DIMENSION,
+    ATTACHMENT_MAX_SPAN_BYTES
+    """
+
+    model_config = SettingsConfigDict(env_prefix="ATTACHMENT_")
+
+    # Decoded size above which an image is replaced by a placeholder, not stored.
+    max_image_bytes: int = Field(5 * 1024 * 1024, gt=0)
+    # Width or height, in pixels, above which an image is replaced by a placeholder.
+    max_image_dimension: int = Field(16384, gt=0)
+    # Bound on a span's input + output + metadata in UTF-8 bytes, applied after
+    # images are replaced. A span over it has its largest field(s) cut to fit.
+    max_span_bytes: int = Field(8 * 1024 * 1024, gt=0)
+
+
 class RedisSettings(BaseSettings):
     """Redis settings for Celery broker and result backend.
 
@@ -271,6 +289,7 @@ class Settings(BaseSettings):
     # Service-specific settings
     clickhouse: ClickHouseSettings = ClickHouseSettings()
     s3: S3Settings = S3Settings()
+    attachments: AttachmentSettings = AttachmentSettings()
     redis: RedisSettings = RedisSettings()
     rate_limit: RateLimitSettings = RateLimitSettings()
 
