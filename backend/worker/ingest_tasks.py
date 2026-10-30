@@ -338,7 +338,9 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     try:
         # 1. Download from S3
         s3_service = get_s3_service()
-        otel_data = s3_service.download_json(s3_key)
+        from worker.staged_batch import load_staged_batch
+
+        otel_data = load_staged_batch(s3_service, s3_key)
         logger.debug(f"Downloaded OTEL data from {s3_key}")
 
         # 2. Transform to ClickHouse format

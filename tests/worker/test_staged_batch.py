@@ -20,6 +20,7 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from rest.services.s3 import S3Service
 from shared.bounded_gzip import GzipTooLargeError
 from shared.config import settings
+from worker.ingest_tasks import process_s3_traces
 from worker.otel_transform import transform_otel_to_clickhouse
 from worker.staged_batch import load_staged_batch
 
@@ -221,6 +222,41 @@ class TestBadBatchesRaise:
         s3 = FakeS3({f"{KEY}.pb.gz": gzip.compress(b"\x00" * 4096)})
         with pytest.raises(GzipTooLargeError):
             load_staged_batch(s3, f"{KEY}.pb.gz")
+
+
+class TestIngestTaskReadsEveryFormat:
+    @pytest.fixture()
+    def run_task(self, monkeypatch):
+        """Run process_s3_traces against staged objects, with every sink mocked."""
+        s3 = staged_three_ways(make_request())
+        monkeypatch.setattr("rest.services.s3.get_s3_service", lambda: s3)
+        monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", MagicMock())
+        monkeypatch.setattr("worker.ingest_tasks._publish_live_spans", MagicMock())
+
+        def run(key: str) -> MagicMock:
+            ch = MagicMock()
+            monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+            process_s3_traces(s3_key=key, project_id="proj-1")
+            return ch
+
+        run.s3 = s3
+        return run
+
+    def test_inserted_rows_match_across_formats(self, run_task):
+        from_json = run_task(f"{KEY}.json")
+        spans = from_json.insert_spans_batch.call_args[0][0]
+        traces = from_json.insert_traces_batch.call_args[0][0]
+        assert len(spans) == 2
+        assert len(traces) == 1
+        for suffix in (".pb", ".pb.gz"):
+            ch = run_task(f"{KEY}{suffix}")
+            assert ch.insert_spans_batch.call_args[0][0] == spans, suffix
+            assert ch.insert_traces_batch.call_args[0][0] == traces, suffix
+
+    def test_corrupt_batch_raises_for_a_retry(self, run_task):
+        run_task.s3.objects[f"{KEY}.pb"] = b"this is not a protobuf at all"
+        with pytest.raises(DecodeError):
+            run_task(f"{KEY}.pb")
 
 
 def test_worker_module_does_not_import_the_api_routers():
