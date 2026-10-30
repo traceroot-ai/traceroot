@@ -1,14 +1,20 @@
-"""Size limits on the public trace ingest request: the settings and the bounded gunzip."""
+"""Size limits on the public trace ingest request: the settings, the bounded gunzip,
+and the route that applies both."""
 
 import gzip
 import os
 import zlib
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from rest.main import app
+from rest.routers.public.traces import AuthResult, _read_capped_body, authenticate_api_key
 from shared.bounded_gzip import GzipTooLargeError, gunzip, iter_gunzip
-from shared.config import IngestSettings
+from shared.config import IngestSettings, settings
 
 MIB = 1024 * 1024
 
@@ -100,3 +106,154 @@ class TestGunzip:
     def test_garbage_after_a_member_raises(self):
         with pytest.raises(zlib.error):
             gunzip(gzip.compress(b"payload") + b"garbage-tail", MIB)
+
+
+REQUEST_CAP = 1024
+UNZIPPED_CAP = 4096
+INGEST_URL = "/api/v1/public/traces"
+PROTOBUF = {"Content-Type": "application/x-protobuf"}
+GZIP_PROTOBUF = {**PROTOBUF, "Content-Encoding": "gzip"}
+
+
+@pytest.fixture()
+def ingest(monkeypatch):
+    """The ingest route with small caps, auth stubbed, and decode, S3 and Celery mocked."""
+    monkeypatch.setattr(settings.ingest, "max_request_bytes", REQUEST_CAP)
+    monkeypatch.setattr(settings.ingest, "max_unzipped_bytes", UNZIPPED_CAP)
+    app.dependency_overrides[authenticate_api_key] = lambda: AuthResult(
+        project_id="test-project",
+        workspace_id="test-workspace",
+        billing_plan="pro",
+        ingestion_blocked=False,
+    )
+    decode = MagicMock(return_value={"resourceSpans": []})
+    monkeypatch.setattr("rest.routers.public.traces.decode_otlp_protobuf", decode)
+    s3 = MagicMock()
+    monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: s3)
+    task = MagicMock()
+    monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", task)
+    return TestClient(app), decode, s3, task
+
+
+def _chunks(total: int, size: int = 256):
+    sent = 0
+    while sent < total:
+        n = min(size, total - sent)
+        sent += n
+        yield b"x" * n
+
+
+class TestRequestSizeLimit:
+    def test_body_at_the_cap_is_accepted(self, ingest):
+        client, decode, s3, task = ingest
+        response = client.post(INGEST_URL, content=b"x" * REQUEST_CAP, headers=PROTOBUF)
+        assert response.status_code == 200
+        decode.assert_called_once_with(b"x" * REQUEST_CAP)
+        s3.upload_json.assert_called_once()
+        task.delay.assert_called_once()
+
+    def test_body_over_the_cap_is_413(self, ingest):
+        client, decode, s3, task = ingest
+        response = client.post(INGEST_URL, content=b"x" * (REQUEST_CAP + 1), headers=PROTOBUF)
+        assert response.status_code == 413
+        assert response.json()["detail"] == f"Request body exceeds {REQUEST_CAP} bytes"
+        decode.assert_not_called()
+        s3.upload_json.assert_not_called()
+        task.delay.assert_not_called()
+
+    def test_chunked_body_over_the_cap_is_413(self, ingest):
+        """A chunked body has no Content-Length; the running count still stops it."""
+        client, decode, s3, _ = ingest
+        response = client.post(INGEST_URL, content=_chunks(REQUEST_CAP * 4), headers=PROTOBUF)
+        assert response.status_code == 413
+        decode.assert_not_called()
+        s3.upload_json.assert_not_called()
+
+    def test_chunked_body_under_the_cap_is_accepted(self, ingest):
+        client, decode, _, _ = ingest
+        response = client.post(INGEST_URL, content=_chunks(REQUEST_CAP - 10), headers=PROTOBUF)
+        assert response.status_code == 200
+        decode.assert_called_once_with(b"x" * (REQUEST_CAP - 10))
+
+    def test_cap_applies_to_the_compressed_bytes(self, ingest):
+        """The request cap measures the body as sent, so incompressible gzip over it is
+        refused even though the unzipped cap is larger."""
+        client, decode, _, _ = ingest
+        body = gzip.compress(os.urandom(REQUEST_CAP * 2))
+        response = client.post(INGEST_URL, content=body, headers=GZIP_PROTOBUF)
+        assert response.status_code == 413
+        decode.assert_not_called()
+
+
+class TestUnzippedSizeLimit:
+    def test_gzip_under_the_cap_is_decoded(self, ingest):
+        client, decode, _, _ = ingest
+        raw = b"y" * UNZIPPED_CAP
+        response = client.post(INGEST_URL, content=gzip.compress(raw), headers=GZIP_PROTOBUF)
+        assert response.status_code == 200
+        decode.assert_called_once_with(raw)
+
+    def test_gzip_that_unzips_past_the_cap_is_413(self, ingest):
+        client, decode, s3, task = ingest
+        body = gzip.compress(b"\x00" * (UNZIPPED_CAP * 100))
+        assert len(body) <= REQUEST_CAP
+        response = client.post(INGEST_URL, content=body, headers=GZIP_PROTOBUF)
+        assert response.status_code == 413
+        assert response.json()["detail"] == (
+            f"Decompressed request body exceeds {UNZIPPED_CAP} bytes"
+        )
+        decode.assert_not_called()
+        s3.upload_json.assert_not_called()
+        task.delay.assert_not_called()
+
+    def test_invalid_gzip_is_still_400(self, ingest):
+        client, decode, _, _ = ingest
+        response = client.post(INGEST_URL, content=b"not-gzip-data", headers=GZIP_PROTOBUF)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid gzip payload"
+        decode.assert_not_called()
+
+    def test_truncated_gzip_is_400(self, ingest):
+        client, _, _, _ = ingest
+        body = gzip.compress(os.urandom(512))
+        response = client.post(INGEST_URL, content=body[:-20], headers=GZIP_PROTOBUF)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid gzip payload"
+
+
+class _FakeRequest:
+    """Just enough of a Starlette request for ``_read_capped_body``."""
+
+    def __init__(self, headers: dict[str, str], chunks: list[bytes]):
+        self.headers = headers
+        self._chunks = chunks
+        self.chunks_read = 0
+
+    async def stream(self):
+        for chunk in self._chunks:
+            self.chunks_read += 1
+            yield chunk
+
+
+class TestReadCappedBody:
+    async def test_declared_length_over_the_cap_is_refused_before_reading(self):
+        request = _FakeRequest({"content-length": str(64 * MIB)}, [b"x"])
+        with pytest.raises(HTTPException) as exc:
+            await _read_capped_body(request, 16)
+        assert exc.value.status_code == 413
+        assert request.chunks_read == 0
+
+    async def test_understated_length_is_caught_by_the_running_count(self):
+        request = _FakeRequest({"content-length": "4"}, [b"x" * 10, b"x" * 10])
+        with pytest.raises(HTTPException) as exc:
+            await _read_capped_body(request, 16)
+        assert exc.value.status_code == 413
+        assert request.chunks_read == 2
+
+    async def test_unparseable_length_falls_back_to_the_running_count(self):
+        request = _FakeRequest({"content-length": "lots"}, [b"ab", b"cd"])
+        assert await _read_capped_body(request, 16) == b"abcd"
+
+    async def test_body_without_a_length_is_joined(self):
+        request = _FakeRequest({}, [b"ab", b"", b"cd"])
+        assert await _read_capped_body(request, 4) == b"abcd"
