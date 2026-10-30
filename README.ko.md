@@ -197,6 +197,7 @@ make prod-lite
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistral chat completions, 툴 호출, streaming response에 대한 instrumentation을 자동으로 수집합니다. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat Completions 및 Responses API에 대한 instrumentation을 자동으로 수집합니다. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDK의 OpenRouter base URL로 호환 tracing을 수집합니다. [Python](./examples/python/openrouter-tool-agent) 및 [TypeScript](./examples/typescript/openrouter) 예제를 참고하세요. |
+| [Opper](https://traceroot.ai/docs/integrations/opper) | Python, JS/TS | OpenAI SDK의 Opper base URL로 호환 tracing을 수집합니다. |
 
 </details>
 
