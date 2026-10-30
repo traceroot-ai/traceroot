@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.openapi_public import build_public_schema
 from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 INGEST_URL = "/api/v1/public/traces"
@@ -78,3 +79,10 @@ class TestEnqueueFailure:
         assert body["status"] == "ok"
         assert body["file_key"] == s3.upload_json.call_args[0][0]
         task.delay.assert_called_once_with(s3_key=body["file_key"], project_id="test-project")
+
+
+def test_public_schema_documents_the_queueing_503():
+    responses = build_public_schema(app)["paths"]["/api/v1/public/traces"]["post"]["responses"]
+    assert responses["503"]["description"] == (
+        "Authentication service unavailable, or the batch could not be queued"
+    )
