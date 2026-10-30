@@ -1,11 +1,11 @@
 """Public traces endpoint for OTEL ingestion.
 
 This endpoint receives OTLP trace data from SDKs and:
-1. Stores OTEL JSON to S3/MinIO (durable buffer)
+1. Stores the request body to S3/MinIO exactly as received (durable buffer)
 2. Enqueues a Celery task with S3 reference for async processing
 
 The endpoint accepts OTLP protobuf format only:
-- application/x-protobuf: Decoded and converted to camelCase JSON before storage
+- application/x-protobuf: Stored as sent; the ingest worker decodes it
 
 Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
@@ -103,9 +103,14 @@ async def ingest_traces(
     """Ingest OTLP trace data.
 
     Accepts OTLP protobuf format only (optionally gzip compressed).
-    Protobuf is converted to camelCase JSON before storage in S3.
+    The body is stored in S3 exactly as received and decoded asynchronously,
+    so a 200 means the batch was stored and queued, not that it decoded.
 
-    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
+    (``.pb`` when the body is not gzip-compressed)
+
+    Size limits: by default the body may be at most 16 MiB as sent and 32 MiB
+    once unzipped. A larger request gets 413.
 
     Headers:
         Authorization: Bearer <api_key>

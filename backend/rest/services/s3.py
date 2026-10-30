@@ -3,7 +3,11 @@
 This service handles uploading raw OTEL trace batches to S3/MinIO for
 durable storage. Data is stored using a time-partitioned path structure:
 
-    events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+    events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
+
+The suffix names the format: ``.pb.gz`` and ``.pb`` hold the OTLP protobuf
+request body exactly as received, with and without gzip; ``.json`` holds a
+batch already decoded to OTLP JSON. ``worker.staged_batch`` reads all three.
 
 This structure enables:
 - Fast writes (no lookup needed)
