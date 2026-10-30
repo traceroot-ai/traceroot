@@ -36,6 +36,9 @@ const RUN_DOTS = [
 /** A [0,1] score reads as a percentage; anything else as a trimmed number. */
 const fmtScoreNumber = (v: number) =>
   v >= 0 && v <= 1 ? pctFraction(v) : Number.isInteger(v) ? String(v) : v.toFixed(2);
+/** Format a delta in the scorer's own scale (not as a percentage). */
+const fmtScoreDelta = (v: number) =>
+  Number.isInteger(v) ? String(v) : v.toFixed(2);
 const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
 const fmtCost = (n: number) => `$${n.toFixed(4)}`;
 /** A scorer's value as a comparable number (booleans/pass-fail fold to 1/0). */
@@ -146,6 +149,7 @@ function NumericStack({
   dotFor,
   get,
   fmt,
+  deltaFmt,
   higherIsBetter,
 }: {
   ordered: Bundle[];
@@ -153,6 +157,7 @@ function NumericStack({
   dotFor: (runId: string) => string;
   get: (b: Bundle) => number | null;
   fmt: (n: number) => string;
+  deltaFmt?: (n: number) => string;
   higherIsBetter: boolean;
 }) {
   const base = get(baseline);
@@ -169,7 +174,7 @@ function NumericStack({
           node: (
             <span className="whitespace-nowrap">
               {v === null ? "—" : fmt(v)}
-              {delta !== null && <Delta value={delta} fmt={fmt} higherIsBetter={higherIsBetter} />}
+              {delta !== null && <Delta value={delta} fmt={deltaFmt ?? fmt} higherIsBetter={higherIsBetter} />}
             </span>
           ),
         };
@@ -441,6 +446,7 @@ export function CompareRunsView({
                           dotFor={dotFor}
                           get={(b) => agg.scorer.get(name)?.get(b.run.id) ?? null}
                           fmt={fmtScoreNumber}
+                          deltaFmt={fmtScoreDelta}
                           higherIsBetter={higherFor(name)}
                         />
                       </Td>
@@ -582,6 +588,7 @@ function CaseRow({
               dotFor={dotFor}
               get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
               fmt={fmtScoreNumber}
+              deltaFmt={fmtScoreDelta}
               higherIsBetter={higherFor(name)}
             />
           </Td>
