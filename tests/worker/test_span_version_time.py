@@ -10,8 +10,11 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi.testclient import TestClient
 
 from db.clickhouse.client import ClickHouseClient
+from rest.main import app
+from rest.routers.public.traces import AuthResult, authenticate_api_key
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.ingest_tasks import process_s3_traces
 from worker.row_versions import PLACEHOLDER_TRACE_VERSION, receive_time, version_trace_rows
@@ -182,3 +185,88 @@ def test_task_without_a_receive_time_passes_none(sinks):
     assert result["spans"] == 1
     assert sinks.insert_spans_batch.call_args.kwargs["version_time"] is None
     assert sinks.insert_traces_batch.call_args.kwargs["version_time"] is None
+
+
+class TestApiQueuesTheReceiveTime:
+    @pytest.fixture()
+    def api(self, monkeypatch):
+        app.dependency_overrides[authenticate_api_key] = lambda: AuthResult(
+            project_id="proj-1",
+            workspace_id="ws-1",
+            billing_plan="pro",
+            ingestion_blocked=False,
+        )
+        monkeypatch.setattr("rest.routers.public.traces.get_s3_service", MagicMock)
+        task = MagicMock()
+        monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", task)
+        yield TestClient(app), task
+        app.dependency_overrides.clear()
+
+    def test_received_at_is_queued_as_iso_utc(self, api):
+        client, task = api
+        before = datetime.now(UTC)
+        response = client.post(
+            "/api/v1/public/traces",
+            content=b"protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        after = datetime.now(UTC)
+
+        assert response.status_code == 200
+        received_at = task.delay.call_args.kwargs["received_at"]
+        parsed = datetime.fromisoformat(received_at)
+        assert parsed.utcoffset().total_seconds() == 0
+        assert before <= parsed <= after
+        # The S3 key is partitioned by the same instant.
+        key = task.delay.call_args.kwargs["s3_key"]
+        assert key.split("/")[3:7] == [
+            f"{parsed.year}",
+            f"{parsed.month:02d}",
+            f"{parsed.day:02d}",
+            f"{parsed.hour:02d}",
+        ]
+
+    def test_queued_receive_time_versions_the_rows(self, api, ingest):
+        """What the API queues is what the worker writes as ch_update_time."""
+        client, task = api
+        client.post(
+            "/api/v1/public/traces",
+            content=b"protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        received_at = task.delay.call_args.kwargs["received_at"]
+
+        ingest([_child("payload")], received_at=received_at)
+
+        (row,) = ingest.ch.rows["spans"]
+        assert row["ch_update_time"] == datetime.fromisoformat(received_at)
+
+
+def test_internal_self_trace_route_keeps_insert_time_versions(monkeypatch):
+    """The internal route decodes and inserts in-process; it never passes a version."""
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+        ExportTraceServiceRequest,
+    )
+
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    ch = MagicMock()
+    monkeypatch.setattr("rest.routers.internal.ingest.get_clickhouse_client", lambda: ch)
+    request = ExportTraceServiceRequest()
+    span = request.resource_spans.add().scope_spans.add().spans.add()
+    span.trace_id = bytes.fromhex(TRACE_HEX)
+    span.span_id = bytes.fromhex(ROOT_HEX)
+    span.name = "detector-run"
+    span.start_time_unix_nano = 1_700_000_000_000_000_000
+    span.end_time_unix_nano = 1_700_000_001_000_000_000
+
+    response = TestClient(app).post(
+        "/api/v1/internal/traces?project_id=proj-1",
+        content=request.SerializeToString(),
+        headers={"X-Internal-Secret": "test-secret"},
+    )
+
+    assert response.status_code == 200
+    assert ch.insert_spans_batch.call_args.kwargs == {}
+    assert ch.insert_traces_batch.call_args.kwargs == {}
