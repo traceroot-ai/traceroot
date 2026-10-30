@@ -78,10 +78,10 @@ function envBlock(container: HTMLElement): string {
 }
 
 describe("ManualTab", () => {
-  it("is five steps: the key, the install, the environment, the call, and the connections", () => {
+  it("is five steps: the key, the install, the environment, the call, and the run", () => {
     // The stack picker and the model key are above this section now, shared
     // with the command. What is numbered here is what is actually done in order
-    // in a terminal and an editor.
+    // in a terminal and an editor, ending in the run that sends the first trace.
     render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
     const steps = screen
       .getAllByText(/^\d+\. /)
@@ -91,8 +91,19 @@ describe("ManualTab", () => {
       "Install SDK",
       "Set environment variables",
       "Initialize TraceRoot for OpenAI",
-      "External integrations",
+      "Run your application",
     ]);
+  });
+
+  it("ends the numbered steps on the request that sends the first trace", () => {
+    // Without it the walkthrough stopped at the snippet, and a reader who never
+    // ran the code never saw a trace.
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    expect(
+      screen.getByText(
+        "Make an LLM request through the code you instrumented to send your first trace.",
+      ),
+    ).toBeDefined();
   });
 
   it("does not pick the stack or the model key for itself", () => {
@@ -136,13 +147,10 @@ describe("ManualTab", () => {
     expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
   });
 
-  it("groups GitHub and Slack into the external integrations card", () => {
+  it("groups GitHub and Slack into the external integrations card, unnumbered", () => {
+    // Unnumbered, as on the "Using AI" tab: a first trace does not need them.
     render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    // Number-agnostic: which step this is is already pinned, in order, by the
-    // first test in this file. Repeating the ordinal here only made a step
-    // being added or removed a two-place edit -- this card went from 6 to 4 in
-    // this change alone.
-    expect(screen.getByText(/External integrations$/)).toBeDefined();
+    expect(screen.getByText("External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });
@@ -185,7 +193,7 @@ describe("ManualTab with no stack chosen above it", () => {
       "Set environment variables",
       "Select your integration",
       "Initialize TraceRoot for OpenAI",
-      "External integrations",
+      "Run your application",
     ]);
   });
 
@@ -238,7 +246,7 @@ describe("ManualTab with no stack chosen above it", () => {
       expect(screen.queryByText(/model key/i)).toBeNull();
       expect(screen.queryByTestId("model-provider-block")).toBeNull();
     }
-    expect(screen.getByText("6. External integrations")).toBeDefined();
+    expect(screen.getByText("External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
   });
 
