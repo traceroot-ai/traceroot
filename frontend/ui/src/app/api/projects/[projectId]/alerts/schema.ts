@@ -7,6 +7,8 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   KEYED_ALERT_FILTER_FIELDS,
   SETTABLE_ALERT_STATUSES,
+  SpanKind,
+  SpanStatus,
   getMeasure,
   isAlertAggregation,
   isAlertFilterField,
@@ -77,6 +79,28 @@ const filterSchema = z
         message: `Operator "${filter.op}" is not valid for "${filter.field}"`,
       });
     }
+    // Validate span_kind and status values against allowed enums
+    if (filter.op === "=" && typeof filter.value === "string") {
+      if (filter.field === "span_kind") {
+        const valid = Object.values(SpanKind) as string[];
+        if (!valid.includes(filter.value)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["value"],
+            message: `Invalid span_kind "${filter.value}". Allowed: ${valid.join(", ")}`,
+          });
+        }
+      } else if (filter.field === "status") {
+        const valid = Object.values(SpanStatus) as string[];
+        if (!valid.includes(filter.value)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["value"],
+            message: `Invalid status "${filter.value}". Allowed: ${valid.join(", ")}`,
+          });
+        }
+      }
+    }
   });
 
 // Strict on both arms: an interval alongside OFF is a contradiction, and
@@ -101,15 +125,46 @@ const alertRuleShape = {
   filters: z.array(filterSchema).max(ALERT_FILTERS_MAX),
   window: z.string().refine(isAlertWindow, "Invalid window"),
   thresholdOperator: z.string().refine(isAlertThresholdOperator, "Invalid thresholdOperator"),
-  threshold: z.number().gte(-THRESHOLD_ABS_MAX).lte(THRESHOLD_ABS_MAX),
+  threshold: z.number().gte(0, "threshold must be >= 0 for non-negative measures").lte(THRESHOLD_ABS_MAX),
   renotify: renotifySchema,
   // Optional on create as well as update: a caller with no opinion about gaps
   // takes the column default rather than having to name it.
   noDataMode: z.string().refine(isAlertNoDataMode, "Invalid noDataMode").optional(),
 };
 
-export const alertCreateSchema = z.object(alertRuleShape);
-export const alertUpdateSchema = z.object(alertRuleShape).partial();
+export const alertCreateSchema = z.object(alertRuleShape).superRefine((data, ctx) => {
+  if (data.threshold < 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["threshold"],
+      message: `Threshold must be non-negative for this measure; got ${data.threshold}`,
+    });
+  }
+  if (data.thresholdOperator === ">=" && data.threshold === 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["threshold"],
+      message: `">= 0" fires on every window with data for this measure`,
+    });
+  }
+});
+
+export const alertUpdateSchema = z.object(alertRuleShape).partial().superRefine((data, ctx) => {
+  if (data.threshold !== undefined && data.threshold < 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["threshold"],
+      message: `Threshold must be non-negative for this measure; got ${data.threshold}`,
+    });
+  }
+  if (data.thresholdOperator === ">=" && data.threshold === 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["threshold"],
+      message: `">= 0" fires on every window with data for this measure`,
+    });
+  }
+});
 // Settable statuses only: PARKED is the evaluator's verdict about the stored
 // rule, so a client that could ask for it could stop a rule that still runs.
 export const alertPauseSchema = z.object({ status: z.enum(SETTABLE_ALERT_STATUSES) });
