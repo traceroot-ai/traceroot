@@ -9,22 +9,15 @@ Run this from the root of the repository you want to trace:
 npx -y traceroot-cli@latest setup
 ```
 
-Setup signs you in, has your coding agent add the TraceRoot SDK, and waits for your first trace. It needs Node.js 20.12 or later and a Python or TypeScript/JavaScript application. Prefer to add the SDK yourself? Skip to [Set up manually](#set-up-manually).
+Setup needs Node.js 20.12 or later and a Python or TypeScript/JavaScript application. Prefer to add the SDK yourself? Skip to [Set up manually](#set-up-manually).
 
 ## What setup does
 
-1. Checks for uncommitted changes and asks before continuing, so your coding agent's edits aren't mixed in with yours.
-2. Signs you in through your browser, where you can also create a free account.
-3. Picks one of your projects, or creates one.
-4. Writes a project API key as `TRACEROOT_API_KEY` to your application's `.env.local` or `.env`. The key can send traces and read this project, but not manage its keys.
-5. Adds tracing the way you choose: it runs Claude Code or Codex to make the change, writes the task for another coding agent, or prints the steps.
-6. Waits for your first trace and prints a link to it. If setup wrote the task or printed the steps, it pauses instead; once tracing is added and your application has run, `npx -y traceroot-cli@latest setup --resume` finishes.
+Setup checks for uncommitted changes, signs you in through your browser, selects or creates a project, and sets `TRACEROOT_API_KEY` for your application, normally in `.env.local` or `.env`. It then runs your coding agent and waits for a trace, or gives you a task or manual steps to finish yourself.
 
-In a monorepo, run setup from the service's directory or pass `--service <path>`. For every option, run `npx -y traceroot-cli@latest setup --help`.
+Setup never reverts your coding agent's edits, so review them with `git diff`. It keeps its progress and a project key for the CLI in `.traceroot/`, which it git-ignores.
 
-Setup never reverts your coding agent's edits, so review them with `git diff`. It also installs the TraceRoot skill for your coding agent and keeps its own state in `.traceroot/`, which it git-ignores. After a browser sign-in, that includes an admin key the CLI uses for itself.
-
-Setup configures only this machine. Your deployed application needs `TRACEROOT_API_KEY` in its environment too, and `TRACEROOT_HOST_URL` (the same origin you pass as `--host`) if you self-host.
+In a monorepo, run setup from the service's directory or pass `--service <path>`. For every option, run `npx -y traceroot-cli@latest setup --help`. Your deployed application also needs `TRACEROOT_API_KEY` in its environment, plus `TRACEROOT_HOST_URL` if you self-host.
 
 ## Self-hosted TraceRoot
 
