@@ -30,10 +30,9 @@ from rest.routers.public.deps import (
     authenticate_api_key,
 )
 from rest.services.s3 import get_s3_service
-from shared.bounded_gzip import GzipTooLargeError, gunzip
+from shared.bounded_gzip import GzipTooLargeError, iter_gunzip
 from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
-from worker.staged_batch import decode_otlp_protobuf
 
 __all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
 
@@ -152,11 +151,14 @@ async def ingest_traces(
             detail="Empty request body",
         )
 
-    # 2. Decompress if gzip, refusing anything that unzips past the cap
+    # 2. A gzip body must unzip cleanly within the cap. The output is only
+    #    counted, never kept: the worker decodes the batch from the body as sent.
     content_encoding = request.headers.get("content-encoding", "")
-    if "gzip" in content_encoding.lower():
+    gzipped = "gzip" in content_encoding.lower()
+    if gzipped:
         try:
-            body = gunzip(body, settings.ingest.max_unzipped_bytes)
+            for _ in iter_gunzip(body, settings.ingest.max_unzipped_bytes):
+                pass
         except GzipTooLargeError as e:
             raise _body_too_large(f"Decompressed request body exceeds {e.max_bytes} bytes") from e
         except Exception as e:
@@ -166,40 +168,30 @@ async def ingest_traces(
                 detail="Invalid gzip payload",
             ) from e
 
-    # 3. Decode protobuf to camelCase JSON (OTLP standard format)
-    try:
-        trace_data = decode_otlp_protobuf(body)
-        logger.debug("Decoded OTLP protobuf to JSON")
-    except Exception as e:
-        logger.warning(f"Failed to parse OTLP protobuf: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse OTLP protobuf: {e}",
-        ) from e
-
-    # 4. Generate S3 key (time-partitioned)
+    # 3. Generate S3 key (time-partitioned); the suffix tells the worker the format
     now = datetime.now(UTC)
     file_id = str(uuid.uuid4())
+    suffix = ".pb.gz" if gzipped else ".pb"
     s3_key = (
         f"events/otel/{project_id}/"
         f"{now.year}/{now.month:02d}/{now.day:02d}/{now.hour:02d}/"
-        f"{file_id}.json"
+        f"{file_id}{suffix}"
     )
 
-    # 5. Upload JSON to S3
+    # 4. Upload the body to S3 exactly as received
     try:
         s3_service = get_s3_service()
         s3_service.ensure_bucket_exists()
-        s3_service.upload_json(s3_key, trace_data)
-        logger.info(f"Stored OTEL JSON to {s3_key} for project {project_id}")
+        s3_service.upload_bytes(s3_key, body, content_type="application/x-protobuf")
+        logger.info(f"Stored OTLP batch to {s3_key} for project {project_id}")
     except Exception as e:
-        logger.error(f"Failed to upload OTEL JSON to S3: {e}")
+        logger.error(f"Failed to upload OTLP batch to S3: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Storage error: {e}",
         ) from e
 
-    # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)
+    # 5. Enqueue Celery task for async processing (S3 reference only, not full payload)
     try:
         process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
         logger.info(f"Enqueued Celery task for {s3_key}")
@@ -214,5 +206,5 @@ async def ingest_traces(
             headers={"Retry-After": str(_ENQUEUE_RETRY_AFTER_SECONDS)},
         ) from e
 
-    # 7. Return success (async processing happens in background)
+    # 6. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)
