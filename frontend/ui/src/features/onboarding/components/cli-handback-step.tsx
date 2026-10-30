@@ -107,15 +107,12 @@ export function CliHandbackStep({
             The setup command cannot be shown for this deployment
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
-            to <code className="font-mono">{setup.value}</code>, which is not an origin the command
-            can be pointed at. Without it the command would send sign-in and your first traces to
-            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
-            value and rebuild the web app, since the value is built into it rather than read at
-            startup; once the rebuilt app is served the command appears here. Until then, &quot;Set
-            up manually&quot; walks through the rest in the browser, where you set{" "}
+            <code className="font-mono">{setup.variable}</code> is set to{" "}
+            <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
+            the command would sign you in and send traces to TraceRoot Cloud instead. Correct that
+            value and rebuild the web app. Meanwhile, &quot;Set up manually&quot; works once you set{" "}
             <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
-            address yourself.
+            address.
           </p>
         </div>
       )}

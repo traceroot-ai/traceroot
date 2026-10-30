@@ -178,7 +178,7 @@ describe("CliHandbackStep", () => {
     // The manual door needs this deployment's API address as well, so the line
     // that offers it says the reader sets it there.
     expect(text).toContain(
-      "walks through the rest in the browser, where you set TRACEROOT_HOST_URL to this deployment's API address yourself",
+      '"Set up manually" works once you set TRACEROOT_HOST_URL to this deployment\'s API address.',
     );
     // The doors out of the step are the half of it that still works.
     expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();

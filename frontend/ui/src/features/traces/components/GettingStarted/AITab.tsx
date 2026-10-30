@@ -96,13 +96,11 @@ export function AITab({ projectId }: AITabProps) {
           </p>
           <p className="text-[12px] text-muted-foreground">
             <code className="font-mono">{setup.variable}</code> is set to{" "}
-            <code className="font-mono">{setup.value}</code>, which is not an origin the command can
-            be pointed at. Without it the command would send sign-in and your first traces to
-            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
-            value and rebuild the web app, since the value is built into it rather than read at
-            startup; once the rebuilt app is served the command appears here. The steps on the
-            manual tab need this deployment&apos;s API address as well, set as{" "}
-            <code className="font-mono">TRACEROOT_HOST_URL</code>.
+            <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
+            the command would sign you in and send traces to TraceRoot Cloud instead. Correct that
+            value and rebuild the web app. Meanwhile, the manual tab works once you set{" "}
+            <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
+            address.
           </p>
         </div>
       )}
