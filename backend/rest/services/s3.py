@@ -15,15 +15,30 @@ Later, a worker will process these files and insert into ClickHouse.
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class S3ObjectStream:
+    """An object opened for reading, with the metadata stored alongside it.
+
+    ``body`` holds an open connection until it is read to the end or closed, so
+    whoever receives it must close it.
+    """
+
+    body: StreamingBody
+    content_type: str | None
+    content_length: int | None
 
 
 class S3Service:
@@ -135,6 +150,35 @@ class S3Service:
             raise
         logger.debug(f"Stored object at s3://{self._bucket_name}/{s3_key}")
         return True
+
+    def get_object_stream(self, s3_key: str) -> S3ObjectStream | None:
+        """Open an object for streaming, without reading its body into memory.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            The open body with the object's ContentType and ContentLength, or None
+            if nothing is stored at the key. The caller must close the body.
+
+        Raises:
+            ClientError: For any other failure, so a caller never mistakes an
+                unreachable or forbidden store for a missing object
+        """
+        client = self._get_client()
+        try:
+            response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
+        except ClientError as e:
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            code = e.response.get("Error", {}).get("Code")
+            if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+        return S3ObjectStream(
+            body=response["Body"],
+            content_type=response.get("ContentType"),
+            content_length=response.get("ContentLength"),
+        )
 
     def ensure_bucket_exists(self) -> None:
         """Ensure the bucket exists, create if not."""
