@@ -13,7 +13,7 @@ export interface SubmitResultInput {
 const UNSAFE_FIELD_NAMES = new Set(["__proto__", "prototype", "constructor"]);
 
 function isSafeFieldName(name: unknown): name is string {
-  return typeof name === "string" && name.length > 0 && !UNSAFE_FIELD_NAMES.has(name);
+  return typeof name === "string" && name.trim().length > 0 && !UNSAFE_FIELD_NAMES.has(name);
 }
 
 function fieldToSchema(name: string, type: unknown): TSchema {

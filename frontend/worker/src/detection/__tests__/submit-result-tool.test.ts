@@ -83,6 +83,17 @@ describe("buildSubmitResultTool", () => {
     expect(Object.keys(dataProps)).toEqual(["ok"]);
   });
 
+  it("skips a stored entry whose name is blank, as the write path rejects it", () => {
+    const tool = buildSubmitResultTool([
+      { name: "", type: "string" },
+      { name: "   ", type: "string" },
+      { name: "\t\n", type: "number" },
+      { name: "ok", type: "string" },
+    ]);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties ?? {};
+    expect(Object.keys(dataProps)).toEqual(["ok"]);
+  });
+
   it("still screens an unknown or missing type as a string", () => {
     const tool = buildSubmitResultTool([{ name: "kind", type: "banana" }, { name: "note" }]);
     const dataProps = asSchema(tool.parameters).properties?.data?.properties;
