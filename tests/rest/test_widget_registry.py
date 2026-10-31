@@ -117,6 +117,21 @@ def test_schema_histogrammable_mirrors_compiler_rule():
     assert schema["spans"]["fields"]["cost"]["histogrammable"] is True
 
 
+def test_every_measure_carries_its_unit_and_description():
+    """The builder's Measure dropdown explains each row on hover, so a measure added
+    without a unit and description would show unexplained (#2146). Holds for every
+    field with aggs, not just today's builder set, so one later moved into the
+    builder is already documented."""
+    schema = registry_schema()
+    for view_name, view in REGISTRY.items():
+        for fname, fdef in view.fields.items():
+            if not fdef.aggs:
+                continue
+            emitted = schema[view_name]["fields"][fname]
+            assert emitted["unit"], f"{view_name}.{fname}: no unit"
+            assert emitted["description"], f"{view_name}.{fname}: no description"
+
+
 def test_registry_schema_exposes_cache_tokens():
     """cache_read_tokens and cache_write_tokens must be exposed on both views."""
     schema = registry_schema()
