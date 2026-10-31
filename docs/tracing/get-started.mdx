@@ -3,11 +3,41 @@ title: Get Started
 description: Set up tracing for your AI agent in minutes
 ---
 
-## 1. Get API Keys
+Run this from the root of the repository you want to trace:
 
-Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self-Hosting](/developer/self-hosting).
+```bash
+npx -y traceroot-cli@latest setup
+```
 
-## 2. Install the SDK
+Setup needs Node.js 20.12 or later and a Python or TypeScript/JavaScript application. Prefer to add the SDK yourself? Skip to [Set up manually](#set-up-manually).
+
+## What setup does
+
+Setup checks for uncommitted changes, signs you in through your browser, selects or creates a project, and sets `TRACEROOT_API_KEY` for your application, normally in `.env.local` or `.env`. It then runs your coding agent and waits for a trace, or gives you a task or manual steps to finish yourself.
+
+Setup never reverts your coding agent's edits, so review them with `git diff`. It keeps its progress and a project key for the CLI in `.traceroot/`, which it git-ignores.
+
+In a monorepo, run setup from the service's directory or pass `--service <path>`. For every option, run `npx -y traceroot-cli@latest setup --help`. Your deployed application also needs `TRACEROOT_API_KEY` in its environment, plus `TRACEROOT_HOST_URL` if you self-host.
+
+## Self-hosted TraceRoot
+
+Pass your API's origin as `--host`, and your web app's origin, where you sign in, as `--auth-host`. For a local deployment with the default ports:
+
+```bash
+npx -y traceroot-cli@latest setup --host "http://localhost:8000" --auth-host "http://localhost:3000"
+```
+
+Use origins only, without `/api/v1`. If both share one origin, `--host` alone is enough. Your deployment's **Traces** page shows this command with its origins filled in. See [Self-Hosting](/developer/self-hosting) to run a deployment.
+
+## Set up manually
+
+These are the steps setup automates.
+
+### 1. Get an API key
+
+Create an API key either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self-Hosting](/developer/self-hosting).
+
+### 2. Install the SDK
 
 <Tabs>
   <Tab title="Python">
@@ -22,7 +52,7 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
   </Tab>
 </Tabs>
 
-## 3. Set Environment Variables
+### 3. Set environment variables
 
 <Frame caption="Tracing setup: sidebar, Manual tab, API key field, Generate button">
   <img src="/images/tracing_api_key_v1.png" alt="TraceRoot Tracing page with the Create an API key step highlighted" />
@@ -32,56 +62,86 @@ Neither SDK loads `.env` files automatically; both read the process environment.
 
 ```bash
 export TRACEROOT_API_KEY="your-api-key"
-export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # self-hosted: your API's origin, e.g. http://localhost:8000
 ```
 
 *(If you prefer to use a `.env` file, ensure you load it explicitly in your code as shown in the next step.)*
 
-## 4. Instrument Your Code
+### 4. Instrument your code
 
 <Tabs>
   <Tab title="Python">
-    Add a single line at the start of your application to instrument all OpenAI API calls.
+    Initialize TraceRoot where your application starts, inside the `if __name__ == "__main__":` block rather than at module scope, so a test that imports the module doesn't send traces.
 
     ```python
     import traceroot
     from traceroot import Integration
     from openai import OpenAI
-    # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
 
-    # This single line instruments all OpenAI API calls
-    traceroot.initialize(integrations=[Integration.OPENAI])
+    def main():
+        client = OpenAI()
+        # ...your application
 
-    client = OpenAI()
+    if __name__ == "__main__":
+        # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
+        traceroot.initialize(integrations=[Integration.OPENAI])  # instruments all OpenAI calls
+        main()
     ```
+
+    Under a server such as uvicorn or gunicorn that block never runs, so initialize where the framework starts up.
   </Tab>
   <Tab title="TypeScript">
-    Add a single line at the start of your application to instrument all OpenAI API calls.
+    Initialize TraceRoot in the function your entry point calls to start, rather than at module scope, so a test that imports the module doesn't send traces.
 
     ```typescript
-    // import 'dotenv/config';  // Uncomment if using a .env file (requires: npm install dotenv)
+    // import { config } from 'dotenv';  // Uncomment if using a .env file (requires: npm install dotenv)
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
-    // This single line instruments all OpenAI API calls
-    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+    async function main() {
+      // config();
+      TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });  // instruments all OpenAI calls
+      const openai = new OpenAI();
+      // ...your application
+    }
 
-    const openai = new OpenAI();
+    // Call main() from your entry point.
     ```
+
+    If a framework loads your module instead of running it, initialize where the framework starts up instead.
   </Tab>
 </Tabs>
 
-For full SDK details, see the [Python SDK](/tracing/python-sdk) or [TypeScript SDK](/tracing/typescript-sdk).
+Run your own tests with `TRACEROOT_ENABLED=false` so they don't send traces either. For full SDK details, see the [Python SDK](/tracing/python-sdk) or [TypeScript SDK](/tracing/typescript-sdk).
 
-## 5. View Your Traces
+### 5. See your first trace
 
-Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
+Run your application and exercise the code you instrumented. Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
 
-Prefer the terminal? The [TraceRoot CLI](/cli/get-started) lists, inspects, and exports the same traces without leaving your shell.
+Prefer the terminal? The [TraceRoot CLI](/cli/get-started) works with the same traces, plus detector findings and evaluations, from your shell.
 
----
+## Troubleshoot
 
-## What's Next?
+### Setup stopped partway
+
+Ask setup what went wrong, then continue from where it stopped:
+
+```bash
+npx -y traceroot-cli@latest setup doctor
+npx -y traceroot-cli@latest setup --resume
+```
+
+If you ran setup with `--service <path>`, pass the same option to both. If your coding agent didn't finish, setup keeps its output in `.traceroot/setup-instrument-output.log`. That file can quote your repository's files, secrets included, so check it before you share it.
+
+### No trace arrived
+
+Run your application once and exercise the instrumented code, then run `npx -y traceroot-cli@latest setup --resume`. Neither SDK loads `.env` on its own, so check that your application loads the file setup wrote, or export the variables in your shell.
+
+### Still stuck?
+
+Ask on [Discord](https://discord.gg/TM2m3CtKuC) or [open an issue](https://github.com/traceroot-ai/traceroot-cli/issues).
+
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Python SDK" icon="python" href="/tracing/python-sdk">
@@ -90,10 +150,16 @@ Prefer the terminal? The [TraceRoot CLI](/cli/get-started) lists, inspects, and 
   <Card title="TypeScript SDK" icon="js" href="/tracing/typescript-sdk">
     Full API reference for the TypeScript SDK.
   </Card>
+  <Card title="Features" icon="sparkles" href="/tracing/overview">
+    Attach users, sessions, tags, metadata, and more to your traces.
+  </Card>
+  <Card title="Detectors" icon="shield-halved" href="/detectors/introduction#how-to-create-a-detector">
+    Create your first detector and start surfacing failures in your traces.
+  </Card>
   <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
     Auto-debug failing traces with the TraceRoot Agent.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/get-started">
-    Read and export your traces from the terminal.
+    Work with your traces, findings, and evaluations from the terminal.
   </Card>
 </CardGroup>
