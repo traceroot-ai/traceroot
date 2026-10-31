@@ -6,7 +6,7 @@ import { TraceIOSection } from "./TraceIOValue";
 afterEach(() => cleanup());
 
 const HASH = "cd".repeat(32);
-const REF = `traceroot-attachment://v1/sha256/${HASH}?mime=image/jpeg&bytes=10`;
+const REF = `traceroot-attachment://v1/sha256/${HASH}?bytes=10&mime=image/jpeg`;
 
 describe("TraceIOSection attachment source", () => {
   it("loads references through the span it is given", () => {

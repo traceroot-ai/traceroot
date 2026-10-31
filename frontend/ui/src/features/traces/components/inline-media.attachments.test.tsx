@@ -15,7 +15,7 @@ afterEach(() => cleanup());
 const HASH = "0123456789abcdef".repeat(4);
 const OTHER = "f".repeat(64);
 const ref = (hash = HASH, mime = "image/png", bytes = 1234) =>
-  `traceroot-attachment://v1/sha256/${hash}?mime=${mime}&bytes=${bytes}`;
+  `traceroot-attachment://v1/sha256/${hash}?bytes=${bytes}&mime=${mime}`;
 const SOURCE: AttachmentSource = { projectId: "proj-1", traceId: "trace-1", spanId: "span-1" };
 const URL_FOR = (hash: string) =>
   `/api/projects/proj-1/traces/trace-1/spans/span-1/attachments/${hash}`;
@@ -34,6 +34,7 @@ describe("attachmentHash", () => {
     ["an uppercase hash", ref(HASH.toUpperCase())],
     ["a short hash", ref(HASH.slice(1))],
     ["no byte count", `traceroot-attachment://v1/sha256/${HASH}?mime=image/png`],
+    ["parameters out of order", `traceroot-attachment://v1/sha256/${HASH}?mime=image/png&bytes=1`],
     ["no query", `traceroot-attachment://v1/sha256/${HASH}`],
     ["an SVG type", ref(HASH, "image/svg+xml")],
     ["the jpg alias", ref(HASH, "image/jpg")],

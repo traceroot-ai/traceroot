@@ -9,7 +9,7 @@ import { AttachmentSourceContext } from "./inline-media";
 afterEach(() => cleanup());
 
 const HASH = "ab".repeat(32);
-const REF = `traceroot-attachment://v1/sha256/${HASH}?mime=image/png&bytes=68`;
+const REF = `traceroot-attachment://v1/sha256/${HASH}?bytes=68&mime=image/png`;
 const DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
 const SOURCE = { projectId: "proj-1", traceId: "trace-1", spanId: "span-1" };
 const PROXY = `/api/projects/proj-1/traces/trace-1/spans/span-1/attachments/${HASH}`;

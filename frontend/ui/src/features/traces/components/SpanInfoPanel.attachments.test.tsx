@@ -31,7 +31,7 @@ afterEach(() => cleanup());
 const IN = "1".repeat(64);
 const OUT = "2".repeat(64);
 const META = "3".repeat(64);
-const ref = (hash: string) => `traceroot-attachment://v1/sha256/${hash}?mime=image/png&bytes=68`;
+const ref = (hash: string) => `traceroot-attachment://v1/sha256/${hash}?bytes=68&mime=image/png`;
 const url = (spanId: string, hash: string) =>
   `/api/projects/proj-1/traces/trace-1/spans/${spanId}/attachments/${hash}`;
 

@@ -92,7 +92,7 @@ export function InlineMedia({ src, kind }: Media) {
 // content hash in their place (the format is defined in backend/shared/attachments.py).
 // Like a data URI above, only a whole value is a reference.
 const ATTACHMENT_REF =
-  /^traceroot-attachment:\/\/v1\/sha256\/([0-9a-f]{64})\?mime=image\/(?:png|jpeg|gif|webp)&bytes=[0-9]+$/;
+  /^traceroot-attachment:\/\/v1\/sha256\/([0-9a-f]{64})\?bytes=[0-9]+&mime=image\/(?:png|jpeg|gif|webp)$/;
 
 /** The span whose text holds a reference. The image is served only for a span that references it. */
 export type AttachmentSource = { projectId: string; traceId: string; spanId: string };
