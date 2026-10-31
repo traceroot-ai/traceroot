@@ -80,8 +80,9 @@ services:
       minio:
         condition: service_healthy
     volumes:
-      # Expires raw ingest batches (events/otel/, 7 days) and batches that failed
-      # processing (events/failed/, 30 days). Nothing else in the bucket expires.
+      # Expires raw ingest batches (events/ingest/, 7 days) and batches that failed
+      # processing (events/failed/, 30 days). Everything else in the bucket is kept,
+      # batches stored under events/otel/ by earlier versions included.
       # `mc ilm rule import` replaces the whole lifecycle config, so every start
       # leaves the same rules rather than adding to them.
       - ./docker/minio/lifecycle.json:/bootstrap/lifecycle.json:ro

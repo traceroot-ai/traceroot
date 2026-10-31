@@ -85,11 +85,22 @@ def test_rules_expire_only_ingest_batches():
     rules = json.loads(_LIFECYCLE.read_text())["Rules"]
 
     assert {r["Filter"]["Prefix"]: r["Expiration"]["Days"] for r in rules} == {
-        "events/otel/": 7,
+        "events/ingest/": 7,
         "events/failed/": 30,
     }
     assert all(r["Status"] == "Enabled" for r in rules)
     assert len({r["ID"] for r in rules}) == len(rules), "rule IDs must be unique"
+
+
+def test_no_rule_reaches_batches_under_events_otel():
+    """Batches stored under events/otel/ by earlier versions are kept.
+
+    A rule applies to every key that starts with its prefix, and a rule with no
+    prefix applies to the whole bucket.
+    """
+    for rule in json.loads(_LIFECYCLE.read_text())["Rules"]:
+        prefix = rule.get("Filter", {}).get("Prefix", "")
+        assert not "events/otel/x".startswith(prefix), rule["ID"]
 
 
 @pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
