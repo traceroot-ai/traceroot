@@ -8,11 +8,13 @@ with every reader, and never in place: a new layout gets a new version segment.
 
 Reference (what span text holds)::
 
-    traceroot-attachment://v1/sha256/{hex}?mime={mime}&bytes={byte_count}
+    traceroot-attachment://v1/sha256/{hex}?bytes={byte_count}&mime={mime}
 
 - ``hex`` is the lowercase SHA-256 of the decoded image bytes, 64 characters.
-- ``mime`` is one of ``ALLOWED_IMAGE_MIME_TYPES``. ``bytes`` is the decoded size.
-- ``mime`` and ``bytes`` are display hints only. The stored object's
+- ``bytes`` is the decoded size. ``mime`` is one of ``ALLOWED_IMAGE_MIME_TYPES``.
+- ``mime`` comes last because it ends in a fixed word, so a reference that span
+  text continues straight after (with digits, say) still ends where it was written.
+- ``bytes`` and ``mime`` are display hints only. The stored object's
   ``ContentType``, written after the bytes were validated, is authoritative.
 - None of its characters is escaped by a JSON encoder, so a reference can replace
   an image inside a stringified-JSON field without breaking the JSON.
@@ -45,11 +47,11 @@ ATTACHMENT_KEY_PREFIX = "attachments/"
 
 ATTACHMENT_REF_RE = re.compile(
     r"traceroot-attachment://v1/sha256/(?P<sha256>[0-9a-f]{64})"
-    r"\?mime=(?P<mime>image/(?:png|jpeg|gif|webp))&bytes=(?P<bytes>[0-9]+)"
+    r"\?bytes=(?P<bytes>[0-9]+)&mime=(?P<mime>image/(?:png|jpeg|gif|webp))"
 )
 """Matches a reference exactly as ``format_attachment_ref`` writes it, anywhere in a string.
 
-Groups: ``sha256`` (64 lowercase hex), ``mime``, ``bytes`` (decimal).
+Groups: ``sha256`` (64 lowercase hex), ``bytes`` (decimal), ``mime``.
 """
 
 _SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
@@ -84,7 +86,7 @@ def format_attachment_ref(sha256_hex: str, mime: str, byte_count: int) -> str:
         byte_count: Decoded size of the image in bytes.
 
     Returns:
-        ``traceroot-attachment://v1/sha256/{hex}?mime={mime}&bytes={byte_count}``.
+        ``traceroot-attachment://v1/sha256/{hex}?bytes={byte_count}&mime={mime}``.
 
     Raises:
         ValueError: If any argument is outside the format.
@@ -95,7 +97,7 @@ def format_attachment_ref(sha256_hex: str, mime: str, byte_count: int) -> str:
         raise ValueError(f"unsupported attachment type: {mime!r}")
     if isinstance(byte_count, bool) or not isinstance(byte_count, int) or byte_count < 0:
         raise ValueError("byte_count must be a non-negative integer")
-    return f"{ATTACHMENT_REF_PREFIX}{sha256_hex}?mime={mime}&bytes={byte_count}"
+    return f"{ATTACHMENT_REF_PREFIX}{sha256_hex}?bytes={byte_count}&mime={mime}"
 
 
 def find_attachment_refs(text: str | None) -> set[str]:

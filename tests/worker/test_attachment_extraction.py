@@ -780,7 +780,7 @@ class TestCutKeepsReferencesWhole:
         [
             pytest.param(f"ab{REF_A}cd", 2 + len(REF_A) // 2, "ab", id="inside-a-reference"),
             pytest.param(f"ab{REF_A}cd", 2 + 5, "ab", id="inside-the-prefix"),
-            pytest.param(f"ab{REF_A}cd", 2 + len(REF_A) - 1, "ab", id="inside-the-byte-count"),
+            pytest.param(f"ab{REF_A}cd", 2 + len(REF_A) - 1, "ab", id="inside-the-image-type"),
             pytest.param(f"ab{REF_A}cd", 2, "ab", id="just-before-a-reference"),
             pytest.param(f"ab{REF_A}cd", 2 + len(REF_A), f"ab{REF_A}", id="just-after-a-reference"),
             pytest.param(f"ab{REF_A}cd", 3 + len(REF_A), f"ab{REF_A}c", id="after-a-reference"),

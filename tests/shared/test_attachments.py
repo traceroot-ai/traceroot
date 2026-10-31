@@ -34,7 +34,7 @@ OTHER_HASH = hashlib.sha256(b"other bytes").hexdigest()
 class TestReferenceFormat:
     def test_exact_format(self):
         assert format_attachment_ref(HASH, "image/png", 1234) == (
-            f"traceroot-attachment://v1/sha256/{HASH}?mime=image/png&bytes=1234"
+            f"traceroot-attachment://v1/sha256/{HASH}?bytes=1234&mime=image/png"
         )
 
     def test_prefix_constant_matches_the_format(self):
@@ -47,6 +47,16 @@ class TestReferenceFormat:
         assert match is not None
         assert match.group("sha256") == HASH
         assert match.group("mime") == mime
+        assert match.group("bytes") == "42"
+
+    @pytest.mark.parametrize("after", ["0", "2024", "9 more"])
+    def test_ends_where_it_was_written_when_digits_follow(self, after):
+        # An image's base64 can end in "=" padding with digits straight after it
+        # in the span text; the reference that replaces it must not absorb them.
+        ref = format_attachment_ref(HASH, "image/png", 42)
+        match = ATTACHMENT_REF_RE.search(f"{ref}{after}")
+        assert match is not None
+        assert match.end() == len(ref)
         assert match.group("bytes") == "42"
 
     def test_survives_json_encoding_unchanged(self):
@@ -96,11 +106,12 @@ class TestFindAttachmentRefs:
         "text",
         [
             f"{ATTACHMENT_REF_PREFIX}{HASH}",
-            f"{ATTACHMENT_REF_PREFIX}{HASH.upper()}?mime=image/png&bytes=1",
-            f"{ATTACHMENT_REF_PREFIX}{HASH[:-2]}?mime=image/png&bytes=1",
-            f"{ATTACHMENT_REF_PREFIX}{HASH}?mime=image/svg+xml&bytes=1",
+            f"{ATTACHMENT_REF_PREFIX}{HASH.upper()}?bytes=1&mime=image/png",
+            f"{ATTACHMENT_REF_PREFIX}{HASH[:-2]}?bytes=1&mime=image/png",
+            f"{ATTACHMENT_REF_PREFIX}{HASH}?bytes=1&mime=image/svg+xml",
             f"{ATTACHMENT_REF_PREFIX}{HASH}?mime=image/png",
-            f"traceroot-attachment://v2/sha256/{HASH}?mime=image/png&bytes=1",
+            f"{ATTACHMENT_REF_PREFIX}{HASH}?mime=image/png&bytes=1",
+            f"traceroot-attachment://v2/sha256/{HASH}?bytes=1&mime=image/png",
         ],
     )
     def test_ignores_malformed_refs(self, text):
