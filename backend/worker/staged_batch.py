@@ -1,8 +1,7 @@
 """Load OTLP trace batches staged by the ingest API.
 
-The API stages each batch under
-``events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}`` plus a suffix that
-names the format:
+The suffix of a batch's key names its format, whatever prefix the batch is
+stored under:
 
 - ``.pb.gz``: a gzip-encoded OTLP protobuf request body, stored as received.
 - ``.pb``: an uncompressed OTLP protobuf request body, stored as received.
