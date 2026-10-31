@@ -20,6 +20,7 @@ export {
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
   DEFAULT_ALERT_VIEW,
   KEYED_ALERT_FILTER_FIELDS,
+  alertThresholdProblem,
   clampRenotifyInterval,
   getAlertUnit,
   getAlertUnitForSource,
