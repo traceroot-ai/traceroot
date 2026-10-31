@@ -15,6 +15,195 @@ from worker.celery_app import app
 logger = logging.getLogger(__name__)
 
 
+def _root_kind_value(value) -> int:
+    """Accept ClickHouse Enum8 labels and numeric test/client values."""
+
+    if isinstance(value, str):
+        return {"placeholder": 0, "remote_parent": 1, "root": 2}.get(value, 0)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+# Fields a merged trace row is compared on.  Identity fields describe WHO owns
+# the row; payload fields are the winning root's content.  The split matters at
+# read time: payload columns hold full LLM prompts/responses and are only read
+# when a stored winner is actually being reinserted (see process_s3_traces).
+_TRACE_IDENTITY_FIELDS = (
+    "root_kind",
+    "root_version",
+    "trace_start_time",
+    "name",
+    "source",
+    "user_id",
+    "session_id",
+    "git_ref",
+    "git_repo",
+    "environment",
+    "is_evaluation",
+)
+_TRACE_PAYLOAD_FIELDS = ("input", "output", "metadata")
+_TRACE_COMPARE_FIELDS = _TRACE_IDENTITY_FIELDS + _TRACE_PAYLOAD_FIELDS
+
+
+def _effective_root_version(record: dict) -> int:
+    """The version a record would be written with (mirrors ``_merge_trace_record``)."""
+
+    from shared.trace_identity import trace_root_version
+
+    return int(record.get("root_version") or 0) or trace_root_version(
+        _root_kind_value(record.get("root_kind", 0)),
+        record.get("trace_start_time"),
+        bool(record.get("is_evaluation")),
+    )
+
+
+def _merge_trace_record(incoming: dict, existing: dict | None) -> dict:
+    """Merge one replacement row using logical root precedence.
+
+    Root identity fields are copied only from the winning root.  User/session
+    fields are the exception: SDKs stamp them on children too, so a non-null
+    value from the existing row is retained when the winning root omits it.
+    Evaluation classification is monotonic across all batches.
+    """
+
+    from shared.trace_identity import trace_root_version
+
+    incoming_kind = _root_kind_value(incoming.get("root_kind", 0))
+    incoming = dict(incoming)
+    incoming["root_kind"] = incoming_kind
+    incoming["root_version"] = incoming.get("root_version") or trace_root_version(
+        incoming_kind,
+        incoming.get("trace_start_time"),
+        bool(incoming.get("is_evaluation")),
+    )
+    if existing is None:
+        return incoming
+
+    stored = dict(existing)
+    stored["root_kind"] = _root_kind_value(stored.get("root_kind", 0))
+    stored["root_version"] = int(stored.get("root_version") or 0)
+    incoming_wins = incoming["root_version"] > stored["root_version"]
+    winner = incoming if incoming_wins else stored
+    loser = stored if incoming_wins else incoming
+    merged = dict(winner)
+
+    for field in ("user_id", "session_id"):
+        if merged.get(field) is None and loser.get(field) is not None:
+            merged[field] = loser[field]
+
+    # Deployment/source metadata is non-root identity but still logical trace
+    # state.  Preserve an already-known valid value when the winning root omits
+    # it; input/output/metadata intentionally do NOT use this fallback.
+    for field in ("environment", "git_ref", "git_repo", "source"):
+        if merged.get(field) is None and loser.get(field) is not None:
+            merged[field] = loser[field]
+
+    merged["is_evaluation"] = int(
+        bool(stored.get("is_evaluation")) or bool(incoming.get("is_evaluation"))
+    )
+    # Preserve the logical root version while making a newly discovered eval
+    # classification win a same-root replacement deterministically.
+    if merged["is_evaluation"]:
+        merged["root_version"] = int(merged["root_version"]) | 1
+    return merged
+
+
+def _trace_rows_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[str, dict]:
+    """Read the identity fields of the requested logical trace rows.
+
+    Payload columns (``input``/``output``/``metadata``) are deliberately NOT
+    selected here — they hold full LLM prompts/responses and are fetched only
+    for rows that will actually be rewritten, by :func:`_trace_payloads_by_id`
+    with identical scoping.  The two queries select the same physical row.
+    """
+
+    if not trace_ids:
+        return {}
+    result = ch_client.query(
+        """
+        SELECT trace_id, project_id, root_kind, root_version, trace_start_time, name, source,
+               user_id, session_id, git_ref, git_repo, environment, is_evaluation
+        FROM traces
+        WHERE project_id = {project_id:String}
+          AND trace_id IN {trace_ids:Array(String)}
+        ORDER BY root_version DESC, ch_update_time DESC
+        LIMIT 1 BY project_id, trace_id
+        """,
+        parameters={"trace_ids": trace_ids, "project_id": project_id},
+    )
+    rows: dict[str, dict] = {}
+    for row in result.result_rows:
+        if len(row) == 1:
+            # Compatibility with narrow unit-test doubles and old clients that
+            # only returned the existence probe shape.
+            rows[row[0]] = {"trace_id": row[0], "root_kind": 0, "root_version": 0}
+            continue
+        values = dict(
+            zip(
+                (
+                    "trace_id",
+                    "project_id",
+                    "root_kind",
+                    "root_version",
+                    "trace_start_time",
+                    "name",
+                    "source",
+                    "user_id",
+                    "session_id",
+                    "git_ref",
+                    "git_repo",
+                    "environment",
+                    "is_evaluation",
+                ),
+                row,
+            )
+        )
+        rows[values["trace_id"]] = values
+    return rows
+
+
+def _trace_payloads_by_id(ch_client, project_id: str, trace_ids: list[str]) -> dict[str, dict]:
+    """Read the payload columns of the requested logical trace rows.
+
+    Runs with the same ``WHERE``, ordering, and ``LIMIT 1 BY`` dedup as
+    :func:`_trace_rows_by_id`, so both queries resolve a trace to the SAME
+    physical row: the payloads returned belong to the logical version the
+    identity probe saw, never to a different one.  Callers fold the returned
+    dicts into the probed rows before re-merging, so a stored winner that is
+    reinserted keeps its real payloads instead of writing NULL over them.
+    """
+
+    if not trace_ids:
+        return {}
+    result = ch_client.query(
+        """
+        SELECT trace_id, input, output, metadata
+        FROM traces
+        WHERE project_id = {project_id:String}
+          AND trace_id IN {trace_ids:Array(String)}
+        ORDER BY root_version DESC, ch_update_time DESC
+        LIMIT 1 BY project_id, trace_id
+        """,
+        parameters={"trace_ids": trace_ids, "project_id": project_id},
+    )
+    payloads: dict[str, dict] = {}
+    for row in result.result_rows:
+        if len(row) == 1:
+            # Compatibility with narrow unit-test doubles that only returned
+            # the existence probe shape.
+            payloads[row[0]] = {}
+            continue
+        values = dict(zip(("trace_id", "input", "output", "metadata"), row))
+        payloads[values["trace_id"]] = {
+            "input": values["input"],
+            "output": values["output"],
+            "metadata": values["metadata"],
+        }
+    return payloads
+
+
 def _json_serializer(obj: object) -> str:
     """JSON serializer for datetime objects in span dicts."""
     if isinstance(obj, datetime):
@@ -307,6 +496,59 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
 
 
 @app.task(
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,  # Max 10 minutes between retries
+    max_retries=5,
+)
+def finalize_remote_detector_runs(project_id: str, trace_id: str) -> None:
+    """Make the final detector decision for a remote-only provisional root.
+
+    The task reuses the detector worker's existing quiescence interval.  A
+    caller root arriving during the interval therefore gets a chance to claim
+    all detectors with the complete trace; a remote-only trace is evaluated
+    only after no new span has arrived for the same interval.
+    """
+
+    from db.clickhouse.client import get_clickhouse_client
+    from worker.detector_tasks import (
+        EVALUATOR_DELAY,
+        REMOTE_FINALIZER_ORIGIN,
+        enqueue_detector_runs,
+    )
+
+    ch_client = get_clickhouse_client()
+    result = ch_client.query(
+        """
+        SELECT greatest(0, date_diff('millisecond', max(ch_create_time), now64(3)))
+        FROM spans
+        WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
+        """,
+        parameters={"project_id": project_id, "trace_id": trace_id},
+    )
+    row = result.result_rows[0] if result.result_rows else None
+    quiet_ms = int(row[0]) if row and row[0] is not None else 0
+    if quiet_ms < EVALUATOR_DELAY:
+        finalize_remote_detector_runs.apply_async(
+            args=[project_id, trace_id],
+            countdown=max(1, (EVALUATOR_DELAY - quiet_ms) / 1000),
+        )
+        return
+
+    # The final Redis NX claim and deterministic sampling remain in the normal
+    # path, so a caller-root batch racing this task cannot create a duplicate.
+    # The claim is origin-marked so a caller root that arrives AFTER this
+    # decision re-evaluates the triggers with the complete trace and enqueues
+    # what this partial-data decision missed, instead of losing the claim.
+    enqueue_detector_runs(
+        project_id,
+        {trace_id},
+        raise_on_error=True,
+        claim_origin=REMOTE_FINALIZER_ORIGIN,
+    )
+
+
+@app.task(
     bind=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -331,7 +573,7 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     # Import here to avoid circular imports and ensure fresh connections
     from db.clickhouse.client import get_clickhouse_client
     from rest.services.s3 import get_s3_service
-    from worker.otel_transform import transform_otel_to_clickhouse
+    from worker.otel_transform import PARENT_IS_REMOTE_KEY, transform_otel_to_clickhouse
 
     logger.info(f"Processing S3 traces: {s3_key} for project {project_id}")
 
@@ -345,44 +587,69 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         traces, spans = transform_otel_to_clickhouse(otel_data, project_id)
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
-        root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+        locally_rooted_trace_ids = {
+            s["trace_id"]
+            for s in spans
+            if s.get("parent_span_id") is None and not s.get(PARENT_IS_REMOTE_KEY)
+        }
+        remotely_rooted_trace_ids = {s["trace_id"] for s in spans if s.get(PARENT_IS_REMOTE_KEY)}
 
         # 3. Insert into ClickHouse
         if traces or spans:
             ch_client = get_clickhouse_client()
 
             if traces:
-                # Only insert a trace record if this batch contains the root span
-                # OR the trace is genuinely new (no existing ClickHouse record).
-                # Intermediate batches without the root span must not overwrite a
-                # correctly-named trace record with a wrong name.
-                trace_records_missing_root = [
-                    t for t in traces if t["trace_id"] not in root_bearing_trace_ids
-                ]
-                if trace_records_missing_root:
-                    ids = [t["trace_id"] for t in trace_records_missing_root]
-                    # project_id is the sort-key prefix, and trace_id carries no skip
-                    # index — so without this predicate the probe cannot prune and
-                    # becomes a FINAL scan of every project in the table to answer a
-                    # question about one. Still O(project), not O(batch): nothing
-                    # bounds trace_start_time here.
-                    result = ch_client.query(
-                        "SELECT DISTINCT trace_id FROM traces FINAL"
-                        " WHERE project_id = {project_id:String}"
-                        " AND trace_id IN {ids:Array(String)}",
-                        parameters={"ids": ids, "project_id": project_id},
-                    )
-                    existing_ids = {row[0] for row in result.result_rows}
-                    traces = [
-                        t
-                        for t in traces
-                        if t["trace_id"] in root_bearing_trace_ids
-                        or t["trace_id"] not in existing_ids
-                    ]
+                trace_ids = [t["trace_id"] for t in traces]
+                existing = _trace_rows_by_id(ch_client, project_id, trace_ids)
 
-                if traces:
-                    ch_client.insert_traces_batch(traces)
-                    logger.info(f"Inserted {len(traces)} traces into ClickHouse")
+                # Phase 1 — decide which stored winners a merge would actually
+                # rewrite, so the payload columns are read only for those rows.
+                # An incoming row that strictly wins on root version writes its
+                # own payloads; a stored winner whose identity fields all match
+                # is not rewritten at all (same version => same winning root =>
+                # unchanged payloads).  Only a stored winner that survives with
+                # changed identity fields (e.g. a late user_id or the monotonic
+                # evaluation flag) needs its real payloads fetched, so the
+                # reinsert cannot null them out.
+                premerged: dict[str, dict] = {}
+                payload_read_ids: list[str] = []
+                for incoming in traces:
+                    tid = incoming["trace_id"]
+                    prior = existing.get(tid)
+                    premerged[tid] = _merge_trace_record(incoming, prior)
+                    if prior is None:
+                        continue
+                    if _effective_root_version(incoming) > int(prior.get("root_version") or 0):
+                        continue
+                    if any(
+                        premerged[tid].get(field) != prior.get(field)
+                        for field in _TRACE_IDENTITY_FIELDS
+                    ):
+                        payload_read_ids.append(tid)
+
+                if payload_read_ids:
+                    payloads = _trace_payloads_by_id(ch_client, project_id, payload_read_ids)
+                    for tid, payload in payloads.items():
+                        existing[tid].update(payload)
+
+                merged_traces = []
+                for incoming in traces:
+                    tid = incoming["trace_id"]
+                    prior = existing.get(tid)
+                    # Re-merge fetched rows now that their payloads are known.
+                    merged = (
+                        _merge_trace_record(incoming, prior)
+                        if tid in payload_read_ids
+                        else premerged[tid]
+                    )
+                    if prior is None or any(
+                        merged.get(field) != prior.get(field) for field in _TRACE_COMPARE_FIELDS
+                    ):
+                        merged_traces.append(merged)
+
+                if merged_traces:
+                    ch_client.insert_traces_batch(merged_traces)
+                    logger.info(f"Inserted {len(merged_traces)} traces into ClickHouse")
 
             if spans:
                 ch_client.insert_spans_batch(spans)
@@ -403,23 +670,36 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                     except Exception as e:
                         logger.error(f"eval cost derivation errored: {e}", exc_info=True)
 
-        # Trigger detector runs (fire-and-forget, non-blocking). The batch that
-        # carries a trace's root span triggers detection exactly once — a Redis
-        # lock keyed on (project, trace) dedups against ingest-task retries and
-        # duplicate root delivery. Batches without the root span are ignored
-        # here; the worker waits out the quiescence window before evaluating,
-        # so late spans need no enqueue.
-        if root_bearing_trace_ids:
+        # A true local root is eligible for the final detector claim now. A
+        # remote-parent entry only schedules a separate quiescence finalizer; it
+        # must not consume the final NX claim while the caller root may still
+        # arrive with additional duration/metadata.
+        if locally_rooted_trace_ids:
             try:
                 from worker.detector_tasks import enqueue_detector_runs
 
-                enqueue_detector_runs(project_id, root_bearing_trace_ids)
+                enqueue_detector_runs(project_id, locally_rooted_trace_ids)
             except Exception as e:
                 logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
+        if remotely_rooted_trace_ids:
+            try:
+                from worker.detector_tasks import schedule_remote_detector_finalization
+
+                schedule_remote_detector_finalization(project_id, remotely_rooted_trace_ids)
+            except Exception as e:
+                logger.error(f"Failed to schedule remote detector finalization: {e}", exc_info=True)
 
         # 4. Publish to Redis for live trace streaming
         if spans:
-            _publish_live_spans(spans, project_id)
+            # Root eligibility is ingest-internal; do not expose the transient
+            # marker through the live Redis payload either.
+            _publish_live_spans(
+                [
+                    {key: value for key, value in span.items() if key != PARENT_IS_REMOTE_KEY}
+                    for span in spans
+                ],
+                project_id,
+            )
 
         return {
             "s3_key": s3_key,

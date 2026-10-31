@@ -81,6 +81,8 @@ class TestInsertTracesBatch:
         assert isinstance(_value(row, columns, "ch_update_time"), datetime)
         assert _value(row, columns, "environment") == "production"
         assert _value(row, columns, "is_evaluation") == 0
+        assert _value(row, columns, "root_kind") == 0
+        assert _value(row, columns, "root_version") == 0
 
     def test_column_names_are_the_traces_schema_in_order(self):
         """Pin the written column list. The insert is positional, so the order here is
@@ -118,6 +120,8 @@ class TestInsertTracesBatch:
             "ch_update_time",
             "environment",
             "is_evaluation",
+            "root_kind",
+            "root_version",
         ]
 
     def test_empty_batch_no_insert(self):

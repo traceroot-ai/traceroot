@@ -211,10 +211,8 @@ def test_dedup_is_by_logical_id_and_runs_before_the_row_filters(sql):
     assert re.search(r"LIMIT 1 BY trace_id\s*\n", sql), "traces view dedups by trace_id"
     # Counted per view, not across the file: a global count of two is satisfied by one
     # view carrying both clauses while the other picks an arbitrary version.
-    for view in ("spans_public_v1", "traces_public_v1"):
-        assert "ORDER BY ch_update_time DESC" in _view_block(sql, view), (
-            f"{view} does not order its dedup by ch_update_time"
-        )
+    assert "ORDER BY ch_update_time DESC" in _view_block(sql, "spans_public_v1")
+    assert "ORDER BY root_version DESC, ch_update_time DESC" in _view_block(sql, "traces_public_v1")
     assert "FINAL" not in sql, "FINAL cannot dedup across the sort key here"
 
     # The filters live OUTSIDE the dedup subquery, so the dedup sees every version.

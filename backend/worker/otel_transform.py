@@ -45,6 +45,7 @@ from shared.span_attributes import (
     SPAN_PATH,
     SPAN_TREE_ATTRIBUTES,
 )
+from shared.trace_identity import TraceRootKind, trace_root_version
 
 logger = logging.getLogger(__name__)
 
@@ -496,6 +497,92 @@ def decode_otel_id(b64_value: str | None) -> str | None:
         return b64_value  # Return as-is if decoding fails
 
 
+# Bit masks of the two Span.flags bits that mark a REMOTE parent context
+# (OTLP SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE_MASK | SPAN_FLAGS_CONTEXT_IS_REMOTE_MASK).
+# An SDK-exported entry span always carries both when its parent came from another
+# service's W3C ``traceparent`` — the opentelemetry-python exporter sends
+# ``flags=0x300`` there and ``flags=0x100`` on a local root, so the pair unambiguously
+# says "this span's parent is a span of another service". OTel JS historically
+# omits ``flags`` entirely, so absence must stay meaningless: a span without the
+# pair keeps today's interpretation of its parent id.
+_REMOTE_PARENT_SPAN_FLAGS_MASK = 0x300
+
+# Transient key set on the in-memory span record of a span whose parent context is
+# remote.  The original parent_span_id remains intact; this marker is only root
+# eligibility metadata for ingest and is never persisted by the named-column
+# ClickHouse insert helper.
+PARENT_IS_REMOTE_KEY = "parent_is_remote"
+
+# The TypeScript SDK does not currently serialize Span.flags.  Its processor emits
+# ids_path=[] when it cannot resolve a parent context (the normal case for a W3C
+# remote parent), and stamps its SDK name on every span.  This is deliberately a
+# guarded fallback: an absent flags field alone is never evidence of a remote
+# parent, and a non-TypeScript payload keeps the legacy interpretation.
+_TS_SDK_NAME = "traceroot-ts"
+
+
+def _parent_context_is_remote(flags: Any) -> bool:
+    """Whether OTLP ``Span.flags`` marks the span's parent as remote.
+
+    Args:
+        flags: The raw ``flags`` field of an OTLP span JSON record — an int as
+            MessageToDict emits it, possibly a decimal string from other JSON
+            emitters, or missing.
+
+    Returns:
+        bool: True only when both remote-parent bits are set. A bare IS_REMOTE
+            bit (0x100) is a local-root marker and does not qualify.
+    """
+    if isinstance(flags, str) and flags.isdigit():
+        flags = int(flags)
+    if not isinstance(flags, int) or isinstance(flags, bool):
+        return False
+    return (flags & _REMOTE_PARENT_SPAN_FLAGS_MASK) == _REMOTE_PARENT_SPAN_FLAGS_MASK
+
+
+def _typescript_remote_parent_fallback(parent_span_id: str | None, span_attrs: dict) -> bool:
+    """Classify the TypeScript SDK's unresolved-parent entry signal.
+
+    ``traceroot-ts`` intentionally emits an empty ``ids_path`` when a span was
+    started from a remote/non-recording parent, because there is no local path to
+    serialize.  The same shape can occur if a parent was ended before a child was
+    started, so this remains a provisional *unresolved-parent* signal rather than
+    a claim that the external caller is known.  Restricting it to the SDK's own
+    marker avoids changing legacy Python/third-party payload semantics.
+    """
+
+    return (
+        parent_span_id is not None
+        and span_attrs.get("traceroot.sdk.name") == _TS_SDK_NAME
+        and span_attrs.get(SPAN_IDS_PATH) == []
+    )
+
+
+def _remote_flags_are_inconclusive(flags: Any) -> bool:
+    """Whether flags leave the remote-parent bit pair unknown.
+
+    A TypeScript fallback must not override an explicit OTLP local marker
+    (either half of the ``has-remote`` pair without the other half).
+    """
+
+    if isinstance(flags, str) and flags.isdigit():
+        flags = int(flags)
+    return (
+        not isinstance(flags, int)
+        or isinstance(flags, bool)
+        or not flags & _REMOTE_PARENT_SPAN_FLAGS_MASK
+    )
+
+
+# Spans whose start time is missing have no wire timestamp at all and cannot be
+# stored (span_start_time is not nullable); they are dropped below.  A start at
+# or before the epoch is a different failure: the span itself is real data whose
+# timestamp is malformed.  It is STORED but is barred from the root-seat claim —
+# its inverted-time version would be the largest in its kind and would
+# permanently outrank every real start for the trace.  See the claim site.
+_EPOCH = datetime(1970, 1, 1)
+
+
 def nanos_to_datetime(nanos: int | str | None) -> datetime | None:
     """Convert nanoseconds since epoch to datetime.
 
@@ -743,6 +830,16 @@ def transform_otel_to_clickhouse(
     _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
     _trace_environment: dict[str, str] = {}  # first non-null environment seen
 
+    # Root-claim bookkeeping for this batch, keyed by trace id. A TRUE local root
+    # (a span exported with no parent id at all) is the trace's authoritative
+    # identity and always claims the root seat; a remote-parent entry may claim
+    # only while no true root has claimed yet — whichever order the two arrive
+    # in. Among remote-parent entries themselves (two services fanning out of one
+    # shared, untraced caller), the earlier span start is the deterministic winner.
+    # Registration happens only once a span survives validation — see the claim
+    # site in the loop below.
+    _trace_root_candidates: dict[str, tuple[TraceRootKind, datetime, str]] = {}
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
 
@@ -774,6 +871,17 @@ def transform_otel_to_clickhouse(
 
                 # Parse attributes
                 span_attrs = attributes_to_dict(otel_span.get("attributes", []))
+
+                # Root eligibility is separate from the persisted topology.  A
+                # remote-parent entry may establish a provisional trace identity,
+                # but its caller's span id is still the real parent relationship.
+                is_remote_parent_entry = parent_span_id is not None and (
+                    _parent_context_is_remote(otel_span.get("flags"))
+                    or (
+                        _remote_flags_are_inconclusive(otel_span.get("flags"))
+                        and _typescript_remote_parent_fallback(parent_span_id, span_attrs)
+                    )
+                )
 
                 # Determine span kind
                 otel_kind = otel_span.get("kind")
@@ -822,6 +930,13 @@ def transform_otel_to_clickhouse(
                     "span_kind": span_kind,
                     "status": SpanStatus.OK,
                 }
+                if is_remote_parent_entry:
+                    # In-memory only: ClickHouse inserts pick named columns, so this
+                    # never persists and readers never see it. ingest_tasks reads it
+                    # to tell a remote-root-bearing batch from one carrying the
+                    # trace's true root, whose trace row must still be able to
+                    # replace what an earlier batch wrote.
+                    span_record[PARENT_IS_REMOTE_KEY] = True
                 if isinstance(environment, str):
                     span_record["environment"] = environment
                 if is_evaluation:
@@ -1257,6 +1372,35 @@ def transform_otel_to_clickhouse(
 
                 spans.append(span_record)
 
+                # Root-seat claim, decided only now that the span is fully
+                # validated and committed as a row.  Local roots outrank
+                # remote-parent entries, and competing remote entries use the
+                # earlier span start time, so input order cannot choose the row.
+                # A span whose start time is at/before the epoch is stored but
+                # never claims: its inverted-time version would be the largest
+                # in its kind and would permanently beat every real start for
+                # the trace (see _EPOCH).  Root eligibility is thus separate
+                # from span validity — the malformed span's data is kept.
+                claims_trace_root = False
+                if (parent_span_id is None or is_remote_parent_entry) and start_time > _EPOCH:
+                    candidate_kind = (
+                        TraceRootKind.REMOTE_PARENT
+                        if is_remote_parent_entry
+                        else TraceRootKind.ROOT
+                    )
+                    candidate = (candidate_kind, start_time, span_id)
+                    existing_candidate = _trace_root_candidates.get(trace_id)
+                    if existing_candidate is None or (
+                        int(candidate_kind) > int(existing_candidate[0])
+                        or (
+                            candidate_kind == existing_candidate[0]
+                            and (start_time, span_id)
+                            < (existing_candidate[1], existing_candidate[2])
+                        )
+                    ):
+                        _trace_root_candidates[trace_id] = candidate
+                        claims_trace_root = True
+
                 # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
@@ -1269,8 +1413,10 @@ def transform_otel_to_clickhouse(
                 if trace_id not in trace_git_attrs:
                     trace_git_attrs[trace_id] = {"git_ref": None, "git_repo": None}
 
-                if not parent_span_id:
-                    # Root span: always use its values if present (overwrites child values)
+                if claims_trace_root:
+                    # Root span (or the remote-parent entry that claimed the root
+                    # seat for this trace): always use its values if present
+                    # (overwrites child values)
                     trace_attrs[trace_id]["user_id"] = (
                         span_user_id or trace_attrs[trace_id]["user_id"]
                     )
@@ -1324,7 +1470,7 @@ def transform_otel_to_clickhouse(
                 # closest to the root (shortest ids_path). Batches may contain
                 # spans out of depth order, so the first span processed might not
                 # be the shallowest one.
-                if not parent_span_id:
+                if claims_trace_root:
                     # Actual root span — definitive, depth 0.
                     _trace_name_candidates[trace_id] = (0, span_name)
                 else:
@@ -1340,12 +1486,26 @@ def transform_otel_to_clickhouse(
                     if existing is None or depth < existing[0]:
                         _trace_name_candidates[trace_id] = (depth, candidate_name)
 
-                if not parent_span_id:
-                    # Root span arrived — upgrade to full trace with rich metadata
+                if claims_trace_root:
+                    # Root span arrived (a true local root, or the remote-parent
+                    # entry that claimed the root seat) — upgrade to a full trace
+                    # with rich metadata. A true local root processed later
+                    # re-runs this with its own values, so it wins either way.
                     traces[trace_id].update(
                         {
                             "trace_start_time": start_time,
                             "name": span_name,
+                            "root_kind": int(
+                                TraceRootKind.REMOTE_PARENT
+                                if is_remote_parent_entry
+                                else TraceRootKind.ROOT
+                            ),
+                            "root_version": trace_root_version(
+                                TraceRootKind.REMOTE_PARENT
+                                if is_remote_parent_entry
+                                else TraceRootKind.ROOT,
+                                start_time,
+                            ),
                             "user_id": trace_attrs[trace_id]["user_id"],
                             "session_id": trace_attrs[trace_id]["session_id"],
                         }
@@ -1367,25 +1527,41 @@ def transform_otel_to_clickhouse(
                             else trace_metadata
                         )
 
-                    # Root span input/output becomes trace input/output
+                    # Root input/output belongs to the winning root only.  Do
+                    # not carry a losing remote entry's content into a later
+                    # true-root row merely because that root omitted the field.
                     if span_input is not None:
                         traces[trace_id]["input"] = (
                             json.dumps(span_input)
                             if not isinstance(span_input, str)
                             else span_input
                         )
+                    else:
+                        traces[trace_id].pop("input", None)
                     if span_output is not None:
                         traces[trace_id]["output"] = (
                             json.dumps(span_output)
                             if not isinstance(span_output, str)
                             else span_output
                         )
+                    else:
+                        traces[trace_id].pop("output", None)
+                    if trace_metadata is None:
+                        traces[trace_id].pop("metadata", None)
 
     # Correct eager trace names: the first span processed may not be the shallowest.
     # Apply the best candidate (shortest ids_path) found across all spans in this batch.
     for trace_id, (_, best_name) in _trace_name_candidates.items():
         if trace_id in traces:
             traces[trace_id]["name"] = best_name
+
+    # A batch without a local root or a remote-parent entry is an honest
+    # placeholder.  Keeping the kind explicit lets ingest distinguish it from
+    # a provisional remote root without leaking transformation state into spans.
+    for trace_id, trace in traces.items():
+        if trace_id not in _trace_root_candidates:
+            trace["root_kind"] = int(TraceRootKind.PLACEHOLDER)
+            trace["root_version"] = 0
 
     # Classify the trace from ANY eval-kind span in the batch, not just the root, so a
     # batch of {SCORER, TASK} whose EVALUATION root has not been exported yet still
@@ -1394,6 +1570,13 @@ def transform_otel_to_clickhouse(
     for trace_id in _trace_is_evaluation:
         if trace_id in traces:
             traces[trace_id]["is_evaluation"] = True
+
+    for _trace_id, trace in traces.items():
+        trace["root_version"] = trace_root_version(
+            trace.get("root_kind", TraceRootKind.PLACEHOLDER),
+            trace.get("trace_start_time"),
+            bool(trace.get("is_evaluation")),
+        )
 
     # Same for the user's environment tag: the shallow record would otherwise carry no
     # environment until the root arrives. The root-upgrade block above already set it

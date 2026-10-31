@@ -839,7 +839,7 @@ class TestListTraceCounts:
     ):
         sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
         assert "FINAL" not in sql
-        assert "argMax(t.trace_start_time, t.ch_update_time) AS ts" in sql
+        assert "argMax(t.trace_start_time, (t.root_version, t.ch_update_time)) AS ts" in sql
         assert "GROUP BY t.trace_id" in sql
         assert "uniqExact(id)" in sql
         assert "max(timestamp)" not in sql
