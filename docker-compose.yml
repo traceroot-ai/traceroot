@@ -138,10 +138,19 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    volumes:
+      # Expires raw ingest batches (events/ingest/, 7 days) and batches that failed
+      # processing (events/failed/, 30 days). Everything else in the bucket is kept,
+      # batches stored under events/otel/ by earlier versions included.
+      # `mc ilm rule import` replaces the whole lifecycle config, so every start
+      # leaves the same rules rather than adding to them.
+      - ./docker/minio/lifecycle.json:/bootstrap/lifecycle.json:ro
     entrypoint: >
       /bin/sh -c "
       mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minio} $${MINIO_ROOT_PASSWORD:-minio-password};
       mc mb myminio/traceroot --ignore-existing;
+      mc ilm rule import myminio/traceroot < /bootstrap/lifecycle.json
+      || echo 'minio-init: could not apply the bucket lifecycle rules';
       exit 0;
       "
 
