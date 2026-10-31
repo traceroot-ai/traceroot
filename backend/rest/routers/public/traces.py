@@ -120,6 +120,10 @@ async def ingest_traces(
     Body:
         OTLP trace data in protobuf format
     """
+    # The batch's rows are versioned by when it arrived, so of two versions of a
+    # span the one sent later wins whatever order the worker processes them in.
+    received_at = datetime.now(UTC)
+
     # Check if ingestion is blocked (free plan limit exceeded)
     # This flag is updated hourly by the billing worker
     # Skip enforcement when billing is disabled (e.g. self-hosted)
@@ -174,13 +178,12 @@ async def ingest_traces(
             ) from e
 
     # 3. Generate S3 key (time-partitioned); the suffix tells the worker the format
-    now = datetime.now(UTC)
     file_id = str(uuid.uuid4())
     suffix = ".pb.gz" if gzipped else ".pb"
     s3_key = (
         f"events/ingest/{project_id}/"
-        f"{now.year}/{now.month:02d}/{now.day:02d}/{now.hour:02d}/"
-        f"{file_id}{suffix}"
+        f"{received_at.year}/{received_at.month:02d}/{received_at.day:02d}/"
+        f"{received_at.hour:02d}/{file_id}{suffix}"
     )
 
     # 4. Upload the body to S3 exactly as received
@@ -198,7 +201,9 @@ async def ingest_traces(
 
     # 5. Enqueue Celery task for async processing (S3 reference only, not full payload)
     try:
-        process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
+        process_s3_traces.delay(
+            s3_key=s3_key, project_id=project_id, received_at=received_at.isoformat()
+        )
         logger.info(f"Enqueued Celery task for {s3_key}")
     except Exception as e:
         # Only a queued task ever reads the staged object, so answering 200 here

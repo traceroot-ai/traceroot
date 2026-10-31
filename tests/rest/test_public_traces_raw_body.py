@@ -125,7 +125,9 @@ class TestStagesTheOriginalBody:
         assert staged == body
         assert s3.upload_bytes.call_args.kwargs == {"content_type": "application/x-protobuf"}
         assert response.json() == {"status": "ok", "file_key": key}
-        task.delay.assert_called_once_with(s3_key=key, project_id="test-project")
+        task.delay.assert_called_once()
+        assert task.delay.call_args.kwargs["s3_key"] == key
+        assert task.delay.call_args.kwargs["project_id"] == "test-project"
         s3.upload_json.assert_not_called()
 
     def test_uncompressed_request_is_staged_byte_identical(self, ingest):
