@@ -13657,7 +13657,7 @@
         }
       },
       "post": {
-        "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nThe body is stored in S3 exactly as received and decoded asynchronously,\nso a 200 means the batch was stored and queued, not that it decoded.\n\nS3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz\n(``.pb`` when the body is not gzip-compressed)\n\nSize limits: by default the body may be at most 16 MiB as sent and 32 MiB\nonce unzipped. A larger request gets 413.\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
+        "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nThe body is stored in S3 exactly as received and decoded asynchronously,\nso a 200 means the batch was stored and queued, not that it decoded.\n\nS3 path: events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz\n(``.pb`` when the body is not gzip-compressed)\n\nSize limits: by default the body may be at most 16 MiB as sent and 32 MiB\nonce unzipped. A larger request gets 413.\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
         "operationId": "ingest_traces",
         "requestBody": {
           "content": {

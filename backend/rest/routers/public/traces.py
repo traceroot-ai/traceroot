@@ -106,7 +106,7 @@ async def ingest_traces(
     The body is stored in S3 exactly as received and decoded asynchronously,
     so a 200 means the batch was stored and queued, not that it decoded.
 
-    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
+    S3 path: events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
     (``.pb`` when the body is not gzip-compressed)
 
     Size limits: by default the body may be at most 16 MiB as sent and 32 MiB
@@ -178,7 +178,7 @@ async def ingest_traces(
     file_id = str(uuid.uuid4())
     suffix = ".pb.gz" if gzipped else ".pb"
     s3_key = (
-        f"events/otel/{project_id}/"
+        f"events/ingest/{project_id}/"
         f"{now.year}/{now.month:02d}/{now.day:02d}/{now.hour:02d}/"
         f"{file_id}{suffix}"
     )

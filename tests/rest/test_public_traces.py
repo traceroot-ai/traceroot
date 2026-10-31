@@ -118,11 +118,33 @@ class TestIngestTraces:
             headers={"Content-Type": "application/x-protobuf"},
         )
         s3_key = mock_s3.upload_bytes.call_args[0][0]
-        assert s3_key.startswith("events/otel/test-project/")
+        assert s3_key.startswith("events/ingest/test-project/")
         assert s3_key.endswith(".pb")
         # Should have yyyy/mm/dd/hh structure
         parts = s3_key.split("/")
-        assert len(parts) == 8  # events/otel/proj/yyyy/mm/dd/hh/uuid.pb
+        assert len(parts) == 8  # events/ingest/proj/yyyy/mm/dd/hh/uuid.pb
+
+    @pytest.mark.parametrize(
+        ("headers", "encode"),
+        [
+            ({"Content-Type": "application/x-protobuf"}, lambda b: b),
+            ({"Content-Encoding": "gzip", "Content-Type": "application/x-protobuf"}, gzip.compress),
+        ],
+        ids=["pb", "pb.gz"],
+    )
+    def test_s3_key_starts_with_events_ingest_and_the_project_id(self, client, headers, encode):
+        test_client, mock_s3, mock_task = client
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result("proj-42")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=encode(b"fake-protobuf"),
+            headers=headers,
+        )
+        assert response.status_code == 200
+        s3_key = mock_s3.upload_bytes.call_args[0][0]
+        assert s3_key.startswith("events/ingest/proj-42/")
+        assert response.json()["file_key"] == s3_key
+        assert mock_task.delay.call_args.kwargs["s3_key"] == s3_key
 
     def test_celery_task_receives_correct_args(self, client):
         test_client, _mock_s3, mock_task = client
@@ -133,7 +155,7 @@ class TestIngestTraces:
         )
         kw = mock_task.delay.call_args.kwargs
         assert kw["project_id"] == "test-project"
-        assert kw["s3_key"].startswith("events/otel/test-project/")
+        assert kw["s3_key"].startswith("events/ingest/test-project/")
 
     def test_s3_receives_the_body_as_sent(self, client):
         test_client, mock_s3, _ = client
