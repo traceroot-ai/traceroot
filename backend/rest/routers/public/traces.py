@@ -11,7 +11,6 @@ Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
 """
 
-import gzip
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -36,6 +35,8 @@ from rest.routers.public.deps import (
     authenticate_api_key,
 )
 from rest.services.s3 import get_s3_service
+from shared.bounded_gzip import GzipTooLargeError, gunzip
+from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
 
 __all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
@@ -67,6 +68,43 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
     # MessageToDict converts protobuf to dict with camelCase field names
     # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
     return MessageToDict(request)
+
+
+def _body_too_large(detail: str) -> HTTPException:
+    """Log and build the 413 for a body over one of the ingest size limits."""
+    logger.warning(f"Refused trace ingest request: {detail}")
+    return HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=detail)
+
+
+async def _read_capped_body(request: Request, max_bytes: int) -> bytes:
+    """Buffer the request body, refusing anything over ``max_bytes``.
+
+    A declared ``Content-Length`` over the cap is refused before any of the body
+    is read. The running count is what enforces the cap, since a chunked body has
+    no length and a declared one can be wrong.
+
+    Args:
+        request (Request): The ingest request.
+        max_bytes (int): The most body bytes accepted, as sent on the wire.
+
+    Returns:
+        bytes: The body as sent.
+
+    Raises:
+        HTTPException: 413 if the body exceeds ``max_bytes``.
+    """
+    too_large = f"Request body exceeds {max_bytes} bytes"
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > max_bytes:
+        raise _body_too_large(too_large)
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > max_bytes:
+            raise _body_too_large(too_large)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class IngestResponse(BaseModel):
@@ -125,8 +163,8 @@ async def ingest_traces(
             detail="Content-Type must be application/x-protobuf",
         )
 
-    # 1. Read body
-    body = await request.body()
+    # 1. Read body, refusing anything over the request cap
+    body = await _read_capped_body(request, settings.ingest.max_request_bytes)
 
     if not body:
         raise HTTPException(
@@ -134,11 +172,13 @@ async def ingest_traces(
             detail="Empty request body",
         )
 
-    # 2. Decompress if gzip
+    # 2. Decompress if gzip, refusing anything that unzips past the cap
     content_encoding = request.headers.get("content-encoding", "")
     if "gzip" in content_encoding.lower():
         try:
-            body = gzip.decompress(body)
+            body = gunzip(body, settings.ingest.max_unzipped_bytes)
+        except GzipTooLargeError as e:
+            raise _body_too_large(f"Decompressed request body exceeds {e.max_bytes} bytes") from e
         except Exception as e:
             logger.warning(f"Failed to decompress gzip: {e}")
             raise HTTPException(
