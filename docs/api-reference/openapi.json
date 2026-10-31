@@ -13759,7 +13759,7 @@
                 }
               }
             },
-            "description": "Authentication service unavailable"
+            "description": "Authentication service unavailable, or the batch could not be queued"
           }
         },
         "security": [
