@@ -141,6 +141,31 @@ describe("TraceFeedWidget", () => {
     expect(push).toHaveBeenCalledWith("/projects/p1/traces?traceId=ok-trace");
   });
 
+  it("shows a timezone-less API timestamp as UTC in local time, like the Traces page", async () => {
+    // The API sends trace_start_time without a zone marker; it is UTC. Run in a
+    // non-UTC zone so parsing it as local time would show the wrong clock time.
+    const previousTZ = process.env.TZ;
+    process.env.TZ = "Asia/Kolkata";
+    try {
+      vi.mocked(getTraces).mockResolvedValue({
+        data: [makeTrace({ trace_start_time: "2026-06-01T10:00:00" })],
+        meta: { page: 0, limit: 10, total: 1 },
+      });
+      renderWidget();
+      await waitFor(() => expect(screen.getByText("checkout-flow")).toBeTruthy());
+
+      const opts = { hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
+      const utcTime = new Date("2026-06-01T10:00:00Z").toLocaleTimeString(undefined, opts);
+      const misreadAsLocal = new Date("2026-06-01T10:00:00").toLocaleTimeString(undefined, opts);
+      expect(utcTime).not.toBe(misreadAsLocal);
+      expect(screen.getByText(utcTime)).toBeTruthy();
+      expect(screen.queryByText(misreadAsLocal)).toBeNull();
+    } finally {
+      if (previousTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTZ;
+    }
+  });
+
   it("passes spec.limit and the range bounds to getTraces", async () => {
     vi.mocked(getTraces).mockResolvedValue({
       data: [makeTrace()],
