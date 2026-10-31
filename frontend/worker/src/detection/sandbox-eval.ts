@@ -299,8 +299,20 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
       );
       if (toolCall) {
         const args = toolCall.arguments as Partial<SubmitResultInput>;
+        // pi-ai resolves the toolCall with its arguments UNVALIDATED: the TypeBox
+        // schema on the tool is only sent to the provider, nothing on this side
+        // enforces it. Weaker judge models — the fallback models this path
+        // explicitly supports — string booleans ("false"), and Boolean("false")
+        // is true, so a clean trace would register as a finding and schedule a
+        // paid RCA run for a verdict the model contradicted in its own summary.
+        // Read the verdict explicitly: a boolean true or its stringified
+        // spelling; anything else (stringified "false", numbers, null) reads as
+        // not identified, the safe direction.
+        const identified =
+          args.identified === true ||
+          (typeof args.identified === "string" && args.identified.trim().toLowerCase() === "true");
         return {
-          identified: Boolean(args.identified),
+          identified,
           summary: typeof args.summary === "string" ? args.summary : "",
           data: (args.data as Record<string, unknown>) ?? {},
           inferenceCost,
