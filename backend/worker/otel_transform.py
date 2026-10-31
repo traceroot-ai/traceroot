@@ -688,6 +688,34 @@ def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
     return error_type[:_MAX_ERROR_TYPE_LENGTH]
 
 
+def _as_json_object(value: Any) -> dict | None:
+    """``value`` as a dict when it is one or a JSON string of one, else None."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _merge_child_trace_metadata(parts: list[tuple[Any, int, Any]]) -> dict | None:
+    """Merge child spans' trace metadata objects; an earlier start keeps a shared key.
+
+    ``parts`` holds ``(start_time, arrival_index, value)``. Values that are not JSON
+    objects cannot be merged and are skipped; None when no part is an object.
+    """
+    merged: dict | None = None
+    for _start, _index, value in sorted(parts, key=lambda p: (p[0], p[1])):
+        obj = _as_json_object(value)
+        if obj is None:
+            continue
+        merged = {**obj, **(merged or {})}
+    return merged
+
+
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
@@ -721,11 +749,11 @@ def transform_otel_to_clickhouse(
     traces: dict[str, dict] = {}  # trace_id -> trace record
     spans: list[dict] = []
 
-    # Track user_id/session_id per trace, collected from ANY span
+    # Track user_id/session_id/metadata per trace, collected from ANY span
     # Priority: root span values > first child span values
     trace_attrs: dict[
-        str, dict[str, str | None]
-    ] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
+        str, dict[str, Any]
+    ] = {}  # trace_id -> {"user_id": ..., "session_id": ..., "metadata": ...}
 
     # Best-known root name per trace: (ids_path_length, name).
     # Shortest ids_path = closest to root. Used to correct eager trace names
@@ -1261,11 +1289,17 @@ def transform_otel_to_clickhouse(
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
                 span_session_id = _extract_session_id(span_attrs)
+                span_trace_metadata = span_attrs.get("traceroot.trace.metadata")
                 span_git_ref = str_or_none(span_attrs.get("traceroot.git.ref"))
                 span_git_repo = str_or_none(span_attrs.get("traceroot.git.repo"))
 
                 if trace_id not in trace_attrs:
-                    trace_attrs[trace_id] = {"user_id": None, "session_id": None}
+                    trace_attrs[trace_id] = {
+                        "user_id": None,
+                        "session_id": None,
+                        "metadata": None,
+                        "metadata_parts": [],
+                    }
                 if trace_id not in trace_git_attrs:
                     trace_git_attrs[trace_id] = {"git_ref": None, "git_repo": None}
 
@@ -1291,6 +1325,12 @@ def transform_otel_to_clickhouse(
                     trace_attrs[trace_id]["session_id"] = (
                         trace_attrs[trace_id]["session_id"] or span_session_id
                     )
+                    trace_attrs[trace_id]["metadata"] = (
+                        trace_attrs[trace_id]["metadata"] or span_trace_metadata
+                    )
+                    if span_trace_metadata is not None:
+                        parts = trace_attrs[trace_id]["metadata_parts"]
+                        parts.append((start_time, len(parts), span_trace_metadata))
                     trace_git_attrs[trace_id]["git_ref"] = (
                         trace_git_attrs[trace_id]["git_ref"] or span_git_ref
                     )
@@ -1402,16 +1442,29 @@ def transform_otel_to_clickhouse(
         if trace_id in traces and not traces[trace_id].get("environment"):
             traces[trace_id]["environment"] = env
 
-    # Update trace records with user_id/session_id collected from child spans
-    # (in case child spans with these attrs came after the root span was processed)
-    # Update trace records with user_id/session_id collected from child spans (in
-    # case child spans with these attrs came after the root span was processed).
+    # Update trace records with user_id/session_id/metadata collected from child spans
+    # (in case child spans with these attrs came after the root span was processed).
     for trace_id, attrs in trace_attrs.items():
         if trace_id in traces:
             if attrs["user_id"] and not traces[trace_id].get("user_id"):
                 traces[trace_id]["user_id"] = attrs["user_id"]
             if attrs["session_id"] and not traces[trace_id].get("session_id"):
                 traces[trace_id]["session_id"] = attrs["session_id"]
+            merged = _merge_child_trace_metadata(attrs["metadata_parts"])
+            root_metadata = _as_json_object(traces[trace_id].get("metadata"))
+            if merged is not None and (
+                root_metadata is not None or "metadata" not in traces[trace_id]
+            ):
+                # The SDK stamps each update_current_trace(metadata=...) dict on the span
+                # that is current and does not merge them, so merge here: root keys win,
+                # then children by start time (call order), earlier first.
+                traces[trace_id]["metadata"] = json.dumps({**merged, **(root_metadata or {})})
+            elif attrs["metadata"] is not None and "metadata" not in traces[trace_id]:
+                traces[trace_id]["metadata"] = (
+                    json.dumps(attrs["metadata"])
+                    if not isinstance(attrs["metadata"], str)
+                    else attrs["metadata"]
+                )
 
     # Git repo/ref are stamped on every SDK span, but the root span often arrives
     # last in live streaming. Promote the first child values so repo/ref are visible

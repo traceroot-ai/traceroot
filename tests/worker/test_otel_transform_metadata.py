@@ -434,3 +434,138 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+def _root_and_child_payload(root_attributes: list[dict], child_attributes: list[dict]) -> dict:
+    """Build an OTEL payload with a child span exported before its root span."""
+    base = {
+        "traceId": _make_trace_id(),
+        "kind": "SPAN_KIND_INTERNAL",
+        "startTimeUnixNano": "1700000000000000000",
+        "endTimeUnixNano": "1700000001000000000",
+        "status": {},
+    }
+    root = {**base, "spanId": _make_span_id(0x02), "name": "root", "attributes": root_attributes}
+    child = {
+        **base,
+        "spanId": _make_span_id(0x03),
+        "parentSpanId": _make_span_id(0x02),
+        "name": "child",
+        "attributes": child_attributes,
+    }
+    return {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [child, root]}],
+            }
+        ]
+    }
+
+
+def test_trace_metadata_from_child_span_populates_trace():
+    """update_current_trace(metadata=...) inside a nested function stamps the child
+    span, the same way it does user_id; the trace must still get the metadata."""
+    trace_meta = {"plan": "pro"}
+    payload = _root_and_child_payload(
+        [],
+        [
+            _attr("traceroot.trace.user_id", "u-42"),
+            _attr("traceroot.trace.metadata", json.dumps(trace_meta)),
+        ],
+    )
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(traces) == 1
+    assert traces[0]["user_id"] == "u-42"
+    assert json.loads(traces[0]["metadata"]) == trace_meta
+
+
+def test_first_child_trace_metadata_wins_without_root_value():
+    """With no root value, the first child's trace metadata is kept, as for user_id."""
+    payload = _root_and_child_payload(
+        [], [_attr("traceroot.trace.metadata", json.dumps({"from": "first"}))]
+    )
+    spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    second_child = {
+        **spans[0],
+        "spanId": _make_span_id(0x04),
+        "attributes": [_attr("traceroot.trace.metadata", json.dumps({"from": "second"}))],
+    }
+    spans.insert(1, second_child)
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"from": "first"}
+
+
+def test_root_trace_metadata_wins_over_child():
+    """When both spans set trace metadata, the root's value is kept, as for user_id."""
+    payload = _root_and_child_payload(
+        [_attr("traceroot.trace.metadata", json.dumps({"from": "root"}))],
+        [_attr("traceroot.trace.metadata", json.dumps({"from": "child"}))],
+    )
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"from": "root"}
+
+
+def _child(span_byte: int, start_ns: int, metadata: dict) -> dict:
+    """A child of the root span built by _root_and_child_payload, starting at start_ns."""
+    return {
+        "traceId": _make_trace_id(),
+        "spanId": _make_span_id(span_byte),
+        "parentSpanId": _make_span_id(0x02),
+        "name": f"child-{span_byte}",
+        "kind": "SPAN_KIND_INTERNAL",
+        "startTimeUnixNano": str(start_ns),
+        "endTimeUnixNano": str(start_ns + 1_000_000),
+        "attributes": [_attr("traceroot.trace.metadata", json.dumps(metadata))],
+        "status": {},
+    }
+
+
+def test_trace_metadata_from_two_children_is_merged():
+    """Two nested helpers each call update_current_trace(metadata=...) with different
+    keys. The SDK stamps each dict on its own span and does not merge, so the trace
+    must merge them or one key is lost."""
+    payload = _root_and_child_payload([], [])
+    spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    spans[:] = [
+        _child(0x03, 1700000000100000000, {"plan": "pro"}),
+        _child(0x04, 1700000000200000000, {"tier": "x"}),
+        spans[1],
+    ]
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "pro", "tier": "x"}
+
+
+def test_root_trace_metadata_keys_win_and_child_keys_are_kept():
+    payload = _root_and_child_payload(
+        [_attr("traceroot.trace.metadata", json.dumps({"plan": "root", "region": "eu"}))],
+        [_attr("traceroot.trace.metadata", json.dumps({"plan": "child", "tier": "x"}))],
+    )
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "root", "region": "eu", "tier": "x"}
+
+
+def test_conflicting_child_keys_follow_call_order_not_batch_order():
+    """BatchSpanProcessor exports roughly in end order, so the span that started first
+    (the first call) can arrive last. The earlier start keeps a conflicting key."""
+    payload = _root_and_child_payload([], [])
+    spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    spans[:] = [
+        _child(0x04, 1700000000200000000, {"plan": "second", "b": 2}),
+        _child(0x03, 1700000000100000000, {"plan": "first", "a": 1}),
+        spans[1],
+    ]
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "first", "a": 1, "b": 2}
