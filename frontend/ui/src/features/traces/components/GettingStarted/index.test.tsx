@@ -84,7 +84,7 @@ describe("the manual tab", () => {
       "Set environment variables",
       "Select your integration",
       "Initialize TraceRoot for OpenAI",
-      "External integrations",
+      "Run your application",
     ]);
     expect(
       isAbove(
