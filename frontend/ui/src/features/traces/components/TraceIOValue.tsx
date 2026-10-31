@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { ContentRenderer } from "./ContentRenderer";
+import { AttachmentSourceContext, type AttachmentSource } from "./inline-media";
 
 /**
  * A collapsible span I/O / metadata section: a title, an optional copy button, and
@@ -16,12 +17,15 @@ export function TraceIOSection({
   onCopy,
   loading = false,
   defaultOpen = true,
+  attachmentSource = null,
 }: {
   title: string;
   content: string | null;
   onCopy?: () => void;
   loading?: boolean;
   defaultOpen?: boolean;
+  /** The span the content belongs to, so image references in it can load. */
+  attachmentSource?: AttachmentSource | null;
 }) {
   return (
     <ExpandableSection title={title} defaultOpen={defaultOpen} onCopy={onCopy}>
@@ -31,7 +35,9 @@ export function TraceIOSection({
           Loading…
         </div>
       ) : (
-        <ContentRenderer content={content} />
+        <AttachmentSourceContext.Provider value={attachmentSource}>
+          <ContentRenderer content={content} />
+        </AttachmentSourceContext.Provider>
       )}
     </ExpandableSection>
   );
