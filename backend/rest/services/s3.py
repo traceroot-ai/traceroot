@@ -3,7 +3,13 @@
 This service handles uploading raw OTEL trace batches to S3/MinIO for
 durable storage. Data is stored using a time-partitioned path structure:
 
-    events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+    events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
+
+The suffix names the format: ``.pb.gz`` and ``.pb`` hold the OTLP protobuf
+request body exactly as received, with and without gzip. Batches stored by
+earlier versions were decoded to OTLP JSON first, and stay under
+``events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json``.
+``worker.staged_batch`` reads all three formats under either prefix.
 
 This structure enables:
 - Fast writes (no lookup needed)
@@ -141,6 +147,26 @@ class S3Service:
         client = self._get_client()
         response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
         return response["Body"].read()
+
+    def upload_bytes(self, s3_key: str, data: bytes, content_type: str) -> None:
+        """Upload bytes to S3 exactly as given.
+
+        No ``ContentEncoding`` is set, even for gzip data, so the object reads
+        back byte-for-byte instead of being decompressed in transit.
+
+        Args:
+            s3_key: Full S3 key path
+            data: The object's content
+            content_type: MIME type stored as the object's ``ContentType``
+        """
+        client = self._get_client()
+        client.put_object(
+            Bucket=self._bucket_name,
+            Key=s3_key,
+            Body=data,
+            ContentType=content_type,
+        )
+        logger.debug(f"Uploaded {len(data)} bytes to s3://{self._bucket_name}/{s3_key}")
 
 
 # Global singleton instance
