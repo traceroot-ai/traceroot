@@ -79,6 +79,19 @@ describe("resolvePiModel", () => {
     expect(m.baseUrl).toContain("deepseek");
   });
 
+  it("uses mistral-conversations for BYOK Mistral", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "mistral",
+      key: "sk-mistral-test",
+      baseUrl: null,
+      config: null,
+    };
+    const m = resolvePiModel("mistral-large-latest", cfg);
+    expect(m.api).toBe("mistral-conversations");
+    expect(m.provider).toBe("mistral");
+    expect(m.baseUrl).toBe("https://api.mistral.ai");
+  });
+
   it("falls back to first ADAPTER_MODELS entry for BYOK with no model id (NOT Anthropic)", () => {
     const cfg: ProviderModelConfig = {
       adapter: "deepseek",

@@ -27,6 +27,7 @@ vi.mock("@traceroot/core", () => ({
     MOONSHOT: "moonshot",
     ZAI: "zai",
     TYPESAFE: "typesafe",
+    MISTRAL: "mistral",
   },
   ADAPTER_DEFAULT_BASE_URL: {
     openai: "https://api.openai.com/v1",
@@ -38,6 +39,7 @@ vi.mock("@traceroot/core", () => ({
     moonshot: "https://api.moonshot.ai/v1",
     zai: "https://open.bigmodel.cn/api/paas/v4",
     typesafe: "https://api.typesafe.ai/v1",
+    mistral: "https://api.mistral.ai",
   },
   prisma: {
     modelProvider: {
@@ -407,6 +409,41 @@ describe("POST model-providers/test - error responses", () => {
     );
   });
 
+  it("mistral sends the key as a Bearer token to /v1/models", async () => {
+    fetchMock.mockResolvedValue(okResponse());
+    await POST(makeRequest({ adapter: "mistral", apiKey: "mistral-key" }), makeParams());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mistral.ai/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer mistral-key" } }),
+    );
+  });
+
+  it("mistral 401 maps to Invalid API key", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: async () => ({ detail: "Invalid API Key" }),
+    });
+    const res = await POST(makeRequest({ adapter: "mistral", apiKey: "bad" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
+  });
+
+  it("mistral surfaces detail on non-401 error", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ detail: "Invalid request payload" }),
+    });
+    const res = await POST(makeRequest({ adapter: "mistral", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connection failed",
+      detail: "Invalid request payload",
+    });
+  });
+
   it("anthropic 403 maps to API lacks permission", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
@@ -518,7 +555,11 @@ describe("POST model-providers/test - amazon-bedrock (no network)", () => {
 
 describe("POST model-providers/test - stored key resolution", () => {
   it("decrypts the stored key when only providerId is supplied", async () => {
-    prismaFindFirstMock.mockResolvedValue({ keyCipher: "cipher" });
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "openai",
+      baseUrl: null,
+    });
     decryptKeyMock.mockReturnValue("decrypted-key");
     fetchMock.mockResolvedValue(okResponse());
 
@@ -543,6 +584,88 @@ describe("POST model-providers/test - stored key resolution", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/models",
       expect.objectContaining({ headers: { Authorization: "Bearer undefined" } }),
+    );
+  });
+
+  it("rejects destination override and uses stored baseUrl when providerId supplies key", async () => {
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "mistral",
+      baseUrl: "https://stored-mistral.example",
+    });
+    decryptKeyMock.mockReturnValue("decrypted-key");
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(
+      makeRequest({
+        adapter: "mistral",
+        providerId: "prov-1",
+        baseUrl: "https://attacker.example",
+      }),
+      makeParams(),
+    );
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stored-mistral.example/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("attacker.example"),
+      expect.anything(),
+    );
+  });
+
+  it("rejects destination override and uses default baseUrl when stored provider has no baseUrl", async () => {
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "mistral",
+      baseUrl: null,
+    });
+    decryptKeyMock.mockReturnValue("decrypted-key");
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(
+      makeRequest({
+        adapter: "mistral",
+        providerId: "prov-1",
+        baseUrl: "https://attacker.example",
+      }),
+      makeParams(),
+    );
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mistral.ai/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("attacker.example"),
+      expect.anything(),
+    );
+  });
+
+  it("derives adapter from stored provider when providerId supplies key", async () => {
+    prismaFindFirstMock.mockResolvedValue({
+      keyCipher: "cipher",
+      adapter: "mistral",
+      baseUrl: null,
+    });
+    decryptKeyMock.mockReturnValue("decrypted-key");
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        providerId: "prov-1",
+      }),
+      makeParams(),
+    );
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mistral.ai/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
     );
   });
 });

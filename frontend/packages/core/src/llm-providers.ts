@@ -18,6 +18,7 @@ export const LLMAdapter = {
   MOONSHOT: "moonshot",
   ZAI: "zai",
   TYPESAFE: "typesafe",
+  MISTRAL: "mistral",
 } as const;
 export type LLMAdapter = (typeof LLMAdapter)[keyof typeof LLMAdapter];
 
@@ -33,6 +34,7 @@ export const ADAPTER_TO_PI_AI: Record<string, string> = {
   xai: "openai", // OpenAI-compatible
   moonshot: "openai", // OpenAI-compatible
   zai: "openai", // OpenAI-compatible
+  mistral: "mistral",
 };
 
 // Default base URLs for adapters
@@ -46,6 +48,7 @@ export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
   moonshot: "https://api.moonshot.ai/v1",
   zai: "https://open.bigmodel.cn/api/paas/v4",
   typesafe: "https://api.typesafe.ai/v1",
+  mistral: "https://api.mistral.ai",
 };
 
 // API protocol per adapter — used to build fallback model objects for BYOK models
@@ -65,6 +68,7 @@ export const ADAPTER_API_PROTOCOL: Record<string, string> = {
   xai: "openai-completions",
   moonshot: "openai-completions",
   zai: "openai-completions",
+  mistral: "mistral-conversations",
 };
 
 export interface LLMModelDef {
@@ -171,6 +175,7 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
   LLMAdapter.GOOGLE,
+  LLMAdapter.MISTRAL,
   LLMAdapter.OPENROUTER,
   LLMAdapter.AZURE,
   LLMAdapter.AMAZON_BEDROCK,
@@ -271,6 +276,13 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "jev-1.13.0", label: "jev-1.13.0" },
     { id: "jev-1.14.0", label: "jev-1.14.0" },
   ],
+  mistral: [
+    { id: "mistral-large-latest", label: "mistral-large-latest" },
+    { id: "mistral-small-latest", label: "mistral-small-latest" },
+    { id: "codestral-latest", label: "codestral-latest" },
+    { id: "ministral-8b-latest", label: "ministral-8b-latest" },
+    { id: "ministral-3b-latest", label: "ministral-3b-latest" },
+  ],
 };
 
 /**
@@ -304,6 +316,7 @@ export const ADAPTER_AVAILABLE_PROTOCOLS: Record<string, { value: string; label:
   xai: [{ value: "openai-completions", label: "Chat Completions" }],
   moonshot: [{ value: "openai-completions", label: "Chat Completions" }],
   zai: [{ value: "openai-completions", label: "Chat Completions" }],
+  mistral: [{ value: "mistral-conversations", label: "Mistral Conversations" }],
 };
 
 // Adapter UI metadata
@@ -362,6 +375,11 @@ export const ADAPTER_CONFIG: Record<
   },
   zai: {
     label: "Z.AI (GLM)",
+    requiresBaseUrl: false,
+    credentialType: "api-key",
+  },
+  mistral: {
+    label: "Mistral",
     requiresBaseUrl: false,
     credentialType: "api-key",
   },

@@ -1413,5 +1413,77 @@
       "cacheRead": null,
       "cacheWrite": null
     }
+  },
+  {
+    "id": "tr-mistral-large-latest",
+    "modelName": "mistral-large-latest",
+    "matchPattern": "(?i)^(mistral\\/)?mistral-large-(latest|2512)(-[\\d-]+)?$",
+    "provider": "mistral",
+    "prices": {
+      "input": 0.0000005,
+      "output": 0.0000015,
+      "cacheRead": 0.00000005,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-mistral-small-latest",
+    "modelName": "mistral-small-latest",
+    "matchPattern": "(?i)^(mistral\\/)?mistral-small-(latest|2603)(-[\\d-]+)?$",
+    "provider": "mistral",
+    "prices": {
+      "input": 0.00000015,
+      "output": 0.0000006,
+      "cacheRead": 0.000000015,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-codestral-latest",
+    "modelName": "codestral-latest",
+    "matchPattern": "(?i)^(mistral\\/)?codestral-(latest|2508)(-[\\d-]+)?$",
+    "provider": "mistral",
+    "prices": {
+      "input": 0.0000003,
+      "output": 0.0000009,
+      "cacheRead": 0.00000003,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-ministral-8b-latest",
+    "modelName": "ministral-8b-latest",
+    "matchPattern": "(?i)^(mistral\\/)?ministral-8b-(latest|2512)(-[\\d-]+)?$",
+    "provider": "mistral",
+    "prices": {
+      "input": 0.00000015,
+      "output": 0.00000015,
+      "cacheRead": 0.000000015,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-ministral-3b-latest",
+    "modelName": "ministral-3b-latest",
+    "matchPattern": "(?i)^(mistral\\/)?ministral-3b-(latest|2512)(-[\\d-]+)?$",
+    "provider": "mistral",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000001,
+      "cacheRead": 0.00000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-pixtral-large-latest",
+    "modelName": "pixtral-large-latest",
+    "matchPattern": "(?i)^(mistral\\/)?pixtral-large-latest(-[\\d-]+)?$",
+    "provider": "mistral",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000006,
+      "cacheRead": 0.0000002,
+      "cacheWrite": null
+    }
   }
 ]
