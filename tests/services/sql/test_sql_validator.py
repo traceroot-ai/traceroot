@@ -27,6 +27,7 @@ Empirical sqlglot findings documented here
 from __future__ import annotations
 
 import pytest
+import sqlglot
 import sqlglot.expressions as exp
 
 from rest.services.sql import validator as validator_module
@@ -233,9 +234,142 @@ def test_parse_error_message_does_not_leak_sql_or_tenant_data() -> None:
     with pytest.raises(SqlValidationError) as exc_info:
         validate(malformed)
     msg = str(exc_info.value)
+    assert msg.startswith("SQL statement could not be parsed near line ")
     assert secret not in msg
     assert "project_id" not in msg
     assert "FROM spans" not in msg
+
+
+def _message(sql: str) -> str:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(sql)
+    return str(exc_info.value)
+
+
+# sqlglot parses input that does not open with a statement keyword as a bare
+# expression (`selec x` is the column `selec` aliased `x`). Its author made a
+# typo, so the message says what a query starts with instead of talking about
+# writes.
+BARE_EXPRESSION_CASES = [
+    pytest.param("selec x", id="typo-selec-alias"),
+    pytest.param("selec", id="typo-selec-alone"),
+    pytest.param("-- note\nselec x", id="typo-after-comment"),
+    pytest.param("spans", id="bare-identifier"),
+    pytest.param("1 + 1", id="bare-arithmetic"),
+]
+
+
+@pytest.mark.parametrize("sql", BARE_EXPRESSION_CASES)
+def test_a_bare_expression_is_told_what_a_query_starts_with(sql: str) -> None:
+    assert _message(sql) == "SQL statement must start with SELECT or WITH"
+
+
+# Every recognised non-read statement keeps the SELECT-only message, including
+# the ones sqlglot only understands as an opaque exp.Command.
+STATEMENT_CASES = [
+    pytest.param("INSERT INTO spans VALUES (1)", id="insert"),
+    pytest.param("DELETE FROM spans", id="delete"),
+    pytest.param("DROP TABLE spans", id="drop"),
+    pytest.param("ALTER TABLE spans DELETE WHERE 1", id="alter"),
+    pytest.param("TRUNCATE TABLE spans", id="truncate"),
+    pytest.param("SET max_threads = 1", id="set"),
+    pytest.param("USE default", id="use"),
+    pytest.param("DESCRIBE spans", id="describe"),
+    pytest.param("GRANT SELECT ON spans TO x", id="grant"),
+    pytest.param("EXPLAIN SELECT 1", id="command-explain"),
+    pytest.param("SHOW TABLES", id="command-show"),
+    pytest.param("OPTIMIZE TABLE spans FINAL", id="command-optimize"),
+    pytest.param("SYSTEM FLUSH LOGS", id="command-system"),
+    pytest.param("WITH t AS (SELECT 1) DELETE FROM spans", id="with-then-delete"),
+]
+
+
+@pytest.mark.parametrize("sql", STATEMENT_CASES)
+def test_a_non_read_statement_keeps_the_select_only_message(sql: str) -> None:
+    assert "Only SELECT statements are allowed" in _message(sql)
+
+
+def test_a_parse_error_names_its_position_but_not_the_sql() -> None:
+    msg = _message("SELECT 1 FORM spans")
+    assert msg == "SQL statement could not be parsed near line 1, column 19"
+    assert "FORM" not in msg and "spans" not in msg
+
+
+def test_a_token_error_still_reads_as_a_parse_error() -> None:
+    # An unterminated string fails in the tokenizer, which carries no position.
+    assert _message("SELECT 'abc") == "SQL statement could not be parsed"
+
+
+def test_a_failing_first_token_check_falls_back_to_the_select_only_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("tokenizer unavailable")
+
+    monkeypatch.setattr(validator_module.sqlglot, "tokenize", boom)
+    assert "Only SELECT statements are allowed" in _message("selec x")
+
+
+def test_a_failing_statement_table_lookup_falls_back_to_the_select_only_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(validator_module, "_CLICKHOUSE", object())
+    assert "Only SELECT statements are allowed" in _message("selec x")
+
+
+class _OddParseError(sqlglot.errors.ParseError):
+    def __init__(self, errors: object) -> None:
+        super().__init__("odd")
+        self.errors = errors
+
+
+@pytest.mark.parametrize("errors", [[], None, ["not a dict"], [{"line": "1", "col": 2}]])
+def test_an_unreadable_parse_error_position_yields_no_suffix(
+    monkeypatch: pytest.MonkeyPatch, errors: object
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise _OddParseError(errors)
+
+    monkeypatch.setattr(validator_module.sqlglot, "parse", boom)
+    assert _message("SELECT 1") == "SQL statement could not be parsed"
+
+
+def test_a_non_parse_error_never_contributes_a_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OtherError(Exception):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.errors = [{"line": 1, "col": 2}]
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise OtherError("x")
+
+    monkeypatch.setattr(validator_module.sqlglot, "parse", boom)
+    assert _message("SELECT 1") == "SQL statement could not be parsed"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "-- nothing here",
+        "/* nothing here */",
+        "-- a\n-- b",
+        "-- a\n;",
+        "/* x */;",
+        "/* x */ ; /* y */",
+    ],
+)
+def test_comment_only_input_is_empty(sql: str) -> None:
+    assert _message(sql) == "SQL statement must not be empty"
+
+
+def test_a_statement_followed_by_a_comment_is_still_two_statements() -> None:
+    assert _message("SELECT 1; -- note") == "Exactly one SELECT statement is required; got 2"
+
+
+def test_two_statements_keep_their_own_message() -> None:
+    assert _message("SELECT 1; SELECT 2") == "Exactly one SELECT statement is required; got 2"
 
 
 def test_error_message_does_not_contain_internal_view_names() -> None:
