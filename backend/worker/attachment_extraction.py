@@ -23,7 +23,9 @@ For the ``input``, ``output`` and ``metadata`` of every span and trace row:
    neither a reference nor a placeholder contains a character JSON escapes.
 5. **Cut** a row whose ``input`` + ``output`` + ``metadata`` is still over
    ``max_span_bytes`` in UTF-8: its largest field(s) are shortened and end with
-   ``…[truncated: span content exceeded <limit> bytes]``.
+   ``…[truncated: span content exceeded <limit> bytes]``. A cut never splits a
+   character or an attachment reference: a reference that would not fit whole is
+   dropped whole, so every reference left in the text still points at its image.
 
 Text with no image comes back as the same string object.
 
@@ -41,6 +43,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from shared.attachments import (
+    ATTACHMENT_REF_PREFIX,
+    ATTACHMENT_REF_RE,
     attachment_key,
     format_attachment_ref,
     normalize_image_mime,
@@ -266,16 +270,36 @@ def _utf8_size(text: str) -> int:
 
 
 def _cut_to_size(text: str, max_bytes: int) -> str:
-    """The longest prefix of ``text`` that fits in ``max_bytes`` UTF-8 bytes."""
+    """The longest prefix of ``text`` that fits in ``max_bytes`` UTF-8 bytes.
+
+    The prefix never ends inside a character or inside an attachment reference: a
+    reference that would not fit whole is left out whole.
+    """
     if text.isascii():
-        return text[:max_bytes]
-    encoded = text.encode("utf-8", "surrogatepass")
-    if len(encoded) <= max_bytes:
-        return text
-    end = max_bytes
-    while end > 0 and (encoded[end] & 0xC0) == 0x80:  # never cut through a character
-        end -= 1
-    return encoded[:end].decode("utf-8", "surrogatepass")
+        kept = text[:max_bytes]
+    else:
+        encoded = text.encode("utf-8", "surrogatepass")
+        if len(encoded) <= max_bytes:
+            return text
+        end = max_bytes
+        while end > 0 and (encoded[end] & 0xC0) == 0x80:  # never cut through a character
+            end -= 1
+        kept = encoded[:end].decode("utf-8", "surrogatepass")
+    # ``kept`` is a prefix of ``text``, so its length is where the cut falls in ``text``.
+    return kept[: _start_of_split_reference(text, len(kept))]
+
+
+def _start_of_split_reference(text: str, end: int) -> int:
+    """Where a reference that a cut at ``end`` would split starts, or ``end`` if none would."""
+    # References never overlap, so only the last one starting before ``end`` can
+    # straddle it. The search bound lets that start be anywhere up to ``end - 1``,
+    # including a cut that falls inside the prefix itself.
+    start = text.rfind(ATTACHMENT_REF_PREFIX, 0, end + len(ATTACHMENT_REF_PREFIX) - 1)
+    if start != -1:
+        match = ATTACHMENT_REF_RE.match(text, start)
+        if match is not None and match.end() > end:
+            return start
+    return end
 
 
 def _enforce_size_limit(row: dict, limit: int) -> bool:

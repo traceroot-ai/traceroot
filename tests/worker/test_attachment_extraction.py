@@ -12,7 +12,12 @@ from botocore.stub import Stubber
 from pydantic import ValidationError
 
 from rest.services.s3 import S3Service
-from shared.attachments import attachment_key, find_attachment_refs, format_attachment_ref
+from shared.attachments import (
+    ATTACHMENT_REF_PREFIX,
+    attachment_key,
+    find_attachment_refs,
+    format_attachment_ref,
+)
 from shared.config import AttachmentSettings, settings
 from tests.fixtures.images import (
     b64,
@@ -762,6 +767,99 @@ class TestSpanSizeLimit:
     )
     def test_cut_to_size(self, text, max_bytes, expected):
         assert _cut_to_size(text, max_bytes) == expected
+
+
+REF_A = format_attachment_ref("a" * 64, "image/png", 120)
+REF_B = format_attachment_ref("b" * 64, "image/jpeg", 4567)
+REF_C = format_attachment_ref("c" * 64, "image/webp", 89)
+
+
+class TestCutKeepsReferencesWhole:
+    @pytest.mark.parametrize(
+        ("text", "max_bytes", "expected"),
+        [
+            pytest.param(f"ab{REF_A}cd", 2 + len(REF_A) // 2, "ab", id="inside-a-reference"),
+            pytest.param(f"ab{REF_A}cd", 2 + 5, "ab", id="inside-the-prefix"),
+            pytest.param(f"ab{REF_A}cd", 2 + len(REF_A) - 1, "ab", id="inside-the-byte-count"),
+            pytest.param(f"ab{REF_A}cd", 2, "ab", id="just-before-a-reference"),
+            pytest.param(f"ab{REF_A}cd", 2 + len(REF_A), f"ab{REF_A}", id="just-after-a-reference"),
+            pytest.param(f"ab{REF_A}cd", 3 + len(REF_A), f"ab{REF_A}c", id="after-a-reference"),
+            pytest.param(REF_A, 10, "", id="reference-at-the-start"),
+            pytest.param(f"ééé{REF_A}", 6 + 10, "ééé", id="inside-after-multibyte-text"),
+            pytest.param(f"é{REF_A}€", 2 + len(REF_A) + 2, f"é{REF_A}", id="multibyte-after"),
+            pytest.param(
+                f"{ATTACHMENT_REF_PREFIX}not-a-hash",
+                len(ATTACHMENT_REF_PREFIX) + 3,
+                f"{ATTACHMENT_REF_PREFIX}not",
+                id="prefix-alone-is-not-a-reference",
+            ),
+        ],
+    )
+    def test_cut_to_size_around_one_reference(self, text, max_bytes, expected):
+        assert _cut_to_size(text, max_bytes) == expected
+
+    def test_cut_to_size_with_several_references(self):
+        text = f"{REF_A} and {REF_B} and {REF_C}"
+        after_a = len(REF_A)
+        start_b = after_a + len(" and ")
+        after_b = start_b + len(REF_B)
+        start_c = after_b + len(" and ")
+
+        cuts = {
+            after_a // 2: "",
+            after_a: REF_A,
+            after_a + 2: f"{REF_A} a",
+            start_b + 1: f"{REF_A} and ",
+            after_b - 1: f"{REF_A} and ",
+            after_b: f"{REF_A} and {REF_B}",
+            start_c + len(REF_C) // 2: f"{REF_A} and {REF_B} and ",
+            len(text): text,
+        }
+        for max_bytes, expected in cuts.items():
+            assert _cut_to_size(text, max_bytes) == expected, max_bytes
+
+    @pytest.mark.parametrize("where", ["just-before", "inside", "just-after"])
+    def test_a_reference_the_extractor_wrote_is_never_split(self, where):
+        image = make_png(3, 3)
+        ref = ref_for(image, "image/png")
+        limit = 1000
+        keep = limit - len(marker(limit).encode("utf-8"))
+        offset = {"just-before": 0, "inside": len(ref) // 2, "just-after": len(ref)}[where]
+        before = "p" * (keep - offset)
+        row = span(input=f"{before}{data_url(image, 'image/png')}{'z' * 2000}")
+
+        result = extract_attachments(
+            FakeS3(), PROJECT, [], [row], config=AttachmentSettings(max_span_bytes=limit)
+        )
+
+        kept = f"{before}{ref}" if where == "just-after" else before
+        assert row["input"] == kept + marker(limit)
+        assert find_attachment_refs(row["input"]) == (
+            {sha(image)} if where == "just-after" else set()
+        )
+        assert row["input"].count(ATTACHMENT_REF_PREFIX) == len(find_attachment_refs(row["input"]))
+        assert (result.referenced, result.truncated) == (1, 1)
+        assert utf8_total(row) <= limit
+
+    def test_several_references_in_one_field(self):
+        images = [make_png(1, 1), make_png(2, 2), make_png(3, 3)]
+        refs = [ref_for(image, "image/png") for image in images]
+        urls = [data_url(image, "image/png") for image in images]
+        limit = 1000
+        keep = limit - len(marker(limit).encode("utf-8"))
+        # Pad the front so the cut lands in the middle of the second reference.
+        head = f"one {refs[0]} two "
+        pad = "p" * (keep - len(head) - len(refs[1]) // 2)
+        row = span(output=f"{pad}one {urls[0]} two {urls[1]} three {urls[2]} {'z' * 2000}")
+
+        result = extract_attachments(
+            FakeS3(), PROJECT, [], [row], config=AttachmentSettings(max_span_bytes=limit)
+        )
+
+        assert row["output"] == f"{pad}{head}{marker(limit)}"
+        assert find_attachment_refs(row["output"]) == {sha(images[0])}
+        assert row["output"].count(ATTACHMENT_REF_PREFIX) == 1
+        assert (result.referenced, result.truncated) == (3, 1)
 
 
 class TestAttachmentSettings:
