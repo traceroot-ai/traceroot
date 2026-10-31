@@ -22,13 +22,13 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 
-from rest.routers.public.traces import decode_otlp_protobuf
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     attributes_to_dict,
     extract_attribute_value,
     transform_otel_to_clickhouse,
 )
+from worker.staged_batch import decode_otlp_protobuf
 
 TRACE_HEX = "abcdef0123456789abcdef0123456789"
 SPAN_HEX = "1122334455667788"
