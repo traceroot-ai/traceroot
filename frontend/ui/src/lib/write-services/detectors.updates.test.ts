@@ -173,6 +173,30 @@ describe("updateDetector", () => {
     [{ sampleRate: null }, "sampleRate must be an integer between 0 and 100"],
     [{ outputSchema: {} }, "outputSchema must be an array"],
     [{ outputSchema: null }, "outputSchema must be an array"],
+    [
+      { outputSchema: [{ name: "x", type: "banana" }] },
+      "output field 1 type must be one of: string, number, boolean",
+    ],
+    [
+      {
+        outputSchema: [
+          { name: "x", type: "string" },
+          { name: "x", type: "number" },
+        ],
+      },
+      'output field 2 repeats the name "x"',
+    ],
+    [{ outputSchema: [null] }, "output field 1 must be an object"],
+    [{ outputSchema: ["severity"] }, "output field 1 must be an object"],
+    [{ outputSchema: [{ type: "string" }] }, "output field 1 requires a non-empty name"],
+    [
+      { outputSchema: [{ name: "  ", type: "string" }] },
+      "output field 1 requires a non-empty name",
+    ],
+    [
+      { outputSchema: [{ name: "__proto__", type: "string" }] },
+      'output field 1 name "__proto__" is reserved',
+    ],
     [{ detectionSource: "other" }, 'detectionSource must be "system" or "byok"'],
     [{ detectionModel: 5 }, "detectionModel must be a string"],
   ])("rejects %j with the cookie route's message", async (patch, error) => {
@@ -193,6 +217,37 @@ describe("updateDetector", () => {
       status: 400,
       error: "triggerConditions must be an array",
     });
+  });
+
+  it("writes a valid output schema", async () => {
+    mockAccess();
+    const outputSchema = [
+      { name: "severity", type: "string" },
+      { name: "count", type: "number" },
+    ];
+    expect(await runUpdate({ outputSchema })).toMatchObject({
+      ok: true,
+      changed: ["output_schema"],
+    });
+    expect(tx.detector.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { outputSchema } }),
+    );
+  });
+
+  it("renames or pauses a detector whose stored output schema predates the validator", async () => {
+    // Only the patch is validated: a legacy row stays editable on every other field.
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue({
+      ...storedDetector,
+      outputSchema: [{ name: "x", type: "banana" }, null],
+    });
+    expect(await runUpdate({ name: "Renamed", enabled: false })).toMatchObject({
+      ok: true,
+      changed: ["name", "enabled"],
+    });
+    expect(tx.detector.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { name: "Renamed", enabled: false } }),
+    );
   });
 
   it("answers a patch equal to the stored row as a no-op: no write, no audit", async () => {

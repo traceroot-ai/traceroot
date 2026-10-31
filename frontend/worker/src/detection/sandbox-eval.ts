@@ -25,7 +25,7 @@ export interface DetectorConfig {
   id: string;
   name: string;
   prompt: string;
-  outputSchema: Array<{ name: string; type: string }>;
+  outputSchema: ReadonlyArray<unknown>;
   detectionModel?: string | null;
   detectionProvider?: string | null;
   detectionSource?: "system" | "byok" | null;
