@@ -121,9 +121,15 @@ describe("alertCreateSchema", () => {
   });
 
   describe("threshold", () => {
-    it("accepts zero, negatives and both extremes of the storable range", () => {
-      for (const threshold of [0, -500.25, THRESHOLD_ABS_MAX, -THRESHOLD_ABS_MAX]) {
+    it("accepts zero and both extremes of the storable range", () => {
+      for (const threshold of [0, THRESHOLD_ABS_MAX]) {
         expect(alertCreateSchema.safeParse(createBody({ threshold })).success).toBe(true);
+      }
+    });
+
+    it("rejects negative thresholds", () => {
+      for (const threshold of [-500.25, -THRESHOLD_ABS_MAX, -1]) {
+        expect(alertCreateSchema.safeParse(createBody({ threshold })).success).toBe(false);
       }
     });
 
