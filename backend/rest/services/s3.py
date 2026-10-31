@@ -86,6 +86,37 @@ class S3Service:
             else:
                 raise
 
+    def copy_object(self, source_key: str, dest_key: str) -> None:
+        """Copy an object to another key in the same bucket, server-side.
+
+        Args:
+            source_key: Full S3 key of the existing object
+            dest_key: Full S3 key to copy it to
+
+        Raises:
+            ClientError: If the source doesn't exist or the copy fails
+        """
+        client = self._get_client()
+        client.copy_object(
+            Bucket=self._bucket_name,
+            Key=dest_key,
+            CopySource={"Bucket": self._bucket_name, "Key": source_key},
+        )
+        logger.debug(f"Copied s3://{self._bucket_name}/{source_key} to {dest_key}")
+
+    def delete_object(self, s3_key: str) -> None:
+        """Delete an object from S3.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Raises:
+            ClientError: If the delete fails
+        """
+        client = self._get_client()
+        client.delete_object(Bucket=self._bucket_name, Key=s3_key)
+        logger.debug(f"Deleted s3://{self._bucket_name}/{s3_key}")
+
     def upload_json(self, s3_key: str, data: dict | list) -> None:
         """Upload JSON data to S3.
 

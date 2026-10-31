@@ -430,4 +430,10 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
 
     except Exception as e:
         logger.error(f"Failed to process {s3_key}: {e}", exc_info=True)
+        # Celery's retry() stops once request.retries + 1 exceeds max_retries, so
+        # this is the last attempt: move the batch to events/failed/ before failing.
+        if self.request.retries >= self.max_retries:
+            from worker.ingest_quarantine import quarantine_batch
+
+            quarantine_batch(get_s3_service(), s3_key)
         raise  # Re-raise to trigger Celery retry
