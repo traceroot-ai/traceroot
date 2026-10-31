@@ -18,7 +18,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
+from google.protobuf.descriptor import Descriptor, FieldDescriptor
 from google.protobuf.json_format import MessageToDict
+from google.protobuf.message import DecodeError, Message
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
@@ -50,6 +53,61 @@ router = APIRouter(prefix="/public/traces", tags=["Traces"])
 IngestAuth = KeyStampedAuth
 
 
+_lenient_request_class: type[Message] | None = None
+
+
+def _lenient_request() -> Message:
+    """An ExportTraceServiceRequest whose string fields are bytes, so it parses
+    a payload Python's protobuf rejects for invalid UTF-8 in a string."""
+    global _lenient_request_class
+    if _lenient_request_class is None:
+        pool = descriptor_pool.DescriptorPool()
+
+        def add(file) -> None:
+            try:
+                pool.FindFileByName(file.name)
+                return
+            except KeyError:
+                pass
+            for dependency in file.dependencies:
+                add(dependency)
+            proto = descriptor_pb2.FileDescriptorProto()
+            file.CopyToProto(proto)
+            pending = list(proto.message_type)
+            while pending:
+                message = pending.pop()
+                pending.extend(message.nested_type)
+                for field in message.field:
+                    if field.type == field.TYPE_STRING:
+                        field.type = field.TYPE_BYTES
+            pool.Add(proto)
+
+        add(ExportTraceServiceRequest.DESCRIPTOR.file)
+        _lenient_request_class = message_factory.GetMessageClass(
+            pool.FindMessageTypeByName(ExportTraceServiceRequest.DESCRIPTOR.full_name)
+        )
+    return _lenient_request_class()
+
+
+def _replace_invalid_utf8(message: Message, descriptor: Descriptor) -> None:
+    """Replace invalid UTF-8 in every field that is a string in ``descriptor``."""
+    for field, value in message.ListFields():
+        original = descriptor.fields_by_name[field.name]
+        repeated = original.is_repeated
+        if original.type == FieldDescriptor.TYPE_STRING:
+            fixed = [
+                v.decode("utf-8", "replace").encode() for v in (value if repeated else [value])
+            ]
+            if repeated:
+                del value[:]
+                value.extend(fixed)
+            else:
+                setattr(message, field.name, fixed[0])
+        elif original.type == FieldDescriptor.TYPE_MESSAGE:
+            for item in value if repeated else [value]:
+                _replace_invalid_utf8(item, original.message_type)
+
+
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
     """Decode OTLP protobuf to a Python dict.
 
@@ -63,7 +121,18 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
         Dict representation of the OTLP trace data
     """
     request = ExportTraceServiceRequest()
-    request.ParseFromString(data)
+    try:
+        request.ParseFromString(data)
+    except DecodeError:
+        # One string with invalid UTF-8 (OTel JS writes a lone surrogate, e.g. an
+        # emoji cut by .slice(), as bytes that are not UTF-8) fails the whole
+        # request, and SDKs drop a batch on 400. Replace the bad bytes and keep the
+        # rest; a payload that is broken in any other way still raises here.
+        lenient = _lenient_request()
+        lenient.ParseFromString(data)
+        _replace_invalid_utf8(lenient, ExportTraceServiceRequest.DESCRIPTOR)
+        request.ParseFromString(lenient.SerializeToString())
+        logger.warning("OTLP payload had invalid UTF-8 in a string; replaced it")
     # MessageToDict converts protobuf to dict with camelCase field names
     # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
     return MessageToDict(request)
