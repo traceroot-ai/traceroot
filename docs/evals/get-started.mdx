@@ -131,7 +131,7 @@ export TRACEROOT_API_KEY="your-api-key"
 export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # self-hosted: your API's origin, e.g. http://localhost:8000
 ```
 
-*(Prefer a `.env` file? Load it yourself — `load_dotenv()` in Python, `config()` from `dotenv` in TypeScript — as the [tracing quickstart](/tracing/get-started) shows.)*
+*(Prefer a `.env` file? Unless your runtime loads it for you, load it yourself — `load_dotenv()` in Python, `config()` from `dotenv` in TypeScript — as the [tracing quickstart](/tracing/get-started) shows.)*
 
 `candidate_version` labels what you're testing in each run: a model id, a prompt version, or a git sha. Runs are grouped into one history by `evaluation_key`, which defaults to `name`.
 
