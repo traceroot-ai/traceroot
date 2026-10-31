@@ -107,8 +107,13 @@ def _outer_where_clause(sql: str) -> str:
 
     The one line where every condition the translator produced is AND-joined together —
     the place where a loosely-bound operator in one condition would reach the others.
+    Filters apply to each trace's deduped row (#2708), so it is the first ``WHERE t.``
+    after the dedup's ``LIMIT 1 BY``; the dedup's own WHERE only prunes.
     """
-    return next(line.strip() for line in sql.splitlines() if line.strip().startswith("WHERE t."))
+    after_dedup = sql[sql.index("LIMIT 1 BY t.project_id, t.trace_id") :]
+    return next(
+        line.strip() for line in after_dedup.splitlines() if line.strip().startswith("WHERE t.")
+    )
 
 
 def _or_operators_outside_parentheses(clause: str) -> int:

@@ -13,7 +13,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Literal
 
-from rest.services.trace_reader import customer_traffic_only, windowed_evaluation_exclusion
+from rest.services.trace_reader import (
+    TRACE_DEDUP_MARGIN_HOURS,
+    customer_traffic_only,
+    windowed_evaluation_exclusion,
+)
 
 FILTER_OPS_STRING = ("=", "contains", "in")
 # Keyed (Map) fields compare one entry's value, so they take no `in`.
@@ -89,6 +93,9 @@ METADATA_MAP_COLUMN = "metadata_map"
 # parameters every base relation binds.
 _NOT_EVALUATION = windowed_evaluation_exclusion("start_time", "end_time")
 
+# The same margin the trace list's dedup reads around its window (see trace_reader).
+_TRACE_DEDUP_MARGIN = f"INTERVAL {TRACE_DEDUP_MARGIN_HOURS} HOUR"
+
 
 _SPANS_BASE = f"""
     SELECT
@@ -142,16 +149,24 @@ _TRACES_BASE = f"""
         if(sa.trace_id = '', NULL, sa.cache_read_tokens) AS cache_read_tokens,
         if(sa.trace_id = '', NULL, sa.cache_write_tokens) AS cache_write_tokens
     FROM (
-        SELECT
-            trace_id, name, user_id, session_id, environment, trace_start_time
-        FROM traces
-        WHERE project_id = {{project_id:String}}
-          AND {customer_traffic_only()}
-          AND {_NOT_EVALUATION}
-          AND trace_start_time >= {{start_time:DateTime64(3)}}
+        -- Dedup over the window widened by the trace dedup margin, THEN apply the exact
+        -- window to each trace's newest row: a window inside the dedup can drop the
+        -- newest row and keep a stale placeholder that starts inside it (#2708).
+        SELECT *
+        FROM (
+            SELECT
+                trace_id, name, user_id, session_id, environment, trace_start_time
+            FROM traces
+            WHERE project_id = {{project_id:String}}
+              AND {customer_traffic_only()}
+              AND {_NOT_EVALUATION}
+              AND trace_start_time >= {{start_time:DateTime64(3)}} - {_TRACE_DEDUP_MARGIN}
+              AND trace_start_time < {{end_time:DateTime64(3)}} + {_TRACE_DEDUP_MARGIN}
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY project_id, trace_id
+        )
+        WHERE trace_start_time >= {{start_time:DateTime64(3)}}
           AND trace_start_time < {{end_time:DateTime64(3)}}
-        ORDER BY ch_update_time DESC
-        LIMIT 1 BY project_id, trace_id
     ) AS t
     LEFT JOIN (
         SELECT
