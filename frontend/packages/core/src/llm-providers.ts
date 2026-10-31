@@ -244,6 +244,8 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   ],
   moonshot: [
     { id: "kimi-k3", label: "kimi-k3" },
+    { id: "kimi-k3.1-pro", label: "kimi-k3.1-pro" },
+    { id: "kimi-k3.1-pro-highspeed", label: "kimi-k3.1-pro-highspeed" },
     { id: "kimi-k2.7-code", label: "kimi-k2.7-code" },
     { id: "kimi-k2.7-code-highspeed", label: "kimi-k2.7-code-highspeed" },
     { id: "kimi-k2.6", label: "kimi-k2.6" },
