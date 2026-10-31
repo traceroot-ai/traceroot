@@ -544,11 +544,11 @@ def test_two_metadata_predicates_on_different_keys_do_not_collide():
 @pytest.mark.parametrize(
     "op,token",
     [
-        ("eq", "sum(cost) = {"),
-        ("gt", "sum(cost) > {"),
-        ("gte", "sum(cost) >= {"),
-        ("lt", "sum(cost) < {"),
-        ("lte", "sum(cost) <= {"),
+        ("eq", "ifNull(sum(cost), 0) = {"),
+        ("gt", "ifNull(sum(cost), 0) > {"),
+        ("gte", "ifNull(sum(cost), 0) >= {"),
+        ("lt", "ifNull(sum(cost), 0) < {"),
+        ("lte", "ifNull(sum(cost), 0) <= {"),
     ],
 )
 def test_numeric_operator_lowers_to_its_having_comparison(op, token):
@@ -590,8 +590,8 @@ def test_multiple_numeric_predicates_on_same_field_form_a_range():
     )
     assert len(conditions) == 1
     cond = conditions[0]
-    assert "sum(cost) > {" in cond
-    assert "sum(cost) <= {" in cond
+    assert "ifNull(sum(cost), 0) > {" in cond
+    assert "ifNull(sum(cost), 0) <= {" in cond
     assert " AND " in cond
     assert 1 in params.values() and 10 in params.values()
 
@@ -877,7 +877,7 @@ def test_a_filter_list_spanning_every_tier_merges_only_its_aggregates():
     aggregates = [c for c in conditions if _HAVING in c]
     assert len(aggregates) == 1
     # Both comparisons in the one HAVING, so a trace must satisfy them simultaneously.
-    assert "sum(cost) > {f_cost_1:Decimal64(9)}" in aggregates[0]
+    assert "ifNull(sum(cost), 0) > {f_cost_1:Decimal64(9)}" in aggregates[0]
     assert "countIf(status = 'ERROR') >= {f_errors_4:UInt64}" in aggregates[0]
     # The merged scan projects both fields' source_columns, still registry-driven.
     scan = aggregates[0]
