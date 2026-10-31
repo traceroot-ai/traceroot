@@ -7,7 +7,7 @@ import type { WidgetDataRefetchOptions } from "../hooks/use-widget-data";
 import { getTraces } from "@/lib/api/traces";
 import type { Predicate, TraceListItem } from "@/types/api";
 import { canonicalizeFilters, isValidPredicate } from "@/features/filters/predicate";
-import { formatCost, formatDuration } from "@/lib/utils";
+import { formatCost, formatDuration, parseAsUTC } from "@/lib/utils";
 import type { TimeRange } from "../types";
 
 interface TraceFeedWidgetProps {
@@ -34,8 +34,10 @@ function ErrorCount({ errorCount }: { errorCount: number }) {
   return <span className="text-muted-foreground">0</span>;
 }
 
+// The API sends trace_start_time without a zone marker (it is UTC), so parse
+// it with parseAsUTC like the Traces page; new Date() would read it as local.
 function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
+  return parseAsUTC(iso).toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
