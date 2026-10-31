@@ -51,9 +51,9 @@ def _completion_state_in_clickhouse(
     ch_client = get_clickhouse_client()
     # Root end time: dedup ReplacingMergeTree rows without FINAL, keeping the
     # latest version per span_id (filtered to this trace), then aggregate on
-    # the deduped rows. Last ingest time: every row of the trace, so a version
-    # that lost to a newer one still counts once it is inserted — the worker
-    # publishes it to the live channel all the same.
+    # the deduped rows. Last ingest time: every row of the trace still stored,
+    # so a version that lost to a newer one counts from its insert until a merge
+    # drops it — the worker publishes it to the live channel all the same.
     result = ch_client.query(
         """
         SELECT

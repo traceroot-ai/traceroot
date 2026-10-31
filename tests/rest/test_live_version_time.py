@@ -170,10 +170,11 @@ class TestCompletionStateQuery:
         assert "max(ch_update_time)" not in ch.sql
         assert ch.parameters == {"project_id": PROJECT_ID, "trace_id": TRACE_ID}
 
-    def test_last_ingest_time_counts_versions_that_lost_to_a_newer_one(self):
+    def test_last_ingest_time_counts_a_losing_version_until_it_is_merged(self):
         """A retried batch can insert an older version after the newer one.
         Its row loses the dedup but was just inserted, so the insert-time max
-        reads the trace's rows straight from ``spans``, not the deduped ones."""
+        reads the trace's rows straight from ``spans``, not the deduped ones.
+        Once a merge drops that row it no longer counts; the double never merges."""
         now = _utcnow_naive()
         older = now - timedelta(minutes=5)
         newer = older + timedelta(seconds=1)
