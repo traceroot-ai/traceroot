@@ -1,9 +1,13 @@
 """Quarantine for ingest batches that failed every processing attempt.
 
-A batch whose last attempt fails would otherwise stay under ``events/otel/``
-until that prefix expires, leaving only an error log behind. Moving it
-to ``events/failed/`` keeps it under a separate, longer retention so it can be
-inspected or replayed, and the counters below record that it happened.
+Ingest batches are staged under ``events/ingest/`` when stored as the OTLP
+request body, and under ``events/otel/`` when decoded to OTLP JSON. A batch
+whose last attempt fails would otherwise stay among the batches that succeeded,
+leaving only an error log behind, and under ``events/ingest/`` it would expire
+with them. Moving it to ``events/failed/`` keeps it under a separate, longer
+retention so it can be inspected or replayed, and the counters below record
+that it happened. A key under any other prefix, ``events/failed/`` included,
+is never moved.
 
 The move is copy-then-delete: the original is deleted only after the copy
 succeeded, so a failure at any step leaves at least one copy of the batch.
@@ -13,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-INGEST_PREFIX = "events/otel/"
+INGEST_PREFIXES = ("events/ingest/", "events/otel/")
 FAILED_PREFIX = "events/failed/"
 
 
@@ -29,7 +33,10 @@ def _build_counters():
         quarantined = meter.create_counter(
             "ingest.batches_quarantined",
             unit="1",
-            description="Ingest batches copied to events/failed/ after their final attempt.",
+            description=(
+                "Ingest batches copied from events/ingest/ or events/otel/ to events/failed/"
+                " after their final attempt."
+            ),
         )
         failed = meter.create_counter(
             "ingest.batch_quarantine_failed",
@@ -56,11 +63,14 @@ def _count(counter, attributes: dict[str, str] | None = None) -> None:
 def failed_key_for(s3_key: str) -> str | None:
     """Return the ``events/failed/`` key for an ingest batch key.
 
-    Returns None for a key outside ``events/otel/``, which is never moved.
+    The ``events/ingest/`` or ``events/otel/`` prefix becomes ``events/failed/``
+    and the rest of the key is kept. Returns None for any other key, one
+    already under ``events/failed/`` included, which is never moved.
     """
-    if not s3_key.startswith(INGEST_PREFIX):
-        return None
-    return FAILED_PREFIX + s3_key[len(INGEST_PREFIX) :]
+    for prefix in INGEST_PREFIXES:
+        if s3_key.startswith(prefix):
+            return FAILED_PREFIX + s3_key[len(prefix) :]
+    return None
 
 
 def quarantine_batch(s3_service, s3_key: str) -> bool:
@@ -72,9 +82,10 @@ def quarantine_batch(s3_service, s3_key: str) -> bool:
     - Copy fails: the original is kept, nothing is deleted, and
       ``ingest.batch_quarantine_failed{stage="copy"}`` is counted.
     - Copy succeeds: ``ingest.batches_quarantined`` is counted. If the delete
-      then fails, the batch exists under both prefixes until the original
-      expires, and ``ingest.batch_quarantine_failed{stage="delete"}``
-      is counted too.
+      then fails, the original is kept too, under its own prefix's retention,
+      and ``ingest.batch_quarantine_failed{stage="delete"}`` is counted.
+    - A key outside ``events/ingest/`` and ``events/otel/`` is not moved; only a
+      warning is logged.
 
     Args:
         s3_service: S3Service holding the batch
@@ -85,7 +96,9 @@ def quarantine_batch(s3_service, s3_key: str) -> bool:
     """
     failed_key = failed_key_for(s3_key)
     if failed_key is None:
-        logger.warning("Not quarantining %s: key is outside %s", s3_key, INGEST_PREFIX)
+        logger.warning(
+            "Not quarantining %s: key is outside %s", s3_key, " and ".join(INGEST_PREFIXES)
+        )
         return False
 
     try:

@@ -9,6 +9,9 @@ from worker import ingest_quarantine
 from worker.ingest_quarantine import failed_key_for, quarantine_batch
 from worker.ingest_tasks import process_s3_traces
 
+# A batch staged as the raw request body, and one stored as decoded JSON.
+RAW_BATCH_KEY = "events/ingest/proj-1/2026/10/29/12/batch.pb.gz"
+RAW_FAILED_KEY = "events/failed/proj-1/2026/10/29/12/batch.pb.gz"
 BATCH_KEY = "events/otel/proj-1/2026/10/29/12/batch.json"
 FAILED_KEY = "events/failed/proj-1/2026/10/29/12/batch.json"
 TASK_KWARGS = {"s3_key": BATCH_KEY, "project_id": "proj-1"}
@@ -24,33 +27,47 @@ def counters(monkeypatch):
 
 
 class TestFailedKeyFor:
-    def test_swaps_the_ingest_prefix(self):
-        assert failed_key_for(BATCH_KEY) == FAILED_KEY
+    @pytest.mark.parametrize(
+        ("key", "failed_key"),
+        [(RAW_BATCH_KEY, RAW_FAILED_KEY), (BATCH_KEY, FAILED_KEY)],
+        ids=["events-ingest", "events-otel"],
+    )
+    def test_swaps_the_ingest_prefix(self, key, failed_key):
+        assert failed_key_for(key) == failed_key
 
     @pytest.mark.parametrize(
         "key",
         [
-            "events/failed/proj-1/batch.json",
+            FAILED_KEY,
+            RAW_FAILED_KEY,
             "attachments/proj-1/sha256/" + "a" * 64,
             "events/otelx/proj-1/batch.json",
+            "events/ingestx/proj-1/batch.pb.gz",
+            "events/proj-1/batch.pb.gz",
             "other/events/otel/proj-1/batch.json",
+            "other/events/ingest/proj-1/batch.pb.gz",
             "test/key.json",
         ],
     )
-    def test_keys_outside_events_otel_are_not_mapped(self, key):
+    def test_keys_outside_the_ingest_prefixes_are_not_mapped(self, key):
         assert failed_key_for(key) is None
 
 
 class TestQuarantineBatch:
-    def test_copies_then_deletes_and_counts(self, counters):
+    @pytest.mark.parametrize(
+        ("key", "failed_key"),
+        [(RAW_BATCH_KEY, RAW_FAILED_KEY), (BATCH_KEY, FAILED_KEY)],
+        ids=["events-ingest", "events-otel"],
+    )
+    def test_copies_then_deletes_and_counts(self, counters, key, failed_key):
         quarantined, failed = counters
         s3 = MagicMock()
 
-        assert quarantine_batch(s3, BATCH_KEY) is True
+        assert quarantine_batch(s3, key) is True
 
         assert s3.mock_calls == [
-            call.copy_object(BATCH_KEY, FAILED_KEY),
-            call.delete_object(BATCH_KEY),
+            call.copy_object(key, failed_key),
+            call.delete_object(key),
         ]
         quarantined.add.assert_called_once_with(1, {})
         failed.add.assert_not_called()
@@ -82,11 +99,24 @@ class TestQuarantineBatch:
         failed.add.assert_called_once_with(1, {"stage": "delete"})
         assert "could not delete the original" in caplog.text
 
-    def test_key_outside_events_otel_is_never_moved(self, counters):
+    def test_key_outside_the_ingest_prefixes_is_never_moved(self, counters, caplog):
         quarantined, failed = counters
         s3 = MagicMock()
 
-        assert quarantine_batch(s3, "test/key.json") is False
+        with caplog.at_level(logging.WARNING, logger="worker.ingest_quarantine"):
+            assert quarantine_batch(s3, "test/key.json") is False
+
+        assert s3.mock_calls == []
+        quarantined.add.assert_not_called()
+        failed.add.assert_not_called()
+        assert "outside events/ingest/ and events/otel/" in caplog.text
+
+    @pytest.mark.parametrize("key", [FAILED_KEY, RAW_FAILED_KEY], ids=["json", "pb.gz"])
+    def test_key_already_under_events_failed_is_never_moved(self, counters, key):
+        quarantined, failed = counters
+        s3 = MagicMock()
+
+        assert quarantine_batch(s3, key) is False
 
         assert s3.mock_calls == []
         quarantined.add.assert_not_called()
