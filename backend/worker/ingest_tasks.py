@@ -345,6 +345,15 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         traces, spans = transform_otel_to_clickhouse(otel_data, project_id)
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
+        # Before anything reads the rows, so every reader sees references, not images.
+        # Off unless ATTACHMENT_ENABLED is set; ATTACHMENT_PROJECT_IDS can narrow it.
+        from shared.config import settings
+
+        if settings.attachments.applies_to(project_id):
+            from worker.attachment_extraction import extract_attachments
+
+            extract_attachments(s3_service, project_id, traces, spans)
+
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
 
         # 3. Insert into ClickHouse
