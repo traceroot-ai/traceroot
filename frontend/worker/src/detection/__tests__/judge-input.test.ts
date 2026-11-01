@@ -228,6 +228,20 @@ describe("buildJudgeInput", () => {
       expect(text).toContain("MESSAGES");
       expect(text).not.toContain("PROMPT");
     });
+
+    it("skips an empty ai.prompt.messages and keeps ai.prompt", () => {
+      const { text } = buildJudgeInput(
+        "t1",
+        row({
+          span_id: "a1",
+          name: "ai.generateText",
+          span_kind: "AGENT",
+          output: '"done"',
+          metadata: JSON.stringify({ "ai.prompt.messages": "[]", "ai.prompt": prompt }),
+        }),
+      );
+      expect(text).toContain(`metadata ai.prompt: ${prompt}`);
+    });
   });
 
   describe("repeats in a direct child", () => {
@@ -346,6 +360,41 @@ describe("buildJudgeInput", () => {
 
       expect(stats.collapsed_fields).toBe(1);
       expect(text).toContain("input:\n(same as input of [2]) plus:\nThanks!");
+    });
+
+    it("keeps an LLM output's extra text whole in pass 2", () => {
+      const reply = "A".repeat(20_000);
+      const extra = `EXTRA ${"e".repeat(1_500)} END`;
+      const jsonl = [
+        row({
+          span_id: "p1",
+          name: "chat",
+          span_kind: "LLM",
+          input: '"q"',
+          output: JSON.stringify(`${reply} ${extra}`),
+        }),
+        row({
+          span_id: "c1",
+          parent_span_id: "p1",
+          name: "chat",
+          span_kind: "LLM",
+          input: '"q"',
+          output: JSON.stringify(reply),
+        }),
+        row({
+          span_id: "t1",
+          parent_span_id: "p1",
+          name: "search",
+          span_kind: "TOOL",
+          output: JSON.stringify("R".repeat(30_000)),
+        }),
+      ].join("\n");
+
+      const { text, stats } = buildJudgeInput("t1", jsonl, { budgetChars: 23_000 });
+
+      expect(stats.pass).toBe(2);
+      expect(stats.collapsed_fields).toBe(1);
+      expect(text).toContain(extra);
     });
   });
 
