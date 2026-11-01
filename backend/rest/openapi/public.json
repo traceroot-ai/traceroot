@@ -13702,6 +13702,16 @@
             },
             "description": "Free plan limit exceeded"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "415": {
             "content": {
               "application/json": {
