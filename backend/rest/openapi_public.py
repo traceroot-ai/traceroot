@@ -90,6 +90,13 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
         ingest_responses["503"] = _error_response(
             "Authentication service unavailable, or the batch could not be queued"
         )
+        ingest_responses["503"]["headers"] = {
+            "Retry-After": {
+                "description": "Seconds to wait before sending the batch again. "
+                "Sent only when the batch could not be queued.",
+                "schema": {"type": "integer"},
+            }
+        }
 
     # Trace read/export error contract (matches the route code).
     list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
