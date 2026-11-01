@@ -50,6 +50,9 @@ router = APIRouter(prefix="/public/traces", tags=["Traces"])
 # (defined in deps); the limiter keys ingest by its own bucket via ``key_ingest``.
 IngestAuth = KeyStampedAuth
 
+# How long an exporter should wait before resending a batch that could not be queued.
+_ENQUEUE_RETRY_AFTER_SECONDS = 5
+
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
     """Decode OTLP protobuf to a Python dict.
@@ -224,8 +227,15 @@ async def ingest_traces(
         process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
         logger.info(f"Enqueued Celery task for {s3_key}")
     except Exception as e:
-        # Log but don't fail the request - S3 has the data, can retry later
+        # Only a queued task ever reads the staged object, so answering 200 here
+        # would drop the batch. A 503 makes the exporter send it again; the staged
+        # copy is left where it is and never processed.
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not queue the batch for processing. Retry shortly.",
+            headers={"Retry-After": str(_ENQUEUE_RETRY_AFTER_SECONDS)},
+        ) from e
 
     # 7. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)
