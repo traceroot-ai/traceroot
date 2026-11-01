@@ -22,6 +22,10 @@ def test_span_cost_details_reconciles_to_cost():
     from worker.tokens.buckets import TokenBuckets
     from worker.tokens.pricing import cost_from_buckets
 
+    expected = cost_from_buckets(
+        CLAUDE_PRICES,
+        TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000),
+    )
     with patch("rest.services.trace_reader.get_model_price", return_value=CLAUDE_PRICES):
         details = span_cost_details(
             "claude-3-5-sonnet-20241022",
@@ -32,12 +36,9 @@ def test_span_cost_details_reconciles_to_cost():
                 "cache_write_tokens": 2000,
                 "reasoning_tokens": 800,
             },
+            cost=expected,
         )
 
-    expected = cost_from_buckets(
-        CLAUDE_PRICES,
-        TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000),
-    )
     assert sum(details.values()) == pytest.approx(expected)
     assert details["cache_read_cost"] == pytest.approx(6000 * 0.0000003)
     assert details["input_uncached_cost"] == pytest.approx(2000 * 0.000003)
@@ -50,18 +51,6 @@ def test_span_cost_details_rebuilds_1h_portion():
 
     # input 1000 = 100 uncached + 0 read + 900 write; of the 900: 600 @1h, 300 remainder.
     prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}  # 2x the 0.000003 input rate
-    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
-        details = span_cost_details(
-            "claude-opus-4-7",
-            input_tokens=1000,
-            output_tokens=0,
-            usage_details={
-                "cache_read_tokens": 0,
-                "cache_write_tokens": 900,
-                "cache_write_1h_tokens": 600,
-            },
-        )
-
     expected = cost_from_buckets(
         prices,
         TokenBuckets(
@@ -72,6 +61,19 @@ def test_span_cost_details_rebuilds_1h_portion():
             cache_write_1h=600,
         ),
     )
+    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
+        details = span_cost_details(
+            "claude-opus-4-7",
+            input_tokens=1000,
+            output_tokens=0,
+            usage_details={
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 900,
+                "cache_write_1h_tokens": 600,
+            },
+            cost=expected,
+        )
+
     assert sum(details.values()) == pytest.approx(expected)
     # Independent ground truth: 300 remainder @cacheWrite + 600 @cacheWrite1h.
     assert details["cache_write_cost"] == pytest.approx(300 * 0.00000375 + 600 * 0.000006)
@@ -89,6 +91,7 @@ def test_span_cost_details_without_1h_key_matches_combined_rate():
             input_tokens=1000,
             output_tokens=0,
             usage_details={"cache_read_tokens": 0, "cache_write_tokens": 900},
+            cost=100 * 0.000003 + 900 * 0.00000375,
         )
     assert details["cache_write_cost"] == pytest.approx(900 * 0.00000375)
 
@@ -96,14 +99,26 @@ def test_span_cost_details_without_1h_key_matches_combined_rate():
 def test_span_cost_details_empty_without_model():
     from rest.services.trace_reader import span_cost_details
 
-    assert span_cost_details(None, 100, 50, {}) == {}
+    assert span_cost_details(None, 100, 50, {}, 0.001) == {}
 
 
 def test_span_cost_details_empty_for_unknown_model():
     from rest.services.trace_reader import span_cost_details
 
     with patch("rest.services.trace_reader.get_model_price", return_value=None):
-        assert span_cost_details("mystery-model", 100, 50, {}) == {}
+        assert span_cost_details("mystery-model", 100, 50, {}, 0.001) == {}
+
+
+def test_span_cost_details_only_when_it_sums_to_cost():
+    from rest.services.trace_reader import span_cost_details
+
+    with patch("rest.services.trace_reader.get_model_price", return_value=CLAUDE_PRICES):
+        listed = 100 * 0.000003 + 50 * 0.000015
+        assert sum(span_cost_details("claude", 100, 50, {}, listed).values()) == pytest.approx(
+            listed
+        )
+        # A caller-reported cost the list price cannot explain.
+        assert span_cost_details("claude", 100, 50, {}, 0.0123) == {}
 
 
 def test_span_path_attribute_names_are_the_sdk_wire_strings():

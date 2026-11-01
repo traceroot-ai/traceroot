@@ -1,6 +1,8 @@
 // Single source of truth for the setup command, so the places that show it
 // cannot drift apart: the getting-started panel's AI tab and onboarding's
-// hand-back step both render `setupCommand`.
+// hand-back step both render `setupCommand`. The manual steps read the same
+// deployment through `sdkHostUrl`, so the `TRACEROOT_HOST_URL` they print is
+// the `--host` the command carries.
 
 import { clientEnv } from "@/env.client";
 
@@ -260,6 +262,75 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
   };
 }
 
+/** `cliHostFlags` for the deployment that served this page. */
+function thisDeployment(): CliHostFlags {
+  return cliHostFlags({
+    // Validated as a string, not as a URL: `NEXT_PUBLIC_API_URL` is
+    // `z.string()` with the `/api/v1` default, so a value that is not an origin
+    // at all reaches here rather than failing the schema.
+    apiUrl: clientEnv.NEXT_PUBLIC_API_URL,
+    // Read straight from the environment, as `lib/auth-client.ts` and
+    // `lib/eval/run-link.ts` do: the client schema does not carry it.
+    appUrl: process.env.NEXT_PUBLIC_APP_URL,
+  });
+}
+
+/** Whether a URL parses without a base, and so names its own origin. */
+function isAbsoluteUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** What the SDKs' `TRACEROOT_HOST_URL` has to be here, or why that cannot be shown. */
+export type SdkHostUrl =
+  | {
+      kind: "resolved";
+      /** The value, or null when the SDKs' own default is already this deployment. */
+      hostUrl: string | null;
+    }
+  | ({ kind: "unresolved" } & UnusableOrigin);
+
+/**
+ * The `TRACEROOT_HOST_URL` the SDKs need to send their traces to this
+ * deployment.
+ *
+ * It is the origin `setupCommand` passes as `--host`, for the same reasons.
+ * Both SDKs append `/api/v1/public/traces` to it, as the CLI appends
+ * `/api/v1/...` to `--host`. Both read it from the process environment only,
+ * and default to `https://app.traceroot.ai` when it is unset: `DEFAULT_HOST_URL`
+ * in traceroot-py, `DEFAULT_BASE_URL` in traceroot-ts, the same origin as
+ * `CLI_DEFAULT_HOST`. So a null here is TraceRoot Cloud, where the variable can
+ * be left out, and anywhere else a reader who leaves it out sends their key and
+ * their traces to Cloud.
+ *
+ * The shell-safety check `cliHostFlags` applies is needed here as well: the
+ * value is printed inside an `export` line the reader pastes into a shell.
+ */
+export function sdkHostUrl(): SdkHostUrl {
+  let flags = thisDeployment();
+  // `NEXT_PUBLIC_APP_URL` reaches `--host` only as the base a relative API URL
+  // resolves against; otherwise it is `--auth-host`, which the SDKs have no use
+  // for. So when it is the variable at fault and the API URL is absolute, the
+  // API origin is resolved without it, the app's default standing in for a
+  // base an absolute URL ignores, rather than withheld over a value it does not
+  // depend on.
+  if (
+    flags.kind === "unresolved" &&
+    flags.variable === "NEXT_PUBLIC_APP_URL" &&
+    isAbsoluteUrl(clientEnv.NEXT_PUBLIC_API_URL)
+  ) {
+    flags = cliHostFlags({ apiUrl: clientEnv.NEXT_PUBLIC_API_URL, appUrl: undefined });
+  }
+  if (flags.kind === "unresolved") {
+    return { kind: "unresolved", variable: flags.variable, value: flags.value };
+  }
+  return { kind: "resolved", hostUrl: flags.host };
+}
+
 /**
  * The whole of setup, as one command, carrying what the caller already knows.
  *
@@ -289,15 +360,7 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * than as a string the caller cannot tell apart from a correct bare command.
  */
 export function setupCommand(input: { projectId: string }): SetupCommand {
-  const flags = cliHostFlags({
-    // Validated as a string, not as a URL: `NEXT_PUBLIC_API_URL` is
-    // `z.string()` with the `/api/v1` default, so a value that is not an origin
-    // at all reaches here rather than failing the schema.
-    apiUrl: clientEnv.NEXT_PUBLIC_API_URL,
-    // Read straight from the environment, as `lib/auth-client.ts` and
-    // `lib/eval/run-link.ts` do: the client schema does not carry it.
-    appUrl: process.env.NEXT_PUBLIC_APP_URL,
-  });
+  const flags = thisDeployment();
   if (flags.kind === "unresolved") {
     return { kind: "unavailable", variable: flags.variable, value: flags.value };
   }
