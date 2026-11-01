@@ -2,10 +2,13 @@
 
 import asyncio
 import logging
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated, Literal
 
+from botocore.response import StreamingBody
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import StringConstraints
 
 from rest.projection import (
@@ -34,8 +37,15 @@ from rest.schemas.traces import (
 )
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
+from rest.services.s3 import get_s3_service
 from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.trace_reader import get_trace_reader_service
+from shared.attachments import (
+    ALLOWED_IMAGE_MIME_TYPES,
+    attachment_key,
+    find_attachment_refs,
+    is_attachment_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -408,3 +418,116 @@ async def get_span_io(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get span I/O",
         ) from e
+
+
+# Span fields an attachment reference may sit in. A hash is served only when one of
+# these references it, so a caller can't fetch an image by guessing its hash.
+_ATTACHMENT_FIELDS = ("input", "output", "metadata")
+_ATTACHMENT_CHUNK_BYTES = 64 * 1024
+# An image is span data like any other, so neither the browser nor a proxy keeps a
+# copy past the retention check that served it.
+_ATTACHMENT_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": "inline",
+}
+
+
+def _stream_and_close(body: StreamingBody) -> Iterator[bytes]:
+    """Yield an object body in chunks, closing it however the response ends."""
+    try:
+        yield from body.iter_chunks(_ATTACHMENT_CHUNK_BYTES)
+    finally:
+        body.close()
+
+
+@router.get("/{trace_id}/spans/{span_id}/attachments/{attachment_hash}")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_span_attachment(
+    request: Request,
+    response: Response,
+    project_id: str,
+    trace_id: str,
+    span_id: str,
+    attachment_hash: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+):
+    """Stream an image that ingest moved out of a span into storage.
+
+    The span's text holds a reference to the image's content hash. Only a hash that
+    this span's input, output or metadata references is served.
+
+    Args:
+        project_id (str): Project that owns the trace; scopes the read and the object key.
+        trace_id (str): Trace the span belongs to; its start time gates retention.
+        span_id (str): Span whose text must reference the image.
+        attachment_hash (str): SHA-256 of the image bytes, 64 lowercase hex characters.
+        _access (RateLimitedProjectAccess): Dependency that validates the user's
+            access to the project and sets rate-limit identity; not used directly.
+
+    Returns:
+        StreamingResponse: The image bytes with their stored content type, never cached.
+
+    Raises:
+        HTTPException: 403 outside the retention window. 404 for a malformed hash, a
+            missing span, a hash the span does not reference, or a missing object or
+            one whose stored type is not an allowed image.
+    """
+    if not is_attachment_hash(attachment_hash):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+
+    service = get_trace_reader_service()
+    try:
+        trace_start = await asyncio.to_thread(service.get_trace_start_time, project_id, trace_id)
+        enforce_retention_by_time(_access.billing_plan, trace_start)
+
+        span_io = await asyncio.to_thread(
+            service.get_span_io,
+            project_id=project_id,
+            trace_id=trace_id,
+            span_id=span_id,
+        )
+        if not span_io:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")
+
+        if not any(
+            attachment_hash in find_attachment_refs(span_io.get(field))
+            for field in _ATTACHMENT_FIELDS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+
+        stored = await asyncio.to_thread(
+            get_s3_service().get_object_stream, attachment_key(project_id, attachment_hash)
+        )
+        if stored is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+        if stored.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+            stored.body.close()
+            logger.warning(
+                f"Attachment {attachment_hash} in project {project_id} is stored as "
+                f"{stored.content_type!r}, not an allowed image type"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting span attachment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get span attachment",
+        ) from e
+
+    headers = dict(_ATTACHMENT_HEADERS)
+    if stored.content_length is not None:
+        headers["Content-Length"] = str(stored.content_length)
+    return StreamingResponse(
+        _stream_and_close(stored.body), media_type=stored.content_type, headers=headers
+    )
