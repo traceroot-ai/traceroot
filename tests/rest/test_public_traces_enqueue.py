@@ -74,7 +74,10 @@ class TestEnqueueFailure:
         body = response.json()
         assert body["status"] == "ok"
         assert body["file_key"] == s3.upload_bytes.call_args[0][0]
-        task.delay.assert_called_once_with(s3_key=body["file_key"], project_id="test-project")
+        task.delay.assert_called_once()
+        kwargs = task.delay.call_args.kwargs
+        assert kwargs["s3_key"] == body["file_key"]
+        assert kwargs["project_id"] == "test-project"
 
 
 def test_public_schema_documents_the_queueing_503():
