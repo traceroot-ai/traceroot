@@ -569,3 +569,40 @@ def test_conflicting_child_keys_follow_call_order_not_batch_order():
     traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
 
     assert json.loads(traces[0]["metadata"]) == {"plan": "first", "a": 1, "b": 2}
+
+
+def test_deeply_nested_root_trace_metadata_string_is_stored_not_raised():
+    """A root-only trace whose metadata string nests deeper than the JSON parser allows
+    was stored verbatim before the merge; parsing it must not fail the batch."""
+    deep = "[" * 200_000 + "]" * 200_000
+    payload = _otel_payload([_attr("traceroot.trace.metadata", deep)])
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert traces[0]["metadata"] == deep
+
+
+def test_deeply_nested_child_trace_metadata_does_not_fail_the_batch():
+    deep = '{"a": ' * 200_000 + "1" + "}" * 200_000
+    payload = _root_and_child_payload(
+        [_attr("traceroot.trace.metadata", json.dumps({"plan": "pro"}))],
+        [_attr("traceroot.trace.metadata", deep)],
+    )
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(traces[0]["metadata"]) == {"plan": "pro"}
+
+
+def test_child_metadata_of_mixed_kinds_keeps_the_first_wins_rule():
+    """Only JSON objects can be merged. When the children set a plain value and an
+    object, the old rule applies and the first child's value is kept."""
+    payload = _root_and_child_payload([], [])
+    spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    note = _child(0x03, 1700000000100000000, {})
+    note["attributes"] = [_attr("traceroot.trace.metadata", "just a note")]
+    spans[:] = [note, _child(0x04, 1700000000200000000, {"a": 1}), spans[1]]
+
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert traces[0]["metadata"] == "just a note"
