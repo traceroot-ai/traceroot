@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from worker import ingest_quarantine
+from worker.celery_app import app
 from worker.ingest_quarantine import failed_key_for, quarantine_batch
 from worker.ingest_tasks import process_s3_traces
 
@@ -15,6 +16,10 @@ RAW_FAILED_KEY = "events/failed/proj-1/2026/10/29/12/batch.pb.gz"
 BATCH_KEY = "events/otel/proj-1/2026/10/29/12/batch.json"
 FAILED_KEY = "events/failed/proj-1/2026/10/29/12/batch.json"
 TASK_KWARGS = {"s3_key": BATCH_KEY, "project_id": "proj-1"}
+
+
+class PermanentError(Exception):
+    """An error the test task below lists in ``dont_autoretry_for``."""
 
 
 @pytest.fixture()
@@ -202,42 +207,52 @@ class TestProcessS3TracesFinalAttempt:
 
         assert quarantine_attempts == []
 
-    @pytest.fixture()
-    def never_retried(self, monkeypatch):
-        """Give the task an exception type it lists in ``dont_autoretry_for``."""
+    @pytest.fixture(scope="class")
+    def never_retrying_task(self):
+        """The task's own body, as a task created with ``dont_autoretry_for``.
 
-        class PermanentError(Exception):
-            pass
+        Celery reads ``dont_autoretry_for`` once, when it wraps a new task for
+        autoretry, so the option has to be there when the task is created.
+        """
+        return app.task(
+            bind=True,
+            name="tests.worker.process_s3_traces_with_a_permanent_error",
+            autoretry_for=(Exception,),
+            dont_autoretry_for=(PermanentError,),
+            retry_backoff=True,
+            max_retries=process_s3_traces.max_retries,
+        )(process_s3_traces.__wrapped__.__func__)
 
+    def test_error_celery_never_retries_is_quarantined_on_its_only_attempt(
+        self, s3, counters, never_retrying_task
+    ):
+        quarantined, _ = counters
+        s3.download_json.side_effect = PermanentError("unreadable batch")
+
+        result = never_retrying_task.apply(kwargs=TASK_KWARGS, throw=False)
+
+        assert s3.download_json.call_count == 1
+        s3.copy_object.assert_called_once_with(BATCH_KEY, FAILED_KEY)
+        s3.delete_object.assert_called_once_with(BATCH_KEY)
+        quarantined.add.assert_called_once_with(1, {})
+        assert result.state == "FAILURE"
+        assert str(result.result) == "unreadable batch"
+
+    def test_other_errors_on_that_task_still_wait_for_the_last_attempt(
+        self, s3, monkeypatch, never_retrying_task
+    ):
+        attempts: list[int] = []
         monkeypatch.setattr(
-            process_s3_traces, "dont_autoretry_for", (PermanentError,), raising=False
+            ingest_quarantine,
+            "quarantine_batch",
+            lambda s3_service, s3_key: attempts.append(never_retrying_task.request.retries),
         )
-        return PermanentError
 
-    def _first_attempt(self):
-        process_s3_traces.push_request(retries=0)
-        try:
-            process_s3_traces.run(**TASK_KWARGS)
-        finally:
-            process_s3_traces.pop_request()
+        result = never_retrying_task.apply(kwargs=TASK_KWARGS, throw=False)
 
-    def test_exception_never_retried_quarantines_on_the_first_attempt(
-        self, s3, quarantine_attempts, never_retried
-    ):
-        s3.download_json.side_effect = never_retried("unreadable batch")
-
-        with pytest.raises(never_retried, match="unreadable batch"):
-            self._first_attempt()
-
-        assert quarantine_attempts == [0]
-
-    def test_other_exceptions_still_wait_for_the_last_attempt(
-        self, s3, quarantine_attempts, never_retried
-    ):
-        with pytest.raises(RuntimeError, match="corrupt batch"):
-            self._first_attempt()
-
-        assert quarantine_attempts == []
+        assert s3.download_json.call_count == never_retrying_task.max_retries + 1
+        assert attempts == [never_retrying_task.max_retries]
+        assert str(result.result) == "corrupt batch"
 
     def test_direct_call_never_quarantines(self, s3, quarantine_attempts):
         with pytest.raises(RuntimeError, match="corrupt batch"):
