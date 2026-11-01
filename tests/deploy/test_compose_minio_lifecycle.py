@@ -22,7 +22,8 @@ _ROOT = Path(__file__).resolve().parents[2]
 _LIFECYCLE = _ROOT / "docker" / "minio" / "lifecycle.json"
 _COMPOSE = [_ROOT / "docker-compose.yml", _ROOT / "docker-compose.prod.yml"]
 
-# Stands in for `mc`. `alias set` fails when MC_ALIAS_FAILS is set, as the real one
+# Stands in for `mc`. `alias set` writes its arguments one per line, so a test can tell
+# how the shell split them, and fails when MC_ALIAS_FAILS is set, as the real one
 # does when MinIO rejects the credentials. `ilm rule import` replaces the bucket's
 # whole lifecycle config with stdin, as the real command does. Any other `ilm` use
 # fails, so an entrypoint change that reaches for a different subcommand cannot pass
@@ -30,7 +31,10 @@ _COMPOSE = [_ROOT / "docker-compose.yml", _ROOT / "docker-compose.prod.yml"]
 _MC_STUB = """#!/bin/sh
 printf '%s\\n' "$*" >> "$STATE/calls.log"
 case "$1" in
-  alias) [ -z "$MC_ALIAS_FAILS" ] || exit 1; exit 0 ;;
+  alias)
+    printf '%s\\n' "$@" > "$STATE/alias-args"
+    [ -z "$MC_ALIAS_FAILS" ] || exit 1
+    exit 0 ;;
   mb) exit 0 ;;
 esac
 if [ "$1 $2 $3" = "ilm rule import" ]; then
@@ -71,7 +75,8 @@ def _run_minio_init(
     Compose unescapes `$$` and splits the entrypoint string into argv; this does the
     same, then points each mounted container path at a copy of its host file. The
     container gets only the service's `environment:` block, interpolated against
-    `host_env`, the variables compose reads from the shell or `.env`.
+    `host_env`, the variables compose reads from the shell or `.env`. The script
+    runs in tmp_path, so a glob it leaves unquoted matches only files a test made.
     """
     spec = _minio_init(compose_path)
     container_env = {
@@ -103,6 +108,7 @@ def _run_minio_init(
             "STATE": str(state),
             **stub_env,
         },
+        cwd=tmp_path,
         capture_output=True,
         text=True,
     )
@@ -197,6 +203,23 @@ def test_minio_init_signs_in_with_changed_credentials(compose_path, tmp_path):
     calls = (tmp_path / "state" / "calls.log").read_text().splitlines()
     assert calls[0] == "alias set myminio http://minio:9000 operator not-the-default"
     assert "ilm rule import myminio/traceroot" in calls
+
+
+@pytest.mark.parametrize("password", ["two words", "start*"], ids=["space", "glob"])
+@pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
+def test_minio_init_passes_each_credential_as_one_argument(compose_path, password, tmp_path):
+    """Unquoted, `sh` splits a password at whitespace and expands a glob in it."""
+    (tmp_path / "start-here").touch()  # what `start*` would expand to
+
+    run = _run_minio_init(
+        compose_path,
+        tmp_path,
+        host_env={"MINIO_ROOT_USER": "operator", "MINIO_ROOT_PASSWORD": password},
+    )
+
+    assert run.returncode == 0, run.stderr
+    args = (tmp_path / "state" / "alias-args").read_text().splitlines()
+    assert args == ["alias", "set", "myminio", "http://minio:9000", "operator", password]
 
 
 @pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
