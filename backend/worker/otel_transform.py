@@ -654,7 +654,7 @@ def _as_json_object(value: Any) -> dict | None:
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
@@ -663,16 +663,17 @@ def _as_json_object(value: Any) -> dict | None:
 def _merge_child_trace_metadata(parts: list[tuple[Any, int, Any]]) -> dict | None:
     """Merge child spans' trace metadata objects; an earlier start keeps a shared key.
 
-    ``parts`` holds ``(start_time, arrival_index, value)``. Values that are not JSON
-    objects cannot be merged and are skipped; None when no part is an object.
+    ``parts`` holds ``(start_time, arrival_index, value)``. Only JSON objects can be
+    merged: if any part is something else, return None so the caller keeps the
+    first-wins rule.
     """
-    merged: dict | None = None
+    merged: dict = {}
     for _start, _index, value in sorted(parts, key=lambda p: (p[0], p[1])):
         obj = _as_json_object(value)
         if obj is None:
-            continue
-        merged = {**obj, **(merged or {})}
-    return merged
+            return None
+        merged = {**obj, **merged}
+    return merged or None
 
 
 def transform_otel_to_clickhouse(
@@ -1406,7 +1407,11 @@ def transform_otel_to_clickhouse(
             if attrs["session_id"] and not traces[trace_id].get("session_id"):
                 traces[trace_id]["session_id"] = attrs["session_id"]
             merged = _merge_child_trace_metadata(attrs["metadata_parts"])
-            root_metadata = _as_json_object(traces[trace_id].get("metadata"))
+            # Parsed only when there is something to merge into: most traces have no
+            # child metadata, and their root value is stored as sent.
+            root_metadata = (
+                _as_json_object(traces[trace_id].get("metadata")) if merged is not None else None
+            )
             if merged is not None and (
                 root_metadata is not None or "metadata" not in traces[trace_id]
             ):
