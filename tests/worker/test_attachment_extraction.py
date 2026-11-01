@@ -451,6 +451,70 @@ class TestKnownJsonShapes:
         extract_attachments(FakeS3(), PROJECT, [], [over])
         assert over["input"] is text
 
+    @pytest.mark.parametrize("candidates", [10, 4000])
+    def test_one_pass_over_the_text_however_many_values(self, monkeypatch, candidates):
+        # Distinct base64 values that are not images never reach storage, so only the
+        # passes over the text bound their cost. Every str method that scans the text,
+        # and every pass of the replacement pattern, is recorded.
+        scans: list[str] = []
+        pattern = attachment_extraction._QUOTED_BASE64_RE
+
+        class CountingPattern:
+            def finditer(self, text):
+                scans.append("finditer")
+                return pattern.finditer(text)
+
+        class CountingText(str):
+            def __contains__(self, sub):
+                scans.append("in")
+                return super().__contains__(sub)
+
+            def replace(self, *args):
+                scans.append("replace")
+                return CountingText(super().replace(*args))
+
+            def find(self, *args):
+                scans.append("find")
+                return super().find(*args)
+
+            def count(self, *args):
+                scans.append("count")
+                return super().count(*args)
+
+        monkeypatch.setattr(attachment_extraction, "_QUOTED_BASE64_RE", CountingPattern())
+        image = make_png(2, 2)
+        parts = [{"mime_type": "image/png", "data": b64(image)}]
+        parts += [
+            {"mime_type": "image/png", "data": b64(n.to_bytes(24, "big"))}
+            for n in range(candidates)
+        ]
+        s3 = FakeS3()
+        extractor = attachment_extraction._Extractor(s3, PROJECT, AttachmentSettings())
+
+        replaced = extractor._replace_json_shapes(CountingText(json.dumps(parts)))
+
+        assert scans == ["finditer"]
+        assert json.loads(replaced)[0]["data"] == ref_for(image, "image/png")
+        assert (extractor.result.referenced, extractor.result.omitted) == (1, candidates)
+        assert len(s3.heads) == 1
+
+    def test_images_are_handled_in_the_order_they_appear(self):
+        first, second = make_png(1, 1), make_png(2, 1)
+        payload = {
+            "z": {"mime_type": "image/png", "data": b64(first)},
+            "a": [{"mime_type": "image/png", "data": b64(second)}],
+        }
+        config = AttachmentSettings(max_images_per_batch=1)
+        row = span(input=json.dumps(payload))
+
+        extract_attachments(FakeS3(), PROJECT, [], [row], config=config)
+
+        parsed = json.loads(row["input"])
+        assert parsed["z"]["data"] == ref_for(first, "image/png")
+        assert parsed["a"][0]["data"] == (
+            f"[image omitted: more than 1 images in one batch, {len(second)} bytes]"
+        )
+
 
 RIFF_AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
 PNG_WITHOUT_IHDR = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16

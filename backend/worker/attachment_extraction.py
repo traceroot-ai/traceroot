@@ -75,6 +75,9 @@ _DATA_URL_RE = re.compile(
     re.ASCII,
 )
 _BASE64_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}", re.ASCII)
+# A JSON string whose whole value is base64. The possessive run never backtracks, so a
+# run that a quote does not follow is not scanned again.
+_QUOTED_BASE64_RE = re.compile(r'"([A-Za-z0-9+/]++={0,2})"', re.ASCII)
 _JSON_SHAPE_KEYS = ('"media_type"', '"mime_type"', '"mimeType"')
 # Declared types are compared case-insensitively, so the pre-check is too.
 _IMAGE_TYPE_RE = re.compile(r"image/", re.ASCII | re.IGNORECASE)
@@ -209,14 +212,29 @@ class _Extractor:
             elif isinstance(node, list):
                 stack.extend(node)
 
-        for data, declared in images.items():
-            # Base64 has no character a standard JSON encoder escapes, so the parsed
-            # value appears in the text as a quoted string. An encoder that writes
-            # "/" as "\/" is the exception, and that image is left where it is.
-            needle = f'"{data}"'
-            if needle in text:
-                text = text.replace(needle, f'"{self._replacement(declared, data)}"')
-        return text
+        if not images:
+            return text
+        # Base64 has no character a standard JSON encoder escapes, so the parsed value
+        # appears in the text as a quoted string. An encoder that writes "/" as "\/" is
+        # the exception, and that image is left where it is. One pass over the text
+        # finds every such string, however many values there are, and each value is
+        # validated once.
+        replacements: dict[str, str] = {}
+        pieces: list[str] = []
+        end = 0
+        for match in _QUOTED_BASE64_RE.finditer(text):
+            data = match.group(1)
+            declared = images.get(data)
+            if declared is None:
+                continue
+            if data not in replacements:
+                replacements[data] = self._replacement(declared, data)
+            pieces += (text[end : match.start(1)], replacements[data])
+            end = match.end(1)
+        if not pieces:
+            return text
+        pieces.append(text[end:])
+        return "".join(pieces)
 
     def _replacement(self, declared: Collection[str], data: str) -> str:
         """Validate one base64 image and return its reference, or a placeholder.
