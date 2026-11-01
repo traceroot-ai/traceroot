@@ -152,6 +152,10 @@ _TRACES_BASE = f"""
         -- Dedup over the window widened by the trace dedup margin, THEN apply the exact
         -- window to each trace's newest row: a window inside the dedup can drop the
         -- newest row and keep a stale placeholder that starts inside it (#2708).
+        -- Alerts read this relation too (unique_user_ids / unique_session_ids, and the
+        -- alert preview), so a trace counts only in the window its newest row starts
+        -- in: one whose root lands after its first child batch's window was evaluated
+        -- is counted in neither window, the same way the spans view misses late spans.
         SELECT *
         FROM (
             SELECT
