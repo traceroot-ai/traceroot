@@ -2,7 +2,9 @@
 
 import copy
 import hashlib
+import itertools
 import json
+import struct
 from unittest.mock import MagicMock
 
 import boto3
@@ -30,9 +32,11 @@ from tests.fixtures.images import (
     make_webp_vp8x,
 )
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from worker import attachment_extraction
 from worker.attachment_extraction import (
     TRUNCATION_MARKER,
     _cut_to_size,
+    _enforce_size_limit,
     _strict_b64decode,
     extract_attachments,
 )
@@ -86,6 +90,11 @@ def utf8_total(row: dict) -> int:
 
 def marker(limit: int) -> str:
     return TRUNCATION_MARKER.format(limit=limit)
+
+
+def png_header(width: int, height: int = 1) -> bytes:
+    """The first 24 bytes of a PNG, which is all the header checks read."""
+    return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", width, height)
 
 
 IMAGES = [
@@ -347,9 +356,107 @@ class TestKnownJsonShapes:
         assert row["input"] is text
         assert s3.heads == []
 
+    @pytest.mark.parametrize("declared", ["IMAGE/PNG", "Image/Png"])
+    def test_declared_type_in_upper_case(self, declared):
+        image = make_png(2, 2)
+        row = span(input=json.dumps({"mime_type": declared, "data": b64(image)}))
+
+        result = extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        assert json.loads(row["input"])["data"] == ref_for(image, "image/png")
+        assert result.referenced == 1
+
+    @pytest.mark.parametrize(
+        "types",
+        [("image/png", "image/jpeg"), ("image/jpeg", "image/png")],
+        ids=["png-first", "jpeg-first"],
+    )
+    def test_same_data_declared_as_two_types_takes_the_one_its_bytes_are(self, types):
+        image = make_png(2, 2)
+        payload = {
+            "a": {"mime_type": types[0], "data": b64(image)},
+            "b": [{"mime_type": types[1], "data": b64(image)}],
+        }
+        s3 = FakeS3()
+        row = span(input=json.dumps(payload))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        parsed = json.loads(row["input"])
+        assert parsed["a"]["data"] == parsed["b"][0]["data"] == ref_for(image, "image/png")
+        assert list(s3.objects.values()) == [(image, "image/png")]
+        assert (result.referenced, result.omitted) == (1, 0)
+
+    def test_same_data_declared_only_as_other_types_is_omitted(self):
+        image = make_png(2, 2)
+        payload = [
+            {"mime_type": "image/jpeg", "data": b64(image)},
+            {"mime_type": "image/gif", "data": b64(image)},
+        ]
+        s3 = FakeS3()
+        row = span(input=json.dumps(payload))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        omitted = f"[image omitted: content is not image/gif or image/jpeg, {len(image)} bytes]"
+        assert [part["data"] for part in json.loads(row["input"])] == [omitted, omitted]
+        assert s3.heads == []
+        assert result.omitted == 1
+
+    def test_a_string_that_is_the_same_base64_is_the_same_image(self):
+        image = make_png(2, 2)
+        payload = {
+            "part": {"mime_type": "image/png", "data": b64(image)},
+            "copy": b64(image),
+            "note": "x",
+        }
+        row = span(input=json.dumps(payload))
+
+        extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        ref = ref_for(image, "image/png")
+        assert json.loads(row["input"]) == {
+            "part": {"mime_type": "image/png", "data": ref},
+            "copy": ref,
+            "note": "x",
+        }
+
+    def test_text_with_too_many_json_values_is_never_parsed(self):
+        # A small shape followed by a large array: parsing it would build a tree many
+        # times the size of the text. "AAAA" is not an image, so had the text been
+        # parsed it would hold a placeholder now.
+        text = '{"mime_type":"image/png","data":"AAAA","junk":[' + '"x",' * 1_000_000 + '"x"]}'
+        s3 = FakeS3()
+        row = span(input=text)
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] is text
+        assert s3.heads == []
+        assert result.omitted == 0
+
+    def test_json_value_bound(self, monkeypatch):
+        image = make_png(2, 2)
+        text = json.dumps({"mime_type": "image/png", "data": b64(image), "junk": [0] * 5})
+        # Every value but the first follows "[", "," or ":".
+        values = text.count(",") + text.count(":") + text.count("[")
+
+        monkeypatch.setattr(attachment_extraction, "_MAX_JSON_VALUES", values)
+        at_bound = span(input=text)
+        extract_attachments(FakeS3(), PROJECT, [], [at_bound])
+        assert json.loads(at_bound["input"])["data"] == ref_for(image, "image/png")
+
+        monkeypatch.setattr(attachment_extraction, "_MAX_JSON_VALUES", values - 1)
+        over = span(input=text)
+        extract_attachments(FakeS3(), PROJECT, [], [over])
+        assert over["input"] is text
+
 
 RIFF_AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
 PNG_WITHOUT_IHDR = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+ZERO_WIDTH_PNG = make_png(0, 1)
+# A frame header that declares 2 bytes, with a size after it that it does not hold.
+SHORT_FRAME_JPEG = b"\xff\xd8\xff\xc0\x00\x02" + struct.pack(">BHHB", 8, 10, 20, 1) + b"\xff\xd9"
 WIDE_PNG = make_png(16385, 1)
 TALL_PNG = make_png(1, 16385)
 HUGE_WEBP = make_webp_vp8x(20000, 20000)
@@ -389,6 +496,18 @@ class TestValidation:
                 "unreadable image header",
                 len(PNG_WITHOUT_IHDR),
                 id="png-signature-without-ihdr",
+            ),
+            pytest.param(
+                data_url(ZERO_WIDTH_PNG, "image/png"),
+                "unreadable image header",
+                len(ZERO_WIDTH_PNG),
+                id="zero-width",
+            ),
+            pytest.param(
+                data_url(SHORT_FRAME_JPEG, "image/jpeg"),
+                "unreadable image header",
+                len(SHORT_FRAME_JPEG),
+                id="jpeg-size-past-its-frame-header",
             ),
             pytest.param(
                 data_url(WIDE_PNG, "image/png"),
@@ -609,6 +728,91 @@ class TestStorage:
             )
 
 
+class TestImagesPerBatch:
+    def test_the_limit_stops_storage_calls(self):
+        images = [make_png(width, 1) for width in range(1, 6)]
+        config = AttachmentSettings(max_images_per_batch=3)
+        s3 = FakeS3()
+        row = span(input=" ".join(data_url(image, "image/png") for image in images))
+
+        result = extract_attachments(s3, PROJECT, [], [row], config=config)
+
+        stored = [attachment_key(PROJECT, sha(image)) for image in images[:3]]
+        assert s3.heads == stored and s3.puts == stored
+        assert row["input"] == " ".join(
+            [ref_for(image, "image/png") for image in images[:3]]
+            + [
+                f"[image omitted: more than 3 images in one batch, {len(image)} bytes]"
+                for image in images[3:]
+            ]
+        )
+        assert (result.referenced, result.stored, result.omitted) == (3, 3, 2)
+
+    def test_an_image_already_handled_is_referenced_past_the_limit(self):
+        first, second, third = make_png(1, 1), make_png(2, 1), make_png(3, 1)
+        config = AttachmentSettings(max_images_per_batch=2)
+        s3 = FakeS3()
+        urls = [data_url(image, "image/png") for image in (first, second, third, first)]
+        row = span(input=" | ".join(urls))
+
+        extract_attachments(s3, PROJECT, [], [row], config=config)
+
+        assert row["input"].split(" | ") == [
+            ref_for(first, "image/png"),
+            ref_for(second, "image/png"),
+            f"[image omitted: more than 2 images in one batch, {len(third)} bytes]",
+            ref_for(first, "image/png"),
+        ]
+        assert len(s3.heads) == 2
+
+    def test_the_limit_is_per_batch_and_counts_images_already_stored(self):
+        first, second, third = make_png(1, 1), make_png(2, 1), make_png(3, 1)
+        config = AttachmentSettings(max_images_per_batch=2)
+        s3 = FakeS3()
+        s3.objects[attachment_key(PROJECT, sha(first))] = (first, "image/png")
+        spans = [
+            span(input=data_url(first, "image/png")),
+            span(output=f"{data_url(second, 'image/png')} {data_url(third, 'image/png')}"),
+        ]
+        trace = {"trace_id": "trace-a", "output": data_url(first, "image/png")}
+
+        result = extract_attachments(s3, PROJECT, [trace], spans, config=config)
+
+        assert spans[0]["input"] == ref_for(first, "image/png")
+        assert spans[1]["output"] == (
+            f"{ref_for(second, 'image/png')} "
+            f"[image omitted: more than 2 images in one batch, {len(third)} bytes]"
+        )
+        assert trace["output"] == ref_for(first, "image/png")
+        assert len(s3.heads) == 2 and len(s3.puts) == 1
+        assert (result.referenced, result.stored, result.omitted) == (3, 1, 1)
+
+    def test_header_only_images_cannot_fan_out_past_the_default_limit(self):
+        # 2000 distinct 24-byte PNG headers fit in about 110 KB of span text.
+        urls = [data_url(png_header(width), "image/png") for width in range(1, 2001)]
+        s3 = FakeS3()
+        row = span(input=" ".join(urls))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert len(s3.heads) == len(s3.puts) == 1000
+        assert (result.referenced, result.omitted) == (1000, 1000)
+        assert row["input"].count("more than 1000 images in one batch") == 1000
+
+    def test_a_retried_batch_ends_the_same(self):
+        images = [make_png(width, 1) for width in range(1, 5)]
+        config = AttachmentSettings(max_images_per_batch=2)
+        s3 = FakeS3()
+        text = " ".join(data_url(image, "image/png") for image in images)
+        first, again = span(input=text), span(input=text)
+
+        extract_attachments(s3, PROJECT, [], [first], config=config)
+        extract_attachments(s3, PROJECT, [], [again], config=config)
+
+        assert again["input"] == first["input"]
+        assert (len(s3.heads), len(s3.puts)) == (4, 2)
+
+
 class TestUnchangedText:
     @pytest.mark.parametrize(
         "text",
@@ -696,32 +900,38 @@ class TestSpanSizeLimit:
         assert utf8_total(row) == 1000
 
     def test_several_fields_are_cut_when_the_largest_is_not_enough(self):
-        config = AttachmentSettings(max_span_bytes=200)
-        row = span(input="i" * 300, output="o" * 290)
+        config = AttachmentSettings(max_span_bytes=256)
+        row = span(input="i" * 400, output="o" * 390)
 
         extract_attachments(FakeS3(), PROJECT, [], [row], config=config)
 
-        assert row["input"] == marker(200)
-        assert row["output"].startswith("o") and row["output"].endswith(marker(200))
-        assert utf8_total(row) == 200
+        assert row["input"] == marker(256)
+        assert row["output"].startswith("o") and row["output"].endswith(marker(256))
+        assert utf8_total(row) == 256
 
-    def test_a_field_smaller_than_the_marker_is_never_grown(self):
-        config = AttachmentSettings(max_span_bytes=60)
+    def test_every_row_fits_the_smallest_limit(self):
+        # Sizes around one, two and three markers (47 bytes at this limit) and the limit.
+        sizes = [0, 1, 46, 47, 48, 93, 94, 95, 140, 141, 142, 200, 255, 256, 257, 300, 1000]
+        config = AttachmentSettings(max_span_bytes=256)
+        for sizes_of_row in itertools.product(sizes, repeat=3):
+            row = span(
+                **{name: "x" * n for name, n in zip(("input", "output", "metadata"), sizes_of_row)}
+            )
+
+            extract_attachments(FakeS3(), PROJECT, [], [row], config=config)
+
+            assert utf8_total(row) <= 256, sizes_of_row
+
+    def test_a_field_no_longer_than_the_marker_is_never_cut(self):
+        # Only a limit under three markers reaches this, and the settings refuse one,
+        # so the row is cut directly.
         row = span(input="i" * 70, output="o" * 30)
+        assert _enforce_size_limit(row, 60) is True
+        assert (row["input"], row["output"]) == (marker(60), "o" * 30)
 
-        extract_attachments(FakeS3(), PROJECT, [], [row], config=config)
-
-        assert row["input"] == marker(60)
-        assert row["output"] == "o" * 30
-
-    def test_fields_all_smaller_than_the_marker_are_not_counted_as_cut(self):
-        config = AttachmentSettings(max_span_bytes=10)
         row = span(input="i" * 8, output="o" * 8)
-
-        result = extract_attachments(FakeS3(), PROJECT, [], [row], config=config)
-
+        assert _enforce_size_limit(row, 10) is False
         assert (row["input"], row["output"]) == ("i" * 8, "o" * 8)
-        assert result.truncated == 0
 
     def test_multibyte_text_is_cut_on_a_character_boundary(self):
         config = AttachmentSettings(max_span_bytes=1000)
@@ -745,13 +955,13 @@ class TestSpanSizeLimit:
         assert result.truncated == 0
 
     def test_trace_rows_are_bounded_too(self):
-        config = AttachmentSettings(max_span_bytes=100)
-        trace = {"trace_id": "trace-a", "input": "x" * 500}
+        config = AttachmentSettings(max_span_bytes=256)
+        trace = {"trace_id": "trace-a", "input": "x" * 1000}
 
         extract_attachments(FakeS3(), PROJECT, [trace], [], config=config)
 
-        assert trace["input"].endswith(marker(100))
-        assert utf8_total(trace) == 100
+        assert trace["input"].endswith(marker(256))
+        assert utf8_total(trace) == 256
 
     @pytest.mark.parametrize(
         ("text", "max_bytes", "expected"),
@@ -867,27 +1077,31 @@ class TestAttachmentSettings:
         config = AttachmentSettings()
         assert config.max_image_bytes == 5 * 1024 * 1024
         assert config.max_image_dimension == 16384
+        assert config.max_images_per_batch == 1000
         assert config.max_span_bytes == 8 * 1024 * 1024
         assert isinstance(settings.attachments, AttachmentSettings)
 
     def test_reads_env(self, monkeypatch):
         monkeypatch.setenv("ATTACHMENT_MAX_IMAGE_BYTES", "1024")
         monkeypatch.setenv("ATTACHMENT_MAX_IMAGE_DIMENSION", "2048")
+        monkeypatch.setenv("ATTACHMENT_MAX_IMAGES_PER_BATCH", "50")
         monkeypatch.setenv("ATTACHMENT_MAX_SPAN_BYTES", "4096")
 
         config = AttachmentSettings()
 
-        assert (config.max_image_bytes, config.max_image_dimension, config.max_span_bytes) == (
-            1024,
-            2048,
-            4096,
-        )
+        assert (
+            config.max_image_bytes,
+            config.max_image_dimension,
+            config.max_images_per_batch,
+            config.max_span_bytes,
+        ) == (1024, 2048, 50, 4096)
 
     @pytest.mark.parametrize(
         "name",
         [
             "ATTACHMENT_MAX_IMAGE_BYTES",
             "ATTACHMENT_MAX_IMAGE_DIMENSION",
+            "ATTACHMENT_MAX_IMAGES_PER_BATCH",
             "ATTACHMENT_MAX_SPAN_BYTES",
         ],
     )
@@ -895,6 +1109,11 @@ class TestAttachmentSettings:
         monkeypatch.setenv(name, "0")
         with pytest.raises(ValidationError):
             AttachmentSettings()
+
+    def test_span_limit_is_at_least_256(self):
+        with pytest.raises(ValidationError):
+            AttachmentSettings(max_span_bytes=255)
+        assert AttachmentSettings(max_span_bytes=256).max_span_bytes == 256
 
 
 class IngestS3(FakeS3):

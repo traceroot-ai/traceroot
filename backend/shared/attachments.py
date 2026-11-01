@@ -193,7 +193,10 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
         if length < 2:
             return None
         if marker in _JPEG_SOF_MARKERS:
-            # length(2) precision(1) height(2) width(2)
+            # length(2) precision(1) height(2) width(2) components(1): the size is read
+            # only from a frame header that holds all of these and ends inside the data.
+            if length < 8 or pos + length > size:
+                return None
             height, width = struct.unpack_from(">HH", data, pos + 3)
             return width, height
         pos += length
@@ -243,12 +246,15 @@ def read_image_dimensions(data: bytes, mime: str) -> tuple[int, int] | None:
 
     Returns:
         ``(width, height)`` in pixels, or ``None`` when ``mime`` is not an allowed
-        type or the header is truncated or malformed.
+        type, or the header is truncated, malformed or declares a zero width or height.
     """
     reader = _DIMENSION_READERS.get(mime)
     if reader is None:
         return None
     try:
-        return reader(data)
+        dimensions = reader(data)
     except struct.error:
         return None
+    if dimensions is None or min(dimensions) == 0:
+        return None
+    return dimensions
