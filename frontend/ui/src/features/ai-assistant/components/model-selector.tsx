@@ -31,6 +31,7 @@ interface ModelSelectorProps {
   defaultModelId?: string;
   /** List decision models (TypeSafe); only detector pickers set it. */
   allowDecisionModels?: boolean;
+  disabled?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -43,6 +44,7 @@ export function ModelSelector({
   workspaceId,
   defaultModelId,
   allowDecisionModels = false,
+  disabled = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -136,12 +138,13 @@ export function ModelSelector({
 
   return (
     <div className="flex items-center">
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open && !disabled} onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}>
         <PopoverTrigger asChild>
           <Button
+            disabled={disabled}
             variant="ghost"
             size="sm"
-            className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground disabled:pointer-events-auto disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
           >
             {selectedModel?.label ||
               value.model ||

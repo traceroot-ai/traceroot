@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import type { ModelSelection } from "@/features/ai-assistant/components/model-selector";
 
 const mocks = vi.hoisted(() => ({
   project: {
     workspace_id: "w1",
     alert_emails: [] as string[],
     alert_window: "10m",
+    rca_model: "saved-model",
+    rca_provider: "saved-provider",
+    rca_source: "byok",
   } as any,
   updateProject: vi.fn().mockResolvedValue({}),
   workspace: { role: "ADMIN" },
@@ -22,7 +26,36 @@ vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  // Exercise the parent's selection and disabled props without loading a model catalog.
+  ModelSelector: ({
+    value,
+    onChange,
+    disabled,
+  }: {
+    value: ModelSelection;
+    onChange: (selection: ModelSelection) => void;
+    disabled?: boolean;
+  }) => (
+    <select
+      aria-label="agent model"
+      value={value.model}
+      disabled={disabled}
+      data-provider={value.provider}
+      data-source={value.source}
+      data-adapter={value.adapter}
+      onChange={(e) =>
+        onChange({
+          model: e.target.value,
+          provider: "updated-provider",
+          source: "system",
+          adapter: "openai",
+        })
+      }
+    >
+      <option value="saved-model">Saved model</option>
+      <option value="updated-model">Updated model</option>
+    </select>
+  ),
 }));
 vi.mock("@/features/settings/workspace/hooks", () => ({
   useWorkspace: () => ({ data: mocks.workspace }),
@@ -35,15 +68,18 @@ vi.mock("@/components/ui/select", () => ({
     value,
     onValueChange,
     children,
+    disabled,
   }: {
     value: string;
     onValueChange: (v: string) => void;
     children: React.ReactNode;
+    disabled?: boolean;
   }) => (
     <select
       aria-label="window"
       role="combobox"
       value={value}
+      disabled={disabled}
       onChange={(e) => onValueChange(e.target.value)}
     >
       {children}
@@ -114,6 +150,191 @@ describe("DetectorsTab alert window", () => {
       target: { value: "5m" },
     });
     expect(save.disabled).toBe(false);
+  });
+});
+
+describe("DetectorsTab agent model permissions", () => {
+  it("lets members view the saved selection but disables editing", () => {
+    mocks.workspace.role = "MEMBER";
+    renderTab();
+    const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
+    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+
+    expect(select.value).toBe("saved-model");
+    expect(select.matches(":disabled")).toBe(true);
+    expect(save.matches(":disabled")).toBe(true);
+    expect(screen.getByText("Only workspace admins can change these settings.")).toBeTruthy();
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it("lets admins change and save the selection", async () => {
+    renderTab();
+    const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
+    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+    expect(select.matches(":disabled")).toBe(false);
+    expect(save.matches(":disabled")).toBe(true);
+    expect(screen.queryByText(/only workspace admins/i)).toBeNull();
+
+    fireEvent.change(select, { target: { value: "updated-model" } });
+    expect(save.matches(":disabled")).toBe(false);
+    fireEvent.click(save);
+
+    await waitFor(() => {
+      expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", {
+        rca_model: "updated-model",
+        rca_provider: "updated-provider",
+        rca_source: "system",
+      });
+    });
+  });
+
+  it("shows the role error, restores the saved selection, and refreshes the workspace", async () => {
+    mocks.updateProject.mockRejectedValueOnce(new ApiError(403, "Requires ADMIN role or higher"));
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
+    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+
+    fireEvent.change(select, { target: { value: "updated-model" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Failed to save agent model: Requires ADMIN role or higher",
+    );
+    expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", {
+      rca_model: "updated-model",
+      rca_provider: "updated-provider",
+      rca_source: "system",
+    });
+    expect(select.value).toBe("saved-model");
+    expect(save.matches(":disabled")).toBe(true);
+    expect(select.dataset.provider).toBe("saved-provider");
+    expect(select.dataset.source).toBe("byok");
+    expect(select.dataset.adapter).toBe("");
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["workspace", "w1"] });
+  });
+
+  it("preserves the draft when impersonation prevents saving", async () => {
+    mocks.updateProject.mockRejectedValueOnce(new ImpersonationError("Read-only session"));
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
+    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+
+    fireEvent.change(select, { target: { value: "updated-model" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Failed to save agent model: Read-only session",
+    );
+    expect(select.value).toBe("updated-model");
+    expect(save.matches(":disabled")).toBe(false);
+    expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["workspace", "w1"] });
+  });
+
+  it("keeps the draft available for retry after a server error", async () => {
+    mocks.updateProject.mockRejectedValueOnce(new ApiError(500, "Internal server error"));
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
+    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+
+    fireEvent.change(select, { target: { value: "updated-model" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Failed to save agent model: Internal server error",
+    );
+    expect(select.value).toBe("updated-model");
+    expect(save.matches(":disabled")).toBe(false);
+    expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["workspace", "w1"] });
+  });
+});
+
+describe("DetectorsTab alert window permissions", () => {
+  it("lets members view the saved selection but disables editing", () => {
+    mocks.workspace.role = "MEMBER";
+    renderTab();
+    const select = screen.getByRole("combobox", { name: /window/i }) as HTMLSelectElement;
+    const save = screen.getByRole("button", { name: /save alert window/i });
+
+    expect(select.value).toBe("10m");
+    expect(select.matches(":disabled")).toBe(true);
+    expect(save.matches(":disabled")).toBe(true);
+    expect(screen.getByText("Only workspace admins can change these settings.")).toBeTruthy();
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it("lets admins change and save the selection", async () => {
+    renderTab();
+    const select = screen.getByRole("combobox", { name: /window/i }) as HTMLSelectElement;
+    const save = screen.getByRole("button", { name: /save alert window/i });
+    expect(select.matches(":disabled")).toBe(false);
+    expect(save.matches(":disabled")).toBe(true);
+    expect(screen.queryByText(/only workspace admins/i)).toBeNull();
+
+    fireEvent.change(select, { target: { value: "2h" } });
+    expect(save.matches(":disabled")).toBe(false);
+    fireEvent.click(save);
+
+    await waitFor(() => {
+      expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", { alert_window: "2h" });
+    });
+  });
+
+  it("shows the role error, restores the saved selection, and refreshes the workspace", async () => {
+    mocks.updateProject.mockRejectedValueOnce(new ApiError(403, "Requires ADMIN role or higher"));
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const select = screen.getByRole("combobox", { name: /window/i }) as HTMLSelectElement;
+    const save = screen.getByRole("button", { name: /save alert window/i });
+
+    fireEvent.change(select, { target: { value: "2h" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Failed to save alert window: Requires ADMIN role or higher",
+    );
+    expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", { alert_window: "2h" });
+    expect(select.value).toBe("10m");
+    expect(save.matches(":disabled")).toBe(true);
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["workspace", "w1"] });
+  });
+
+  it("preserves the draft when impersonation prevents saving", async () => {
+    mocks.updateProject.mockRejectedValueOnce(new ImpersonationError("Read-only session"));
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const select = screen.getByRole("combobox", { name: /window/i }) as HTMLSelectElement;
+    const save = screen.getByRole("button", { name: /save alert window/i });
+
+    fireEvent.change(select, { target: { value: "2h" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Failed to save alert window: Read-only session",
+    );
+    expect(select.value).toBe("2h");
+    expect(save.matches(":disabled")).toBe(false);
+    expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["workspace", "w1"] });
+  });
+
+  it("keeps the draft available for retry after a server error", async () => {
+    mocks.updateProject.mockRejectedValueOnce(new ApiError(500, "Internal server error"));
+    const { queryClient } = renderTab();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const select = screen.getByRole("combobox", { name: /window/i }) as HTMLSelectElement;
+    const save = screen.getByRole("button", { name: /save alert window/i });
+
+    fireEvent.change(select, { target: { value: "2h" } });
+    fireEvent.click(save);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Failed to save alert window: Internal server error",
+    );
+    expect(select.value).toBe("2h");
+    expect(save.matches(":disabled")).toBe(false);
+    expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["workspace", "w1"] });
   });
 });
 

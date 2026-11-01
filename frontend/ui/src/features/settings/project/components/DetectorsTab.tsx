@@ -67,6 +67,21 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         rca_source: selection.source === "byok" ? "byok" : "system",
       });
     },
+    onError: (error) => {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof ImpersonationError) &&
+        error.status === 403
+      ) {
+        setAgentModelSelection({
+          model: project?.rca_model ?? "",
+          provider: project?.rca_provider ?? "",
+          source: (project?.rca_source as "system" | "byok") ?? "system",
+          adapter: "",
+        });
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -99,6 +114,16 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       if (!project) throw new Error("Project not found");
       return updateProject(project.workspace_id!, projectId, { alert_window: w });
     },
+    onError: (error) => {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof ImpersonationError) &&
+        error.status === 403
+      ) {
+        setAlertWindow((project?.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -128,7 +153,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         <p className="text-[13px] text-muted-foreground">Settings shared across all detectors.</p>
         {workspace && !isAdmin && (
           <p className="mt-2 text-[13px] text-muted-foreground">
-            Only workspace admins can change email recipients.
+            Only workspace admins can change these settings.
           </p>
         )}
       </div>
@@ -142,15 +167,21 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             value={agentModelSelection}
             onChange={setAgentModelSelection}
             workspaceId={project?.workspace_id}
+            disabled={!isAdmin}
           />
           <p className="mt-2 text-[12px] text-muted-foreground">
             Used for deep analysis when a finding is triggered. Shared across all detectors.
           </p>
+          {modelMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save agent model: {modelMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 h-7 text-[12px]"
             onClick={() => modelMutation.mutate(agentModelSelection)}
-            disabled={!canSave || modelMutation.isPending || !isModelDirty}
+            disabled={!isAdmin || !canSave || modelMutation.isPending || !isModelDirty}
           >
             {modelMutation.isPending ? "Saving..." : "Save"}
           </Button>
@@ -223,7 +254,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             <h4 className="text-[12px] font-medium">Alert window</h4>
           </div>
           <div className="mt-2">
-            <Select value={alertWindow} onValueChange={(v) => setAlertWindow(v as AlertWindow)}>
+            <Select
+              value={alertWindow}
+              onValueChange={(v) => setAlertWindow(v as AlertWindow)}
+              disabled={!isAdmin}
+            >
               <SelectTrigger className="h-7 w-40 text-[12px]" aria-label="window">
                 <SelectValue />
               </SelectTrigger>
@@ -239,12 +274,17 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             New and reopened signals in each window are sent as one notification.
           </p>
+          {windowMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save alert window: {windowMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 h-7 text-[12px]"
             aria-label="Save alert window"
             onClick={() => windowMutation.mutate(alertWindow)}
-            disabled={!canSave || windowMutation.isPending || !isWindowDirty}
+            disabled={!isAdmin || !canSave || windowMutation.isPending || !isWindowDirty}
           >
             {windowMutation.isPending ? "Saving..." : "Save"}
           </Button>
