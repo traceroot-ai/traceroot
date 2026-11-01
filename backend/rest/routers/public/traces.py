@@ -86,6 +86,36 @@ async def _read_capped_body(request: Request, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+def _is_gzipped(content_encoding: str) -> bool:
+    """Read ``Content-Encoding``, refusing any coding the worker can't undo.
+
+    The body is stored as sent and only the worker decodes it, from the key's
+    suffix, so the only codings accepted are none and a single gzip layer
+    (``x-gzip`` is the same coding). Anything else would be stored and then fail
+    every worker attempt, so it gets 400 here, which an exporter does not retry.
+
+    Args:
+        content_encoding (str): The request's ``Content-Encoding`` header, or "".
+
+    Returns:
+        bool: True for gzip, False for no coding.
+
+    Raises:
+        HTTPException: 400 for any other coding.
+    """
+    codings = [c.strip().lower() for c in content_encoding.split(",")]
+    codings = [c for c in codings if c and c != "identity"]
+    if not codings:
+        return False
+    if codings in (["gzip"], ["x-gzip"]):
+        return True
+    logger.warning(f"Refused trace ingest request with Content-Encoding {content_encoding!r}")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Content-Encoding must be gzip or omitted",
+    )
+
+
 class IngestResponse(BaseModel):
     """Response for trace ingestion."""
 
@@ -114,7 +144,7 @@ async def ingest_traces(
 
     Headers:
         Authorization: Bearer <api_key>
-        Content-Encoding: gzip (optional)
+        Content-Encoding: gzip (optional; any other coding gets 400)
         Content-Type: application/x-protobuf
 
     Body:
@@ -147,6 +177,9 @@ async def ingest_traces(
             detail="Content-Type must be application/x-protobuf",
         )
 
+    # Validate Content-Encoding before reading body too
+    gzipped = _is_gzipped(request.headers.get("content-encoding", ""))
+
     # 1. Read body, refusing anything over the request cap
     body = await _read_capped_body(request, settings.ingest.max_request_bytes)
 
@@ -158,8 +191,6 @@ async def ingest_traces(
 
     # 2. A gzip body must unzip cleanly within the cap. The output is only
     #    counted, never kept: the worker decodes the batch from the body as sent.
-    content_encoding = request.headers.get("content-encoding", "")
-    gzipped = "gzip" in content_encoding.lower()
     if gzipped:
         try:
             for _ in iter_gunzip(body, settings.ingest.max_unzipped_bytes):

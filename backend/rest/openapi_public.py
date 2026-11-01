@@ -70,9 +70,10 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             responses.setdefault("503", _error_response("Authentication service unavailable"))
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)
-    # and documents its runtime error contract: 400 (empty body or invalid gzip),
-    # 402 (plan limit), 413 (body over the size limits), 415 (wrong Content-Type),
-    # 500 (S3 storage failure), and 503 also when the batch cannot be queued.
+    # and documents its runtime error contract: 400 (empty body, invalid gzip, or a
+    # Content-Encoding other than gzip), 402 (plan limit), 413 (body over the size
+    # limits), 415 (wrong Content-Type), 500 (S3 storage failure), and 503 also
+    # when the batch cannot be queued.
     ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
     if ingest is not None:
         ingest["requestBody"] = {
