@@ -6,6 +6,10 @@ and the readers' ``ORDER BY ch_update_time DESC LIMIT 1 BY`` keep. Versioning a
 batch's rows by when the API received it makes the most recently sent version of
 a span win, even when an older batch is processed after a newer one (a retry, or
 two workers racing).
+
+The column is DateTime64(3), so a receive time is stored to the millisecond. Two
+batches received within the same millisecond tie: merges and FINAL keep the row
+inserted last, and the readers may return either row until the parts merge.
 """
 
 from datetime import UTC, datetime

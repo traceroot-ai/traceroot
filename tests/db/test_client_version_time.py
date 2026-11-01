@@ -1,12 +1,23 @@
-"""The version (``ch_update_time``) the insert helpers write for each row."""
+"""The version (``ch_update_time``) the insert helpers hand to ``insert`` for each row.
 
+The driver is mocked, so these tests check the values handed to it. What the driver
+then serializes for a version is checked in ``TestDriverWritesMilliseconds``, without
+a server.
+"""
+
+import struct
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
+from clickhouse_connect.datatypes.registry import get_from_name
+from clickhouse_connect.driver.insert import InsertContext
+
 from db.clickhouse.client import ClickHouseClient
 
 RECEIVED = datetime(2026, 10, 29, 12, 0, 0, 123456, tzinfo=UTC)
+#: RECEIVED in whole milliseconds since the epoch, 2026-10-29T12:00:00.123Z.
+RECEIVED_MS = 1_793_275_200_123
 
 
 def _trace(trace_id: str = "trace-1", **extra: Any) -> dict[str, Any]:
@@ -38,6 +49,17 @@ def _column(mock_internal: MagicMock, name: str) -> list[Any]:
     return [row[columns.index(name)] for row in rows]
 
 
+def _written_ticks(value: datetime) -> int:
+    """The Int64 clickhouse-connect serializes for ``value`` in a DateTime64(3) column."""
+    column_type = get_from_name("DateTime64(3)")
+    dest = bytearray()
+    column_type.write_column(
+        [value], dest, InsertContext("spans", ["ch_update_time"], [column_type])
+    )
+    (ticks,) = struct.unpack("<q", dest)
+    return ticks
+
+
 class TestSpanVersion:
     def test_version_time_is_written_as_ch_update_time(self):
         internal = MagicMock()
@@ -63,8 +85,8 @@ class TestSpanVersion:
         assert before <= version <= after
         assert _column(internal, "ch_create_time") == [version]
 
-    def test_microseconds_reach_the_driver(self):
-        """The column is DateTime64(3); the driver keeps the milliseconds of what it gets."""
+    def test_microseconds_are_handed_to_insert(self):
+        """The helper passes the receive time on unrounded; rounding is the driver's."""
         internal = MagicMock()
         ClickHouseClient(internal).insert_spans_batch([_span()], version_time=RECEIVED)
         (version,) = _column(internal, "ch_update_time")
@@ -100,3 +122,18 @@ class TestTraceVersion:
         own = datetime(1970, 1, 1, tzinfo=UTC)
         ClickHouseClient(internal).insert_traces_batch([_trace(ch_update_time=own)])
         assert _column(internal, "ch_update_time") == [own]
+
+
+class TestDriverWritesMilliseconds:
+    """``spans.ch_update_time`` and ``traces.ch_update_time`` are DateTime64(3) columns."""
+
+    def test_the_version_handed_to_insert_is_written_in_whole_milliseconds(self):
+        internal = MagicMock()
+        ClickHouseClient(internal).insert_spans_batch([_span()], version_time=RECEIVED)
+        (version,) = _column(internal, "ch_update_time")
+        assert _written_ticks(version) == RECEIVED_MS
+
+    def test_receive_times_within_one_millisecond_are_written_equal(self):
+        """Such versions tie, and a tie keeps the row inserted last."""
+        assert _written_ticks(RECEIVED.replace(microsecond=123999)) == RECEIVED_MS
+        assert _written_ticks(RECEIVED.replace(microsecond=124000)) == RECEIVED_MS + 1
