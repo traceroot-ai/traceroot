@@ -91,8 +91,8 @@ def _is_gzipped(content_encoding: str) -> bool:
 
     The body is stored as sent and only the worker decodes it, from the key's
     suffix, so the only codings accepted are none and a single gzip layer
-    (``x-gzip`` is the same coding). Anything else would be stored and then fail
-    every worker attempt, so it gets 400 here, which an exporter does not retry.
+    (``x-gzip`` is the same coding). Anything else would be stored only to fail
+    in the worker, so it gets 400 here, which an exporter does not retry.
 
     Args:
         content_encoding (str): The request's ``Content-Encoding`` header, or "".

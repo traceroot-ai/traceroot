@@ -11,6 +11,7 @@ from datetime import datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
+from worker.staged_batch import UndecodableBatchError
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +310,8 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
 @app.task(
     bind=True,
     autoretry_for=(Exception,),
+    # Stored bytes that don't decode fail the same way on every attempt.
+    dont_autoretry_for=(UndecodableBatchError,),
     retry_backoff=True,
     retry_backoff_max=600,  # Max 10 minutes between retries
     max_retries=5,
