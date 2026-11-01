@@ -313,7 +313,7 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     retry_backoff_max=600,  # Max 10 minutes between retries
     max_retries=5,
 )
-def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
+def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | None = None) -> dict:
     """Process OTEL traces from S3 and insert into ClickHouse.
 
     This task:
@@ -322,8 +322,11 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     3. Batch inserts traces and spans
 
     Args:
-        s3_key: S3 key where the OTEL JSON is stored
+        s3_key: S3 key of the staged batch; its suffix names the format
         project_id: Project ID for the traces
+        received_at: ISO-8601 UTC time the API received the batch. Optional and
+            not used yet; accepting it lets this worker run tasks queued by an
+            API that already sends it
 
     Returns:
         Dict with counts of inserted traces and spans
@@ -338,7 +341,9 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     try:
         # 1. Download from S3
         s3_service = get_s3_service()
-        otel_data = s3_service.download_json(s3_key)
+        from worker.staged_batch import load_staged_batch
+
+        otel_data = load_staged_batch(s3_service, s3_key)
         logger.debug(f"Downloaded OTEL data from {s3_key}")
 
         # 2. Transform to ClickHouse format

@@ -126,6 +126,22 @@ class S3Service:
         body = response["Body"].read()
         return json.loads(body.decode("utf-8"))
 
+    def download_bytes(self, s3_key: str) -> bytes:
+        """Download an object's bytes from S3 exactly as stored.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            The object's content
+
+        Raises:
+            ClientError: If the file doesn't exist or download fails
+        """
+        client = self._get_client()
+        response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
+        return response["Body"].read()
+
 
 # Global singleton instance
 _s3_service: S3Service | None = None

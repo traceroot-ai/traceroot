@@ -11,8 +11,8 @@ from google.protobuf.message import DecodeError
 
 from db.clickhouse.client import get_clickhouse_client
 from rest.routers.internal.auth import verify_internal_secret
-from rest.routers.public.traces import decode_otlp_protobuf
 from worker.detector_transform import UnattributableSpanError, transform_detector_traces
+from worker.staged_batch import decode_otlp_protobuf
 
 logger = logging.getLogger(__name__)
 

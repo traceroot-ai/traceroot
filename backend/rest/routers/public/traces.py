@@ -14,13 +14,8 @@ Authentication is via API key in the Authorization header:
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from google.protobuf.json_format import MessageToDict
-from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
-    ExportTraceServiceRequest,
-)
 from pydantic import BaseModel
 
 from ee.license import is_billing_enabled
@@ -38,6 +33,7 @@ from rest.services.s3 import get_s3_service
 from shared.bounded_gzip import GzipTooLargeError, gunzip
 from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
+from worker.staged_batch import decode_otlp_protobuf
 
 __all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
 
@@ -52,25 +48,6 @@ IngestAuth = KeyStampedAuth
 
 # How long an exporter should wait before resending a batch that could not be queued.
 _ENQUEUE_RETRY_AFTER_SECONDS = 5
-
-
-def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
-    """Decode OTLP protobuf to a Python dict.
-
-    Uses protobuf's MessageToDict for conversion, which produces
-    a JSON-compatible dict with proper field naming.
-
-    Args:
-        data: Raw protobuf bytes
-
-    Returns:
-        Dict representation of the OTLP trace data
-    """
-    request = ExportTraceServiceRequest()
-    request.ParseFromString(data)
-    # MessageToDict converts protobuf to dict with camelCase field names
-    # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
-    return MessageToDict(request)
 
 
 def _body_too_large(detail: str) -> HTTPException:
