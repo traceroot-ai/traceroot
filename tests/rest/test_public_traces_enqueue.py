@@ -16,16 +16,12 @@ PROTOBUF = {"Content-Type": "application/x-protobuf"}
 
 @pytest.fixture()
 def ingest(monkeypatch):
-    """The ingest route with auth stubbed, and decode, S3 and Celery mocked."""
+    """The ingest route with auth stubbed, and S3 and Celery mocked."""
     app.dependency_overrides[authenticate_api_key] = lambda: AuthResult(
         project_id="test-project",
         workspace_id="test-workspace",
         billing_plan="pro",
         ingestion_blocked=False,
-    )
-    monkeypatch.setattr(
-        "rest.routers.public.traces.decode_otlp_protobuf",
-        lambda body: {"resourceSpans": []},
     )
     s3 = MagicMock()
     monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: s3)
@@ -54,7 +50,7 @@ class TestEnqueueFailure:
         with caplog.at_level(logging.ERROR, logger="rest.routers.public.traces"):
             client.post(INGEST_URL, content=b"fake-protobuf", headers=PROTOBUF)
 
-        staged_key = s3.upload_json.call_args[0][0]
+        staged_key = s3.upload_bytes.call_args[0][0]
         errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
         assert any(staged_key in m and "Redis down" in m for m in errors), errors
 
@@ -65,7 +61,7 @@ class TestEnqueueFailure:
 
         client.post(INGEST_URL, content=b"fake-protobuf", headers=PROTOBUF)
 
-        s3.upload_json.assert_called_once()
+        s3.upload_bytes.assert_called_once()
         assert not [c for c in s3.method_calls if "delete" in c[0]]
 
     def test_success_is_unchanged(self, ingest):
@@ -77,7 +73,7 @@ class TestEnqueueFailure:
         assert "Retry-After" not in response.headers
         body = response.json()
         assert body["status"] == "ok"
-        assert body["file_key"] == s3.upload_json.call_args[0][0]
+        assert body["file_key"] == s3.upload_bytes.call_args[0][0]
         task.delay.assert_called_once_with(s3_key=body["file_key"], project_id="test-project")
 
 

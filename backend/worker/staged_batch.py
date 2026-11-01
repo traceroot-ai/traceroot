@@ -8,20 +8,28 @@ stored under:
 - ``.json``: the request already decoded to OTLP JSON.
 
 Every format loads to the same dict, so the transform cannot tell them apart.
+A ``.pb`` or ``.pb.gz`` body that doesn't decode raises ``UndecodableBatchError``:
+the stored bytes never change, so no later attempt could decode them either.
 """
 
+import zlib
 from typing import TYPE_CHECKING, Any
 
 from google.protobuf.json_format import MessageToDict
+from google.protobuf.message import DecodeError
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 
-from shared.bounded_gzip import gunzip
+from shared.bounded_gzip import GzipTooLargeError, gunzip
 from shared.config import settings
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from rest.services.s3 import S3Service
+
+
+class UndecodableBatchError(ValueError):
+    """A staged batch whose stored bytes can never be decoded; retrying can't help."""
 
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
@@ -43,6 +51,18 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
     return MessageToDict(request)
 
 
+def _decode_body(body: bytes, gzipped: bool) -> dict[str, Any]:
+    """Decode a raw request body, raising ``UndecodableBatchError`` if it can't be."""
+    try:
+        if gzipped:
+            body = gunzip(body, settings.ingest.max_unzipped_bytes)
+        return decode_otlp_protobuf(body)
+    except (DecodeError, GzipTooLargeError, zlib.error, EOFError) as e:
+        raise UndecodableBatchError(
+            f"Not a decodable OTLP batch, so retrying can't help: {type(e).__name__}: {e}"
+        ) from e
+
+
 def load_staged_batch(s3_service: "S3Service", s3_key: str) -> dict:
     """Download a staged batch and return it as OTLP JSON.
 
@@ -54,17 +74,16 @@ def load_staged_batch(s3_service: "S3Service", s3_key: str) -> dict:
         dict: The batch as camelCase OTLP JSON, the form ``MessageToDict`` renders.
 
     Raises:
-        ValueError: If the key ends in none of the known suffixes.
-        GzipTooLargeError: If a ``.pb.gz`` body unzips past the ingest limit.
-        zlib.error: If a ``.pb.gz`` body is not valid gzip.
-        EOFError: If a ``.pb.gz`` body is truncated.
-        DecodeError: If the protobuf does not parse.
+        UndecodableBatchError: If the key ends in none of the known suffixes, or a
+            ``.pb`` or ``.pb.gz`` body can't be decoded: invalid or truncated gzip,
+            gzip that unzips past the ingest limit, or a protobuf that doesn't
+            parse. The original error is its ``__cause__``. A failed download
+            raises as it is, since another attempt may succeed.
     """
     if s3_key.endswith(".pb.gz"):
-        body = gunzip(s3_service.download_bytes(s3_key), settings.ingest.max_unzipped_bytes)
-        return decode_otlp_protobuf(body)
+        return _decode_body(s3_service.download_bytes(s3_key), gzipped=True)
     if s3_key.endswith(".pb"):
-        return decode_otlp_protobuf(s3_service.download_bytes(s3_key))
+        return _decode_body(s3_service.download_bytes(s3_key), gzipped=False)
     if s3_key.endswith(".json"):
         return s3_service.download_json(s3_key)
-    raise ValueError(f"Unknown staged batch format: {s3_key}")
+    raise UndecodableBatchError(f"Unknown staged batch format: {s3_key}")
