@@ -202,6 +202,43 @@ class TestProcessS3TracesFinalAttempt:
 
         assert quarantine_attempts == []
 
+    @pytest.fixture()
+    def never_retried(self, monkeypatch):
+        """Give the task an exception type it lists in ``dont_autoretry_for``."""
+
+        class PermanentError(Exception):
+            pass
+
+        monkeypatch.setattr(
+            process_s3_traces, "dont_autoretry_for", (PermanentError,), raising=False
+        )
+        return PermanentError
+
+    def _first_attempt(self):
+        process_s3_traces.push_request(retries=0)
+        try:
+            process_s3_traces.run(**TASK_KWARGS)
+        finally:
+            process_s3_traces.pop_request()
+
+    def test_exception_never_retried_quarantines_on_the_first_attempt(
+        self, s3, quarantine_attempts, never_retried
+    ):
+        s3.download_json.side_effect = never_retried("unreadable batch")
+
+        with pytest.raises(never_retried, match="unreadable batch"):
+            self._first_attempt()
+
+        assert quarantine_attempts == [0]
+
+    def test_other_exceptions_still_wait_for_the_last_attempt(
+        self, s3, quarantine_attempts, never_retried
+    ):
+        with pytest.raises(RuntimeError, match="corrupt batch"):
+            self._first_attempt()
+
+        assert quarantine_attempts == []
+
     def test_direct_call_never_quarantines(self, s3, quarantine_attempts):
         with pytest.raises(RuntimeError, match="corrupt batch"):
             process_s3_traces(**TASK_KWARGS)
