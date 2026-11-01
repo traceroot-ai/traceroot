@@ -93,7 +93,7 @@ def test_rules_expire_only_ingest_batches():
 
 
 def test_no_rule_reaches_batches_under_events_otel():
-    """Batches stored under events/otel/ by earlier versions are kept.
+    """No rule expires a batch under events/otel/.
 
     A rule applies to every key that starts with its prefix, and a rule with no
     prefix applies to the whole bucket.
