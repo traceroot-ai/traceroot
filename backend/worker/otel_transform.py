@@ -672,7 +672,10 @@ def _merge_child_trace_metadata(parts: list[tuple[Any, int, Any]]) -> dict | Non
         obj = _as_json_object(value)
         if obj is None:
             return None
-        merged = {**obj, **merged}
+        # In place: the parts are sorted, so the first value seen for a key is the
+        # earliest start's. Rebuilding the dict per span would copy every key so far.
+        for key, item in obj.items():
+            merged.setdefault(key, item)
     return merged or None
 
 
