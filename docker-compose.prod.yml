@@ -383,6 +383,7 @@ services:
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
       # --- Worker config ---
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-5}
       BATCH_SIZE: ${BATCH_SIZE:-100}
     depends_on:
