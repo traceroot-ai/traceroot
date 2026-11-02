@@ -561,15 +561,21 @@ class TraceReaderService:
 
         Retention for a trace whose root span has not arrived: a root normally starts
         before its children, so this is the closest bound available, and it is the
-        same for every span of the trace. Never cached, because an earlier span can
-        still arrive.
+        same for every span of the trace. Only each span's latest version counts, as
+        in the other span readers, so an obsolete version that ClickHouse has not
+        merged away yet never moves the start earlier. Never cached, because an
+        earlier span can still arrive.
         """
         result = self._client.query(
             """
             SELECT minOrNull(span_start_time)
-            FROM spans
-            WHERE project_id = {project_id:String}
-              AND trace_id   = {trace_id:String}
+            FROM (
+                SELECT span_start_time FROM spans
+                WHERE project_id = {project_id:String}
+                  AND trace_id   = {trace_id:String}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
             """,
             parameters={"project_id": project_id, "trace_id": trace_id},
         )

@@ -671,9 +671,11 @@ class TestTraceEarliestSpanTime:
         service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
 
         assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
-        query = client.query.call_args.args[0]
+        query = " ".join(client.query.call_args.args[0].split())
         assert "minOrNull(span_start_time)" in query
         assert "parent_span_id" not in query
+        # Each span's latest version only, like the other span readers.
+        assert "ORDER BY ch_update_time DESC LIMIT 1 BY span_id" in query
         assert client.query.call_args.kwargs["parameters"] == {
             "project_id": "proj-1",
             "trace_id": "trace-1",

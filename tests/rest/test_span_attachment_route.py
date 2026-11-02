@@ -323,31 +323,39 @@ ROOT = "root-a"
 
 
 class FakeSpansTable:
-    """Answers the reader's retention and span I/O queries from a list of spans.
+    """Answers the reader's retention and span I/O queries from a list of span rows.
 
-    Only the query shapes this route reaches are recognised; anything else fails.
+    Every ``ingest`` adds a row, so ingesting a span again stores a newer version
+    beside the old one, as ClickHouse does until it merges them. A query keeps only
+    each span's latest version when it asks to (``LIMIT 1 BY span_id``). Only the
+    query shapes this route reaches are recognised; anything else fails.
     """
 
     def __init__(self):
-        self.spans: list[dict] = []
+        self.rows: list[dict] = []
 
     def ingest(self, span_id: str, start: datetime, parent: str | None, output: str | None = None):
-        self.spans.append({"span_id": span_id, "start": start, "parent": parent, "output": output})
+        self.rows.append({"span_id": span_id, "start": start, "parent": parent, "output": output})
+
+    def _visible(self, query: str) -> list[dict]:
+        if "LIMIT 1 BY span_id" not in query:
+            return self.rows
+        latest = {row["span_id"]: row for row in self.rows}  # later rows are newer
+        return list(latest.values())
 
     def query(self, query: str, parameters: dict):
         assert parameters["project_id"] == PROJECT and parameters["trace_id"] == TRACE
+        rows = self._visible(query)
         if "isNull(parent_span_id)" in query:
-            starts = [s["start"] for s in self.spans if s["parent"] is None]
+            starts = [row["start"] for row in rows if row["parent"] is None]
             return SimpleNamespace(result_rows=[(min(starts, default=None),)])
         if "SELECT span_id, trace_id, input, output, metadata" in query:
-            rows = [
-                (s["span_id"], TRACE, None, s["output"], None)
-                for s in self.spans
-                if s["span_id"] == parameters["span_id"]
-            ]
-            return SimpleNamespace(result_rows=rows[:1])
+            latest = [row for row in self.rows if row["span_id"] == parameters["span_id"]][-1:]
+            return SimpleNamespace(
+                result_rows=[(row["span_id"], TRACE, None, row["output"], None) for row in latest]
+            )
         if "minOrNull(span_start_time)" in query:
-            starts = [s["start"] for s in self.spans]
+            starts = [row["start"] for row in rows]
             return SimpleNamespace(result_rows=[(min(starts, default=None),)])
         raise AssertionError(f"unexpected query: {query}")
 
@@ -409,6 +417,17 @@ class TestRetentionWhenTheRootIsMissing:
         spans_table.ingest(ROOT, _days_ago(200), parent=None)
 
         assert client.get(URL).status_code == 403
+
+    def test_only_the_latest_version_of_a_span_counts(self, spans_table):
+        # The same rootless span, stored again with a later start: the obsolete
+        # version still sits beside it until ClickHouse merges them.
+        spans_table.ingest(SPAN, _days_ago(200), parent="still-running", output=_ref())
+        spans_table.ingest(SPAN, _days_ago(1), parent="still-running", output=_ref())
+
+        response = TestClient(app).get(URL, headers=IDENTITY)
+
+        assert response.status_code == 200
+        assert response.content == PNG
 
     def test_an_old_trace_with_its_root(self, spans_table, s3):
         spans_table.ingest(ROOT, _days_ago(200), parent=None)
