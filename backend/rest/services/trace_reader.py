@@ -773,7 +773,9 @@ class TraceReaderService:
                            input_tokens, output_tokens, cost
                     FROM spans
                     WHERE project_id = {{project_id:String}}
-                      AND trace_id IN (SELECT trace_id FROM page)
+                      -- page_keys, not page: the CTE is inlined at each reference,
+                      -- and page would re-read traces for the same ids.
+                      AND trace_id IN (SELECT trace_id FROM page_keys)
                     ORDER BY ch_update_time DESC
                     LIMIT 1 BY project_id, trace_id, span_id
                 )
