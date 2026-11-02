@@ -308,9 +308,10 @@ class TraceReaderService:
         # long TTL (1 hour); False results expire after 10s so the onboarding
         # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
         self._has_traces_cache: dict[str, tuple[float, bool]] = {}
-        # Trace start time cache: "project:trace" -> (expiry, datetime|None).
-        # Immutable once written, so 1-hour TTL is safe. Bounded to 1024 entries.
-        self._trace_start_cache: dict[str, tuple[float, datetime | None]] = {}
+        # Trace start time cache: "project:trace" -> (expiry, datetime). Only a root
+        # span's start time is cached; it is immutable once written, so 1-hour TTL is
+        # safe. Bounded to 1024 entries.
+        self._trace_start_cache: dict[str, tuple[float, datetime]] = {}
         # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
         # -> (expiry, rows). Short TTL; bounded to DISTINCT_VALUES_CACHE_MAX entries.
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
@@ -518,7 +519,9 @@ class TraceReaderService:
     def get_trace_start_time(self, project_id: str, trace_id: str) -> datetime | None:
         """Lightweight query: just the trace's root-span start time.
 
-        Immutable once written, so results are cached for 1 hour.
+        A root's start time is immutable once written, so a found one is cached for
+        1 hour. ``None`` (no root span yet) is never cached: the root may arrive
+        later, and a cached ``None`` would keep hiding its start time from retention.
         Used by retention gating on by-id endpoints (span IO, live SSE)
         without the cost of a full get_trace() skeleton fetch.
         """
@@ -546,10 +549,32 @@ class TraceReaderService:
         )
         rows = result.result_rows
         ts = rows[0][0] if rows else None
+        if ts is None:
+            return None
         if len(self._trace_start_cache) >= self._TRACE_START_CACHE_MAX:
             self._trace_start_cache.pop(next(iter(self._trace_start_cache)))
         self._trace_start_cache[cache_key] = (now + 3600.0, ts)
         return ts
+
+    def get_trace_earliest_span_time(self, project_id: str, trace_id: str) -> datetime | None:
+        """The earliest start time of any span in the trace, or ``None`` if it has none.
+
+        Retention for a trace whose root span has not arrived: a root normally starts
+        before its children, so this is the closest bound available, and it is the
+        same for every span of the trace. Never cached, because an earlier span can
+        still arrive.
+        """
+        result = self._client.query(
+            """
+            SELECT minOrNull(span_start_time)
+            FROM spans
+            WHERE project_id = {project_id:String}
+              AND trace_id   = {trace_id:String}
+            """,
+            parameters={"project_id": project_id, "trace_id": trace_id},
+        )
+        rows = result.result_rows
+        return rows[0][0] if rows else None
 
     def list_traces(
         self,

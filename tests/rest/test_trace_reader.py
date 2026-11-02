@@ -638,6 +638,64 @@ class TestHasTraces:
         assert "c" in service._has_traces_cache
 
 
+class TestTraceStartTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_a_missing_root_is_not_cached(self):
+        """A trace read before its root arrives still sees the root once it does."""
+        answers = iter([_rows([(None,)]), _rows([(self.OLD,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_trace_start_time("proj-1", "trace-1") is None
+        assert service.get_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 2
+
+    def test_a_found_root_is_cached(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert service.get_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 1
+
+    def test_reads_root_spans_only(self):
+        service, client = _make_service(lambda *a, **kw: _rows([]))
+
+        assert service.get_trace_start_time("proj-1", "trace-1") is None
+        assert "isNull(parent_span_id)" in client.query.call_args.args[0]
+
+
+class TestTraceEarliestSpanTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_the_earliest_start_of_any_span(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        query = client.query.call_args.args[0]
+        assert "minOrNull(span_start_time)" in query
+        assert "parent_span_id" not in query
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj-1",
+            "trace_id": "trace-1",
+        }
+
+    @pytest.mark.parametrize("rows", [[], [(None,)]])
+    def test_none_when_the_trace_has_no_span(self, rows):
+        service, _ = _make_service(lambda *a, **kw: _rows(rows))
+
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1") is None
+
+    def test_never_cached(self):
+        """An earlier span can still arrive, so every call reads again."""
+        later = self.OLD + timedelta(days=1)
+        answers = iter([_rows([(later,)]), _rows([(self.OLD,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == later
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 2
+
+
 class TestListTracesRows:
     def test_trace_rows_carry_the_trace_level_metadata_map(self):
         """The list projects the TRACE row's metadata as a map so the UI can render one
