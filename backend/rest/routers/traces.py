@@ -462,6 +462,8 @@ async def get_span_attachment(
     Args:
         project_id (str): Project that owns the trace; scopes the read and the object key.
         trace_id (str): Trace the span belongs to; its start time gates retention.
+            That is the root span's start, or the earliest span's while the root is
+            missing.
         span_id (str): Span whose text must reference the image.
         attachment_hash (str): SHA-256 of the image bytes, 64 lowercase hex characters.
         _access (RateLimitedProjectAccess): Dependency that validates the user's
@@ -472,8 +474,8 @@ async def get_span_attachment(
 
     Raises:
         HTTPException: 403 outside the retention window. 404 for a malformed hash, a
-            missing span, a hash the span does not reference, or a missing object or
-            one whose stored type is not an allowed image.
+            trace with no span, a missing span, a hash the span does not reference, or
+            a missing object or one whose stored type is not an allowed image.
     """
     if not is_attachment_hash(attachment_hash):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
@@ -481,6 +483,15 @@ async def get_span_attachment(
     service = get_trace_reader_service()
     try:
         trace_start = await asyncio.to_thread(service.get_trace_start_time, project_id, trace_id)
+        if trace_start is None:
+            # No root span yet, or none at all: judge retention by the trace's earliest
+            # span instead, so a missing root never lets an expired image through.
+            trace_start = await asyncio.to_thread(
+                service.get_trace_earliest_span_time, project_id, trace_id
+            )
+            if trace_start is None:
+                # The trace has no span, so nothing can reference the image.
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")
         enforce_retention_by_time(_access.billing_plan, trace_start)
 
         span_io = await asyncio.to_thread(
