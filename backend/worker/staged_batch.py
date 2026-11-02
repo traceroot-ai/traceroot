@@ -23,6 +23,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 
 from shared.bounded_gzip import GzipTooLargeError, gunzip
 from shared.config import settings
+from worker.batch_budget import BudgetExceededError, check_batch_budget
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from rest.services.s3 import S3Service
@@ -30,6 +31,10 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
 
 class UndecodableBatchError(ValueError):
     """A staged batch whose stored bytes can never be decoded; retrying can't help."""
+
+
+class BatchOverBudgetError(UndecodableBatchError):
+    """A staged batch that would decode into more spans or objects than the budgets allow."""
 
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
@@ -52,11 +57,20 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
 
 
 def _decode_body(body: bytes, gzipped: bool) -> dict[str, Any]:
-    """Decode a raw request body, raising ``UndecodableBatchError`` if it can't be."""
+    """Decode a raw request body, raising ``UndecodableBatchError`` if it can't be.
+
+    The batch's structure is checked against the ingest budgets before it is
+    parsed, since parsing is where the memory goes.
+    """
     try:
         if gzipped:
             body = gunzip(body, settings.ingest.max_unzipped_bytes)
+        check_batch_budget(body, settings.ingest.max_spans, settings.ingest.max_objects)
         return decode_otlp_protobuf(body)
+    except BudgetExceededError as e:
+        raise BatchOverBudgetError(
+            f"Batch is over the ingest budget, so retrying can't help: {e}"
+        ) from e
     except (DecodeError, GzipTooLargeError, zlib.error, EOFError) as e:
         raise UndecodableBatchError(
             f"Not a decodable OTLP batch, so retrying can't help: {type(e).__name__}: {e}"
@@ -79,6 +93,9 @@ def load_staged_batch(s3_service: "S3Service", s3_key: str) -> dict:
             gzip that unzips past the ingest limit, or a protobuf that doesn't
             parse. The original error is its ``__cause__``. A failed download
             raises as it is, since another attempt may succeed.
+        BatchOverBudgetError: If the body holds more spans or objects than
+            ``INGEST_MAX_SPANS`` or ``INGEST_MAX_OBJECTS`` allow. It is an
+            ``UndecodableBatchError`` too, so it isn't retried either.
     """
     if s3_key.endswith(".pb.gz"):
         return _decode_body(s3_service.download_bytes(s3_key), gzipped=True)

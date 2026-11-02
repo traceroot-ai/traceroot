@@ -21,9 +21,10 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from rest.services.s3 import S3Service
 from shared.bounded_gzip import GzipTooLargeError
 from shared.config import settings
+from worker.batch_budget import BudgetExceededError
 from worker.ingest_tasks import process_s3_traces
 from worker.otel_transform import transform_otel_to_clickhouse
-from worker.staged_batch import UndecodableBatchError, load_staged_batch
+from worker.staged_batch import BatchOverBudgetError, UndecodableBatchError, load_staged_batch
 
 ROOT = Path(__file__).resolve().parents[2]
 TRACE_ID = bytes.fromhex("0af7651916cd43dd8448eb211c80319c")
@@ -238,6 +239,35 @@ class TestBadBatchesRaise:
             load_staged_batch(s3, f"{KEY}{suffix}")
 
 
+class TestBudgets:
+    """A batch over the structural budgets is refused before it is parsed."""
+
+    @pytest.mark.parametrize("suffix", [".pb", ".pb.gz"])
+    def test_spans_over_the_budget(self, monkeypatch, suffix):
+        monkeypatch.setattr(settings.ingest, "max_spans", 1)
+        body = make_request().SerializeToString()
+        s3 = FakeS3({f"{KEY}{suffix}": gzip.compress(body) if suffix == ".pb.gz" else body})
+
+        with pytest.raises(BatchOverBudgetError, match="more than 1 spans") as raised:
+            load_staged_batch(s3, f"{KEY}{suffix}")
+        assert isinstance(raised.value, UndecodableBatchError)
+        assert isinstance(raised.value.__cause__, BudgetExceededError)
+
+    def test_objects_over_the_budget(self, monkeypatch):
+        monkeypatch.setattr(settings.ingest, "max_objects", 10)
+        s3 = FakeS3({f"{KEY}.pb": make_request().SerializeToString()})
+
+        with pytest.raises(BatchOverBudgetError, match="more than 10 objects"):
+            load_staged_batch(s3, f"{KEY}.pb")
+
+    def test_batch_within_the_budgets_loads(self, monkeypatch):
+        monkeypatch.setattr(settings.ingest, "max_spans", 2)
+        monkeypatch.setattr(settings.ingest, "max_objects", 26)
+        s3 = FakeS3({f"{KEY}.pb": make_request().SerializeToString()})
+
+        assert load_staged_batch(s3, f"{KEY}.pb") == MessageToDict(make_request())
+
+
 class TestIngestTaskReadsEveryFormat:
     @pytest.fixture()
     def run_task(self, monkeypatch):
@@ -295,6 +325,17 @@ class TestIngestTaskRetries:
         assert result.state == "FAILURE"
         assert isinstance(result.result, UndecodableBatchError)
         assert f"Failed to process {KEY}.pb: Not a decodable OTLP batch" in caplog.text
+
+    def test_batch_over_the_budget_fails_on_its_first_attempt(self, s3, monkeypatch, caplog):
+        monkeypatch.setattr(settings.ingest, "max_spans", 1)
+        s3.download_bytes.return_value = make_request().SerializeToString()
+
+        with caplog.at_level(logging.ERROR, logger="worker.ingest_tasks"):
+            result = process_s3_traces.apply(kwargs=TASK_KWARGS, throw=False)
+
+        assert s3.download_bytes.call_count == 1
+        assert isinstance(result.result, BatchOverBudgetError)
+        assert "Batch is over the ingest budget, so retrying can't help" in caplog.text
 
     def test_failed_download_is_still_retried(self, s3):
         s3.download_bytes.side_effect = ConnectionError("S3 unreachable")
