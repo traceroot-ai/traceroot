@@ -1,0 +1,207 @@
+---
+title: OpenTelemetry
+description: Send traces to TraceRoot from any OpenTelemetry setup over OTLP, without the TraceRoot SDK
+---
+
+TraceRoot ingests standard OTLP trace data, so any OpenTelemetry tracer, framework, or Collector can export to it directly. Use this when you already have an OpenTelemetry pipeline, or your framework emits OpenTelemetry spans on its own and you'd rather not add the TraceRoot SDK.
+
+The [Python](/tracing/python-sdk) and [TypeScript](/tracing/typescript-sdk) SDKs are still the recommended path: they set up this same exporter for you and add auto-instrumentation for the [supported frameworks and providers](/integrations/overview).
+
+## Endpoint and auth
+
+| | |
+|---|---|
+| Endpoint | `https://app.traceroot.ai/api/v1/public/traces` |
+| Method | `POST` |
+| Auth header | `Authorization: Bearer <TRACEROOT_API_KEY>` |
+| Body | OTLP protobuf, with `Content-Type: application/x-protobuf` |
+| Compression | Optional, `Content-Encoding: gzip` |
+
+On a self-hosted deployment, replace `https://app.traceroot.ai` with your backend URL (`http://localhost:8000` by default). See [Authentication](/api-reference/authentication) for where to get an API key.
+
+<Warning>
+  The path is `/api/v1/public/traces`, not the OTLP default `/v1/traces`. Exporters append `/v1/traces` to `OTEL_EXPORTER_OTLP_ENDPOINT`, so that variable sends spans to the wrong URL. Set the full URL in `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` instead, which exporters use as given.
+</Warning>
+
+Only OTLP over HTTP with protobuf encoding is accepted. OTLP/gRPC and OTLP/JSON are not supported.
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-proto
+    ```
+
+    Use `@opentelemetry/exporter-trace-otlp-proto`. The similarly named `@opentelemetry/exporter-trace-otlp-http` sends JSON, which TraceRoot rejects.
+  </Tab>
+</Tabs>
+
+## Set up
+
+Export the endpoint and your API key. Header values in this variable are percent-encoded, so the space after `Bearer` is written as `%20`:
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="https://app.traceroot.ai/api/v1/public/traces"  # or your self-hosted URL
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer%20${TRACEROOT_API_KEY}"
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf"
+```
+
+Then register the OTLP exporter with the OpenTelemetry SDK. The exporter picks up the endpoint and headers from the environment:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    provider = TracerProvider()
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+    import { NodeSDK } from '@opentelemetry/sdk-node';
+
+    const sdk = new NodeSDK({ traceExporter: new OTLPTraceExporter() });
+    sdk.start();
+    ```
+  </Tab>
+</Tabs>
+
+To configure the exporter in code instead of the environment, pass the same full URL you set in `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, plus the `Authorization` header: `endpoint` and `headers` for `OTLPSpanExporter` in Python, `url` and `headers` for `OTLPTraceExporter` in TypeScript.
+
+Any library that emits OpenTelemetry spans through the global tracer provider now exports to TraceRoot as well.
+
+## Usage
+
+Using the setup above, create spans with the OpenTelemetry API. The attributes below follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/), so TraceRoot shows the span as an LLM call with its model, tokens, and cost:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    tracer = trace.get_tracer("my-app")
+
+    with tracer.start_as_current_span("chat gpt-4o-mini") as span:
+        span.set_attribute("gen_ai.operation.name", "chat")
+        span.set_attribute("gen_ai.request.model", "gpt-4o-mini")
+        span.set_attribute("gen_ai.usage.input_tokens", 12)
+        span.set_attribute("gen_ai.usage.output_tokens", 8)
+        span.set_attribute("session.id", "session-123")
+        span.set_attribute("user.id", "user-456")
+
+    # Flush buffered spans before the process exits.
+    provider.shutdown()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { trace } from '@opentelemetry/api';
+
+    const tracer = trace.getTracer('my-app');
+
+    async function main() {
+      tracer.startActiveSpan('chat gpt-4o-mini', (span) => {
+        span.setAttribute('gen_ai.operation.name', 'chat');
+        span.setAttribute('gen_ai.request.model', 'gpt-4o-mini');
+        span.setAttribute('gen_ai.usage.input_tokens', 12);
+        span.setAttribute('gen_ai.usage.output_tokens', 8);
+        span.setAttribute('session.id', 'session-123');
+        span.setAttribute('user.id', 'user-456');
+        span.end();
+      });
+
+      // Flush buffered spans before the process exits.
+      await sdk.shutdown();
+    }
+    main();
+    ```
+  </Tab>
+</Tabs>
+
+## OpenTelemetry Collector
+
+To route traces through a Collector, add an `otlphttp` exporter that points at TraceRoot:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+exporters:
+  otlphttp/traceroot:
+    traces_endpoint: https://app.traceroot.ai/api/v1/public/traces
+    headers:
+      Authorization: "Bearer ${env:TRACEROOT_API_KEY}"
+    compression: gzip
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/traceroot]
+```
+
+Use `traces_endpoint`, not `endpoint`: like the environment variable, `endpoint` gets `/v1/traces` appended to it.
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace named after its root span, `chat gpt-4o-mini` in the example above.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+If nothing shows up, enable your exporter's debug logging and check the response status:
+
+| Status | Cause |
+|--------|-------|
+| `401` | Missing or invalid API key, or the header is not in the form `Bearer <key>` |
+| `402` | The workspace is over its free plan limit (`Free plan limit exceeded`) |
+| `404` | Wrong path, usually `/v1/traces` appended by `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `415` | The body is not protobuf, for example from an OTLP/JSON exporter |
+| `429` | Rate limited; exporters retry after the `Retry-After` delay |
+
+## Attributes TraceRoot reads
+
+TraceRoot maps these span attributes to dedicated fields:
+
+| Field | Attributes |
+|-------|------------|
+| Span type | `traceroot.span.type` (`llm`, `agent`, `tool`, `span`), `openinference.span.kind`, or `gen_ai.operation.name` |
+| Model | `traceroot.llm.model`, `gen_ai.request.model`, or `llm.model_name` |
+| Tokens | `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`, or OpenInference `llm.token_count.*` |
+| Input and output | `traceroot.span.input` / `traceroot.span.output`, OpenInference `input.value` / `output.value`, or `gen_ai.input.messages` / `gen_ai.output.messages` |
+| Session | `traceroot.trace.session_id` or `session.id` |
+| User | `traceroot.trace.user_id` or `user.id` |
+| Environment | `traceroot.environment` |
+| Metadata | `traceroot.span.metadata` (a JSON object) |
+
+Attributes outside the `gen_ai.*` namespace that TraceRoot doesn't map are kept as span metadata. Setting `traceroot.span.metadata` replaces them with that object.
+
+The root span's name, input, and output become the trace's name, input, and output. Cost is calculated from the token counts when the model ID matches TraceRoot's pricing table, as described in [Cost Tracking](/tracing/cost-tracking).
+
+## Limitations
+
+- Frameworks are not auto-instrumented. You only get the spans your code or framework already emits; the TraceRoot SDK adds instrumentation for the [supported integrations](/integrations/overview).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Auto-instrument supported frameworks instead of exporting spans yourself.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>
