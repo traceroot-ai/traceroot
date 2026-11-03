@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { checkSignupEmail, EMAIL_POLICY_MESSAGES } from "@/lib/signup/email-policy";
+import { Turnstile } from "./turnstile";
 
 const signUpSchema = z
   .object({
@@ -39,6 +40,8 @@ type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
   googleAuthConfigured: boolean;
+  // Set when the server requires a CAPTCHA on email sign-up.
+  turnstileSiteKey?: string | null;
 };
 
 // A brand-new account always finishes at onboarding. The one thing that can
@@ -75,7 +78,7 @@ function postSignUpDestination(callbackUrl: string): string {
   return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
+function SignUpContent({ googleAuthConfigured, turnstileSiteKey }: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -92,6 +95,9 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   // Set when the server held the session back until the address is verified.
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const [captchaFailed, setCaptchaFailed] = useState(false);
 
   const {
     register,
@@ -113,6 +119,9 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
         password: data.password,
         // Where the verification link lands, already signed in.
         callbackURL: destination,
+        fetchOptions: captchaToken
+          ? { headers: { "x-captcha-response": captchaToken } }
+          : undefined,
       });
       if (error) {
         setError(error.message || "Failed to create account");
@@ -126,6 +135,11 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
       setError("An unexpected error occurred");
     } finally {
       setIsLoading(false);
+      // A token is single-use, whatever the outcome.
+      if (turnstileSiteKey) {
+        setCaptchaToken(null);
+        setCaptchaReset((n) => n + 1);
+      }
     }
   }
 
@@ -248,7 +262,34 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
               )}
             </div>
 
-            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
+            {turnstileSiteKey && (
+              <div className="space-y-1">
+                <Turnstile
+                  siteKey={turnstileSiteKey}
+                  onToken={(token) => {
+                    setCaptchaToken(token);
+                    if (token) setCaptchaFailed(false);
+                  }}
+                  onError={() => setCaptchaFailed(true)}
+                  resetKey={captchaReset}
+                />
+                {/* Says why Sign up is disabled while no token is held. */}
+                {!captchaToken && (
+                  <p role="status" className="text-center text-[11px] text-muted-foreground">
+                    {captchaFailed
+                      ? "The security check couldn't load. Refresh the page to try again."
+                      : "Completing a quick security check…"}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 w-full text-[13px]"
+              disabled={isLoading || (!!turnstileSiteKey && !captchaToken)}
+            >
               {isLoading ? "Creating account..." : "Sign up"}
             </Button>
           </form>
@@ -288,10 +329,13 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   );
 }
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+export function SignUpClient({ googleAuthConfigured, turnstileSiteKey }: SignUpClientProps) {
   return (
     <Suspense>
-      <SignUpContent googleAuthConfigured={googleAuthConfigured} />
+      <SignUpContent
+        googleAuthConfigured={googleAuthConfigured}
+        turnstileSiteKey={turnstileSiteKey}
+      />
     </Suspense>
   );
 }

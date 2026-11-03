@@ -7,6 +7,7 @@ import {
 } from "@/lib/marketing-attribution";
 import { buildContentSecurityPolicy, cspHeaderName, REPORTING_ENDPOINTS } from "@/lib/csp";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
+import { TURNSTILE_ORIGIN, turnstileKeys } from "@/lib/signup/captcha";
 
 // Every page carries a Content-Security-Policy with a fresh nonce (lib/csp.ts).
 // Next.js reads the nonce from the policy on the request and adds it to its own
@@ -28,6 +29,7 @@ function nextWithCsp(req: NextRequest): NextResponse {
     apiUrl: process.env.NEXT_PUBLIC_API_URL,
     appUrl: process.env.NEXT_PUBLIC_APP_URL,
     https,
+    captchaOrigin: turnstileKeys(process.env) ? TURNSTILE_ORIGIN : undefined,
   });
   const header = cspHeaderName(process.env.CSP_MODE);
 

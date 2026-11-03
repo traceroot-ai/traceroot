@@ -21,6 +21,7 @@ vi.mock("better-auth", () => ({ betterAuth: (o: Record<string, unknown>) => bett
 vi.mock("better-auth/adapters/prisma", () => ({ prismaAdapter: () => ({}) }));
 vi.mock("better-auth/plugins", () => ({
   admin: () => ({ id: "admin" }),
+  captcha: (o: Record<string, unknown>) => ({ id: "captcha", options: o }),
   deviceAuthorization: () => ({ id: "device-authorization" }),
   jwt: () => ({ id: "jwt" }),
 }));
@@ -65,6 +66,12 @@ vi.mock("@/env", () => ({
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
     // this mock cached, so the value has to be read at access time for the
     // invalid-CIDR test below to reach the config.
+    get TURNSTILE_SITE_KEY() {
+      return process.env.TEST_TURNSTILE ? "site-key" : "";
+    },
+    get TURNSTILE_SECRET_KEY() {
+      return process.env.TEST_TURNSTILE ? "secret-key" : "";
+    },
     get AUTH_TRUSTED_PROXY_CIDRS() {
       return process.env.TEST_TRUSTED_PROXY_CIDRS ?? "10.0.0.0/16";
     },
@@ -232,6 +239,32 @@ describe("auth options", () => {
     reject(error);
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
     spy.mockRestore();
+  });
+});
+
+describe("sign-up CAPTCHA", () => {
+  const captchaPlugin = (o: { plugins: { id: string; options?: unknown }[] }) =>
+    o.plugins.find((p) => p.id === "captcha");
+
+  it("is off without Turnstile keys", () => {
+    expect(captchaPlugin(options as never)).toBeUndefined();
+  });
+
+  it("guards only email sign-up when both keys are set", async () => {
+    vi.resetModules();
+    betterAuthMock.mockClear();
+    process.env.TEST_TURNSTILE = "1";
+    try {
+      await import("./auth");
+      const reloaded = betterAuthMock.mock.calls[0]?.[0] as never;
+      expect(captchaPlugin(reloaded)?.options).toEqual({
+        provider: "cloudflare-turnstile",
+        secretKey: "secret-key",
+        endpoints: ["/sign-up/email"],
+      });
+    } finally {
+      delete process.env.TEST_TURNSTILE;
+    }
   });
 });
 

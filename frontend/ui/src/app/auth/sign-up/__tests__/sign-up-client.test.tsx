@@ -23,6 +23,29 @@ vi.mock("@/lib/auth-client", () => ({
   },
 }));
 
+// Stands in for the vendor widget: a button that "solves" the challenge, and
+// the reset count rendered so a test can see a token being discarded.
+vi.mock("../turnstile", () => ({
+  Turnstile: ({
+    onToken,
+    onError,
+    resetKey,
+  }: {
+    onToken: (t: string) => void;
+    onError: () => void;
+    resetKey: number;
+  }) => (
+    <>
+      <button type="button" data-reset={resetKey} onClick={() => onToken(`token-${resetKey}`)}>
+        solve captcha
+      </button>
+      <button type="button" onClick={onError}>
+        fail captcha
+      </button>
+    </>
+  ),
+}));
+
 import { SignUpClient } from "../sign-up-client";
 
 function setParams(params: Record<string, string>) {
@@ -165,6 +188,53 @@ describe("SignUpClient", () => {
 
     expect(await screen.findByText(new RegExp(message))).toBeTruthy();
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
+  });
+
+  it("renders no CAPTCHA and sends no token when it is off", async () => {
+    mocks.signUpEmail.mockResolvedValue({ data: { token: "session-token" }, error: null });
+    render(<SignUpClient googleAuthConfigured={false} />);
+    expect(screen.queryByText("solve captcha")).toBeNull();
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    await waitFor(() => expect(mocks.signUpEmail).toHaveBeenCalled());
+    expect(mocks.signUpEmail.mock.calls[0][0].fetchOptions).toBeUndefined();
+  });
+
+  it("holds the submit until the CAPTCHA is solved, then sends the token once", async () => {
+    mocks.signUpEmail.mockResolvedValue({ data: null, error: { message: "Try again" } });
+    render(<SignUpClient googleAuthConfigured={false} turnstileSiteKey="site-key" />);
+    fillForm();
+    const submit = screen.getByRole("button", { name: "Sign up" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.click(screen.getByText("solve captcha"));
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(mocks.signUpEmail).toHaveBeenCalledOnce());
+    expect(mocks.signUpEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fetchOptions: { headers: { "x-captcha-response": "token-0" } },
+      }),
+    );
+    // The token is spent: the widget is reset and the form waits for a new one.
+    await waitFor(() => expect(screen.getByText("solve captcha").dataset.reset).toBe("1"));
+    expect(submit.disabled).toBe(true);
+    // A second click on the disabled button sends nothing.
+    fireEvent.click(submit);
+    expect(mocks.signUpEmail).toHaveBeenCalledOnce();
+  });
+
+  it("explains a disabled Sign up while the check runs, and when it fails", async () => {
+    render(<SignUpClient googleAuthConfigured={false} turnstileSiteKey="site-key" />);
+    expect(screen.getByText(/Completing a quick security check/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("fail captcha"));
+    // Announced: the hint is a live status region, so the change is read out.
+    expect((await screen.findByRole("status")).textContent).toMatch(/security check couldn't load/);
+
+    fireEvent.click(screen.getByText("solve captcha"));
+    await waitFor(() => expect(screen.queryByText(/security check/)).toBeNull());
   });
 
   it("uses a bare sign-in link when there is no callback", () => {

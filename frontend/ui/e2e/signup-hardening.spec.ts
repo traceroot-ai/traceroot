@@ -32,11 +32,23 @@ const octet = () => Math.floor(Math.random() * 254) + 1;
 const ip = () => `198.18.${octet()}.${octet()}`;
 
 const PASSWORD = "correct-horse-battery";
+// The token Cloudflare's always-pass test secret accepts. Ignored when the
+// CAPTCHA is off, so every block runs whichever way the server is configured.
+const TURNSTILE_TEST_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 
-function signUp(request: APIRequestContext, email: string, clientIp = ip()) {
+function signUp(
+  request: APIRequestContext,
+  email: string,
+  clientIp = ip(),
+  captchaToken: string | null = TURNSTILE_TEST_TOKEN,
+) {
   return request.post("/api/auth/sign-up/email", {
     data: { name: "Signup E2E", email, password: PASSWORD },
-    headers: { origin: base, "x-forwarded-for": clientIp },
+    headers: {
+      origin: base,
+      "x-forwarded-for": clientIp,
+      ...(captchaToken ? { "x-captcha-response": captchaToken } : {}),
+    },
   });
 }
 
@@ -170,5 +182,41 @@ test.describe("sign-up throttling", () => {
         redis.disconnect();
       }
     }
+  });
+});
+
+// Needs the UI started with Cloudflare's always-pass test keys:
+// TURNSTILE_SITE_KEY=1x00000000000000000000AA
+// TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+test.describe("sign-up CAPTCHA", () => {
+  test.skip(
+    process.env.E2E_CAPTCHA !== "1",
+    "set E2E_CAPTCHA=1 and start the UI with the Turnstile test keys",
+  );
+
+  test("refuses a signup that carries no CAPTCHA token", async ({ request }) => {
+    const email = `${prefix}-nocaptcha@${VALID_DOMAIN}`;
+    const response = await signUp(request, email, ip(), null);
+    expect(response.status()).toBe(400);
+    expect((await response.json()).code).toBe("MISSING_RESPONSE");
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+  });
+
+  test("loads the widget under the page CSP and signs up once it passes", async ({ page }) => {
+    const violations: string[] = [];
+    page.on("console", (message) => {
+      if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
+    });
+    await page.goto("/auth/sign-up");
+    await page.getByPlaceholder("John Doe").fill("Signup E2E");
+    await page.getByPlaceholder("you@example.com").fill(`${prefix}-widget@${VALID_DOMAIN}`);
+    await page.getByPlaceholder("********").first().fill(PASSWORD);
+    await page.getByPlaceholder("********").last().fill(PASSWORD);
+    const submit = page.getByRole("button", { name: "Sign up" });
+    // The test site key passes on its own once the challenge frame has run.
+    await expect(submit).toBeEnabled({ timeout: 30_000 });
+    await submit.click();
+    await expect(page.getByText(/Check your inbox|get started/i).first()).toBeVisible();
+    expect(violations).toEqual([]);
   });
 });

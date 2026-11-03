@@ -29,6 +29,9 @@ export interface CspOptions {
   // Whether the page is served over HTTPS, the only case in which the policy
   // also reports through report-to (see REPORTING_ENDPOINTS).
   https?: boolean;
+  // The sign-up CAPTCHA renders its challenge in a frame from this origin
+  // (lib/signup/captcha.ts). Its script needs no entry: 'strict-dynamic'.
+  captchaOrigin?: string;
 }
 
 export function buildContentSecurityPolicy({
@@ -39,6 +42,7 @@ export function buildContentSecurityPolicy({
   apiUrl,
   appUrl,
   https = false,
+  captchaOrigin,
 }: CspOptions): string {
   const connectSrc = new Set([
     "'self'",
@@ -66,6 +70,7 @@ export function buildContentSecurityPolicy({
     ["font-src", "'self'"],
     ["connect-src", ...connectSrc],
     ["worker-src", "'self'", "blob:"],
+    ...(captchaOrigin ? [["frame-src", "'self'", captchaOrigin]] : []),
     ["object-src", "'none'"],
     ["base-uri", "'self'"],
     ["form-action", "'self'"],
