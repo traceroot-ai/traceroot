@@ -14,12 +14,16 @@ import {
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
   isDecisionAdapter,
+  ADAPTER_CONFIG,
   LLMAdapter,
+  decisionModelAlias,
 } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
 import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
 import { usageFromError } from "./typesafe-client.js";
+import { decisionsCost, runOpenAIDecisionDetection } from "./openai-decision-eval.js";
+import { decisionsUsageFromError } from "./openai-decisions-client.js";
 
 export interface DetectorConfig {
   id: string;
@@ -167,6 +171,16 @@ export async function runDetectionForTrace(params: {
         source,
       );
     }
+    // A decision alias names one adapter; on any other it would reach that
+    // provider's chat models or Jev under a model id they don't serve.
+    const decisionAlias = decisionModelAlias(detector.detectionModel);
+    if (decisionAlias && providerConfig.adapter !== decisionAlias.adapter) {
+      return errorResult(
+        `Model "${detector.detectionModel}" runs only on ` +
+          `${ADAPTER_CONFIG[decisionAlias.adapter].label} providers`,
+        source,
+      );
+    }
     // A decision-model provider (TypeSafe) is judged by Jev, not a chat LLM.
     if (isDecisionAdapter(providerConfig.adapter)) {
       try {
@@ -189,6 +203,30 @@ export async function runDetectionForTrace(params: {
           usage?.outputTokens ?? 0,
           usage ? detector.detectionModel || JEV_DEFAULT_MODEL_ID : null,
           usage ? LLMAdapter.TYPESAFE : null,
+        );
+      }
+    }
+    // An OpenAI decision alias (gpt-6-luna-decisions) is judged by the
+    // Decisions API, not a chat model.
+    if (decisionAlias) {
+      try {
+        return await runOpenAIDecisionDetection({
+          spansJsonl,
+          detector,
+          providerConfig,
+          timeoutMs: parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS),
+        });
+      } catch (err) {
+        // A refusal or rejected answer is still billed; keep its usage and cost.
+        const usage = decisionsUsageFromError(err);
+        return errorResult(
+          err instanceof Error ? err.message : String(err),
+          source,
+          usage ? await decisionsCost(decisionAlias.model, usage) : 0,
+          usage?.inputTokens ?? 0,
+          usage?.outputTokens ?? 0,
+          usage ? decisionAlias.model : null,
+          usage ? decisionAlias.adapter : null,
         );
       }
     }

@@ -68,7 +68,7 @@ interface Reduction {
 }
 
 export interface JevState {
-  state: JsonValue;
+  state: { trace: JsonValue };
   stats: Record<string, number>;
 }
 
@@ -136,7 +136,7 @@ function applyReductions(spans: SpanState[], step: Step): Reduction {
   return { spans: reduced, step, truncatedInputs, truncatedStatusMessages, truncatedOutputs };
 }
 
-function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): JsonValue {
+function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): { trace: JsonValue } {
   return { trace: { trace_id: traceId, span_count: spanCount, spans } };
 }
 

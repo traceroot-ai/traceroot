@@ -27,7 +27,7 @@ vi.mock("@traceroot-ai/traceroot", () => ({
     }),
 }));
 
-import { tracedSystemOne } from "../traced-system-one.js";
+import { tracedDecision, tracedSystemOne } from "../traced-system-one.js";
 import { withSelfTrace } from "../self-trace-emitter.js";
 import type { SystemOneQuestion, SystemOneResult } from "../typesafe-client.js";
 
@@ -168,5 +168,68 @@ describe("tracedSystemOne inside a self-trace scope", () => {
     expect(run.ok).toBe(true);
     expect(result).toBe(RESULT);
     expect(systemOneSpan()).toBeUndefined();
+  });
+});
+
+describe("tracedDecision inside a self-trace scope", () => {
+  const decisionCall = vi.fn<() => Promise<{ answers: unknown }>>();
+  const DECISION_META = {
+    name: "decisions gpt-6-luna",
+    model: "gpt-6-luna",
+    input: { questions: { gate: { type: "predicate" } } },
+    attributes: { "decision.system": "openai", "decision.model_name": "gpt-6-luna" },
+  };
+  const finish = () => ({
+    model: null,
+    attributes: {
+      "gen_ai.usage.input_tokens": 1_000,
+      "gen_ai.usage.cache_read.input_tokens": 600,
+    },
+    output: { gate: { probability: 0.9 } },
+  });
+  const decisionSpan = () =>
+    exporter.getFinishedSpans().find((s) => s.name === "decisions gpt-6-luna");
+
+  beforeEach(() => {
+    decisionCall.mockReset();
+  });
+
+  it("records the extra attributes and usage, keeping the requested model when none is sent", async () => {
+    decisionCall.mockResolvedValue({ answers: {} });
+    await withSelfTrace(META, () => tracedDecision(DECISION_META, decisionCall, finish));
+
+    const span = decisionSpan()!;
+    expect(span.attributes["traceroot.span.type"]).toBe("DECISION");
+    expect(span.attributes["traceroot.llm.model"]).toBe("gpt-6-luna");
+    expect(span.attributes["decision.system"]).toBe("openai");
+    expect(span.attributes["decision.model_name"]).toBe("gpt-6-luna");
+    expect(span.attributes["gen_ai.usage.input_tokens"]).toBe(1_000);
+    expect(span.attributes["gen_ai.usage.cache_read.input_tokens"]).toBe(600);
+    expect(JSON.parse(String(span.attributes["traceroot.span.output"]))).toEqual({
+      gate: { probability: 0.9 },
+    });
+  });
+
+  it("records the billed usage of a failed call on the errored span", async () => {
+    decisionCall.mockRejectedValue(new Error("refused"));
+    const run = await withSelfTrace(META, () =>
+      tracedDecision(DECISION_META, decisionCall, finish, () => ({
+        "gen_ai.usage.input_tokens": 40,
+      })),
+    );
+    expect(run.ok).toBe(false);
+
+    const span = decisionSpan()!;
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span.status.message).toBe("refused");
+    expect(span.attributes["gen_ai.usage.input_tokens"]).toBe(40);
+  });
+
+  it("records no usage on a failed call that billed none", async () => {
+    decisionCall.mockRejectedValue(new Error("401"));
+    await withSelfTrace(META, () =>
+      tracedDecision(DECISION_META, decisionCall, finish, () => null),
+    );
+    expect(decisionSpan()!.attributes["gen_ai.usage.input_tokens"]).toBeUndefined();
   });
 });
