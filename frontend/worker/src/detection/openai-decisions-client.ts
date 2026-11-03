@@ -193,8 +193,12 @@ function isProbability(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
 }
 
+/** The detector usage row stores token counts in an Int32 column. */
+const MAX_TOKEN_COUNT = 2_147_483_647;
+
+/** A whole, non-negative count that the usage row can store as-is. */
 function isTokenCount(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= MAX_TOKEN_COUNT;
 }
 
 /** OpenAI answered, but the body is not a usable answer to the questions asked. */

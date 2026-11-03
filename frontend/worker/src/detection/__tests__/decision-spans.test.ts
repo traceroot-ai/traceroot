@@ -187,6 +187,51 @@ describe("OpenAI Decisions span", () => {
     expect(result?.inferenceCost).toBe(attributes["llm.cost.total"]);
   });
 
+  it("redacts a credential-shaped key inside the trace before recording it", async () => {
+    mockCallDecisions.mockResolvedValueOnce({
+      model: null,
+      answers: {
+        gate: { type: "predicate", probability: 0.1 },
+        label: {
+          type: "choice",
+          choice: "none",
+          confidence: 0.9,
+          probabilities: { problem: 0.1, none: 0.9 },
+        },
+      },
+      usage: { inputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    });
+
+    await withSelfTrace(META, () =>
+      runOpenAIDecisionDetection({
+        spansJsonl:
+          '{"trace_id":"t-1","span_id":"s1","name":"tool.fetch",' +
+          '"input":"{\\"apiKey\\":\\"sk-live-123\\",\\"city\\":\\"Paris\\"}"}',
+        detector: {
+          id: "det-1",
+          name: "Failure",
+          prompt: "Flag tool failures.",
+          outputSchema: [],
+          detectionModel: "gpt-6-luna-decisions",
+          detectionProvider: "my-openai",
+          detectionSource: "byok",
+          template: "blank",
+        },
+        providerConfig: { adapter: "openai", key: "sk-key", baseUrl: null, config: null },
+        timeoutMs: 5_000,
+      }),
+    );
+
+    const span = exporter.getFinishedSpans().find((s) => s.name === "decisions gpt-6-luna")!;
+    const input = String(span.attributes["traceroot.span.input"]);
+    expect(input).not.toContain("sk-live-123");
+    expect(input).toContain("[REDACTED]");
+    expect(input).toContain("Paris");
+    // The model still received the trace as it was.
+    const sent = mockCallDecisions.mock.calls[0][0].input[0].content[0].data;
+    expect(JSON.stringify(sent)).toContain("sk-live-123");
+  });
+
   it("records a refusal's billed tokens and cost on the errored span", async () => {
     mockCallDecisions.mockRejectedValueOnce(
       Object.assign(new Error('OpenAI decisions refused to answer question "label"'), {

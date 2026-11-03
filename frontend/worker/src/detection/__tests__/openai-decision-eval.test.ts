@@ -150,6 +150,7 @@ describe("runOpenAIDecisionDetection", () => {
       inferenceSource: "byok",
       inferenceModel: "gpt-6-luna",
       inferenceProvider: "openai",
+      skipCostFallback: true,
     });
   });
 
@@ -292,10 +293,12 @@ describe("runOpenAIDecisionDetection", () => {
     expect(span["decision.token_count.output"]).toBe(7);
   });
 
-  it("leaves an unpriced call at 0 for the run processor's fallback", async () => {
+  it("keeps an unpriced call at 0 and out of the generic token-price fallback", async () => {
     mockCallDecisions.mockResolvedValueOnce(result(0.97, FAILURE_PROBS));
     mockCalculateCost.mockRejectedValueOnce(new Error("db down"));
-    expect((await run()).inferenceCost).toBe(0);
+    const res = await run();
+    expect(res.inferenceCost).toBe(0);
+    expect(res.skipCostFallback).toBe(true);
   });
 
   it("prices a billed failure once and hangs the cost on the rethrown error", async () => {

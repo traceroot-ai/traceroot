@@ -22,6 +22,7 @@ import {
   decisionsUsageFromError,
   type DecisionsUsage,
 } from "./openai-decisions-client.js";
+import { boundedJson } from "./traced-complete.js";
 import { tracedDecision } from "./traced-system-one.js";
 
 /** The API model a detector's decision alias calls, or null if it names none. */
@@ -93,7 +94,9 @@ export async function runOpenAIDecisionDetection(params: {
       model,
       input: {
         questions,
-        state_preview: JSON.stringify(jevState.state),
+        // Redacted while still structured: once serialized, a credential-shaped
+        // key inside the trace is just text to the span's own redaction.
+        state_preview: boundedJson(jevState.state),
         state_stats: jevState.stats,
       },
       attributes: {
@@ -137,8 +140,10 @@ export async function runOpenAIDecisionDetection(params: {
 
   return {
     ...decisionFinding(result.answers.gate.probability, result.answers.label),
-    // 0 leaves an unpriced call to the run processor's token-count fallback.
+    // An unpriced call stays at 0: the generic token-count fallback would
+    // charge output and full-rate cache, which Decisions does not bill.
     inferenceCost: result.cost ?? 0,
+    skipCostFallback: true,
     inferenceInputTokens: result.usage.inputTokens,
     inferenceOutputTokens: result.usage.outputTokens,
     inferenceSource: "byok",

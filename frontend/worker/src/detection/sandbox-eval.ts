@@ -53,6 +53,12 @@ export interface EvalResult {
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
   inferenceProvider: string | null;
+  /**
+   * The eval priced the call itself (the Decisions API: output free, cache
+   * split), so the run processor must not re-price a zero cost from the token
+   * counts.
+   */
+  skipCostFallback?: boolean;
 }
 
 const MAX_ATTEMPTS = 2;
@@ -220,15 +226,18 @@ export async function runDetectionForTrace(params: {
         // A refusal or rejected answer is still billed; keep its usage, and
         // the cost the eval priced it at (the one its span records).
         const usage = decisionsUsageFromError(err);
-        return errorResult(
-          err instanceof Error ? err.message : String(err),
-          source,
-          usage ? (decisionsCostFromError(err) ?? 0) : 0,
-          usage?.inputTokens ?? 0,
-          usage?.outputTokens ?? 0,
-          usage ? decisionAlias.model : null,
-          usage ? decisionAlias.adapter : null,
-        );
+        return {
+          ...errorResult(
+            err instanceof Error ? err.message : String(err),
+            source,
+            usage ? (decisionsCostFromError(err) ?? 0) : 0,
+            usage?.inputTokens ?? 0,
+            usage?.outputTokens ?? 0,
+            usage ? decisionAlias.model : null,
+            usage ? decisionAlias.adapter : null,
+          ),
+          skipCostFallback: true,
+        };
       }
     }
   }

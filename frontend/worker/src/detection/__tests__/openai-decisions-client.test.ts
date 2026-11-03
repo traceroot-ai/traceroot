@@ -231,6 +231,21 @@ describe("callDecisions (stubbed fetch)", () => {
         /cached_tokens/,
       ],
       ["a non-string model", { ...OK_BODY, model: 7 }, /model is not a string/],
+      [
+        "a fractional input_tokens",
+        { ...OK_BODY, usage: { input_tokens: 10.5 } },
+        /missing or invalid usage/,
+      ],
+      [
+        "an input_tokens too large to store",
+        { ...OK_BODY, usage: { input_tokens: 1e308 } },
+        /missing or invalid usage/,
+      ],
+      [
+        "an output_tokens above the Int32 limit",
+        { ...OK_BODY, usage: { input_tokens: 10, output_tokens: 2_147_483_648 } },
+        /invalid usage.output_tokens/,
+      ],
     ];
 
     it.each(cases)("fails as a malformed response when %s", async (_name, body, message) => {

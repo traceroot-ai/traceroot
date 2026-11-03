@@ -558,6 +558,7 @@ describe("runDetectionForTrace", () => {
         inferenceSource: "byok",
         inferenceModel: "gpt-6-luna",
         inferenceProvider: "openai",
+        skipCostFallback: true,
       });
     });
 
