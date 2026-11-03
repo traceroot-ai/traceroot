@@ -90,6 +90,8 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  // Set when the server held the session back until the address is verified.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   const {
     register,
@@ -105,13 +107,17 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
     setError(null);
 
     try {
-      const { error } = await authClient.signUp.email({
+      const { data: result, error } = await authClient.signUp.email({
         name: data.name,
         email: data.email,
         password: data.password,
+        // Where the verification link lands, already signed in.
+        callbackURL: destination,
       });
       if (error) {
         setError(error.message || "Failed to create account");
+      } else if (!result?.token) {
+        setPendingEmail(data.email);
       } else {
         router.push(destination);
         router.refresh();
@@ -129,6 +135,35 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
       provider: "google",
       callbackURL: destination,
     });
+  }
+
+  if (pendingEmail) {
+    return (
+      <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mb-2 flex justify-center">
+              <Logo size="lg" />
+            </div>
+            <CardTitle className="text-lg font-semibold">Check your inbox</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-center text-[13px] text-muted-foreground">
+            <p>
+              We sent a verification link to{" "}
+              <span className="font-medium text-foreground">{pendingEmail}</span>. Open it to finish
+              creating your account.
+            </p>
+            <p className="text-[12px]">
+              No email? Check spam, or{" "}
+              <Link href={signInHref} className="font-medium text-primary hover:underline">
+                sign in
+              </Link>{" "}
+              to get a new link.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

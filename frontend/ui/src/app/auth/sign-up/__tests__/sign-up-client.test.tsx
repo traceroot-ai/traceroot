@@ -50,7 +50,7 @@ afterEach(() => {
 
 describe("SignUpClient", () => {
   it("sends a normal signup straight to onboarding", async () => {
-    mocks.signUpEmail.mockResolvedValue({ error: null });
+    mocks.signUpEmail.mockResolvedValue({ data: { token: "session-token" }, error: null });
 
     render(<SignUpClient googleAuthConfigured={false} />);
     fillForm();
@@ -65,7 +65,7 @@ describe("SignUpClient", () => {
     // — and a brand-new account has no workspace to hold one until this form is
     // submitted.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
-    mocks.signUpEmail.mockResolvedValue({ error: null });
+    mocks.signUpEmail.mockResolvedValue({ data: { token: "session-token" }, error: null });
 
     render(<SignUpClient googleAuthConfigured={false} />);
     fillForm();
@@ -104,7 +104,7 @@ describe("SignUpClient", () => {
 
   it("ignores a non-device callback and onboards a new account directly", async () => {
     setParams({ callbackUrl: "/projects/p1/traces" });
-    mocks.signUpEmail.mockResolvedValue({ error: null });
+    mocks.signUpEmail.mockResolvedValue({ data: { token: "session-token" }, error: null });
 
     render(<SignUpClient googleAuthConfigured={false} />);
     fillForm();
@@ -117,7 +117,7 @@ describe("SignUpClient", () => {
     // Exact-path match: only /device (the consent page) is the device flow, not
     // a future route like /device-settings.
     setParams({ callbackUrl: "/device-settings" });
-    mocks.signUpEmail.mockResolvedValue({ error: null });
+    mocks.signUpEmail.mockResolvedValue({ data: { token: "session-token" }, error: null });
 
     render(<SignUpClient googleAuthConfigured={false} />);
     fillForm();
@@ -134,6 +134,25 @@ describe("SignUpClient", () => {
     expect(link.getAttribute("href")).toBe(
       `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
     );
+  });
+
+  it("asks the user to verify when the server holds the session back", async () => {
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.signUpEmail.mockResolvedValue({ data: { token: null }, error: null });
+
+    render(<SignUpClient googleAuthConfigured={false} />);
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(await screen.findByText("Check your inbox")).toBeTruthy();
+    expect(screen.getByText("kai@acme.io")).toBeTruthy();
+    // The link lands where the signup would have gone, device flow included.
+    expect(mocks.signUpEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callbackURL: `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+      }),
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it.each([

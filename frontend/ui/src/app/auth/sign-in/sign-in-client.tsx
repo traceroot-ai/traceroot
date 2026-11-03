@@ -58,8 +58,16 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
       const { error } = await authClient.signIn.email({
         email: data.email,
         password: data.password,
+        // Where a fresh verification link lands if the account is unverified,
+        // so a device login resumes instead of dropping the user at "/".
+        callbackURL: callbackUrl,
       });
-      if (error) {
+      if (error?.code === "EMAIL_NOT_VERIFIED") {
+        // The server has just sent a fresh link (sendOnSignIn).
+        setError(
+          "Please verify your email first. We've sent a new verification link to your inbox.",
+        );
+      } else if (error) {
         setError(error.message || "Invalid credentials");
       } else {
         router.push(callbackUrl);
