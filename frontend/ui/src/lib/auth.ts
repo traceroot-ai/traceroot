@@ -1,13 +1,14 @@
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
+import { admin, captcha, deviceAuthorization, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { authRateLimitStorage } from "@/lib/auth-rate-limit";
+import { turnstileKeys } from "@/lib/signup/captcha";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
@@ -27,6 +28,7 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+const turnstile = turnstileKeys(env);
 
 // Email/password accounts must prove the address before they can sign in, but
 // only where a verification link can be delivered: without mail configured
@@ -182,6 +184,18 @@ export const auth = betterAuth({
       impersonationSessionDuration: SESSION_EXPIRES_IN_SECONDS,
     }),
     supportPlugin(),
+    // Bot check on email sign-up, only when both Turnstile keys are set (see
+    // lib/signup/captcha.ts). Sign-up is the endpoint that creates rows and
+    // sends mail; sign-in is already throttled per client.
+    ...(turnstile
+      ? [
+          captcha({
+            provider: "cloudflare-turnstile",
+            secretKey: turnstile.secretKey,
+            endpoints: ["/sign-up/email"],
+          }),
+        ]
+      : []),
     // The CLI credential is a session token, but bearer() is deliberately NOT
     // enabled: it would let that token authenticate every /api/auth/* endpoint
     // and would expose session tokens to page JS on sign-in. The backend

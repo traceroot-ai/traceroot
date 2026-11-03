@@ -49,6 +49,10 @@ const serverSchema = z.object({
   // Optional. Shares auth rate-limit counters across replicas; blank keeps
   // them in per-process memory. See lib/auth-rate-limit.ts.
   REDIS_URL: z.string().optional(),
+  // Optional bot check on email sign-up (Cloudflare Turnstile). Both keys must
+  // be set for it to turn on; read at runtime, so no rebuild is needed.
+  TURNSTILE_SITE_KEY: z.string().default(""),
+  TURNSTILE_SECRET_KEY: z.string().default(""),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),

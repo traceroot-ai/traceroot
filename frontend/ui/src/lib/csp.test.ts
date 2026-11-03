@@ -35,6 +35,19 @@ describe("buildContentSecurityPolicy", () => {
     expect(getScriptNonceFromHeader(policy)).toBe(NONCE);
   });
 
+  it("admits the CAPTCHA frame only when the CAPTCHA is on", () => {
+    expect(directives(buildContentSecurityPolicy({ nonce: NONCE })).has("frame-src")).toBe(false);
+    const parsed = directives(
+      buildContentSecurityPolicy({
+        nonce: NONCE,
+        captchaOrigin: "https://challenges.cloudflare.com",
+      }),
+    );
+    expect(parsed.get("frame-src")).toEqual(["'self'", "https://challenges.cloudflare.com"]);
+    // The widget script rides 'strict-dynamic'; script-src gains no host.
+    expect(parsed.get("script-src")).toEqual(["'self'", `'nonce-${NONCE}'`, "'strict-dynamic'"]);
+  });
+
   it("keeps inline styles and gives style-src no nonce, which would void 'unsafe-inline'", () => {
     const policy = buildContentSecurityPolicy({ nonce: NONCE });
     expect(directives(policy).get("style-src")).toEqual(["'self'", "'unsafe-inline'"]);
