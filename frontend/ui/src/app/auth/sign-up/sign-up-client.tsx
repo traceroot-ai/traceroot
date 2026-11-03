@@ -97,6 +97,7 @@ function SignUpContent({ googleAuthConfigured, turnstileSiteKey }: SignUpClientP
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
+  const [captchaFailed, setCaptchaFailed] = useState(false);
 
   const {
     register,
@@ -262,11 +263,25 @@ function SignUpContent({ googleAuthConfigured, turnstileSiteKey }: SignUpClientP
             </div>
 
             {turnstileSiteKey && (
-              <Turnstile
-                siteKey={turnstileSiteKey}
-                onToken={setCaptchaToken}
-                resetKey={captchaReset}
-              />
+              <div className="space-y-1">
+                <Turnstile
+                  siteKey={turnstileSiteKey}
+                  onToken={(token) => {
+                    setCaptchaToken(token);
+                    if (token) setCaptchaFailed(false);
+                  }}
+                  onError={() => setCaptchaFailed(true)}
+                  resetKey={captchaReset}
+                />
+                {/* Says why Sign up is disabled while no token is held. */}
+                {!captchaToken && (
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    {captchaFailed
+                      ? "The security check couldn't load. Refresh the page to try again."
+                      : "Completing a quick security check…"}
+                  </p>
+                )}
+              </div>
             )}
 
             <Button

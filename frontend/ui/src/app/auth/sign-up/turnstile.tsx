@@ -29,12 +29,14 @@ function loadTurnstile(): Promise<TurnstileApi> {
     const script = document.createElement("script");
     script.src = SCRIPT_SRC;
     script.async = true;
-    script.onload = () =>
-      window.turnstile ? resolve(window.turnstile) : reject(new Error("turnstile missing"));
-    script.onerror = () => {
+    // Either failure clears the cache so a later mount can retry the load.
+    const fail = (message: string) => {
       scriptPromise = null;
-      reject(new Error("turnstile failed to load"));
+      reject(new Error(message));
     };
+    script.onload = () =>
+      window.turnstile ? resolve(window.turnstile) : fail("turnstile missing");
+    script.onerror = () => fail("turnstile failed to load");
     document.head.appendChild(script);
   });
   return scriptPromise;
@@ -43,11 +45,14 @@ function loadTurnstile(): Promise<TurnstileApi> {
 export function Turnstile({
   siteKey,
   onToken,
+  onError,
   resetKey,
 }: {
   siteKey: string;
-  // Called with a fresh token, or null when it expires or the challenge fails.
+  // Called with a fresh token, or null when it expires.
   onToken: (token: string | null) => void;
+  // The script failed to load or the challenge errored; no token is coming.
+  onError: () => void;
   // Change it to get a new token: each one is single-use.
   resetKey: number;
 }) {
@@ -55,6 +60,8 @@ export function Turnstile({
   const widgetId = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useEffect(() => {
     let cancelled = false;
@@ -65,10 +72,16 @@ export function Turnstile({
           sitekey: siteKey,
           callback: (token: string) => onTokenRef.current(token),
           "expired-callback": () => onTokenRef.current(null),
-          "error-callback": () => onTokenRef.current(null),
+          "error-callback": () => {
+            onTokenRef.current(null);
+            onErrorRef.current();
+          },
         });
       })
-      .catch(() => onTokenRef.current(null));
+      .catch(() => {
+        onTokenRef.current(null);
+        onErrorRef.current();
+      });
     return () => {
       cancelled = true;
       if (widgetId.current) window.turnstile?.remove(widgetId.current);
