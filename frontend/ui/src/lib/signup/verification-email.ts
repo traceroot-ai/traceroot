@@ -1,7 +1,8 @@
 // The email-verification link better-auth asks for at sign-up (and again on a
 // sign-in attempt by an unverified account). Sent as transactional mail through
-// the shared Resend client, so it needs only the API key and sender: no topic,
-// no reply-to and no unsubscribe, unlike product mail.
+// the shared Resend client, so it needs only the API key and sender. Unlike
+// product mail it carries no topic or unsubscribe; the configured reply-to,
+// when set, still applies so a confused recipient's reply reaches a person.
 import { renderEmailCard } from "@traceroot/core";
 import { resendConfig, sendEmail, type ResendOptions } from "@traceroot/core/email";
 

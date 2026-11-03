@@ -121,6 +121,7 @@ describe("SignInClient", () => {
   });
 
   it("tells an unverified account that a new link is on its way", async () => {
+    setParams({ callbackUrl: NESTED_CALLBACK });
     mocks.signInEmail.mockResolvedValue({
       error: { code: "EMAIL_NOT_VERIFIED", message: "Email not verified", status: 403 },
     });
@@ -130,6 +131,10 @@ describe("SignInClient", () => {
 
     expect(await screen.findByText(/verify your email first/i)).toBeTruthy();
     expect(mocks.push).not.toHaveBeenCalled();
+    // The resent link returns to the same nested callback.
+    expect(mocks.signInEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ callbackURL: NESTED_CALLBACK }),
+    );
   });
 
   it("drops a foreign callback rather than forwarding it to sign-up", () => {

@@ -68,7 +68,12 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
       url: string;
     }) => Promise<void>;
     sendOnSignIn: boolean;
-    afterEmailVerification: (user: { id: string; email: string; name: string }) => Promise<void>;
+    afterEmailVerification: (user: {
+      id: string;
+      email: string;
+      name: string;
+      createdAt: Date;
+    }) => Promise<void>;
   };
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
@@ -176,13 +181,15 @@ describe("auth options", () => {
   });
 
   it("runs the held follow-up once the address is verified, without awaiting it", async () => {
+    const createdAt = new Date();
+    const verifiedUser = { id: "u1", email: "a@acme.io", name: "A", createdAt };
     let reject!: (error: Error) => void;
     onEmailVerifiedMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(
-      options.emailVerification.afterEmailVerification({ id: "u1", email: "a@acme.io", name: "A" }),
+      options.emailVerification.afterEmailVerification(verifiedUser),
     ).resolves.toBeUndefined();
-    expect(onEmailVerifiedMock).toHaveBeenCalledWith({ id: "u1", email: "a@acme.io", name: "A" });
+    expect(onEmailVerifiedMock).toHaveBeenCalledWith(verifiedUser);
     const error = new Error("slack down");
     reject(error);
     await vi.waitFor(() =>

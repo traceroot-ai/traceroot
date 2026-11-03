@@ -58,8 +58,19 @@ export async function onUserCreated(
   await Promise.all([demo, announceSignup(user, signupProvider(context?.path))]);
 }
 
+// Verification is not only the tail of a fresh sign-up: an account that was
+// unverified before verification became required (the grandfather migration
+// skips @traceroot.ai, and self-hosts may turn mail on later) is sent a link on
+// its next sign-in. Those were never held back, so only an account young
+// enough to be a new sign-up is announced. The links themselves expire in 24h.
+export const ANNOUNCE_ON_VERIFY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** The deferred half of onUserCreated, run once the address is proven. */
-export async function onEmailVerified(user: CreatedUser): Promise<void> {
+export async function onEmailVerified(
+  user: CreatedUser & { createdAt: Date },
+  now: Date = new Date(),
+): Promise<void> {
+  if (now.getTime() - user.createdAt.getTime() > ANNOUNCE_ON_VERIFY_MAX_AGE_MS) return;
   // Only email sign-ups wait for verification; OAuth accounts arrive verified.
   await announceSignup(user, "email");
 }

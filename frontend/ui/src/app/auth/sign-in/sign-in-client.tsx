@@ -58,6 +58,9 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
       const { error } = await authClient.signIn.email({
         email: data.email,
         password: data.password,
+        // Where a fresh verification link lands if the account is unverified,
+        // so a device login resumes instead of dropping the user at "/".
+        callbackURL: callbackUrl,
       });
       if (error?.code === "EMAIL_NOT_VERIFIED") {
         // The server has just sent a fresh link (sendOnSignIn).
