@@ -63,6 +63,33 @@ describe("createRedisRateLimitStorage", () => {
   });
 });
 
+describe("legacy get/set", () => {
+  // Only reached if better-auth ever drops consume; still namespaced and safe.
+  it("round-trips a namespaced entry that expires", async () => {
+    const { client, storage } = fakeClient(async () => [1, 1]);
+    const entry = { key: "k", count: 2, lastRequest: 1700000000000 };
+    await storage.set("k", entry);
+    expect(client.set).toHaveBeenCalledWith(
+      "traceroot:auth-rate-limit:legacy:k",
+      JSON.stringify(entry),
+      "EX",
+      3600,
+    );
+    client.get.mockResolvedValueOnce(JSON.stringify(entry)).mockResolvedValueOnce(null);
+    expect(await storage.get("k")).toEqual(entry);
+    expect(await storage.get("k")).toBeNull();
+  });
+
+  it("treats a Redis failure as no entry and never throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, storage } = fakeClient(async () => [1, 1]);
+    client.get.mockRejectedValue(new Error("down"));
+    client.set.mockRejectedValue(new Error("down"));
+    expect(await storage.get("k")).toBeNull();
+    await expect(storage.set("k", { key: "k", count: 1, lastRequest: 1 })).resolves.toBeUndefined();
+  });
+});
+
 describe("authRateLimitStorage", () => {
   it("leaves better-auth on its memory default when Redis is not configured", () => {
     expect(authRateLimitStorage(undefined)).toBeUndefined();
