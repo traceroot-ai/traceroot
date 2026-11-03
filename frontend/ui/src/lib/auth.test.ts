@@ -31,6 +31,7 @@ const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => 
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
 vi.mock("@/lib/signup/attribution", () => ({
+  isSelfSignup: (context: { path?: string } | null) => context?.path !== "/admin/create-user",
   signupAttributionProperties: signupAttributionPropertiesMock,
 }));
 vi.mock("@/env", () => ({
@@ -55,6 +56,7 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
   databaseHooks: {
     user: {
       create: {
+        before: (user: { email: string }, context?: { path: string } | null) => Promise<void>;
         after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
       };
     };
@@ -98,6 +100,28 @@ describe("auth options", () => {
       "user_signed_up",
       properties,
     );
+  });
+
+  it("rejects a self-service account on a reserved or disposable domain", async () => {
+    const { before } = options.databaseHooks.user.create;
+    await expect(
+      before({ email: "a@example.com" }, { path: "/sign-up/email" }),
+    ).rejects.toMatchObject({ status: "BAD_REQUEST", body: { code: "EMAIL_DOMAIN_RESERVED" } });
+    await expect(
+      before({ email: "a@yopmail.com" }, { path: "/callback/:id" }),
+    ).rejects.toMatchObject({
+      body: { code: "EMAIL_DOMAIN_DISPOSABLE" },
+    });
+    await expect(
+      before({ email: "a@acme.io" }, { path: "/sign-up/email" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("lets staff provision an account on any domain", async () => {
+    const { before } = options.databaseHooks.user.create;
+    await expect(
+      before({ email: "a@example.com" }, { path: "/admin/create-user" }),
+    ).resolves.toBeUndefined();
   });
 
   it("hands every new user to the sign-up follow-up with the endpoint path", async () => {

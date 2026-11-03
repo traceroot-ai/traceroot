@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
@@ -11,7 +12,8 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
-import { signupAttributionProperties } from "@/lib/signup/attribution";
+import { isSelfSignup, signupAttributionProperties } from "@/lib/signup/attribution";
+import { checkSignupEmail, EMAIL_POLICY_MESSAGES } from "@/lib/signup/email-policy";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import {
   SESSION_EXPIRES_IN_SECONDS,
@@ -36,6 +38,19 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        // Runs for every self-service account (email and OAuth) before the row
+        // is written, so a rejected address never reaches the after-hook's mail
+        // and Slack side effects. Staff provisioning is exempt.
+        before: async (user, context) => {
+          if (!isSelfSignup(context)) return;
+          const verdict = checkSignupEmail(user.email);
+          if (!verdict.ok) {
+            throw new APIError("BAD_REQUEST", {
+              code: `EMAIL_DOMAIN_${verdict.reason.toUpperCase()}`,
+              message: EMAIL_POLICY_MESSAGES[verdict.reason],
+            });
+          }
+        },
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
