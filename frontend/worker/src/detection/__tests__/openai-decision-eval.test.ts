@@ -16,6 +16,7 @@ vi.mock("../traced-system-one.js", () => ({ tracedDecision: mockTracedDecision }
 
 import {
   decisionsCost,
+  decisionsCostFromError,
   openAIDecisionModel,
   runOpenAIDecisionDetection,
 } from "../openai-decision-eval.js";
@@ -101,9 +102,20 @@ describe("decisionsCost", () => {
     expect(mockCalculateCost).toHaveBeenCalledWith("gpt-6-luna", 300, 0, 600, 100);
   });
 
-  it("is 0 when the price lookup fails, leaving the run processor's fallback", async () => {
+  it("is null when the price lookup fails", async () => {
     mockCalculateCost.mockRejectedValue(new Error("db down"));
-    expect(await decisionsCost("gpt-6-luna", USAGE)).toBe(0);
+    expect(await decisionsCost("gpt-6-luna", USAGE)).toBeNull();
+  });
+});
+
+describe("decisionsCostFromError", () => {
+  it("reads only a finite, non-negative cost off an Error", () => {
+    expect(decisionsCostFromError(Object.assign(new Error("x"), { cost: 0.5 }))).toBe(0.5);
+    expect(decisionsCostFromError(Object.assign(new Error("x"), { cost: 0 }))).toBe(0);
+    for (const cost of [-1, Number.NaN, "0.5", undefined]) {
+      expect(decisionsCostFromError(Object.assign(new Error("x"), { cost }))).toBeNull();
+    }
+    expect(decisionsCostFromError({ cost: 0.5 })).toBeNull();
   });
 });
 
@@ -219,7 +231,7 @@ describe("runOpenAIDecisionDetection", () => {
     const [meta, , finish, failedUsage] = mockTracedDecision.mock.calls[0] as unknown as [
       { name: string; model: string; attributes: Record<string, string> },
       unknown,
-      (r: ReturnType<typeof result>) => {
+      (r: ReturnType<typeof result> & { cost: number | null }) => {
         model: string | null;
         attributes: Record<string, unknown>;
       },
@@ -240,23 +252,73 @@ describe("runOpenAIDecisionDetection", () => {
       "decision.token_count.input": 1_000,
       "decision.token_count.output": 0,
     };
-    expect(finish(result(0.97, FAILURE_PROBS)).attributes).toEqual({
+    expect(finish({ ...result(0.97, FAILURE_PROBS), cost: 0.000042 }).attributes).toEqual({
       ...usageAttributes,
+      "llm.cost.total": 0.000042,
       "decision.model_name": "gpt-6-luna",
     });
-    const dated = { ...result(0.97, FAILURE_PROBS), model: "gpt-6-luna-2026-09-30" };
+    // Unpriced: no reported cost, so ingest prices the tokens itself.
+    expect(
+      finish({ ...result(0.97, FAILURE_PROBS), cost: null }).attributes["llm.cost.total"],
+    ).toBeUndefined();
+    const dated = { ...result(0.97, FAILURE_PROBS), model: "gpt-6-luna-2026-09-30", cost: 0 };
     expect(finish(dated)).toMatchObject({
       model: "gpt-6-luna-2026-09-30",
       attributes: { "decision.model_name": "gpt-6-luna-2026-09-30" },
     });
-    expect(failedUsage(Object.assign(new Error("refused"), { usage: USAGE }))).toEqual(
-      usageAttributes,
-    );
+    expect(
+      failedUsage(Object.assign(new Error("refused"), { usage: USAGE, cost: 0.00003 })),
+    ).toEqual({ ...usageAttributes, "llm.cost.total": 0.00003 });
     expect(failedUsage(new Error("401"))).toBeNull();
   });
 
-  it("rethrows a failed call for the dispatch to turn into an error result", async () => {
+  it("records one cost on the run and the span, pricing reported output at zero", async () => {
+    const withOutput = { ...result(0.97, FAILURE_PROBS), usage: { ...USAGE, outputTokens: 7 } };
+    mockCallDecisions.mockResolvedValueOnce(withOutput);
+    let traced: unknown;
+    mockTracedDecision.mockImplementationOnce(async (_meta, call) => (traced = await call()));
+
+    const res = await run();
+
+    expect(mockCalculateCost).toHaveBeenCalledWith("gpt-6-luna", 300, 0, 600, 100);
+    expect(res.inferenceOutputTokens).toBe(7);
+    expect(res.inferenceCost).toBe(0.000042);
+    const finish = (mockTracedDecision.mock.calls[0] as unknown[])[2] as (r: unknown) => {
+      attributes: Record<string, unknown>;
+    };
+    const span = finish(traced).attributes;
+    expect(span["llm.cost.total"]).toBe(res.inferenceCost);
+    expect(span["gen_ai.usage.output_tokens"]).toBe(7);
+    expect(span["decision.token_count.output"]).toBe(7);
+  });
+
+  it("leaves an unpriced call at 0 for the run processor's fallback", async () => {
+    mockCallDecisions.mockResolvedValueOnce(result(0.97, FAILURE_PROBS));
+    mockCalculateCost.mockRejectedValueOnce(new Error("db down"));
+    expect((await run()).inferenceCost).toBe(0);
+  });
+
+  it("prices a billed failure once and hangs the cost on the rethrown error", async () => {
+    const refused = Object.assign(
+      new Error('OpenAI decisions refused to answer question "label"'),
+      {
+        usage: USAGE,
+      },
+    );
+    mockCallDecisions.mockRejectedValueOnce(refused);
+
+    const err = await run().catch((e: unknown) => e);
+
+    expect(err).toBe(refused);
+    expect(decisionsCostFromError(err)).toBe(0.000042);
+    expect(mockCalculateCost).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows a failed call with no usage unpriced", async () => {
     mockCallDecisions.mockRejectedValueOnce(new Error("OpenAI decisions returned 401"));
-    await expect(run()).rejects.toThrow("OpenAI decisions returned 401");
+    const err = await run().catch((e: unknown) => e);
+    expect((err as Error).message).toBe("OpenAI decisions returned 401");
+    expect(decisionsCostFromError(err)).toBeNull();
+    expect(mockCalculateCost).not.toHaveBeenCalled();
   });
 });

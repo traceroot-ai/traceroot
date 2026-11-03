@@ -22,7 +22,7 @@ import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-t
 import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
 import { usageFromError } from "./typesafe-client.js";
-import { decisionsCost, runOpenAIDecisionDetection } from "./openai-decision-eval.js";
+import { decisionsCostFromError, runOpenAIDecisionDetection } from "./openai-decision-eval.js";
 import { decisionsUsageFromError } from "./openai-decisions-client.js";
 
 export interface DetectorConfig {
@@ -217,12 +217,13 @@ export async function runDetectionForTrace(params: {
           timeoutMs: parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS),
         });
       } catch (err) {
-        // A refusal or rejected answer is still billed; keep its usage and cost.
+        // A refusal or rejected answer is still billed; keep its usage, and
+        // the cost the eval priced it at (the one its span records).
         const usage = decisionsUsageFromError(err);
         return errorResult(
           err instanceof Error ? err.message : String(err),
           source,
-          usage ? await decisionsCost(decisionAlias.model, usage) : 0,
+          usage ? (decisionsCostFromError(err) ?? 0) : 0,
           usage?.inputTokens ?? 0,
           usage?.outputTokens ?? 0,
           usage ? decisionAlias.model : null,

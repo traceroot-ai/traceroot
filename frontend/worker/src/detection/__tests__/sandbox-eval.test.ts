@@ -31,14 +31,13 @@ vi.mock("../jev-eval.js", () => ({
   JEV_DEFAULT_MODEL_ID: "jev-1.13.0",
 }));
 
-const { mockRunOpenAIDecisionDetection, mockDecisionsCost } = vi.hoisted(() => ({
+const { mockRunOpenAIDecisionDetection } = vi.hoisted(() => ({
   mockRunOpenAIDecisionDetection: vi.fn(),
-  mockDecisionsCost: vi.fn(),
 }));
 
-vi.mock("../openai-decision-eval.js", () => ({
+vi.mock("../openai-decision-eval.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../openai-decision-eval.js")>()),
   runOpenAIDecisionDetection: mockRunOpenAIDecisionDetection,
-  decisionsCost: mockDecisionsCost,
 }));
 
 vi.mock("@traceroot/core/model-resolver", () => ({
@@ -533,7 +532,7 @@ describe("runDetectionForTrace", () => {
       }
     });
 
-    it("bills a refusal's usage and cost under gpt-6-luna", async () => {
+    it("bills a refusal's usage and the cost the eval priced it at, under gpt-6-luna", async () => {
       const usage = {
         inputTokens: 1_000,
         cachedTokens: 600,
@@ -542,9 +541,11 @@ describe("runDetectionForTrace", () => {
       };
       mockFetchProviderConfig.mockResolvedValueOnce(openaiConfig);
       mockRunOpenAIDecisionDetection.mockRejectedValueOnce(
-        Object.assign(new Error('OpenAI decisions refused to answer question "label"'), { usage }),
+        Object.assign(new Error('OpenAI decisions refused to answer question "label"'), {
+          usage,
+          cost: 0.000042,
+        }),
       );
-      mockDecisionsCost.mockResolvedValueOnce(0.000042);
 
       const result = await run();
 
@@ -558,7 +559,6 @@ describe("runDetectionForTrace", () => {
         inferenceModel: "gpt-6-luna",
         inferenceProvider: "openai",
       });
-      expect(mockDecisionsCost).toHaveBeenCalledWith("gpt-6-luna", usage);
     });
 
     it("attributes nothing when the call failed before any usage", async () => {
@@ -576,7 +576,6 @@ describe("runDetectionForTrace", () => {
         inferenceModel: null,
         inferenceProvider: null,
       });
-      expect(mockDecisionsCost).not.toHaveBeenCalled();
     });
 
     it.each(["anthropic", "typesafe"])(

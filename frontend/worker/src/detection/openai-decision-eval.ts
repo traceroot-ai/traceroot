@@ -32,21 +32,32 @@ export function openAIDecisionModel(detectionModel: string | null | undefined): 
 
 /**
  * Cost in USD of one Decisions call. `input_tokens` includes the cache reads
- * and writes, so they are split out and priced at their own rates; output is
- * not charged. A failed price lookup is 0, which leaves the run processor's
- * token-count fallback to price it.
+ * and writes, so they are split out and priced at their own rates. Output is
+ * not charged, so it is priced at zero whatever count the response reports.
+ * Null when the price lookup fails.
  */
-export async function decisionsCost(model: string, usage: DecisionsUsage): Promise<number> {
+export async function decisionsCost(model: string, usage: DecisionsUsage): Promise<number | null> {
   const uncached = usage.inputTokens - usage.cachedTokens - usage.cacheWriteTokens;
   try {
     return await calculateCost(model, uncached, 0, usage.cachedTokens, usage.cacheWriteTokens);
   } catch (err) {
     console.error(`[Detector] Failed to price decisions usage for model ${model}:`, err);
-    return 0;
+    return null;
   }
 }
 
-function usageAttributes(usage: DecisionsUsage): Record<string, number> {
+/** The cost runOpenAIDecisionDetection priced a billed failure at, or null. */
+export function decisionsCostFromError(err: unknown): number | null {
+  const cost = err instanceof Error ? (err as { cost?: unknown }).cost : undefined;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
+}
+
+/**
+ * Span attributes for the billed usage. Tokens are the reported counts; the
+ * cost is the one the detector run records, so the self-trace's cost matches
+ * it instead of list-pricing output. With no cost, ingest prices the tokens.
+ */
+function usageAttributes(usage: DecisionsUsage, cost: number | null): Record<string, number> {
   return {
     "gen_ai.usage.input_tokens": usage.inputTokens,
     "gen_ai.usage.output_tokens": usage.outputTokens,
@@ -54,6 +65,7 @@ function usageAttributes(usage: DecisionsUsage): Record<string, number> {
     "gen_ai.usage.cache_creation.input_tokens": usage.cacheWriteTokens,
     "decision.token_count.input": usage.inputTokens,
     "decision.token_count.output": usage.outputTokens,
+    ...(cost !== null ? { "llm.cost.total": cost } : {}),
   };
 }
 
@@ -90,30 +102,43 @@ export async function runOpenAIDecisionDetection(params: {
         "decision.model_name": model,
       },
     },
-    () =>
-      callDecisions({
-        apiKey: providerConfig.key,
-        baseUrl,
-        model,
-        input,
-        questions,
-        deadlineMs: timeoutMs,
-      }),
+    // Priced once, inside the call, so the span and the run record one cost.
+    async () => {
+      try {
+        const decided = await callDecisions({
+          apiKey: providerConfig.key,
+          baseUrl,
+          model,
+          input,
+          questions,
+          deadlineMs: timeoutMs,
+        });
+        return { ...decided, cost: await decisionsCost(model, decided.usage) };
+      } catch (err) {
+        const usage = decisionsUsageFromError(err);
+        const cost = usage ? await decisionsCost(model, usage) : null;
+        throw err instanceof Error && cost !== null ? Object.assign(err, { cost }) : err;
+      }
+    },
     (done) => ({
       model: done.model,
       // The response's model, when it names one, is the identity on both keys.
-      attributes: { ...usageAttributes(done.usage), "decision.model_name": done.model ?? model },
+      attributes: {
+        ...usageAttributes(done.usage, done.cost),
+        "decision.model_name": done.model ?? model,
+      },
       output: done.answers,
     }),
     (err) => {
       const usage = decisionsUsageFromError(err);
-      return usage ? usageAttributes(usage) : null;
+      return usage ? usageAttributes(usage, decisionsCostFromError(err)) : null;
     },
   );
 
   return {
     ...decisionFinding(result.answers.gate.probability, result.answers.label),
-    inferenceCost: await decisionsCost(model, result.usage),
+    // 0 leaves an unpriced call to the run processor's token-count fallback.
+    inferenceCost: result.cost ?? 0,
     inferenceInputTokens: result.usage.inputTokens,
     inferenceOutputTokens: result.usage.outputTokens,
     inferenceSource: "byok",
