@@ -44,10 +44,22 @@ vi.mock("@/lib/signup/attribution", () => ({
   isSelfSignup: (context: { path?: string } | null) => context?.path !== "/admin/create-user",
   signupAttributionProperties: signupAttributionPropertiesMock,
 }));
+const rateLimitStorage = vi.hoisted(() => ({ consume: async () => ({ allowed: true }) }));
+// Records the URL itself: clearAllMocks in beforeEach wipes call history, and
+// auth.ts builds the storage once at import.
+const rateLimitRedisUrl = vi.hoisted(() => ({ value: undefined as string | undefined }));
+const authRateLimitStorageMock = vi.hoisted(() =>
+  vi.fn((url: string | undefined) => {
+    rateLimitRedisUrl.value = url;
+    return rateLimitStorage;
+  }),
+);
+vi.mock("@/lib/auth-rate-limit", () => ({ authRateLimitStorage: authRateLimitStorageMock }));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
     BETTER_AUTH_URL: "http://localhost:3000",
+    REDIS_URL: "redis://cache:6379/0",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
@@ -76,7 +88,10 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
     }) => Promise<void>;
   };
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
-  rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  rateLimit: {
+    customRules: Record<string, { window: number; max: number }>;
+    customStorage: unknown;
+  };
   databaseHooks: {
     user: {
       create: {
@@ -103,6 +118,15 @@ describe("auth options", () => {
 
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
+  });
+
+  it("caps email sign-ups per client far below the library default", () => {
+    expect(options.rateLimit.customRules["/sign-up/email"]).toEqual({ window: 3600, max: 10 });
+  });
+
+  it("keeps rate-limit counters in the shared store built from REDIS_URL", () => {
+    expect(rateLimitRedisUrl.value).toBe("redis://cache:6379/0");
+    expect(options.rateLimit.customStorage).toBe(rateLimitStorage);
   });
 
   it("sends user_signed_up when a user is created", async () => {

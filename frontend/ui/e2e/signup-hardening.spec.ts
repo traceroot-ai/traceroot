@@ -2,6 +2,7 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { signJWT } from "better-auth/crypto";
+import Redis from "ioredis";
 
 // Drives the real /api/auth/sign-up/email endpoint. Intentionally
 // localhost-only: it creates accounts and must never touch a remote tenant.
@@ -24,9 +25,11 @@ const prefix = `signup-e2e-${randomUUID()}`;
 // on) uses a dummy key, and afterAll deletes the accounts.
 const VALID_DOMAIN = "traceroot.ai";
 
-// Each request gets its own client address, so the default per-IP sign-up
-// budget never leaks between tests. Only the throttling test reuses one.
-const ip = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
+// Each request gets its own client address (RFC 2544 benchmarking range), so
+// the per-IP sign-up budget never leaks between tests or runs. Only the
+// throttling test reuses one.
+const octet = () => Math.floor(Math.random() * 254) + 1;
+const ip = () => `198.18.${octet()}.${octet()}`;
 
 const PASSWORD = "correct-horse-battery";
 
@@ -127,5 +130,45 @@ test.describe("sign-up email verification", () => {
     const repeat = await signUp(request, email);
     expect(repeat.status()).toBe(200);
     expect((await repeat.json()).token).toBeNull();
+  });
+});
+
+// better-auth only rate-limits in production, so this needs `next build` +
+// `next start`. With REDIS_URL set it also checks the counter is in Redis, i.e.
+// shared by every replica rather than held in one process.
+test.describe("sign-up throttling", () => {
+  test.skip(
+    process.env.E2E_RATE_LIMIT !== "1",
+    "set E2E_RATE_LIMIT=1 and run against a production build (next build && next start)",
+  );
+
+  test("throttles rapid repeated signups from one address", async ({ request }) => {
+    const clientIp = ip();
+    const MAX = 10; // the /sign-up/email rule in lib/auth.ts
+    for (let i = 0; i < MAX; i++) {
+      const response = await signUp(request, `${prefix}-burst-${i}@${VALID_DOMAIN}`, clientIp);
+      expect(response.status(), `signup ${i + 1} of ${MAX}`).toBe(200);
+    }
+    const throttled = await signUp(request, `${prefix}-burst-over@${VALID_DOMAIN}`, clientIp);
+    expect(throttled.status()).toBe(429);
+    // About an hour until the window frees up.
+    expect(Number(throttled.headers()["x-retry-after"])).toBeGreaterThan(3500);
+    expect(
+      await prisma.user.findUnique({ where: { email: `${prefix}-burst-over@${VALID_DOMAIN}` } }),
+    ).toBeNull();
+
+    // Another address still has its own budget.
+    expect((await signUp(request, `${prefix}-other@${VALID_DOMAIN}`)).status()).toBe(200);
+
+    if (process.env.REDIS_URL) {
+      const redis = new Redis(process.env.REDIS_URL);
+      try {
+        const key = `traceroot:auth-rate-limit:${clientIp}|/sign-up/email`;
+        expect(Number(await redis.get(key))).toBe(MAX + 1);
+        await redis.del(key);
+      } finally {
+        redis.disconnect();
+      }
+    }
   });
 });

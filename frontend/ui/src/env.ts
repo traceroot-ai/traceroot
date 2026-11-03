@@ -46,6 +46,9 @@ const serverSchema = z.object({
         });
       }
     }),
+  // Optional. Shares auth rate-limit counters across replicas; blank keeps
+  // them in per-process memory. See lib/auth-rate-limit.ts.
+  REDIS_URL: z.string().optional(),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),
