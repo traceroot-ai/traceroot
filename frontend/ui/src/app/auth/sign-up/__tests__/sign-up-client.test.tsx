@@ -29,10 +29,10 @@ function setParams(params: Record<string, string>) {
   searchParams = new URLSearchParams(params);
 }
 
-function fillForm() {
+function fillForm(email = "kai@acme.io") {
   fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "Kai" } });
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: "kai@example.com" },
+    target: { value: email },
   });
   const passwords = screen.getAllByPlaceholderText("********");
   fireEvent.change(passwords[0], { target: { value: "password123" } });
@@ -144,6 +144,18 @@ describe("SignUpClient", () => {
     expect(link.getAttribute("href")).toBe(
       `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
     );
+  });
+
+  it.each([
+    ["kai@example.com", "This email domain can't receive mail"],
+    ["kai@mailinator.com", "Disposable email addresses aren't supported"],
+  ])("blocks %s inline without calling the server", async (email, message) => {
+    render(<SignUpClient googleAuthConfigured={false} />);
+    fillForm(email);
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(await screen.findByText(new RegExp(message))).toBeTruthy();
+    expect(mocks.signUpEmail).not.toHaveBeenCalled();
   });
 
   it("uses a bare sign-in link when there is no callback", () => {
