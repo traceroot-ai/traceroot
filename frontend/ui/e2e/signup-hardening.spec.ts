@@ -11,10 +11,16 @@ const base = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
   throw new Error("E2E requires a local UI server");
 
+// Accepted signups run the real follow-up hooks. Refuse to run where they could
+// post to Slack or send product mail, rather than trusting the local .env.
+for (const name of ["TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL", "RESEND_PRODUCT_TOPIC_ID"])
+  if (process.env[name]?.trim()) throw new Error(`E2E must run with ${name} unset`);
+
 const prisma = new PrismaClient();
 const prefix = `signup-e2e-${randomUUID()}`;
 // A real, deliverable domain for the accepted path. Nothing is sent to it: the
-// accounts are deleted in afterAll and mail is unconfigured locally.
+// guard above keeps product mail and Slack off, and afterAll deletes the
+// accounts.
 const VALID_DOMAIN = "traceroot.ai";
 
 // Each request gets its own client address, so the default per-IP sign-up
