@@ -57,6 +57,7 @@ export async function tracedSystemOne<R extends SystemOneResult>(
         state_preview: meta.statePreview,
         state_stats: meta.stateStats,
       },
+      attributes: { "decision.system": "typesafe" },
     },
     call,
     (result) => ({
