@@ -221,12 +221,11 @@ describe("cliHostFlags", () => {
 describe("setupCommand", () => {
   it("resolves to one exact published CLI, never a tag or a range", async () => {
     // Three failures in one assertion, and each has happened or is one edit
-    // away. `@latest` is 0.5.0, which has no `setup` subcommand — the line dies
-    // with "unknown command 'setup'" — and is resolved per machine against
-    // npx's cache besides. A `^` range would be the obvious compromise and is
-    // not safe either: `^` is an escape character in Windows `cmd.exe`. And an
-    // exact pin is what makes the flags below printable at all, because an
-    // option a published CLI does not declare is a fatal usage error rather
+    // away. `@latest` is a mutable tag, so the printed command would change
+    // without this app changing. A `^` range would be the obvious compromise
+    // and is not safe either: `^` is an escape character in Windows `cmd.exe`.
+    // And an exact pin is what makes the flags below printable at all, because
+    // an option a published CLI does not declare is a fatal usage error rather
     // than something it ignores.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
