@@ -11,9 +11,13 @@ import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
-import { onUserCreated } from "@/lib/signup/on-user-created";
+import { onEmailVerified, onUserCreated } from "@/lib/signup/on-user-created";
 import { isSelfSignup, signupAttributionProperties } from "@/lib/signup/attribution";
 import { checkSignupEmail, EMAIL_POLICY_MESSAGES } from "@/lib/signup/email-policy";
+import {
+  isVerificationMailConfigured,
+  sendVerificationEmail,
+} from "@/lib/signup/verification-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import {
   SESSION_EXPIRES_IN_SECONDS,
@@ -22,6 +26,17 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+
+// Email/password accounts must prove the address before they can sign in, but
+// only where a verification link can be delivered: without mail configured
+// (typical for self-hosting) the requirement would lock every new account out.
+const requireEmailVerification = isVerificationMailConfigured();
+if (!requireEmailVerification) {
+  console.warn(
+    "[auth] email verification is off: set RESEND_API_KEY and TRACEROOT_UPDATES_EMAIL_FROM (or TRACEROOT_SMTP_MAIL_FROM) to require it",
+  );
+}
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
@@ -33,6 +48,24 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    // Accounts that existed before this was enabled were marked verified by
+    // the grandfather_email_verified migration, so they are not locked out.
+    requireEmailVerification,
+  },
+
+  emailVerification: {
+    sendVerificationEmail: ({ user, url }) => sendVerificationEmail({ user, url }),
+    // An unverified sign-in attempt gets a fresh link, which doubles as resend.
+    sendOnSignIn: true,
+    autoSignInAfterVerification: true,
+    expiresIn: 60 * 60 * 24,
+    // The welcome and Slack notice held back at creation go out now. Not
+    // awaited: better-auth awaits this inside the verify request.
+    afterEmailVerification: async (user) => {
+      onEmailVerified({ id: user.id, email: user.email, name: user.name ?? null }).catch((error) =>
+        console.error("[signup] verified follow-up failed:", error),
+      );
+    },
   },
 
   databaseHooks: {
@@ -58,6 +91,7 @@ export const auth = betterAuth({
           onUserCreated(
             { id: user.id, email: user.email, name: user.name ?? null },
             context ? { path: context.path } : null,
+            { awaitingVerification: requireEmailVerification && !user.emailVerified },
           ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },

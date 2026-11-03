@@ -28,7 +28,17 @@ vi.mock("@traceroot/core", () => ({ prisma: {} }));
 const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
-vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const onEmailVerifiedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
+vi.mock("@/lib/signup/on-user-created", () => ({
+  onUserCreated: onUserCreatedMock,
+  onEmailVerified: onEmailVerifiedMock,
+}));
+const sendVerificationEmailMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
+vi.mock("@/lib/signup/verification-email", () => ({
+  // Read at import time; the env var lets one test reload auth.ts without mail.
+  isVerificationMailConfigured: () => process.env.TEST_NO_VERIFICATION_MAIL !== "1",
+  sendVerificationEmail: sendVerificationEmailMock,
+}));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
 vi.mock("@/lib/signup/attribution", () => ({
   isSelfSignup: (context: { path?: string } | null) => context?.path !== "/admin/create-user",
@@ -51,6 +61,15 @@ vi.mock("@/env", () => ({
 
 await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
+  emailAndPassword: { requireEmailVerification: boolean };
+  emailVerification: {
+    sendVerificationEmail: (data: {
+      user: { id: string; email: string };
+      url: string;
+    }) => Promise<void>;
+    sendOnSignIn: boolean;
+    afterEmailVerification: (user: { id: string; email: string; name: string }) => Promise<void>;
+  };
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
   databaseHooks: {
@@ -128,7 +147,48 @@ describe("auth options", () => {
     const { after } = options.databaseHooks.user.create;
     await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
     const user = { id: "u1", email: "a@example.com", name: null };
-    expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+    expect(onUserCreatedMock).toHaveBeenCalledWith(
+      user,
+      { path: "/sign-up/email" },
+      { awaitingVerification: true },
+    );
+  });
+
+  it("requires verification for email sign-in and resends the link on an attempt", () => {
+    expect(options.emailAndPassword.requireEmailVerification).toBe(true);
+    expect(options.emailVerification.sendOnSignIn).toBe(true);
+  });
+
+  it("delivers the verification link through the mail module", async () => {
+    const data = { user: { id: "u1", email: "a@acme.io" }, url: "https://x/verify-email?token=t" };
+    await options.emailVerification.sendVerificationEmail(data);
+    expect(sendVerificationEmailMock).toHaveBeenCalledWith(data);
+  });
+
+  it("does not hold back the follow-up for an account that arrives verified", async () => {
+    const { after } = options.databaseHooks.user.create;
+    await after({ id: "u3", email: "g@acme.io", emailVerified: true }, { path: "/callback/:id" });
+    expect(onUserCreatedMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { path: "/callback/:id" },
+      { awaitingVerification: false },
+    );
+  });
+
+  it("runs the held follow-up once the address is verified, without awaiting it", async () => {
+    let reject!: (error: Error) => void;
+    onEmailVerifiedMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      options.emailVerification.afterEmailVerification({ id: "u1", email: "a@acme.io", name: "A" }),
+    ).resolves.toBeUndefined();
+    expect(onEmailVerifiedMock).toHaveBeenCalledWith({ id: "u1", email: "a@acme.io", name: "A" });
+    const error = new Error("slack down");
+    reject(error);
+    await vi.waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("[signup] verified follow-up failed:", error),
+    );
+    spy.mockRestore();
   });
 
   it("resolves before the follow-up settles and logs its later rejection", async () => {
@@ -141,6 +201,24 @@ describe("auth options", () => {
     reject(error);
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
     spy.mockRestore();
+  });
+});
+
+describe("auth options without verification mail", () => {
+  it("does not require verification, so new accounts are not locked out", async () => {
+    vi.resetModules();
+    betterAuthMock.mockClear();
+    process.env.TEST_NO_VERIFICATION_MAIL = "1";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await import("./auth");
+      const reloaded = betterAuthMock.mock.calls[0]?.[0] as typeof options;
+      expect(reloaded.emailAndPassword.requireEmailVerification).toBe(false);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("email verification is off"));
+    } finally {
+      delete process.env.TEST_NO_VERIFICATION_MAIL;
+      warn.mockRestore();
+    }
   });
 });
 

@@ -1,6 +1,8 @@
 // Everything that follows a new account (demo workspace access, Resend contact,
 // welcome email, Slack notice), run from better-auth's user.create.after hook.
-// Each arm is on only when its own config is set and never rejects. The
+// When the address still has to be verified, the welcome and Slack notice wait
+// for onEmailVerified instead, so unproven addresses never get mail or a
+// notice. Each arm is on only when its own config is set and never rejects. The
 // contact is created before the welcome because Resend delivers topic mail to
 // non-contacts, and the opt-out needs a record.
 import { prisma } from "@traceroot/core";
@@ -41,16 +43,28 @@ async function arm<T>(
 export async function onUserCreated(
   user: CreatedUser,
   context: { path?: string } | null,
+  options: { awaitingVerification?: boolean } = {},
 ): Promise<void> {
   // Every account can look at the demo workspace, however it was created.
   const demo = ensureDemoMembership(user.id);
 
-  // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (!isSelfSignup(context)) {
+  // A user provisioned by staff through the admin plugin is not a sign-up, and
+  // an unverified one is not announced until onEmailVerified.
+  if (!isSelfSignup(context) || options.awaitingVerification) {
     await demo;
     return;
   }
 
+  await Promise.all([demo, announceSignup(user, signupProvider(context?.path))]);
+}
+
+/** The deferred half of onUserCreated, run once the address is proven. */
+export async function onEmailVerified(user: CreatedUser): Promise<void> {
+  // Only email sign-ups wait for verification; OAuth accounts arrive verified.
+  await announceSignup(user, "email");
+}
+
+async function announceSignup(user: CreatedUser, provider: string): Promise<void> {
   const welcome = isProductMailConfigured()
     ? arm("welcome email", user.id, async () => {
         const contact = await arm("resend contact", user.id, () =>
@@ -79,7 +93,7 @@ export async function onUserCreated(
         return notifySignupSlack({
           name: user.name,
           email: user.email,
-          provider: signupProvider(context?.path),
+          provider,
           viaInvite: invite != null,
           facts,
           supportConsoleUrl: `${env.NEXT_PUBLIC_APP_URL}/admin`,
@@ -88,5 +102,5 @@ export async function onUserCreated(
       })
     : undefined;
 
-  await Promise.all([demo, welcome, slack]);
+  await Promise.all([welcome, slack]);
 }

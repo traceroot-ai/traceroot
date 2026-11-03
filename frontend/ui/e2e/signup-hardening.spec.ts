@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
+import { signJWT } from "better-auth/crypto";
 
 // Drives the real /api/auth/sign-up/email endpoint. Intentionally
 // localhost-only: it creates accounts and must never touch a remote tenant.
@@ -13,18 +14,28 @@ if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
 
 const prisma = new PrismaClient();
 const prefix = `signup-e2e-${randomUUID()}`;
-// A real, deliverable domain for the accepted path. Nothing is sent to it: the
-// accounts are deleted in afterAll and mail is unconfigured locally.
+// A real, deliverable domain for the accepted path. Nothing is delivered to it:
+// local mail is unconfigured or uses a dummy key, and afterAll deletes the
+// accounts.
 const VALID_DOMAIN = "traceroot.ai";
 
 // Each request gets its own client address, so the default per-IP sign-up
 // budget never leaks between tests. Only the throttling test reuses one.
 const ip = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
 
+const PASSWORD = "correct-horse-battery";
+
 function signUp(request: APIRequestContext, email: string, clientIp = ip()) {
   return request.post("/api/auth/sign-up/email", {
-    data: { name: "Signup E2E", email, password: "correct-horse-battery" },
+    data: { name: "Signup E2E", email, password: PASSWORD },
     headers: { origin: base, "x-forwarded-for": clientIp },
+  });
+}
+
+function signIn(request: APIRequestContext, email: string) {
+  return request.post("/api/auth/sign-in/email", {
+    data: { email, password: PASSWORD },
+    headers: { origin: base, "x-forwarded-for": ip() },
   });
 }
 
@@ -63,5 +74,53 @@ test.describe("sign-up domain policy", () => {
     await page.getByPlaceholder("********").last().fill("correct-horse-battery");
     await page.getByRole("button", { name: "Sign up" }).click();
     await expect(page.getByText(/Disposable email addresses aren't supported/)).toBeVisible();
+  });
+});
+
+// Verification is required only when the server can send mail, so this block
+// needs the UI started with RESEND_API_KEY and a sender set (a dummy key is
+// fine: the send fails and is logged, and the test mints the link itself).
+test.describe("sign-up email verification", () => {
+  test.skip(
+    process.env.E2E_EMAIL_VERIFICATION !== "1",
+    "set E2E_EMAIL_VERIFICATION=1 and start the UI with RESEND_API_KEY and a sender",
+  );
+
+  test("holds a valid signup inactive until the address is verified", async ({ request }) => {
+    const email = `${prefix}-verify@${VALID_DOMAIN}`;
+    const created = await signUp(request, email);
+    expect(created.status()).toBe(200);
+    expect((await created.json()).token).toBeNull();
+    expect(created.headers()["set-cookie"] ?? "").not.toContain("session_token");
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(user.emailVerified).toBe(false);
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
+
+    const blocked = await signIn(request, email);
+    expect(blocked.status()).toBe(403);
+    expect((await blocked.json()).code).toBe("EMAIL_NOT_VERIFIED");
+
+    // The link the verification email carries, signed with the server secret.
+    const token = await signJWT({ email }, process.env.BETTER_AUTH_SECRET!, 3600);
+    const verified = await request.get(
+      `/api/auth/verify-email?token=${token}&callbackURL=%2Fonboarding`,
+      { maxRedirects: 0 },
+    );
+    expect(verified.status()).toBe(302);
+    expect(verified.headers()["location"]).toBe("/onboarding");
+    expect(verified.headers()["set-cookie"]).toContain("session_token");
+    expect((await prisma.user.findUniqueOrThrow({ where: { email } })).emailVerified).toBe(true);
+
+    expect((await signIn(request, email)).status()).toBe(200);
+  });
+
+  test("answers a repeat signup like a new one, so it cannot probe for accounts", async ({
+    request,
+  }) => {
+    const email = `${prefix}-repeat@${VALID_DOMAIN}`;
+    expect((await signUp(request, email)).status()).toBe(200);
+    const repeat = await signUp(request, email);
+    expect(repeat.status()).toBe(200);
+    expect((await repeat.json()).token).toBeNull();
   });
 });

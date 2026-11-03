@@ -22,7 +22,7 @@ vi.mock("@traceroot/core", () => ({
 vi.mock("./posthog-person", () => ({ findPostHogPerson }));
 vi.mock("./notify-slack", () => ({ notifySignupSlack }));
 
-import { onUserCreated, signupProvider } from "./on-user-created";
+import { onEmailVerified, onUserCreated, signupProvider } from "./on-user-created";
 
 const user = { id: "u1", email: "New@Example.com", name: "New User" };
 const everything = [
@@ -125,4 +125,22 @@ it("never rejects: failed arms are logged, the welcome is skipped and the count 
   expect(posted).toMatchObject({ provider: "unknown", viaInvite: false, totalUsers: undefined });
   expect(sendWelcomeEmail).not.toHaveBeenCalled();
   expect(console.error).toHaveBeenCalledTimes(4);
+});
+
+it("holds the welcome and Slack notice while the address is unverified", async () => {
+  await onUserCreated(user, { path: "/sign-up/email" }, { awaitingVerification: true });
+  expect(ensureDemoMembership).toHaveBeenCalledWith("u1");
+  for (const fn of everything) expect(fn).not.toHaveBeenCalled();
+});
+
+it("sends the held welcome and Slack notice once the address is verified", async () => {
+  await onEmailVerified(user);
+  expect(sendWelcomeEmail).toHaveBeenCalledWith({
+    userId: "u1",
+    email: user.email,
+    name: "New User",
+  });
+  expect(notifySignupSlack).toHaveBeenCalledWith(expect.objectContaining({ provider: "email" }));
+  // Demo access was granted at creation; verification does not repeat it.
+  expect(ensureDemoMembership).not.toHaveBeenCalled();
 });

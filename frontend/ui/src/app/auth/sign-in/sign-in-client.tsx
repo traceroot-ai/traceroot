@@ -59,7 +59,12 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
         email: data.email,
         password: data.password,
       });
-      if (error) {
+      if (error?.code === "EMAIL_NOT_VERIFIED") {
+        // The server has just sent a fresh link (sendOnSignIn).
+        setError(
+          "Please verify your email first. We've sent a new verification link to your inbox.",
+        );
+      } else if (error) {
         setError(error.message || "Invalid credentials");
       } else {
         router.push(callbackUrl);
