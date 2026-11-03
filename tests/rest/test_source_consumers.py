@@ -54,10 +54,6 @@ ALLOW_UNFILTERED_METHODS = {
     ("rest/services/trace_reader.py", "get_trace_start_time"): (
         "retention gate keyed by trace_id; reached through a trace get_trace already scoped"
     ),
-    ("rest/services/trace_reader.py", "get_trace_earliest_span_time"): (
-        "retention gate keyed by trace_id for a trace whose root has not arrived; it "
-        "returns one timestamp, never span content"
-    ),
     ("rest/services/trace_reader.py", "get_trace_spans_io"): (
         "per-span I/O keyed by trace_id; reached through a trace get_trace already scoped"
     ),

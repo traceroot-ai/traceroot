@@ -664,16 +664,61 @@ class TestTraceStartTime:
         assert "isNull(parent_span_id)" in client.query.call_args.args[0]
 
 
-class TestTraceEarliestSpanTime:
+class TestCustomerTraceStartTime:
     OLD = datetime(2020, 1, 1)
 
-    def test_the_earliest_start_of_any_span(self):
+    def test_reads_customer_root_spans_only(self):
         service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
 
-        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        assert service.get_customer_trace_start_time("proj-1", "trace-1") == self.OLD
+        query = client.query.call_args.args[0]
+        assert "isNull(parent_span_id)" in query
+        assert "source = 'user'" in query
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj-1",
+            "trace_id": "trace-1",
+        }
+
+    def test_a_missing_root_is_not_cached(self):
+        answers = iter([_rows([(None,)]), _rows([(self.OLD,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_customer_trace_start_time("proj-1", "trace-1") is None
+        assert service.get_customer_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 2
+
+    def test_a_found_root_is_cached_apart_from_the_unscoped_one(self):
+        later = self.OLD + timedelta(days=1)
+        answers = iter([_rows([(self.OLD,)]), _rows([(later,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_customer_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert service.get_customer_trace_start_time("proj-1", "trace-1") == self.OLD
+        # The unscoped reader keeps its own entry: one scope never answers for the other.
+        assert service.get_trace_start_time("proj-1", "trace-1") == later
+        assert client.query.call_count == 2
+
+    def test_the_cache_stays_bounded(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+        service._TRACE_START_CACHE_MAX = 2
+
+        for trace_id in ("a", "b", "c"):
+            service.get_customer_trace_start_time("proj-1", trace_id)
+
+        assert list(service._customer_trace_start_cache) == ["proj-1:b", "proj-1:c"]
+
+
+class TestCustomerTraceEarliestSpanTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_the_earliest_start_of_any_customer_span(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
         query = " ".join(client.query.call_args.args[0].split())
         assert "minOrNull(span_start_time)" in query
         assert "parent_span_id" not in query
+        assert "source = 'user'" in query
         # Each span's latest version only, like the other span readers.
         assert "ORDER BY ch_update_time DESC LIMIT 1 BY span_id" in query
         assert client.query.call_args.kwargs["parameters"] == {
@@ -685,7 +730,7 @@ class TestTraceEarliestSpanTime:
     def test_none_when_the_trace_has_no_span(self, rows):
         service, _ = _make_service(lambda *a, **kw: _rows(rows))
 
-        assert service.get_trace_earliest_span_time("proj-1", "trace-1") is None
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") is None
 
     def test_never_cached(self):
         """An earlier span can still arrive, so every call reads again."""
@@ -693,9 +738,37 @@ class TestTraceEarliestSpanTime:
         answers = iter([_rows([(later,)]), _rows([(self.OLD,)])])
         service, client = _make_service(lambda *a, **kw: next(answers))
 
-        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == later
-        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == later
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
         assert client.query.call_count == 2
+
+
+class TestCustomerSpanIo:
+    def test_reads_a_customer_span_only(self):
+        service, client = _make_service(
+            lambda *a, **kw: _rows([("span-1", "abc123", "the-input", "the-output", "the-meta")])
+        )
+
+        assert service.get_customer_span_io("proj", "abc123", "span-1") == {
+            "span_id": "span-1",
+            "trace_id": "abc123",
+            "input": "the-input",
+            "output": "the-output",
+            "metadata": "the-meta",
+        }
+        query = " ".join(client.query.call_args.args[0].split())
+        assert "source = 'user'" in query
+        assert "ORDER BY ch_update_time DESC LIMIT 1" in query
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj",
+            "trace_id": "abc123",
+            "span_id": "span-1",
+        }
+
+    def test_none_for_a_span_outside_customer_traffic(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([]))
+
+        assert service.get_customer_span_io("proj", "abc123", "span-1") is None
 
 
 class TestListTracesRows:

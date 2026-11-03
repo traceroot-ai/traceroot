@@ -312,6 +312,8 @@ class TraceReaderService:
         # span's start time is cached; it is immutable once written, so 1-hour TTL is
         # safe. Bounded to 1024 entries.
         self._trace_start_cache: dict[str, tuple[float, datetime]] = {}
+        # The same, for get_customer_trace_start_time's root among customer spans only.
+        self._customer_trace_start_cache: dict[str, tuple[float, datetime]] = {}
         # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
         # -> (expiry, rows). Short TTL; bounded to DISTINCT_VALUES_CACHE_MAX entries.
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
@@ -556,23 +558,66 @@ class TraceReaderService:
         self._trace_start_cache[cache_key] = (now + 3600.0, ts)
         return ts
 
-    def get_trace_earliest_span_time(self, project_id: str, trace_id: str) -> datetime | None:
-        """The earliest start time of any span in the trace, or ``None`` if it has none.
+    def get_customer_trace_start_time(self, project_id: str, trace_id: str) -> datetime | None:
+        """``get_trace_start_time`` over customer traffic only.
+
+        For a by-id route that must not reach internal telemetry: a root stored under
+        an internal source never supplies the trace's start. Cached the same way, a
+        found root for 1 hour and ``None`` never.
+        """
+        cache_key = f"{project_id}:{trace_id}"
+        now = time.monotonic()
+        cached = self._customer_trace_start_cache.get(cache_key)
+        if cached is not None:
+            expiry, value = cached
+            if now < expiry:
+                return value
+
+        result = self._client.query(
+            f"""
+            SELECT minOrNull(span_start_time)
+            FROM (
+                SELECT parent_span_id, span_start_time FROM spans
+                WHERE project_id = {{project_id:String}}
+                  AND trace_id   = {{trace_id:String}}
+                  AND {customer_traffic_only()}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
+            WHERE isNull(parent_span_id)
+            """,
+            parameters={"project_id": project_id, "trace_id": trace_id},
+        )
+        rows = result.result_rows
+        ts = rows[0][0] if rows else None
+        if ts is None:
+            return None
+        if len(self._customer_trace_start_cache) >= self._TRACE_START_CACHE_MAX:
+            self._customer_trace_start_cache.pop(next(iter(self._customer_trace_start_cache)))
+        self._customer_trace_start_cache[cache_key] = (now + 3600.0, ts)
+        return ts
+
+    def get_customer_trace_earliest_span_time(
+        self, project_id: str, trace_id: str
+    ) -> datetime | None:
+        """The earliest start of any customer span in the trace, or ``None`` if it has none.
 
         Retention for a trace whose root span has not arrived: a root normally starts
         before its children, so this is the closest bound available, and it is the
         same for every span of the trace. Only each span's latest version counts, as
         in the other span readers, so an obsolete version that ClickHouse has not
-        merged away yet never moves the start earlier. Never cached, because an
-        earlier span can still arrive.
+        merged away yet never moves the start earlier. A span stored under an
+        internal source never counts either. Never cached, because an earlier span
+        can still arrive.
         """
         result = self._client.query(
-            """
+            f"""
             SELECT minOrNull(span_start_time)
             FROM (
                 SELECT span_start_time FROM spans
-                WHERE project_id = {project_id:String}
-                  AND trace_id   = {trace_id:String}
+                WHERE project_id = {{project_id:String}}
+                  AND trace_id   = {{trace_id:String}}
+                  AND {customer_traffic_only()}
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY span_id
             )
@@ -1070,6 +1115,41 @@ class TraceReaderService:
             WHERE project_id = {project_id:String}
               AND trace_id = {trace_id:String}
               AND span_id = {span_id:String}
+            ORDER BY ch_update_time DESC
+            LIMIT 1
+        """
+        result = self._client.query(
+            query,
+            parameters={
+                "project_id": project_id,
+                "trace_id": trace_id,
+                "span_id": span_id,
+            },
+        )
+        if not result.result_rows:
+            return None
+        row = result.result_rows[0]
+        return {
+            "span_id": row[0],
+            "trace_id": row[1],
+            "input": row[2],
+            "output": row[3],
+            "metadata": row[4],
+        }
+
+    def get_customer_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
+        """``get_span_io`` over customer traffic only.
+
+        Returns None for a span stored under an internal source, so a by-id route
+        built on it can't serve anything that span's text refers to.
+        """
+        query = f"""
+            SELECT span_id, trace_id, input, output, metadata
+            FROM spans
+            WHERE project_id = {{project_id:String}}
+              AND trace_id = {{trace_id:String}}
+              AND span_id = {{span_id:String}}
+              AND {customer_traffic_only()}
             ORDER BY ch_update_time DESC
             LIMIT 1
         """
