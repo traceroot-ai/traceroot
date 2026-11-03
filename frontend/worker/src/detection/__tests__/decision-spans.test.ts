@@ -232,6 +232,30 @@ describe("OpenAI Decisions span", () => {
     expect(JSON.stringify(sent)).toContain("sk-live-123");
   });
 
+  it("records the run's zero cost on the span when pricing fails", async () => {
+    mockCalculateCost.mockRejectedValueOnce(new Error("db down"));
+    mockCallDecisions.mockResolvedValueOnce({
+      model: null,
+      answers: {
+        gate: { type: "predicate", probability: 0.9 },
+        label: {
+          type: "choice",
+          choice: "problem",
+          confidence: 0.8,
+          probabilities: { problem: 0.8, none: 0.2 },
+        },
+      },
+      usage: { inputTokens: 1_000, cachedTokens: 600, cacheWriteTokens: 100, outputTokens: 7 },
+    });
+
+    const run = await withSelfTrace(META, runOpenAI);
+
+    const { attributes } = decisionAttributes("decisions gpt-6-luna");
+    expect(attributes["llm.cost.total"]).toBe(0);
+    expect(run.ok && run.value.inferenceCost).toBe(0);
+    expect(attributes["gen_ai.usage.output_tokens"]).toBe(7);
+  });
+
   it("records a refusal's billed tokens and cost on the errored span", async () => {
     mockCallDecisions.mockRejectedValueOnce(
       Object.assign(new Error('OpenAI decisions refused to answer question "label"'), {

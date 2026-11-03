@@ -55,8 +55,8 @@ export function decisionsCostFromError(err: unknown): number | null {
 
 /**
  * Span attributes for the billed usage. Tokens are the reported counts; the
- * cost is the one the detector run records, so the self-trace's cost matches
- * it instead of list-pricing output. With no cost, ingest prices the tokens.
+ * cost is always the one the detector run records (0 when pricing failed), so
+ * ingest never list-prices the span, output included, against the run.
  */
 function usageAttributes(usage: DecisionsUsage, cost: number | null): Record<string, number> {
   return {
@@ -66,7 +66,7 @@ function usageAttributes(usage: DecisionsUsage, cost: number | null): Record<str
     "gen_ai.usage.cache_creation.input_tokens": usage.cacheWriteTokens,
     "decision.token_count.input": usage.inputTokens,
     "decision.token_count.output": usage.outputTokens,
-    ...(cost !== null ? { "llm.cost.total": cost } : {}),
+    "llm.cost.total": cost ?? 0,
   };
 }
 

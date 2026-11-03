@@ -258,10 +258,10 @@ describe("runOpenAIDecisionDetection", () => {
       "llm.cost.total": 0.000042,
       "decision.model_name": "gpt-6-luna",
     });
-    // Unpriced: no reported cost, so ingest prices the tokens itself.
+    // Unpriced: the span reports the run's 0, so ingest does not list-price it.
     expect(
       finish({ ...result(0.97, FAILURE_PROBS), cost: null }).attributes["llm.cost.total"],
-    ).toBeUndefined();
+    ).toBe(0);
     const dated = { ...result(0.97, FAILURE_PROBS), model: "gpt-6-luna-2026-09-30", cost: 0 };
     expect(finish(dated)).toMatchObject({
       model: "gpt-6-luna-2026-09-30",
