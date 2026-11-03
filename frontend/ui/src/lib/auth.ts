@@ -7,6 +7,7 @@ import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
+import { authRateLimitStorage } from "@/lib/auth-rate-limit";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
@@ -147,17 +148,23 @@ export const auth = betterAuth({
   },
 
   rateLimit: {
-    // Enabled automatically in production. `/device/code` is unauthenticated and
-    // inserts a device_codes row on every call, so a loop would grow the table
-    // unbounded — cap creation. The cap is keyed on the resolved client
-    // address, so it is only per-caller when that address resolves; see
+    // Enabled automatically in production. Keyed on the resolved client
+    // address, so a cap is only per-caller when that address resolves; see
     // advanced.ipAddress above.
     //
-    // Storage is per-instance memory: N replicas means N budgets per client and
-    // a restart clears them. A coarse bound, not a cross-replica guarantee, so
+    // With REDIS_URL set, counters are shared by every replica and survive a
+    // restart (see lib/auth-rate-limit.ts). Without it they fall back to
+    // per-instance memory: N replicas means N budgets per client. Either way
     // the unforgeable per-address bound lives at the edge WAF.
+    customStorage: authRateLimitStorage(env.REDIS_URL),
     customRules: {
+      // `/device/code` is unauthenticated and inserts a device_codes row on
+      // every call, so a loop would grow the table unbounded — cap creation.
       "/device/code": { window: 60, max: 10 },
+      // A person signs up once, maybe retrying a typo; the library default
+      // (3 per 10 s, ~26k a day) only stops bursts. 10 an hour still lets a
+      // team behind one NAT accept their invites together.
+      "/sign-up/email": { window: 60 * 60, max: 10 },
     },
   },
 

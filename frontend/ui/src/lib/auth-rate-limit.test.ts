@@ -1,0 +1,63 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { authRateLimitStorage, createRedisRateLimitStorage } from "./auth-rate-limit";
+
+const rule = { window: 3600, max: 2 };
+
+function fakeClient(reply: () => Promise<unknown>) {
+  const client = { eval: vi.fn(reply), get: vi.fn(), set: vi.fn() };
+  return { client, storage: createRedisRateLimitStorage(() => client as never) };
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("createRedisRateLimitStorage", () => {
+  it("runs one atomic script per request, namespaced and windowed in ms", async () => {
+    const { client, storage } = fakeClient(async () => [1, 3_600_000]);
+    await storage.consume!("198.51.100.7|/sign-up/email", rule);
+    expect(client.eval).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("INCR"),
+      1,
+      "traceroot:auth-rate-limit:198.51.100.7|/sign-up/email",
+      3_600_000,
+    );
+  });
+
+  it("allows up to max and then reports the seconds left in the window", async () => {
+    const replies = [
+      [1, 3_600_000],
+      [2, 3_000_000],
+      [3, 2_999_001],
+    ];
+    const { storage } = fakeClient(async () => replies.shift());
+    expect(await storage.consume!("k", rule)).toEqual({ allowed: true, retryAfter: null });
+    expect(await storage.consume!("k", rule)).toEqual({ allowed: true, retryAfter: null });
+    expect(await storage.consume!("k", rule)).toEqual({ allowed: false, retryAfter: 3000 });
+  });
+
+  it("never asks a client to retry in zero seconds", async () => {
+    const { storage } = fakeClient(async () => [5, 10]);
+    expect(await storage.consume!("k", rule)).toEqual({ allowed: false, retryAfter: 1 });
+  });
+
+  it("fails open, logging at most once a minute, when Redis is down", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { storage } = fakeClient(async () => {
+      throw new Error("ECONNREFUSED");
+    });
+    expect(await storage.consume!("k", rule)).toEqual({ allowed: true, retryAfter: null });
+    expect(await storage.consume!("k", rule)).toEqual({ allowed: true, retryAfter: null });
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("authRateLimitStorage", () => {
+  it("leaves better-auth on its memory default when Redis is not configured", () => {
+    expect(authRateLimitStorage(undefined)).toBeUndefined();
+    expect(authRateLimitStorage("  ")).toBeUndefined();
+  });
+
+  it("returns an atomic storage without connecting until first use", () => {
+    const storage = authRateLimitStorage("redis://localhost:1/0");
+    expect(storage?.consume).toBeTypeOf("function");
+  });
+});
