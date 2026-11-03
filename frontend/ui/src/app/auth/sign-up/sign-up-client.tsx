@@ -275,7 +275,7 @@ function SignUpContent({ googleAuthConfigured, turnstileSiteKey }: SignUpClientP
                 />
                 {/* Says why Sign up is disabled while no token is held. */}
                 {!captchaToken && (
-                  <p className="text-center text-[11px] text-muted-foreground">
+                  <p role="status" className="text-center text-[11px] text-muted-foreground">
                     {captchaFailed
                       ? "The security check couldn't load. Refresh the page to try again."
                       : "Completing a quick security check…"}

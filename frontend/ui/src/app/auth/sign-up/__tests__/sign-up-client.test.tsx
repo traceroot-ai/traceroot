@@ -230,7 +230,8 @@ describe("SignUpClient", () => {
     expect(screen.getByText(/Completing a quick security check/)).toBeTruthy();
 
     fireEvent.click(screen.getByText("fail captcha"));
-    expect(await screen.findByText(/security check couldn't load/)).toBeTruthy();
+    // Announced: the hint is a live status region, so the change is read out.
+    expect((await screen.findByRole("status")).textContent).toMatch(/security check couldn't load/);
 
     fireEvent.click(screen.getByText("solve captcha"));
     await waitFor(() => expect(screen.queryByText(/security check/)).toBeNull());
