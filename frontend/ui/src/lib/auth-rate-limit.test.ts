@@ -1,4 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Counts connections without opening one; eval answers like a first hit.
+const redisConstructed = vi.hoisted(() => vi.fn());
+vi.mock("ioredis", () => ({
+  default: class {
+    constructor(...args: unknown[]) {
+      redisConstructed(...args);
+    }
+    on() {}
+    eval = async () => [1, 1000];
+  },
+}));
+
 import { authRateLimitStorage, createRedisRateLimitStorage } from "./auth-rate-limit";
 
 const rule = { window: 3600, max: 2 };
@@ -56,8 +69,12 @@ describe("authRateLimitStorage", () => {
     expect(authRateLimitStorage("  ")).toBeUndefined();
   });
 
-  it("returns an atomic storage without connecting until first use", () => {
+  it("does not connect until first use, then reuses one connection", async () => {
     const storage = authRateLimitStorage("redis://localhost:1/0");
-    expect(storage?.consume).toBeTypeOf("function");
+    expect(redisConstructed).not.toHaveBeenCalled();
+    await storage!.consume!("k", rule);
+    await storage!.consume!("k", rule);
+    expect(redisConstructed).toHaveBeenCalledOnce();
+    expect(redisConstructed.mock.calls[0][0]).toBe("redis://localhost:1/0");
   });
 });
