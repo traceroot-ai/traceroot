@@ -22,7 +22,12 @@ vi.mock("@traceroot/core", () => ({
 vi.mock("./posthog-person", () => ({ findPostHogPerson }));
 vi.mock("./notify-slack", () => ({ notifySignupSlack }));
 
-import { onEmailVerified, onUserCreated, signupProvider } from "./on-user-created";
+import {
+  ANNOUNCE_ON_VERIFY_MAX_AGE_MS,
+  onEmailVerified,
+  onUserCreated,
+  signupProvider,
+} from "./on-user-created";
 
 const user = { id: "u1", email: "New@Example.com", name: "New User" };
 const everything = [
@@ -134,7 +139,7 @@ it("holds the welcome and Slack notice while the address is unverified", async (
 });
 
 it("sends the held welcome and Slack notice once the address is verified", async () => {
-  await onEmailVerified(user);
+  await onEmailVerified({ ...user, createdAt: new Date() });
   expect(sendWelcomeEmail).toHaveBeenCalledWith({
     userId: "u1",
     email: user.email,
@@ -143,4 +148,12 @@ it("sends the held welcome and Slack notice once the address is verified", async
   expect(notifySignupSlack).toHaveBeenCalledWith(expect.objectContaining({ provider: "email" }));
   // Demo access was granted at creation; verification does not repeat it.
   expect(ensureDemoMembership).not.toHaveBeenCalled();
+});
+
+it("does not announce an old account that only now verified", async () => {
+  // e.g. an @traceroot.ai account the grandfather migration left unverified.
+  const now = new Date("2026-11-10T00:00:00Z");
+  const createdAt = new Date(now.getTime() - ANNOUNCE_ON_VERIFY_MAX_AGE_MS - 1);
+  await onEmailVerified({ ...user, createdAt }, now);
+  for (const fn of everything) expect(fn).not.toHaveBeenCalled();
 });

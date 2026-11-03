@@ -63,9 +63,12 @@ export const auth = betterAuth({
     // The welcome and Slack notice held back at creation go out now. Not
     // awaited: better-auth awaits this inside the verify request.
     afterEmailVerification: async (user) => {
-      onEmailVerified({ id: user.id, email: user.email, name: user.name ?? null }).catch((error) =>
-        console.error("[signup] verified follow-up failed:", error),
-      );
+      onEmailVerified({
+        id: user.id,
+        email: user.email,
+        name: user.name ?? null,
+        createdAt: user.createdAt,
+      }).catch((error) => console.error("[signup] verified follow-up failed:", error));
     },
   },
 
