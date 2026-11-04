@@ -190,7 +190,7 @@ const CONFIG_CACHE_TTL_MS = 60_000;
 
 /**
  * Resolve full BYOK provider config (decrypted key + adapter + baseUrl + config).
- * Cached for 60s. Returns null when row missing, disabled, or DB error.
+ * Cached for 60s. Returns null when row missing, disabled, its key is blank, or DB error.
  */
 export async function fetchProviderConfig(
   workspaceId: string,
@@ -216,6 +216,14 @@ export async function fetchProviderConfig(
 
     if (row?.enabled && row.keyCipher) {
       const key = decryptKey(row.keyCipher);
+      // A blank key must never reach pi-ai: it fills a blank key from this
+      // process's environment, which holds the platform's own provider keys.
+      if (!key.trim()) {
+        console.warn(
+          `[model-resolver] BYOK provider "${providerName}" in workspace ${workspaceId} has a blank key; ignoring it`,
+        );
+        return null;
+      }
       const providerConfig: ProviderModelConfig = {
         adapter: row.adapter,
         key,
