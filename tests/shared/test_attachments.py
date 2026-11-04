@@ -61,8 +61,8 @@ class TestReferenceFormat:
         assert match.group("bytes") == "42"
 
     def test_survives_json_encoding_unchanged(self):
-        # A reference replaces an image inside stringified JSON, so it must not
-        # contain anything a JSON encoder escapes.
+        # A reference replaces an image inside stringified JSON, so it must hold
+        # nothing a JSON string must escape.
         ref = format_attachment_ref(HASH, "image/webp", 7)
         assert json.dumps(ref) == f'"{ref}"'
         assert json.dumps(ref, ensure_ascii=False) == f'"{ref}"'

@@ -9,14 +9,21 @@ For the ``input``, ``output`` and ``metadata`` of every span and trace row:
 
 1. **Find** images:
    - ``data:image/{png,jpeg,jpg,gif,webp};base64,...`` anywhere in the text,
-     including inside stringified JSON;
+     including inside stringified JSON. A data URL is left as it is when its base64
+     goes on past the matched run, as line-wrapped base64 does after a raw or
+     JSON-escaped line break and URL-safe base64 does at ``-`` or ``_``: the run
+     would be only part of the image;
    - bare base64 in two known JSON shapes, found by parsing the text as JSON:
      ``{"type": "base64", "media_type": "image/...", "data": ...}`` and
-     ``{"mime_type" | "mimeType": "image/...", "data": ...}``. A JSON string in the
-     same field that is exactly that base64 is the same image and is replaced too.
-2. **Validate**: strict base64, magic bytes that match the declared type, and a
-   decoded size and pixel dimensions within ``AttachmentSettings``. Base64 declared
-   with more than one type in a field is accepted if its bytes match any of them.
+     ``{"mime_type" | "mimeType": "image/...", "data": ...}``. A ``data`` value that
+     is not strict base64, or is too short to hold any image header, is not an
+     image, and the shape is left as it is. A JSON string value (never an object
+     key) in the same field that is exactly a found base64 holds the same bytes and
+     is replaced too.
+2. **Validate**: strict base64, magic bytes of an allowed image type, a readable
+   header, and a decoded size and pixel dimensions within ``AttachmentSettings``.
+   The declared type only marks the text as an image: an allowed image declared as
+   another type (a PNG sent as ``image/jpeg``) is stored as the type its bytes are.
    An image that fails becomes ``[image omitted: <reason>, <n> bytes]``.
 3. **Store** each image once per batch, and at most ``max_images_per_batch``
    distinct images per batch; later ones become placeholders. A storage error
@@ -24,7 +31,8 @@ For the ``input``, ``output`` and ``metadata`` of every span and trace row:
    write nothing new.
 4. **Replace** each image by exact substitution in the original text. The rest of
    the text keeps its formatting, and JSON around an image stays valid, because
-   neither a reference nor a placeholder contains a character JSON escapes.
+   neither a reference nor a placeholder contains a quote, a backslash or a control
+   character, the only characters a JSON string must escape.
 5. **Cut** a row whose ``input`` + ``output`` + ``metadata`` is still over
    ``max_span_bytes`` in UTF-8: its largest field(s) are shortened and end with
    ``…[truncated: span content exceeded <limit> bytes]``. A cut never splits a
@@ -35,9 +43,9 @@ Text with no image comes back as the same string object.
 
 Not matched: a known JSON shape inside a string that is itself JSON-encoded
 (double-escaped JSON, whose keys read ``\\"data\\"``), an image written by an
-encoder that escapes ``/`` as ``\\/``, and a known shape in text with more JSON
-values than ``_MAX_JSON_VALUES``, which is never parsed. All stay inline, bounded
-by step 5.
+encoder that escapes a base64 character (``/`` as ``\\/``, say), a wrapped or
+URL-safe data URL, and a known shape in text with more JSON values than
+``_MAX_JSON_VALUES``, which is never parsed. All stay inline, bounded by step 5.
 """
 
 import binascii
@@ -74,13 +82,25 @@ _DATA_URL_RE = re.compile(
     r"data:image/(?P<subtype>(?i:png|jpeg|jpg|gif|webp));base64,(?P<data>[A-Za-z0-9+/]+={0,2})",
     re.ASCII,
 )
+# Text right after a data URL's base64 run that shows the base64 goes on: a URL-safe
+# character, or a line break and more base64. The line break is CR or LF, or a JSON
+# escape of one ("\n", or "\\n" in JSON encoded twice).
+_BASE64_CONTINUES_RE = re.compile(r"[-_]|(?:[\r\n]|\\++[rn])++[A-Za-z0-9+/]", re.ASCII)
 _BASE64_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}", re.ASCII)
-# A JSON string whose whole value is base64. The possessive run never backtracks, so a
-# run that a quote does not follow is not scanned again.
-_QUOTED_BASE64_RE = re.compile(r'"([A-Za-z0-9+/]++={0,2})"', re.ASCII)
+# A JSON string whose whole value is base64, unless it is an object key (which ":"
+# follows). The possessive run never backtracks, so a run that a quote does not
+# follow is not scanned again.
+_QUOTED_BASE64_RE = re.compile(r'"([A-Za-z0-9+/]++={0,2})"(?![ \t\n\r]*+:)', re.ASCII)
 _JSON_SHAPE_KEYS = ('"media_type"', '"mime_type"', '"mimeType"')
 # Declared types are compared case-insensitively, so the pre-check is too.
 _IMAGE_TYPE_RE = re.compile(r"image/", re.ASCII | re.IGNORECASE)
+
+_MIN_IMAGE_BYTES = 10
+"""The shortest bytes any header check accepts: a GIF signature and its screen size.
+
+A known shape's ``data`` that decodes to fewer bytes cannot be an image (it is a
+marker such as ``"REDACTED"``), so it is not treated as one.
+"""
 
 _MAX_JSON_VALUES = 1_000_000
 """Text that could hold more JSON values than this is never parsed for the known shapes.
@@ -185,8 +205,13 @@ class _Extractor:
         return text
 
     def _replace_data_url(self, match: re.Match[str]) -> str:
+        data = match.group("data")
+        # Padding ends base64, so only an unpadded run can be part of a longer one.
+        # Storing that part would keep a fragment, so the whole URL stays inline.
+        if not data.endswith("=") and _BASE64_CONTINUES_RE.match(match.string, match.end()):
+            return match.group(0)
         mime = normalize_image_mime("image/" + match.group("subtype"))
-        return self._replacement((mime,), match.group("data"))
+        return self._replacement((mime,), data)
 
     def _replace_json_shapes(self, text: str) -> str:
         # Every JSON value but the first follows "[", "," or ":", so this bounds the
@@ -214,11 +239,11 @@ class _Extractor:
 
         if not images:
             return text
-        # Base64 has no character a standard JSON encoder escapes, so the parsed value
-        # appears in the text as a quoted string. An encoder that writes "/" as "\/" is
-        # the exception, and that image is left where it is. One pass over the text
-        # finds every such string, however many values there are, and each value is
-        # validated once.
+        # JSON encoders normally write base64 as it is, so the parsed value appears in
+        # the text as a quoted string. An encoder that escapes a base64 character ("/"
+        # as "\/", say) is the exception, and that image is left where it is. One pass
+        # over the text finds every such string, however many values there are, and
+        # each value is validated once.
         replacements: dict[str, str] = {}
         pieces: list[str] = []
         end = 0
@@ -239,8 +264,9 @@ class _Extractor:
     def _replacement(self, declared: Collection[str], data: str) -> str:
         """Validate one base64 image and return its reference, or a placeholder.
 
-        ``declared`` holds every type the image was declared as. The bytes must be
-        one of them, and the reference and stored object take the type they are.
+        ``declared`` holds every type the image was declared as; the placeholder
+        names them when the bytes are no allowed image. Bytes of any allowed type
+        are accepted, and the reference and stored object take the type they are.
         """
         limits = self._config
         estimated = _decoded_size(data)
@@ -251,7 +277,7 @@ class _Extractor:
         if image is None:
             return self._omit("invalid base64", estimated)
         mime = sniff_image_mime(image)
-        if mime not in declared:
+        if mime is None:
             return self._omit(f"content is not {' or '.join(sorted(declared))}", len(image))
         dimensions = read_image_dimensions(image, mime)
         if dimensions is None:
@@ -290,7 +316,9 @@ class _Extractor:
 def _known_shape_image(node: dict) -> tuple[str, str] | None:
     """``(type, base64)`` when ``node`` is one of the known image shapes, else None."""
     data = node.get("data")
-    if not isinstance(data, str) or _BASE64_RE.fullmatch(data) is None:
+    # A value that cannot hold an image is not one, so neither it nor an equal
+    # string elsewhere in the field is replaced by a placeholder.
+    if not isinstance(data, str) or not _could_be_image(data):
         return None
     declared = node.get("media_type") if node.get("type") == "base64" else None
     if declared is None:
@@ -299,6 +327,19 @@ def _known_shape_image(node: dict) -> tuple[str, str] | None:
     if mime is None:
         return None
     return mime, data
+
+
+def _could_be_image(data: str) -> bool:
+    """Whether ``data`` is strict base64 of at least ``_MIN_IMAGE_BYTES``, without decoding it.
+
+    A whole ``_BASE64_RE`` match whose length is a multiple of 4 is exactly what
+    ``_strict_b64decode`` accepts.
+    """
+    return (
+        len(data) % 4 == 0
+        and _decoded_size(data) >= _MIN_IMAGE_BYTES
+        and _BASE64_RE.fullmatch(data) is not None
+    )
 
 
 def _strict_b64decode(data: str) -> bytes | None:

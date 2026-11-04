@@ -16,8 +16,9 @@ Reference (what span text holds)::
   text continues straight after (with digits, say) still ends where it was written.
 - ``bytes`` and ``mime`` are display hints only. The stored object's
   ``ContentType``, written after the bytes were validated, is authoritative.
-- None of its characters is escaped by a JSON encoder, so a reference can replace
-  an image inside a stringified-JSON field without breaking the JSON.
+- It holds no quote, backslash or control character, the only characters a JSON
+  string must escape, so a reference can replace an image inside a stringified-JSON
+  field without breaking the JSON.
 
 Object key (where the bytes live)::
 

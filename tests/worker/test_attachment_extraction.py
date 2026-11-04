@@ -1,5 +1,6 @@
 """Tests for moving span images into attachments at ingest."""
 
+import base64
 import copy
 import hashlib
 import itertools
@@ -19,6 +20,8 @@ from shared.attachments import (
     attachment_key,
     find_attachment_refs,
     format_attachment_ref,
+    read_image_dimensions,
+    sniff_image_mime,
 )
 from shared.config import AttachmentSettings, settings
 from tests.fixtures.images import (
@@ -34,7 +37,9 @@ from tests.fixtures.images import (
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker import attachment_extraction
 from worker.attachment_extraction import (
+    _MIN_IMAGE_BYTES,
     TRUNCATION_MARKER,
+    _could_be_image,
     _cut_to_size,
     _enforce_size_limit,
     _strict_b64decode,
@@ -198,8 +203,8 @@ class TestDataUrls:
         assert parsed == expected
 
     def test_inside_double_encoded_json_keeps_it_valid(self):
-        # A data URL has nothing a JSON encoder escapes, so it is found and replaced
-        # even inside JSON that was encoded twice, and both layers stay valid.
+        # A data URL holds nothing a JSON string must escape, so it is found and
+        # replaced even inside JSON that was encoded twice, and both layers stay valid.
         image = make_png()
         inner = json.dumps({"url": data_url(image, "image/png")})
         text = json.dumps({"messages": [inner]})
@@ -209,6 +214,102 @@ class TestDataUrls:
 
         outer = json.loads(row["input"])
         assert json.loads(outer["messages"][0]) == {"url": ref_for(image, "image/png")}
+
+
+def wrapped_data_url(data: bytes, mime: str, width: int, newline: str) -> str:
+    """A data URL whose base64 is split into lines of ``width`` characters."""
+    text = b64(data)
+    lines = [text[start : start + width] for start in range(0, len(text), width)]
+    return f"data:{mime};base64," + newline.join(lines)
+
+
+# Each one's base64 spans several lines at both wrap widths.
+WRAPPED_IMAGES = [
+    pytest.param(make_png(8, 8), "image/png", id="png"),
+    pytest.param(make_gif(5, 5, pad=100), "image/gif", id="gif"),
+    pytest.param(make_webp_vp8x(10, 10, pad=100), "image/webp", id="webp"),
+    pytest.param(make_jpeg(8, 6, app_bytes=200), "image/jpeg", id="jpeg"),
+]
+# In the last one's URL-safe base64, the run before the first "-" or "_" is strict
+# base64 of a whole PNG header.
+URL_SAFE_IMAGES = [
+    *WRAPPED_IMAGES,
+    pytest.param(make_png(2, 1), "image/png", id="png-header-before-the-first-dash"),
+]
+# The byte count is a multiple of 3, so its base64 has no padding.
+UNPADDED_PNG = make_png(1, 1, pad=101)
+ENCODINGS = [
+    pytest.param(lambda text: text, id="raw"),
+    pytest.param(lambda text: json.dumps({"url": text}), id="json"),
+    pytest.param(lambda text: json.dumps([json.dumps({"url": text})]), id="json-twice"),
+]
+
+
+class TestWrappedAndUrlSafeDataUrls:
+    @pytest.mark.parametrize(("image", "mime"), WRAPPED_IMAGES)
+    @pytest.mark.parametrize("width", [64, 76])
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+    @pytest.mark.parametrize("encode", ENCODINGS)
+    def test_wrapped_base64_is_left_untouched(self, image, mime, width, newline, encode):
+        url = wrapped_data_url(image, mime, width, newline)
+        assert newline in url
+        text = encode(f"look: {url} done")
+        s3 = FakeS3()
+        row = span(input=text)
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] == text
+        assert s3.heads == []
+        assert (result.referenced, result.omitted) == (0, 0)
+
+    @pytest.mark.parametrize(("image", "mime"), URL_SAFE_IMAGES)
+    @pytest.mark.parametrize("encode", ENCODINGS)
+    def test_url_safe_base64_is_left_untouched(self, image, mime, encode):
+        url_safe = base64.urlsafe_b64encode(image).decode("ascii")
+        assert url_safe != b64(image)
+        text = encode(f"look: data:{mime};base64,{url_safe} done")
+        s3 = FakeS3()
+        row = span(input=text)
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] == text
+        assert s3.heads == []
+        assert (result.referenced, result.omitted) == (0, 0)
+
+    @pytest.mark.parametrize(
+        "after",
+        ["", " done", "\n- item", "\n\n", "\r\n)", "\\n\\t", '\\n"'],
+        ids=["end", "space", "dash-item", "blank-line", "crlf-paren", "escaped-tab", "quote"],
+    )
+    def test_unpadded_base64_that_nothing_continues_is_stored(self, after):
+        assert not b64(UNPADDED_PNG).endswith("=")
+        row = span(input=f"{data_url(UNPADDED_PNG, 'image/png')}{after}")
+
+        extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        assert row["input"] == f"{ref_for(UNPADDED_PNG, 'image/png')}{after}"
+
+    @pytest.mark.parametrize("after", ["\nWhat is this?", "-suffix", "_name", "\\nNext"])
+    def test_padded_base64_ends_the_image_whatever_follows(self, after):
+        image = make_png(8, 8)
+        assert b64(image).endswith("=")
+        row = span(input=f"{data_url(image, 'image/png')}{after}")
+
+        extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        assert row["input"] == f"{ref_for(image, 'image/png')}{after}"
+
+    def test_unpadded_base64_that_a_line_of_text_follows_stays_inline(self):
+        # Known limit: a new line that starts with a letter or digit reads as more
+        # base64, so an unpadded image right before it is left inline.
+        text = f"{data_url(UNPADDED_PNG, 'image/png')}\nWhat is this?"
+        row = span(input=text)
+
+        extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        assert row["input"] == text
 
 
 class TestKnownJsonShapes:
@@ -387,7 +488,7 @@ class TestKnownJsonShapes:
         assert list(s3.objects.values()) == [(image, "image/png")]
         assert (result.referenced, result.omitted) == (1, 0)
 
-    def test_same_data_declared_only_as_other_types_is_omitted(self):
+    def test_same_data_declared_only_as_other_types_takes_the_type_its_bytes_are(self):
         image = make_png(2, 2)
         payload = [
             {"mime_type": "image/jpeg", "data": b64(image)},
@@ -398,10 +499,126 @@ class TestKnownJsonShapes:
 
         result = extract_attachments(s3, PROJECT, [], [row])
 
-        omitted = f"[image omitted: content is not image/gif or image/jpeg, {len(image)} bytes]"
+        ref = ref_for(image, "image/png")
+        assert [part["data"] for part in json.loads(row["input"])] == [ref, ref]
+        assert list(s3.objects.values()) == [(image, "image/png")]
+        assert (result.referenced, result.omitted) == (1, 0)
+
+    def test_non_image_bytes_declared_as_two_types_name_both(self):
+        payload = [
+            {"mime_type": "image/jpeg", "data": b64(RIFF_AUDIO)},
+            {"mime_type": "image/gif", "data": b64(RIFF_AUDIO)},
+        ]
+        s3 = FakeS3()
+        row = span(input=json.dumps(payload))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        omitted = (
+            f"[image omitted: content is not image/gif or image/jpeg, {len(RIFF_AUDIO)} bytes]"
+        )
         assert [part["data"] for part in json.loads(row["input"])] == [omitted, omitted]
         assert s3.heads == []
         assert result.omitted == 1
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            "data",
+            "None",
+            "null",
+            "REDACTED",
+            # Strict base64, one byte shorter than any image header.
+            b64(b"GIF89a\x01\x00\x01"),
+            # Not strict base64: too much padding, or a length that is not a multiple of 4.
+            "iVBORw0KGgoA=",
+            b64(make_png(8, 8))[:-1],
+        ],
+    )
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            lambda data: {"type": "image", "mimeType": "image/png", "data": data},
+            lambda data: {"type": "base64", "media_type": "image/png", "data": data},
+        ],
+        ids=["mime-type", "base64-source"],
+    )
+    def test_a_data_value_that_cannot_be_an_image_changes_nothing(self, data, shape):
+        payload = {
+            "content": [shape(data)],
+            "result": {data: [1, 2, 3]},
+            "api_key": data,
+            "messages": [{"type": "text", "text": data}],
+        }
+        text = json.dumps(payload)
+        s3 = FakeS3()
+        row = span(input=text)
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] is text
+        assert s3.heads == []
+        assert (result.referenced, result.omitted) == (0, 0)
+
+    def test_a_data_value_of_the_minimum_size_is_validated(self):
+        # Long enough to be an image, so it is checked, and every value equal to it
+        # becomes the placeholder; a key equal to it is never touched.
+        data = b64(b"\x00" * _MIN_IMAGE_BYTES)
+        text = json.dumps(
+            {"part": {"mime_type": "image/png", "data": data}, "copy": data, data: "key"}
+        )
+        row = span(input=text)
+
+        result = extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        omitted = f"[image omitted: content is not image/png, {_MIN_IMAGE_BYTES} bytes]"
+        assert json.loads(row["input"]) == {
+            "part": {"mime_type": "image/png", "data": omitted},
+            "copy": omitted,
+            data: "key",
+        }
+        assert result.omitted == 1
+
+    def test_no_image_header_is_shorter_than_the_minimum(self):
+        assert read_image_dimensions(make_gif()[:_MIN_IMAGE_BYTES], "image/gif") is not None
+        for image, _ in [*(param.values for param in IMAGES), (make_gif(), "image/gif")]:
+            for size in range(_MIN_IMAGE_BYTES):
+                prefix = image[:size]
+                assert read_image_dimensions(prefix, sniff_image_mime(prefix) or "") is None
+
+    def test_could_be_image_is_strict_base64_long_enough_for_a_header(self):
+        # Nine bytes of base64, then every ending of up to six characters, padding included.
+        for length in range(7):
+            for chars in itertools.product("A/+=", repeat=length):
+                data = "A" * 12 + "".join(chars)
+                strict = _strict_b64decode(data)
+                expected = strict is not None and len(strict) >= _MIN_IMAGE_BYTES
+                assert _could_be_image(data) == expected, data
+        assert _could_be_image(b64(b"\x00" * _MIN_IMAGE_BYTES))
+        assert not _could_be_image(b64(b"\x00" * (_MIN_IMAGE_BYTES - 1)))
+
+    @pytest.mark.parametrize(
+        "template",
+        [
+            '{{"part": {{"mime_type": "image/png", "data": "{b}"}}, "{b}": "x", "copy": "{b}"}}',
+            '{{"part": {{"mime_type": "image/png", "data": "{b}"}}, "{b}" : 1, "copy": "{b}"}}',
+            '{{"part": {{"mime_type": "image/png", "data": "{b}"}},\n"{b}"\n\t:0, "copy": "{b}"}}',
+        ],
+        ids=["key", "space-before-colon", "newline-before-colon"],
+    )
+    def test_a_found_base64_as_an_object_key_is_never_replaced(self, template):
+        image = make_png(2, 2)
+        text = template.format(b=b64(image))
+        row = span(input=text)
+
+        extract_attachments(FakeS3(), PROJECT, [], [row])
+
+        ref, data = ref_for(image, "image/png"), b64(image)
+        parsed = json.loads(row["input"])
+        assert parsed["part"]["data"] == parsed["copy"] == ref
+        assert data in parsed
+        expected = text.replace(f'"data": "{data}"', f'"data": "{ref}"')
+        assert row["input"] == expected.replace(f'"copy": "{data}"', f'"copy": "{ref}"')
 
     def test_a_string_that_is_the_same_base64_is_the_same_image(self):
         image = make_png(2, 2)
@@ -517,6 +734,8 @@ class TestKnownJsonShapes:
 
 
 RIFF_AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
+SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+HTML = b"<!doctype html><script>alert(1)</script>"
 PNG_WITHOUT_IHDR = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 ZERO_WIDTH_PNG = make_png(0, 1)
 # A frame header that declares 2 bytes, with a size after it that it does not hold.
@@ -531,10 +750,16 @@ class TestValidation:
         ("url", "reason", "byte_count"),
         [
             pytest.param(
-                data_url(make_jpeg(), "image/png"),
+                data_url(SVG, "image/png"),
                 "content is not image/png",
-                len(make_jpeg()),
-                id="jpeg-declared-as-png",
+                len(SVG),
+                id="svg-declared-as-png",
+            ),
+            pytest.param(
+                data_url(HTML, "image/gif"),
+                "content is not image/gif",
+                len(HTML),
+                id="html-declared-as-gif",
             ),
             pytest.param(
                 data_url(RIFF_AUDIO, "image/webp"),
@@ -605,18 +830,6 @@ class TestValidation:
         assert s3.heads == []
         assert s3.objects == {}
 
-    def test_strict_decode_rejects_excess_padding_in_a_shape(self):
-        # 12 characters plus "=": a padded group past a complete one.
-        row = span(input=json.dumps({"mime_type": "image/png", "data": "iVBORw0KGgoA="}))
-
-        result = extract_attachments(FakeS3(), PROJECT, [], [row])
-
-        assert json.loads(row["input"]) == {
-            "mime_type": "image/png",
-            "data": "[image omitted: invalid base64, 8 bytes]",
-        }
-        assert result.omitted == 1
-
     @pytest.mark.parametrize(
         ("data", "expected"),
         [
@@ -634,15 +847,32 @@ class TestValidation:
     def test_strict_b64decode(self, data, expected):
         assert _strict_b64decode(data) == expected
 
-    def test_over_size_is_never_decoded(self):
+    @pytest.mark.parametrize(
+        ("wrap", "read"),
+        [
+            pytest.param(
+                lambda image: data_url(image, "image/png"), lambda text: text, id="data-url"
+            ),
+            pytest.param(
+                lambda image: json.dumps({"mime_type": "image/png", "data": b64(image)}),
+                lambda text: json.loads(text)["data"],
+                id="shape",
+            ),
+        ],
+    )
+    def test_over_size_is_never_decoded(self, monkeypatch, wrap, read):
+        def no_decoding(data):
+            raise AssertionError("an oversize image was decoded")
+
+        monkeypatch.setattr(attachment_extraction, "_strict_b64decode", no_decoding)
         image = make_png(1, 1, pad=600)
         config = AttachmentSettings(max_image_bytes=500)
         s3 = FakeS3()
-        row = span(input=data_url(image, "image/png"))
+        row = span(input=wrap(image))
 
         result = extract_attachments(s3, PROJECT, [], [row], config=config)
 
-        assert row["input"] == f"[image omitted: larger than 500 bytes, {len(image)} bytes]"
+        assert read(row["input"]) == f"[image omitted: larger than 500 bytes, {len(image)} bytes]"
         assert result.omitted == 1
         assert s3.objects == {}
 
@@ -664,15 +894,47 @@ class TestValidation:
         assert row["input"] == ref_for(image, "image/png")
 
     def test_placeholder_inside_json_keeps_it_valid(self):
-        text = json.dumps({"url": data_url(make_jpeg(), "image/png"), "note": "ok"})
+        text = json.dumps({"url": data_url(RIFF_AUDIO, "image/webp"), "note": "ok"})
         row = span(input=text)
 
         extract_attachments(FakeS3(), PROJECT, [], [row])
 
         assert json.loads(row["input"]) == {
-            "url": f"[image omitted: content is not image/png, {len(make_jpeg())} bytes]",
+            "url": f"[image omitted: content is not image/webp, {len(RIFF_AUDIO)} bytes]",
             "note": "ok",
         }
+
+    @pytest.mark.parametrize(
+        ("image", "mime", "declared"),
+        [
+            pytest.param(make_png(4, 3), "image/png", "image/jpeg", id="png-as-jpeg"),
+            pytest.param(make_jpeg(8, 6), "image/jpeg", "image/png", id="jpeg-as-png"),
+            pytest.param(make_gif(5, 5), "image/gif", "image/webp", id="gif-as-webp"),
+            pytest.param(make_webp_vp8l(3, 3), "image/webp", "image/jpg", id="webp-as-jpg"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "wrap",
+        [
+            pytest.param(lambda data, declared: data_url(data, declared), id="data-url"),
+            pytest.param(
+                lambda data, declared: json.dumps({"mime_type": declared, "data": b64(data)}),
+                id="shape",
+            ),
+        ],
+    )
+    def test_an_image_declared_as_another_allowed_type_is_stored_as_its_own(
+        self, image, mime, declared, wrap
+    ):
+        s3 = FakeS3()
+        row = span(input=wrap(image, declared))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert find_attachment_refs(row["input"]) == {sha(image)}
+        assert ref_for(image, mime) in row["input"]
+        assert s3.objects == {attachment_key(PROJECT, sha(image)): (image, mime)}
+        assert (result.referenced, result.omitted) == (1, 0)
 
 
 class TestStorage:
