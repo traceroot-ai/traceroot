@@ -317,7 +317,8 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
     """Process OTEL traces from S3 and insert into ClickHouse.
 
     This task:
-    1. Downloads the OTEL JSON from S3
+    1. Downloads the staged batch from S3 and loads it as OTLP JSON, decoding a
+       ``.pb`` or ``.pb.gz`` body first
     2. Transforms it to ClickHouse format
     3. Batch inserts traces and spans
 
