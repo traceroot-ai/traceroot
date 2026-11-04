@@ -146,6 +146,10 @@ services:
       # spaces or glob characters stays one argument.
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-password}
+      # The same bucket the API and worker use. They run on the host and read
+      # S3_BUCKET_NAME from the same .env compose reads, so the bucket created and the
+      # rules applied below are the ones in use.
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
     volumes:
       # Expires raw ingest batches (events/ingest/, 7 days) and batches that failed
       # processing (events/failed/, 30 days). Everything else in the bucket is kept,
@@ -157,8 +161,8 @@ services:
       /bin/sh -c "
       mc alias set myminio http://minio:9000 \"$${MINIO_ROOT_USER:-minio}\" \"$${MINIO_ROOT_PASSWORD:-minio-password}\"
       || { echo 'minio-init: could not sign in to MinIO with MINIO_ROOT_USER and MINIO_ROOT_PASSWORD, skipping the bucket setup'; exit 0; };
-      mc mb myminio/traceroot --ignore-existing;
-      mc ilm rule import myminio/traceroot < /bootstrap/lifecycle.json
+      mc mb \"myminio/$${S3_BUCKET_NAME:-traceroot}\" --ignore-existing;
+      mc ilm rule import \"myminio/$${S3_BUCKET_NAME:-traceroot}\" < /bootstrap/lifecycle.json
       || echo 'minio-init: could not apply the bucket lifecycle rules';
       exit 0;
       "

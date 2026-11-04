@@ -1,5 +1,5 @@
-"""Guards on minio-init: the credentials it signs in with, and the lifecycle rules
-it applies to the bundled MinIO bucket.
+"""Guards on minio-init: the credentials it signs in with, the bucket it sets up,
+and the lifecycle rules it applies to that bucket on the bundled MinIO.
 
 Raw ingest batches are only needed until the worker has processed them, so
 without an expiry the bucket grows with every batch ever sent. Nothing in CI
@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+
+from shared.config import S3Settings
 
 _ROOT = Path(__file__).resolve().parents[2]
 _LIFECYCLE = _ROOT / "docker" / "minio" / "lifecycle.json"
@@ -50,7 +52,10 @@ exit 2
 """
 
 
-_DEFAULTED_VAR = re.compile(r"\$\{(\w+):-([^}]*)\}")
+_INTERPOLATION = re.compile(r"\$\$|\$\{(\w+):-([^}]*)\}")
+
+# How a service gets the bucket name: S3_BUCKET_NAME from the host, else the API's default.
+_BUCKET_NAME = "${S3_BUCKET_NAME:-" + S3Settings.model_fields["bucket_name"].default + "}"
 
 
 def _services(compose_path: Path) -> dict:
@@ -62,9 +67,13 @@ def _minio_init(compose_path: Path) -> dict:
 
 
 def _interpolate(value: str, host_env: dict[str, str]) -> str:
-    """Resolve `${NAME:-default}` as compose does: the default when NAME is unset or empty."""
-    assert "$" not in _DEFAULTED_VAR.sub("", value), f"unsupported interpolation: {value}"
-    return _DEFAULTED_VAR.sub(lambda m: host_env.get(m[1]) or m[2], value)
+    """Resolve `value` as compose does.
+
+    `$$` is a literal `$` left for the container's shell, and `${NAME:-default}` is
+    NAME from the host, or the default when NAME is unset or empty.
+    """
+    assert "$" not in _INTERPOLATION.sub("", value), f"unsupported interpolation: {value}"
+    return _INTERPOLATION.sub(lambda m: "$" if m[0] == "$$" else host_env.get(m[1]) or m[2], value)
 
 
 def _run_minio_init(
@@ -72,18 +81,18 @@ def _run_minio_init(
 ) -> subprocess.CompletedProcess:
     """Run minio-init's entrypoint as compose would, with its mounts under tmp_path.
 
-    Compose unescapes `$$` and splits the entrypoint string into argv; this does the
-    same, then points each mounted container path at a copy of its host file. The
-    container gets only the service's `environment:` block, interpolated against
+    Compose interpolates the entrypoint string and splits it into argv; this does
+    the same, then points each mounted container path at a copy of its host file.
+    The container gets only the service's `environment:` block, interpolated against
     `host_env`, the variables compose reads from the shell or `.env`. The script
     runs in tmp_path, so a glob it leaves unquoted matches only files a test made.
     """
     spec = _minio_init(compose_path)
+    host_env = host_env or {}
     container_env = {
-        name: _interpolate(value, host_env or {})
-        for name, value in spec.get("environment", {}).items()
+        name: _interpolate(value, host_env) for name, value in spec.get("environment", {}).items()
     }
-    argv = shlex.split(spec["entrypoint"].replace("$$", "$"))
+    argv = shlex.split(_interpolate(spec["entrypoint"], host_env))
     assert argv[:2] == ["/bin/sh", "-c"], argv[:2]
     script = argv[2]
 
@@ -189,6 +198,48 @@ def test_minio_init_gets_the_root_credentials_minio_starts_with(compose_path):
     init_env = services["minio-init"].get("environment", {})
     for name in ("MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"):
         assert init_env.get(name) == services["minio"]["environment"][name], name
+
+
+@pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
+def test_minio_init_reads_the_bucket_name_the_services_use(compose_path):
+    """minio-init reads S3_BUCKET_NAME the same way, and with the same default, as
+    every service in the file that uses the bucket.
+
+    docker-compose.yml runs no API or worker. Those run on the host, read the same
+    `.env` that compose interpolates from, and fall back to the API's default.
+    """
+    readers = {
+        name: service["environment"]["S3_BUCKET_NAME"]
+        for name, service in _services(compose_path).items()
+        if "S3_BUCKET_NAME" in (service.get("environment") or {})
+    }
+
+    assert readers.pop("minio-init", None) == _BUCKET_NAME
+    assert set(readers.values()) <= {_BUCKET_NAME}, readers
+
+
+@pytest.mark.parametrize(
+    ("host_env", "bucket"),
+    [({}, "traceroot"), ({"S3_BUCKET_NAME": "team-traces"}, "team-traces")],
+    ids=["default", "custom"],
+)
+@pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
+def test_minio_init_sets_up_the_bucket_named_by_s3_bucket_name(
+    compose_path, host_env, bucket, tmp_path
+):
+    """Both the bucket and its rules follow S3_BUCKET_NAME, so the rules land on the
+    bucket the services use."""
+    run = _run_minio_init(compose_path, tmp_path, host_env=host_env)
+
+    assert run.returncode == 0, run.stderr
+    assert run.stderr == ""
+    calls = (tmp_path / "state" / "calls.log").read_text().splitlines()
+    assert calls[1:] == [
+        f"mb myminio/{bucket} --ignore-existing",
+        f"ilm rule import myminio/{bucket}",
+    ]
+    applied = json.loads((tmp_path / "state" / f"lifecycle-myminio_{bucket}.json").read_text())
+    assert applied == json.loads(_LIFECYCLE.read_text())
 
 
 @pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
