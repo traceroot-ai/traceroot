@@ -350,6 +350,9 @@ services:
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
+      # --- Ingest limits (worker gets the same values) ---
+      INGEST_MAX_REQUEST_BYTES: ${INGEST_MAX_REQUEST_BYTES:-16777216}
+      INGEST_MAX_UNZIPPED_BYTES: ${INGEST_MAX_UNZIPPED_BYTES:-33554432}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -382,6 +385,9 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
+      # --- Ingest limits (rest gets the same values) ---
+      INGEST_MAX_REQUEST_BYTES: ${INGEST_MAX_REQUEST_BYTES:-16777216}
+      INGEST_MAX_UNZIPPED_BYTES: ${INGEST_MAX_UNZIPPED_BYTES:-33554432}
       # --- Worker config ---
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-5}
       BATCH_SIZE: ${BATCH_SIZE:-100}
