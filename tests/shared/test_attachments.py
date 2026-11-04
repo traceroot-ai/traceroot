@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import struct
 
 import pytest
 
@@ -60,8 +61,8 @@ class TestReferenceFormat:
         assert match.group("bytes") == "42"
 
     def test_survives_json_encoding_unchanged(self):
-        # A reference replaces an image inside stringified JSON, so it must not
-        # contain anything a JSON encoder escapes.
+        # A reference replaces an image inside stringified JSON, so it must hold
+        # nothing a JSON string must escape.
         ref = format_attachment_ref(HASH, "image/webp", 7)
         assert json.dumps(ref) == f'"{ref}"'
         assert json.dumps(ref, ensure_ascii=False) == f'"{ref}"'
@@ -239,6 +240,35 @@ class TestReadImageDimensions:
         dht = b"\xff\xc4\x00\x05\x00\x00\x00"
         data = jpeg[:2] + dht + jpeg[2:]
         assert read_image_dimensions(data, "image/jpeg") == (12, 34)
+
+    @pytest.mark.parametrize("length", [2, 7])
+    def test_jpeg_frame_header_too_short_for_its_fields_is_none(self, length):
+        # The size bytes follow, but past the end of the segment the header declares.
+        frame = b"\xff\xc0" + struct.pack(">H", length) + struct.pack(">BHHB", 8, 10, 20, 1)
+        data = b"\xff\xd8" + frame + b"\xff\xd9"
+        assert read_image_dimensions(data, "image/jpeg") is None
+
+    def test_jpeg_frame_header_ending_past_the_data_is_none(self):
+        # The size fields are present, but the component spec after them is cut off.
+        data = make_jpeg(20, 10)[:-4]
+        assert read_image_dimensions(data, "image/jpeg") is None
+        assert read_image_dimensions(make_jpeg(20, 10)[:-2], "image/jpeg") == (20, 10)
+
+    @pytest.mark.parametrize(
+        ("data", "mime"),
+        [
+            pytest.param(make_png(0, 5), "image/png", id="png-width"),
+            pytest.param(make_png(5, 0), "image/png", id="png-height"),
+            pytest.param(make_gif(0, 5), "image/gif", id="gif-width"),
+            pytest.param(make_gif(5, 0), "image/gif", id="gif-height"),
+            pytest.param(make_jpeg(0, 5), "image/jpeg", id="jpeg-width"),
+            pytest.param(make_jpeg(5, 0), "image/jpeg", id="jpeg-height"),
+            pytest.param(make_webp_vp8(0, 5), "image/webp", id="webp-width"),
+            pytest.param(make_webp_vp8(5, 0), "image/webp", id="webp-height"),
+        ],
+    )
+    def test_zero_width_or_height_is_none(self, data, mime):
+        assert read_image_dimensions(data, mime) is None
 
     @pytest.mark.parametrize(
         ("data", "mime"),

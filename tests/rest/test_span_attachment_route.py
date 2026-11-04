@@ -1,13 +1,15 @@
 """Tests for GET /projects/{project_id}/traces/{trace_id}/spans/{span_id}/attachments/{hash}.
 
-The reader service and S3 are mocked, so no ClickHouse or object store is needed.
+S3 is mocked, and the reader service is either mocked or the real one over a fake
+spans table, so no ClickHouse or object store is needed.
 """
 
 import hashlib
 import io
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 import respx
@@ -78,8 +80,8 @@ def _access(billing_plan: str):
 @pytest.fixture()
 def reader():
     service = MagicMock()
-    service.get_trace_start_time.return_value = datetime.now(UTC).replace(tzinfo=None)
-    service.get_span_io.return_value = _span_io(output=json.dumps({"image": _ref()}))
+    service.get_customer_trace_start_time.return_value = datetime.now(UTC).replace(tzinfo=None)
+    service.get_customer_span_io.return_value = _span_io(output=json.dumps({"image": _ref()}))
     return service
 
 
@@ -133,12 +135,12 @@ class TestServesReferencedImage:
     @pytest.mark.parametrize("field", ["input", "output", "metadata"])
     def test_a_reference_in_any_span_field_is_enough(self, client, reader, field):
         text = f"before {_ref()} after"
-        reader.get_span_io.return_value = {**_span_io(), field: text}
+        reader.get_customer_span_io.return_value = {**_span_io(), field: text}
 
         response = client.get(URL, headers=IDENTITY)
 
         assert response.status_code == 200
-        kw = reader.get_span_io.call_args.kwargs
+        kw = reader.get_customer_span_io.call_args.kwargs
         assert kw == {"project_id": PROJECT, "trace_id": TRACE, "span_id": SPAN}
 
     @pytest.mark.parametrize(
@@ -152,7 +154,7 @@ class TestServesReferencedImage:
     )
     def test_every_allowed_image_type(self, client, reader, s3, mime, data):
         sha = hashlib.sha256(data).hexdigest()
-        reader.get_span_io.return_value = _span_io(input_=_ref(sha, mime, len(data)))
+        reader.get_customer_span_io.return_value = _span_io(input_=_ref(sha, mime, len(data)))
         s3.get_object_stream.return_value = _stored(data, mime)[0]
 
         response = client.get(
@@ -165,7 +167,7 @@ class TestServesReferencedImage:
         assert response.headers["content-type"] == mime
 
     def test_the_stored_type_wins_over_the_reference_hint(self, client, reader, s3):
-        reader.get_span_io.return_value = _span_io(input_=_ref(mime="image/gif"))
+        reader.get_customer_span_io.return_value = _span_io(input_=_ref(mime="image/gif"))
         s3.get_object_stream.return_value = _stored(PNG, "image/png")[0]
 
         response = client.get(URL, headers=IDENTITY)
@@ -200,13 +202,13 @@ class TestNotFound:
         )
 
         assert response.status_code == 404
-        reader.get_trace_start_time.assert_not_called()
-        reader.get_span_io.assert_not_called()
+        reader.get_customer_trace_start_time.assert_not_called()
+        reader.get_customer_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_hash_stored_but_not_referenced_by_this_span(self, client, reader, s3):
         # The object exists, but this span references a different image.
-        reader.get_span_io.return_value = _span_io(input_=_ref(OTHER_HASH))
+        reader.get_customer_span_io.return_value = _span_io(input_=_ref(OTHER_HASH))
 
         response = client.get(URL)
 
@@ -215,7 +217,7 @@ class TestNotFound:
         s3.get_object_stream.assert_not_called()
 
     def test_a_span_with_no_text(self, client, reader, s3):
-        reader.get_span_io.return_value = _span_io()
+        reader.get_customer_span_io.return_value = _span_io()
 
         response = client.get(URL)
 
@@ -223,7 +225,7 @@ class TestNotFound:
         s3.get_object_stream.assert_not_called()
 
     def test_a_bare_hash_without_the_reference_form_does_not_count(self, client, reader, s3):
-        reader.get_span_io.return_value = _span_io(
+        reader.get_customer_span_io.return_value = _span_io(
             input_=f"{HASH} traceroot-attachment://v1/sha256/{HASH}"
         )
 
@@ -233,7 +235,7 @@ class TestNotFound:
         s3.get_object_stream.assert_not_called()
 
     def test_missing_span(self, client, reader, s3):
-        reader.get_span_io.return_value = None
+        reader.get_customer_span_io.return_value = None
 
         response = client.get(URL)
 
@@ -263,21 +265,266 @@ class TestNotFound:
 
 class TestRetention:
     def test_403_outside_the_window(self, free_plan_client, reader, s3):
-        reader.get_trace_start_time.return_value = datetime(2020, 1, 1)
+        reader.get_customer_trace_start_time.return_value = datetime(2020, 1, 1)
 
         response = free_plan_client.get(URL)
 
         assert response.status_code == 403
-        reader.get_trace_start_time.assert_called_once_with(PROJECT, TRACE)
-        reader.get_span_io.assert_not_called()
+        reader.get_customer_trace_start_time.assert_called_once_with(PROJECT, TRACE)
+        reader.get_customer_trace_earliest_span_time.assert_not_called()
+        reader.get_customer_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_200_inside_the_window(self, free_plan_client, reader):
-        reader.get_trace_start_time.return_value = datetime.now(UTC).replace(
+        reader.get_customer_trace_start_time.return_value = datetime.now(UTC).replace(
             tzinfo=None
         ) - timedelta(days=1)
 
         response = free_plan_client.get(URL, headers=IDENTITY)
+
+        assert response.status_code == 200
+        assert response.content == PNG
+
+    def test_a_trace_without_its_root_is_judged_by_its_earliest_span(
+        self, free_plan_client, reader, s3
+    ):
+        reader.get_customer_trace_start_time.return_value = None
+        reader.get_customer_trace_earliest_span_time.return_value = datetime(2020, 1, 1)
+
+        response = free_plan_client.get(URL)
+
+        assert response.status_code == 403
+        reader.get_customer_trace_earliest_span_time.assert_called_once_with(PROJECT, TRACE)
+        reader.get_customer_span_io.assert_not_called()
+        s3.get_object_stream.assert_not_called()
+
+    def test_a_trace_without_its_root_inside_the_window_is_served(self, free_plan_client, reader):
+        reader.get_customer_trace_start_time.return_value = None
+        reader.get_customer_trace_earliest_span_time.return_value = _days_ago(1)
+
+        response = free_plan_client.get(URL, headers=IDENTITY)
+
+        assert response.status_code == 200
+        assert response.content == PNG
+
+    def test_a_trace_with_no_span_is_refused_before_any_read(self, client, reader, s3):
+        # Even with unlimited retention: no start time at all is never a pass.
+        reader.get_customer_trace_start_time.return_value = None
+        reader.get_customer_trace_earliest_span_time.return_value = None
+
+        response = client.get(URL)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Span not found"
+        reader.get_customer_span_io.assert_not_called()
+        s3.get_object_stream.assert_not_called()
+
+
+ROOT = "root-a"
+
+
+class FakeSpansTable:
+    """Answers the reader's retention and span I/O queries from a list of span rows.
+
+    Every ``ingest`` adds a row, so ingesting a span again stores a newer version
+    beside the old one, as ClickHouse does until it merges them. A query keeps only
+    each span's latest version when it asks to (``LIMIT 1 BY span_id``), and only
+    customer spans when it asks for ``source = 'user'``. Only the query shapes this
+    route reaches are recognised; anything else fails. ``queries`` records which
+    of them ran, in order.
+    """
+
+    def __init__(self):
+        self.rows: list[dict] = []
+        self.queries: list[str] = []
+
+    def ingest(
+        self,
+        span_id: str,
+        start: datetime,
+        parent: str | None,
+        output: str | None = None,
+        source: str = "user",
+    ):
+        self.rows.append(
+            {
+                "span_id": span_id,
+                "start": start,
+                "parent": parent,
+                "output": output,
+                "source": source,
+            }
+        )
+
+    def _visible(self, query: str) -> list[dict]:
+        rows = self.rows
+        if "source = 'user'" in query:
+            rows = [row for row in rows if row["source"] == "user"]
+        if "LIMIT 1 BY span_id" not in query:
+            return rows
+        latest = {row["span_id"]: row for row in rows}  # later rows are newer
+        return list(latest.values())
+
+    def query(self, query: str, parameters: dict):
+        assert parameters["project_id"] == PROJECT and parameters["trace_id"] == TRACE
+        rows = self._visible(query)
+        if "isNull(parent_span_id)" in query:
+            self.queries.append("root")
+            starts = [row["start"] for row in rows if row["parent"] is None]
+            return SimpleNamespace(result_rows=[(min(starts, default=None),)])
+        if "SELECT span_id, trace_id, input, output, metadata" in query:
+            self.queries.append("span")
+            latest = [row for row in rows if row["span_id"] == parameters["span_id"]][-1:]
+            return SimpleNamespace(
+                result_rows=[(row["span_id"], TRACE, None, row["output"], None) for row in latest]
+            )
+        if "minOrNull(span_start_time)" in query:
+            self.queries.append("earliest")
+            starts = [row["start"] for row in rows]
+            return SimpleNamespace(result_rows=[(min(starts, default=None),)])
+        raise AssertionError(f"unexpected query: {query}")
+
+
+def _days_ago(days: int) -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
+
+
+@pytest.fixture()
+def spans_table(monkeypatch, s3):
+    """The real reader service over a fake spans table, behind a free-plan project."""
+    from rest.services.trace_reader import TraceReaderService
+
+    table = FakeSpansTable()
+    with patch("rest.services.trace_reader.get_clickhouse_client", return_value=table):
+        service = TraceReaderService()
+    monkeypatch.setattr(traces_mod, "get_trace_reader_service", lambda: service)
+    monkeypatch.setattr(traces_mod, "get_s3_service", lambda: s3)
+    s3.get_object_stream.side_effect = lambda key: _stored()[0]
+    app.dependency_overrides[get_project_access] = _access("free")
+    return table
+
+
+class TestRetentionWhenTheRootIsMissing:
+    """Through the real reader, so its caching is part of what is tested."""
+
+    def test_a_read_before_an_old_root_arrives_does_not_hide_it(self, spans_table, s3):
+        client = TestClient(app)
+        assert client.get(URL).status_code == 404
+
+        spans_table.ingest(ROOT, _days_ago(200), parent=None)
+        spans_table.ingest(SPAN, _days_ago(200), parent=ROOT, output=_ref())
+        spans_table.queries.clear()
+        response = client.get(URL)
+
+        assert response.status_code == 403
+        # The root is read again, not remembered as missing, and its start decides.
+        # The earliest-span fallback would refuse too, since the root is one of the
+        # spans it reads, so only the queries that ran tell the two apart.
+        assert spans_table.queries == ["root"]
+        s3.get_object_stream.assert_not_called()
+
+    def test_an_old_span_whose_root_never_arrives(self, spans_table, s3):
+        spans_table.ingest(SPAN, _days_ago(200), parent="never-sent", output=_ref())
+
+        response = TestClient(app).get(URL)
+
+        assert response.status_code == 403
+        s3.get_object_stream.assert_not_called()
+
+    def test_a_recent_span_whose_root_has_not_arrived_is_served(self, spans_table):
+        spans_table.ingest(SPAN, _days_ago(1), parent="still-running", output=_ref())
+
+        response = TestClient(app).get(URL, headers=IDENTITY)
+
+        assert response.status_code == 200
+        assert response.content == PNG
+
+    def test_an_old_root_that_arrives_late_still_applies(self, spans_table):
+        client = TestClient(app)
+        spans_table.ingest(SPAN, _days_ago(1), parent=ROOT, output=_ref())
+        assert client.get(URL, headers=IDENTITY).status_code == 200
+
+        spans_table.ingest(ROOT, _days_ago(200), parent=None)
+        spans_table.queries.clear()
+
+        assert client.get(URL).status_code == 403
+        assert spans_table.queries == ["root"]
+
+    def test_only_the_latest_version_of_a_span_counts(self, spans_table):
+        # The same rootless span, stored again with a later start: the obsolete
+        # version still sits beside it until ClickHouse merges them.
+        spans_table.ingest(SPAN, _days_ago(200), parent="still-running", output=_ref())
+        spans_table.ingest(SPAN, _days_ago(1), parent="still-running", output=_ref())
+
+        response = TestClient(app).get(URL, headers=IDENTITY)
+
+        assert response.status_code == 200
+        assert response.content == PNG
+
+    def test_an_old_trace_with_its_root(self, spans_table, s3):
+        spans_table.ingest(ROOT, _days_ago(200), parent=None)
+        spans_table.ingest(SPAN, _days_ago(200), parent=ROOT, output=_ref())
+
+        response = TestClient(app).get(URL)
+
+        assert response.status_code == 403
+        s3.get_object_stream.assert_not_called()
+
+
+class TestInternalSpans:
+    """A span stored under an internal source neither serves an image nor judges
+    retention. Its text can quote a reference copied from another trace, whose age
+    its own trace's start says nothing about."""
+
+    @pytest.mark.parametrize("source", ["agent", "detector"])
+    def test_a_reference_only_an_internal_trace_holds_is_not_served(self, spans_table, s3, source):
+        spans_table.ingest(ROOT, _days_ago(1), parent=None, source=source)
+        spans_table.ingest(SPAN, _days_ago(1), parent=ROOT, output=_ref(), source=source)
+
+        response = TestClient(app).get(URL)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Span not found"
+        s3.get_object_stream.assert_not_called()
+
+    @pytest.mark.parametrize("source", ["agent", "detector"])
+    def test_an_internal_span_beside_customer_spans_is_not_served(self, spans_table, s3, source):
+        spans_table.ingest(ROOT, _days_ago(1), parent=None)
+        spans_table.ingest(SPAN, _days_ago(1), parent=ROOT, output=_ref(), source=source)
+
+        response = TestClient(app).get(URL)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Span not found"
+        s3.get_object_stream.assert_not_called()
+
+    def test_a_customer_span_is_served(self, spans_table):
+        spans_table.ingest(ROOT, _days_ago(1), parent=None)
+        spans_table.ingest(SPAN, _days_ago(1), parent=ROOT, output=_ref())
+
+        response = TestClient(app).get(URL, headers=IDENTITY)
+
+        assert response.status_code == 200
+        assert response.content == PNG
+
+    @pytest.mark.parametrize("source", ["agent", "detector"])
+    def test_a_recent_internal_root_does_not_let_an_expired_image_through(
+        self, spans_table, s3, source
+    ):
+        spans_table.ingest(ROOT, _days_ago(1), parent=None, source=source)
+        spans_table.ingest(SPAN, _days_ago(200), parent=ROOT, output=_ref())
+
+        response = TestClient(app).get(URL)
+
+        assert response.status_code == 403
+        s3.get_object_stream.assert_not_called()
+
+    @pytest.mark.parametrize("source", ["agent", "detector"])
+    def test_an_old_internal_span_does_not_move_the_earliest_start(self, spans_table, source):
+        spans_table.ingest("internal-a", _days_ago(200), parent="internal-root", source=source)
+        spans_table.ingest(SPAN, _days_ago(1), parent="still-running", output=_ref())
+
+        response = TestClient(app).get(URL, headers=IDENTITY)
 
         assert response.status_code == 200
         assert response.content == PNG
@@ -303,20 +550,20 @@ class TestAccess:
         assert response.status_code == expected
         body = json.loads(validate.calls.last.request.content)
         assert body == {"browserSession": True, "projectId": "other-project"}
-        reader.get_span_io.assert_not_called()
+        reader.get_customer_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_no_session_is_401(self, services, reader, s3):
         response = TestClient(app).get(URL)
 
         assert response.status_code == 401
-        reader.get_span_io.assert_not_called()
+        reader.get_customer_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
 
 class TestErrors:
     def test_reader_error_is_500(self, client, reader):
-        reader.get_span_io.side_effect = RuntimeError("clickhouse down")
+        reader.get_customer_span_io.side_effect = RuntimeError("clickhouse down")
 
         response = client.get(URL)
 
