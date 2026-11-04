@@ -31,13 +31,26 @@ def make_png(width: int = 1, height: int = 1, *, pad: int = 0) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + chunks
 
 
-def make_gif(width: int = 1, height: int = 1) -> bytes:
-    """A two-colour GIF89a whose logical screen is ``width`` x ``height``."""
+def _filler(size: int) -> bytes:
+    return (bytes(range(256)) * (size // 256 + 1))[:size]
+
+
+def make_gif(width: int = 1, height: int = 1, *, pad: int = 0) -> bytes:
+    """A two-colour GIF89a whose logical screen is ``width`` x ``height``.
+
+    ``pad`` adds a comment extension holding that many bytes.
+    """
     screen = b"GIF89a" + struct.pack("<HHBBB", width, height, 0x80, 0, 0)
     palette = b"\x00\x00\x00\xff\xff\xff"
+    comment = b""
+    if pad:
+        text = _filler(pad)
+        blocks = [text[start : start + 255] for start in range(0, pad, 255)]
+        comment = b"\x21\xfe" + b"".join(bytes((len(block),)) + block for block in blocks)
+        comment += b"\x00"
     image = b"\x2c" + struct.pack("<HHHHB", 0, 0, 1, 1, 0)
     pixels = b"\x02\x02\x44\x01\x00"  # LZW min code size 2, one sub-block, terminator
-    return screen + palette + image + pixels + b"\x3b"
+    return screen + palette + comment + image + pixels + b"\x3b"
 
 
 def make_jpeg(width: int = 1, height: int = 1, *, sof: int = 0xC0, app_bytes: int = 16) -> bytes:
@@ -49,17 +62,22 @@ def make_jpeg(width: int = 1, height: int = 1, *, sof: int = 0xC0, app_bytes: in
     return b"\xff\xd8" + segments + b"\xff\xd9"
 
 
-def _riff(chunk: bytes, payload: bytes) -> bytes:
+def _riff(chunk: bytes, payload: bytes, pad: int = 0) -> bytes:
     body = b"WEBP" + chunk + struct.pack("<I", len(payload)) + payload
+    if pad:
+        body += b"prVt" + struct.pack("<I", pad) + _filler(pad)
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
-def make_webp_vp8x(width: int = 1, height: int = 1) -> bytes:
-    """An extended-format WebP header with the given canvas size."""
+def make_webp_vp8x(width: int = 1, height: int = 1, *, pad: int = 0) -> bytes:
+    """An extended-format WebP header with the given canvas size.
+
+    ``pad`` adds a private chunk holding that many bytes after the header.
+    """
     payload = (
         b"\x00\x00\x00\x00" + (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
     )
-    return _riff(b"VP8X", payload)
+    return _riff(b"VP8X", payload, pad)
 
 
 def make_webp_vp8l(width: int = 1, height: int = 1) -> bytes:

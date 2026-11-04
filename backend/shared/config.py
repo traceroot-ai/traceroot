@@ -110,7 +110,7 @@ class AttachmentSettings(BaseSettings):
     in ``project_ids`` when that lists any.
 
     Env vars: ATTACHMENT_ENABLED, ATTACHMENT_PROJECT_IDS, ATTACHMENT_MAX_IMAGE_BYTES,
-    ATTACHMENT_MAX_IMAGE_DIMENSION, ATTACHMENT_MAX_SPAN_BYTES
+    ATTACHMENT_MAX_IMAGE_DIMENSION, ATTACHMENT_MAX_IMAGES_PER_BATCH, ATTACHMENT_MAX_SPAN_BYTES
     """
 
     model_config = SettingsConfigDict(env_prefix="ATTACHMENT_")
@@ -126,9 +126,13 @@ class AttachmentSettings(BaseSettings):
     max_image_bytes: int = Field(5 * 1024 * 1024, gt=0)
     # Width or height, in pixels, above which an image is replaced by a placeholder.
     max_image_dimension: int = Field(16384, gt=0)
+    # Distinct images one ingest batch may look up and store. Each costs a storage
+    # check and possibly an upload, so later images in the batch become placeholders.
+    max_images_per_batch: int = Field(1000, gt=0)
     # Bound on a span's input + output + metadata in UTF-8 bytes, applied after
-    # images are replaced. A span over it has its largest field(s) cut to fit.
-    max_span_bytes: int = Field(8 * 1024 * 1024, gt=0)
+    # images are replaced. A span over it has its largest field(s) cut to fit. At
+    # least 256, so the row still fits when every field is cut down to the marker.
+    max_span_bytes: int = Field(8 * 1024 * 1024, ge=256)
 
     def applies_to(self, project_id: str) -> bool:
         """Return whether images are extracted from ``project_id``'s ingest batches."""
