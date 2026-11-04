@@ -11,6 +11,7 @@ from datetime import datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
+from worker.staged_batch import UndecodableBatchError
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +310,8 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
 @app.task(
     bind=True,
     autoretry_for=(Exception,),
+    # Stored bytes that don't decode fail the same way on every attempt.
+    dont_autoretry_for=(UndecodableBatchError,),
     retry_backoff=True,
     retry_backoff_max=600,  # Max 10 minutes between retries
     max_retries=5,
@@ -317,7 +320,8 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
     """Process OTEL traces from S3 and insert into ClickHouse.
 
     This task:
-    1. Downloads the OTEL JSON from S3
+    1. Downloads the staged batch from S3 and loads it as OTLP JSON, decoding a
+       ``.pb`` or ``.pb.gz`` body first
     2. Transforms it to ClickHouse format
     3. Batch inserts traces and spans
 

@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import zlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,6 +33,20 @@ class TestUploadBytes:
             Key="events/ingest/p/k.pb.gz",
             Body=b"\x1f\x8b body",
             ContentType="application/x-protobuf",
+        )
+
+    def test_upload_json_stores_through_upload_bytes(self):
+        service = S3Service(bucket_name="bucket")
+        client = MagicMock()
+        service._client = client
+
+        service.upload_json("events/otel/p/k.json", {"q": "Grüße"})
+
+        client.put_object.assert_called_once_with(
+            Bucket="bucket",
+            Key="events/otel/p/k.json",
+            Body='{"q": "Grüße"}'.encode(),
+            ContentType="application/json",
         )
 
 
@@ -153,6 +168,100 @@ class TestStagesTheOriginalBody:
         assert response.status_code == 200
         assert s3.upload_bytes.call_args.args[1] == body
         task.delay.assert_called_once()
+
+
+class TestContentEncoding:
+    """Only codings the worker can undo are stored; anything else is refused up front."""
+
+    @pytest.mark.parametrize(
+        ("encoding", "encode"),
+        [
+            ("deflate", zlib.compress),
+            ("zstd", lambda b: b),
+            ("br", lambda b: b),
+            ("gzip, gzip", lambda b: gzip.compress(gzip.compress(b))),
+        ],
+    )
+    def test_a_coding_the_worker_cannot_undo_gets_400_and_is_not_stored(
+        self, ingest, encoding, encode
+    ):
+        client, s3, task = ingest
+        body = encode(make_request().SerializeToString())
+
+        response = client.post(
+            INGEST_URL, content=body, headers={**PROTOBUF, "Content-Encoding": encoding}
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Content-Encoding must be gzip or omitted"}
+        s3.upload_bytes.assert_not_called()
+        task.delay.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("encoding", "encode", "suffix"),
+        [
+            ("identity", lambda b: b, ".pb"),
+            ("GZIP", gzip.compress, ".pb.gz"),
+            ("x-gzip", gzip.compress, ".pb.gz"),
+            ("identity, gzip", gzip.compress, ".pb.gz"),
+        ],
+    )
+    def test_gzip_or_no_coding_is_staged_for_the_worker(self, ingest, encoding, encode, suffix):
+        client, s3, _ = ingest
+        req = make_request()
+
+        response = client.post(
+            INGEST_URL,
+            content=encode(req.SerializeToString()),
+            headers={**PROTOBUF, "Content-Encoding": encoding},
+        )
+
+        assert response.status_code == 200
+        key = response.json()["file_key"]
+        assert key.endswith(suffix)
+        assert suffix == ".pb.gz" or not key.endswith(".pb.gz")
+        assert load_staged_batch(_StagedObjects(s3.upload_bytes), key) == _old_json_path(req)
+
+    @pytest.mark.parametrize(
+        ("lines", "encode"),
+        [
+            (["gzip", "gzip"], lambda b: gzip.compress(gzip.compress(b))),
+            (["gzip", "deflate"], lambda b: zlib.compress(gzip.compress(b))),
+            (["identity, gzip", "gzip"], lambda b: gzip.compress(gzip.compress(b))),
+        ],
+    )
+    def test_codings_on_repeated_header_lines_are_read_together(self, ingest, lines, encode):
+        """Repeated Content-Encoding lines are one list of codings, as if comma-joined."""
+        client, s3, task = ingest
+        headers = [("Content-Type", "application/x-protobuf")]
+        headers += [("Content-Encoding", line) for line in lines]
+
+        response = client.post(
+            INGEST_URL, content=encode(make_request().SerializeToString()), headers=headers
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Content-Encoding must be gzip or omitted"}
+        s3.upload_bytes.assert_not_called()
+        task.delay.assert_not_called()
+
+    def test_an_identity_line_beside_a_gzip_line_is_staged_as_gzip(self, ingest):
+        client, s3, _ = ingest
+        req = make_request()
+        headers = [
+            ("Content-Type", "application/x-protobuf"),
+            ("Content-Encoding", "identity"),
+            ("Content-Encoding", "gzip"),
+        ]
+
+        response = client.post(
+            INGEST_URL, content=gzip.compress(req.SerializeToString()), headers=headers
+        )
+
+        assert response.status_code == 200
+        key = response.json()["file_key"]
+        assert key.endswith(".pb.gz")
+        assert load_staged_batch(_StagedObjects(s3.upload_bytes), key) == _old_json_path(req)
 
 
 class TestApiToWorkerRoundTrip:

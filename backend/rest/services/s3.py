@@ -103,15 +103,8 @@ class S3Service:
         """
         import json
 
-        client = self._get_client()
         json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        client.put_object(
-            Bucket=self._bucket_name,
-            Key=s3_key,
-            Body=json_bytes,
-            ContentType="application/json",
-        )
-        logger.debug(f"Uploaded JSON to s3://{self._bucket_name}/{s3_key}")
+        self.upload_bytes(s3_key, json_bytes, content_type="application/json")
 
     def download_json(self, s3_key: str) -> dict | list:
         """Download and parse JSON data from S3.

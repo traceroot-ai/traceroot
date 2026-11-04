@@ -85,3 +85,14 @@ def test_public_schema_documents_the_queueing_503():
     assert responses["503"]["description"] == (
         "Authentication service unavailable, or the batch could not be queued"
     )
+
+
+def test_public_schema_documents_retry_after_on_the_ingest_503_only():
+    paths = build_public_schema(app)["paths"]
+    retry_after = paths["/api/v1/public/traces"]["post"]["responses"]["503"]["headers"][
+        "Retry-After"
+    ]
+    assert retry_after["schema"] == {"type": "integer"}
+    assert "could not be queued" in retry_after["description"]
+    # The authentication 503 every other route shares sends no Retry-After.
+    assert "headers" not in paths["/api/v1/public/traces"]["get"]["responses"]["503"]
