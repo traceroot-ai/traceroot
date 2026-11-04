@@ -220,6 +220,47 @@ class TestContentEncoding:
         assert suffix == ".pb.gz" or not key.endswith(".pb.gz")
         assert load_staged_batch(_StagedObjects(s3.upload_bytes), key) == _old_json_path(req)
 
+    @pytest.mark.parametrize(
+        ("lines", "encode"),
+        [
+            (["gzip", "gzip"], lambda b: gzip.compress(gzip.compress(b))),
+            (["gzip", "deflate"], lambda b: zlib.compress(gzip.compress(b))),
+            (["identity, gzip", "gzip"], lambda b: gzip.compress(gzip.compress(b))),
+        ],
+    )
+    def test_codings_on_repeated_header_lines_are_read_together(self, ingest, lines, encode):
+        """Repeated Content-Encoding lines are one list of codings, as if comma-joined."""
+        client, s3, task = ingest
+        headers = [("Content-Type", "application/x-protobuf")]
+        headers += [("Content-Encoding", line) for line in lines]
+
+        response = client.post(
+            INGEST_URL, content=encode(make_request().SerializeToString()), headers=headers
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Content-Encoding must be gzip or omitted"}
+        s3.upload_bytes.assert_not_called()
+        task.delay.assert_not_called()
+
+    def test_an_identity_line_beside_a_gzip_line_is_staged_as_gzip(self, ingest):
+        client, s3, _ = ingest
+        req = make_request()
+        headers = [
+            ("Content-Type", "application/x-protobuf"),
+            ("Content-Encoding", "identity"),
+            ("Content-Encoding", "gzip"),
+        ]
+
+        response = client.post(
+            INGEST_URL, content=gzip.compress(req.SerializeToString()), headers=headers
+        )
+
+        assert response.status_code == 200
+        key = response.json()["file_key"]
+        assert key.endswith(".pb.gz")
+        assert load_staged_batch(_StagedObjects(s3.upload_bytes), key) == _old_json_path(req)
+
 
 class TestApiToWorkerRoundTrip:
     @pytest.mark.parametrize(

@@ -95,7 +95,8 @@ def _is_gzipped(content_encoding: str) -> bool:
     in the worker, so it gets 400 here, which an exporter does not retry.
 
     Args:
-        content_encoding (str): The request's ``Content-Encoding`` header, or "".
+        content_encoding (str): The request's ``Content-Encoding`` lines joined
+            with commas, or "".
 
     Returns:
         bool: True for gzip, False for no coding.
@@ -177,8 +178,9 @@ async def ingest_traces(
             detail="Content-Type must be application/x-protobuf",
         )
 
-    # Validate Content-Encoding before reading body too
-    gzipped = _is_gzipped(request.headers.get("content-encoding", ""))
+    # Validate Content-Encoding before reading body too. Repeated header lines are
+    # one list of codings, so they are read together.
+    gzipped = _is_gzipped(", ".join(request.headers.getlist("content-encoding")))
 
     # 1. Read body, refusing anything over the request cap
     body = await _read_capped_body(request, settings.ingest.max_request_bytes)

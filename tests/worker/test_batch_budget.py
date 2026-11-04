@@ -17,6 +17,7 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from shared.config import IngestSettings
 from worker import batch_budget
 from worker.batch_budget import BudgetExceededError, check_batch_budget
+from worker.staged_batch import decode_otlp_protobuf
 
 ROOT = Path(__file__).resolve().parents[2]
 NO_LIMIT = 10**9
@@ -160,6 +161,25 @@ def _len(data: bytes) -> bytes:
     return bytes(out) + data
 
 
+def _nested_to(depth: int, innermost: bytes) -> bytes:
+    """A request whose deepest message is an attribute value ``depth`` levels below it.
+
+    The value holds arrays within arrays down to ``innermost``. A resource attribute's
+    value sits 4 levels below the request and a span attribute's 5, so one of the two
+    reaches any depth from 4 on.
+    """
+    start = 4 if depth % 2 == 0 else 5
+    value = innermost
+    for _ in range((depth - start) // 2):  # AnyValue.array_value -> ArrayValue.values
+        value = b"\x2a" + _len(b"\x0a" + _len(value))
+    attribute = b"\x0a\x01k\x12" + _len(value)  # KeyValue.key, KeyValue.value
+    if start == 4:  # ResourceSpans.resource -> Resource.attributes
+        resource_spans = b"\x0a" + _len(b"\x0a" + _len(attribute))
+    else:  # ResourceSpans.scope_spans -> ScopeSpans.spans -> Span.attributes
+        resource_spans = b"\x12" + _len(b"\x12" + _len(b"\x4a" + _len(attribute)))
+    return b"\x0a" + _len(resource_spans)
+
+
 class TestMalformed:
     @pytest.mark.parametrize(
         ("body", "message"),
@@ -184,6 +204,25 @@ class TestMalformed:
 
         with pytest.raises(DecodeError, match="nested deeper than 100"):
             check_batch_budget(body, NO_LIMIT, NO_LIMIT)
+
+    @pytest.mark.parametrize("depth", [batch_budget.MAX_DEPTH, batch_budget.MAX_DEPTH + 1])
+    @pytest.mark.parametrize("innermost", [b"\x0a\x01x", b""], ids=["string", "empty"])
+    def test_depth_limit_matches_the_decoder(self, depth, innermost):
+        """A batch the worker's decoder accepts is never refused for its depth."""
+        body = _nested_to(depth, innermost)
+        try:
+            decode_otlp_protobuf(body)
+        except DecodeError:
+            decodes = False
+        else:
+            decodes = True
+
+        assert decodes == (depth <= batch_budget.MAX_DEPTH)
+        if decodes:
+            check_batch_budget(body, NO_LIMIT, NO_LIMIT)
+        else:
+            with pytest.raises(DecodeError, match="nested deeper than 100"):
+                check_batch_budget(body, NO_LIMIT, NO_LIMIT)
 
 
 def test_a_repeated_numeric_field_is_refused_when_the_tables_are_built():

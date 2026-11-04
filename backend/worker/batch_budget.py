@@ -21,7 +21,9 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 
-# Matches protobuf's own default recursion limit, which rejects deeper messages.
+# protobuf's default recursion limit: a message nested up to 100 levels below the
+# request decodes, and a deeper one is refused. The walk counts depth the same way,
+# from 0 at the request, so it never refuses a batch protobuf would decode.
 MAX_DEPTH = 100
 
 _KINDS = {
@@ -157,5 +159,5 @@ def check_batch_budget(body: bytes, max_spans: int, max_objects: int) -> dict[st
         if pos != end:
             raise DecodeError("Truncated fixed-width field")
 
-    walk(0, len(body), _TABLES[_ROOT], 1)
+    walk(0, len(body), _TABLES[_ROOT], 0)
     return {**dict(zip(_COUNTED, counts, strict=True)), "total": total}

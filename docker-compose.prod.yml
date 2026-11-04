@@ -388,6 +388,9 @@ services:
       # --- Ingest limits (rest gets the same values) ---
       INGEST_MAX_REQUEST_BYTES: ${INGEST_MAX_REQUEST_BYTES:-16777216}
       INGEST_MAX_UNZIPPED_BYTES: ${INGEST_MAX_UNZIPPED_BYTES:-33554432}
+      # Only the worker counts what a batch decodes into, so only it gets these.
+      INGEST_MAX_SPANS: ${INGEST_MAX_SPANS:-50000}
+      INGEST_MAX_OBJECTS: ${INGEST_MAX_OBJECTS:-500000}
       # --- Worker config ---
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-5}
