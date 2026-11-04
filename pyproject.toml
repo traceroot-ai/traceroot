@@ -131,3 +131,8 @@ strict = false
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.uv]
+# bullmq 2.x pins msgpack==1.2.1; 1.2.3 is a patch release that fixes
+# CVE-2026-114613. Drop this once bullmq is on a release that allows it.
+override-dependencies = ["msgpack==1.2.3"]
