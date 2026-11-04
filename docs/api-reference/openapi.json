@@ -13759,7 +13759,15 @@
                 }
               }
             },
-            "description": "Authentication service unavailable, or the batch could not be queued"
+            "description": "Authentication service unavailable, or the batch could not be queued",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before sending the batch again. Sent only when the batch could not be queued.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [

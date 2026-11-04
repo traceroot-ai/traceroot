@@ -3,6 +3,8 @@ and the route that applies both."""
 
 import gzip
 import os
+import random
+import time
 import zlib
 from unittest.mock import MagicMock
 
@@ -14,7 +16,14 @@ from pydantic import ValidationError
 from rest.main import app
 from rest.openapi_public import build_public_schema
 from rest.routers.public.traces import AuthResult, _read_capped_body, authenticate_api_key
-from shared.bounded_gzip import GzipTooLargeError, gunzip, iter_gunzip
+from shared.bounded_gzip import (
+    _MAX_MEMBERS,
+    _WINDOW_BYTES,
+    GzipTooLargeError,
+    GzipTooManyMembersError,
+    gunzip,
+    iter_gunzip,
+)
 from shared.config import IngestSettings, settings
 
 MIB = 1024 * 1024
@@ -107,6 +116,80 @@ class TestGunzip:
     def test_garbage_after_a_member_raises(self):
         with pytest.raises(zlib.error):
             gunzip(gzip.compress(b"payload") + b"garbage-tail", MIB)
+
+    def test_members_up_to_the_cap_are_joined(self):
+        body = b"".join(gzip.compress(b"member %d " % i) for i in range(_MAX_MEMBERS))
+        assert gunzip(body, MIB) == gzip.decompress(body)
+
+    def test_one_member_past_the_cap_is_invalid_gzip(self):
+        body = gzip.compress(b"payload") * (_MAX_MEMBERS + 1)
+        with pytest.raises(GzipTooManyMembersError) as exc:
+            gunzip(body, MIB)
+        assert isinstance(exc.value, zlib.error)
+        assert exc.value.max_members == _MAX_MEMBERS
+
+    def test_a_body_of_many_empty_members_is_refused_quickly(self):
+        """Each member needs a new inflater, so a body of empty members is refused once
+        past the cap instead of being walked member by member."""
+        body = gzip.compress(b"") * (16 * MIB // 20)
+        start = time.perf_counter()
+        with pytest.raises(GzipTooManyMembersError):
+            gunzip(body, 32 * MIB)
+        assert time.perf_counter() - start < 1.0
+
+    def test_nul_padding_longer_than_an_input_window_is_ignored(self):
+        body = gzip.compress(b"first ") + b"\x00" * (3 * _WINDOW_BYTES + 5)
+        body += gzip.compress(b"second") + b"\x00" * _WINDOW_BYTES
+        assert gunzip(body, MIB) == gzip.decompress(body) == b"first second"
+
+    def test_members_that_cross_input_windows_are_joined(self):
+        parts = [os.urandom(_WINDOW_BYTES + 123), os.urandom(7), os.urandom(2 * _WINDOW_BYTES)]
+        body = b"".join(gzip.compress(part) for part in parts)
+        assert gunzip(body, MIB) == gzip.decompress(body) == b"".join(parts)
+
+    def test_zlib_is_never_handed_more_than_one_input_window(self, monkeypatch):
+        """zlib copies the input it hasn't used on every call, so handing it the rest
+        of the body would make each output chunk cost a copy of that rest."""
+        sizes = []
+        real_decompressobj = zlib.decompressobj
+
+        class RecordingInflater:
+            def __init__(self, wbits):
+                self._inflater = real_decompressobj(wbits)
+
+            def decompress(self, data, max_length):
+                sizes.append(len(data))
+                return self._inflater.decompress(data, max_length)
+
+            def __getattr__(self, name):
+                return getattr(self._inflater, name)
+
+        data = os.urandom(2 * MIB) + b"\x00" * (2 * MIB)
+        body = gzip.compress(data, compresslevel=1) + gzip.compress(b"tail")
+        monkeypatch.setattr(zlib, "decompressobj", RecordingInflater)
+        assert gunzip(body, 8 * MIB) == data + b"tail"
+        assert max(sizes) <= _WINDOW_BYTES
+
+
+def _near_cap_data(size: int) -> bytes:
+    """``size`` bytes that gzip to about 60% of their size: random runs between zeros."""
+    rng = random.Random(size)
+    blocks = (rng.randbytes(40 * 1024) + bytes(24 * 1024) for _ in range(size // (64 * 1024) + 1))
+    return b"".join(blocks)[:size]
+
+
+class TestGunzipNearTheUnzippedCap:
+    CAP = 32 * MIB
+
+    @pytest.mark.parametrize("size", [CAP - 1, CAP])
+    def test_single_member_matches_gzip_decompress(self, size):
+        body = gzip.compress(_near_cap_data(size), compresslevel=1)
+        assert gunzip(body, self.CAP) == gzip.decompress(body)
+
+    def test_single_member_one_byte_past_the_cap_is_refused(self):
+        body = gzip.compress(_near_cap_data(self.CAP + 1), compresslevel=1)
+        with pytest.raises(GzipTooLargeError):
+            gunzip(body, self.CAP)
 
 
 REQUEST_CAP = 1024
@@ -263,3 +346,11 @@ class TestReadCappedBody:
 def test_public_schema_documents_the_413():
     responses = build_public_schema(app)["paths"]["/api/v1/public/traces"]["post"]["responses"]
     assert responses["413"]["description"] == "Request body too large"
+
+
+def test_gzip_of_more_members_than_the_cap_is_400(ingest):
+    client = ingest[0]
+    body = gzip.compress(b"") * (_MAX_MEMBERS + 1)
+    response = client.post(INGEST_URL, content=body, headers=GZIP_PROTOBUF)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid gzip payload"
