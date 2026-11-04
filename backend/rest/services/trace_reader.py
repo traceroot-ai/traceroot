@@ -1,6 +1,7 @@
 """Service for reading traces from ClickHouse."""
 
 import math
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -313,7 +314,9 @@ class TraceReaderService:
         # safe. Bounded to 1024 entries.
         self._trace_start_cache: dict[str, tuple[float, datetime]] = {}
         # The same, for get_customer_trace_start_time's root among customer spans only.
+        # Changed only under its lock: the image route reads it from worker threads.
         self._customer_trace_start_cache: dict[str, tuple[float, datetime]] = {}
+        self._customer_trace_start_lock = threading.Lock()
         # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
         # -> (expiry, rows). Short TTL; bounded to DISTINCT_VALUES_CACHE_MAX entries.
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
@@ -592,9 +595,13 @@ class TraceReaderService:
         ts = rows[0][0] if rows else None
         if ts is None:
             return None
-        if len(self._customer_trace_start_cache) >= self._TRACE_START_CACHE_MAX:
-            self._customer_trace_start_cache.pop(next(iter(self._customer_trace_start_cache)))
-        self._customer_trace_start_cache[cache_key] = (now + 3600.0, ts)
+        # Two reads evicting at once would both choose the oldest entry, and the
+        # second one's pop would fail.
+        with self._customer_trace_start_lock:
+            cache = self._customer_trace_start_cache
+            if len(cache) >= self._TRACE_START_CACHE_MAX:
+                cache.pop(next(iter(cache)))
+            cache[cache_key] = (now + 3600.0, ts)
         return ts
 
     def get_customer_trace_earliest_span_time(
@@ -887,10 +894,10 @@ class TraceReaderService:
         # caller has to opt in to internal telemetry rather than opt out of it.
         #
         # This gates the trace and its span skeletons only. The on-demand span-I/O
-        # readers below and the live SSE route are still source-agnostic; they are
-        # reached through a trace this predicate already resolved, so they are not a
-        # way in, but they are not themselves scoped — don't read this comment as
-        # covering every span read in the file.
+        # readers below, apart from get_customer_span_io, and the live SSE route are
+        # still source-agnostic; they are reached through a trace this predicate
+        # already resolved, so they are not a way in, but they are not themselves
+        # scoped — don't read this comment as covering every span read in the file.
         if source in INTERNAL_SOURCES:
             source_condition = f"source = '{source}'"
         else:

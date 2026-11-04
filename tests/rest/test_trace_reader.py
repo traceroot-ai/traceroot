@@ -3,6 +3,8 @@
 Pure logic — get_model_price is patched, so no DB/ClickHouse is needed.
 """
 
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -706,6 +708,41 @@ class TestCustomerTraceStartTime:
             service.get_customer_trace_start_time("proj-1", trace_id)
 
         assert list(service._customer_trace_start_cache) == ["proj-1:b", "proj-1:c"]
+
+    def test_two_reads_evicting_at_once_both_succeed(self):
+        # The route runs this reader on worker threads. A second read that evicts
+        # between the first one choosing the oldest entry and removing it must not
+        # make either read fail.
+        service, _ = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+        service._TRACE_START_CACHE_MAX = 2
+        results: dict[str, object] = {}
+
+        def read(trace_id: str) -> None:
+            try:
+                results[trace_id] = service.get_customer_trace_start_time("proj-1", trace_id)
+            except Exception as error:
+                results[trace_id] = error
+
+        other = threading.Thread(target=read, args=("d",))
+
+        class SwitchingCache(dict):
+            def pop(self, *args):
+                if not other.is_alive() and "d" not in results:
+                    # A thread switch here lets the other read evict first. It may
+                    # wait for this one instead, so the wait is bounded.
+                    other.start()
+                    other.join(timeout=0.25)
+                return super().pop(*args)
+
+        expiry = time.monotonic() + 3600
+        service._customer_trace_start_cache = SwitchingCache(
+            {"proj-1:a": (expiry, self.OLD), "proj-1:b": (expiry, self.OLD)}
+        )
+        read("c")
+        other.join(timeout=5)
+
+        assert results == {"c": self.OLD, "d": self.OLD}
+        assert len(service._customer_trace_start_cache) == 2
 
 
 class TestCustomerTraceEarliestSpanTime:

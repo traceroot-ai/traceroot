@@ -1,6 +1,7 @@
 """Tests for GET /projects/{project_id}/traces/{trace_id}/spans/{span_id}/attachments/{hash}.
 
-The reader service and S3 are mocked, so no ClickHouse or object store is needed.
+S3 is mocked, and the reader service is either mocked or the real one over a fake
+spans table, so no ClickHouse or object store is needed.
 """
 
 import hashlib
