@@ -63,7 +63,7 @@ describe("AITab", () => {
   it("leads with the one command that does the whole setup", () => {
     const { container } = render(<AITab projectId="proj_1" />);
     expect(screen.getByText("Run this in your project")).toBeDefined();
-    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@0.6.0 setup");
+    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@0.6.1 setup");
   });
 
   it("writes the project this panel is showing into the command", () => {
@@ -171,7 +171,7 @@ describe("AITab", () => {
     const { container } = await renderTabWith("https://app.traceroot.ai/api/v1");
     const text = container.textContent ?? "";
 
-    expect(text).toContain("npx -y traceroot-cli@0.6.0 setup --project proj_1");
+    expect(text).toContain("npx -y traceroot-cli@0.6.1 setup --project proj_1");
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
     expect(container.querySelector("pre")).not.toBeNull();
   });
