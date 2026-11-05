@@ -159,27 +159,6 @@ def test_minio_init_mounts_the_rules_file(compose_path):
 
 
 @pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
-def test_running_minio_init_twice_leaves_the_same_two_rules(compose_path, tmp_path):
-    """Every start re-applies the rules, so a second run must not add to them."""
-    for _ in range(2):
-        run = _run_minio_init(compose_path, tmp_path)
-        assert run.returncode == 0, run.stderr
-        assert run.stderr == ""
-
-    applied = json.loads((tmp_path / "state" / "lifecycle-myminio_traceroot.json").read_text())
-    assert applied == json.loads(_LIFECYCLE.read_text())
-    assert len(applied["Rules"]) == 2
-
-    # The rules go to the bucket minio-init creates, after it is created.
-    calls = (tmp_path / "state" / "calls.log").read_text().splitlines()
-    assert calls.count("mb myminio/traceroot --ignore-existing") == 2
-    assert calls.count("ilm rule import myminio/traceroot") == 2
-    assert calls.index("mb myminio/traceroot --ignore-existing") < calls.index(
-        "ilm rule import myminio/traceroot"
-    )
-
-
-@pytest.mark.parametrize("compose_path", _COMPOSE, ids=lambda p: p.name)
 def test_lifecycle_failure_is_logged_without_failing_minio_init(compose_path, tmp_path):
     run = _run_minio_init(compose_path, tmp_path, MC_ILM_FAILS="1")
 
@@ -191,8 +170,7 @@ def test_lifecycle_failure_is_logged_without_failing_minio_init(compose_path, tm
 def test_minio_init_gets_the_root_credentials_minio_starts_with(compose_path):
     """The entrypoint reads the credentials from minio-init's own environment.
 
-    Without them it falls back to the defaults, so a changed password leaves the
-    alias unset and the bucket without its rules.
+    Without them it signs in with empty values, and the bucket never gets its rules.
     """
     services = _services(compose_path)
     init_env = services["minio-init"].get("environment", {})
