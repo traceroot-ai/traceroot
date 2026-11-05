@@ -7,6 +7,8 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   KEYED_ALERT_FILTER_FIELDS,
   SETTABLE_ALERT_STATUSES,
+  SpanKind,
+  SpanStatus,
   getMeasure,
   isAlertAggregation,
   isAlertFilterField,
@@ -76,6 +78,28 @@ const filterSchema = z
         path: ["op"],
         message: `Operator "${filter.op}" is not valid for "${filter.field}"`,
       });
+    }
+    // Validate span_kind and status values against allowed enums
+    if (filter.op === "=" && typeof filter.value === "string") {
+      if (filter.field === "span_kind") {
+        const valid = Object.values(SpanKind) as string[];
+        if (!valid.includes(filter.value)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["value"],
+            message: `Invalid span_kind "${filter.value}". Allowed: ${valid.join(", ")}`,
+          });
+        }
+      } else if (filter.field === "status") {
+        const valid = Object.values(SpanStatus) as string[];
+        if (!valid.includes(filter.value)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["value"],
+            message: `Invalid status "${filter.value}". Allowed: ${valid.join(", ")}`,
+          });
+        }
+      }
     }
   });
 

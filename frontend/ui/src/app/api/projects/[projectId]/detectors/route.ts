@@ -128,8 +128,25 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     const conditionsError = validateTriggerConditions(triggerConditions);
     if (conditionsError) return errorResponse(conditionsError, 400);
   }
-  if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
-    return errorResponse("outputSchema must be an array", 400);
+  // Validate outputSchema entries: each must be an object with name and type (string|number|boolean)
+  const OUTPUT_SCHEMA_TYPES = ["string", "number", "boolean"] as const;
+  if (outputSchema !== undefined) {
+    if (!Array.isArray(outputSchema)) {
+      return errorResponse("outputSchema must be an array", 400);
+    }
+    for (let i = 0; i < outputSchema.length; i++) {
+      const entry = outputSchema[i];
+      if (entry === null || typeof entry !== "object") {
+        return errorResponse(`outputSchema[\${i}] must be an object`, 400);
+      }
+      const e = entry as Record<string, unknown>;
+      if (typeof e.name !== "string" || e.name.trim().length === 0) {
+        return errorResponse(`outputSchema[\${i}].name must be a non-empty string`, 400);
+      }
+      if (typeof e.type !== "string" || !OUTPUT_SCHEMA_TYPES.includes(e.type as typeof OUTPUT_SCHEMA_TYPES[number])) {
+        return errorResponse(`outputSchema[\${i}].type must be one of: \${OUTPUT_SCHEMA_TYPES.join(", ")}`, 400);
+      }
+    }
   }
 
   // detectionSource: only "system" / "byok" / null are valid. Reject anything
