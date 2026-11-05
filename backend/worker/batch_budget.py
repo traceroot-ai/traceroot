@@ -34,6 +34,7 @@ _KINDS = {
     "opentelemetry.proto.common.v1.AnyValue": "attributes",
 }
 _COUNTED = ("spans", "events", "links", "attributes", "other")
+_SPANS = _COUNTED.index("spans")
 
 
 class BudgetExceededError(ValueError):
@@ -143,7 +144,7 @@ def check_batch_budget(body: bytes, max_spans: int, max_objects: int) -> dict[st
                         total += 1
                         if total > max_objects:
                             raise over("objects", max_objects, "INGEST_MAX_OBJECTS")
-                        if kind == 0 and counts[0] > max_spans:
+                        if kind == _SPANS and counts[_SPANS] > max_spans:
                             raise over("spans", max_spans, "INGEST_MAX_SPANS")
                     if child is not None:
                         walk(pos, stop, _TABLES[child], depth + 1)

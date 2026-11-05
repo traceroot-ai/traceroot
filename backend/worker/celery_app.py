@@ -47,8 +47,7 @@ app.conf.update(
     # Performance
     # Pinned, since Celery would otherwise start one process per host CPU, which in a
     # container is the node's count, not its CPU limit. Each process decodes one batch
-    # at a time, at up to about 0.53 GiB under the default ingest budgets, so memory
-    # needed is roughly WORKER_CONCURRENCY x 0.53 GiB plus the worker's baseline.
+    # at a time, so the memory needed grows with it; .env.example gives the sizing.
     worker_concurrency=settings.worker.concurrency,
     worker_prefetch_multiplier=4,  # Prefetch 4 tasks per worker process
     # Serialization (JSON for debuggability)

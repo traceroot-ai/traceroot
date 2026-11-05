@@ -29,6 +29,7 @@ from rest.routers.public.deps import (
     KeyStampedAuth,
     authenticate_api_key,
 )
+from rest.routers.public.request_body import read_capped_body
 from rest.services.s3 import get_s3_service
 from shared.bounded_gzip import GzipTooLargeError, iter_gunzip
 from shared.config import settings
@@ -53,37 +54,6 @@ def _body_too_large(detail: str) -> HTTPException:
     """Log and build the 413 for a body over one of the ingest size limits."""
     logger.warning(f"Refused trace ingest request: {detail}")
     return HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=detail)
-
-
-async def _read_capped_body(request: Request, max_bytes: int) -> bytes:
-    """Buffer the request body, refusing anything over ``max_bytes``.
-
-    A declared ``Content-Length`` over the cap is refused before any of the body
-    is read. The running count is what enforces the cap, since a chunked body has
-    no length and a declared one can be wrong.
-
-    Args:
-        request (Request): The ingest request.
-        max_bytes (int): The most body bytes accepted, as sent on the wire.
-
-    Returns:
-        bytes: The body as sent.
-
-    Raises:
-        HTTPException: 413 if the body exceeds ``max_bytes``.
-    """
-    too_large = f"Request body exceeds {max_bytes} bytes"
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > max_bytes:
-        raise _body_too_large(too_large)
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > max_bytes:
-            raise _body_too_large(too_large)
-        chunks.append(chunk)
-    return b"".join(chunks)
 
 
 def _is_gzipped(content_encoding: str) -> bool:
@@ -187,7 +157,10 @@ async def ingest_traces(
     gzipped = _is_gzipped(", ".join(request.headers.getlist("content-encoding")))
 
     # 1. Read body, refusing anything over the request cap
-    body = await _read_capped_body(request, settings.ingest.max_request_bytes)
+    cap = settings.ingest.max_request_bytes
+    body = await read_capped_body(
+        request, cap, lambda: _body_too_large(f"Request body exceeds {cap} bytes")
+    )
 
     if not body:
         raise HTTPException(
@@ -202,7 +175,9 @@ async def ingest_traces(
             for _ in iter_gunzip(body, settings.ingest.max_unzipped_bytes):
                 pass
         except GzipTooLargeError as e:
-            raise _body_too_large(f"Decompressed request body exceeds {e.max_bytes} bytes") from e
+            raise _body_too_large(
+                f"Decompressed request body exceeds {settings.ingest.max_unzipped_bytes} bytes"
+            ) from e
         except Exception as e:
             logger.warning(f"Failed to decompress gzip: {e}")
             raise HTTPException(

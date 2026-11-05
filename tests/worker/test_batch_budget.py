@@ -256,7 +256,8 @@ class TestSettings:
 # through the worker's real loader, in a fresh process, and prints its peak RSS.
 _DECODE_FLOOD = """
 import gzip, json, resource, sys
-from worker.staged_batch import BatchOverBudgetError, load_staged_batch
+from worker.batch_budget import BudgetExceededError
+from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 def peak():
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -284,8 +285,8 @@ before = peak()
 try:
     load_staged_batch(S3(), "events/ingest/p/2026/11/01/00/batch.pb.gz")
     refused = False
-except BatchOverBudgetError:
-    refused = True
+except UndecodableBatchError as e:
+    refused = isinstance(e.__cause__, BudgetExceededError)
 print(json.dumps({"before": before, "peak": peak(), "refused": refused}))
 """
 

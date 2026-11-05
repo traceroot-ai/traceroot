@@ -24,7 +24,7 @@ from shared.config import settings
 from worker.batch_budget import BudgetExceededError
 from worker.ingest_tasks import process_s3_traces
 from worker.otel_transform import transform_otel_to_clickhouse
-from worker.staged_batch import BatchOverBudgetError, UndecodableBatchError, load_staged_batch
+from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 ROOT = Path(__file__).resolve().parents[2]
 TRACE_ID = bytes.fromhex("0af7651916cd43dd8448eb211c80319c")
@@ -146,6 +146,15 @@ class TestDownloadBytes:
         assert service.download_bytes("events/otel/p/k.pb.gz") == b"\x1f\x8b raw bytes"
         client.get_object.assert_called_once_with(Bucket="bucket", Key="events/otel/p/k.pb.gz")
 
+    def test_download_json_parses_the_same_body(self):
+        service = S3Service(bucket_name="bucket")
+        client = MagicMock()
+        client.get_object.return_value = {"Body": io.BytesIO('{"name": "café"}'.encode())}
+        service._client = client
+
+        assert service.download_json("events/otel/p/k.json") == {"name": "café"}
+        client.get_object.assert_called_once_with(Bucket="bucket", Key="events/otel/p/k.json")
+
 
 class TestFormatsAreEquivalent:
     def test_every_format_loads_to_the_same_dict(self):
@@ -248,17 +257,17 @@ class TestBudgets:
         body = make_request().SerializeToString()
         s3 = FakeS3({f"{KEY}{suffix}": gzip.compress(body) if suffix == ".pb.gz" else body})
 
-        with pytest.raises(BatchOverBudgetError, match="more than 1 spans") as raised:
+        with pytest.raises(UndecodableBatchError, match="more than 1 spans") as raised:
             load_staged_batch(s3, f"{KEY}{suffix}")
-        assert isinstance(raised.value, UndecodableBatchError)
         assert isinstance(raised.value.__cause__, BudgetExceededError)
 
     def test_objects_over_the_budget(self, monkeypatch):
         monkeypatch.setattr(settings.ingest, "max_objects", 10)
         s3 = FakeS3({f"{KEY}.pb": make_request().SerializeToString()})
 
-        with pytest.raises(BatchOverBudgetError, match="more than 10 objects"):
+        with pytest.raises(UndecodableBatchError, match="more than 10 objects") as raised:
             load_staged_batch(s3, f"{KEY}.pb")
+        assert isinstance(raised.value.__cause__, BudgetExceededError)
 
     def test_batch_within_the_budgets_loads(self, monkeypatch):
         monkeypatch.setattr(settings.ingest, "max_spans", 2)
@@ -324,7 +333,7 @@ class TestIngestTaskRetries:
         assert s3.download_bytes.call_count == 1
         assert result.state == "FAILURE"
         assert isinstance(result.result, UndecodableBatchError)
-        assert f"Failed to process {KEY}.pb: Not a decodable OTLP batch" in caplog.text
+        assert f"Failed to process {KEY}.pb: DecodeError: " in caplog.text
 
     def test_batch_over_the_budget_fails_on_its_first_attempt(self, s3, monkeypatch, caplog):
         monkeypatch.setattr(settings.ingest, "max_spans", 1)
@@ -334,8 +343,8 @@ class TestIngestTaskRetries:
             result = process_s3_traces.apply(kwargs=TASK_KWARGS, throw=False)
 
         assert s3.download_bytes.call_count == 1
-        assert isinstance(result.result, BatchOverBudgetError)
-        assert "Batch is over the ingest budget, so retrying can't help" in caplog.text
+        assert isinstance(result.result, UndecodableBatchError)
+        assert f"Failed to process {KEY}.pb: BudgetExceededError: more than 1 spans" in caplog.text
 
     def test_failed_download_is_still_retried(self, s3):
         s3.download_bytes.side_effect = ConnectionError("S3 unreachable")

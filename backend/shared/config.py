@@ -238,13 +238,9 @@ class IngestSettings(BaseSettings):
     max_request_bytes: int = Field(16 * 1024 * 1024, gt=0)
     # The body once gunzipped, which bounds how far a small compressed body can expand.
     max_unzipped_bytes: int = Field(32 * 1024 * 1024, gt=0)
-    # The byte limits don't bound how many objects a batch decodes into, which is
-    # what the worker's memory goes on. The worker counts these in the encoded batch
-    # before decoding it, and fails a batch over either one without retrying it.
-    # Spans per batch; each also becomes a row.
+    # Spans per batch, counted by the worker before decoding; over it, the batch fails.
     max_spans: int = Field(50_000, gt=0)
-    # Repeated entries of any kind per batch: spans, events, links, attributes at
-    # every level, array values, and resource and scope groups.
+    # Repeated entries of any kind per batch (spans, events, attributes, ...), counted likewise.
     max_objects: int = Field(500_000, gt=0)
 
 
