@@ -92,20 +92,6 @@ class S3Service:
             else:
                 raise
 
-    def upload_json(self, s3_key: str, data: dict | list) -> None:
-        """Upload JSON data to S3.
-
-        Serializes the data to JSON and uploads to S3.
-
-        Args:
-            s3_key: Full S3 key path
-            data: Python dict or list to serialize as JSON
-        """
-        import json
-
-        json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.upload_bytes(s3_key, json_bytes, content_type="application/json")
-
     def download_json(self, s3_key: str) -> dict | list:
         """Download and parse JSON data from S3.
 

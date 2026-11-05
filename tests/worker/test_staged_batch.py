@@ -125,7 +125,7 @@ class FakeS3:
 
 def staged_three_ways(req: ExportTraceServiceRequest) -> FakeS3:
     body = req.SerializeToString()
-    # The .json bytes are what upload_json writes for the decoded request.
+    # The .json bytes are the decoded request, as the API staged it before raw bodies.
     as_json = json.dumps(MessageToDict(req), ensure_ascii=False).encode("utf-8")
     return FakeS3(
         {

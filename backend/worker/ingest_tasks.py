@@ -360,7 +360,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
-        # None falls back to the insert time.
+        # None falls back to the insert time; #2863 removes this by storing it on the object.
         version = datetime.fromisoformat(received_at) if received_at else None
 
         # 3. Insert into ClickHouse
