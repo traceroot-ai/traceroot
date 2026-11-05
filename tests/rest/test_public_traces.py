@@ -120,17 +120,6 @@ class TestIngestTraces:
         )
         assert response.status_code == 500
 
-    def test_celery_failure_still_returns_200(self, client):
-        """Celery enqueue failure is logged but response is still 200 (S3 has the data)."""
-        test_client, _mock_s3, mock_task = client
-        mock_task.delay.side_effect = Exception("Redis down")
-        response = test_client.post(
-            "/api/v1/public/traces",
-            content=b"fake-protobuf",
-            headers={"Content-Type": "application/x-protobuf"},
-        )
-        assert response.status_code == 200
-
     def test_s3_key_time_partitioned_format(self, client):
         test_client, mock_s3, _ = client
         test_client.post(

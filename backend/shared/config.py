@@ -225,6 +225,20 @@ class RateLimitSettings(BaseSettings):
         return table[normalize_plan(plan)]
 
 
+class IngestSettings(BaseSettings):
+    """Size limits on a public OTLP trace ingest request.
+
+    Env vars: INGEST_MAX_REQUEST_BYTES, INGEST_MAX_UNZIPPED_BYTES
+    """
+
+    model_config = SettingsConfigDict(env_prefix="INGEST_")
+
+    # The body as sent, before any Content-Encoding is undone.
+    max_request_bytes: int = Field(16 * 1024 * 1024, gt=0)
+    # The body once gunzipped, which bounds how far a small compressed body can expand.
+    max_unzipped_bytes: int = Field(32 * 1024 * 1024, gt=0)
+
+
 class Settings(BaseSettings):
     """Root settings for the TraceRoot backend.
 
@@ -273,6 +287,7 @@ class Settings(BaseSettings):
     s3: S3Settings = S3Settings()
     redis: RedisSettings = RedisSettings()
     rate_limit: RateLimitSettings = RateLimitSettings()
+    ingest: IngestSettings = IngestSettings()
 
 
 settings = Settings()

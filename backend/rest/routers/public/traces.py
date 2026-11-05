@@ -11,17 +11,11 @@ Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
 """
 
-import gzip
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from google.protobuf.json_format import MessageToDict
-from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
-    ExportTraceServiceRequest,
-)
 from pydantic import BaseModel
 
 from ee.license import is_billing_enabled
@@ -35,8 +29,12 @@ from rest.routers.public.deps import (
     KeyStampedAuth,
     authenticate_api_key,
 )
+from rest.routers.public.request_body import read_capped_body
 from rest.services.s3 import get_s3_service
+from shared.bounded_gzip import GzipTooLargeError, gunzip
+from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
+from worker.staged_batch import decode_otlp_protobuf
 
 __all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
 
@@ -49,24 +47,14 @@ router = APIRouter(prefix="/public/traces", tags=["Traces"])
 # (defined in deps); the limiter keys ingest by its own bucket via ``key_ingest``.
 IngestAuth = KeyStampedAuth
 
+# How long an exporter should wait before resending a batch that could not be queued.
+_ENQUEUE_RETRY_AFTER_SECONDS = 5
 
-def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
-    """Decode OTLP protobuf to a Python dict.
 
-    Uses protobuf's MessageToDict for conversion, which produces
-    a JSON-compatible dict with proper field naming.
-
-    Args:
-        data: Raw protobuf bytes
-
-    Returns:
-        Dict representation of the OTLP trace data
-    """
-    request = ExportTraceServiceRequest()
-    request.ParseFromString(data)
-    # MessageToDict converts protobuf to dict with camelCase field names
-    # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
-    return MessageToDict(request)
+def _body_too_large(detail: str) -> HTTPException:
+    """Log and build the 413 for a body over one of the ingest size limits."""
+    logger.warning(f"Refused trace ingest request: {detail}")
+    return HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=detail)
 
 
 class IngestResponse(BaseModel):
@@ -125,8 +113,11 @@ async def ingest_traces(
             detail="Content-Type must be application/x-protobuf",
         )
 
-    # 1. Read body
-    body = await request.body()
+    # 1. Read body, refusing anything over the request cap
+    cap = settings.ingest.max_request_bytes
+    body = await read_capped_body(
+        request, cap, lambda: _body_too_large(f"Request body exceeds {cap} bytes")
+    )
 
     if not body:
         raise HTTPException(
@@ -134,11 +125,15 @@ async def ingest_traces(
             detail="Empty request body",
         )
 
-    # 2. Decompress if gzip
+    # 2. Decompress if gzip, refusing anything that unzips past the cap
     content_encoding = request.headers.get("content-encoding", "")
     if "gzip" in content_encoding.lower():
         try:
-            body = gzip.decompress(body)
+            body = gunzip(body, settings.ingest.max_unzipped_bytes)
+        except GzipTooLargeError as e:
+            raise _body_too_large(
+                f"Decompressed request body exceeds {settings.ingest.max_unzipped_bytes} bytes"
+            ) from e
         except Exception as e:
             logger.warning(f"Failed to decompress gzip: {e}")
             raise HTTPException(
@@ -184,8 +179,15 @@ async def ingest_traces(
         process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
         logger.info(f"Enqueued Celery task for {s3_key}")
     except Exception as e:
-        # Log but don't fail the request - S3 has the data, can retry later
+        # Only a queued task ever reads the staged object, so answering 200 here
+        # would drop the batch. A 503 makes the exporter send it again; the staged
+        # copy is left where it is and never processed.
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not queue the batch for processing. Retry shortly.",
+            headers={"Retry-After": str(_ENQUEUE_RETRY_AFTER_SECONDS)},
+        ) from e
 
     # 7. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)
