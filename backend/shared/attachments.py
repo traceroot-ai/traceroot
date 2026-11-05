@@ -27,8 +27,8 @@ Object key (where the bytes live)::
 Keys are scoped to a project, so two projects never share an object, even when
 they send the same image.
 
-Image sniffing reads magic bytes and header-only dimensions for PNG, JPEG, GIF and
-WebP. It never decodes pixel data.
+Image sniffing reads magic bytes, header-only dimensions and whether the bytes reach
+the end their format defines, for PNG, JPEG, GIF and WebP. It never decodes pixel data.
 """
 
 import re
@@ -259,3 +259,40 @@ def read_image_dimensions(data: bytes, mime: str) -> tuple[int, int] | None:
     if dimensions is None or min(dimensions) == 0:
         return None
     return dimensions
+
+
+# The bytes a format ends with. PNG: an empty IEND chunk and its CRC. JPEG: EOI. GIF: the
+# terminator of the last block, then the trailer, since the trailer alone is a byte value
+# that about 1 cut in 256 would end on.
+_IMAGE_END_MARKERS = {
+    "image/png": b"\x00\x00\x00\x00IEND\xaeB`\x82",
+    "image/jpeg": b"\xff\xd9",
+    "image/gif": b"\x00\x3b",
+}
+
+
+def is_complete_image(data: bytes, mime: str) -> bool:
+    """Return whether ``data`` reaches the end its format defines, so nothing was cut off.
+
+    A client that cuts a long string can cut an image anywhere past its header, and
+    the front part still passes ``sniff_image_mime`` and ``read_image_dimensions``.
+
+    PNG, JPEG and GIF state no size, so the end marker must be the last bytes. A marker
+    earlier proves nothing: an EXIF thumbnail is a whole JPEG with its own EOI, and
+    compressed data can hold any bytes. An image with bytes after its end marker, which
+    screenshot encoders do not write but some cameras do, is therefore not complete:
+    a placeholder costs less than a reference to a broken image. WebP states its size,
+    so bytes past that size cannot mean anything is missing, and they are allowed.
+
+    Args:
+        data: The decoded image bytes.
+        mime: The type to judge ``data`` as, normally the result of ``sniff_image_mime``.
+
+    Returns:
+        Whether ``data`` is complete. ``False`` when ``mime`` is not an allowed type.
+    """
+    if mime == "image/webp":
+        # RIFF size(4) at offset 4, little-endian, counting everything after those 8 bytes.
+        return int.from_bytes(data[4:8], "little") + 8 <= len(data)
+    end = _IMAGE_END_MARKERS.get(mime)
+    return end is not None and data.endswith(end)

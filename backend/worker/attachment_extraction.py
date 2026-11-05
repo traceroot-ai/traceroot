@@ -21,7 +21,8 @@ For the ``input``, ``output`` and ``metadata`` of every span and trace row:
      key) in the same field that is exactly a found base64 holds the same bytes and
      is replaced too.
 2. **Validate**: strict base64, magic bytes of an allowed image type, a readable
-   header, and a decoded size and pixel dimensions within ``AttachmentSettings``.
+   header, a decoded size and pixel dimensions within ``AttachmentSettings``, and the
+   end its format defines, so the front of an image a client cut is not stored.
    The declared type only marks the text as an image: an allowed image declared as
    another type (a PNG sent as ``image/jpeg``) is stored as the type its bytes are.
    An image that fails becomes ``[image omitted: <reason>, <n> bytes]``.
@@ -63,6 +64,7 @@ from shared.attachments import (
     ATTACHMENT_REF_RE,
     attachment_key,
     format_attachment_ref,
+    is_complete_image,
     normalize_image_mime,
     read_image_dimensions,
     sniff_image_mime,
@@ -286,6 +288,8 @@ class _Extractor:
             return self._omit(
                 f"larger than {limits.max_image_dimension} pixels per side", len(image)
             )
+        if not is_complete_image(image, mime):
+            return self._omit("incomplete image", len(image))
 
         digest = hashlib.sha256(image).hexdigest()
         # Checked before any storage call: an image already handled in this batch
