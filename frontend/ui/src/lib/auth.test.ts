@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -29,6 +29,10 @@ const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
+vi.mock("@/lib/signup/attribution", () => ({
+  signupAttributionProperties: signupAttributionPropertiesMock,
+}));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
@@ -58,6 +62,11 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
 };
 
 describe("auth options", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signupAttributionPropertiesMock.mockReturnValue({});
+  });
+
   it("passes the configured trusted proxies through to better-auth", () => {
     expect(options.advanced.ipAddress.trustedProxies).toEqual(["10.0.0.0/16"]);
   });
@@ -72,7 +81,23 @@ describe("auth options", () => {
 
   it("sends user_signed_up when a user is created", async () => {
     await options.databaseHooks.user.create.after({ id: "user-1" });
-    expect(captureServerEventMock).toHaveBeenCalledWith("user-1", "user_signed_up");
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith("user-1", "user_signed_up", {});
+  });
+
+  it("enriches the existing signup event instead of emitting a second one", async () => {
+    const properties = {
+      utm_source: "github",
+      marketing_attribution_model: "last_campaign_touch",
+    };
+    signupAttributionPropertiesMock.mockReturnValue(properties);
+    const context = { path: "/sign-up/email" };
+    await options.databaseHooks.user.create.after({ id: "user-1" }, context);
+    expect(signupAttributionPropertiesMock).toHaveBeenCalledWith(context);
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith(
+      "user-1",
+      "user_signed_up",
+      properties,
+    );
   });
 
   it("hands every new user to the sign-up follow-up with the endpoint path", async () => {

@@ -5,9 +5,10 @@ import { publicError, requireApiKeyProject } from "@/lib/public-auth";
 /**
  * Public project API keys — revoke.
  *
- * Completes the rotation story: `traceroot setup --rotate-key` mints a
- * replacement, verifies it works, and only then revokes the old one. Without a
- * revoke path a rotation leaves the superseded credential live forever.
+ * The other half of a rotation: mint a replacement, check that it works, and
+ * only then revoke the old key here. Without a revoke path a rotation leaves the
+ * superseded credential live forever. `traceroot setup` also calls it to take
+ * back the keys a failed run minted with an API key.
  */
 
 type RouteParams = { params: Promise<{ keyId: string }> };

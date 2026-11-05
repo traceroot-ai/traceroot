@@ -282,7 +282,10 @@ export function SpanTimelineView({
             const showTokens =
               showRightMetrics && span.total_tokens != null && span.total_tokens > 0;
             const showCost =
-              showRightMetrics && span.cost != null && Number.isFinite(span.cost) && span.cost > 0;
+              (showRightMetrics || span.span_kind === SpanKind.TOOL) &&
+              span.cost != null &&
+              Number.isFinite(span.cost) &&
+              span.cost > 0;
 
             return (
               <div

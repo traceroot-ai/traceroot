@@ -80,10 +80,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderTree() {
+function renderTree(t: TraceDetail = trace) {
   render(
     <SpanTreeView
-      trace={trace}
+      trace={t}
       selection={selection}
       onSelect={vi.fn()}
       collapsedIds={new Set()}
@@ -117,5 +117,41 @@ describe("SpanTreeView token/cost badges", () => {
     for (const badge of screen.getAllByText("100 → 50 (150)")) {
       expect(badge.querySelector("svg")).toBeTruthy();
     }
+  });
+
+  it("shows a tool span's cost from a narrower row, and no cost on an agent span", () => {
+    const llm = trace.spans[0];
+    const noTokens = {
+      model_name: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+    };
+    renderTree({
+      ...trace,
+      spans: [
+        llm,
+        {
+          ...llm,
+          ...noTokens,
+          span_id: "span-2",
+          name: "web-search",
+          span_kind: SpanKind.TOOL,
+          cost: 0.02,
+        },
+        {
+          ...llm,
+          ...noTokens,
+          span_id: "span-3",
+          name: "agent",
+          span_kind: SpanKind.AGENT,
+          cost: 0.5,
+        },
+      ],
+    });
+
+    expect(screen.getByText("0.0200").className).toContain("@[100px]:inline-flex");
+    expect(screen.getByText("0.0123").className).toContain("@[190px]:inline-flex");
+    expect(screen.queryByText("0.5000")).toBeNull();
   });
 });

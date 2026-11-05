@@ -63,8 +63,8 @@ Python has both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` is as
     const ds = new Dataset("weather", null, { key: "weather" });
     ds.add({ city: "SF" }, { expected: "68°F" });
 
-    async function task(input: { city: string }) {
-      return lookUpWeather(input.city);
+    async function task(input: unknown) {
+      return lookUpWeather((input as { city: string }).city);
     }
 
     function reportsTemp({ output, expected }: ScorerContext) {

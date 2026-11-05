@@ -17,6 +17,7 @@ import {
   LLMAdapter,
 } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
+import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
 import { usageFromError } from "./typesafe-client.js";
 
@@ -52,12 +53,10 @@ export interface EvalResult {
 
 const MAX_ATTEMPTS = 2;
 /**
- * Hard character cap on per-trace context sent to the judge.
+ * Hard character cap on per-trace context sent to the judge, kept as a last
+ * guard behind buildJudgeInput's own budget of the same size.
  * ~37k tokens at 4 chars/token: under 20% of a 200k-token window, the smallest
  * among the system models a detector can run on, leaving generous headroom for the system prompt + tool definitions + response budget.
- * Smart compression (type-aware truncation + path-based dedup + base64
- * stripping) is a future improvement when we see real customer complaints
- * about traces being truncated. For now, rely on this hard cap.
  */
 const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
@@ -230,7 +229,14 @@ RULES:
 - You MUST call the submit_result tool to complete your analysis. Plain text responses are rejected.
 - identified=true means you found the problem. identified=false means the trace is clean.
 - summary must be one sentence. If identified=true, describe what you found. If false, state why it is clean.
-- data fields are only required when identified=true.`;
+- data fields are only required when identified=true.
+
+${JUDGE_INPUT_FORMAT_NOTE}`;
+
+  const judgeInput = buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
+  console.log(
+    `[sandbox-eval] judge input for trace ${traceId}: ${JSON.stringify(judgeInput.stats)}`,
+  );
 
   const userText = `DETECTOR: ${detector.name}
 
@@ -239,8 +245,8 @@ ${detector.prompt}
 
 TRACE ID: ${traceId}
 
-SPANS (one JSON object per line):
-${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
+TRACE:
+${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
   // 5. Single-shot complete() with retry-once-on-text-response
   const messages: Message[] = [{ role: "user", content: userText, timestamp: Date.now() }];

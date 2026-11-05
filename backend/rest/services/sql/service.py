@@ -21,6 +21,14 @@ query. An inner ``LIMIT`` the caller wrote still applies to the inner query, and
 the outer one still decides how many rows leave this process, so the effective
 count is ``min(caller's limit, cap)``. The extra row is the truncation sentinel:
 if it comes back, more rows existed than the caller may have.
+
+**A result with no rows carries no column metadata.** The driver reports neither
+names nor types for one, and an empty answer is the ordinary answer to a
+time-windowed query over a quiet day, so the response would not say what it was
+empty of: a CSV rendering loses its header row, and nothing reading the JSON can
+learn the shape of the answer. The shape is therefore asked of the server, with
+``DESCRIBE`` over the very SQL that just ran, so the names and types returned are
+the ones the query would have come back with had a row matched.
 """
 
 from __future__ import annotations
@@ -246,6 +254,54 @@ def _placeholder_names(query: str) -> set[str]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Describing a result the driver did not describe
+# ---------------------------------------------------------------------------
+
+#: ``DESCRIBE`` over a subquery, which is how the server is asked for the shape
+#: of an answer it already gave. It needs no privilege beyond the ``SELECT`` the
+#: query itself needed: verified on 25.2.2 as the read-only account holding only
+#: the two grants in ``bootstrap/sql_gateway_readonly.sql``.
+_DESCRIBE = "DESCRIBE (\n{sql}\n)"
+
+
+def _described_columns(
+    client: ClickHouseClient, sql: str, parameters: dict[str, Any]
+) -> list[SqlColumn]:
+    """Ask the server what the columns of *sql* are, for an answer with no rows.
+
+    Runs the identical statement, on the identical client, with the identical
+    parameters, so what comes back is the server's own naming and typing rather
+    than a second opinion about it. That matters in both directions. ClickHouse
+    names an unaliased expression by its canonical form, so ``duration_ms * 2``
+    comes back as ``multiply(duration_ms, 2)``, and it resolves a repeated alias
+    the way the query did, so ``SELECT span_id AS a, a`` is two columns both
+    called ``a``. Reading the statement instead gets each of those wrong, and a
+    wrong name is worse than a missing one because nothing downstream can tell.
+
+    ``DESCRIBE`` reads none of the underlying rows for the shapes measured on
+    25.2.2: no marks selected, no memory charged, a couple of milliseconds
+    against a project of 200k rows. The exception is a scalar subquery in the
+    projection, which the server evaluates while analysing, so that one shape
+    costs what the query itself cost. The account's settings profile caps it as
+    it caps everything else.
+
+    Returns an empty list if the call fails, which leaves the response exactly
+    as it would have been without this step.
+    """
+    try:
+        described = client.query(_DESCRIBE.format(sql=sql), parameters=parameters or None)
+        # DESCRIBE answers one row per column, name first and type second.
+        return [SqlColumn(name=row[0], type=row[1]) for row in described.result_rows]
+    except Exception:
+        # Broad on purpose. This runs after a query has already succeeded, and
+        # failing to describe the answer must never turn it into an error. The
+        # raw text may name the curated views, so it is logged and never
+        # returned.
+        logger.warning("could not describe the columns of an empty result", exc_info=True)
+        return []
+
+
 class SqlQueryService:
     """Runs public SQL for one project and returns rows the caller may see."""
 
@@ -341,6 +397,11 @@ class SqlQueryService:
             SqlColumn(name=name, type=ch_type.name)
             for name, ch_type in zip(result.column_names, result.column_types, strict=False)
         ]
+        if not columns:
+            # Only when the driver said nothing. See the module docstring: a
+            # result with no rows carries no metadata, so the server is asked
+            # for the shape of the statement it has just answered.
+            columns = _described_columns(client, wrapped, merged_params)
 
         return SqlResult(
             columns=columns,

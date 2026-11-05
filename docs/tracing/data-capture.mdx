@@ -50,7 +50,7 @@ These flags apply only to the span created by that `observe` call. Auto-instrume
 
 ## Redact personal data before export
 
-Requires `traceroot` 0.4.0 or later (Python) or `@traceroot-ai/traceroot` 0.6.0 or later (TypeScript).
+Requires `traceroot` 0.4.0 or later (Python) or `@traceroot-ai/traceroot` 0.6.0 or later (TypeScript, or 0.8.0 for an async `redact`).
 
 Pass a `redact` function to `initialize()`. It receives each finished span's attributes and returns what to export, so anything it removes never reaches TraceRoot. This example blanks email addresses and phone numbers:
 
@@ -102,19 +102,53 @@ Pass a `redact` function to `initialize()`. It receives each finished span's att
 
 How it works:
 
-- It runs in your app on every finished span, including spans from other libraries, so keep it fast and synchronous. In Python, keep it thread-safe.
-- It receives span content: `observe` input, output, and metadata, LLM prompts, event attributes such as exception messages, and the status message. Structured values arrive as JSON text.
+- It runs in your app on every finished span, including spans from other libraries. In Python, keep it fast, synchronous, and thread-safe. In TypeScript, it runs at export, not during the request, and may be async; each batch gets 5 seconds.
+- It receives span content: `observe` input, output, and metadata, LLM prompts, event attributes such as exception messages, and the status message. Structured values arrive as JSON text, so parse them if your detector misses names in JSON.
 - It does not receive bookkeeping: user and session IDs, model name and token usage, tags, environment, span names, and similar. Those are sent as given, so keep personal data out of them and use an internal user ID, not an email address.
 - Return every key you want to keep.
 - Only TraceRoot's copy changes. Other exporters in your app still get the original span.
 
 <Warning>
-If the function raises or returns anything other than a dict (Python) or object (TypeScript), metadata is dropped and every value except numbers and booleans is sent as `[redaction failed]`. The SDK logs a warning. In TypeScript, pass `logLevel: 'warn'` to `initialize()` to see it.
+If the function raises or returns anything other than a dict (Python) or object (TypeScript), metadata is dropped and every value except numbers and booleans is sent as `[redaction failed]`. A TypeScript promise that rejects or does not settle within 5 seconds fails the same way. The SDK logs a warning. In TypeScript, pass `logLevel: 'warn'` to `initialize()` to see it.
 </Warning>
 
 Eval results are redacted too. Datasets and scorer definitions are not, so keep personal data out of them.
 
-The trace view marks every span the function ran on as **Redacted by your app**. A regex will not catch names or addresses. For those, call a PII detection library inside the function.
+A regex will not catch names or addresses. For those, call a detection service you run, for example a small one in front of [Presidio](https://microsoft.github.io/presidio/). This example sends each string to a service that takes and returns `{ text }`:
+
+```typescript
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({
+  redact: async (attributes) => {
+    const detect = async (text: string): Promise<string> => {
+      const response = await fetch(process.env.PII_SERVICE_URL!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!response.ok) throw new Error(`PII service returned ${response.status}`);
+      return ((await response.json()) as { text: string }).text;
+    };
+    const entries = Object.entries(attributes).map(async ([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? await detect(value)
+        : Array.isArray(value) && value.every((v): v is string => typeof v === 'string')
+          ? await Promise.all(value.map(detect))
+          : value,
+    ]);
+    return Object.fromEntries(await Promise.all(entries));
+  },
+});
+```
+
+<Note>
+From 0.8.0, TypeScript `redact` also receives keys derived from Vercel AI SDK attributes (`input.value`, `output.value`, `llm.*`), so if you drop specific `ai.*` keys, drop these too.
+</Note>
+
+The trace view marks every span the function ran on as **Redacted by your app**.
 
 <Frame caption="Span details: the Redacted by your app label and the redacted input">
   <img src="/images/span_redacted_v1.png" alt="Span details for update_shipping_contact with a Redacted by your app label, and an input message whose email address and phone number show as [REDACTED]" />

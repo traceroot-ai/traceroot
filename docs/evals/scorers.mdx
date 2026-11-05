@@ -57,6 +57,7 @@ Wrap the function in `Scorer.code` to give a numeric metric a pass mark, so the 
     const coversCities = Scorer.code(
       {
         key: "covers_cities",
+        name: "covers_cities",
         valueType: "numeric",          // "numeric" | "boolean" | "categorical"
         direction: "higher_is_better", // "higher_is_better" | "lower_is_better" | "none"
         threshold: 1.0,
