@@ -102,6 +102,17 @@ def png_header(width: int, height: int = 1) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", width, height)
 
 
+def keep_first(text: str, max_chars: int) -> str:
+    """Cut ``text`` the way a client does that keeps only its first characters."""
+    return f"{text[:max_chars]}…[truncated {len(text) - max_chars} chars]"
+
+
+def keep_both_ends(text: str, max_chars: int) -> str:
+    """Cut ``text`` the way a client does that keeps both ends and drops the middle."""
+    half = max_chars // 2
+    return f"{text[:half]}\n…[{len(text)} chars, middle elided]…\n{text[-half:]}"
+
+
 IMAGES = [
     pytest.param(make_png(4, 3), "image/png", id="png"),
     pytest.param(make_jpeg(8, 6), "image/jpeg", id="jpeg"),
@@ -977,6 +988,176 @@ class TestValidation:
         assert (result.referenced, result.omitted) == (1, 0)
 
 
+THUMBNAIL = make_jpeg(16, 16, scan_bytes=2000)
+FULL_SIZE_IMAGES = [
+    pytest.param(make_png(800, 600, pad=50_000), "image/png", id="png"),
+    pytest.param(make_jpeg(800, 600, scan_bytes=50_000), "image/jpeg", id="jpeg"),
+    pytest.param(
+        make_jpeg(800, 600, thumbnail=THUMBNAIL, scan_bytes=50_000),
+        "image/jpeg",
+        id="jpeg-with-exif-thumbnail",
+    ),
+    pytest.param(make_gif(800, 600, pad=50_000), "image/gif", id="gif"),
+    pytest.param(make_webp_vp8x(800, 600, pad=50_000), "image/webp", id="webp"),
+]
+SWEPT_IMAGES = [
+    pytest.param(make_png(4, 3, pad=1500), "image/png", id="png"),
+    pytest.param(make_jpeg(8, 6, scan_bytes=1500), "image/jpeg", id="jpeg"),
+    pytest.param(
+        make_jpeg(8, 6, thumbnail=make_jpeg(2, 2, scan_bytes=200), scan_bytes=1500),
+        "image/jpeg",
+        id="jpeg-with-exif-thumbnail",
+    ),
+    pytest.param(make_gif(8, 6, pad=1500), "image/gif", id="gif"),
+    pytest.param(make_webp_vp8x(8, 6, pad=1500), "image/webp", id="webp-vp8x"),
+    pytest.param(make_webp_vp8l(8, 6), "image/webp", id="webp-vp8l"),
+    pytest.param(make_webp_vp8(8, 6), "image/webp", id="webp-vp8"),
+]
+# Text before a data URL moves a cut within a base64 group, so one of these four leads
+# always leaves whole groups: strict base64 that only the completeness check can catch.
+CUT_LEADS = ["", "x", "xx", "xxx"]
+
+
+def reason_for_cut(kept: str) -> str:
+    """What a data URL cut to ``kept`` is omitted for: its base64 fails first unless whole."""
+    run = kept.partition(";base64,")[2]
+    return "incomplete image" if len(run) % 4 == 0 else "invalid base64"
+
+
+class TestIncompleteImages:
+    @pytest.mark.parametrize(("image", "mime"), FULL_SIZE_IMAGES)
+    def test_a_whole_image_is_stored(self, image, mime):
+        s3 = FakeS3()
+        row = span(input=f"before {data_url(image, mime)} after")
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] == f"before {ref_for(image, mime)} after"
+        assert s3.objects == {attachment_key(PROJECT, sha(image)): (image, mime)}
+        assert (result.referenced, result.omitted) == (1, 0)
+
+    @pytest.mark.parametrize(("image", "mime"), FULL_SIZE_IMAGES)
+    @pytest.mark.parametrize(
+        "kept",
+        [
+            pytest.param(lambda size: size // 4, id="first-quarter"),
+            pytest.param(lambda size: size // 2, id="first-half"),
+            pytest.param(lambda size: size - 1, id="all-but-the-last-byte"),
+        ],
+    )
+    def test_the_front_of_an_image_becomes_a_placeholder(self, image, mime, kept):
+        fragment = image[: kept(len(image))]
+        # The cut is past the header, so only the completeness check can catch it.
+        assert sniff_image_mime(fragment) == mime
+        assert read_image_dimensions(fragment, mime) == (800, 600)
+        s3 = FakeS3()
+        row = span(input=f"before {data_url(fragment, mime)} after")
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] == (
+            f"before [image omitted: incomplete image, {len(fragment)} bytes] after"
+        )
+        assert s3.heads == []
+        assert s3.objects == {}
+        assert (result.referenced, result.omitted) == (0, 1)
+
+    @pytest.mark.parametrize(("image", "mime"), SWEPT_IMAGES)
+    def test_no_cut_of_an_image_is_stored(self, image, mime):
+        s3 = FakeS3()
+        rows = [span(input=data_url(image[:end], mime)) for end in range(1, len(image))]
+
+        result = extract_attachments(s3, PROJECT, [], rows)
+
+        assert s3.heads == []
+        assert s3.objects == {}
+        assert result.referenced == 0
+        assert not any(ATTACHMENT_REF_PREFIX in row["input"] for row in rows)
+
+    def test_a_thumbnail_end_inside_a_cut_jpeg_does_not_count(self):
+        image = make_jpeg(800, 600, thumbnail=THUMBNAIL, scan_bytes=50_000)
+        fragment = image[: len(image) // 2]
+        assert THUMBNAIL in fragment
+        s3 = FakeS3()
+        row = span(input=data_url(fragment, "image/jpeg"))
+
+        extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] == f"[image omitted: incomplete image, {len(fragment)} bytes]"
+        assert s3.objects == {}
+
+    @pytest.mark.parametrize(("image", "mime"), FULL_SIZE_IMAGES)
+    def test_the_front_of_an_image_in_a_known_shape_becomes_a_placeholder(self, image, mime):
+        fragment = image[: len(image) // 2]
+        s3 = FakeS3()
+        row = span(input=json.dumps({"mime_type": mime, "data": b64(fragment)}))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert json.loads(row["input"]) == {
+            "mime_type": mime,
+            "data": f"[image omitted: incomplete image, {len(fragment)} bytes]",
+        }
+        assert s3.objects == {}
+        assert (result.referenced, result.omitted) == (0, 1)
+
+    @pytest.mark.parametrize(("image", "mime"), FULL_SIZE_IMAGES)
+    @pytest.mark.parametrize("lead", CUT_LEADS)
+    def test_text_cut_to_its_first_characters_stores_nothing(self, image, mime, lead):
+        text = lead + data_url(image, mime)
+        s3 = FakeS3()
+        row = span(output=keep_first(text, 20_000))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert ATTACHMENT_REF_PREFIX not in row["output"]
+        assert f"[image omitted: {reason_for_cut(text[:20_000])}, " in row["output"]
+        assert s3.heads == []
+        assert s3.objects == {}
+        assert (result.referenced, result.omitted) == (0, 1)
+
+    @pytest.mark.parametrize(("image", "mime"), FULL_SIZE_IMAGES)
+    @pytest.mark.parametrize("lead", CUT_LEADS)
+    def test_text_cut_in_its_middle_stores_nothing(self, image, mime, lead):
+        text = lead + data_url(image, mime)
+        s3 = FakeS3()
+        row = span(output=keep_both_ends(text, 20_000))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert ATTACHMENT_REF_PREFIX not in row["output"]
+        assert f"[image omitted: {reason_for_cut(text[:10_000])}, " in row["output"]
+        assert s3.heads == []
+        assert s3.objects == {}
+        assert (result.referenced, result.omitted) == (0, 1)
+
+    def test_header_only_images_cost_no_storage_calls(self):
+        # 2000 distinct 24-byte PNG headers fit in about 110 KB of span text.
+        urls = [data_url(png_header(width), "image/png") for width in range(1, 2001)]
+        s3 = FakeS3()
+        row = span(input=" ".join(urls))
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert s3.heads == []
+        assert (result.referenced, result.omitted) == (0, 2000)
+
+    def test_an_incomplete_image_takes_no_place_in_the_batch_limit(self):
+        whole = make_png(4, 3)
+        fragment = make_png(4, 3, pad=500)[:200]
+        config = AttachmentSettings(max_images_per_batch=1)
+        s3 = FakeS3()
+        row = span(input=f"{data_url(fragment, 'image/png')} {data_url(whole, 'image/png')}")
+
+        result = extract_attachments(s3, PROJECT, [], [row], config=config)
+
+        assert row["input"] == (
+            f"[image omitted: incomplete image, {len(fragment)} bytes] "
+            f"{ref_for(whole, 'image/png')}"
+        )
+        assert (result.referenced, result.omitted) == (1, 1)
+
+
 class TestStorage:
     def test_dedupes_within_a_batch(self):
         image = make_png()
@@ -1153,9 +1334,9 @@ class TestImagesPerBatch:
         assert len(s3.heads) == 2 and len(s3.puts) == 1
         assert (result.referenced, result.stored, result.omitted) == (3, 1, 1)
 
-    def test_header_only_images_cannot_fan_out_past_the_default_limit(self):
-        # 2000 distinct 24-byte PNG headers fit in about 110 KB of span text.
-        urls = [data_url(png_header(width), "image/png") for width in range(1, 2001)]
+    def test_tiny_images_cannot_fan_out_past_the_default_limit(self):
+        # 2000 distinct whole PNGs of one row each fit in about 240 KB of span text.
+        urls = [data_url(make_png(width, 1), "image/png") for width in range(1, 2001)]
         s3 = FakeS3()
         row = span(input=" ".join(urls))
 

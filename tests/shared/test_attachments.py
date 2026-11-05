@@ -15,6 +15,7 @@ from shared.attachments import (
     find_attachment_refs,
     format_attachment_ref,
     is_attachment_hash,
+    is_complete_image,
     normalize_image_mime,
     read_image_dimensions,
     sniff_image_mime,
@@ -297,3 +298,67 @@ class TestReadImageDimensions:
     )
     def test_truncated_or_malformed_header_is_none(self, data, mime):
         assert read_image_dimensions(data, mime) is None
+
+
+COMPLETE_IMAGES = [
+    pytest.param(make_png(4, 3), "image/png", id="png"),
+    pytest.param(make_png(4, 3, pad=1500), "image/png", id="png-with-a-private-chunk"),
+    pytest.param(make_jpeg(8, 6), "image/jpeg", id="jpeg"),
+    pytest.param(make_jpeg(8, 6, scan_bytes=1500), "image/jpeg", id="jpeg-with-scan-data"),
+    pytest.param(make_gif(8, 6), "image/gif", id="gif"),
+    pytest.param(make_gif(8, 6, pad=1500), "image/gif", id="gif-with-a-comment"),
+    pytest.param(make_webp_vp8x(8, 6), "image/webp", id="webp-vp8x"),
+    pytest.param(make_webp_vp8x(8, 6, pad=1500), "image/webp", id="webp-with-a-private-chunk"),
+    pytest.param(make_webp_vp8l(8, 6), "image/webp", id="webp-vp8l"),
+    pytest.param(make_webp_vp8(8, 6), "image/webp", id="webp-vp8"),
+]
+
+
+class TestIsCompleteImage:
+    @pytest.mark.parametrize(("image", "mime"), COMPLETE_IMAGES)
+    def test_a_whole_image_is_complete(self, image, mime):
+        assert is_complete_image(image, mime) is True
+
+    @pytest.mark.parametrize(("image", "mime"), COMPLETE_IMAGES)
+    def test_no_shorter_cut_is_complete(self, image, mime):
+        assert not any(is_complete_image(image[:end], mime) for end in range(len(image)))
+
+    def test_a_jpeg_with_an_exif_thumbnail_is_judged_by_its_own_end(self):
+        thumbnail = make_jpeg(2, 2, scan_bytes=200)
+        image = make_jpeg(8, 6, thumbnail=thumbnail, scan_bytes=1500)
+
+        assert is_complete_image(image, "image/jpeg") is True
+        assert thumbnail in image[:-1500]
+        assert is_complete_image(image[:-1500], "image/jpeg") is False
+
+    def test_a_gif_cut_on_a_byte_equal_to_its_trailer_is_not_complete(self):
+        image = make_gif(8, 6, pad=1500)
+        fragment = image[: image.index(b"\x3b", 100) + 1]
+
+        assert fragment.endswith(b"\x3b")
+        assert is_complete_image(fragment, "image/gif") is False
+
+    @pytest.mark.parametrize(
+        ("image", "mime"),
+        [
+            pytest.param(make_png(4, 3), "image/png", id="png"),
+            pytest.param(make_jpeg(8, 6), "image/jpeg", id="jpeg"),
+            pytest.param(make_gif(8, 6), "image/gif", id="gif"),
+        ],
+    )
+    def test_bytes_after_an_end_marker_are_not_complete(self, image, mime):
+        assert is_complete_image(image + b"\x00", mime) is False
+
+    def test_a_webp_may_run_past_the_size_it_states(self):
+        assert is_complete_image(make_webp_vp8l(8, 6) + b"\x00", "image/webp") is True
+
+    @pytest.mark.parametrize(
+        ("data", "mime"),
+        [
+            pytest.param(make_png(), "image/svg+xml", id="type-outside-the-allowed-set"),
+            pytest.param(b"", "image/png", id="empty-png"),
+            pytest.param(b"", "image/webp", id="empty-webp"),
+        ],
+    )
+    def test_anything_else_is_not_complete(self, data, mime):
+        assert is_complete_image(data, mime) is False
