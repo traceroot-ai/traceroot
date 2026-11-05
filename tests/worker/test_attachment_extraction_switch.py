@@ -177,6 +177,12 @@ def run_task(mock_s3: MagicMock, project_id: str) -> dict:
     return process_s3_traces(s3_key=S3_KEY, project_id=project_id)
 
 
+def _unversioned(rows: list[dict]) -> list[dict]:
+    """The rows without ``ch_update_time``: the version a row is stored under is not
+    what these tests check."""
+    return [{k: v for k, v in row.items() if k != "ch_update_time"} for row in rows]
+
+
 class TestProcessS3TracesSwitch:
     def assert_stored_as_transformed(self, project_id, mock_s3, mock_ch, published, extract_spy):
         """The batch went through exactly as it does with no extraction step at all."""
@@ -184,8 +190,8 @@ class TestProcessS3TracesSwitch:
 
         extract_spy.assert_not_called()
         assert mock_s3.method_calls == [call.download_json(S3_KEY)]
-        assert mock_ch.insert_spans_batch.call_args.args[0] == expected_spans
-        assert mock_ch.insert_traces_batch.call_args.args[0] == expected_traces
+        assert _unversioned(mock_ch.insert_spans_batch.call_args.args[0]) == expected_spans
+        assert _unversioned(mock_ch.insert_traces_batch.call_args.args[0]) == expected_traces
         assert published == [expected_spans]
         assert data_url(IMAGE, "image/png") in expected_spans[0]["input"]
 
@@ -197,7 +203,7 @@ class TestProcessS3TracesSwitch:
         mock_s3.put_object_if_absent.assert_called_once_with(
             attachment_key(project_id, digest), IMAGE, "image/png"
         )
-        (span_row,) = mock_ch.insert_spans_batch.call_args.args[0]
+        (span_row,) = _unversioned(mock_ch.insert_spans_batch.call_args.args[0])
         assert find_attachment_refs(span_row["input"]) == {digest}
         assert span_row["output"].endswith(TRUNCATION_MARKER.format(limit=SPAN_LIMIT))
         assert published == [[span_row]]
