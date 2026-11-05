@@ -1,8 +1,9 @@
 """Tiny image byte strings built in code, for the attachment tests.
 
 The PNG and GIF builders produce complete, decodable files. The JPEG and WebP
-builders produce valid headers (the part the sniffing and dimension code reads)
-followed by filler, which is all the extraction path looks at.
+builders produce valid headers (the part the sniffing and dimension code reads) and
+a valid end (the part the completeness check reads) with filler between, which is
+all the extraction path looks at.
 """
 
 import base64
@@ -53,12 +54,32 @@ def make_gif(width: int = 1, height: int = 1, *, pad: int = 0) -> bytes:
     return screen + palette + comment + image + pixels + b"\x3b"
 
 
-def make_jpeg(width: int = 1, height: int = 1, *, sof: int = 0xC0, app_bytes: int = 16) -> bytes:
-    """SOI, an APP0 segment of ``app_bytes``, a frame header (``sof``) and EOI."""
+def make_jpeg(
+    width: int = 1,
+    height: int = 1,
+    *,
+    sof: int = 0xC0,
+    app_bytes: int = 16,
+    thumbnail: bytes = b"",
+    scan_bytes: int = 0,
+) -> bytes:
+    """SOI, an APP0 segment of ``app_bytes``, a frame header (``sof``) and EOI.
+
+    ``thumbnail`` adds an APP1 segment holding those bytes, where EXIF keeps a preview
+    that is a whole JPEG with its own EOI. ``scan_bytes`` adds a start of scan and that
+    many bytes of scan data, which hold no marker, as in a real file.
+    """
     app0 = b"JFIF\x00" + b"\x00" * max(app_bytes - 5, 0)
     segments = b"\xff\xe0" + struct.pack(">H", len(app0) + 2) + app0
+    if thumbnail:
+        exif = b"Exif\x00\x00" + thumbnail
+        segments += b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif
     frame = struct.pack(">BHHB", 8, height, width, 1) + b"\x01\x11\x00"
     segments += bytes((0xFF, sof)) + struct.pack(">H", len(frame) + 2) + frame
+    if scan_bytes:
+        scan = b"\x01\x01\x00\x00\x3f\x00"
+        segments += b"\xff\xda" + struct.pack(">H", len(scan) + 2) + scan
+        segments += (bytes(range(0xFF)) * (scan_bytes // 0xFF + 1))[:scan_bytes]
     return b"\xff\xd8" + segments + b"\xff\xd9"
 
 
