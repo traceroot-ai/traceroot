@@ -454,31 +454,11 @@ async def get_span_attachment(
     attachment_hash: str,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
-    """Stream an image that ingest moved out of a span into storage.
+    """Stream an image that this span's input, output or metadata references.
 
-    The span's text holds a reference to the image's content hash. Only a hash that
-    this span's input, output or metadata references is served. Every read is limited
-    to customer traffic: an internal span neither serves an image nor supplies the
-    trace's start time, since it may quote a reference from another trace.
-
-    Args:
-        project_id (str): Project that owns the trace; scopes the read and the object key.
-        trace_id (str): Trace the span belongs to; its start time gates retention.
-            That is the root span's start, or the earliest span's while the root is
-            missing.
-        span_id (str): Span whose text must reference the image.
-        attachment_hash (str): SHA-256 of the image bytes, 64 lowercase hex characters.
-        _access (RateLimitedProjectAccess): Dependency that validates the user's
-            access to the project and sets rate-limit identity; not used directly.
-
-    Returns:
-        StreamingResponse: The image bytes with their stored content type, never cached.
-
-    Raises:
-        HTTPException: 403 outside the retention window. 404 for a malformed hash, a
-            trace with no span, a missing span or one stored under an internal source,
-            a hash the span does not reference, or a missing object or one whose
-            stored type is not an allowed image.
+    Reads customer spans only, since an internal span may quote another trace's
+    reference. 403 outside the retention window; 404 unless the span references a
+    stored image.
     """
     if not is_attachment_hash(attachment_hash):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
@@ -486,7 +466,7 @@ async def get_span_attachment(
     service = get_trace_reader_service()
     try:
         trace_start = await asyncio.to_thread(
-            service.get_customer_trace_start_time, project_id, trace_id
+            service.get_trace_start_time, project_id, trace_id, customer_only=True
         )
         if trace_start is None:
             # No root span yet, or none at all: judge retention by the trace's earliest
@@ -500,10 +480,11 @@ async def get_span_attachment(
         enforce_retention_by_time(_access.billing_plan, trace_start)
 
         span_io = await asyncio.to_thread(
-            service.get_customer_span_io,
+            service.get_span_io,
             project_id=project_id,
             trace_id=trace_id,
             span_id=span_id,
+            customer_only=True,
         )
         if not span_io:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")

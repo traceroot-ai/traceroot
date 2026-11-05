@@ -80,8 +80,8 @@ def _access(billing_plan: str):
 @pytest.fixture()
 def reader():
     service = MagicMock()
-    service.get_customer_trace_start_time.return_value = datetime.now(UTC).replace(tzinfo=None)
-    service.get_customer_span_io.return_value = _span_io(output=json.dumps({"image": _ref()}))
+    service.get_trace_start_time.return_value = datetime.now(UTC).replace(tzinfo=None)
+    service.get_span_io.return_value = _span_io(output=json.dumps({"image": _ref()}))
     return service
 
 
@@ -135,13 +135,18 @@ class TestServesReferencedImage:
     @pytest.mark.parametrize("field", ["input", "output", "metadata"])
     def test_a_reference_in_any_span_field_is_enough(self, client, reader, field):
         text = f"before {_ref()} after"
-        reader.get_customer_span_io.return_value = {**_span_io(), field: text}
+        reader.get_span_io.return_value = {**_span_io(), field: text}
 
         response = client.get(URL, headers=IDENTITY)
 
         assert response.status_code == 200
-        kw = reader.get_customer_span_io.call_args.kwargs
-        assert kw == {"project_id": PROJECT, "trace_id": TRACE, "span_id": SPAN}
+        kw = reader.get_span_io.call_args.kwargs
+        assert kw == {
+            "project_id": PROJECT,
+            "trace_id": TRACE,
+            "span_id": SPAN,
+            "customer_only": True,
+        }
 
     @pytest.mark.parametrize(
         ("mime", "data"),
@@ -154,7 +159,7 @@ class TestServesReferencedImage:
     )
     def test_every_allowed_image_type(self, client, reader, s3, mime, data):
         sha = hashlib.sha256(data).hexdigest()
-        reader.get_customer_span_io.return_value = _span_io(input_=_ref(sha, mime, len(data)))
+        reader.get_span_io.return_value = _span_io(input_=_ref(sha, mime, len(data)))
         s3.get_object_stream.return_value = _stored(data, mime)[0]
 
         response = client.get(
@@ -167,7 +172,7 @@ class TestServesReferencedImage:
         assert response.headers["content-type"] == mime
 
     def test_the_stored_type_wins_over_the_reference_hint(self, client, reader, s3):
-        reader.get_customer_span_io.return_value = _span_io(input_=_ref(mime="image/gif"))
+        reader.get_span_io.return_value = _span_io(input_=_ref(mime="image/gif"))
         s3.get_object_stream.return_value = _stored(PNG, "image/png")[0]
 
         response = client.get(URL, headers=IDENTITY)
@@ -202,13 +207,13 @@ class TestNotFound:
         )
 
         assert response.status_code == 404
-        reader.get_customer_trace_start_time.assert_not_called()
-        reader.get_customer_span_io.assert_not_called()
+        reader.get_trace_start_time.assert_not_called()
+        reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_hash_stored_but_not_referenced_by_this_span(self, client, reader, s3):
         # The object exists, but this span references a different image.
-        reader.get_customer_span_io.return_value = _span_io(input_=_ref(OTHER_HASH))
+        reader.get_span_io.return_value = _span_io(input_=_ref(OTHER_HASH))
 
         response = client.get(URL)
 
@@ -217,7 +222,7 @@ class TestNotFound:
         s3.get_object_stream.assert_not_called()
 
     def test_a_span_with_no_text(self, client, reader, s3):
-        reader.get_customer_span_io.return_value = _span_io()
+        reader.get_span_io.return_value = _span_io()
 
         response = client.get(URL)
 
@@ -225,7 +230,7 @@ class TestNotFound:
         s3.get_object_stream.assert_not_called()
 
     def test_a_bare_hash_without_the_reference_form_does_not_count(self, client, reader, s3):
-        reader.get_customer_span_io.return_value = _span_io(
+        reader.get_span_io.return_value = _span_io(
             input_=f"{HASH} traceroot-attachment://v1/sha256/{HASH}"
         )
 
@@ -235,7 +240,7 @@ class TestNotFound:
         s3.get_object_stream.assert_not_called()
 
     def test_missing_span(self, client, reader, s3):
-        reader.get_customer_span_io.return_value = None
+        reader.get_span_io.return_value = None
 
         response = client.get(URL)
 
@@ -265,18 +270,18 @@ class TestNotFound:
 
 class TestRetention:
     def test_403_outside_the_window(self, free_plan_client, reader, s3):
-        reader.get_customer_trace_start_time.return_value = datetime(2020, 1, 1)
+        reader.get_trace_start_time.return_value = datetime(2020, 1, 1)
 
         response = free_plan_client.get(URL)
 
         assert response.status_code == 403
-        reader.get_customer_trace_start_time.assert_called_once_with(PROJECT, TRACE)
+        reader.get_trace_start_time.assert_called_once_with(PROJECT, TRACE, customer_only=True)
         reader.get_customer_trace_earliest_span_time.assert_not_called()
-        reader.get_customer_span_io.assert_not_called()
+        reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_200_inside_the_window(self, free_plan_client, reader):
-        reader.get_customer_trace_start_time.return_value = datetime.now(UTC).replace(
+        reader.get_trace_start_time.return_value = datetime.now(UTC).replace(
             tzinfo=None
         ) - timedelta(days=1)
 
@@ -288,18 +293,18 @@ class TestRetention:
     def test_a_trace_without_its_root_is_judged_by_its_earliest_span(
         self, free_plan_client, reader, s3
     ):
-        reader.get_customer_trace_start_time.return_value = None
+        reader.get_trace_start_time.return_value = None
         reader.get_customer_trace_earliest_span_time.return_value = datetime(2020, 1, 1)
 
         response = free_plan_client.get(URL)
 
         assert response.status_code == 403
         reader.get_customer_trace_earliest_span_time.assert_called_once_with(PROJECT, TRACE)
-        reader.get_customer_span_io.assert_not_called()
+        reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_a_trace_without_its_root_inside_the_window_is_served(self, free_plan_client, reader):
-        reader.get_customer_trace_start_time.return_value = None
+        reader.get_trace_start_time.return_value = None
         reader.get_customer_trace_earliest_span_time.return_value = _days_ago(1)
 
         response = free_plan_client.get(URL, headers=IDENTITY)
@@ -309,14 +314,14 @@ class TestRetention:
 
     def test_a_trace_with_no_span_is_refused_before_any_read(self, client, reader, s3):
         # Even with unlimited retention: no start time at all is never a pass.
-        reader.get_customer_trace_start_time.return_value = None
+        reader.get_trace_start_time.return_value = None
         reader.get_customer_trace_earliest_span_time.return_value = None
 
         response = client.get(URL)
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Span not found"
-        reader.get_customer_span_io.assert_not_called()
+        reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
 
@@ -550,20 +555,20 @@ class TestAccess:
         assert response.status_code == expected
         body = json.loads(validate.calls.last.request.content)
         assert body == {"browserSession": True, "projectId": "other-project"}
-        reader.get_customer_span_io.assert_not_called()
+        reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_no_session_is_401(self, services, reader, s3):
         response = TestClient(app).get(URL)
 
         assert response.status_code == 401
-        reader.get_customer_span_io.assert_not_called()
+        reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
 
 class TestErrors:
     def test_reader_error_is_500(self, client, reader):
-        reader.get_customer_span_io.side_effect = RuntimeError("clickhouse down")
+        reader.get_span_io.side_effect = RuntimeError("clickhouse down")
 
         response = client.get(URL)
 

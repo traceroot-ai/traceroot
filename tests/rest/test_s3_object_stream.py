@@ -2,32 +2,14 @@
 
 import io
 
-import boto3
 import pytest
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
-from botocore.stub import Stubber
 
-from rest.services.s3 import S3ObjectStream, S3Service
+from rest.services.s3 import S3ObjectStream
 
 BUCKET = "test-bucket"
 KEY = "attachments/proj-1/sha256/" + "ab" * 32
-
-
-@pytest.fixture()
-def service_and_stub():
-    """An S3Service whose client is a stubbed boto3 client, so nothing leaves the process."""
-    client = boto3.client(
-        "s3",
-        region_name="us-east-1",
-        aws_access_key_id="test",
-        aws_secret_access_key="test",
-    )
-    service = S3Service(bucket_name=BUCKET, access_key_id="test", secret_access_key="test")
-    service._client = client
-    with Stubber(client) as stub:
-        yield service, stub
-        stub.assert_no_pending_responses()
 
 
 def _body(data: bytes) -> StreamingBody:

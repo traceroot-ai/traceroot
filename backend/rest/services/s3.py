@@ -41,6 +41,14 @@ class S3ObjectStream:
     content_length: int | None
 
 
+def _error_status(e: ClientError) -> tuple[int | None, str | None]:
+    """The HTTP status and error code of a failed call; either may be missing."""
+    return (
+        e.response.get("ResponseMetadata", {}).get("HTTPStatusCode"),
+        e.response.get("Error", {}).get("Code"),
+    )
+
+
 class S3Service:
     """Service for uploading OTEL data to S3/MinIO."""
 
@@ -105,8 +113,7 @@ class S3Service:
         try:
             client.head_object(Bucket=self._bucket_name, Key=s3_key)
         except ClientError as e:
-            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            code = e.response.get("Error", {}).get("Code")
+            status, code = _error_status(e)
             if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
                 return False
             raise
@@ -142,8 +149,7 @@ class S3Service:
                 IfNoneMatch="*",
             )
         except ClientError as e:
-            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            code = e.response.get("Error", {}).get("Code")
+            status, code = _error_status(e)
             if status == 412 or code == "PreconditionFailed":
                 logger.debug(f"Object already stored at s3://{self._bucket_name}/{s3_key}")
                 return False
@@ -169,8 +175,7 @@ class S3Service:
         try:
             response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
         except ClientError as e:
-            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            code = e.response.get("Error", {}).get("Code")
+            status, code = _error_status(e)
             if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
                 return None
             raise
