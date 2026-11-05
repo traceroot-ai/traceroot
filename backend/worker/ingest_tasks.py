@@ -313,7 +313,9 @@ def _quarantine_on_failure(self, exc, task_id, args, kwargs, einfo) -> None:
 
     # A raising on_failure makes Celery run it again with this error, so log instead.
     try:
-        quarantine_batch(get_s3_service(), kwargs["s3_key"])
+        # Celery passes the arguments as the task was queued: by keyword or by position.
+        s3_key = kwargs["s3_key"] if "s3_key" in kwargs else args[0]
+        quarantine_batch(get_s3_service(), s3_key)
     except Exception:
         logger.error("Could not quarantine the batch of task %s", task_id, exc_info=True)
 

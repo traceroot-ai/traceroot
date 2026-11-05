@@ -171,11 +171,9 @@ class TestProcessS3TracesFinalAttempt:
     """
 
     @pytest.fixture()
-    def s3(self, monkeypatch):
-        mock = MagicMock()
-        mock.download_json.side_effect = RuntimeError("corrupt batch")
-        monkeypatch.setattr("rest.services.s3.get_s3_service", lambda: mock)
-        return mock
+    def s3(self, mock_s3):
+        mock_s3.download_json.side_effect = RuntimeError("corrupt batch")
+        return mock_s3
 
     @pytest.fixture()
     def quarantine_attempts(self, monkeypatch):
@@ -250,6 +248,19 @@ class TestProcessS3TracesFinalAttempt:
 
         result = process_s3_traces.apply(
             kwargs=TASK_KWARGS, retries=process_s3_traces.max_retries, throw=False
+        )
+
+        s3.copy_object.assert_called_once_with(BATCH_KEY, FAILED_KEY)
+        s3.delete_object.assert_called_once_with(BATCH_KEY)
+        quarantined.add.assert_called_once_with(1, {})
+        assert result.state == "FAILURE"
+        assert str(result.result) == "corrupt batch"
+
+    def test_task_queued_with_positional_arguments_is_quarantined_too(self, s3, counters):
+        quarantined, _ = counters
+
+        result = process_s3_traces.apply(
+            args=(BATCH_KEY, "proj-1"), retries=process_s3_traces.max_retries, throw=False
         )
 
         s3.copy_object.assert_called_once_with(BATCH_KEY, FAILED_KEY)
