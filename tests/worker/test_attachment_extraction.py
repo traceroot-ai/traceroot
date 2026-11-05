@@ -245,6 +245,22 @@ ENCODINGS = [
 ]
 
 
+def unicode_escaped_json(text: str, hex_digit: str = "a") -> str:
+    """``{"url": text}`` from an encoder that writes LF as ``\\u000a`` and CR as ``\\u000d``."""
+    return (
+        json.dumps({"url": text})
+        .replace("\\n", "\\u000" + hex_digit)
+        .replace("\\r", "\\u000" + chr(ord(hex_digit) + 3))
+    )
+
+
+UNICODE_ESCAPED_ENCODINGS = [
+    pytest.param(unicode_escaped_json, id="json"),
+    pytest.param(lambda text: unicode_escaped_json(text, "A"), id="json-uppercase"),
+    pytest.param(lambda text: json.dumps([unicode_escaped_json(text)]), id="json-twice"),
+]
+
+
 class TestWrappedAndUrlSafeDataUrls:
     @pytest.mark.parametrize(("image", "mime"), WRAPPED_IMAGES)
     @pytest.mark.parametrize("width", [64, 76])
@@ -254,6 +270,23 @@ class TestWrappedAndUrlSafeDataUrls:
         url = wrapped_data_url(image, mime, width, newline)
         assert newline in url
         text = encode(f"look: {url} done")
+        s3 = FakeS3()
+        row = span(input=text)
+
+        result = extract_attachments(s3, PROJECT, [], [row])
+
+        assert row["input"] == text
+        assert s3.heads == []
+        assert (result.referenced, result.omitted) == (0, 0)
+
+    @pytest.mark.parametrize(("image", "mime"), WRAPPED_IMAGES)
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+    @pytest.mark.parametrize("encode", UNICODE_ESCAPED_ENCODINGS)
+    def test_wrapped_base64_with_unicode_escaped_line_breaks_is_left_untouched(
+        self, image, mime, newline, encode
+    ):
+        text = encode(f"look: {wrapped_data_url(image, mime, 76, newline)} done")
+        assert "u000" in text
         s3 = FakeS3()
         row = span(input=text)
 

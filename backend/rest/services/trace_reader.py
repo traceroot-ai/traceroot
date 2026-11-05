@@ -860,9 +860,9 @@ class TraceReaderService:
         #
         # This gates the trace and its span skeletons only. The on-demand span-I/O
         # readers below, unless asked for customer traffic only, and the live SSE route
-        # are still source-agnostic; they are reached through a trace this predicate
-        # already resolved, so they are not a way in, but they are not themselves
-        # scoped — don't read this comment as covering every span read in the file.
+        # are source-agnostic, and nothing routes them through this predicate: `/io` and
+        # the live route read with the trace id from the URL. Don't read this comment as
+        # covering every span read in the file.
         if source in INTERNAL_SOURCES:
             source_condition = f"source = '{source}'"
         else:

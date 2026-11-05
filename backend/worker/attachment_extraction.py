@@ -44,8 +44,10 @@ Text with no image comes back as the same string object.
 Not matched: a known JSON shape inside a string that is itself JSON-encoded
 (double-escaped JSON, whose keys read ``\\"data\\"``), an image written by an
 encoder that escapes a base64 character (``/`` as ``\\/``, say), a wrapped or
-URL-safe data URL, and a known shape in text with more JSON values than
-``_MAX_JSON_VALUES``, which is never parsed. All stay inline, bounded by step 5.
+URL-safe data URL, an unpadded data URL that a line break and then a letter, a digit,
+``+`` or ``/`` follow (which reads as wrapped base64), and a known shape in text with
+more JSON values than ``_MAX_JSON_VALUES``, which is never parsed. All stay inline,
+bounded by step 5.
 """
 
 import binascii
@@ -84,8 +86,10 @@ _DATA_URL_RE = re.compile(
 )
 # Text right after a data URL's base64 run that shows the base64 goes on: a URL-safe
 # character, or a line break and more base64. The line break is CR or LF, or a JSON
-# escape of one ("\n", or "\\n" in JSON encoded twice).
-_BASE64_CONTINUES_RE = re.compile(r"[-_]|(?:[\r\n]|\\++[rn])++[A-Za-z0-9+/]", re.ASCII)
+# escape of one ("\n" or "\u000a", or "\\n" in JSON encoded twice).
+_BASE64_CONTINUES_RE = re.compile(
+    r"[-_]|(?:[\r\n]|\\++(?:[rn]|u000[aAdD]))++[A-Za-z0-9+/]", re.ASCII
+)
 _BASE64_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}", re.ASCII)
 # A JSON string whose whole value is base64, unless it is an object key (which ":"
 # follows). The possessive run never backtracks, so a run that a quote does not
