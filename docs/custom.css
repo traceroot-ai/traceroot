@@ -1,0 +1,442 @@
+/* Brand tokens mirror the website. Mintlify owns navigation and page behavior. */
+:root {
+  --tr-brand: #14b8b0;
+  --tr-link: #0f827d;
+  --tr-text: #0b1015;
+  --tr-muted: #595d60;
+  --tr-border: #dedfe0;
+  --tr-surface: #f4f4f6;
+  --tr-mono: "Geist Mono", ui-monospace, monospace;
+  --sidebar-width: 280px;
+  --content-width: 640px;
+}
+
+html.dark {
+  --tr-link: #5ed4cd;
+  --tr-text: #eceef0;
+  --tr-muted: #b4b9bd;
+  --tr-border: #30363b;
+  --tr-surface: #1b2025;
+}
+
+body {
+  color: var(--tr-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Public layout hooks, with only the mint theme's outer gutters adjusted. */
+#navbar .nav-logo {
+  height: 24px;
+}
+
+#search-bar-entry,
+#assistant-entry,
+#theme-preference-menu-trigger,
+.navbar-link a {
+  border-radius: 0;
+  background: var(--tr-surface);
+  box-shadow: none;
+  border: 0;
+  font-weight: 400;
+}
+
+.navbar-link a {
+  padding: 8px 14px;
+  color: var(--tr-text);
+}
+
+#search-bar-entry {
+  background: color-mix(in srgb, var(--tr-surface) 65%, transparent);
+}
+
+.nav-tabs-item {
+  font: 400 11px/1 var(--tr-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-shadow: none;
+}
+
+.nav-tabs-item[data-active="true"] {
+  color: var(--tr-link);
+}
+
+.sidebar-group-header {
+  color: var(--tr-muted);
+  font: 400 11px/15px var(--tr-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+  padding-left: 8px;
+}
+
+.sidebar-group a {
+  border-radius: 0;
+  color: var(--tr-muted);
+  font-size: 15px;
+  line-height: 21px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  text-shadow: none;
+  font-weight: 400;
+  margin-left: -8px;
+  width: calc(100% + 32px);
+}
+
+.sidebar-group li[data-active] > a {
+  background: transparent;
+  color: var(--tr-text);
+}
+
+.sidebar-group li[data-active] > a::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: -11px;
+  width: 6px;
+  height: 6px;
+  background: var(--tr-brand);
+}
+
+#navigation-items > div {
+  margin-bottom: 24px;
+}
+
+#header {
+  color: var(--tr-text);
+}
+
+#header .eyebrow {
+  display: table;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--tr-brand) 10%, transparent);
+  color: var(--tr-link);
+  font: 400 10px/14px var(--tr-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 18px;
+}
+
+#page-title {
+  font-weight: 400;
+  font-size: 40px;
+  line-height: 45px;
+  letter-spacing: -1.6px;
+  color: var(--tr-text);
+}
+
+#header .prose {
+  color: var(--tr-muted);
+  font-size: 18px;
+  line-height: 28px;
+  margin-top: 22px;
+}
+
+#content {
+  color: var(--tr-muted);
+  font-size: 18px;
+  line-height: 28px;
+  margin-top: 24px;
+  margin-bottom: 24px;
+}
+
+#content :where(h2, h3, h4) {
+  color: var(--tr-text);
+  font-weight: 400;
+}
+
+#content h2 {
+  font-size: 24px;
+  line-height: 30px;
+  letter-spacing: -0.6px;
+}
+
+#content :where(a:not(.card a)) {
+  font-weight: 400;
+  text-underline-offset: 2px;
+}
+
+#content :where(p, li, [data-as="p"]) > a {
+  color: var(--tr-link);
+}
+
+#content :focus-visible,
+#navbar :focus-visible,
+#sidebar :focus-visible {
+  outline-color: var(--tr-link);
+}
+
+#page-context-menu-button {
+  background: var(--tr-surface);
+  border: 0;
+  border-radius: 0;
+  height: 44px;
+  font: 400 11px/16px var(--tr-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#page-context-menu {
+  border-radius: 0;
+}
+
+#page-context-menu > button {
+  border-radius: 0;
+  border: 0;
+  height: 44px;
+  background: var(--tr-surface);
+}
+
+#page-context-menu > button:last-child {
+  width: 44px;
+  border-left: 1px solid var(--tr-border);
+}
+
+#page-context-menu-button > div {
+  flex-direction: row-reverse;
+  font: inherit;
+}
+
+#table-of-contents :where(a, h2) {
+  color: var(--tr-muted);
+  font-weight: 400;
+}
+
+#table-of-contents a:hover,
+#table-of-contents [data-active="true"] {
+  color: var(--tr-text);
+}
+
+/* This connected grid belongs only to the Introduction capability section. */
+.tr-capabilities {
+  gap: 0;
+  margin: 24px 0 16px;
+  border-top: 1px solid var(--tr-border);
+  border-left: 1px solid var(--tr-border);
+  grid-auto-rows: 1fr;
+}
+
+.tr-capabilities .card {
+  margin: 0;
+  border: 0;
+  border-right: 1px solid var(--tr-border);
+  border-bottom: 1px solid var(--tr-border);
+  border-radius: 0;
+  box-shadow: none;
+  min-width: 0;
+  background: transparent;
+}
+
+.tr-capabilities [data-component-part="card-content-container"] {
+  padding: 24px 16px;
+}
+
+.tr-capabilities [data-component-part="card-icon"] {
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--tr-border) 60%, transparent);
+  background: color-mix(in srgb, var(--tr-surface) 50%, transparent);
+  color: #9399a3;
+}
+
+.tr-capabilities [data-component-part="card-icon"] > svg {
+  width: 16px;
+  height: 16px;
+  background-color: #9399a3;
+}
+
+#content .tr-capabilities [data-component-part="card-title"] {
+  margin-top: 8px;
+  color: var(--tr-text);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 21px;
+  letter-spacing: -0.2px;
+}
+
+.tr-capabilities [data-component-part="card-content"] {
+  margin-top: 8px;
+  color: var(--tr-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.tr-integration-card {
+  border-radius: 0;
+}
+
+#pagination {
+  margin-top: 26px;
+  padding: 24px 0;
+  border-top: 1px solid var(--tr-border);
+  color: var(--tr-text);
+  font-weight: 400;
+}
+
+#pagination:not(:has([rel="prev"]))::before {
+  content: "←  Previous";
+  align-self: flex-start;
+  color: #989da2;
+}
+
+#pagination :is([rel="prev"], [rel="next"]) {
+  flex-direction: column;
+  gap: 4px;
+}
+
+#pagination [rel="prev"] {
+  align-items: flex-start;
+}
+
+#pagination [rel="next"] {
+  align-items: flex-end;
+}
+
+#pagination :is([rel="prev"], [rel="next"])::before {
+  color: var(--tr-text);
+  font-size: 15px;
+}
+
+#pagination [rel="prev"]::before {
+  content: "←  Previous";
+}
+
+#pagination [rel="next"]::before {
+  content: "Next  →";
+}
+
+#pagination [data-component-part="pagination-title"] {
+  color: var(--tr-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+#pagination [data-component-part="pagination-chevron"] {
+  display: none;
+}
+
+/* Mint keeps its disabled assistant bar in flow. Only collapse the native
+   hidden/inert state; an available assistant keeps its original sticky UI. */
+#content-area > [data-assistant-bar][aria-hidden="true"][inert] {
+  height: 0;
+  min-height: 0;
+  margin-block: 0;
+  overflow: hidden;
+}
+
+/* Scope the introductory separator to the existing heading, keeping MDX intact. */
+html[data-current-path$="/getting-started/introduction"] #key-capabilities {
+  margin-top: 56px;
+  padding-top: 56px;
+  border-top: 1px solid var(--tr-border);
+}
+
+html[data-current-path$="/getting-started/introduction"] #content > :last-child {
+  color: var(--tr-text);
+}
+
+@media (min-width: 1024px) {
+  #navbar .nav-logo {
+    margin-left: -8px;
+  }
+
+  #theme-preference-menu-trigger {
+    margin-right: -8px;
+  }
+
+  #navbar .nav-tabs {
+    gap: 24px;
+    margin-left: -8px;
+  }
+
+  #navbar .nav-tabs-item {
+    height: 40px;
+  }
+
+  #sidebar {
+    margin-left: -12px;
+  }
+
+  html:is([data-page-mode="none"], [data-page-mode="default"]) #content-container {
+    position: relative;
+  }
+
+  html:is([data-page-mode="none"], [data-page-mode="default"]) #content-container::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--tr-border);
+    pointer-events: none;
+  }
+
+  #navigation-items {
+    padding-top: 12px;
+    padding-left: 12px;
+    padding-right: 0;
+  }
+
+  html:is([data-page-mode="none"], [data-page-mode="default"]) #content-area {
+    /* Let native API content shrink beside its example panel. */
+    min-width: 0;
+    margin-left: 0;
+    margin-right: auto;
+    padding-left: 56px;
+    padding-right: 0;
+    max-width: calc(var(--content-width) + 56px);
+  }
+
+  #header {
+    margin-top: 16px;
+  }
+}
+
+@media (min-width: 1280px) {
+  html:is([data-page-mode="none"], [data-page-mode="default"]) #content-area {
+    width: calc(var(--content-width) + 56px);
+    flex-grow: 0;
+  }
+
+  #table-of-contents-layout {
+    padding-left: 32px;
+    width: 304px;
+  }
+}
+
+@media (max-width: 1023px) {
+  #page-title {
+    font-size: 34px;
+    line-height: 40px;
+    letter-spacing: -1px;
+  }
+
+  #content {
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  html[data-current-path$="/getting-started/introduction"] #key-capabilities {
+    margin-top: 36px;
+    padding-top: 32px;
+  }
+}
+
+@media (max-width: 639px) {
+  .tr-capabilities {
+    grid-auto-rows: auto;
+  }
+
+  /* API response status/content-type controls must wrap on narrow phones. */
+  .api-section-heading > :first-child {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
