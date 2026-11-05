@@ -1,0 +1,53 @@
+# docker/Dockerfile.mcp
+# Trimmed from Dockerfile.agent: the MCP server needs only the tools package,
+# no Prisma, no core, no database.
+FROM node:24-alpine AS base
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
+FROM base AS deps
+WORKDIR /app
+
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/.npmrc ./.npmrc
+COPY frontend/mcp/package.json ./mcp/package.json
+COPY frontend/packages/tools/package.json ./packages/tools/package.json
+
+RUN pnpm install --frozen-lockfile --filter @traceroot/mcp...
+
+FROM base AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/mcp/node_modules ./mcp/node_modules
+COPY --from=deps /app/packages/tools/node_modules ./packages/tools/node_modules
+
+COPY frontend/mcp ./mcp
+COPY frontend/packages/tools ./packages/tools
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+
+# The server resolves @traceroot-ai/tools through its compiled dist, so build
+# the tools package first.
+RUN cd packages/tools && pnpm build
+RUN cd mcp && pnpm build
+
+FROM node:24-alpine AS runner
+WORKDIR /app
+
+# Runtime images start from a freshly upgraded base and drop npm, which is
+# not used at runtime but ships its own bundled dependencies.
+RUN apk upgrade --no-cache && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
+COPY --from=builder /app/node_modules ./node_modules
+# The workspace symlink in node_modules points at this directory, so dist +
+# package.json must exist.
+COPY --from=builder /app/packages/tools/dist ./packages/tools/dist
+COPY --from=builder /app/packages/tools/package.json ./packages/tools/package.json
+COPY --from=builder /app/mcp/dist ./mcp/dist
+COPY --from=builder /app/mcp/package.json ./mcp/package.json
+COPY --from=builder /app/mcp/node_modules ./mcp/node_modules
+
+USER node
+EXPOSE 8200
+
+CMD ["node", "mcp/dist/index.js"]

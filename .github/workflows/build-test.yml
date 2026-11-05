@@ -59,11 +59,14 @@ jobs:
       - name: Build @traceroot/agent
         run: cd frontend/ee/agent && pnpm build
 
+      - name: Build @traceroot/mcp
+        run: cd frontend/mcp && pnpm build
+
       - name: Build traceroot-worker (billing)
         run: cd frontend/worker && pnpm build
 
   # ---------------------------------------------------------------------------
-  # Docker build — validates all 7 Dockerfiles build successfully (~8 min)
+  # Docker build — validates all 8 Dockerfiles build successfully (~8 min)
   # This is the definitive gate: catches COPY issues, missing build steps,
   # dependency mismatches, etc.
   # ---------------------------------------------------------------------------
@@ -86,6 +89,8 @@ jobs:
             dockerfile: docker/Dockerfile.detector
           - service: agent
             dockerfile: docker/Dockerfile.agent
+          - service: mcp
+            dockerfile: docker/Dockerfile.mcp
           - service: migrate-clickhouse
             dockerfile: docker/Dockerfile.migrate-clickhouse
           - service: migrate-postgres

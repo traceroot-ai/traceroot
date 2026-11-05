@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "dotenv -e ../../.env -- vite-node --watch src/index.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
     "lint": "eslint .",

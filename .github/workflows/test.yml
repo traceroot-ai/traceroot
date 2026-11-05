@@ -159,7 +159,7 @@ jobs:
           cd frontend
 
           FAIL=0
-          for pkg in ui worker packages/core ee/agent packages/slack packages/github packages/tools; do
+          for pkg in ui worker packages/core ee/agent mcp packages/slack packages/github packages/tools; do
             echo "::group::test:coverage — $pkg"
             cd "$pkg"
             pnpm test:coverage || FAIL=1
@@ -186,6 +186,7 @@ jobs:
             "frontend/worker"
             "frontend/packages/core"
             "frontend/ee/agent"
+            "frontend/mcp"
             "frontend/packages/slack"
             "frontend/packages/github"
             "frontend/packages/tools"

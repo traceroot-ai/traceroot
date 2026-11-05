@@ -520,6 +520,25 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # MCP server: serves the registry's read tools to MCP clients. It forwards the
+  # caller's credential to rest and holds no secret of its own, so it must never
+  # be given INTERNAL_API_SECRET.
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    ports:
+      - "8200:8200"
+    restart: always
+    environment:
+      TZ: UTC
+      MCP_SERVICE_URL: http://mcp:8200
+      BACKEND_INTERNAL_URL: http://rest:8000
+      # Hostnames the endpoint answers to; add the public hostname when exposed.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost,mcp}
+    depends_on:
+      - rest
+
 volumes:
   postgres_data:
     driver: local
