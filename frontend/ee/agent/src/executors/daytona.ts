@@ -57,24 +57,31 @@ export class DaytonaExecutor implements Executor {
       { timeout: 60 },
     );
 
-    // Use /workspace consistently with DockerExecutor regardless of what Daytona reports
-    this.workDir = "/workspace";
-    await this.sandbox.process.executeCommand(
-      "mkdir -p /workspace/repos /workspace/traces /workspace/notes",
-      undefined,
-      undefined,
-      WORKSPACE_SETUP_TIMEOUT_SECONDS,
-    );
-
-    // Install required tools. ca-certificates is essential: cloneRepo uses the
-    // system `git` CLI (a fresh process that reads the on-disk trust store), so
-    // certs must be present before any HTTPS clone. We intentionally do NOT rely
-    // on Daytona's native go-git here — its daemon caches an empty cert pool at
-    // boot on this image, so its in-process TLS can't be fixed by a later apt.
-    // The install is best effort (note the `|| true`); a stalled mirror must
-    // bound the turn, not hold it open, so a timeout is logged and init goes on.
-    // Any other rejection (sandbox gone, toolbox unreachable) is still fatal.
+    // isReady() only checks for a sandbox, so a setup step that fails must not
+    // leave one behind: the session would run without its directories or tools,
+    // and init() would never run again. Delete it, so the next tool call starts a
+    // fresh one.
+    let step = "workspace setup";
+    let stepTimeout = WORKSPACE_SETUP_TIMEOUT_SECONDS;
     try {
+      // Use /workspace consistently with DockerExecutor regardless of what Daytona reports
+      this.workDir = "/workspace";
+      await this.sandbox.process.executeCommand(
+        "mkdir -p /workspace/repos /workspace/traces /workspace/notes",
+        undefined,
+        undefined,
+        WORKSPACE_SETUP_TIMEOUT_SECONDS,
+      );
+
+      // Install required tools. ca-certificates is essential: cloneRepo uses the
+      // system `git` CLI (a fresh process that reads the on-disk trust store), so
+      // certs must be present before any HTTPS clone. We intentionally do NOT rely
+      // on Daytona's native go-git here — its daemon caches an empty cert pool at
+      // boot on this image, so its in-process TLS can't be fixed by a later apt.
+      // A failing package is tolerated (note the `|| true`), but a stalled mirror
+      // must end the turn rather than hold it open, so a timeout fails init().
+      step = "tool install";
+      stepTimeout = TOOL_INSTALL_TIMEOUT_SECONDS;
       await this.sandbox.process.executeCommand(
         "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null 2>&1 || true",
         undefined,
@@ -82,11 +89,14 @@ export class DaytonaExecutor implements Executor {
         TOOL_INSTALL_TIMEOUT_SECONDS,
       );
     } catch (error) {
-      if (!isCommandTimeout(error)) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[DaytonaExecutor] Tool install did not finish within ${TOOL_INSTALL_TIMEOUT_SECONDS}s, continuing without it: ${message}`,
-      );
+      await this.destroy();
+      if (isCommandTimeout(error)) {
+        throw new Error(
+          `Sandbox ${step} timed out after ${stepTimeout}s; the next tool call starts a fresh sandbox`,
+          { cause: error },
+        );
+      }
+      throw error;
     }
 
     console.log(`[DaytonaExecutor] Sandbox ready, workDir: ${this.workDir}`);

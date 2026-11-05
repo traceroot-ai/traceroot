@@ -104,38 +104,48 @@ describe("DaytonaExecutor", () => {
       expect(apt?.[3]).toBe(300);
     });
 
-    it("finishes init when the tool install times out", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("deletes the sandbox and fails init when the tool install times out", async () => {
+      // The toolbox answered: a server-side per-command deadline.
+      const timeout = new DaytonaError("Command timed out after 300 seconds", 408);
       mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
-        // The toolbox answered: a server-side per-command deadline.
-        if (cmd.includes("apt-get"))
-          throw new DaytonaError("Command timed out after 300 seconds", 408);
+        if (cmd.includes("apt-get")) throw timeout;
         return { exitCode: 0, result: "" };
       });
 
-      await expect(executor.init()).resolves.toBeUndefined();
+      const error = await executor.init().catch((e: unknown) => e);
 
-      expect(executor.isReady()).toBe(true);
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("Tool install did not finish within 300s"),
-      );
-      warn.mockRestore();
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("Sandbox tool install timed out after 300s");
+      expect((error as Error).cause).toBe(timeout);
+      expect(mockSandbox.delete).toHaveBeenCalledTimes(1);
+      expect(executor.isReady()).toBe(false);
     });
 
     it("also treats the SDK's own DaytonaTimeoutError as a timeout", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
         if (cmd.includes("apt-get")) throw new DaytonaTimeoutError("deadline exceeded");
         return { exitCode: 0, result: "" };
       });
 
-      await expect(executor.init()).resolves.toBeUndefined();
-      expect(executor.isReady()).toBe(true);
-      warn.mockRestore();
+      await expect(executor.init()).rejects.toThrow("Sandbox tool install timed out after 300s");
+      expect(executor.isReady()).toBe(false);
+    });
+
+    it("deletes the sandbox when the workspace setup times out", async () => {
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("mkdir -p /workspace"))
+          throw new DaytonaError("Command timed out after 30 seconds", 408);
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).rejects.toThrow("Sandbox workspace setup timed out after 30s");
+      const commands = mockSandbox.process.executeCommand.mock.calls.map(([cmd]) => cmd as string);
+      expect(commands.some((cmd) => cmd.includes("apt-get"))).toBe(false);
+      expect(mockSandbox.delete).toHaveBeenCalledTimes(1);
+      expect(executor.isReady()).toBe(false);
     });
 
     it("rethrows a transport failure even when its message mentions a timeout", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       // No HTTP status: the request never reached the toolbox.
       const failure = new DaytonaError("connect ETIMEDOUT 10.0.0.5:2280");
       mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
@@ -144,25 +154,32 @@ describe("DaytonaExecutor", () => {
       });
 
       await expect(executor.init()).rejects.toBe(failure);
-      expect(warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("Tool install did not finish within"),
-      );
-      warn.mockRestore();
+      expect(mockSandbox.delete).toHaveBeenCalledTimes(1);
+      expect(executor.isReady()).toBe(false);
     });
 
-    it("rethrows a non-timeout install failure instead of reporting a ready sandbox", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("rethrows a non-timeout setup failure instead of reporting a ready sandbox", async () => {
       const failure = new Error("Sandbox not found");
       mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
-        if (cmd.includes("apt-get")) throw failure;
+        if (cmd.includes("mkdir -p /workspace")) throw failure;
         return { exitCode: 0, result: "" };
       });
 
       await expect(executor.init()).rejects.toBe(failure);
-      expect(warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("Tool install did not finish within"),
-      );
-      warn.mockRestore();
+      expect(mockSandbox.delete).toHaveBeenCalledTimes(1);
+      expect(executor.isReady()).toBe(false);
+    });
+
+    it("creates a fresh sandbox on the init after a failed one", async () => {
+      mockSandbox.process.executeCommand.mockImplementationOnce(async () => {
+        throw new DaytonaError("Command timed out after 30 seconds", 408);
+      });
+
+      await expect(executor.init()).rejects.toThrow("timed out");
+      await expect(executor.init()).resolves.toBeUndefined();
+
+      expect(mockDaytona.create).toHaveBeenCalledTimes(2);
+      expect(executor.isReady()).toBe(true);
     });
   });
 
