@@ -179,6 +179,15 @@ describe("toMcpTool", () => {
     expect(result.content[0].text).toContain("boom");
   });
 
+  it("hides and drops surface hiddenParams beside agentHiddenParams", async () => {
+    const { client, fetchImpl } = clientWith(200, {});
+    const entry = { ...getTrace, agentHiddenParams: undefined };
+    const tool = toMcpTool(entry, { client, hiddenParams: ["project_id"] });
+    expect(Object.keys(tool.inputSchema.properties)).toEqual(["trace_id", "fields"]);
+    await tool.execute({ trace_id: "t1", project_id: "other" });
+    expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).not.toContain("project_id");
+  });
+
   it("annotates a declared read-only POST as a read", () => {
     const { client } = clientWith(200, {});
     expect(toMcpTool(runSql, { client, readOnly: true }).annotations.readOnlyHint).toBe(true);

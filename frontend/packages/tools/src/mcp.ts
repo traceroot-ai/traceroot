@@ -12,7 +12,7 @@ export interface McpToolResultContent {
 export interface McpToolResult {
   content: McpToolResultContent[];
   /** Set when the call failed; the text then carries the backend's detail. */
-  isError?: true;
+  isError?: boolean;
 }
 
 /** The hint set every exposed tool carries (MCP `ToolAnnotations`). */
@@ -42,6 +42,11 @@ export interface ToMcpToolOptions {
   client: ApiClient;
   /** The entry runs a query rather than a mutation, though its verb is not GET. */
   readOnly?: boolean;
+  /**
+   * Params this surface hides on top of the entry's agentHiddenParams, e.g.
+   * the project id an API key already fixes. Dropped from calls the same way.
+   */
+  hiddenParams?: readonly string[];
   /** Replaces the entry's description for this surface. */
   description?: string;
   /**
@@ -89,14 +94,14 @@ export function mcpAnnotations(
 
 /**
  * Adapt a registry entry to an MCP tool: hide the entry's agentHiddenParams
- * from the schema and drop them from calls, apply defaults, dispatch through
+ * and the surface's hiddenParams from the schema and drop them from calls, apply defaults, dispatch through
  * the shared engine, and return failures as `isError` results carrying the
  * backend's own detail so the model can read it and adapt.
  */
 export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpTool {
-  const { client, readOnly, description, defaults, transformResult } = options;
+  const { client, readOnly, hiddenParams = [], description, defaults, transformResult } = options;
 
-  const hidden = new Set(entry.agentHiddenParams ?? []);
+  const hidden = new Set([...(entry.agentHiddenParams ?? []), ...hiddenParams]);
   const properties: InputSchema["properties"] = {};
   for (const [name, schema] of Object.entries(entry.inputSchema.properties)) {
     if (!hidden.has(name)) {
