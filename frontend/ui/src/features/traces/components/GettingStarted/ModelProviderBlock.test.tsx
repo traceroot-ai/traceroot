@@ -159,6 +159,7 @@ describe("the adapters offered inline", () => {
       "moonshot",
       "zai",
       "google",
+      "mistral",
     ]);
     expect(INLINE_ADAPTERS).not.toContain("typesafe");
   });
@@ -868,6 +869,25 @@ describe("the key the selected stack asks for", () => {
       provider: ADAPTER_CONFIG.google.label,
       apiKey: "sk-google",
       customModels: seedFor("google"),
+    });
+  });
+
+  it("renders a key field and saves Mistral with its seeded models and label", async () => {
+    renderBlock("ws-1", { kind: "fixed", adapter: "mistral" });
+    await screen.findByLabelText("Mistral API key");
+    await fillKey("sk-mistral");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "mistral",
+      apiKey: "sk-mistral",
+    });
+    expect(mocks.createModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "mistral",
+      provider: "Mistral",
+      apiKey: "sk-mistral",
+      customModels: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
     });
   });
 

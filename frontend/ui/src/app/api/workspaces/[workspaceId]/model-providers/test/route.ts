@@ -26,6 +26,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
   LLMAdapter.TYPESAFE,
+  LLMAdapter.MISTRAL,
 ] as const;
 
 const testSchema = z.object({
@@ -49,12 +50,18 @@ type RouteParams = { params: Promise<{ workspaceId: string }> };
 // timeout; a merely unparseable/empty body falls back to the HTTP status line.
 async function readErrorMessage(res: Response, signal: AbortSignal): Promise<string | undefined> {
   try {
-    const body = (await res.json()) as { error?: { message?: unknown } | string };
+    const body = (await res.json()) as {
+      error?: { message?: unknown } | string;
+      detail?: unknown;
+    };
     if (body?.error && typeof body.error === "object" && "message" in body.error) {
       return body.error.message ? String(body.error.message) : undefined;
     }
     if (typeof body?.error === "string") {
       return body.error;
+    }
+    if (typeof body?.detail === "string") {
+      return body.detail;
     }
     return undefined;
   } catch (err) {
@@ -131,18 +138,28 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
     return errorResponse(result.error.issues[0].message, 400);
   }
 
-  const { adapter, baseUrl, awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } =
-    result.data;
+  const { awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } = result.data;
+  let { adapter, baseUrl } = result.data;
 
-  // Resolve API key: use provided key, or fetch from DB via providerId
+  // Resolve API key: use provided key, or fetch from DB via providerId.
+  // When providerId supplies the stored key, destination and adapter are derived
+  // from the stored provider record so callers cannot redirect saved credentials
+  // to an arbitrary host (SSRF / credential exfiltration).
   let apiKey = result.data.apiKey;
   if (!apiKey && result.data.providerId) {
     const provider = await prisma.modelProvider.findFirst({
       where: { id: result.data.providerId, workspaceId },
-      select: { keyCipher: true },
+      select: { keyCipher: true, adapter: true, baseUrl: true },
     });
     if (provider?.keyCipher) {
       apiKey = decryptKey(provider.keyCipher);
+      if (
+        provider.adapter &&
+        ADAPTER_VALUES.includes(provider.adapter as (typeof ADAPTER_VALUES)[number])
+      ) {
+        adapter = provider.adapter as (typeof ADAPTER_VALUES)[number];
+      }
+      baseUrl = provider.baseUrl ?? undefined;
     }
   }
 
@@ -289,6 +306,16 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
         // list names aliases (jev-latest), not every version /systemone accepts.
         const typesafeBase = adapterBaseUrl(adapter, baseUrl);
         const check = await checkEndpoint(`${typesafeBase}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
+        break;
+      }
+
+      case "mistral": {
+        const mistralBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${mistralBase}/v1/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)

@@ -60,6 +60,7 @@ describe("the provider key each integration asks for", () => {
       openai: LLMAdapter.OPENAI,
       gemini: LLMAdapter.GOOGLE,
       openrouter: LLMAdapter.OPENROUTER,
+      mistral: LLMAdapter.MISTRAL,
       "claude-agent-sdk": LLMAdapter.ANTHROPIC,
       "openai-agents-sdk": LLMAdapter.OPENAI,
       "google-adk": LLMAdapter.GOOGLE,
@@ -94,14 +95,10 @@ describe("the provider key each integration asks for", () => {
     }
   });
 
-  it("says outright that Mistral has no adapter rather than naming a wrong one", () => {
-    // The Mistral page is MISTRAL_API_KEY and mistral-large-latest throughout,
-    // and LLMAdapter has no Mistral entry — so there is no key this step could
-    // store for it. Binding it to some other provider's key would be a lie the
-    // field label would then repeat.
+  it("binds Mistral to LLMAdapter.MISTRAL as a fixed provider", () => {
     const mistral = INTEGRATIONS.find((integration) => integration.id === "mistral");
-    expect(mistral?.providerKey).toEqual({ kind: "none", provider: "Mistral" });
-    expect(Object.values(LLMAdapter)).not.toContain("mistral");
+    expect(mistral?.providerKey).toEqual({ kind: "fixed", adapter: LLMAdapter.MISTRAL });
+    expect(Object.values(LLMAdapter)).toContain("mistral");
   });
 
   it("gives every entry a binding, and every named adapter a real config", () => {

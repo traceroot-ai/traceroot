@@ -237,6 +237,19 @@ export const TypeSafeIcon: FC<IconProps> = ({ className }) => (
   </svg>
 );
 
+// Mistral AI
+export const MistralIcon: FC<IconProps> = ({ className }) => (
+  <svg
+    viewBox="0 0 24 24"
+    className={cn("h-4 w-4", className)}
+    xmlns="http://www.w3.org/2000/svg"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M17.143 3.429v3.428h-3.429v3.429h-3.428V6.857H6.857V3.43H3.43v13.714H0v3.428h10.286v-3.428H6.857v-3.429h3.429v3.429h3.429v-3.429h3.428v3.429h-3.428v3.428H24v-3.428h-3.43V3.429z" />
+  </svg>
+);
+
 const PROVIDER_ICONS: Record<string, FC<IconProps>> = {
   openai: OpenAIIcon,
   anthropic: AnthropicIcon,
@@ -249,6 +262,7 @@ const PROVIDER_ICONS: Record<string, FC<IconProps>> = {
   moonshot: MoonshotIcon,
   zai: ZAIIcon,
   typesafe: TypeSafeIcon,
+  mistral: MistralIcon,
 };
 
 interface ProviderIconProps {
