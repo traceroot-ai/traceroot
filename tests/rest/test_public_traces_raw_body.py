@@ -35,20 +35,6 @@ class TestUploadBytes:
             ContentType="application/x-protobuf",
         )
 
-    def test_upload_json_stores_through_upload_bytes(self):
-        service = S3Service(bucket_name="bucket")
-        client = MagicMock()
-        service._client = client
-
-        service.upload_json("events/otel/p/k.json", {"q": "Grüße"})
-
-        client.put_object.assert_called_once_with(
-            Bucket="bucket",
-            Key="events/otel/p/k.json",
-            Body='{"q": "Grüße"}'.encode(),
-            ContentType="application/json",
-        )
-
 
 TRACE_ID = bytes.fromhex("4bf92f3577b34da6a3ce929d0e0e4736")
 ROOT_SPAN = bytes.fromhex("00f067aa0ba902b7")
@@ -141,7 +127,7 @@ class TestStagesTheOriginalBody:
         assert s3.upload_bytes.call_args.kwargs == {"content_type": "application/x-protobuf"}
         assert response.json() == {"status": "ok", "file_key": key}
         task.delay.assert_called_once_with(s3_key=key, project_id="test-project")
-        s3.upload_json.assert_not_called()
+        assert [c[0] for c in s3.method_calls] == ["ensure_bucket_exists", "upload_bytes"]
 
     def test_uncompressed_request_is_staged_byte_identical(self, ingest):
         client, s3, _ = ingest
