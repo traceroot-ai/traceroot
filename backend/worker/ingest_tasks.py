@@ -7,12 +7,19 @@ import json
 import logging
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
+from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 logger = logging.getLogger(__name__)
+
+#: Version for a placeholder trace row (a batch without the trace's root span). It
+#: sorts below every receive time, so a root-bearing row replaces it in either order.
+#: ch_update_time is DateTime64(3): receive times in the same millisecond tie, and
+#: merges and FINAL then keep the row inserted last.
+PLACEHOLDER_TRACE_VERSION = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _json_serializer(obj: object) -> str:
@@ -309,21 +316,28 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
 @app.task(
     bind=True,
     autoretry_for=(Exception,),
+    # Stored bytes that don't decode fail the same way on every attempt.
+    dont_autoretry_for=(UndecodableBatchError,),
     retry_backoff=True,
     retry_backoff_max=600,  # Max 10 minutes between retries
     max_retries=5,
 )
-def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
+def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | None = None) -> dict:
     """Process OTEL traces from S3 and insert into ClickHouse.
 
     This task:
-    1. Downloads the OTEL JSON from S3
+    1. Downloads the staged batch from S3 and loads it as OTLP JSON, decoding a
+       ``.pb`` or ``.pb.gz`` body first
     2. Transforms it to ClickHouse format
     3. Batch inserts traces and spans
 
     Args:
-        s3_key: S3 key where the OTEL JSON is stored
+        s3_key: S3 key of the staged batch; its suffix names the format
         project_id: Project ID for the traces
+        received_at: ISO-8601 UTC time the API received the batch. The inserted
+            spans and root-bearing traces are versioned by it, so a batch sent later
+            wins over one sent earlier whatever order they are processed in. A task
+            queued without it versions them by insert time
 
     Returns:
         Dict with counts of inserted traces and spans
@@ -338,7 +352,7 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     try:
         # 1. Download from S3
         s3_service = get_s3_service()
-        otel_data = s3_service.download_json(s3_key)
+        otel_data = load_staged_batch(s3_service, s3_key)
         logger.debug(f"Downloaded OTEL data from {s3_key}")
 
         # 2. Transform to ClickHouse format
@@ -346,6 +360,8 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+        # None falls back to the insert time.
+        version = datetime.fromisoformat(received_at) if received_at else None
 
         # 3. Insert into ClickHouse
         if traces or spans:
@@ -381,11 +397,18 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                     ]
 
                 if traces:
+                    for t in traces:
+                        t["ch_update_time"] = (
+                            version
+                            if t["trace_id"] in root_bearing_trace_ids
+                            else PLACEHOLDER_TRACE_VERSION
+                        )
                     ch_client.insert_traces_batch(traces)
                     logger.info(f"Inserted {len(traces)} traces into ClickHouse")
 
             if spans:
-                ch_client.insert_spans_batch(spans)
+                # Copies, so the spans published to the live view below don't gain the field.
+                ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
