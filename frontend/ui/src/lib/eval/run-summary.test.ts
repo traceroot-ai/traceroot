@@ -19,6 +19,11 @@ function result(opts: Partial<SummaryResult> = {}): SummaryResult {
   return {
     durationMs: opts.durationMs ?? null,
     cost: opts.cost ?? null,
+    promptTokens: opts.promptTokens ?? null,
+    completionTokens: opts.completionTokens ?? null,
+    totalTokens: opts.totalTokens ?? null,
+    llmCalls: opts.llmCalls ?? null,
+    llmDurationMs: opts.llmDurationMs ?? null,
     scores: opts.scores ?? [],
   };
 }
@@ -290,8 +295,62 @@ describe("summarizeRun — derived metrics", () => {
 
   it("returns every metric in a stable order, null where nothing reported it", () => {
     const { metrics } = summarizeRun([], [result({ durationMs: 50 })]);
-    expect(metrics.map((m) => m.name)).toEqual(["duration", "cost"]);
+    expect(metrics.map((m) => m.name)).toEqual([
+      "duration",
+      "cost",
+      "prompt_tokens",
+      "completion_tokens",
+      "total_tokens",
+      "llm_calls",
+      "llm_duration",
+    ]);
     expect(byName(metrics).cost).toMatchObject({ value: null, observedCount: 0 });
+  });
+
+  it("averages token, call and model-call-time metrics per case, skipping cases with no LLM call", () => {
+    const { metrics } = summarizeRun(
+      [],
+      [
+        result({
+          durationMs: 900,
+          promptTokens: 100,
+          completionTokens: 20,
+          totalTokens: 120,
+          llmCalls: 1,
+          llmDurationMs: 400,
+        }),
+        result({
+          durationMs: 1500,
+          promptTokens: 300,
+          completionTokens: 60,
+          totalTokens: 360,
+          llmCalls: 3,
+          llmDurationMs: 800,
+        }),
+        // A task that made no model call: its LLM metrics are NULL, not 0.
+        result({ durationMs: 30 }),
+      ],
+    );
+    const m = byName(metrics);
+    expect(m.prompt_tokens).toEqual({
+      name: "prompt_tokens",
+      unit: "tok",
+      direction: "lower_is_better",
+      valueType: "numeric",
+      value: 200,
+      observedCount: 2,
+    });
+    expect(m.completion_tokens).toMatchObject({ unit: "tok", value: 40, observedCount: 2 });
+    expect(m.total_tokens).toMatchObject({ unit: "tok", value: 240, observedCount: 2 });
+    expect(m.llm_calls).toMatchObject({
+      unit: "count",
+      direction: "lower_is_better",
+      value: 2,
+      observedCount: 2,
+    });
+    expect(m.llm_duration).toMatchObject({ unit: "ms", value: 600, observedCount: 2 });
+    // The whole-case duration still counts every case.
+    expect(m.duration).toMatchObject({ value: 810, observedCount: 3 });
   });
 
   it("treats a reported zero as a measurement, not as missing", () => {
