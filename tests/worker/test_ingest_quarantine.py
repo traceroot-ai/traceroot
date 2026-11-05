@@ -8,7 +8,7 @@ import pytest
 from worker import ingest_quarantine
 from worker.celery_app import app
 from worker.ingest_quarantine import failed_key_for, quarantine_batch
-from worker.ingest_tasks import process_s3_traces
+from worker.ingest_tasks import _quarantine_on_failure, process_s3_traces
 
 # A batch staged as the raw request body, and one stored as decoded JSON.
 RAW_BATCH_KEY = "events/ingest/proj-1/2026/10/29/12/batch.pb.gz"
@@ -20,6 +20,20 @@ TASK_KWARGS = {"s3_key": BATCH_KEY, "project_id": "proj-1"}
 
 class PermanentError(Exception):
     """An error the test task below lists in ``dont_autoretry_for``."""
+
+
+@app.task(
+    bind=True,
+    name="tests.worker.task_with_a_permanent_error",
+    autoretry_for=(Exception,),
+    dont_autoretry_for=(PermanentError,),
+    max_retries=5,
+    on_failure=_quarantine_on_failure,
+)
+def never_retried_task(self, s3_key, project_id):
+    from rest.services.s3 import get_s3_service
+
+    get_s3_service().download_json(s3_key)
 
 
 @pytest.fixture()
@@ -68,7 +82,7 @@ class TestQuarantineBatch:
         quarantined, failed = counters
         s3 = MagicMock()
 
-        assert quarantine_batch(s3, key) is True
+        quarantine_batch(s3, key)
 
         assert s3.mock_calls == [
             call.copy_object(key, failed_key),
@@ -83,8 +97,9 @@ class TestQuarantineBatch:
         s3.copy_object.side_effect = RuntimeError("copy refused")
 
         with caplog.at_level(logging.ERROR, logger="worker.ingest_quarantine"):
-            assert quarantine_batch(s3, BATCH_KEY) is False
+            quarantine_batch(s3, BATCH_KEY)
 
+        s3.copy_object.assert_called_once_with(BATCH_KEY, FAILED_KEY)
         s3.delete_object.assert_not_called()
         failed.add.assert_called_once_with(1, {"stage": "copy"})
         quarantined.add.assert_not_called()
@@ -97,9 +112,10 @@ class TestQuarantineBatch:
         s3.delete_object.side_effect = RuntimeError("delete refused")
 
         with caplog.at_level(logging.ERROR, logger="worker.ingest_quarantine"):
-            assert quarantine_batch(s3, BATCH_KEY) is True
+            quarantine_batch(s3, BATCH_KEY)
 
         s3.copy_object.assert_called_once_with(BATCH_KEY, FAILED_KEY)
+        s3.delete_object.assert_called_once_with(BATCH_KEY)
         quarantined.add.assert_called_once_with(1, {})
         failed.add.assert_called_once_with(1, {"stage": "delete"})
         assert "could not delete the original" in caplog.text
@@ -109,7 +125,7 @@ class TestQuarantineBatch:
         s3 = MagicMock()
 
         with caplog.at_level(logging.WARNING, logger="worker.ingest_quarantine"):
-            assert quarantine_batch(s3, "test/key.json") is False
+            quarantine_batch(s3, "test/key.json")
 
         assert s3.mock_calls == []
         quarantined.add.assert_not_called()
@@ -121,7 +137,7 @@ class TestQuarantineBatch:
         quarantined, failed = counters
         s3 = MagicMock()
 
-        assert quarantine_batch(s3, key) is False
+        quarantine_batch(s3, key)
 
         assert s3.mock_calls == []
         quarantined.add.assert_not_called()
@@ -133,7 +149,12 @@ class TestQuarantineBatch:
         s3 = MagicMock()
         s3.delete_object.side_effect = RuntimeError("delete refused")
 
-        assert quarantine_batch(s3, BATCH_KEY) is True
+        quarantine_batch(s3, BATCH_KEY)
+
+        assert s3.mock_calls == [
+            call.copy_object(BATCH_KEY, FAILED_KEY),
+            call.delete_object(BATCH_KEY),
+        ]
 
 
 def test_counters_are_built_from_the_otel_api():
@@ -144,9 +165,9 @@ def test_counters_are_built_from_the_otel_api():
 class TestProcessS3TracesFinalAttempt:
     """The task quarantines only on the attempt Celery will not retry.
 
-    ``apply()`` runs the task eagerly through Celery's own autoretry and
-    ``retry()`` code, recursing into each retry, so these tests exercise the
-    real give-up point rather than a reimplementation of it.
+    ``apply()`` runs the task eagerly through Celery's own autoretry, retry()
+    and failure handling, recursing into each retry, so these tests exercise
+    the real give-up point and the task's ``on_failure`` hook.
     """
 
     @pytest.fixture()
@@ -163,13 +184,9 @@ class TestProcessS3TracesFinalAttempt:
 
         def fake_quarantine(s3_service, s3_key):
             attempts.append(process_s3_traces.request.retries)
-            return True
 
         monkeypatch.setattr(ingest_quarantine, "quarantine_batch", fake_quarantine)
         return attempts
-
-    def test_task_allows_five_retries(self):
-        assert process_s3_traces.max_retries == 5
 
     def test_every_retry_failing_quarantines_once_on_the_last(self, s3, quarantine_attempts):
         result = process_s3_traces.apply(kwargs=TASK_KWARGS, throw=False)
@@ -179,57 +196,11 @@ class TestProcessS3TracesFinalAttempt:
         assert result.state == "FAILURE"
         assert str(result.result) == "corrupt batch"
 
-    def test_attempt_before_the_last_is_retried_not_quarantined(self, s3, quarantine_attempts):
-        last = process_s3_traces.max_retries
-
-        process_s3_traces.apply(kwargs=TASK_KWARGS, retries=last - 1, throw=False)
-
-        # Attempt last-1 fails and is retried; only attempt `last` quarantines.
-        assert s3.download_json.call_count == 2
-        assert quarantine_attempts == [last]
-
-    def test_last_attempt_alone_quarantines(self, s3, quarantine_attempts):
-        last = process_s3_traces.max_retries
-
-        result = process_s3_traces.apply(kwargs=TASK_KWARGS, retries=last, throw=False)
-
-        assert s3.download_json.call_count == 1
-        assert quarantine_attempts == [last]
-        assert str(result.result) == "corrupt batch"
-
-    def test_non_final_attempt_raises_without_quarantine(self, s3, quarantine_attempts):
-        process_s3_traces.push_request(retries=process_s3_traces.max_retries - 1)
-        try:
-            with pytest.raises(RuntimeError, match="corrupt batch"):
-                process_s3_traces.run(**TASK_KWARGS)
-        finally:
-            process_s3_traces.pop_request()
-
-        assert quarantine_attempts == []
-
-    @pytest.fixture(scope="class")
-    def never_retrying_task(self):
-        """The task's own body, as a task created with ``dont_autoretry_for``.
-
-        Celery reads ``dont_autoretry_for`` once, when it wraps a new task for
-        autoretry, so the option has to be there when the task is created.
-        """
-        return app.task(
-            bind=True,
-            name="tests.worker.process_s3_traces_with_a_permanent_error",
-            autoretry_for=(Exception,),
-            dont_autoretry_for=(PermanentError,),
-            retry_backoff=True,
-            max_retries=process_s3_traces.max_retries,
-        )(process_s3_traces.__wrapped__.__func__)
-
-    def test_error_celery_never_retries_is_quarantined_on_its_only_attempt(
-        self, s3, counters, never_retrying_task
-    ):
+    def test_error_celery_never_retries_is_quarantined_on_its_only_attempt(self, s3, counters):
         quarantined, _ = counters
         s3.download_json.side_effect = PermanentError("unreadable batch")
 
-        result = never_retrying_task.apply(kwargs=TASK_KWARGS, throw=False)
+        result = never_retried_task.apply(kwargs=TASK_KWARGS, throw=False)
 
         assert s3.download_json.call_count == 1
         s3.copy_object.assert_called_once_with(BATCH_KEY, FAILED_KEY)
@@ -238,20 +209,23 @@ class TestProcessS3TracesFinalAttempt:
         assert result.state == "FAILURE"
         assert str(result.result) == "unreadable batch"
 
-    def test_other_errors_on_that_task_still_wait_for_the_last_attempt(
-        self, s3, monkeypatch, never_retrying_task
+    def test_storage_error_while_quarantining_is_logged_and_the_task_still_fails(
+        self, s3, monkeypatch, caplog
     ):
-        attempts: list[int] = []
-        monkeypatch.setattr(
-            ingest_quarantine,
-            "quarantine_batch",
-            lambda s3_service, s3_key: attempts.append(never_retrying_task.request.retries),
-        )
+        # The task body gets the service; the hook's own call then fails.
+        get_s3_service = MagicMock(side_effect=[s3, RuntimeError("storage unavailable")])
+        monkeypatch.setattr("rest.services.s3.get_s3_service", get_s3_service)
 
-        result = never_retrying_task.apply(kwargs=TASK_KWARGS, throw=False)
+        with caplog.at_level(logging.ERROR, logger="worker.ingest_tasks"):
+            result = process_s3_traces.apply(
+                kwargs=TASK_KWARGS, retries=process_s3_traces.max_retries, throw=False
+            )
 
-        assert s3.download_json.call_count == never_retrying_task.max_retries + 1
-        assert attempts == [never_retrying_task.max_retries]
+        assert get_s3_service.call_count == 2
+        s3.copy_object.assert_not_called()
+        assert "Could not quarantine the batch of task" in caplog.text
+        assert "storage unavailable" in caplog.text
+        assert result.state == "FAILURE"
         assert str(result.result) == "corrupt batch"
 
     def test_direct_call_never_quarantines(self, s3, quarantine_attempts):

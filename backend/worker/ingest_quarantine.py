@@ -1,7 +1,7 @@
 """Quarantine for ingest batches that failed every processing attempt.
 
-Ingest batches are staged under ``events/ingest/`` when stored as the OTLP
-request body, and under ``events/otel/`` when decoded to OTLP JSON. A batch
+Batches are accepted from both staging prefixes: ``events/ingest/`` (the OTLP
+request body as received) and ``events/otel/`` (decoded OTLP JSON). A batch
 whose last attempt fails would otherwise stay among the batches that succeeded,
 leaving only an error log behind, and under ``events/ingest/`` it would expire
 with them. Moving it to ``events/failed/`` keeps it under a separate, longer
@@ -73,33 +73,14 @@ def failed_key_for(s3_key: str) -> str | None:
     return None
 
 
-def quarantine_batch(s3_service, s3_key: str) -> bool:
-    """Move an ingest batch to ``events/failed/``: copy, then delete the original.
-
-    Never raises. The caller is already handling the batch's own failure and
-    must re-raise that, not an error from here.
-
-    - Copy fails: the original is kept, nothing is deleted, and
-      ``ingest.batch_quarantine_failed{stage="copy"}`` is counted.
-    - Copy succeeds: ``ingest.batches_quarantined`` is counted. If the delete
-      then fails, the original is kept too, under its own prefix's retention,
-      and ``ingest.batch_quarantine_failed{stage="delete"}`` is counted.
-    - A key outside ``events/ingest/`` and ``events/otel/`` is not moved; only a
-      warning is logged.
-
-    Args:
-        s3_service: S3Service holding the batch
-        s3_key: Full S3 key of the batch
-
-    Returns:
-        True when the batch was copied to ``events/failed/``
-    """
+def quarantine_batch(s3_service, s3_key: str) -> None:
+    """Copy to events/failed/, then delete the original. Never raises."""
     failed_key = failed_key_for(s3_key)
     if failed_key is None:
         logger.warning(
             "Not quarantining %s: key is outside %s", s3_key, " and ".join(INGEST_PREFIXES)
         )
-        return False
+        return
 
     try:
         s3_service.copy_object(s3_key, failed_key)
@@ -111,7 +92,7 @@ def quarantine_batch(s3_service, s3_key: str) -> bool:
             exc_info=True,
         )
         _count(_quarantine_failed_counter, {"stage": "copy"})
-        return False
+        return
 
     _count(_quarantined_counter)
     logger.warning("Quarantined %s to %s after its final attempt failed", s3_key, failed_key)
@@ -126,5 +107,3 @@ def quarantine_batch(s3_service, s3_key: str) -> bool:
             exc_info=True,
         )
         _count(_quarantine_failed_counter, {"stage": "delete"})
-
-    return True
