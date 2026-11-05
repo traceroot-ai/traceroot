@@ -2,13 +2,18 @@
 Detector trigger evaluation and BullMQ enqueue.
 
 Called from process_s3_traces after ClickHouse insert.
-Non-blocking: exceptions are caught and logged, never re-raised.
+Non-blocking by default: exceptions are caught and logged, never re-raised;
+``enqueue_detector_runs(..., raise_on_error=True)`` is reserved for the
+remote-only finalizer, whose Celery task retries on failure.
 
 Exactly-once triggering: the ingest batch carrying a trace's root span claims
 the trace via a Redis lock, evaluates trigger conditions plus deterministic
 sampling, and enqueues a single delayed BullMQ job. The worker waits until the
 trace has been quiet for EVALUATOR_DELAY (no new span) before evaluating, so
-later batches need no extra enqueue work.
+later batches need no extra enqueue work. A remote-parent entry's delayed
+finalizer reuses the same claim (origin-marked) after its quiet window; a
+caller root that lands later reconciles against the partial decision instead
+of losing the claim.
 """
 
 import asyncio
@@ -16,6 +21,7 @@ import hashlib
 import json
 import logging
 import operator
+import time
 import uuid
 from decimal import Decimal
 
@@ -24,9 +30,34 @@ logger = logging.getLogger(__name__)
 # BullMQ queue name — must match TypeScript DETECTOR_RUN_QUEUE constant
 DETECTOR_RUN_QUEUE = "detector-run"
 
+# Origin marker stored in the enqueue-claim JSON when the claim was taken by
+# the remote-only finalizer rather than a true-root batch.  A later true-root
+# batch that loses the NX claim to it re-evaluates the triggers with the
+# complete trace and enqueues only the detectors the partial decision missed.
+_REMOTE_FINALIZER_ORIGIN = "remote_finalizer"
+REMOTE_FINALIZER_ORIGIN = _REMOTE_FINALIZER_ORIGIN  # public alias for callers
+
+# Job-id suffix for that reconciliation enqueue.  Distinct from the primary
+# ``{project}--{trace}`` id so the finalizer's partial job and the true root's
+# additional detectors never dedup each other away; deterministic, so a replay
+# of the reconcile re-adds the same id and BullMQ dedups it to a no-op.
+_RECONCILE_JOB_ID_SUFFIX = "--r2"
+
+# How long the reconcile path waits for a remote finalizer seen mid-decision to
+# finish writing its final detector set (its decide phase is a few milliseconds
+# after a >=60s quiet window).  Still undecided after this budget, the set is
+# treated as unknown and the full current trigger result is enqueued instead —
+# preferring a bounded duplicate over a permanently lost detector run.
+_DECIDING_POLL_SECONDS = 0.2
+_DECIDING_MAX_POLLS = 5
+
 # Lock TTL for the per-trace enqueue claim. Detection only ever fires from the
 # root-bearing batch; the NX lock makes that enqueue exactly-once.
 _LOCK_TTL_SECONDS = 3600
+
+# Separate from the final detector claim.  A remote entry is only a provisional
+# root identity and must be allowed to wait for a later caller root.
+_REMOTE_FINALIZATION_TTL_SECONDS = 3600
 
 # Initial delay on the enqueued job; the worker then waits until the trace has
 # been quiet this long (no new span) before evaluating. Must match the
@@ -67,6 +98,49 @@ def _lock_key(project_id: str, trace_id: str) -> str:
         str: The namespaced Redis key for this ``(project, trace)`` claim.
     """
     return f"detector-enq:{project_id}:{trace_id}"
+
+
+def _remote_finalization_key(project_id: str, trace_id: str) -> str:
+    return f"detector-remote-finalize:{project_id}:{trace_id}"
+
+
+def schedule_remote_detector_finalization(project_id: str, trace_ids: set[str]) -> None:
+    """Schedule one post-quiescence decision for provisional remote roots.
+
+    This claim is deliberately separate from :func:`_lock_key`.  If the caller
+    root arrives first, it can take the final claim normally; if no caller root
+    ever arrives, the existing 60-second quiet-window behavior still gives the
+    remote-only trace one final detector decision.
+
+    Scheduling is per-trace: a broker failure on one trace logs and continues,
+    so the remaining traces in the batch still receive their finalization task.
+    The failed attempt releases only the lock it created (token-checked), so a
+    later remote-entry batch or S3 redelivery can re-schedule that trace.
+    """
+
+    if not trace_ids:
+        return
+    redis_client = _get_redis()
+    from worker.ingest_tasks import finalize_remote_detector_runs
+
+    for trace_id in trace_ids:
+        key = _remote_finalization_key(project_id, trace_id)
+        # The value doubles as the release token: unique per attempt, so a
+        # failing attempt's compare-and-delete can never clear a successor's
+        # re-claim of the same key.
+        token = f"scheduled:{uuid.uuid4().hex}"
+        if not redis_client.set(key, token, nx=True, ex=_REMOTE_FINALIZATION_TTL_SECONDS):
+            continue
+        try:
+            finalize_remote_detector_runs.apply_async(
+                args=[project_id, trace_id], countdown=EVALUATOR_DELAY / 1000
+            )
+        except Exception:
+            _release_lock_if_value(redis_client, key, token)
+            logger.error(
+                f"Failed to schedule remote detector finalization for trace {trace_id}",
+                exc_info=True,
+            )
 
 
 def _release_lock_if_value(redis_client, key: str, expected: str) -> None:
@@ -363,7 +437,7 @@ def _get_trace_summaries(
             WHERE project_id = {project_id:String}
               AND trace_start_time >= {first_span_start:DateTime64(3)}
               AND trace_id IN {trace_ids:Array(String)}
-            ORDER BY ch_update_time DESC
+            ORDER BY root_version DESC, ch_update_time DESC
             LIMIT 1 BY project_id, trace_id
             """,
             parameters={**parameters, "first_span_start": first_span_start},
@@ -451,12 +525,119 @@ def _detector_runs_on_trace(summary: dict, detector: dict) -> bool:
     return True
 
 
+def _triggered_detector_ids(trace_id: str, detectors: list[dict], summary: dict) -> list[str]:
+    """Detectors whose classification, conditions, and sampling all pass."""
+
+    return [
+        d["id"]
+        for d in detectors
+        if _detector_runs_on_trace(summary, d)
+        and _passes_trigger(summary, d["conditions"])
+        and _sample_passes(trace_id, d["id"], d["sample_rate"])
+    ]
+
+
+def _reconcile_remote_finalized_claim(
+    redis_client,
+    project_id: str,
+    trace_id: str,
+    claim_value,
+    detectors: list[dict],
+    summary: dict,
+) -> None:
+    """Add the detectors a remote-only finalizer's partial decision missed.
+
+    The finalizer evaluates triggers at the end of the quiet window, when the
+    trace may hold only the callee's spans: a duration-conditioned detector
+    fails there and is never enqueued, yet the claim it takes is the one-time
+    NX guard — the caller root arriving minutes later would lose it and the
+    detector would never run.  A true-root batch that loses the claim to a
+    remote-finalizer claim therefore re-evaluates the triggers against the now
+    complete trace and enqueues the DIFFERENCE under a distinct deterministic
+    job id.  Sampling is hash-deterministic per (trace, detector), so
+    re-evaluating with more data cannot re-roll a sample decision; only
+    conditions can change.
+
+    Any other claim (a true-root winner, which evaluated the same complete
+    data) keeps the historical behavior: the loser skips.
+    """
+
+    key = _lock_key(project_id, trace_id)
+    try:
+        claim = json.loads(claim_value)
+    except (TypeError, ValueError):
+        logger.warning(
+            f"Unreadable detector enqueue claim for trace {trace_id}; leaving it untouched"
+        )
+        return
+    if not isinstance(claim, dict) or claim.get("origin") != _REMOTE_FINALIZER_ORIGIN:
+        return
+
+    if claim.get("state") == "deciding":
+        # The finalizer holds the claim but has not written its final detector
+        # set yet.  Give it a short budget to settle so the difference is
+        # computed against what was actually enqueued; past the budget the set
+        # is treated as unknown (see _DECIDING_MAX_POLLS) — preferring a
+        # bounded duplicate over a lost detector run.
+        for _ in range(_DECIDING_MAX_POLLS):
+            time.sleep(_DECIDING_POLL_SECONDS)
+            raw = redis_client.get(key)
+            if raw is None:
+                # The deciding attempt failed and released its claim; the
+                # batch-level retry or a later batch re-claims cleanly.
+                return
+            try:
+                claim = json.loads(raw)
+            except (TypeError, ValueError):
+                return
+            if claim.get("state") != "deciding":
+                break
+
+    remote_ids = set(claim.get("detector_ids") or [])
+    additional = [
+        detector_id
+        for detector_id in _triggered_detector_ids(trace_id, detectors, summary)
+        if detector_id not in remote_ids
+    ]
+    if not additional:
+        return
+
+    # The primary job id is taken by the finalizer's enqueue, so the additional
+    # detectors ride a deterministic second id: replays re-add the same id and
+    # BullMQ dedups them to a no-op.  The claim JSON is advisory only — a
+    # concurrent writer may overwrite it — correctness rests on the job ids.
+    _add_bullmq_job(
+        f"{project_id}--{trace_id}{_RECONCILE_JOB_ID_SUFFIX}",
+        {
+            "traceId": trace_id,
+            "detectorIds": additional,
+            "projectId": project_id,
+        },
+    )
+    redis_client.set(
+        key,
+        json.dumps(
+            {
+                "state": "pending",
+                "origin": _REMOTE_FINALIZER_ORIGIN,
+                "detector_ids": sorted(remote_ids | set(additional)),
+            }
+        ),
+        ex=_LOCK_TTL_SECONDS,
+    )
+    logger.debug(
+        f"Reconciled remote-finalized detector claim for trace {trace_id}: "
+        f"added detectors {additional}"
+    )
+
+
 def _claim_and_enqueue(
     redis_client,
     project_id: str,
     trace_id: str,
     detectors: list[dict],
     summary: dict,
+    origin: str | None = None,
 ) -> None:
     """Root-bearing batch: claim the trace and enqueue at most one detection job.
 
@@ -464,7 +645,9 @@ def _claim_and_enqueue(
     trigger conditions plus deterministic sampling and enqueues a single delayed
     BullMQ job for the detectors that fire. A lost claim (ingest-task retry
     replay, duplicate root delivery, or a concurrent batch) is a no-op, keeping
-    enqueue exactly-once.
+    enqueue exactly-once — unless the winner was the remote-only finalizer
+    (``origin`` of the existing claim), whose decision was made on partial data;
+    see :func:`_reconcile_remote_finalized_claim`.
 
     Args:
         redis_client (redis.Redis): Redis client for the NX claim and
@@ -475,39 +658,42 @@ def _claim_and_enqueue(
             ``sample_rate`` and ``conditions``.
         summary (dict): Trace summary fields used for trigger evaluation (e.g.
             ``environment``).
+        origin (str | None): Marker stored in the claim JSON identifying the
+            caller; ``_REMOTE_FINALIZER_ORIGIN`` for the remote finalizer,
+            ``None`` for a true-root batch.
 
     Returns:
         None: On an enqueue failure the lock value this attempt wrote is
             released (so a later batch can re-claim) and the error is re-raised
             to the caller, which logs it per-trace without breaking ingestion.
     """
-    # The lock's JSON payload (state/token/detector_ids) is diagnostic only —
-    # nothing reads it back now that re-eval is gone; the key is purely an NX
-    # dedup marker preventing a second enqueue for the same trace.
+    # The lock's JSON payload (state/origin/token/detector_ids) is advisory —
+    # the reconcile path reads the origin and detector ids, everything else is
+    # diagnostic. The key is the NX dedup marker; BullMQ job ids dedup re-adds.
     key = _lock_key(project_id, trace_id)
     token = uuid.uuid4().hex
-    last_written = json.dumps({"state": "deciding", "token": token})
+    last_written = json.dumps({"state": "deciding", "token": token, "origin": origin})
 
     # NX claim: loses against ingest-task retry replay, duplicate root
     # delivery, or a concurrent batch — exactly-once holds either way.
     if not redis_client.set(key, last_written, nx=True, ex=_LOCK_TTL_SECONDS):
-        logger.debug(f"Detector enqueue already claimed for trace {trace_id}; skipping")
+        existing = redis_client.get(key)
+        if origin is None and existing is not None:
+            _reconcile_remote_finalized_claim(
+                redis_client, project_id, trace_id, existing, detectors, summary
+            )
+        else:
+            logger.debug(f"Detector enqueue already claimed for trace {trace_id}; skipping")
         return
 
     try:
-        triggered_ids = [
-            d["id"]
-            for d in detectors
-            if _detector_runs_on_trace(summary, d)
-            and _passes_trigger(summary, d["conditions"])
-            and _sample_passes(trace_id, d["id"], d["sample_rate"])
-        ]
+        triggered_ids = _triggered_detector_ids(trace_id, detectors, summary)
 
         if not triggered_ids:
             # Sticky no: a replay must not re-roll conditions or sampling.
             redis_client.set(
                 key,
-                json.dumps({"state": "sampled_out", "token": token}),
+                json.dumps({"state": "sampled_out", "token": token, "origin": origin}),
                 ex=_LOCK_TTL_SECONDS,
             )
             return
@@ -522,7 +708,14 @@ def _claim_and_enqueue(
         )
         redis_client.set(
             key,
-            json.dumps({"state": "pending", "detector_ids": triggered_ids, "token": token}),
+            json.dumps(
+                {
+                    "state": "pending",
+                    "origin": origin,
+                    "detector_ids": triggered_ids,
+                    "token": token,
+                }
+            ),
             ex=_LOCK_TTL_SECONDS,
         )
         logger.debug(f"Enqueued detector run: trace={trace_id} detectors={triggered_ids}")
@@ -533,7 +726,13 @@ def _claim_and_enqueue(
         raise
 
 
-def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
+def enqueue_detector_runs(
+    project_id: str,
+    traces_with_root: set[str],
+    *,
+    raise_on_error: bool = False,
+    claim_origin: str | None = None,
+) -> None:
     """Claim and (conditions + sampling permitting) enqueue detection for traces
     whose root span arrived in this ingest batch.
 
@@ -541,13 +740,23 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
     batches without a trace's root span enqueue nothing for it (the worker waits
     out the quiescence window before evaluating, so late spans need no enqueue).
 
-    This function is intentionally non-raising — detector failures must not
-    break trace ingestion.
+    With the default ``raise_on_error=False`` this function does not raise —
+    detector failures must not break trace ingestion. With
+    ``raise_on_error=True`` a failure still propagates, but only after every
+    remaining trace in the batch has been attempted, so one trace's broker error
+    never drops the rest. The post-quiescence finalizer uses that mode to avoid
+    acknowledging a failed final detector decision.
 
     Args:
         project_id (str): Project that owns the traces.
         traces_with_root (set[str]): Trace IDs whose root span arrived in this
             batch; each is claimed once and enqueued if it triggers.
+        raise_on_error (bool): Propagate detector failures to a retrying caller.
+            Ordinary ingest keeps the historical non-blocking behavior.
+        claim_origin (str | None): Marker stored in the claim JSON identifying
+            the caller. ``_REMOTE_FINALIZER_ORIGIN`` marks the remote-only
+            finalizer's decision, which a later true-root batch may need to
+            reconcile against (its trigger data was partial).
     """
     if not traces_with_root:
         return
@@ -584,12 +793,15 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
                     trace_id,
                     detectors,
                     summaries.get(trace_id, {}),
+                    origin=claim_origin,
                 )
             except Exception as trace_err:
                 logger.error(
                     f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",
                     exc_info=True,
                 )
+                if raise_on_error:
+                    raise
 
     except Exception as e:
         # Non-blocking: log and return, never raise
@@ -597,3 +809,5 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             f"Failed to enqueue detector runs for project {project_id}: {e}",
             exc_info=True,
         )
+        if raise_on_error:
+            raise

@@ -108,6 +108,8 @@ class ClickHouseClient:
                     now,  # ch_update_time
                     t.get("environment"),
                     1 if t.get("is_evaluation") else 0,
+                    t.get("root_kind", 0),
+                    t.get("root_version", 0),
                 ]
             )
 
@@ -131,6 +133,8 @@ class ClickHouseClient:
                 "ch_update_time",
                 "environment",
                 "is_evaluation",
+                "root_kind",
+                "root_version",
             ],
         )
 

@@ -113,6 +113,26 @@ class TestPrimaryEnqueue:
         assert state["detector_ids"] == ["d-pass"]
         assert state["token"]
 
+    def test_complete_trace_can_claim_multiple_eligible_detectors(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """A complete 60-second trace keeps both unconditional and duration detectors."""
+        _patch_detectors(
+            monkeypatch,
+            [
+                _detector("d-any"),
+                _detector(
+                    "d-long",
+                    conditions=[{"field": "duration_ms", "op": ">", "value": 30_000}],
+                ),
+            ],
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 60_000, "is_evaluation": False}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        assert mock_add_job.call_args.args[1]["detectorIds"] == ["d-any", "d-long"]
+
     def test_non_root_batch_enqueues_nothing(self, fake_redis, mock_add_job, monkeypatch):
         """GROUND TRUTH (exactly-once): only the root-bearing batch enqueues. A
         later batch whose trace is NOT in traces_with_root claims nothing and
@@ -193,6 +213,284 @@ class TestPrimaryEnqueue:
 
         assert added == [f"{PROJECT}--{TRACE}"]
         assert _lock_state(fake_redis)["state"] == "pending"
+
+
+class TestRemoteRootFinalization:
+    def test_remote_claim_is_separate_and_deduplicated(self, fake_redis, monkeypatch):
+        finalizer = MagicMock()
+        monkeypatch.setattr("worker.ingest_tasks.finalize_remote_detector_runs", finalizer)
+
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE})
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE})
+
+        key = dt._remote_finalization_key(PROJECT, TRACE)
+        # The value is the release token: unique per attempt, so a failing
+        # attempt's compare-and-delete cannot clear a successor's re-claim.
+        assert fake_redis.store[key].startswith(b"scheduled:")
+        finalizer.apply_async.assert_called_once_with(
+            args=[PROJECT, TRACE], countdown=dt.EVALUATOR_DELAY / 1000
+        )
+        # The provisional marker is not the final detector claim.
+        assert dt._lock_key(PROJECT, TRACE) not in fake_redis.store
+
+    def test_one_broker_failure_does_not_drop_the_rest_of_the_batch(self, fake_redis, monkeypatch):
+        """A broker exception on one trace's apply_async logs and continues:
+        every later trace in the batch still receives its finalization task."""
+        finalizer = MagicMock()
+        finalizer.apply_async.side_effect = [RuntimeError("broker down"), None]
+        monkeypatch.setattr("worker.ingest_tasks.finalize_remote_detector_runs", finalizer)
+        other = "bb" * 16
+
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE, other})  # must not raise
+
+        assert finalizer.apply_async.call_count == 2
+        scheduled = [
+            dt._remote_finalization_key(PROJECT, TRACE),
+            dt._remote_finalization_key(PROJECT, other),
+        ]
+        held = [k for k in scheduled if k in fake_redis.store]
+        released = [k for k in scheduled if k not in fake_redis.store]
+        assert len(held) == 1  # the successful attempt keeps its claim
+        assert len(released) == 1  # the failed attempt released its own claim
+
+    def test_failed_attempt_releases_only_its_own_token(self, fake_redis, monkeypatch):
+        """The released claim cannot delete a successor's state: a re-schedule
+        after a failure claims the key again and schedules normally."""
+        finalizer = MagicMock()
+        finalizer.apply_async.side_effect = [RuntimeError("broker down"), None]
+        monkeypatch.setattr("worker.ingest_tasks.finalize_remote_detector_runs", finalizer)
+
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE})  # fails, releases
+        dt.schedule_remote_detector_finalization(PROJECT, {TRACE})  # re-claims
+
+        assert finalizer.apply_async.call_count == 2
+        assert dt._remote_finalization_key(PROJECT, TRACE) in fake_redis.store
+
+    def test_finalizer_waits_for_quiescence_before_final_claim(self, monkeypatch):
+        import worker.ingest_tasks as ingest_tasks
+
+        ch = MagicMock()
+        ch.query.return_value.result_rows = [(10_000,)]
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        monkeypatch.setattr(dt, "enqueue_detector_runs", MagicMock())
+        reschedule = MagicMock()
+        monkeypatch.setattr(ingest_tasks.finalize_remote_detector_runs, "apply_async", reschedule)
+
+        ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
+
+        dt.enqueue_detector_runs.assert_not_called()
+        reschedule.assert_called_once_with(
+            args=[PROJECT, TRACE], countdown=(dt.EVALUATOR_DELAY - 10_000) / 1000
+        )
+
+    def test_finalizer_uses_the_normal_claim_after_quiescence(self, monkeypatch):
+        import worker.ingest_tasks as ingest_tasks
+
+        ch = MagicMock()
+        ch.query.return_value.result_rows = [(dt.EVALUATOR_DELAY,)]
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        enqueue = MagicMock()
+        monkeypatch.setattr(dt, "enqueue_detector_runs", enqueue)
+        reschedule = MagicMock()
+        monkeypatch.setattr(ingest_tasks.finalize_remote_detector_runs, "apply_async", reschedule)
+
+        ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
+
+        enqueue.assert_called_once_with(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+        reschedule.assert_not_called()
+
+    def test_finalizer_propagates_enqueue_failure_for_celery_retry(self, monkeypatch):
+        import worker.ingest_tasks as ingest_tasks
+
+        ch = MagicMock()
+        ch.query.return_value.result_rows = [(dt.EVALUATOR_DELAY,)]
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
+        enqueue = MagicMock(side_effect=RuntimeError("redis unavailable"))
+        monkeypatch.setattr(dt, "enqueue_detector_runs", enqueue)
+
+        with pytest.raises(RuntimeError, match="redis unavailable"):
+            ingest_tasks.finalize_remote_detector_runs.run(PROJECT, TRACE)
+
+        enqueue.assert_called_once_with(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+
+
+class TestRemoteFinalizerReconcile:
+    """End to end through the real claim path on a fake Redis: the remote-only
+    finalizer takes the one-time claim with partial data; a caller root that
+    lands LATER must still run the duration-conditioned detector it missed."""
+
+    def _detector(self, detector_id, conditions=None, sample_rate=100):
+        return {"id": detector_id, "sample_rate": sample_rate, "conditions": conditions or []}
+
+    def test_finalizer_decision_then_caller_root_enqueues_the_difference(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """Somay's blocking scenario: the callee batch's finalizer claims with
+        a 0.075 ms trace (duration detector fails); the caller's 60 s root
+        lands later and must re-run the triggers with complete data."""
+        _patch_detectors(
+            monkeypatch,
+            [
+                self._detector("d-any"),
+                self._detector(
+                    "d-long", conditions=[{"field": "duration_ms", "op": ">", "value": 30_000}]
+                ),
+            ],
+        )
+        # Finalizer time: only the callee's spans exist.
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 75, "is_evaluation": False}})
+        dt.enqueue_detector_runs(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+
+        assert mock_add_job.call_count == 1
+        assert mock_add_job.call_args.args[1]["detectorIds"] == ["d-any"]
+        state = _lock_state(fake_redis)
+        assert state["origin"] == dt.REMOTE_FINALIZER_ORIGIN
+        assert state["detector_ids"] == ["d-any"]
+
+        # Caller root arrives with the complete 60 s trace.
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 60_000, "is_evaluation": False}})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        assert mock_add_job.call_count == 2
+        reconcile_job_id, reconcile_data = mock_add_job.call_args.args
+        assert reconcile_job_id == f"{PROJECT}--{TRACE}--r2"
+        # The unconditional detector already ran via the finalizer's job; only
+        # the missed duration-conditioned detector is added.
+        assert reconcile_data["detectorIds"] == ["d-long"]
+
+    def test_caller_root_first_then_finalizer_claim_loss_is_a_noop(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """Caller root first (complete data, full claim): the later finalizer
+        loses the NX claim to a non-remote claim and adds nothing."""
+        _patch_detectors(
+            monkeypatch,
+            [
+                self._detector("d-any"),
+                self._detector(
+                    "d-long", conditions=[{"field": "duration_ms", "op": ">", "value": 30_000}]
+                ),
+            ],
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 60_000, "is_evaluation": False}})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 75, "is_evaluation": False}})
+        dt.enqueue_detector_runs(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+
+        assert mock_add_job.call_count == 1
+
+    def test_reconcile_is_idempotent_under_replay(self, fake_redis, mock_add_job, monkeypatch):
+        """A replayed true-root batch re-reads the (now merged) claim and adds
+        nothing: the merged detector set covers the difference."""
+        _patch_detectors(
+            monkeypatch,
+            [
+                self._detector("d-any"),
+                self._detector(
+                    "d-long", conditions=[{"field": "duration_ms", "op": ">", "value": 30_000}]
+                ),
+            ],
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 75, "is_evaluation": False}})
+        dt.enqueue_detector_runs(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 60_000, "is_evaluation": False}})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+        assert mock_add_job.call_count == 2
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})  # replay
+        assert mock_add_job.call_count == 2
+
+    def test_reconcile_respects_the_evaluation_exclusion(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """If the caller root turns out to be an EVALUATION root, the
+        reconcile adds nothing — detectors must not run on evaluation traces
+        (the finalizer's already-enqueued partial job is bounded to one run).
+        """
+        _patch_detectors(monkeypatch, [self._detector("d-any")])
+        _patch_summaries(monkeypatch, {TRACE: {"is_evaluation": False}})
+        dt.enqueue_detector_runs(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+        assert mock_add_job.call_count == 1
+
+        _patch_summaries(monkeypatch, {TRACE: {"is_evaluation": True}})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        assert mock_add_job.call_count == 1
+
+    def test_deciding_remote_claim_is_polled_then_reconciled(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """A finalizer seen mid-decision settles during the reconcile poll:
+        the difference is computed against its final set, not against unknown."""
+        key = dt._lock_key(PROJECT, TRACE)
+        fake_redis.set(
+            key,
+            json.dumps({"state": "deciding", "origin": dt.REMOTE_FINALIZER_ORIGIN, "token": "t"}),
+        )
+
+        # The finalizer finishes its decision while the reconcile polls — the
+        # first poll sleep settles the claim to its final pending set.
+        def settle_during_poll(seconds):
+            fake_redis.set(
+                key,
+                json.dumps(
+                    {
+                        "state": "pending",
+                        "origin": dt.REMOTE_FINALIZER_ORIGIN,
+                        "detector_ids": ["d-any"],
+                        "token": "t",
+                    }
+                ),
+            )
+
+        monkeypatch.setattr(dt.time, "sleep", settle_during_poll)
+        _patch_detectors(
+            monkeypatch,
+            [
+                self._detector("d-any"),
+                self._detector(
+                    "d-long",
+                    conditions=[{"field": "duration_ms", "op": ">", "value": 30_000}],
+                ),
+            ],
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"duration_ms": 60_000, "is_evaluation": False}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        assert mock_add_job.call_count == 1
+        job_id, data = mock_add_job.call_args.args
+        assert job_id == f"{PROJECT}--{TRACE}--r2"
+        assert data["detectorIds"] == ["d-long"]
+
+    def test_remote_only_trace_gets_its_final_decision_without_a_caller_root(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """No caller root ever arrives: the finalizer's own claim is the final
+        decision, taken under the remote origin marker."""
+        _patch_detectors(monkeypatch, [self._detector("d-any")])
+        _patch_summaries(monkeypatch, {TRACE: {"is_evaluation": False}})
+
+        dt.enqueue_detector_runs(
+            PROJECT, {TRACE}, raise_on_error=True, claim_origin=dt.REMOTE_FINALIZER_ORIGIN
+        )
+
+        job_id, _data = mock_add_job.call_args.args
+        assert job_id == f"{PROJECT}--{TRACE}"
+        assert _lock_state(fake_redis)["origin"] == dt.REMOTE_FINALIZER_ORIGIN
 
 
 # ── Failure release (token-checked) ─────────────────────────────────────
