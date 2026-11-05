@@ -21,15 +21,38 @@ Later, a worker will process these files and insert into ClickHouse.
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class S3ObjectStream:
+    """An object opened for reading, with the metadata stored alongside it.
+
+    ``body`` holds an open connection until it is read to the end or closed, so
+    whoever receives it must close it.
+    """
+
+    body: StreamingBody
+    content_type: str | None
+    content_length: int | None
+
+
+def _error_status(e: ClientError) -> tuple[int | None, str | None]:
+    """The HTTP status and error code of a failed call; either may be missing."""
+    return (
+        e.response.get("ResponseMetadata", {}).get("HTTPStatusCode"),
+        e.response.get("Error", {}).get("Code"),
+    )
 
 
 class S3Service:
@@ -78,6 +101,95 @@ class S3Service:
                 config=config,
             )
         return self._client
+
+    def object_exists(self, s3_key: str) -> bool:
+        """Check whether an object is stored at a key, with a HEAD request.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            True if the object exists, False if the store answers 404
+
+        Raises:
+            ClientError: For any other failure, so a caller never mistakes an
+                unreachable or forbidden store for a missing object
+        """
+        client = self._get_client()
+        try:
+            client.head_object(Bucket=self._bucket_name, Key=s3_key)
+        except ClientError as e:
+            status, code = _error_status(e)
+            if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        return True
+
+    def put_object_if_absent(self, s3_key: str, body: bytes, content_type: str) -> bool:
+        """Store an object only if nothing is stored at its key yet.
+
+        A conditional PUT (``If-None-Match: *``). Built for content-addressed keys,
+        where an object already at the key holds the same bytes: a 412 means another
+        writer got there first, so it counts as success and nothing is overwritten.
+
+        Args:
+            s3_key: Full S3 key path
+            body: Object bytes
+            content_type: ContentType stored with the object
+
+        Returns:
+            True if this call wrote the object, False if the key was already taken
+
+        Raises:
+            ClientError: For any other failure. That includes a 409 from a
+                concurrent conditional write to the same key, which S3 resolves
+                on retry.
+        """
+        client = self._get_client()
+        try:
+            client.put_object(
+                Bucket=self._bucket_name,
+                Key=s3_key,
+                Body=body,
+                ContentType=content_type,
+                IfNoneMatch="*",
+            )
+        except ClientError as e:
+            status, code = _error_status(e)
+            if status == 412 or code == "PreconditionFailed":
+                logger.debug(f"Object already stored at s3://{self._bucket_name}/{s3_key}")
+                return False
+            raise
+        logger.debug(f"Stored object at s3://{self._bucket_name}/{s3_key}")
+        return True
+
+    def get_object_stream(self, s3_key: str) -> S3ObjectStream | None:
+        """Open an object for streaming, without reading its body into memory.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            The open body with the object's ContentType and ContentLength, or None
+            if nothing is stored at the key. The caller must close the body.
+
+        Raises:
+            ClientError: For any other failure, so a caller never mistakes an
+                unreachable or forbidden store for a missing object
+        """
+        client = self._get_client()
+        try:
+            response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
+        except ClientError as e:
+            status, code = _error_status(e)
+            if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+        return S3ObjectStream(
+            body=response["Body"],
+            content_type=response.get("ContentType"),
+            content_length=response.get("ContentLength"),
+        )
 
     def ensure_bucket_exists(self) -> None:
         """Ensure the bucket exists, create if not."""
