@@ -3,6 +3,7 @@
 import gzip
 import io
 import json
+import logging
 import subprocess
 import sys
 import zlib
@@ -20,9 +21,10 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from rest.services.s3 import S3Service
 from shared.bounded_gzip import GzipTooLargeError
 from shared.config import settings
+from worker.batch_budget import BudgetExceededError
 from worker.ingest_tasks import process_s3_traces
 from worker.otel_transform import transform_otel_to_clickhouse
-from worker.staged_batch import load_staged_batch
+from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 ROOT = Path(__file__).resolve().parents[2]
 TRACE_ID = bytes.fromhex("0af7651916cd43dd8448eb211c80319c")
@@ -123,7 +125,7 @@ class FakeS3:
 
 def staged_three_ways(req: ExportTraceServiceRequest) -> FakeS3:
     body = req.SerializeToString()
-    # The .json bytes are what upload_json writes for the decoded request.
+    # The .json bytes are the decoded request, as the API staged it before raw bodies.
     as_json = json.dumps(MessageToDict(req), ensure_ascii=False).encode("utf-8")
     return FakeS3(
         {
@@ -190,47 +192,89 @@ class TestFormatsAreEquivalent:
 
 
 class TestBadBatchesRaise:
-    """Each of these raises, so the Celery task retries and then fails."""
+    """Bytes no attempt can decode raise ``UndecodableBatchError``, with the cause kept."""
 
     def test_unknown_suffix(self):
         s3 = FakeS3({f"{KEY}.bin": b"whatever"})
-        with pytest.raises(ValueError, match="Unknown staged batch format"):
+        with pytest.raises(UndecodableBatchError, match="Unknown staged batch format"):
             load_staged_batch(s3, f"{KEY}.bin")
         assert s3.calls == []
 
     def test_not_gzip(self):
         s3 = FakeS3({f"{KEY}.pb.gz": make_request().SerializeToString()})
-        with pytest.raises(zlib.error):
+        with pytest.raises(UndecodableBatchError) as raised:
             load_staged_batch(s3, f"{KEY}.pb.gz")
+        assert isinstance(raised.value.__cause__, zlib.error)
 
     def test_gzip_checksum_mismatch(self):
         body = bytearray(gzip.compress(make_request().SerializeToString()))
         body[-8] ^= 0xFF  # first byte of the CRC32 trailer
         s3 = FakeS3({f"{KEY}.pb.gz": bytes(body)})
-        with pytest.raises(zlib.error):
+        with pytest.raises(UndecodableBatchError) as raised:
             load_staged_batch(s3, f"{KEY}.pb.gz")
+        assert isinstance(raised.value.__cause__, zlib.error)
 
     def test_truncated_gzip(self):
         body = gzip.compress(make_request().SerializeToString())
         s3 = FakeS3({f"{KEY}.pb.gz": body[: len(body) // 2]})
-        with pytest.raises(EOFError):
+        with pytest.raises(UndecodableBatchError) as raised:
             load_staged_batch(s3, f"{KEY}.pb.gz")
+        assert isinstance(raised.value.__cause__, EOFError)
 
     def test_corrupt_protobuf(self):
         s3 = FakeS3({f"{KEY}.pb": b"this is not a protobuf at all"})
-        with pytest.raises(DecodeError):
+        with pytest.raises(UndecodableBatchError, match="DecodeError") as raised:
             load_staged_batch(s3, f"{KEY}.pb")
+        assert isinstance(raised.value.__cause__, DecodeError)
 
     def test_corrupt_protobuf_inside_valid_gzip(self):
         s3 = FakeS3({f"{KEY}.pb.gz": gzip.compress(b"this is not a protobuf at all")})
-        with pytest.raises(DecodeError):
+        with pytest.raises(UndecodableBatchError) as raised:
             load_staged_batch(s3, f"{KEY}.pb.gz")
+        assert isinstance(raised.value.__cause__, DecodeError)
 
     def test_gzip_past_the_unzipped_limit(self, monkeypatch):
         monkeypatch.setattr(settings.ingest, "max_unzipped_bytes", 1024)
         s3 = FakeS3({f"{KEY}.pb.gz": gzip.compress(b"\x00" * 4096)})
-        with pytest.raises(GzipTooLargeError):
+        with pytest.raises(UndecodableBatchError) as raised:
             load_staged_batch(s3, f"{KEY}.pb.gz")
+        assert isinstance(raised.value.__cause__, GzipTooLargeError)
+
+    @pytest.mark.parametrize("suffix", [".pb", ".pb.gz"])
+    def test_a_failed_download_is_not_called_undecodable(self, suffix):
+        s3 = MagicMock()
+        s3.download_bytes.side_effect = ConnectionError("S3 unreachable")
+        with pytest.raises(ConnectionError):
+            load_staged_batch(s3, f"{KEY}{suffix}")
+
+
+class TestBudgets:
+    """A batch over the structural budgets is refused before it is parsed."""
+
+    @pytest.mark.parametrize("suffix", [".pb", ".pb.gz"])
+    def test_spans_over_the_budget(self, monkeypatch, suffix):
+        monkeypatch.setattr(settings.ingest, "max_spans", 1)
+        body = make_request().SerializeToString()
+        s3 = FakeS3({f"{KEY}{suffix}": gzip.compress(body) if suffix == ".pb.gz" else body})
+
+        with pytest.raises(UndecodableBatchError, match="more than 1 spans") as raised:
+            load_staged_batch(s3, f"{KEY}{suffix}")
+        assert isinstance(raised.value.__cause__, BudgetExceededError)
+
+    def test_objects_over_the_budget(self, monkeypatch):
+        monkeypatch.setattr(settings.ingest, "max_objects", 10)
+        s3 = FakeS3({f"{KEY}.pb": make_request().SerializeToString()})
+
+        with pytest.raises(UndecodableBatchError, match="more than 10 objects") as raised:
+            load_staged_batch(s3, f"{KEY}.pb")
+        assert isinstance(raised.value.__cause__, BudgetExceededError)
+
+    def test_batch_within_the_budgets_loads(self, monkeypatch):
+        monkeypatch.setattr(settings.ingest, "max_spans", 2)
+        monkeypatch.setattr(settings.ingest, "max_objects", 26)
+        s3 = FakeS3({f"{KEY}.pb": make_request().SerializeToString()})
+
+        assert load_staged_batch(s3, f"{KEY}.pb") == MessageToDict(make_request())
 
 
 class TestIngestTaskReadsEveryFormat:
@@ -262,10 +306,54 @@ class TestIngestTaskReadsEveryFormat:
             assert ch.insert_spans_batch.call_args[0][0] == spans, suffix
             assert ch.insert_traces_batch.call_args[0][0] == traces, suffix
 
-    def test_corrupt_batch_raises_for_a_retry(self, run_task):
+    def test_corrupt_batch_raises_undecodable(self, run_task):
         run_task.s3.objects[f"{KEY}.pb"] = b"this is not a protobuf at all"
-        with pytest.raises(DecodeError):
+        with pytest.raises(UndecodableBatchError):
             run_task(f"{KEY}.pb")
+
+
+TASK_KWARGS = {"s3_key": f"{KEY}.pb", "project_id": "proj-1"}
+
+
+class TestIngestTaskRetries:
+    """``apply()`` runs the task through Celery's own autoretry, retries included."""
+
+    @pytest.fixture()
+    def s3(self, monkeypatch):
+        mock = MagicMock()
+        monkeypatch.setattr("rest.services.s3.get_s3_service", lambda: mock)
+        return mock
+
+    def test_undecodable_batch_fails_on_its_first_attempt(self, s3, caplog):
+        s3.download_bytes.return_value = b"this is not a protobuf at all"
+
+        with caplog.at_level(logging.ERROR, logger="worker.ingest_tasks"):
+            result = process_s3_traces.apply(kwargs=TASK_KWARGS, throw=False)
+
+        assert s3.download_bytes.call_count == 1
+        assert result.state == "FAILURE"
+        assert isinstance(result.result, UndecodableBatchError)
+        assert f"Failed to process {KEY}.pb: DecodeError: " in caplog.text
+
+    def test_batch_over_the_budget_fails_on_its_first_attempt(self, s3, monkeypatch, caplog):
+        monkeypatch.setattr(settings.ingest, "max_spans", 1)
+        s3.download_bytes.return_value = make_request().SerializeToString()
+
+        with caplog.at_level(logging.ERROR, logger="worker.ingest_tasks"):
+            result = process_s3_traces.apply(kwargs=TASK_KWARGS, throw=False)
+
+        assert s3.download_bytes.call_count == 1
+        assert isinstance(result.result, UndecodableBatchError)
+        assert f"Failed to process {KEY}.pb: BudgetExceededError: more than 1 spans" in caplog.text
+
+    def test_failed_download_is_still_retried(self, s3):
+        s3.download_bytes.side_effect = ConnectionError("S3 unreachable")
+
+        result = process_s3_traces.apply(kwargs=TASK_KWARGS, throw=False)
+
+        assert s3.download_bytes.call_count == process_s3_traces.max_retries + 1
+        assert result.state == "FAILURE"
+        assert isinstance(result.result, ConnectionError)
 
 
 def test_worker_module_does_not_import_the_api_routers():

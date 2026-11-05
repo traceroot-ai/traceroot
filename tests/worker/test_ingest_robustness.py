@@ -8,12 +8,12 @@ Two questions this file answers:
    reaches it (defense-in-depth characterization)?
 
 The wire-level protection is layered: the public route requires an API key
-(project is bound from the key, never the payload), demands
-``application/x-protobuf``, and runs ``ParseFromString`` + ``MessageToDict``.
-Protobuf's schema is therefore the first gate — a customer cannot produce a
-structurally malformed attribute dict, because the proto type system rejects
-it before the transform ever runs. These tests pin both the gate and the
-transform's own behavior on decoded input.
+(project is bound from the key, never the payload) and demands
+``application/x-protobuf``, and the ingest worker runs ``ParseFromString`` +
+``MessageToDict`` on the staged body. Protobuf's schema is therefore the first
+gate — a customer cannot produce a structurally malformed attribute dict,
+because the proto type system rejects it before the transform ever runs. These
+tests pin both the gate and the transform's own behavior on decoded input.
 """
 
 import pytest
