@@ -8,6 +8,7 @@ import logging
 import threading
 from collections import defaultdict
 from datetime import datetime
+from time import perf_counter
 
 from shared.enums import SpanKind
 from worker.celery_app import app
@@ -333,7 +334,11 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     from rest.services.s3 import get_s3_service
     from worker.otel_transform import transform_otel_to_clickhouse
 
-    logger.info(f"Processing S3 traces: {s3_key} for project {project_id}")
+    task_started_at = perf_counter()
+    logger.info(
+        f"Processing S3 traces: {s3_key} for project {project_id} "
+        f"(retry_count={self.request.retries})"
+    )
 
     try:
         # 1. Download from S3
@@ -381,12 +386,20 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                     ]
 
                 if traces:
+                    insert_started_at = perf_counter()
                     ch_client.insert_traces_batch(traces)
-                    logger.info(f"Inserted {len(traces)} traces into ClickHouse")
+                    logger.info(
+                        f"Inserted {len(traces)} traces into ClickHouse "
+                        f"(duration_ms={(perf_counter() - insert_started_at) * 1000:.2f})"
+                    )
 
             if spans:
+                insert_started_at = perf_counter()
                 ch_client.insert_spans_batch(spans)
-                logger.info(f"Inserted {len(spans)} spans into ClickHouse")
+                logger.info(
+                    f"Inserted {len(spans)} spans into ClickHouse "
+                    f"(duration_ms={(perf_counter() - insert_started_at) * 1000:.2f})"
+                )
 
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
                 #
@@ -429,5 +442,10 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"Failed to process {s3_key}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to process {s3_key}: {e} "
+            f"(retry_count={self.request.retries}, "
+            f"total_duration_ms={(perf_counter() - task_started_at) * 1000:.2f})",
+            exc_info=True,
+        )
         raise  # Re-raise to trigger Celery retry
