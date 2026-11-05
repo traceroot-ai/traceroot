@@ -34,8 +34,6 @@ function ErrorCount({ errorCount }: { errorCount: number }) {
   return <span className="text-muted-foreground">0</span>;
 }
 
-// The API sends trace_start_time without a zone marker (it is UTC), so parse
-// it with parseAsUTC like the Traces page; new Date() would read it as local.
 function fmtTime(iso: string): string {
   return parseAsUTC(iso).toLocaleTimeString(undefined, {
     hour: "2-digit",

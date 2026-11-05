@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+// Pin a non-UTC zone so timezone-naive API timestamps regress if parsed as local.
+// Matches the other timezone tests; Asia/Kolkata is UTC+5:30 on this date.
+process.env.TZ = "Asia/Kolkata";
+
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,7 +60,7 @@ function makeTrace(overrides: Partial<TraceListItem> = {}): TraceListItem {
     trace_id: "t1",
     project_id: "p1",
     name: "checkout-flow",
-    trace_start_time: "2026-06-01T12:00:00Z",
+    trace_start_time: "2026-06-01T12:00:00",
     user_id: null,
     session_id: null,
     span_count: 3,
@@ -142,28 +146,21 @@ describe("TraceFeedWidget", () => {
   });
 
   it("shows a timezone-less API timestamp as UTC in local time, like the Traces page", async () => {
-    // The API sends trace_start_time without a zone marker; it is UTC. Run in a
-    // non-UTC zone so parsing it as local time would show the wrong clock time.
-    const previousTZ = process.env.TZ;
-    process.env.TZ = "Asia/Kolkata";
-    try {
-      vi.mocked(getTraces).mockResolvedValue({
-        data: [makeTrace({ trace_start_time: "2026-06-01T10:00:00" })],
-        meta: { page: 0, limit: 10, total: 1 },
-      });
-      renderWidget();
-      await waitFor(() => expect(screen.getByText("checkout-flow")).toBeTruthy());
+    // makeTrace's default is the timezone-less form the API sends; TZ is pinned
+    // at the top of the file. Guard that parseAsUTC (not new Date) is used.
+    vi.mocked(getTraces).mockResolvedValue({
+      data: [makeTrace()],
+      meta: { page: 0, limit: 10, total: 1 },
+    });
+    renderWidget();
+    await waitFor(() => expect(screen.getByText("checkout-flow")).toBeTruthy());
 
-      const opts = { hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
-      const utcTime = new Date("2026-06-01T10:00:00Z").toLocaleTimeString(undefined, opts);
-      const misreadAsLocal = new Date("2026-06-01T10:00:00").toLocaleTimeString(undefined, opts);
-      expect(utcTime).not.toBe(misreadAsLocal);
-      expect(screen.getByText(utcTime)).toBeTruthy();
-      expect(screen.queryByText(misreadAsLocal)).toBeNull();
-    } finally {
-      if (previousTZ === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTZ;
-    }
+    const opts = { hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
+    const utcTime = new Date("2026-06-01T12:00:00Z").toLocaleTimeString(undefined, opts);
+    const misreadAsLocal = new Date("2026-06-01T12:00:00").toLocaleTimeString(undefined, opts);
+    expect(utcTime).not.toBe(misreadAsLocal);
+    expect(screen.getByText(utcTime)).toBeTruthy();
+    expect(screen.queryByText(misreadAsLocal)).toBeNull();
   });
 
   it("passes spec.limit and the range bounds to getTraces", async () => {
