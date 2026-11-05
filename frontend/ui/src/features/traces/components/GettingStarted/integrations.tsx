@@ -140,8 +140,13 @@ traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])`,
       },
       typescript: {
         installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import * as claudeAgentSDK from "@anthropic-ai/claude-agent-sdk";
+        initSnippet: `import * as claudeAgentSDKModule from "@anthropic-ai/claude-agent-sdk";
 import { TraceRoot } from "@traceroot-ai/traceroot";
+
+// Spread the read-only ESM namespace into a mutable object so the patcher
+// can rewrite \`query\` in place. If you call the original namespace's \`query\`
+// after this point, it will NOT be traced.
+const claudeAgentSDK = { ...claudeAgentSDKModule };
 
 TraceRoot.initialize({
   instrumentModules: { claudeAgentSDK },
