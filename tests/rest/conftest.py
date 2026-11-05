@@ -4,13 +4,14 @@ import boto3
 import pytest
 from botocore.stub import Stubber
 
-from rest.services.s3 import S3Service
-
 
 @pytest.fixture()
 def service_and_stub():
     """An S3Service for ``test-bucket`` whose client is a stubbed boto3 client, so
     nothing leaves the process."""
+    # Imported here: a top-level import loads settings before RATE_LIMIT_ENABLED is set.
+    from rest.services.s3 import S3Service
+
     client = boto3.client(
         "s3",
         region_name="us-east-1",
