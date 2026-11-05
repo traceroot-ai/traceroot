@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode } from "lucide-react";
+import { ChevronRight, EyeOff, GitBranch, GitCommitHorizontal, FileCode } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
@@ -56,17 +56,29 @@ interface SpanInfoPanelProps {
   extraTags?: ReactNode;
 }
 
-/** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
-function stripInternalMetadata(raw: string | null | undefined): string | null {
-  if (!raw) return raw ?? null;
+/** Set by an SDK whose redaction function ran on this span before export. */
+const REDACTED_ATTRIBUTE = "traceroot.redacted";
+
+/**
+ * Drop internal `traceroot.span.*` keys and the redaction marker (shown as a header chip) so
+ * the Metadata panel shows only user metadata. Not the whole `traceroot.` namespace: SDK
+ * helpers record user-set values such as `traceroot.llm.model_parameters` here too.
+ */
+function splitInternalMetadata(raw: string | null | undefined): {
+  metadata: string | null;
+  redacted: boolean;
+} {
+  if (!raw) return { metadata: raw ?? null, redacted: false };
   try {
     const parsed = JSON.parse(raw);
     const filtered = Object.fromEntries(
-      Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
+      Object.entries(parsed).filter(
+        ([k]) => !k.startsWith("traceroot.span.") && k !== REDACTED_ATTRIBUTE,
+      ),
     );
-    return JSON.stringify(filtered);
+    return { metadata: JSON.stringify(filtered), redacted: parsed[REDACTED_ATTRIBUTE] === true };
   } catch {
-    return raw;
+    return { metadata: raw, redacted: false };
   }
 }
 
@@ -119,7 +131,7 @@ export function SpanInfoPanel({
   const rawMetadata = isTrace
     ? trace.metadata
     : (spanIO?.metadata ?? selection.span.metadata ?? null);
-  const metadata = stripInternalMetadata(rawMetadata);
+  const { metadata, redacted } = splitInternalMetadata(rawMetadata);
 
   // Trace-level aggregates (also the diff baseline source for the trace selection).
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
@@ -129,6 +141,7 @@ export function SpanInfoPanel({
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
+  const errorType = !isTrace ? selection.span.error_type : "";
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -207,6 +220,15 @@ export function SpanInfoPanel({
             <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
               <DOMAIN_ICONS.model className="h-3 w-3" />
               {selection.span.model_name}
+            </div>
+          )}
+          {!isTrace && redacted && (
+            <div
+              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs"
+              title="Your app ran its redaction function on this span before sending it. Anything it removed never reached TraceRoot."
+            >
+              <EyeOff className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">Redacted by your app</span>
             </div>
           )}
           {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
@@ -317,48 +339,61 @@ export function SpanInfoPanel({
 
       {/* Content */}
       <div className="space-y-3 p-4">
-        {/* Error message */}
-        {statusMessage && (
+        {/* Error box: shown when an ERROR span has a type or a message to show */}
+        {hasError && (errorType || statusMessage) && (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <DOMAIN_ICONS.error className="h-3 w-3" />
               Error
             </div>
             {/* Source location info */}
-            {!isTrace && (trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                {trace.git_repo && (
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                    <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
-                      {trace.git_repo}
-                    </span>
-                  </div>
-                )}
-                {trace.git_ref && (
-                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitCommitHorizontal className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                    <span className="font-mono text-red-700 dark:text-red-300">
-                      {trace.git_ref.substring(0, 7)}
-                    </span>
-                  </div>
-                )}
-                {selection.span.git_source_file && (
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                    <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
-                      {selection.span.git_source_file}
-                      {selection.span.git_source_line && (
-                        <span className="whitespace-nowrap">:{selection.span.git_source_line}</span>
-                      )}
-                    </span>
-                  </div>
-                )}
-              </div>
+            {!isTrace &&
+              (errorType || trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {errorType && (
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <DOMAIN_ICONS.error className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                        {errorType}
+                      </span>
+                    </div>
+                  )}
+                  {trace.git_repo && (
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                        {trace.git_repo}
+                      </span>
+                    </div>
+                  )}
+                  {trace.git_ref && (
+                    <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <GitCommitHorizontal className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="font-mono text-red-700 dark:text-red-300">
+                        {trace.git_ref.substring(0, 7)}
+                      </span>
+                    </div>
+                  )}
+                  {selection.span.git_source_file && (
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                      <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                        {selection.span.git_source_file}
+                        {selection.span.git_source_line && (
+                          <span className="whitespace-nowrap">
+                            :{selection.span.git_source_line}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            {statusMessage && (
+              <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
+                {statusMessage}
+              </p>
             )}
-            <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
-              {statusMessage}
-            </p>
           </div>
         )}
 

@@ -6,6 +6,7 @@ import type {
   AlertRenotify,
   AlertSeverity,
   AlertStatus,
+  SettableAlertStatus,
   AlertThresholdOperator,
   AlertView,
   AlertWindow,
@@ -144,10 +145,12 @@ async function deleteAlert(projectId: string, alertId: string): Promise<void> {
   if (!res.ok) await readError(res, `Failed to delete alert: ${res.status}`);
 }
 
+// Settable statuses only, matching the endpoint: PARKED is a status a rule
+// reaches by failing, not one this mutation can ask for.
 async function setAlertStatus(
   projectId: string,
   alertId: string,
-  status: AlertStatus,
+  status: SettableAlertStatus,
 ): Promise<AlertSummary> {
   const res = await fetch(`/api/projects/${projectId}/alerts/${alertId}/pause`, {
     method: "PATCH",
@@ -245,7 +248,7 @@ export function useDeleteAlert(projectId: string) {
 export function useSetAlertStatus(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ alertId, status }: { alertId: string; status: AlertStatus }) =>
+    mutationFn: ({ alertId, status }: { alertId: string; status: SettableAlertStatus }) =>
       setAlertStatus(projectId, alertId, status),
     onSuccess: () => invalidateAlerts(queryClient),
   });

@@ -4,7 +4,8 @@ import type { AlertRowLike } from "../rule.js";
 import type { AlertRuntimeState } from "../severity-state-machine.js";
 import type { AlertTick } from "../tick.js";
 
-const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<AlertRowLike[]>>();
+// Loosely typed rows: the claim and the close read share this one raw client.
+const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<unknown[]>>();
 const updateMany = vi.fn<(args: Record<string, unknown>) => Promise<{ count: number }>>();
 
 vi.mock("@traceroot/core", async (importOriginal) => {
@@ -18,14 +19,18 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 const {
   claimDueAlerts,
   completeAlertEvaluation,
+  parkAlertRule,
   recordAlertEvaluationFailure,
+  readStoppedAlertCloses,
   recordAlertNotifyOutcome,
+  restoreAlertPendingClose,
   revertAlertEmissionState,
+  takeAlertPendingClose,
   ALERT_CLAIM_LIMIT,
 } = await import("../claim.js");
 // Imported after the mock factory rather than at the top: a value import from
 // `@traceroot/core` loads the module before the spies above are initialized.
-const { ALERT_WINDOWS } = await import("@traceroot/core");
+const { ALERT_WINDOWS, Prisma: PrismaRuntime } = await import("@traceroot/core");
 // Real, not faked: whether a page survives the race below is a question about
 // what the state machine does next with the row the writes leave behind.
 const { applyAlertStateMachine } = await import("../severity-state-machine.js");
@@ -61,6 +66,11 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
     severity: "OK",
     severityChangedAt: null,
     alertedAt: null,
+    lastNotifyStatus: null,
+    lastNotifyError: null,
+    lastNotifyAt: null,
+    lastNotifySeverity: null,
+    slackUpdatedAt: null,
     ...overrides,
   };
 }
@@ -191,6 +201,20 @@ describe("claimDueAlerts — taking ownership", () => {
     }
   });
 
+  it("reads back the last delivery, and Slack's settings only for a page that failed", async () => {
+    await claimDueAlerts(TICK);
+    const sql = claimSql().replace(/\s+/g, " ");
+
+    // A page that never went out for want of Slack is retried once Slack is set up,
+    // so the tick needs both sides of that comparison without a query per rule.
+    expect(sql).toContain('last_notify_at AS "lastNotifyAt"');
+    // What the page said, which the rule's own severity may have moved on from.
+    expect(sql).toContain('last_notify_severity AS "lastNotifySeverity"');
+    expect(sql).toContain("CASE WHEN last_notify_status = 'FAILED' THEN");
+    expect(sql).toContain("JOIN slack_integrations s ON s.workspace_id = sp.workspace_id");
+    expect(sql).toContain('END AS "slackUpdatedAt"');
+  });
+
   it("returns nothing when every candidate was already held elsewhere", async () => {
     expect(await claimDueAlerts(TICK)).toEqual([]);
   });
@@ -203,8 +227,8 @@ describe("claimDueAlerts — taking ownership", () => {
     expect(await claimDueAlerts(TICK)).toEqual([]);
   });
 
-  it("leaves the reason on the rows it will never be able to evaluate", async () => {
-    // `nextRunAt` still advances, so without this such a row is re-read and
+  it("parks the rows it will never be able to evaluate, with the reason on them", async () => {
+    // `nextRunAt` still advances, so without the park such a row is re-read and
     // re-written every cadence while the owner reads a severity that is frozen,
     // an empty error column, and no sign the rule will never fire again.
     queryRaw.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2", window: "24h" })]);
@@ -216,20 +240,50 @@ describe("claimDueAlerts — taking ownership", () => {
     // stamp, so there is nothing per-row left to say.
     expect(updateMany).toHaveBeenCalledTimes(1);
     const [args] = updateMany.mock.calls[0] as [{ where: unknown; data: Record<string, unknown> }];
+    // The same CAS as the plain failure record: a rule a later tick re-claimed, or
+    // one the owner paused mid-evaluation, is not this tick's to park.
     expect(args.where).toEqual({
       id: { in: ["alert-1", "alert-2"] },
       status: "ACTIVE",
       lastClaimedAt: TICK.now,
     });
+    expect(args.data.status).toBe("PARKED");
     expect(args.data.lastError).toContain("cannot be evaluated");
     expect(args.data.lastErrorAt).toBeInstanceOf(Date);
   });
 
-  it("keeps an unwritable reason to itself rather than losing the rest of the batch", async () => {
+  it("keeps an unwritable park to itself rather than losing the rest of the batch", async () => {
     queryRaw.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2" })]);
     updateMany.mockRejectedValue(new Error("pool timeout"));
 
     expect((await claimDueAlerts(TICK)).map((claim) => claim.rule.id)).toEqual(["alert-2"]);
+  });
+
+  it("falls back to recording the failure when the park write itself throws", async () => {
+    // Otherwise the row stays ACTIVE with `nextRunAt` already advanced and no
+    // recorded reason at all: a silent, indefinite retry with nothing to show
+    // the owner. The evaluator's own park path (parkRule in scheduler.ts) has
+    // the same fallback.
+    queryRaw.mockResolvedValue([row({ window: "24h" })]);
+    updateMany.mockImplementation(async (args) => {
+      const data = args.data as Record<string, unknown>;
+      if (data.status === "PARKED") throw new Error("pool timeout");
+      return { count: 1 };
+    });
+
+    expect(await claimDueAlerts(TICK)).toEqual([]);
+
+    const fallback = updateMany.mock.calls.at(-1)?.[0] as {
+      where: unknown;
+      data: Record<string, unknown>;
+    };
+    expect(fallback.where).toEqual({
+      id: { in: ["alert-1"] },
+      status: "ACTIVE",
+      lastClaimedAt: TICK.now,
+    });
+    expect(fallback.data.status).toBeUndefined();
+    expect(fallback.data.lastError).toContain("cannot be evaluated");
   });
 });
 
@@ -328,6 +382,53 @@ describe("recordAlertEvaluationFailure", () => {
         alertId: "alert-1",
         claimStamp: NOW,
         error: { message: "boom", at: failedAt },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("parkAlertRule", () => {
+  const parkedAt = new Date("2026-08-12T10:37:09.000Z");
+
+  it("stops the rule under the same CAS the failure record uses", async () => {
+    // ACTIVE and the claim stamp together: a rule the owner paused, or one a
+    // later tick re-claimed, is not this tick's to park.
+    await parkAlertRule({
+      alertId: "alert-1",
+      claimStamp: NOW,
+      error: { message: "measure: Unknown alert measure 'clicks'", at: parkedAt },
+    });
+
+    expect(updateMany.mock.calls[0][0]).toEqual({
+      where: { id: "alert-1", status: "ACTIVE", lastClaimedAt: NOW },
+      data: {
+        status: "PARKED",
+        lastError: "measure: Unknown alert measure 'clicks'",
+        lastErrorAt: parkedAt,
+      },
+    });
+  });
+
+  it("truncates the reason to the cell it is read in", async () => {
+    await parkAlertRule({
+      alertId: "alert-1",
+      claimStamp: NOW,
+      error: { message: "x".repeat(900), at: parkedAt },
+    });
+
+    const { data } = updateMany.mock.calls[0][0] as { data: Record<string, string> };
+    expect(data.lastError).toHaveLength(500);
+    expect(data.lastError).toMatch(/\.\.\.$/);
+  });
+
+  it("reports false when the CAS matched no row", async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+
+    expect(
+      await parkAlertRule({
+        alertId: "alert-1",
+        claimStamp: NOW,
+        error: { message: "boom", at: parkedAt },
       }),
     ).toBe(false);
   });
@@ -559,11 +660,22 @@ describe("recordAlertNotifyOutcome", () => {
   const at = new Date("2026-08-12T10:40:00.000Z");
 
   it("records a delivery against the rule alone, with no claim to match on", async () => {
-    await recordAlertNotifyOutcome({ alertId: "alert-1", status: "DELIVERED", error: null, at });
+    await recordAlertNotifyOutcome({
+      alertId: "alert-1",
+      status: "DELIVERED",
+      severity: "ALERT",
+      error: null,
+      at,
+    });
 
     expect(updateMany.mock.calls[0][0]).toEqual({
       where: { id: "alert-1" },
-      data: { lastNotifyStatus: "DELIVERED", lastNotifyError: null, lastNotifyAt: at },
+      data: {
+        lastNotifyStatus: "DELIVERED",
+        lastNotifyError: null,
+        lastNotifyAt: at,
+        lastNotifySeverity: "ALERT",
+      },
     });
   });
 
@@ -575,6 +687,7 @@ describe("recordAlertNotifyOutcome", () => {
     await recordAlertNotifyOutcome({
       alertId: "alert-1",
       status: "SUPERSEDED",
+      severity: "OK",
       error: "superseded",
       at,
       notAfter: emittedAt,
@@ -585,7 +698,12 @@ describe("recordAlertNotifyOutcome", () => {
         id: "alert-1",
         OR: [{ lastNotifyAt: null }, { lastNotifyAt: { lt: emittedAt } }],
       },
-      data: { lastNotifyStatus: "SUPERSEDED", lastNotifyError: "superseded", lastNotifyAt: at },
+      data: {
+        lastNotifyStatus: "SUPERSEDED",
+        lastNotifyError: "superseded",
+        lastNotifyAt: at,
+        lastNotifySeverity: "OK",
+      },
     });
   });
 
@@ -593,7 +711,94 @@ describe("recordAlertNotifyOutcome", () => {
     updateMany.mockRejectedValue(new Error("pool timeout"));
 
     await expect(
-      recordAlertNotifyOutcome({ alertId: "alert-1", status: "DELIVERED", error: null, at }),
+      recordAlertNotifyOutcome({
+        alertId: "alert-1",
+        status: "DELIVERED",
+        severity: "ALERT",
+        error: null,
+        at,
+      }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("the close an edit or a resume left on the rule", () => {
+  const marker = {
+    reason: "edited" as const,
+    actorUserId: "user-1",
+    at: "2026-08-12T10:36:00.000Z",
+  };
+
+  it("is flagged by the claim itself, from the row the tick evaluates", async () => {
+    queryRaw.mockResolvedValue([
+      { ...row(), hasPendingClose: true },
+      { ...row({ id: "alert-2" }), hasPendingClose: false },
+      row({ id: "alert-3" }),
+    ]);
+
+    const claims = await claimDueAlerts(TICK);
+
+    // One snapshot for both: read apart, an edit landing between the two reads
+    // would have its new page sent ahead of the close it owes.
+    expect(queryRaw.mock.calls[0][0].sql).toContain(
+      'pending_close IS NOT NULL AS "hasPendingClose"',
+    );
+    expect(claims.map((claim) => claim.hasPendingClose)).toEqual([true, false, false]);
+  });
+
+  it("is read apart only for the rules no claim will reach: paused and parked", async () => {
+    queryRaw.mockResolvedValue([{ id: "alert-9", projectId: "proj-1", name: "Paused rule" }]);
+
+    expect(await readStoppedAlertCloses()).toEqual([
+      { alertId: "alert-9", projectId: "proj-1", name: "Paused rule" },
+    ]);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    expect(sql).toContain("a.pending_close IS NOT NULL");
+    // An ACTIVE rule's close belongs to the tick that claims it, which alone
+    // knows whether a new page is about to follow.
+    expect(sql).toContain("a.status <>");
+    expect(values).toContain("ACTIVE");
+    expect(sql).toContain("p.delete_time IS NULL");
+    expect(values).toContain(ALERT_CLAIM_LIMIT);
+  });
+
+  it("is taken by reading and clearing the marker in one statement", async () => {
+    queryRaw.mockResolvedValue([{ pendingClose: marker }]);
+
+    expect(await takeAlertPendingClose("alert-1")).toEqual(marker);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    // The lock is what makes the marker a mutex, and returning the value that was
+    // cleared is what stops a caller sending a close older than the one it took.
+    expect(sql).toContain("FOR UPDATE");
+    expect(sql).toContain("UPDATE alerts SET pending_close = NULL");
+    expect(sql).toContain('RETURNING taken.pending_close AS "pendingClose"');
+    expect(values).toEqual(["alert-1"]);
+    // A paused rule's close is still owed.
+    expect(sql).not.toContain("status");
+  });
+
+  it("is not this caller's to send once another tick has taken it", async () => {
+    queryRaw.mockResolvedValue([]);
+    expect(await takeAlertPendingClose("alert-1")).toBeNull();
+  });
+
+  it("clears a stored value that is not a marker rather than finding it every tick", async () => {
+    queryRaw.mockResolvedValue([{ pendingClose: { reason: "renamed" } }]);
+
+    expect(await takeAlertPendingClose("alert-1")).toBeNull();
+    expect(console.error).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes back only into an empty marker, so a newer close is never overwritten", async () => {
+    expect(await restoreAlertPendingClose("alert-1", marker)).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "alert-1", pendingClose: { equals: PrismaRuntime.DbNull } },
+      data: { pendingClose: marker },
+    });
+
+    updateMany.mockResolvedValue({ count: 0 });
+    expect(await restoreAlertPendingClose("alert-1", marker)).toBe(false);
   });
 });

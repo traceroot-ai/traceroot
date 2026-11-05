@@ -1,8 +1,9 @@
-"""Regression tests for the three gates on text-based token estimation.
+"""Regression tests for text-based token estimation gates.
 
-Estimation applies only to spans that are LLM-kind (below), whose instrumentation
+Estimation applies only to non-embedding spans that are LLM-kind (below), whose instrumentation
 scope is not in the skip-list (below), and which did not error without producing a
 response (see the error-status section at the bottom of this file).
+Embedding-specific cases are covered in test_otel_transform_embeddings.py.
 
 Wrapper spans (AGENT/CHAIN/TOOL kinds) can carry a model name and the conversation
 text without token counts — e.g. the Vercel AI SDK's `ai.generateText` wrapper, which
@@ -109,6 +110,13 @@ def test_chain_wrapper_span_gets_no_estimated_tokens():
 def test_tool_span_with_model_gets_no_estimated_tokens():
     spans = _transform(
         [_span_with(_model_and_text([make_attr("openinference.span.kind", "TOOL")]))]
+    )
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_decision_span_with_model_gets_no_estimated_tokens():
+    spans = _transform(
+        [_span_with(_model_and_text([make_attr("openinference.span.kind", "DECISION")]))]
     )
     _assert_no_fabricated_tokens(spans[0])
 

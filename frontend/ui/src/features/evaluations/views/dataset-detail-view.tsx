@@ -27,6 +27,7 @@ import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistan
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn } from "@/lib/utils";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import {
   DatasetActionsMenu,
   EmptyState,
@@ -84,6 +85,10 @@ export function DatasetDetailView({
 }) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
+  const datasetsListHref = useListReturnHref(
+    `datasets:${projectId}`,
+    `/projects/${projectId}/datasets`,
+  );
   // null = the current version. Selecting an older version loads its snapshot
   // (read-only — editing always branches from the current version).
   const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
@@ -189,7 +194,7 @@ export function DatasetDetailView({
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-full flex-col text-[13px]">
           <EvalPageHeader
-            parent={{ label: "Datasets", href: `/projects/${projectId}/datasets` }}
+            parent={{ label: "Datasets", href: datasetsListHref }}
             title={notFound ? "Dataset not found" : "Couldn't load dataset"}
           />
           <EvalBody>
@@ -197,10 +202,7 @@ export function DatasetDetailView({
               {notFound ? (
                 <>
                   No dataset with the id {datasetId}.{" "}
-                  <Link
-                    href={`/projects/${projectId}/datasets`}
-                    className="underline underline-offset-2"
-                  >
+                  <Link href={datasetsListHref} className="underline underline-offset-2">
                     Back to datasets
                   </Link>
                 </>
@@ -230,7 +232,7 @@ export function DatasetDetailView({
           straight at the toolbar. */}
       <ProjectBreadcrumb
         projectId={projectId}
-        trail={[{ label: "Datasets", href: `/projects/${projectId}/datasets` }]}
+        trail={[{ label: "Datasets", href: datasetsListHref }]}
         current={dataset.name}
       />
       <div className="flex h-full flex-col text-[13px]">

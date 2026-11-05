@@ -1,0 +1,91 @@
+---
+title: Authentication
+description: Which credential each API route accepts, and how to get one
+---
+
+Every request to the TraceRoot API sends a credential as a bearer token:
+
+```bash
+curl "https://app.traceroot.ai/api/v1/public/traces?limit=10" \
+  --header "Authorization: Bearer $TRACEROOT_API_KEY"
+```
+
+The API accepts three kinds of credential. Which ones a route takes depends on what the route does, so check the table under [Which routes accept which credential](#which-routes-accept-which-credential) before you pick one.
+
+## Credentials
+
+| Credential | Looks like | Scope | Lifetime |
+| --- | --- | --- | --- |
+| Project API key | `tr-` followed by a UUID | One project | Until deleted, or until its optional expiry |
+| Session token | An opaque string | You, across every project you can access | Your login session |
+| CLI access token | A JWT (`header.payload.signature`) | You, across every project you can access | 10 minutes |
+
+### Project API key
+
+Create a key in your project's settings in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard. The full key is shown once, when you create it, so store it somewhere safe.
+
+A key belongs to one project, so requests made with it need no `project_id`. If you send one anyway, it must match the key's project, or the request fails with `400`.
+
+### Session token and CLI access token
+
+Both identify you rather than a project. Sign in with the [CLI](/cli/get-started):
+
+```bash
+traceroot login
+```
+
+This runs a browser login and stores a session token in `~/.config/traceroot/credentials.json`. You can send that session token as the bearer directly.
+
+The CLI itself sends a short-lived access token instead. To mint one, exchange the session token at the web app:
+
+```bash
+curl --request POST "https://app.traceroot.ai/api/cli/token" \
+  --header "Authorization: Bearer $TRACEROOT_TOKEN"
+```
+
+The response holds `accessToken`, valid for 10 minutes. Mint a new one when it expires.
+
+## Which routes accept which credential
+
+| Routes | API key | Session token or CLI access token |
+| --- | --- | --- |
+| Reads: traces, sessions, detectors and findings, dashboards, widgets (including `POST /widgets/query`), alerts, SQL (including `POST /sql`), datasets, evaluations and evaluation runs | Yes | Yes, with `project_id` |
+| Trace ingest (`POST /traces`) and evaluation-run writes (`POST /evaluation-runs`, `.../results`, `.../complete`) | Yes | No |
+| Dataset authoring (`POST /datasets`, `PATCH /datasets/{dataset_id}`, `POST /datasets/{dataset_id}/versions`), used by the SDKs and not listed in this reference | Yes | No |
+| `GET /whoami` | Yes | No |
+| Account reads: `GET /projects`, `GET /workspaces` | No (`403`) | Yes |
+| Creating, editing and deleting projects, workspaces, alerts, dashboards, detectors and widgets, and pausing or resuming alerts | No (`403`) | Yes |
+
+### Reads with a user credential need `project_id`
+
+Except for the account reads above, a session token or access token is not tied to a project, so a project-scoped read made with one must name the project as a query parameter:
+
+```bash
+curl "https://app.traceroot.ai/api/v1/public/traces?project_id=$PROJECT_ID&limit=10" \
+  --header "Authorization: Bearer $TRACEROOT_TOKEN"
+```
+
+Without it, the request fails with `400` and `project_id query parameter is required for user credentials`. Call `GET /projects` to list the project IDs you can use.
+
+### Writes need a user login
+
+Creating, editing and deleting resources acts on your account, so these routes reject API keys with `403` and `this operation requires a user login; API keys are project-scoped`. Send a session token or access token instead.
+
+For detector, dashboard, widget and alert writes, send `project_id` in the create or edit body, or in the query on delete. Project updates and deletes take the project from the `{project_id}` path parameter. A write made with an access token is also refused with `401` once you run `traceroot logout`, even before the token expires.
+
+### Ingest is API-key only
+
+The SDKs send traces and evaluation results with a project API key. These routes do not accept a user credential.
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400` | `project_id` is missing on a read with a user credential, or does not match the API key's project. |
+| `401` | The `Authorization` header is missing or malformed, the credential is invalid, expired or revoked, or a user credential was sent to a route that accepts only a project API key. |
+| `403` | An API key was sent to a route that needs a user login, or you have no access to the project. |
+| `503` | TraceRoot could not verify the credential. Retry the request. |
+
+## Self-hosted
+
+On a self-hosted deployment, replace `https://app.traceroot.ai` with your own URL: the backend for `/api/v1/public/*` routes (`http://localhost:8000` by default), and the web app for `/api/cli/token` (`http://localhost:3000` by default). In the playground on each endpoint page, choose the **Self-hosted** server and enter your backend URL.

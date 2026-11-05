@@ -87,7 +87,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Sign in to product</CardTitle>
+          <CardTitle className="text-lg font-semibold">Sign in to TraceRoot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (

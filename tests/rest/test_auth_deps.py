@@ -309,17 +309,29 @@ class TestAuthenticateApiKey:
 class TestGetProjectAccess:
     @respx.mock
     async def test_valid_access(self):
-        respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+        route = respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
             return_value=Response(
                 200,
-                json={"hasAccess": True, "role": "ADMIN", "workspaceId": "ws-456"},
+                json={
+                    "hasAccess": True,
+                    "userId": "user-456",
+                    "role": "ADMIN",
+                    "workspaceId": "ws-456",
+                },
             )
         )
-        result = await get_project_access("proj-123", "user-456")
+        result = await get_project_access(
+            "proj-123", "untrusted-user", session_cookie="signed-cookie"
+        )
         assert result.project_id == "proj-123"
         assert result.user_id == "user-456"
         assert result.role == "ADMIN"
         assert result.workspace_id == "ws-456"
+        import json
+
+        request = route.calls.last.request
+        assert json.loads(request.content) == {"browserSession": True, "projectId": "proj-123"}
+        assert request.headers["cookie"] == "better-auth.session_token=signed-cookie"
 
     async def test_missing_user_id(self):
         with pytest.raises(HTTPException) as exc_info:
@@ -332,7 +344,7 @@ class TestGetProjectAccess:
             return_value=Response(200, json={"hasAccess": False, "error": "No access"})
         )
         with pytest.raises(HTTPException) as exc_info:
-            await get_project_access("proj-123", "user-456")
+            await get_project_access("proj-123", "untrusted-user", session_cookie="signed-cookie")
         assert exc_info.value.status_code == 403
 
     @respx.mock
@@ -341,7 +353,7 @@ class TestGetProjectAccess:
             return_value=Response(200, json={"hasAccess": False, "error": "Project not found"})
         )
         with pytest.raises(HTTPException) as exc_info:
-            await get_project_access("proj-123", "user-456")
+            await get_project_access("proj-123", "untrusted-user", session_cookie="signed-cookie")
         assert exc_info.value.status_code == 404
 
     @respx.mock
@@ -350,7 +362,7 @@ class TestGetProjectAccess:
             side_effect=httpx.ConnectError("Connection refused")
         )
         with pytest.raises(HTTPException) as exc_info:
-            await get_project_access("proj-123", "user-456")
+            await get_project_access("proj-123", "untrusted-user", session_cookie="signed-cookie")
         assert exc_info.value.status_code == 503
 
     @respx.mock
@@ -359,7 +371,7 @@ class TestGetProjectAccess:
             return_value=Response(401)
         )
         with pytest.raises(HTTPException) as exc_info:
-            await get_project_access("proj-123", "user-456")
+            await get_project_access("proj-123", "untrusted-user", session_cookie="signed-cookie")
         assert exc_info.value.status_code == 401
 
     @respx.mock
@@ -372,7 +384,7 @@ class TestGetProjectAccess:
             return_value=Response(200, json={"hasAccess": True, "role": "ADMIN"})
         )
         with pytest.raises(HTTPException) as exc_info:
-            await get_project_access("proj-123", "user-456")
+            await get_project_access("proj-123", "untrusted-user", session_cookie="signed-cookie")
         assert exc_info.value.status_code == 503
         assert exc_info.value.detail == "Authentication service error"
 

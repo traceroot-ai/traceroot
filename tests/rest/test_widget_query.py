@@ -1,5 +1,6 @@
 """Tests for the widget spec models and the spec-to-SQL compiler."""
 
+import re
 from datetime import UTC, datetime
 from typing import get_args
 from unittest.mock import MagicMock
@@ -14,7 +15,9 @@ from db.clickhouse.query_settings import (
     READ_QUERY_SETTINGS,
 )
 from rest.schemas.dashboards import (
+    MAX_IN_VALUES,
     AggName,
+    QueryWindow,
     WidgetFilter,
     WidgetQueryRequest,
     WidgetQueryResponse,
@@ -24,6 +27,7 @@ from rest.services import widget_query as wq
 from rest.services.widget_query import WidgetSpecError, compile_widget_query
 from rest.services.widget_registry import (
     AGGS_NUMBER,
+    FILTER_OPS_KEYED,
     FILTER_OPS_NUMBER,
     FILTER_OPS_STRING,
     REGISTRY,
@@ -58,9 +62,18 @@ def test_unknown_display_rejected():
         WidgetSpec.model_validate(make_spec(display={"type": "gauge"}))
 
 
-def test_request_requires_start_and_end_time():
+def test_request_accepts_a_spec_alone():
+    # The window is optional at the schema level: a bare spec means the site's
+    # default window, a preset names one, explicit bounds give one. Pairing and
+    # exclusivity are the route's job (rest.services.date_presets.resolve_window),
+    # so every query surface applies the same rules.
+    request = WidgetQueryRequest.model_validate({"spec": make_spec()})
+    assert (request.range, request.start_time, request.end_time) == (None, None, None)
+
+
+def test_request_rejects_an_unknown_range_id():
     with pytest.raises(ValidationError):
-        WidgetQueryRequest.model_validate({"spec": make_spec()})
+        WidgetQueryRequest.model_validate({"spec": make_spec(), "range": "2w"})
 
 
 # --- Drift-guard tests ---
@@ -116,6 +129,22 @@ def test_compile_breakdown_bar():
     assert "LIMIT 50" in sql
 
 
+def test_compile_error_type_breakdown_folds_top_n():
+    """Errors by type: count of ERROR spans grouped by error_type, top-N + 'other'."""
+    spec = make_spec(
+        filters=[{"field": "status", "op": "=", "value": "ERROR"}],
+        metric={"measure": "count", "agg": "count"},
+        breakdown="error_type",
+        display={"type": "bar"},
+    )
+    sql, params = compile_(spec)
+    assert "GROUP BY error_type" in sql
+    assert "status = {f0:String}" in sql
+    assert params["f0"] == "ERROR"
+    assert "'other'" in sql
+    assert "LIMIT 50" in sql
+
+
 def test_compile_timeseries_adds_bucket():
     sql, params = compile_(make_spec(display={"type": "line"}))
     # 7-day range → day buckets in UTC
@@ -134,6 +163,27 @@ def test_compile_hour_bucket_for_short_range():
 def test_compile_number_no_groupby():
     sql, _ = compile_(make_spec(display={"type": "number"}, breakdown=None))
     assert "GROUP BY" not in sql
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        # The default dashboard's KPI tiles and charts, one per base relation.
+        {"view": "traces", "metric": {"measure": "count", "agg": "count"}, "filters": []},
+        {"view": "traces", "metric": {"measure": "cost", "agg": "sum"}, "filters": []},
+        {"view": "spans", "metric": {"measure": "total_tokens", "agg": "sum"}, "filters": []},
+        {"view": "spans", "metric": {"measure": "duration_ms", "agg": "p95"}, "filters": []},
+    ],
+)
+def test_metric_tiles_exclude_evaluation_traces(spec):
+    """KPI tiles must not count the eval traces the trace-feed tile beside them hides."""
+    sql, params = compile_(make_spec(display={"type": "number"}, breakdown=None, **spec))
+    assert "is_evaluation = 1" in sql
+    # Both halves of the excluded set, bounded by the tile's own window parameters.
+    assert re.search(r"FROM traces WHERE project_id = \{project_id:String\} AND is_evaluation", sql)
+    assert re.search(r"FROM spans WHERE project_id = \{project_id:String\} AND span_kind IN", sql)
+    for name in set(re.findall(r"\{(\w+):", sql)):
+        assert name in params, f"placeholder {name} is unbound"
 
 
 def test_compile_histogram():
@@ -207,18 +257,39 @@ def test_non_numeric_filter_value_raises():
     assert e.value.step == "filters"
 
 
+def outer_limit(sql: str) -> int:
+    """The outermost LIMIT (the row cap), not the LIMIT 1 BY inside the base SQL."""
+    matches = re.findall(r"LIMIT (\d+)(?! BY)", sql)
+    assert matches, "No outermost LIMIT found in SQL"
+    return int(matches[-1])
+
+
 def test_long_range_row_cap():
     """A misaligned 365-day window (noon-to-noon) touches 366 day buckets; LIMIT must cover all of them."""
     spec = WidgetSpec.model_validate(make_spec(display={"type": "line"}))
     start = datetime(2026, 1, 1, 12, 0)
     end = datetime(2027, 1, 1, 12, 0)  # 365 days, noon-anchored — straddles 366 day buckets
     sql, _ = compile_widget_query(spec, project_id="p", start_time=start, end_time=end)
-    # Extract the final LIMIT clause (the outermost row cap, not LIMIT 1 BY inside base SQL)
-    import re
+    assert outer_limit(sql) >= 366 * 51
 
-    matches = re.findall(r"LIMIT (\d+)(?! BY)", sql)
-    assert matches, "No outermost LIMIT found in SQL"
-    assert int(matches[-1]) >= 366 * 51
+
+def test_max_rows_lowers_the_row_cap_but_never_raises_it():
+    """A caller keeping few rows pushes its cap into the LIMIT; the display cap still holds."""
+    spec = WidgetSpec.model_validate(make_spec(display={"type": "table"}))
+    sql, _ = compile_widget_query(spec, project_id="p", start_time=START, end_time=END, max_rows=26)
+    assert outer_limit(sql) == 26
+    sql, _ = compile_widget_query(
+        spec, project_id="p", start_time=START, end_time=END, max_rows=wq.MAX_TABLE_ROWS * 2
+    )
+    assert outer_limit(sql) == wq.MAX_TABLE_ROWS
+    sql, _ = compile_widget_query(spec, project_id="p", start_time=START, end_time=END)
+    assert outer_limit(sql) == wq.MAX_TABLE_ROWS
+    # The window-derived series cap is the one that grows with the range.
+    series = WidgetSpec.model_validate(make_spec(display={"type": "line"}))
+    sql, _ = compile_widget_query(
+        series, project_id="p", start_time=START, end_time=END, max_rows=26
+    )
+    assert outer_limit(sql) == 26
 
 
 def test_breakdown_timeseries_order_by():
@@ -378,6 +449,54 @@ def test_count_measure_with_breakdown():
     assert "GROUP BY model_name" in sql
 
 
+# --- `in` membership filters ---
+
+
+def test_in_filter_binds_the_list_as_a_string_array():
+    """One `in` filter selects several stored values of a dimension (issue #2540)."""
+    filters = [{"field": "span_kind", "op": "in", "value": ["LLM", "DECISION"]}]
+    sql, params = compile_(make_spec(filters=filters))
+    assert "span_kind IN {f0:Array(String)}" in sql
+    assert params["f0"] == ["LLM", "DECISION"]
+
+
+@pytest.mark.parametrize(
+    "flt",
+    [
+        {"field": "span_kind", "op": "in", "value": "LLM"},
+        {"field": "span_kind", "op": "=", "value": ["LLM"]},
+        {"field": "span_kind", "op": "in", "value": []},
+        {"field": "span_kind", "op": "in", "value": ["LLM", ""]},
+        {"field": "span_kind", "op": "in", "value": [1]},
+    ],
+)
+def test_in_filter_value_shape_is_enforced_by_schema(flt):
+    """A list goes with `in` and only `in`, non-empty and of non-empty strings."""
+    with pytest.raises(ValidationError):
+        WidgetSpec.model_validate(make_spec(filters=[flt]))
+
+
+def test_in_filter_value_list_is_capped():
+    too_many = [f"v{i}" for i in range(MAX_IN_VALUES + 1)]
+    with pytest.raises(ValidationError):
+        WidgetSpec.model_validate(
+            make_spec(filters=[{"field": "span_kind", "op": "in", "value": too_many}])
+        )
+
+
+def test_in_filter_is_rejected_on_numeric_and_keyed_fields():
+    """Membership is a string-dimension op: numbers compare, map entries match one value."""
+    with pytest.raises(WidgetSpecError, match="not allowed"):
+        compile_(make_spec(filters=[{"field": "duration_ms", "op": "in", "value": ["5"]}]))
+    with pytest.raises(WidgetSpecError, match="not allowed"):
+        compile_(
+            make_spec(
+                filters=[{"field": "metadata", "key": "k", "op": "in", "value": ["a"]}],
+                breakdown=None,
+            )
+        )
+
+
 # --- filter escaping and serialization guards ---
 
 
@@ -392,6 +511,14 @@ def test_contains_filter_escapes_percent():
     assert params["f0"] == "%50\\%%"
 
 
+WINDOW = QueryWindow(
+    start_time=datetime(2026, 6, 1, tzinfo=UTC),
+    end_time=datetime(2026, 6, 8, tzinfo=UTC),
+    range=None,
+    clamped=False,
+)
+
+
 def test_bucket_timestamp_serializes_as_iso8601():
     """WidgetQueryResponse rows with datetime values must serialize to ISO-8601.
 
@@ -402,6 +529,7 @@ def test_bucket_timestamp_serializes_as_iso8601():
     response = WidgetQueryResponse(
         columns=["bucket", "value"],
         rows=[[datetime(2026, 6, 1), 1.0]],
+        window=WINDOW,
     )
     encoded = jsonable_encoder(response)
     assert encoded["rows"][0][0] == "2026-06-01T00:00:00"
@@ -409,7 +537,7 @@ def test_bucket_timestamp_serializes_as_iso8601():
 
 def test_empty_rows_validates_and_serializes():
     """WidgetQueryResponse with no rows is valid and encodes to rows: []."""
-    response = WidgetQueryResponse(columns=["value"], rows=[])
+    response = WidgetQueryResponse(columns=["value"], rows=[], window=WINDOW)
     encoded = jsonable_encoder(response)
     assert encoded["rows"] == []
 
@@ -721,7 +849,7 @@ def test_metadata_is_filterable_but_never_a_dimension_or_a_measure():
     """A Map has no single value to aggregate, and one dimension per key cannot be static."""
     fdef = REGISTRY["spans"].fields["metadata"]
     assert fdef.requires_key is True
-    assert fdef.filter_ops == FILTER_OPS_STRING
+    assert fdef.filter_ops == FILTER_OPS_KEYED
     assert fdef.groupable is False
     assert fdef.aggs == ()
     with pytest.raises(WidgetSpecError, match="not groupable"):
@@ -800,3 +928,32 @@ def test_run_widget_query_reports_explicit_bucket_granularity_in_ms(monkeypatch)
         bucket_seconds=300,
     )
     assert out["meta"]["granularity"] == 300_000
+
+
+def test_additive_timeseries_metric_coalesces_fill_rows_to_zero():
+    """A sum over a Nullable column is Nullable, so its WITH FILL rows carry NULL —
+    the chart would then see one real bucket among gaps and draw nothing. The
+    stated contract is that a count or sum of nothing IS zero, so additive
+    timeseries metrics coalesce to 0; non-additive ones keep their NULL gaps.
+    """
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "cost", "agg": "sum"}, display={"type": "line"}, breakdown=None
+        )
+    )
+    assert "ifNull(sum(cost), 0) AS value" in sql
+    assert "toNullable" not in sql
+
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "duration_ms", "agg": "p95"},
+            display={"type": "line"},
+            breakdown=None,
+        )
+    )
+    assert "toNullable(quantile(0.95)(duration_ms)) AS value" in sql
+    assert "ifNull(quantile" not in sql
+
+    # Not a timeseries: no fill rows exist, so there is nothing to coalesce.
+    sql, _ = compile_(make_spec(metric={"measure": "cost", "agg": "sum"}, display={"type": "bar"}))
+    assert "ifNull(sum(cost), 0)" not in sql

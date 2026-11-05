@@ -24,6 +24,71 @@ export function isAlertSeverity(value: string): value is AlertSeverity {
 }
 
 /**
+ * A breach that has been announced and not yet recovered: in ALERT it is the
+ * emission that put the rule there; in NO_DATA it is the one carried across
+ * the gap. The worker's state machine reads it to tell a recovery from a
+ * first reading, the write services read it to say when an edit or a
+ * delete discarded an open page, and the edit form to warn before one does.
+ */
+export function hasOutstandingAlertPage(state: {
+  severity: string;
+  /** A string where the row has crossed JSON, as it has for the edit form. */
+  alertedAt: Date | string | null;
+}): boolean {
+  return (state.severity === "ALERT" || state.severity === "NO_DATA") && state.alertedAt !== null;
+}
+
+/**
+ * Why an open page was closed without a recovery: the write that voided its state.
+ * A `deleted` close never sits on the rule as a marker, since the row is gone; the
+ * delete sends it itself once it has committed.
+ */
+export const ALERT_CLOSE_REASONS = ["edited", "resumed", "deleted"] as const;
+export type AlertCloseReason = (typeof ALERT_CLOSE_REASONS)[number];
+
+export function isAlertCloseReason(value: string): value is AlertCloseReason {
+  return (ALERT_CLOSE_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * The marker a state reset leaves when it discards an open page. The write
+ * services cannot notify, so this carries the close to the worker, which posts
+ * it on the next tick. `at` is an ISO string: the marker is stored as JSON.
+ */
+export interface AlertPendingClose {
+  reason: AlertCloseReason;
+  actorUserId: string;
+  at: string;
+  /**
+   * How many delivery cycles this close has already run out of. Absent until the
+   * first one does. The worker stops putting the close back at
+   * `ALERT_CLOSE_MAX_RESENDS`, so a channel that never accepts it is not retried
+   * for as long as the rule exists.
+   */
+  resends?: number;
+}
+
+/**
+ * Delivery cycles a close gets after its first. Each is about half an hour of
+ * retries, so a close is given up on after roughly two hours of Slack refusing it.
+ */
+export const ALERT_CLOSE_MAX_RESENDS = 3;
+
+/** Null for no marker, and for a stored value that is not one. */
+export function parseAlertPendingClose(value: unknown): AlertPendingClose | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { reason, actorUserId, at } = value as Record<string, unknown>;
+  if (typeof reason !== "string" || !isAlertCloseReason(reason)) return null;
+  if (typeof actorUserId !== "string" || actorUserId === "") return null;
+  if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
+  // A count this build cannot read is no count: the close is still owed.
+  const { resends } = value as Record<string, unknown>;
+  return typeof resends === "number" && Number.isInteger(resends) && resends > 0
+    ? { reason, actorUserId, at, resends }
+    : { reason, actorUserId, at };
+}
+
+/**
  * What a window that measured nothing means for this rule. HOLD reads a gap as
  * deciding nothing: the severity reads NO_DATA, nothing pages or clears, and
  * an outstanding page stays open across it. ZERO suits a measure whose absence
@@ -39,13 +104,33 @@ export function isAlertNoDataMode(value: string): value is AlertNoDataMode {
   return (ALERT_NO_DATA_MODES as readonly string[]).includes(value);
 }
 
-export const ALERT_STATUSES = ["ACTIVE", "PAUSED"] as const;
+/**
+ * PARKED is terminal and the evaluator's alone: it means the stored rule cannot
+ * be evaluated by the running build at all, so retrying it every minute only
+ * burns a claim and leaves the owner reading a severity no run will ever move.
+ * It leaves the claim query the same way PAUSED does, and an edit re-arms it.
+ */
+export const ALERT_STATUSES = ["ACTIVE", "PAUSED", "PARKED"] as const;
 export type AlertStatus = (typeof ALERT_STATUSES)[number];
 export const DEFAULT_ALERT_STATUS: AlertStatus = "ACTIVE";
 
 export function isAlertStatus(value: string): value is AlertStatus {
   return (ALERT_STATUSES as readonly string[]).includes(value);
 }
+
+/**
+ * What a client may ask for. Parking is a verdict about the stored rule, not a
+ * preference, so it is reached by failing evaluation and left by fixing the rule.
+ */
+export const SETTABLE_ALERT_STATUSES = ["ACTIVE", "PAUSED"] as const;
+export type SettableAlertStatus = (typeof SETTABLE_ALERT_STATUSES)[number];
+
+export function isSettableAlertStatus(value: string): value is SettableAlertStatus {
+  return (SETTABLE_ALERT_STATUSES as readonly string[]).includes(value);
+}
+
+/** Statuses the scheduler does not claim, and that a resume cold-starts from. */
+export const STOPPED_ALERT_STATUSES: readonly AlertStatus[] = ["PAUSED", "PARKED"];
 
 export const ALERT_THRESHOLD_OPERATORS = [">", ">=", "<", "<=", "=", "!="] as const;
 export type AlertThresholdOperator = (typeof ALERT_THRESHOLD_OPERATORS)[number];
@@ -149,7 +234,10 @@ export function isAlertFilterField(value: string): value is AlertFilterField {
   return (ALERT_FILTER_FIELDS as readonly string[]).includes(value);
 }
 
-/** Mirrors `filter_ops` in backend/rest/services/widget_registry.py. */
+/**
+ * The alert subset of `filter_ops` in backend/rest/services/widget_registry.py:
+ * the engine also offers `in` on string dimensions, which alerts do not store.
+ */
 export const ALERT_FILTER_OPERATORS_BY_FIELD: Record<
   AlertFilterField,
   readonly AlertFilterOperator[]
@@ -222,22 +310,36 @@ export function canonicalizeAlertFilters(filters: readonly AlertFilter[]): Alert
 // the only aggregation that means anything on it.
 export type AlertMeasureType = "number" | "string" | "count";
 
+/** Rendered around a number: `$` before a cost, `ms` after a latency. */
+export interface AlertMeasureUnit {
+  prefix?: string;
+  suffix?: string;
+}
+
 export interface AlertMeasure {
   id: string;
   label: string;
   type: AlertMeasureType;
+  // Only where the bare number would mislead: a token count names itself, and
+  // the id measures have no unit to state.
+  unit?: AlertMeasureUnit;
 }
 
 export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> = {
   SPANS: [
     { id: "count", label: "Count", type: "count" },
     { id: "trace_id", label: "Trace ID", type: "string" },
-    { id: "latency", label: "Latency", type: "number" },
-    { id: "cost", label: "Cost", type: "number" },
+    { id: "latency", label: "Latency", type: "number", unit: { suffix: "ms" } },
+    { id: "cost", label: "Cost", type: "number", unit: { prefix: "$" } },
     { id: "input_tokens", label: "Input tokens", type: "number" },
     { id: "output_tokens", label: "Output tokens", type: "number" },
     { id: "total_tokens", label: "Total tokens", type: "number" },
-    { id: "total_tokens_per_second", label: "Total tokens per second", type: "number" },
+    {
+      id: "total_tokens_per_second",
+      label: "Total tokens per second",
+      type: "number",
+      unit: { suffix: "tok/s" },
+    },
     { id: "unique_user_ids", label: "Unique user ids", type: "string" },
     { id: "unique_session_ids", label: "Unique session ids", type: "string" },
   ],
@@ -245,6 +347,33 @@ export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> 
 
 export function getMeasure(view: AlertView, measureId: string): AlertMeasure | undefined {
   return ALERT_MEASURES_BY_VIEW[view].find((m) => m.id === measureId);
+}
+
+// These count rows or distinct values, so the column's unit does not survive them.
+const UNITLESS_AGGREGATIONS: readonly string[] = ["count", "uniq"];
+
+/**
+ * The unit a rule's threshold and reading are stated in, or undefined when the
+ * number is bare. The one copy the form, the preview, the assistant cards and
+ * the Slack message read. Takes plain strings because a stored rule is not
+ * typed by the registry.
+ */
+export function getAlertUnit(
+  measureId: string,
+  aggregation: string,
+  view: AlertView = DEFAULT_ALERT_VIEW,
+): AlertMeasureUnit | undefined {
+  if (UNITLESS_AGGREGATIONS.includes(aggregation)) return undefined;
+  return getMeasure(view, measureId)?.unit;
+}
+
+/**
+ * A prefix sits tight and a suffix takes a space: "$5", "500 ms". The same
+ * shape the dashboard renderers print, so a number reads alike everywhere.
+ */
+export function withAlertUnit(text: string, unit: AlertMeasureUnit | undefined): string {
+  if (!unit) return text;
+  return `${unit.prefix ?? ""}${text}${unit.suffix ? ` ${unit.suffix}` : ""}`;
 }
 
 /** The query-engine view and field that compute a measure. */
@@ -270,6 +399,23 @@ const SOURCE_BY_ALERT_MEASURE: Record<string, AlertMetricSource> = {
   unique_user_ids: { view: "traces", field: "user_id" },
   unique_session_ids: { view: "traces", field: "session_id" },
 };
+
+/**
+ * The unit of a number the engine already computed, looked up from the source
+ * it was computed on. For a chart drawing a returned result, which may be a
+ * query older than the rule now on screen.
+ */
+export function getAlertUnitForSource(
+  source: AlertMetricSource,
+  aggregation: string,
+  view: AlertView = DEFAULT_ALERT_VIEW,
+): AlertMeasureUnit | undefined {
+  const measureId = Object.keys(SOURCE_BY_ALERT_MEASURE).find((id) => {
+    const candidate = SOURCE_BY_ALERT_MEASURE[id];
+    return candidate.view === source.view && candidate.field === source.field;
+  });
+  return measureId === undefined ? undefined : getAlertUnit(measureId, aggregation, view);
+}
 
 // The engine's AGGS_NUMBER. `count` is absent because the engine reserves it
 // for the count(*) sentinel, and count(column) is not that query.

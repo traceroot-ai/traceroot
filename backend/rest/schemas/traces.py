@@ -28,6 +28,8 @@ class SpanSkeletonResponse(BaseModel):
     span_end_time: datetime | None
     status: str
     status_message: str | None
+    # Exception class name stamped at ingest; "" on OK spans.
+    error_type: str = ""
     model_name: str | None
     cost: float | None
     input_tokens: int | None

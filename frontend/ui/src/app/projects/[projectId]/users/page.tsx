@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useLayoutEffect } from "react";
+import { useMemo, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
@@ -11,6 +11,7 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
   formatDate,
@@ -67,6 +68,10 @@ export default function UsersPage() {
     }),
     [queryOptions],
   );
+
+  // Every new page of rows, or a new search/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify(userQueryOptions));
 
   const { data, isPending: dataPending, error } = useUsers(projectId, userQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
@@ -157,7 +162,7 @@ export default function UsersPage() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto">
+              <div ref={listRef} className="flex-1 overflow-auto">
                 <table className="w-full">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">

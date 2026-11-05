@@ -20,6 +20,9 @@ class RunItem(BaseModel):
     summary: str
     # False for rows written before the flag existed (reads default it).
     self_traced: bool = False
+    # Signal assignment gave up on this hit after repeated unusable model
+    # answers (an empty-signal signal_assignments row); listed per detector only.
+    signal_gave_up: bool = False
 
 
 class RunListResponse(BaseModel):
@@ -50,3 +53,18 @@ class DetectorWindowSummaryResponse(BaseModel):
     window are omitted; the frontend defaults absent entries to {0, 0}."""
 
     data: dict[str, DetectorWindowSummary]
+
+
+class TraceCountsItem(BaseModel):
+    """Traces in one local bucket."""
+
+    # "YYYY-MM-DD" (day) or "YYYY-MM-DDTHH:00" (hour), in the request's `tz`.
+    bucket: str
+    count: int
+
+
+class TraceCountsResponse(BaseModel):
+    """Traces per bucket, ordered ascending. Empty buckets are omitted rather than
+    zero-filled; callers that need a dense series fill the gaps themselves."""
+
+    data: list[TraceCountsItem]

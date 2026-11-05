@@ -4,11 +4,15 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { getTemplate } from "@/features/detectors/templates";
 
+import { ApiError } from "@/lib/api/client";
+
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
   selectorProps: null as Record<string, unknown> | null,
   editedConditions: [] as Array<Record<string, unknown>>,
+  createMutationError: null as (Error & { status?: number }) | null,
+  resetMutation: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -16,7 +20,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutateAsync: mocks.mutateAsync,
+    isPending: false,
+    isError: mocks.createMutationError !== null,
+    error: mocks.createMutationError,
+    reset: () => {
+      mocks.resetMutation();
+      mocks.createMutationError = null;
+    },
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
@@ -42,8 +55,29 @@ vi.mock("@/features/detectors/components/trigger-editor", () => ({
 vi.mock("@/features/detectors/components/agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
-vi.mock("@/features/detectors/components/rca-toggle", () => ({
-  RcaToggle: () => null,
+// Radix Select renders through a portal; a native <select> drives onValueChange.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    value,
+    onValueChange,
+    disabled,
+    children,
+  }: {
+    value: string;
+    onValueChange: (v: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
+  }) => (
+    <select value={value} disabled={disabled} onChange={(e) => onValueChange(e.target.value)}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
 }));
 
 import NewDetectorPage from "./page";
@@ -54,6 +88,8 @@ afterEach(() => {
   mocks.push.mockClear();
   mocks.selectorProps = null;
   mocks.editedConditions = [];
+  mocks.createMutationError = null;
+  mocks.resetMutation.mockClear();
 });
 
 const createButton = () =>
@@ -76,11 +112,36 @@ describe("NewDetectorPage", () => {
       sampleRate: 25,
       enabled: true,
       enableRca: true,
+      enableSignals: true,
       detectionModel: undefined,
       detectionProvider: undefined,
       detectionSource: "system",
     });
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
+  });
+
+  it("creates a detector whose RCA runs only on request when Manual is picked", async () => {
+    render(<NewDetectorPage />);
+    const mode = [...document.querySelectorAll("select")].find((s) =>
+      [...s.options].some((o) => o.value === "automatic"),
+    ) as HTMLSelectElement;
+    expect(mode.value).toBe("automatic");
+    expect(screen.getByText("Run the agent when a signal is created or reopened.")).toBeTruthy();
+    fireEvent.change(mode, { target: { value: "manual" } });
+    expect(screen.getByText("Run the agent from a signal when you need it.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableRca: false });
+  });
+
+  it("creates a detector that does not group its hits when Generate signals is off", async () => {
+    render(<NewDetectorPage />);
+    fireEvent.click(document.getElementById("new-detector-signals") as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableSignals: false });
   });
 
   it("submits user-edited name and prompt over the template defaults", async () => {
@@ -104,6 +165,11 @@ describe("NewDetectorPage", () => {
   it("renders the screening-model picker with a system-default model id (no auto-pick)", () => {
     render(<NewDetectorPage />);
     expect(mocks.selectorProps?.defaultModelId).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+  });
+
+  it("lets the detector picker offer decision models (TypeSafe)", () => {
+    render(<NewDetectorPage />);
+    expect(mocks.selectorProps?.allowDecisionModels).toBe(true);
   });
 });
 
@@ -141,5 +207,37 @@ describe("NewDetectorPage — the conditions it submits", () => {
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
       triggerConditions: [{ field: "duration_ms", op: ">", value: 4500 }],
     });
+  });
+});
+
+describe("NewDetectorPage — creation error handling", () => {
+  it("displays duplicate name error below name field and clears on edit", async () => {
+    const errorMsg = "A detector with this name already exists";
+    mocks.createMutationError = new ApiError(409, errorMsg);
+    mocks.mutateAsync.mockRejectedValueOnce(mocks.createMutationError);
+
+    render(<NewDetectorPage />);
+    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const errorEl = screen.getByText(errorMsg);
+    expect(errorEl).toBeDefined();
+    expect(nameInput.parentElement?.contains(errorEl)).toBe(true);
+
+    fireEvent.change(nameInput, { target: { value: "New Name" } });
+    expect(mocks.resetMutation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(errorMsg)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
+  });
+
+  it("displays unrelated create errors in footer instead of below name field", () => {
+    const errorMsg = "Workspace does not have access to selected model";
+    mocks.createMutationError = new ApiError(400, errorMsg);
+
+    render(<NewDetectorPage />);
+    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const errorEl = screen.getByText(errorMsg);
+    expect(errorEl).toBeDefined();
+    expect(nameInput.parentElement?.contains(errorEl)).toBe(false);
   });
 });

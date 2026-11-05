@@ -13,14 +13,22 @@ import {
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
-interface SettingsTab {
-  id: string;
+interface SettingsTab<Id extends string = string> {
+  id: Id;
   label: string;
   icon: LucideIcon;
   href: string;
 }
 
-export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
+export type WorkspaceSettingsTab =
+  | "general"
+  | "members"
+  | "model-providers"
+  | "integrations"
+  | "billing";
+export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
+
+export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "members", label: "Members", icon: DOMAIN_ICONS.user, href: "members" },
   {
@@ -34,7 +42,7 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ];
 
-export const PROJECT_SETTINGS_TABS: SettingsTab[] = [
+export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "accessKeys", label: "API Keys", icon: Key, href: "accessKeys" },
   { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },

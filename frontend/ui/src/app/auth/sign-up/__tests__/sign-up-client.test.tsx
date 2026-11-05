@@ -59,7 +59,11 @@ describe("SignUpClient", () => {
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
   });
 
-  it("routes a device-login signup through /device with a next=onboarding hint", async () => {
+  it("routes a device-login signup through onboarding, carrying the device URL back", async () => {
+    // Onboarding has to run before the device code is approved. Approving first
+    // releases the waiting CLI, which immediately asks the account for a project
+    // — and a brand-new account has no workspace to hold one until this form is
+    // submitted.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
@@ -69,12 +73,20 @@ describe("SignUpClient", () => {
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     const dest = mocks.push.mock.calls[0][0] as string;
-    expect(dest.startsWith("/device?")).toBe(true);
-    expect(dest).toContain("user_code=ABCD1234");
-    expect(dest).toContain(`next=${encodeURIComponent("/onboarding")}`);
+    expect(dest.startsWith("/onboarding?")).toBe(true);
+    expect(dest).toContain(`callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`);
   });
 
-  it("passes the same device destination to Google sign-up", async () => {
+  it("passes the same onboarding destination to Google sign-up", async () => {
+    // `signIn.social` is better-auth's only social entry point, so this button
+    // signs an existing account in as readily as it creates one — and with
+    // Google a trusted linking provider, it also answers for an existing email
+    // account at the same address. Both land on onboarding without being new,
+    // which is why onboarding checks the account rather than trusting the route:
+    // see "hands an account that already owns a workspace straight back" in
+    // app/onboarding/page.test.tsx. Splitting the destination here instead (with
+    // better-auth's `newUserCallbackURL`) would put the rule back in the one
+    // place that cannot see a workspace.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.signInSocial.mockResolvedValue(undefined);
 
@@ -84,8 +96,10 @@ describe("SignUpClient", () => {
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
     const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };
     expect(arg.provider).toBe("google");
-    expect(arg.callbackURL.startsWith("/device?")).toBe(true);
-    expect(arg.callbackURL).toContain(`next=${encodeURIComponent("/onboarding")}`);
+    expect(arg.callbackURL.startsWith("/onboarding?")).toBe(true);
+    expect(arg.callbackURL).toContain(
+      `callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+    );
   });
 
   it("ignores a non-device callback and onboards a new account directly", async () => {

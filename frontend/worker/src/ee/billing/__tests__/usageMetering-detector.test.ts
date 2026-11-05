@@ -20,7 +20,16 @@ vi.mock("@traceroot/core", () => ({
 }));
 
 vi.mock("./clickhouse.js", () => ({
-  getWorkspaceUsageDetails: vi.fn().mockResolvedValue({ traces: 0, spans: 0, detectorRuns: 0 }), // unused
+  getWorkspaceUsageDetails: vi.fn().mockResolvedValue({
+    traces: 0,
+    spans: 0,
+    detectorRuns: 0,
+    bySource: {
+      user: { traces: 0, spans: 0 },
+      detector: { traces: 0, spans: 0 },
+      agent: { traces: 0, spans: 0 },
+    },
+  }), // unused
 }));
 
 import { reportDetectorOverageToStripe } from "../usageMetering.js";
@@ -177,6 +186,15 @@ describe("detector included-threshold math (first 100 free on paid plans)", () =
     // overage = 900/1000 = 0.9; billable = 1.30 * 0.9 = 1.17
     // 1.17 * 1.05 * 100 = 122.85 → rounds to 123
     expect(billableUnits(1.3, 1000)).toBe(123);
+  });
+
+  it("counts failed scans that used inference in the denominator: 100 completed + 50 failed-billed = 150", () => {
+    // scansRun is the canonical ClickHouse count of runs whose latest version
+    // completed OR recorded inference usage — a failed run that burned model
+    // calls is one scan. Before the fix this read as 100 scans (no overage);
+    // now 50 of 150 scans are billable.
+    // billable = 0.30 * (50/150) = 0.10 → 0.10 * 1.05 * 100 = 10.5 → 11
+    expect(billableUnits(0.3, 150)).toBe(11);
   });
 
   it("upgrading from Free preserves the 100-free benefit: 99 scans on Starter bills $0", () => {

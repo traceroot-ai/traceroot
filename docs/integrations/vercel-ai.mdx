@@ -3,70 +3,170 @@ title: Vercel AI SDK
 description: Trace Vercel AI SDK agents — no instrumentModules config required
 ---
 
-Trace [Vercel AI SDK](https://sdk.vercel.ai) agents in TraceRoot. Unlike LangChain, OpenAI, or Anthropic, no `instrumentModules` configuration is needed — the Vercel AI SDK emits OpenTelemetry spans natively when `experimental_telemetry` is enabled, and TraceRoot enriches them via the OpenInference span processor automatically.
+Automatically capture agent runs, LLM calls, tool executions, and token usage from the [Vercel AI SDK](https://ai-sdk.dev) through its built-in OpenTelemetry support — no `instrumentModules` config required.
 
-## Setup
+## Install
 
-```bash
-npm install @traceroot-ai/traceroot ai @ai-sdk/openai zod
-```
+<Tabs>
+  <Tab title="AI SDK 7">
+    ```bash
+    npm install @traceroot-ai/traceroot ai@^7 @ai-sdk/otel@^1 @ai-sdk/openai@^4 zod@^4
+    ```
+  </Tab>
+  <Tab title="AI SDK 6 (legacy)">
+    ```bash
+    npm install @traceroot-ai/traceroot ai@^6 @ai-sdk/openai@^3 zod@^4
+    ```
+  </Tab>
+</Tabs>
 
-Initialize TraceRoot at your entry point — no `instrumentModules` config:
+## Set up
 
-```typescript
-import { TraceRoot } from '@traceroot-ai/traceroot';
+<Tabs>
+  <Tab title="AI SDK 7">
+    Call `TraceRoot.initialize()` and register the AI SDK's OpenTelemetry integration before your first model call:
 
-// No instrumentModules — Vercel AI SDK telemetry is handled automatically.
-TraceRoot.initialize();
-```
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { registerTelemetry } from 'ai';
+    import { OpenTelemetry } from '@ai-sdk/otel';
+
+    TraceRoot.initialize();
+
+    // Required on AI SDK 7 — without it, no spans are emitted.
+    registerTelemetry(new OpenTelemetry({ usage: true }));
+    ```
+  </Tab>
+  <Tab title="AI SDK 6 (legacy)">
+    Call `TraceRoot.initialize()` before your first model call:
+
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+
+    Then set `experimental_telemetry: { isEnabled: true }` on each call (see [Usage](#usage)).
+  </Tab>
+</Tabs>
 
 ## Usage
 
-```typescript
-import { generateText, tool } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import { z } from 'zod';
-import { observe } from '@traceroot-ai/traceroot';
+Once initialized, every `generateText` / `streamText` call, model call, and tool execution is captured automatically:
 
-const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {
-  return await generateText({
-    model: openai('gpt-4o-mini'),
-    maxSteps: 5,
-    prompt: 'What is the weather in Tokyo?',
-    // This single line activates Vercel AI SDK's built-in OpenTelemetry spans.
-    // TraceRoot enriches them automatically.
-    experimental_telemetry: { isEnabled: true },
-    tools: {
-      getWeather: tool({
-        description: 'Get current weather for a city',
-        parameters: z.object({ city: z.string() }),
-        execute: async ({ city }) => ({ city, temp: 72, condition: 'sunny' }),
-      }),
-    },
-  });
-});
+<Tabs>
+  <Tab title="AI SDK 7">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { registerTelemetry, generateText, tool, isStepCount } from 'ai';
+    import { OpenTelemetry } from '@ai-sdk/otel';
+    import { openai } from '@ai-sdk/openai';
+    import { z } from 'zod';
 
-console.log(result.text);
-```
+    TraceRoot.initialize();
+    registerTelemetry(new OpenTelemetry({ usage: true }));
 
-## What Gets Captured
+    // The agent run, both model calls, and the getWeather tool call are all traced.
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      instructions: 'You are a concise weather assistant.',
+      prompt: 'What is the weather in Tokyo?',
+      stopWhen: isStepCount(5),
+      telemetry: { functionId: 'weather_agent' },
+      tools: {
+        getWeather: tool({
+          description: 'Get current weather for a city',
+          inputSchema: z.object({ city: z.string() }),
+          execute: async ({ city }) => ({ city, temp: 72, condition: 'sunny' }),
+        }),
+      },
+    });
+
+    console.log(result.text);
+    await TraceRoot.flush();
+    ```
+  </Tab>
+  <Tab title="AI SDK 6 (legacy)">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { generateText, tool, stepCountIs } from 'ai';
+    import { openai } from '@ai-sdk/openai';
+    import { z } from 'zod';
+
+    TraceRoot.initialize();
+
+    // The agent run, both model calls, and the getWeather tool call are all traced.
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      system: 'You are a concise weather assistant.',
+      prompt: 'What is the weather in Tokyo?',
+      stopWhen: stepCountIs(5),
+      // Required on every call in AI SDK 6.
+      experimental_telemetry: { isEnabled: true, functionId: 'weather_agent' },
+      tools: {
+        getWeather: tool({
+          description: 'Get current weather for a city',
+          inputSchema: z.object({ city: z.string() }),
+          execute: async ({ city }) => ({ city, temp: 72, condition: 'sunny' }),
+        }),
+      },
+    });
+
+    console.log(result.text);
+    await TraceRoot.flush();
+    ```
+  </Tab>
+</Tabs>
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ai.generateText`. `functionId` sets a telemetry attribute on the span; it does not rename it.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
-| Model | The model passed to `generateText` / `streamText` / `generateObject` |
+| Model | The model passed to `generateText` / `streamText` / `ToolLoopAgent` |
 | Messages | Input prompt and message history |
 | Response | Generated text output |
 | Tool calls | Each tool invocation with input and output |
 | Tokens | Input and output token counts |
-| Cost | Calculated from token usage and model pricing |
+| Cost | Calculated when the model ID matches TraceRoot's pricing table |
 | Latency | Request duration per span |
-| Multi-step iterations | Each `maxSteps` iteration captured as a child span |
+| Multi-step iterations | Each step of a tool loop captured as a child span |
 
+## Limitations
+
+- AI SDK 7 requires Node >= 22.
+- On AI SDK 6 (legacy), each model call must explicitly set `experimental_telemetry: { isEnabled: true }`.
+
+## Embedding usage
+
+`embed` and `embedMany` record reported input-token usage on their provider-call spans. Cost is calculated when the model matches an entry in TraceRoot's pricing table; otherwise, cost remains unset. The current standard pricing table has no embedding models. The operation wrapper remains in the trace, but its aggregate legacy usage is not counted again. This also applies when a batch is split across multiple provider calls.
+
+Embedding spans without reported usage keep their token counts unset. TraceRoot does not estimate embedding tokens from input text or output vectors, avoiding duplicate estimates on orchestration spans whose provider-call children report the actual usage.
+
+For AI SDK 7's `OpenTelemetry` integration, use `@ai-sdk/otel@1.0.76` or newer. If you use an older version, upgrade `@ai-sdk/otel`: older semconv emitters can repeat usage on both the embedding wrapper and its provider calls, while the fixed emitter reports usage only on provider calls.
+
+AI SDK 6's built-in telemetry and AI SDK 7's `LegacyOpenTelemetry` integration report raw embedding usage as `ai.usage.tokens`. TraceRoot reads this field only on provider calls identified by `ai.operationId` or `operation.name` as `ai.embed.doEmbed` or `ai.embedMany.doEmbed`. Preserve these operation attributes in custom span processors so usage can be distinguished from wrapper aggregates. If your emitter omits them, use an emitter that supplies them or switch to the current AI SDK 7 `OpenTelemetry` integration. Normalized OpenInference or GenAI usage fields continue to be supported independently.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/vercel-ai">
-    Run the TypeScript example
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/vercel-ai">
+  Run the TypeScript example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

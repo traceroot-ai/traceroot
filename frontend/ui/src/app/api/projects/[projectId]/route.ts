@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
 import {
@@ -6,11 +7,12 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId] - Get project details
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -43,10 +45,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     rca_model: project.rcaModel,
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
-    alert_emails: project.alertConfig?.emailAddresses ?? [],
+    // Alert recipients are team emails; demo viewers do not get them.
+    alert_emails: isDemoViewer(project.workspaceId, accessResult.membership.role)
+      ? []
+      : (project.alertConfig?.emailAddresses ?? []),
     alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,
     update_time: project.updateTime,
   });
 }
+export const GET = withImpersonationPolicy(handleGET);

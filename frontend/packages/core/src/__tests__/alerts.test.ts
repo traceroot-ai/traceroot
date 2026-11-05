@@ -11,17 +11,23 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   ALERT_SEVERITIES,
   ALERT_STATUSES,
+  SETTABLE_ALERT_STATUSES,
+  STOPPED_ALERT_STATUSES,
   ALERT_THRESHOLD_OPERATORS,
   ALERT_VIEWS,
   DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
+  hasOutstandingAlertPage,
+  parseAlertPendingClose,
   DEFAULT_ALERT_SEVERITY,
   DEFAULT_ALERT_STATUS,
   DEFAULT_ALERT_VIEW,
   KEYED_ALERT_FILTER_FIELDS,
   canonicalizeAlertFilters,
   clampRenotifyInterval,
+  getAlertUnit,
+  getAlertUnitForSource,
   getValidAggregations,
   isAlertAggregation,
   isAlertFilterField,
@@ -29,6 +35,7 @@ import {
   isAlertNoDataMode,
   isAlertSeverity,
   isAlertStatus,
+  isSettableAlertStatus,
   isAlertThresholdOperator,
   isAlertView,
   isEvaluableAlertMetric,
@@ -37,6 +44,7 @@ import {
   type AlertFilter,
   alertFiltersToTracePredicates,
   describeAlertFilter,
+  withAlertUnit,
 } from "../alerts.ts";
 
 describe("canonicalizeAlertFilters", () => {
@@ -114,6 +122,80 @@ describe("clampRenotifyInterval", () => {
       expect(Number.isInteger(clamped)).toBe(true);
       expect(clamped).toBeGreaterThanOrEqual(ALERT_RENOTIFY_MIN_MINUTES);
       expect(clamped).toBeLessThanOrEqual(ALERT_RENOTIFY_MAX_MINUTES);
+    }
+  });
+});
+
+describe("the statuses a client may ask for", () => {
+  it("holds PARKED back from the settable pair, while still reading it as a status", () => {
+    // A client that could ask for PARKED could stop a rule that still runs; the
+    // evaluator reaches it by refusing the stored rule, and an edit leaves it.
+    for (const status of SETTABLE_ALERT_STATUSES) expect(isSettableAlertStatus(status)).toBe(true);
+    expect(isSettableAlertStatus("PARKED")).toBe(false);
+    expect(isAlertStatus("PARKED")).toBe(true);
+  });
+
+  it("counts every status the scheduler will not claim as stopped", () => {
+    // The claim query reads ACTIVE alone, so this is the rest of the vocabulary.
+    expect([...STOPPED_ALERT_STATUSES].sort()).toEqual(
+      ALERT_STATUSES.filter((status) => status !== "ACTIVE")
+        .slice()
+        .sort(),
+    );
+  });
+});
+
+describe("parseAlertPendingClose", () => {
+  const marker = { reason: "resumed", actorUserId: "user-1", at: "2026-08-12T10:00:00.000Z" };
+
+  it("reads a stored marker back, dropping anything beyond its three fields", () => {
+    expect(parseAlertPendingClose(marker)).toEqual(marker);
+    expect(parseAlertPendingClose({ ...marker, extra: true })).toEqual(marker);
+  });
+
+  it("keeps a resend count it can read, and drops one it cannot without losing the close", () => {
+    expect(parseAlertPendingClose({ ...marker, resends: 2 })).toEqual({ ...marker, resends: 2 });
+    for (const resends of [0, -1, 1.5, "2", null]) {
+      expect(parseAlertPendingClose({ ...marker, resends })).toEqual(marker);
+    }
+  });
+
+  it("reads no marker, and anything that is not one, as nothing to close", () => {
+    const notMarkers = [
+      null,
+      undefined,
+      "edited",
+      [marker],
+      { ...marker, reason: "renamed" },
+      { ...marker, actorUserId: "" },
+      { ...marker, at: "not a date" },
+      { reason: marker.reason, actorUserId: marker.actorUserId },
+    ];
+    for (const value of notMarkers) expect(parseAlertPendingClose(value)).toBeNull();
+  });
+});
+
+describe("hasOutstandingAlertPage", () => {
+  const announced = new Date("2026-08-12T10:00:00.000Z");
+
+  it("reads the timestamp as it arrives over JSON too, for the edit form", () => {
+    const state = { severity: "ALERT", alertedAt: announced.toISOString() };
+    expect(hasOutstandingAlertPage(state)).toBe(true);
+  });
+
+  it("reads an announced breach in ALERT or NO_DATA as an open page", () => {
+    expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: announced })).toBe(true);
+    // In NO_DATA the page is the one carried across the gap.
+    expect(hasOutstandingAlertPage({ severity: "NO_DATA", alertedAt: announced })).toBe(true);
+  });
+
+  it("reads a silent entry into ALERT, and every other severity, as no page", () => {
+    // A null alertedAt means nothing was ever announced, so there is nothing
+    // to recover or to discard.
+    expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: null })).toBe(false);
+    expect(hasOutstandingAlertPage({ severity: "NO_DATA", alertedAt: null })).toBe(false);
+    for (const severity of ["OK", "UNKNOWN"]) {
+      expect(hasOutstandingAlertPage({ severity, alertedAt: announced })).toBe(false);
     }
   });
 });
@@ -213,6 +295,61 @@ describe("what the form offers and what the engine can run", () => {
     }
 
     expect(problems).toEqual([]);
+  });
+});
+
+describe("getAlertUnit", () => {
+  it("states a unit only for the measures whose bare number would mislead", () => {
+    const units = Object.fromEntries(
+      ALERT_MEASURES_BY_VIEW.SPANS.flatMap((m) => (m.unit ? [[m.id, m.unit]] : [])),
+    );
+    expect(units).toEqual({
+      latency: { suffix: "ms" },
+      cost: { prefix: "$" },
+      total_tokens_per_second: { suffix: "tok/s" },
+    });
+  });
+
+  it("keeps the unit under every aggregation that returns a value of the column", () => {
+    for (const aggregation of ["sum", "avg", "min", "max", "p50", "p99"]) {
+      expect(getAlertUnit("latency", aggregation)).toEqual({ suffix: "ms" });
+    }
+  });
+
+  it("drops the unit when the aggregation counts instead", () => {
+    // A count of latency rows, or of distinct latencies, is not milliseconds.
+    expect(getAlertUnit("latency", "count")).toBeUndefined();
+    expect(getAlertUnit("cost", "uniq")).toBeUndefined();
+  });
+
+  it("has nothing to say about a measure the registry does not know", () => {
+    expect(getAlertUnit("span_count", "avg")).toBeUndefined();
+  });
+});
+
+describe("getAlertUnitForSource", () => {
+  it("gives a computed number the unit of the measure its source belongs to", () => {
+    // The chart holds the engine's field, not the measure id the rule was written with.
+    expect(getAlertUnitForSource({ view: "spans", field: "duration_ms" }, "p95")).toEqual({
+      suffix: "ms",
+    });
+    expect(getAlertUnitForSource({ view: "spans", field: "tokens_per_second" }, "avg")).toEqual({
+      suffix: "tok/s",
+    });
+  });
+
+  it("drops the unit under a counting aggregation, and for a source no measure reads", () => {
+    expect(getAlertUnitForSource({ view: "spans", field: "duration_ms" }, "uniq")).toBeUndefined();
+    expect(getAlertUnitForSource({ view: "traces", field: "duration_ms" }, "p95")).toBeUndefined();
+  });
+});
+
+describe("withAlertUnit", () => {
+  it("puts a prefix before and a suffix after, tight on the prefix and spaced on the suffix", () => {
+    expect(withAlertUnit("5", { prefix: "$" })).toBe("$5");
+    expect(withAlertUnit("500", { suffix: "ms" })).toBe("500 ms");
+    expect(withAlertUnit("12.5", { suffix: "tok/s" })).toBe("12.5 tok/s");
+    expect(withAlertUnit("12", undefined)).toBe("12");
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -25,6 +25,14 @@ vi.mock("better-auth/plugins", () => ({
   jwt: () => ({ id: "jwt" }),
 }));
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
+const captureServerEventMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
+const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
+vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
+vi.mock("@/lib/signup/attribution", () => ({
+  signupAttributionProperties: signupAttributionPropertiesMock,
+}));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
@@ -44,9 +52,21 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  databaseHooks: {
+    user: {
+      create: {
+        after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
+      };
+    };
+  };
 };
 
 describe("auth options", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signupAttributionPropertiesMock.mockReturnValue({});
+  });
+
   it("passes the configured trusted proxies through to better-auth", () => {
     expect(options.advanced.ipAddress.trustedProxies).toEqual(["10.0.0.0/16"]);
   });
@@ -57,6 +77,46 @@ describe("auth options", () => {
 
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
+  });
+
+  it("sends user_signed_up when a user is created", async () => {
+    await options.databaseHooks.user.create.after({ id: "user-1" });
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith("user-1", "user_signed_up", {});
+  });
+
+  it("enriches the existing signup event instead of emitting a second one", async () => {
+    const properties = {
+      utm_source: "github",
+      marketing_attribution_model: "last_campaign_touch",
+    };
+    signupAttributionPropertiesMock.mockReturnValue(properties);
+    const context = { path: "/sign-up/email" };
+    await options.databaseHooks.user.create.after({ id: "user-1" }, context);
+    expect(signupAttributionPropertiesMock).toHaveBeenCalledWith(context);
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith(
+      "user-1",
+      "user_signed_up",
+      properties,
+    );
+  });
+
+  it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
+    const { after } = options.databaseHooks.user.create;
+    await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
+    const user = { id: "u1", email: "a@example.com", name: null };
+    expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+  });
+
+  it("resolves before the follow-up settles and logs its later rejection", async () => {
+    let reject!: (error: Error) => void;
+    onUserCreatedMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { after } = options.databaseHooks.user.create;
+    await expect(after({ id: "u2", email: "b@example.com" }, null)).resolves.toBeUndefined();
+    const error = new Error("slack down");
+    reject(error);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
+    spy.mockRestore();
   });
 });
 

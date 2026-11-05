@@ -29,7 +29,10 @@ export interface DispatchOptions {
  * args, route the entry's body params into the JSON request body (values kept
  * as-is; the client serializes the whole body once), route the remaining
  * schema params to the query string (scalars stringified, objects and arrays
- * JSON-serialized), ignore unknown args.
+ * JSON-serialized, null and undefined dropped), ignore unknown args.
+ *
+ * A DELETE entry declares no body params, so its args (the path id and
+ * tenancy) take the query route exactly as a GET's do.
  */
 export async function dispatch(
   entry: RegistryEntry,
@@ -60,10 +63,16 @@ export async function dispatch(
 
   // An entry that declares body params always sends a JSON body (possibly
   // empty) so the endpoint's content type doesn't vary with the arguments.
+  //
+  // The null rule: on a PATCH, an absent field is untouched and an explicit
+  // null clears it, so null is forwarded and only undefined is skipped. On a
+  // POST null means nothing (the create has no stored value to clear) and is
+  // dropped alongside undefined.
+  const forwardNull = entry.method === "patch";
   const body: Record<string, unknown> = {};
   for (const name of bodyParams) {
     const value = args[name];
-    if (value === undefined || value === null) {
+    if (value === undefined || (value === null && !forwardNull)) {
       continue;
     }
     body[name] = value;

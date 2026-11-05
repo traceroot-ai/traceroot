@@ -19,30 +19,8 @@ import {
 } from "recharts";
 import type { FieldUnit } from "@/features/filters/filter-controls";
 import { ChartLegend, type LegendEntry } from "./ChartLegend";
+import { seriesColor } from "../series-colors";
 import { type DisplayType, type WidgetQueryResult, AGGS } from "../types";
-
-// Categorical series palette: 12 hues spread evenly round the wheel and
-// ORDERED so consecutive series sit on opposite sides of it — a 2-3 series
-// chart (the common case) gets maximally separated colors, and breakdowns up
-// to a dozen categories stay distinct. No gray in the rotation: a gray series
-// reads as muted/"other", not as real data. Amber and cyan are the -500 shades
-// so thin line strokes keep contrast on a light background.
-export const SERIES_COLORS = [
-  "#fb7185", // rose
-  "#06b6d4", // cyan
-  "#4ade80", // green
-  "#a78bfa", // violet
-  "#fb923c", // orange
-  "#60a5fa", // blue
-  "#10b981", // emerald
-  "#e879f9", // fuchsia
-  "#f59e0b", // amber
-  "#818cf8", // indigo
-  "#2dd4bf", // teal
-  "#f472b6", // pink
-];
-
-const seriesColor = (i: number) => SERIES_COLORS[i % SERIES_COLORS.length];
 
 // Recharts makes its wrapper, SVG, and individual marks (bar rects, line/area
 // paths, pie sectors) keyboard-focusable, so a click paints the browser's focus
@@ -167,13 +145,52 @@ export const fmtValueWithUnit = (v: unknown, unit?: FieldUnit) => {
 // overflowing label clips its LEADING digits and reads as a wrong number.
 // Compact notation bounds the glyph count at any magnitude ("100000" →
 // "100K", "$1.2M"), so the gutter widths below hold for every tick.
-const Y_AXIS_WIDTH = 42;
-const Y_AXIS_WIDTH_WITH_UNIT = 58;
+export const Y_AXIS_WIDTH = 42;
+export const Y_AXIS_WIDTH_WITH_UNIT = 58;
+// Recharts wraps a tick label to the axis width by default, so "10,000 ms"
+// breaks into two lines in the unit gutter and the top one runs off the
+// chart. Labels are bounded by the compact formatter above, so give the
+// text a width no label reaches and let the gutter alone decide the fit.
+export const Y_AXIS_TICK = { fontSize: 10, width: 160 };
+// Top margin clears the topmost tick label, which is centred on the axis
+// line and would otherwise lose its upper half to the SVG edge. Exported
+// with the gutters so a chart drawn elsewhere (the alert preview) plots the
+// same result on the same geometry.
+export const CHART_MARGIN = { top: 8, right: 8, bottom: 0, left: 0 };
 export const fmtAxisTick = (v: unknown, unit?: FieldUnit) => {
   const text = fmtStatNumber(v);
   if (!unit || text === "—") return text;
   return `${unit.prefix ?? ""}${text}${unit.suffix ? ` ${unit.suffix}` : ""}`;
 };
+
+/**
+ * A dot for a real bucket with gap buckets on both sides. A non-additive
+ * series draws its NULL gaps as breaks, so a lone bucket — one day of traffic
+ * in a two-week window — has nothing to connect to and a dot-less line renders
+ * nothing: the tile looks empty while it has data. Everywhere else the line
+ * itself is the mark, so no dot is drawn. Returned as a function so recharts
+ * hands each point its neighbours; a null return draws nothing.
+ */
+interface SeriesDotProps {
+  cx?: number;
+  cy?: number;
+  index: number;
+  value?: unknown;
+  stroke?: string;
+  points: ReadonlyArray<{ value?: unknown }>;
+}
+// An area's points carry a [baseline, value] pair where a line's carry the
+// bare value; read through the pair so both charts see the same emptiness.
+const rawValue = (value: unknown) => (Array.isArray(value) ? value[1] : value);
+const hasValue = (point: { value?: unknown } | undefined) =>
+  point !== undefined && rawValue(point.value) !== null && rawValue(point.value) !== undefined;
+function isolatedDot({ cx, cy, index, value, stroke, points }: SeriesDotProps) {
+  if (cx === undefined || cy === undefined || !hasValue({ value })) return null;
+  if (hasValue(points[index - 1]) || hasValue(points[index + 1])) return null;
+  return (
+    <circle className="recharts-isolated-dot" cx={cx} cy={cy} r={2.5} fill={stroke} stroke="none" />
+  );
+}
 
 // Bucket keys come back ISO-ish ("2026-06-01T00:00:00"); a space reads better
 // in the tooltip header than the "T" separator.
@@ -358,11 +375,11 @@ function TimeSeries({
 
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <Chart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+      <Chart data={data} margin={CHART_MARGIN}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="bucket" tick={{ fontSize: 10 }} tickFormatter={tickFormatter} />
         <YAxis
-          tick={{ fontSize: 10 }}
+          tick={Y_AXIS_TICK}
           width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
           tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
         />
@@ -402,6 +419,7 @@ function TimeSeries({
               fillOpacity={seriesOpacity(hovered, k, 0.35)}
               isAnimationActive={false}
               connectNulls={!additive}
+              dot={additive ? false : isolatedDot}
             />
           ) : (
             <Line
@@ -409,7 +427,7 @@ function TimeSeries({
               dataKey={k}
               stroke={seriesColor(i)}
               strokeOpacity={seriesOpacity(hovered, k)}
-              dot={false}
+              dot={additive ? false : isolatedDot}
               strokeWidth={1.5}
               isAnimationActive={false}
               connectNulls={!additive}
@@ -435,11 +453,11 @@ function Bars({
   const data = useColoredRows(result);
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+      <BarChart data={data} margin={CHART_MARGIN}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
         <YAxis
-          tick={{ fontSize: 10 }}
+          tick={Y_AXIS_TICK}
           width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
           tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
         />
@@ -577,12 +595,12 @@ function HistogramView({
   }));
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+      <BarChart data={data} margin={CHART_MARGIN}>
         <XAxis dataKey="name" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
         {/* The y-axis counts rows per bin (no unit), but large counts clip in
             the fixed gutter just like the other charts — compact them too. */}
         <YAxis
-          tick={{ fontSize: 10 }}
+          tick={Y_AXIS_TICK}
           width={Y_AXIS_WIDTH}
           tickFormatter={(v: unknown) => fmtAxisTick(v)}
         />

@@ -42,7 +42,7 @@ __all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
+router = APIRouter(prefix="/public/traces", tags=["Traces"])
 
 
 # Ingest shares the workspace/plan stamping wrapper with the public read routes

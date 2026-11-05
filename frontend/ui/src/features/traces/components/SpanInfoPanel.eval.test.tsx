@@ -43,6 +43,7 @@ function makeSpan(overrides: Partial<Span> = {}): Span {
     span_end_time: "2026-07-17T10:24:02.500Z",
     status: SpanStatus.OK,
     status_message: null,
+    error_type: "",
     model_name: "claude-opus-5",
     cost: 0.012345,
     input_tokens: 1200,
@@ -223,6 +224,7 @@ describe("SpanInfoPanel — span selection", () => {
     const span = makeSpan({
       status: SpanStatus.ERROR,
       status_message: "RateLimitError: slow down",
+      error_type: "",
     });
     const { container } = renderPanel({ selection: { type: "span", span } });
     expect(screen.getByText("ERROR")).toBeTruthy();
@@ -234,6 +236,7 @@ describe("SpanInfoPanel — span selection", () => {
     const span = makeSpan({
       status: SpanStatus.ERROR,
       status_message: "boom",
+      error_type: "",
       git_source_file: null,
       git_source_line: null,
     });

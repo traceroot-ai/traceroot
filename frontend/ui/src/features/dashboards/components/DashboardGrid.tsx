@@ -4,11 +4,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { GridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem as RGLLayoutItem } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
+import { COLS, ROW_HEIGHT } from "../grid-constants";
+import { placeWidgets } from "../widget-placement";
 import type { LayoutItem, TimeRange, Widget } from "../types";
 import { WidgetCard } from "./WidgetCard";
 
-const COLS = 12;
-const ROW_HEIGHT = 56;
 // Floor for widget resizing: below 2x2 grid units a tile's title and body get
 // clipped into illegibility, so react-grid-layout refuses to shrink past it.
 const MIN_W = 2;
@@ -38,15 +38,11 @@ export function DashboardGrid({
   // from widgets, so extras in the stored layout are simply ignored.
   const fullLayout: RGLLayoutItem[] = useMemo(() => {
     const known = new Map(layout.map((l) => [l.i, l]));
-    let maxY = Math.max(0, ...layout.map((l) => l.y + l.h));
     const constraints = { minW: MIN_W, minH: MIN_H };
-    return widgets.map((w) => {
-      const item = known.get(w.id);
-      if (item) return { ...item, ...constraints };
-      const fresh: RGLLayoutItem = { i: w.id, x: 0, y: maxY, w: 4, h: 4, ...constraints };
-      maxY += 4;
-      return fresh;
-    });
+    return placeWidgets(
+      layout,
+      widgets.map((w) => w.id),
+    ).map((placed) => ({ ...(known.get(placed.i) ?? placed), ...constraints }));
   }, [widgets, layout]);
 
   // Snapshot of the last layout sent upstream, used to skip no-op PATCH calls.

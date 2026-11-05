@@ -148,8 +148,8 @@ describe("evaluateAlerts", () => {
     const results = await evaluateAlerts(request);
 
     expect(results).toEqual([
-      { alert_id: "a", value: 12.5, row_count: 40, error: null },
-      { alert_id: "b", value: 0, row_count: 7, error: null },
+      { alert_id: "a", value: 12.5, row_count: 40, error: null, errorKind: null },
+      { alert_id: "b", value: 0, row_count: 7, error: null, errorKind: null },
     ]);
     expect(severityOf(results[1])).toBe("OK");
   });
@@ -171,6 +171,33 @@ describe("evaluateAlerts", () => {
       expect(result.row_count).toBe(0);
       expect(severityOf(result)).toBe("ALERT");
     }
+  });
+
+  it("reads the failure kind the backend tagged, and only alongside a failure", async () => {
+    // Parking a rule turns on this field alone, so anything but the two known
+    // spellings has to read as "unclassified", never as "spec".
+    const spec = await firstResultOf({
+      value: null,
+      error: "measure: unknown",
+      error_kind: "spec",
+    });
+    expect(spec.errorKind).toBe("spec");
+
+    const query = await firstResultOf({
+      value: null,
+      error: "Query execution failed",
+      error_kind: "query",
+    });
+    expect(query.errorKind).toBe("query");
+
+    for (const error_kind of ["SPEC", "", null, undefined, 1]) {
+      const result = await firstResultOf({ value: null, error: "boom", error_kind });
+      expect(result.errorKind).toBeNull();
+    }
+
+    // A measured result classifies nothing, whatever the backend sent with it.
+    const measured = await firstResultOf({ value: 12.5, error: null, error_kind: "spec" });
+    expect(measured.errorKind).toBeNull();
   });
 
   it("drops an entry that names no alert, rather than settling the wrong rule", async () => {

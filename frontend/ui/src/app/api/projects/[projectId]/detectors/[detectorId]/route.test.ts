@@ -1,20 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
 const detectorFindFirstMock = vi.fn();
 const detectorUpdateMock = vi.fn();
 const detectorDeleteMock = vi.fn();
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
+const auditCreateMock = vi.fn();
+// The handlers delegate to the write service, which runs its own tenancy
+// check and audit inside a transaction on this same client.
+vi.mock("@traceroot/core", () => {
+  const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
+  const client = {
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     detector: {
       findFirst: (...args: unknown[]) => detectorFindFirstMock(...args),
       update: (...args: unknown[]) => detectorUpdateMock(...args),
       delete: (...args: unknown[]) => detectorDeleteMock(...args),
     },
-  },
-}));
+    auditLog: { create: (...args: unknown[]) => auditCreateMock(...args) },
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+  };
+  return {
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    hasMinRole: (userRole: string, minRole: string) =>
+      ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    prisma: client,
+  };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -40,6 +58,7 @@ beforeEach(() => {
   detectorFindFirstMock.mockReset();
   detectorUpdateMock.mockReset();
   detectorDeleteMock.mockReset();
+  auditCreateMock.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -69,6 +88,24 @@ describe("PATCH .../detectors/[detectorId] — role gating", () => {
     expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
     expect(res.status).toBe(200);
     expect(detectorUpdateMock).toHaveBeenCalledTimes(1);
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ operation: "update_detector", transport: "ui" }),
+    });
+  });
+
+  it("rejects an empty patch with 400 instead of issuing an empty update", async () => {
+    const res = await PATCH(makeRequest({}), makeParams());
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("No fields to update");
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a patch that changes nothing with 200 and no write", async () => {
+    detectorFindFirstMock.mockResolvedValue({ id: "det-1", projectId: "proj-1", name: "Same" });
+    const res = await PATCH(makeRequest({ name: "Same" }), makeParams());
+    expect(res.status).toBe(200);
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
   });
 });
 
@@ -134,6 +171,13 @@ describe("DELETE .../detectors/[detectorId] — role gating", () => {
     expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
     expect(res.status).toBe(200);
     expect(detectorDeleteMock).toHaveBeenCalledTimes(1);
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_detector",
+        transport: "ui",
+        summary: expect.objectContaining({ reason: "Deleted from the web app" }),
+      }),
+    });
   });
 });
 

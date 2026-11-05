@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TimeRange, Widget } from "../types";
-import { WidgetCard } from "./WidgetCard";
+import { WidgetBody, WidgetCard } from "./WidgetCard";
 
 // Radix DropdownMenu opens on pointerdown and relies on pointer-capture APIs
 // jsdom doesn't implement.
@@ -16,8 +16,13 @@ vi.mock("../hooks/use-widget-data", () => ({
 }));
 
 vi.mock("./TraceFeedWidget", () => ({
-  TraceFeedWidget: (props: { projectId: string; spec: { limit?: number }; range: TimeRange }) => (
-    <div data-testid="trace-feed-widget">
+  TraceFeedWidget: (props: {
+    projectId: string;
+    spec: { limit?: number };
+    range: TimeRange;
+    queryOptions?: unknown;
+  }) => (
+    <div data-testid="trace-feed-widget" data-query-options={JSON.stringify(props.queryOptions)}>
       {props.projectId}:{JSON.stringify(props.spec)}
     </div>
   ),
@@ -155,5 +160,42 @@ describe("WidgetCard body dispatch", () => {
 
     const body = screen.getByTestId("trace-feed-widget");
     expect(body.textContent).toBe('p1:{"limit":5}');
+  });
+});
+
+describe("WidgetBody", () => {
+  afterEach(cleanup);
+
+  it("renders the query body for a query widget, passing the caller's query options through", () => {
+    useWidgetData.mockReturnValue({
+      data: { columns: ["value"], rows: [[42]], meta: {} },
+      isPending: false,
+      error: null,
+    });
+    const options = { staleTime: Infinity, refetchOnWindowFocus: false };
+
+    render(
+      <WidgetBody projectId="p1" widget={makeWidget()} range={RANGE} queryOptions={options} />,
+    );
+
+    expect(screen.getByText("42")).toBeTruthy();
+    expect(screen.queryByText("My widget")).toBeNull();
+    const [, , , , , passed] = useWidgetData.mock.calls[useWidgetData.mock.calls.length - 1];
+    expect(passed).toEqual(options);
+  });
+
+  it("renders the feed for a trace_feed widget, with the same query options", () => {
+    render(
+      <WidgetBody
+        projectId="p1"
+        widget={makeWidget({ type: "trace_feed", spec: { limit: 5 } })}
+        range={RANGE}
+        queryOptions={{ staleTime: Infinity }}
+      />,
+    );
+
+    const feed = screen.getByTestId("trace-feed-widget");
+    expect(feed.textContent).toBe('p1:{"limit":5}');
+    expect(feed.getAttribute("data-query-options")).toBe('{"staleTime":null}');
   });
 });

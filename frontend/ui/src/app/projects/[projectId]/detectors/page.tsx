@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
@@ -18,6 +19,8 @@ import {
   useDeleteDetector,
 } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -26,6 +29,8 @@ import { PlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
+import { serializeFiltersParam } from "@/features/filters/predicate";
+import { useSignalCounts } from "@/ee/features/signals/hooks";
 
 function formatDetectorModel(detector: {
   detectionModel: string | null;
@@ -45,9 +50,29 @@ function formatDetectorModel(detector: {
   return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
 }
 
+/**
+ * A count that opens what it counts. It stops the click from reaching the row,
+ * whose own click opens the detector unfiltered. A dash while loading.
+ */
+function CountLink({ href, label, value }: { href: string; label: string; value: number | null }) {
+  if (value === null) return <>—</>;
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      title={label}
+      onClick={(e) => e.stopPropagation()}
+      className="hover:text-foreground hover:underline"
+    >
+      {value}
+    </Link>
+  );
+}
+
 export default function DetectorsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -65,6 +90,7 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
+    clampToTotal,
   } = useListPageState({
     defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
@@ -74,31 +100,57 @@ export default function DetectorsPage() {
   // across the list <-> detail navigation, mirroring how the Traces tabs
   // propagate the range via the URL. Arriving from the sidebar carries no
   // param, so the section resets to its default — the same as Traces.
-  const buildUrl = (path: string) =>
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
       dateFilter: state.dateFilter,
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
+      extraParams,
     });
 
-  const { data, isLoading, error } = useDetectorList(projectId, {
+  // Remember this page, page size and filters so the detector page's "Detectors"
+  // link returns here. The effective date window is recorded too (it can come from
+  // the stored per-project range, not the URL); the detector page overlays its own.
+  useRememberListQuery(
+    `detectors:${projectId}`,
+    withDateWindow(searchParams.toString(), buildUrl("")),
+  );
+
+  const { data, isLoading, error, isPlaceholderData } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
 
-  const {
-    data: counts,
-    isLoading: countsLoading,
-    error: countsError,
-  } = useDetectorCounts(projectId, {
+  // Every new page of rows, or a new search, starts at the top of the list. The time
+  // range only changes the count columns, not which detectors are listed.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.search_query]),
+  );
+
+  // A count shows only once it has loaded: a dash while loading or when its
+  // query failed, never a clickable 0 that is not a real count.
+  const { data: counts } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
 
+  // Every signal a detector has, as the Signals page lists it for that detector.
+  const { data: signalCounts } = useSignalCounts(projectId);
+
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
   const meta = data?.meta;
+
+  // A delete (or a deep link) can leave the page past the end of the list; pull it back
+  // to the last page with rows. Skipped while the previous query's rows are shown as
+  // placeholder: their total belongs to a different query and would clamp a valid page.
+  useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(meta?.total ?? 0);
+  }, [clampToTotal, meta?.total, isLoading, isPlaceholderData]);
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
@@ -156,7 +208,7 @@ export default function DetectorsPage() {
         />
 
         {/* Table */}
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading detectors..." />
@@ -211,10 +263,13 @@ export default function DetectorsPage() {
                     Sampling
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Findings
+                    Judge Runs
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Runs
+                    Signals
+                  </th>
+                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Agent Runs
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Created At
@@ -235,10 +290,22 @@ export default function DetectorsPage() {
                   const template = getTemplate(detector.template);
                   const modelLabel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
-                  const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
+                  const agentRunCount = c?.agent_run_count ?? 0;
+                  const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
                     "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                  const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
+                  // Judge runs open the detector page; signals open the
+                  // Signals page narrowed to this detector.
+                  const countLinks = {
+                    runs: buildUrl(detectorPath),
+                    signals: buildUrl(`/projects/${projectId}/signals`, {
+                      filters: serializeFiltersParam([
+                        { field: "detector", op: "in", value: [detector.name] },
+                      ])!,
+                    }),
+                  };
                   return (
                     <tr
                       key={detector.id}
@@ -262,8 +329,26 @@ export default function DetectorsPage() {
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
                       </td>
-                      <td className={countClass}>{countsLoading ? "—" : findingCount}</td>
-                      <td className={countClass}>{countsLoading ? "—" : runCount}</td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.runs}
+                          label={`View judge runs for ${detector.name}`}
+                          value={counts ? runCount : null}
+                        />
+                      </td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.signals}
+                          label={`View signals for ${detector.name}`}
+                          value={signalCounts ? signalCount : null}
+                        />
+                      </td>
+                      <td
+                        className={countClass}
+                        title="RCA agent runs started in the selected time range, including retries"
+                      >
+                        {counts ? agentRunCount : "—"}
+                      </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}
                       </td>
@@ -324,8 +409,8 @@ export default function DetectorsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}

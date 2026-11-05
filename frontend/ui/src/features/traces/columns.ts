@@ -10,6 +10,7 @@ export type FixedColumnId =
   | "metadata"
   | "user_id"
   | "session_id"
+  | "signal_ids"
   | "input_usage"
   | "output_usage"
   | "total_usage"
@@ -34,6 +35,8 @@ export const FIXED_COLUMNS: readonly FixedColumn[] = [
   { id: "metadata", label: "Metadata", isDefaultOn: false },
   { id: "user_id", label: "User ID", isDefaultOn: false },
   { id: "session_id", label: "Session ID", isDefaultOn: false },
+  // A trace's signals, one per detector hit, so possibly several.
+  { id: "signal_ids", label: "Signal IDs", isDefaultOn: false },
   { id: "input_usage", label: "Input usage", isDefaultOn: false },
   { id: "output_usage", label: "Output usage", isDefaultOn: false },
   { id: "total_usage", label: "Total usage", isDefaultOn: false },

@@ -6,6 +6,7 @@ class SpanKind(StrEnum):
     AGENT = "AGENT"
     TOOL = "TOOL"
     SPAN = "SPAN"
+    DECISION = "DECISION"
     # Offline-evaluation span kinds emitted by the SDK: the evaluation-item root,
     # the candidate task span, and each scorer span.
     EVALUATION = "EVALUATION"

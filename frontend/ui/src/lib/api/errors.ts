@@ -18,3 +18,43 @@ export class ApiError extends Error {
     this.detail = detail;
   }
 }
+
+/** Only policy-tagged responses qualify; ordinary 403s retain their existing UX. */
+export class ImpersonationError extends ApiError {
+  constructor(message: string) {
+    super(403, message);
+    this.name = "ImpersonationError";
+  }
+}
+
+const impersonationMessages: Record<string, string> = {
+  "Credentials are unavailable while impersonating":
+    "API keys cannot be viewed or managed while impersonating, including as an admin.",
+  "Provider credentials are unavailable while impersonating":
+    "Providers cannot be added, changed, deleted, or tested while impersonating, including as an admin.",
+  "Integration authorization is unavailable while impersonating":
+    "Integrations cannot be managed while impersonating, including as an admin.",
+  "Read-only while impersonating":
+    "This impersonation session is read-only. Changes are not allowed.",
+  "Exit impersonation before managing accounts or credentials":
+    "Accounts and credentials cannot be managed while impersonating. Exit impersonation to return to your own account.",
+};
+
+export async function throwIfImpersonationDenied(response: Response): Promise<void> {
+  if (response.status !== 403) return;
+  const kind = response.headers?.get("x-impersonation-denied");
+  if (kind !== "policy" && kind !== "ended") return;
+  if (kind === "ended") {
+    throw new ImpersonationError(
+      "Impersonation has ended. Select Stop to return to your own account.",
+    );
+  }
+  // Preserve the body for existing error handlers on all other responses.
+  const body = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  throw new ImpersonationError(
+    impersonationMessages[body?.error] ?? "This action is not allowed while impersonating.",
+  );
+}

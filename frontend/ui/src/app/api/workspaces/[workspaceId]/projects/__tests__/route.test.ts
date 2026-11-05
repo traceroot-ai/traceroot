@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 import path from "path";
 import { pathToFileURL } from "url";
 import { z } from "zod";
@@ -16,6 +19,9 @@ const mockRequireAuth = vi.fn();
 const mockRequireWorkspaceMembership = vi.fn();
 const mockFindFirst = vi.fn();
 const mockProjectUpdate = vi.fn();
+const mockTxProjectCreate = vi.fn();
+const mockTxDashboardCreate = vi.fn();
+const mockTransaction = vi.fn();
 
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: (...a: any[]) => mockRequireAuth(...a),
@@ -34,14 +40,30 @@ vi.mock("@traceroot/core", async (orig) => {
         findFirst: (...a: any[]) => mockFindFirst(...a),
         update: (...a: any[]) => mockProjectUpdate(...a),
       },
+      // The update route delegates to the write service, which reads,
+      // checks the ADMIN membership and writes inside the transaction.
+      $transaction: (fn: (t: unknown) => unknown) => {
+        mockTransaction();
+        return fn({
+          project: {
+            create: (...a: any[]) => mockTxProjectCreate(...a),
+            findUnique: (...a: unknown[]) => mockFindFirst(...a),
+            update: (...a: unknown[]) => mockProjectUpdate(...a),
+          },
+          dashboard: { create: (...a: any[]) => mockTxDashboardCreate(...a) },
+          workspaceMember: { findUnique: async () => ({ role: "ADMIN" }) },
+        });
+      },
+      auditLog: { create: async () => ({}) },
     },
-    Role: { ADMIN: "ADMIN" },
+    Role: { ADMIN: "ADMIN", MEMBER: "MEMBER" },
   };
 });
 
 const project = {
   id: "p1",
   workspaceId: "ws1",
+  deleteTime: null,
   name: "test",
   traceTtlDays: 30,
   rcaModel: "gpt-5.3",
@@ -101,5 +123,61 @@ describe("Workspace project route", () => {
         data: expect.objectContaining({ rcaProvider: "anthropic", rcaSource: "system" }),
       }),
     );
+  });
+});
+
+const createRoutePath = path.join(__dirname, "..", "route.ts");
+
+describe("Workspace projects create route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
+    mockRequireWorkspaceMembership.mockResolvedValue({ error: null });
+  });
+
+  const post = async (body: unknown) => {
+    const mod = await import(pathToFileURL(createRoutePath).href);
+    return mod.POST(
+      new Request("http://localhost/", { method: "POST", body: JSON.stringify(body) }),
+      { params: Promise.resolve({ workspaceId: "ws1" }) },
+    );
+  };
+
+  it("creates the project and seeds the Default dashboard in the same transaction", async () => {
+    mockTxProjectCreate.mockImplementation(({ data }: any) =>
+      Promise.resolve({ ...data, createTime: new Date() }),
+    );
+    mockTxDashboardCreate.mockResolvedValue({});
+
+    const res = await post({ name: "Checkout" });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.name).toBe("Checkout");
+
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockTxDashboardCreate).toHaveBeenCalledTimes(1);
+    const { data } = mockTxDashboardCreate.mock.calls[0][0];
+    expect(data).toEqual(
+      expect.objectContaining({
+        id: `default_${body.id}`,
+        projectId: body.id,
+        name: "Default",
+        isDefault: true,
+        createdBy: "u1",
+        widgets: { create: expect.any(Array) },
+      }),
+    );
+  });
+
+  it("returns 409 on a duplicate name and seeds nothing", async () => {
+    // The live-name unique index is the only race-free duplicate check: the
+    // create itself fails, and the transaction rolls back before any seed.
+    mockTxProjectCreate.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+
+    const res = await post({ name: "Checkout" });
+    expect(res.status).toBe(409);
+    expect(mockTxDashboardCreate).not.toHaveBeenCalled();
   });
 });

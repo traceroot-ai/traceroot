@@ -1,0 +1,62 @@
+---
+title: TypeSafe AI
+description: Auto-instrument Jev calls made with the TypeSafe AI SDK
+---
+
+Automatically capture every call to Jev, TypeSafe AI's System One decision model. Each `systemOne` call becomes a decision span with the model version, token usage, cost, and the questions, answers and probabilities.
+
+## Setup
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as typeSafe from '@typesafe-ai/sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({ instrumentModules: { typeSafe } });
+    ```
+  </Tab>
+</Tabs>
+
+Requires `@traceroot-ai/traceroot` 0.5.0 or newer and Node.js 20 or newer.
+
+## Usage
+
+Once initialized, all `systemOne` calls are captured automatically:
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```typescript
+    import { choice, TypeSafeClient } from '@typesafe-ai/sdk';
+
+    const client = new TypeSafeClient(); // reads TYPESAFE_API_KEY
+
+    // This call is automatically traced
+    const response = await client.systemOne({
+      state: { document: 'I was charged twice. Please fix this ASAP.' },
+      questions: {
+        category: choice('What is this ticket about?', {
+          billing: null,
+          technical: null,
+          other: null,
+        }),
+      },
+    });
+
+    console.log(response.answers.category.choice);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | The resolved Jev version, e.g. `jev-1.13.0` |
+| Input | The `state` and `questions` sent to Jev |
+| Output | Answers and their probabilities |
+| Tokens | Input and output tokens |
+| Cost | Calculated when the model ID matches TraceRoot's pricing table |
+| Latency | Request duration |
+
+Jev calls are recorded as decision spans, not LLM spans, because Jev selects among the options you give it instead of generating text.

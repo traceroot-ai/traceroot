@@ -13,8 +13,12 @@ COPY frontend/packages/core/package.json ./packages/core/package.json
 COPY frontend/packages/github/package.json ./packages/github/package.json
 RUN pnpm install --frozen-lockfile
 
-FROM base
+FROM node:24-alpine
 WORKDIR /app
+# The runtime image starts from a freshly upgraded base and drops npm, which is
+# not used at runtime but ships its own bundled dependencies.
+RUN apk upgrade --no-cache && apk add --no-cache openssl && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY frontend/packages/core/prisma ./packages/core/prisma

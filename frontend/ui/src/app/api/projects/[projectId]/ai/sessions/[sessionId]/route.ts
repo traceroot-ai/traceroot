@@ -1,3 +1,5 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
@@ -6,7 +8,7 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 type RouteParams = { params: Promise<{ projectId: string; sessionId: string }> };
 
 // DELETE /api/projects/[projectId]/ai/sessions/[sessionId] — Delete session
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -15,9 +17,19 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const denied = demoAgentWriteDenied(
+    accessResult.project.workspaceId,
+    accessResult.membership.role,
+  );
+  if (denied) return denied;
+
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (sessionId === "." || sessionId === "..") {
+    return Response.json({ error: "Invalid session ID" }, { status: 400 });
+  }
 
   const res = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}`,
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`,
     {
       method: "DELETE",
       headers: { "x-user-id": user.id },
@@ -33,3 +45,4 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
   return successResponse({ ok: true });
 }
+export const DELETE = withImpersonationPolicy(handleDELETE);

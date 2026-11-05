@@ -83,6 +83,17 @@ class TestProjectAccessInternalBypass:
         assert info.user_id == "system"
         assert len(compare_digest_spy) == 1
 
+    async def test_no_secret_configured_closes_the_bypass(self, monkeypatch):
+        # The internal router answers 503 in this state; the app routes must not
+        # still honour a header, or a deployment that never configured internal
+        # traffic would still have an admin door.
+        monkeypatch.setattr(settings, "internal_api_secret", "")
+        with pytest.raises(HTTPException) as exc:
+            await get_project_access(
+                project_id="p1", x_user_id=None, x_internal_secret="test-secret"
+            )
+        assert exc.value.status_code == 401
+
     async def test_wrong_secret_falls_through_to_401(self, secret):
         with pytest.raises(HTTPException) as exc:
             await get_project_access(

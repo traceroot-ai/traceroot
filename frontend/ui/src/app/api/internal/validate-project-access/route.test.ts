@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: vi.fn() } } }));
+vi.mock("@/lib/support/session", () => ({ impersonationContext: vi.fn() }));
+import { auth } from "@/lib/auth";
+import { impersonationContext } from "@/lib/support/session";
 
 vi.mock("next/server", () => ({
   NextRequest: class {},
@@ -36,6 +40,8 @@ function makeRequest(body: unknown) {
 }
 
 beforeEach(() => {
+  vi.mocked(auth.api.getSession).mockReset();
+  vi.mocked(impersonationContext).mockReset();
   projectFindUniqueMock.mockReset();
   memberFindUniqueMock.mockReset();
   verifyInternalSecretMock.mockReset();
@@ -43,6 +49,42 @@ beforeEach(() => {
 });
 
 describe("POST /api/internal/validate-project-access", () => {
+  it.each([false, true])(
+    "uses signed session identity, not userId (impersonating=%s)",
+    async (impersonating) => {
+      vi.mocked(auth.api.getSession).mockResolvedValue({
+        user: { id: "signed-user" },
+        session: { impersonatedBy: impersonating ? "staff" : null },
+      } as never);
+      vi.mocked(impersonationContext).mockResolvedValue({ valid: true } as never);
+      projectFindUniqueMock.mockResolvedValue({ id: "p", workspaceId: "w", workspace: {} });
+      memberFindUniqueMock.mockResolvedValue({ role: "viewer" });
+      const response = await POST(
+        makeRequest({ browserSession: true, userId: "forged", projectId: "p" }),
+      );
+      expect(response.status).toBe(200);
+      expect(memberFindUniqueMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { workspaceId_userId: { workspaceId: "w", userId: "signed-user" } },
+        }),
+      );
+    },
+  );
+  it.each(["missing", "revoked"])(
+    "rejects a %s browser session before membership lookup",
+    async (mode) => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(
+        mode === "missing"
+          ? null
+          : ({ user: { id: "u" }, session: { impersonatedBy: "staff" } } as never),
+      );
+      vi.mocked(impersonationContext).mockResolvedValue({ valid: false } as never);
+      const response = await POST(makeRequest({ browserSession: true, projectId: "p" }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ error: "Session ended" });
+      expect(projectFindUniqueMock).not.toHaveBeenCalled();
+    },
+  );
   it("returns access + the workspace billingPlan when the user is a member", async () => {
     projectFindUniqueMock.mockResolvedValue({
       id: "proj-123",
