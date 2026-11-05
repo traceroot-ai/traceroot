@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "TraceRoot",
+  "name": "traceroot",
   "theme": "mint",
   "thumbnails": {
     "appearance": "light",
@@ -69,7 +69,7 @@
         "href": "https://github.com/traceroot-ai/traceroot/tree/main/examples"
       },
       {
-        "label": "TraceRoot Cloud",
+        "label": "traceroot Cloud",
         "href": "https://app.traceroot.ai"
       },
       {
@@ -173,7 +173,7 @@
             ]
           },
           {
-            "group": "TraceRoot Agent",
+            "group": "traceroot Agent",
             "pages": [
               "ai-agent/overview",
               {
