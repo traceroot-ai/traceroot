@@ -244,6 +244,18 @@ class IngestSettings(BaseSettings):
     max_objects: int = Field(500_000, gt=0)
 
 
+class WorkerSettings(BaseSettings):
+    """Celery ingest worker settings.
+
+    Env vars: WORKER_CONCURRENCY
+    """
+
+    model_config = SettingsConfigDict(env_prefix="WORKER_")
+
+    # Celery processes in the worker, each decoding one batch at a time.
+    concurrency: int = Field(2, gt=0)
+
+
 class Settings(BaseSettings):
     """Root settings for the TraceRoot backend.
 
@@ -293,6 +305,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = RedisSettings()
     rate_limit: RateLimitSettings = RateLimitSettings()
     ingest: IngestSettings = IngestSettings()
+    worker: WorkerSettings = WorkerSettings()
 
 
 settings = Settings()
