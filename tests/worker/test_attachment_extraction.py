@@ -537,7 +537,7 @@ class TestKnownJsonShapes:
         assert list(s3.objects.values()) == [(image, "image/png")]
         assert (result.referenced, result.omitted) == (1, 0)
 
-    def test_non_image_bytes_declared_as_two_types_name_both(self):
+    def test_non_image_bytes_declared_as_two_types_share_one_placeholder(self):
         payload = [
             {"mime_type": "image/jpeg", "data": b64(RIFF_AUDIO)},
             {"mime_type": "image/gif", "data": b64(RIFF_AUDIO)},
