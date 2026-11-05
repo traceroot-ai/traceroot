@@ -55,37 +55,6 @@ class S3Service:
 
         self._client: Any = None
 
-    def _get_client(self):
-        """Get or create the S3 client."""
-        if self._client is None:
-            config = Config(
-                retries={"max_attempts": 3, "mode": "adaptive"},
-                connect_timeout=5,
-                read_timeout=30,
-            )
-            self._client = boto3.client(
-                "s3",
-                endpoint_url=self._endpoint_url,
-                aws_access_key_id=self._access_key_id,
-                aws_secret_access_key=self._secret_access_key,
-                region_name=self._region,
-                config=config,
-            )
-        return self._client
-
-    def ensure_bucket_exists(self) -> None:
-        """Ensure the bucket exists, create if not."""
-        client = self._get_client()
-        try:
-            client.head_bucket(Bucket=self._bucket_name)
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code")
-            if error_code == "404":
-                logger.info(f"Creating bucket: {self._bucket_name}")
-                client.create_bucket(Bucket=self._bucket_name)
-            else:
-                raise
-
     def copy_object(self, source_key: str, dest_key: str) -> None:
         """Copy an object to another key in the same bucket, server-side.
 
@@ -116,6 +85,37 @@ class S3Service:
         client = self._get_client()
         client.delete_object(Bucket=self._bucket_name, Key=s3_key)
         logger.debug(f"Deleted s3://{self._bucket_name}/{s3_key}")
+
+    def _get_client(self):
+        """Get or create the S3 client."""
+        if self._client is None:
+            config = Config(
+                retries={"max_attempts": 3, "mode": "adaptive"},
+                connect_timeout=5,
+                read_timeout=30,
+            )
+            self._client = boto3.client(
+                "s3",
+                endpoint_url=self._endpoint_url,
+                aws_access_key_id=self._access_key_id,
+                aws_secret_access_key=self._secret_access_key,
+                region_name=self._region,
+                config=config,
+            )
+        return self._client
+
+    def ensure_bucket_exists(self) -> None:
+        """Ensure the bucket exists, create if not."""
+        client = self._get_client()
+        try:
+            client.head_bucket(Bucket=self._bucket_name)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code == "404":
+                logger.info(f"Creating bucket: {self._bucket_name}")
+                client.create_bucket(Bucket=self._bucket_name)
+            else:
+                raise
 
     def upload_json(self, s3_key: str, data: dict | list) -> None:
         """Upload JSON data to S3.
