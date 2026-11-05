@@ -16,6 +16,8 @@ it before the transform ever runs. These tests pin both the gate and the
 transform's own behavior on decoded input.
 """
 
+import base64
+
 import pytest
 from google.protobuf.message import DecodeError
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
@@ -41,6 +43,53 @@ class TestProtobufGate:
     def test_garbage_bytes_are_rejected(self):
         with pytest.raises(DecodeError):
             decode_otlp_protobuf(b"this is not a protobuf at all")
+
+    def test_invalid_utf8_in_one_string_keeps_the_rest_of_the_batch(self):
+        """OTel JS writes a lone surrogate (e.g. an emoji cut by ``.slice()``) as the
+        bytes ED A0 BD, which is not UTF-8. Python's parser rejects the whole request for
+        it; the batch must still decode, with only the broken bytes replaced."""
+        req = ExportTraceServiceRequest()
+        resource_spans = req.resource_spans.add()
+        # A repeated string field, to cover the list branch of the repair.
+        resource_spans.resource.entity_refs.add().id_keys.extend(["ok", "QQQ"])
+        spans = resource_spans.scope_spans.add().spans
+        for span_hex, text in (("1111111111111111", "fine"), (SPAN_HEX, "Hello QQQ")):
+            span = spans.add()
+            span.trace_id = bytes.fromhex(TRACE_HEX)
+            span.span_id = bytes.fromhex(span_hex)
+            span.name = "s"
+            kv = span.attributes.add()
+            kv.key = "output.value"
+            kv.value.string_value = text
+        # Same length as the placeholder, so every length prefix stays valid.
+        body = req.SerializeToString().replace(b"QQQ", b"\xed\xa0\xbd")
+        with pytest.raises(DecodeError):
+            ExportTraceServiceRequest().ParseFromString(body)
+
+        decoded = decode_otlp_protobuf(body)
+
+        replaced = "�" * 3
+        out = decoded["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        values = [s["attributes"][0]["value"]["stringValue"] for s in out]
+        assert values == ["fine", f"Hello {replaced}"]
+        entity_ref = decoded["resourceSpans"][0]["resource"]["entityRefs"][0]
+        assert entity_ref["idKeys"] == ["ok", replaced]
+        # Bytes fields are not text: TRACE_HEX holds bytes that are not valid UTF-8 on
+        # their own (0xAB, 0xCD, 0xEF), and they must come through unchanged.
+        assert base64.b64decode(out[1]["traceId"]) == bytes.fromhex(TRACE_HEX)
+        assert base64.b64decode(out[1]["spanId"]) == bytes.fromhex(SPAN_HEX)
+
+    def test_invalid_utf8_does_not_rescue_a_truncated_payload(self):
+        req = ExportTraceServiceRequest()
+        span = req.resource_spans.add().scope_spans.add().spans.add()
+        span.trace_id = bytes.fromhex(TRACE_HEX)
+        span.span_id = bytes.fromhex(SPAN_HEX)
+        span.name = "QQQ"
+        body = req.SerializeToString().replace(b"QQQ", b"\xed\xa0\xbd")
+        # A trailing field whose length runs past the end: broken even with the
+        # UTF-8 repaired, so it must still be rejected.
+        with pytest.raises(DecodeError):
+            decode_otlp_protobuf(body + b"\x0a\x7f")
 
     def test_truncated_protobuf_is_rejected(self):
         req = ExportTraceServiceRequest()
