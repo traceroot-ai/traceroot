@@ -55,7 +55,6 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -214,8 +213,7 @@ class _Extractor:
         # Storing that part would keep a fragment, so the whole URL stays inline.
         if not data.endswith("=") and _BASE64_CONTINUES_RE.match(match.string, match.end()):
             return match.group(0)
-        mime = normalize_image_mime("image/" + match.group("subtype"))
-        return self._replacement((mime,), data)
+        return self._replacement(data)
 
     def _replace_json_shapes(self, text: str) -> str:
         # Every JSON value but the first follows "[", "," or ":", so this bounds the
@@ -229,14 +227,14 @@ class _Extractor:
         except (ValueError, RecursionError):
             return text
 
-        images: dict[str, set[str]] = {}  # base64 -> every type declared for it
+        images: set[str] = set()
         stack = [parsed]
         while stack:
             node = stack.pop()
             if isinstance(node, dict):
                 found = _known_shape_image(node)
                 if found is not None:
-                    images.setdefault(found[1], set()).add(found[0])
+                    images.add(found)
                 stack.extend(node.values())
             elif isinstance(node, list):
                 stack.extend(node)
@@ -253,11 +251,10 @@ class _Extractor:
         end = 0
         for match in _QUOTED_BASE64_RE.finditer(text):
             data = match.group(1)
-            declared = images.get(data)
-            if declared is None:
+            if data not in images:
                 continue
             if data not in replacements:
-                replacements[data] = self._replacement(declared, data)
+                replacements[data] = self._replacement(data)
             pieces += (text[end : match.start(1)], replacements[data])
             end = match.end(1)
         if not pieces:
@@ -265,12 +262,11 @@ class _Extractor:
         pieces.append(text[end:])
         return "".join(pieces)
 
-    def _replacement(self, declared: Collection[str], data: str) -> str:
+    def _replacement(self, data: str) -> str:
         """Validate one base64 image and return its reference, or a placeholder.
 
-        ``declared`` holds every type the image was declared as; the placeholder
-        names them when the bytes are no allowed image. Bytes of any allowed type
-        are accepted, and the reference and stored object take the type they are.
+        Bytes of any allowed type are accepted, whatever type they were declared as,
+        and the reference and stored object take the type they are.
         """
         limits = self._config
         estimated = _decoded_size(data)
@@ -282,7 +278,7 @@ class _Extractor:
             return self._omit("invalid base64", estimated)
         mime = sniff_image_mime(image)
         if mime is None:
-            return self._omit(f"content is not {' or '.join(sorted(declared))}", len(image))
+            return self._omit("content is not a PNG, JPEG, GIF or WebP image", len(image))
         dimensions = read_image_dimensions(image, mime)
         if dimensions is None:
             return self._omit("unreadable image header", len(image))
@@ -317,8 +313,8 @@ class _Extractor:
         return f"[image omitted: {reason}, {byte_count} bytes]"
 
 
-def _known_shape_image(node: dict) -> tuple[str, str] | None:
-    """``(type, base64)`` when ``node`` is one of the known image shapes, else None."""
+def _known_shape_image(node: dict) -> str | None:
+    """The base64 ``data`` when ``node`` is one of the known image shapes, else None."""
     data = node.get("data")
     # A value that cannot hold an image is not one, so neither it nor an equal
     # string elsewhere in the field is replaced by a placeholder.
@@ -327,10 +323,9 @@ def _known_shape_image(node: dict) -> tuple[str, str] | None:
     declared = node.get("media_type") if node.get("type") == "base64" else None
     if declared is None:
         declared = node.get("mime_type", node.get("mimeType"))
-    mime = normalize_image_mime(declared)
-    if mime is None:
+    if normalize_image_mime(declared) is None:
         return None
-    return mime, data
+    return data
 
 
 def _could_be_image(data: str) -> bool:
