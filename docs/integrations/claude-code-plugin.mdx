@@ -1,0 +1,84 @@
+---
+title: Claude Code Plugin
+description: Trace Claude Code terminal sessions with TraceRoot
+---
+
+The [TraceRoot Claude Code plugin](https://github.com/traceroot-ai/traceroot-claude-code-plugin) provides automatic observability for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) terminal sessions.
+
+Each conversation turn becomes a live trace in TraceRoot showing LLM calls, tool invocations, token consumption, and nested sub-agent runs — all organized by session.
+
+## Install
+
+Add the repository to your Claude Code plugin marketplace and install — this is what registers the plugin's hooks with Claude Code:
+
+```bash
+claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+claude plugin install traceroot-observability@traceroot-claude-code-plugin
+```
+
+Or run directly from within the Claude Code prompt:
+
+```text
+/plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+/plugin install traceroot-observability@traceroot-claude-code-plugin
+```
+
+## Set up
+
+Set your TraceRoot API key in your shell profile (e.g. `~/.zshrc` or `~/.bashrc`):
+
+```bash
+export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
+
+# Optional: Only needed if self-hosting TraceRoot
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+```
+
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `TRACEROOT_API_KEY` | Yes | Your TraceRoot API key from [app.traceroot.ai](https://app.traceroot.ai). |
+| `TRACEROOT_HOST_URL` | No | TraceRoot ingest endpoint. Defaults to `https://app.traceroot.ai`. |
+| `TRACEROOT_PLUGIN_MAX_CHARS` | No | Truncate captured inputs and outputs to this many characters. Defaults to `20000`. |
+| `TRACEROOT_PLUGIN_DEBUG` | No | Append hook diagnostics to `~/.claude/state/traceroot/debug.log`. Defaults to `false`. |
+
+Restart Claude Code or launch a new terminal session. All turns and tool actions will stream to TraceRoot.
+
+## Usage
+
+Start Claude Code in your terminal as usual:
+
+```bash
+claude
+```
+
+Prompt the assistant or run tasks. The plugin automatically streams traces for every turn, model call, and tool execution in real time.
+
+## Verify
+
+Start a session and confirm traces arrive:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see your Claude Code session traces with turn-by-turn tool executions and model calls.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+| --------- | ----------- |
+| Sessions | Full session continuity and conversation history |
+| Turns | Agent prompt and response turns with latency |
+| Tools | File edits, bash commands, searches, and test executions |
+| Tokens | Input and output token counts per model call |
+
+## Limitations
+
+None known.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Claude Code Plugin Repository" icon="github" href="https://github.com/traceroot-ai/traceroot-claude-code-plugin">
+    View source code, releases, and documentation on GitHub.
+  </Card>
+  <Card title="Sessions" icon="clock" href="/tracing/sessions">
+    Learn how TraceRoot groups turns and tool calls by agent session.
+  </Card>
+</CardGroup>

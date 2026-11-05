@@ -1,0 +1,139 @@
+---
+title: Amazon Bedrock
+description: Auto-instrument AWS Bedrock calls with TraceRoot
+---
+
+Automatically capture AWS Bedrock model calls, Converse API requests, tool/function calling, and token usage with TraceRoot.
+
+TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and **TypeScript** (via `@aws-sdk/client-bedrock-runtime`).
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot boto3
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @aws-sdk/client-bedrock-runtime
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
+
+<Tabs>
+  <Tab title="Python">
+    Pass `Integration.BEDROCK` to `traceroot.initialize()`:
+
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.BEDROCK])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Pass the `@aws-sdk/client-bedrock-runtime` module namespace to `instrumentModules.bedrock`:
+
+    ```typescript
+    import * as bedrockRuntime from '@aws-sdk/client-bedrock-runtime';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { bedrock: bedrockRuntime },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    Once initialized, all Bedrock Runtime client calls are captured automatically:
+
+    ```python
+    import boto3
+
+    client = boto3.client("bedrock-runtime", region_name="us-east-1")
+
+    # This call is automatically traced
+    response = client.converse(
+        modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        messages=[
+            {"role": "user", "content": [{"text": "What is the capital of France?"}]},
+        ],
+    )
+
+    print(response["output"]["message"]["content"][0]["text"])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Calls made through `BedrockRuntimeClient` (such as `ConverseCommand`) are automatically traced:
+
+    ```typescript
+    import {
+      BedrockRuntimeClient,
+      ConverseCommand,
+    } from '@aws-sdk/client-bedrock-runtime';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    const client = new BedrockRuntimeClient({ region: 'us-east-1' });
+
+    // This command is automatically traced
+    const command = new ConverseCommand({
+      modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      messages: [{ role: 'user', content: [{ text: 'What is the capital of France?' }] }],
+    });
+
+    const response = await client.send(command);
+    console.log(response.output?.message?.content?.[0]?.text);
+
+    // Flush pending traces before the process exits
+    await TraceRoot.shutdown();
+    ```
+  </Tab>
+</Tabs>
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `bedrock.converse` (or `bedrock.converse_stream` when streaming).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute  | Description                                                       |
+| ---------- | ----------------------------------------------------------------- |
+| Model ID   | `us.anthropic.claude-*`, `amazon.titan-*`, etc.                   |
+| Messages   | Input conversation messages and prompts                           |
+| Response   | Model output content and completions                              |
+| Tool calls | Function and tool call definitions, inputs, outputs, and errors   |
+| Tokens     | Input and output token counts                                     |
+| Latency    | Request duration                                                  |
+
+## Limitations
+
+None known.
+
+## Run the example
+
+Clone the repository and run a complete AWS Bedrock tool-agent:
+
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/bedrock">
+  Run the Bedrock Converse tool-agent example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
+  </Card>
+</CardGroup>
