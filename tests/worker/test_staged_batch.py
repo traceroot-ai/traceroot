@@ -146,6 +146,15 @@ class TestDownloadBytes:
         assert service.download_bytes("events/otel/p/k.pb.gz") == b"\x1f\x8b raw bytes"
         client.get_object.assert_called_once_with(Bucket="bucket", Key="events/otel/p/k.pb.gz")
 
+    def test_download_json_parses_the_same_body(self):
+        service = S3Service(bucket_name="bucket")
+        client = MagicMock()
+        client.get_object.return_value = {"Body": io.BytesIO('{"name": "café"}'.encode())}
+        service._client = client
+
+        assert service.download_json("events/otel/p/k.json") == {"name": "café"}
+        client.get_object.assert_called_once_with(Bucket="bucket", Key="events/otel/p/k.json")
+
 
 class TestFormatsAreEquivalent:
     def test_every_format_loads_to_the_same_dict(self):

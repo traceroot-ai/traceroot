@@ -2,6 +2,7 @@
 and the route that applies both."""
 
 import gzip
+import logging
 import os
 import random
 import time
@@ -15,7 +16,8 @@ from pydantic import ValidationError
 
 from rest.main import app
 from rest.openapi_public import build_public_schema
-from rest.routers.public.traces import AuthResult, _read_capped_body, authenticate_api_key
+from rest.routers.public.request_body import read_capped_body
+from rest.routers.public.traces import AuthResult, authenticate_api_key
 from shared.bounded_gzip import (
     _MAX_MEMBERS,
     _WINDOW_BYTES,
@@ -78,7 +80,7 @@ class TestGunzip:
     def test_output_one_byte_over_the_limit_is_refused(self):
         with pytest.raises(GzipTooLargeError) as exc:
             gunzip(gzip.compress(b"x" * 4097), 4096)
-        assert exc.value.max_bytes == 4096
+        assert str(exc.value) == "decompressed data exceeds 4096 bytes"
 
     def test_limit_counts_every_member(self):
         body = gzip.compress(b"a" * 3000) + gzip.compress(b"b" * 3000)
@@ -126,7 +128,7 @@ class TestGunzip:
         with pytest.raises(GzipTooManyMembersError) as exc:
             gunzip(body, MIB)
         assert isinstance(exc.value, zlib.error)
-        assert exc.value.max_members == _MAX_MEMBERS
+        assert str(exc.value) == f"gzip data holds more than {_MAX_MEMBERS} members"
 
     def test_a_body_of_many_empty_members_is_refused_quickly(self):
         """Each member needs a new inflater, so a body of empty members is refused once
@@ -253,6 +255,14 @@ class TestRequestSizeLimit:
         assert response.status_code == 413
         s3.upload_bytes.assert_not_called()
 
+    def test_chunked_body_over_the_cap_gets_the_same_detail_and_log(self, ingest, caplog):
+        client, _, _, _ = ingest
+        with caplog.at_level(logging.WARNING, logger="rest.routers.public.traces"):
+            response = client.post(INGEST_URL, content=_chunks(REQUEST_CAP * 4), headers=PROTOBUF)
+        detail = f"Request body exceeds {REQUEST_CAP} bytes"
+        assert response.json()["detail"] == detail
+        assert f"Refused trace ingest request: {detail}" in caplog.messages
+
     def test_chunked_body_under_the_cap_is_accepted(self, ingest):
         client, s3, _ = ingest
         response = client.post(INGEST_URL, content=_chunks(REQUEST_CAP - 10), headers=PROTOBUF)
@@ -306,7 +316,7 @@ class TestUnzippedSizeLimit:
 
 
 class _FakeRequest:
-    """Just enough of a Starlette request for ``_read_capped_body``."""
+    """Just enough of a Starlette request for ``read_capped_body``."""
 
     def __init__(self, headers: dict[str, str], chunks: list[bytes]):
         self.headers = headers
@@ -319,28 +329,32 @@ class _FakeRequest:
             yield chunk
 
 
+def _too_large() -> HTTPException:
+    return HTTPException(status_code=413, detail="too large")
+
+
 class TestReadCappedBody:
     async def test_declared_length_over_the_cap_is_refused_before_reading(self):
         request = _FakeRequest({"content-length": str(64 * MIB)}, [b"x"])
         with pytest.raises(HTTPException) as exc:
-            await _read_capped_body(request, 16)
+            await read_capped_body(request, 16, _too_large)
         assert exc.value.status_code == 413
         assert request.chunks_read == 0
 
     async def test_understated_length_is_caught_by_the_running_count(self):
         request = _FakeRequest({"content-length": "4"}, [b"x" * 10, b"x" * 10])
         with pytest.raises(HTTPException) as exc:
-            await _read_capped_body(request, 16)
+            await read_capped_body(request, 16, _too_large)
         assert exc.value.status_code == 413
         assert request.chunks_read == 2
 
     async def test_unparseable_length_falls_back_to_the_running_count(self):
         request = _FakeRequest({"content-length": "lots"}, [b"ab", b"cd"])
-        assert await _read_capped_body(request, 16) == b"abcd"
+        assert await read_capped_body(request, 16, _too_large) == b"abcd"
 
     async def test_body_without_a_length_is_joined(self):
         request = _FakeRequest({}, [b"ab", b"", b"cd"])
-        assert await _read_capped_body(request, 4) == b"abcd"
+        assert await read_capped_body(request, 4, _too_large) == b"abcd"
 
 
 def test_public_schema_documents_the_413():

@@ -38,7 +38,6 @@ class GzipTooLargeError(ValueError):
 
     def __init__(self, max_bytes: int) -> None:
         super().__init__(f"decompressed data exceeds {max_bytes} bytes")
-        self.max_bytes = max_bytes
 
 
 class GzipTooManyMembersError(zlib.error):
@@ -49,7 +48,6 @@ class GzipTooManyMembersError(zlib.error):
 
     def __init__(self, max_members: int) -> None:
         super().__init__(f"gzip data holds more than {max_members} members")
-        self.max_members = max_members
 
 
 def iter_gunzip(data: bytes, max_bytes: int) -> Iterator[bytes]:
