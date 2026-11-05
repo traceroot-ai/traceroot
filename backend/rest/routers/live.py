@@ -43,7 +43,7 @@ def _completion_state_in_clickhouse(
     (max ch_create_time) tells us whether spans are still actively arriving.
     It is the insert time, not ch_update_time: that column is the row's
     version, which an insert can set earlier than the insert itself
-    (``version_time`` in ``insert_spans_batch``), so a row inserted just now
+    (the receive time the ingest worker gives each row), so a row inserted just now
     could look as if the trace had been quiet for a long time.
     """
     from db.clickhouse.client import get_clickhouse_client

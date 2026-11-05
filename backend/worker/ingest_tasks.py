@@ -7,13 +7,19 @@ import json
 import logging
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
 from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 logger = logging.getLogger(__name__)
+
+#: Version for a placeholder trace row (a batch without the trace's root span). It
+#: sorts below every receive time, so a root-bearing row replaces it in either order.
+#: ch_update_time is DateTime64(3): receive times in the same millisecond tie, and
+#: merges and FINAL then keep the row inserted last.
+PLACEHOLDER_TRACE_VERSION = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _json_serializer(obj: object) -> str:
@@ -354,6 +360,8 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+        # None falls back to the insert time.
+        version = datetime.fromisoformat(received_at) if received_at else None
 
         # 3. Insert into ClickHouse
         if traces or spans:
@@ -389,18 +397,18 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                     ]
 
                 if traces:
-                    from worker.row_versions import receive_time, version_trace_rows
-
-                    ch_client.insert_traces_batch(
-                        version_trace_rows(traces, root_bearing_trace_ids),
-                        version_time=receive_time(received_at),
-                    )
+                    for t in traces:
+                        t["ch_update_time"] = (
+                            version
+                            if t["trace_id"] in root_bearing_trace_ids
+                            else PLACEHOLDER_TRACE_VERSION
+                        )
+                    ch_client.insert_traces_batch(traces)
                     logger.info(f"Inserted {len(traces)} traces into ClickHouse")
 
             if spans:
-                from worker.row_versions import receive_time
-
-                ch_client.insert_spans_batch(spans, version_time=receive_time(received_at))
+                # Copies, so the spans published to the live view below don't gain the field.
+                ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).

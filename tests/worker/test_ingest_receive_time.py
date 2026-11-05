@@ -16,8 +16,7 @@ from db.clickhouse.client import ClickHouseClient
 from rest.main import app
 from rest.routers.public.traces import AuthResult, authenticate_api_key
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
-from worker.ingest_tasks import process_s3_traces
-from worker.row_versions import PLACEHOLDER_TRACE_VERSION, receive_time, version_trace_rows
+from worker.ingest_tasks import PLACEHOLDER_TRACE_VERSION, process_s3_traces
 
 TRACE_HEX = "aa" * 16
 ROOT_HEX = "bb" * 8
@@ -145,21 +144,6 @@ class TestTracesOutOfOrder:
         assert kept["name"] == "agent run"
 
 
-class TestRowVersionHelpers:
-    def test_receive_time_parses_iso_with_microseconds(self):
-        assert receive_time(EARLIER) == datetime(2026, 10, 29, 12, 0, 0, 100000, tzinfo=UTC)
-
-    @pytest.mark.parametrize("missing", [None, ""])
-    def test_missing_receive_time_is_none(self, missing):
-        assert receive_time(missing) is None
-
-    def test_only_rows_without_their_root_are_placeholders(self):
-        traces = [{"trace_id": "with-root"}, {"trace_id": "without-root"}]
-        assert version_trace_rows(traces, {"with-root"}) is traces
-        assert "ch_update_time" not in traces[0]
-        assert traces[1]["ch_update_time"] == PLACEHOLDER_TRACE_VERSION
-
-
 @pytest.fixture()
 def sinks(monkeypatch):
     """S3 serving one JSON batch, and every downstream sink mocked."""
@@ -173,18 +157,34 @@ def sinks(monkeypatch):
     return ch
 
 
-def test_task_passes_the_receive_time_to_both_inserts(sinks):
+def test_task_stamps_the_receive_time_on_both_inserts(sinks):
     process_s3_traces(s3_key="events/otel/proj-1/k.json", project_id="proj-1", received_at=LATER)
     expected = datetime.fromisoformat(LATER)
-    assert sinks.insert_spans_batch.call_args.kwargs["version_time"] == expected
-    assert sinks.insert_traces_batch.call_args.kwargs["version_time"] == expected
+    (span,) = sinks.insert_spans_batch.call_args.args[0]
+    (trace,) = sinks.insert_traces_batch.call_args.args[0]
+    assert span["ch_update_time"] == expected
+    assert trace["ch_update_time"] == expected
 
 
-def test_task_without_a_receive_time_passes_none(sinks):
-    result = process_s3_traces(s3_key="events/otel/proj-1/k.json", project_id="proj-1")
+@pytest.mark.parametrize("missing", [None, ""])
+def test_task_without_a_receive_time_leaves_the_version_to_the_insert(sinks, missing):
+    result = process_s3_traces(
+        s3_key="events/otel/proj-1/k.json", project_id="proj-1", received_at=missing
+    )
     assert result["spans"] == 1
-    assert sinks.insert_spans_batch.call_args.kwargs["version_time"] is None
-    assert sinks.insert_traces_batch.call_args.kwargs["version_time"] is None
+    (span,) = sinks.insert_spans_batch.call_args.args[0]
+    (trace,) = sinks.insert_traces_batch.call_args.args[0]
+    assert span["ch_update_time"] is None
+    assert trace["ch_update_time"] is None
+
+
+def test_live_spans_are_published_without_the_version(sinks, monkeypatch):
+    publish = MagicMock()
+    monkeypatch.setattr("worker.ingest_tasks._publish_live_spans", publish)
+    process_s3_traces(s3_key="events/otel/proj-1/k.json", project_id="proj-1", received_at=LATER)
+    (span,) = publish.call_args.args[0]
+    assert "ch_update_time" not in span
+    assert sinks.insert_spans_batch.call_args.args[0][0]["ch_update_time"] is not None
 
 
 class TestApiQueuesTheReceiveTime:
@@ -268,5 +268,5 @@ def test_internal_self_trace_route_keeps_insert_time_versions(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert ch.insert_spans_batch.call_args.kwargs == {}
-    assert ch.insert_traces_batch.call_args.kwargs == {}
+    assert all("ch_update_time" not in s for s in ch.insert_spans_batch.call_args.args[0])
+    assert all("ch_update_time" not in t for t in ch.insert_traces_batch.call_args.args[0])

@@ -30,7 +30,7 @@ def _trace(trace_id: str = "trace-1", **extra: Any) -> dict[str, Any]:
     }
 
 
-def _span(span_id: str = "span-1") -> dict[str, Any]:
+def _span(span_id: str = "span-1", **extra: Any) -> dict[str, Any]:
     return {
         "span_id": span_id,
         "trace_id": "trace-1",
@@ -38,6 +38,7 @@ def _span(span_id: str = "span-1") -> dict[str, Any]:
         "span_start_time": datetime(2026, 10, 29, 11, 59, 0, tzinfo=UTC),
         "name": "step",
         "span_kind": "SPAN",
+        **extra,
     }
 
 
@@ -64,14 +65,14 @@ class TestSpanVersion:
     def test_version_time_is_written_as_ch_update_time(self):
         internal = MagicMock()
         ClickHouseClient(internal).insert_spans_batch(
-            [_span("a"), _span("b")], version_time=RECEIVED
+            [_span("a", ch_update_time=RECEIVED), _span("b", ch_update_time=RECEIVED)]
         )
         assert _column(internal, "ch_update_time") == [RECEIVED, RECEIVED]
 
     def test_create_time_stays_the_insert_time(self):
         internal = MagicMock()
         before = datetime.now(UTC)
-        ClickHouseClient(internal).insert_spans_batch([_span()], version_time=RECEIVED)
+        ClickHouseClient(internal).insert_spans_batch([_span(ch_update_time=RECEIVED)])
         (created,) = _column(internal, "ch_create_time")
         assert created >= before
         assert created != RECEIVED
@@ -88,7 +89,7 @@ class TestSpanVersion:
     def test_microseconds_are_handed_to_insert(self):
         """The helper passes the receive time on unrounded; rounding is the driver's."""
         internal = MagicMock()
-        ClickHouseClient(internal).insert_spans_batch([_span()], version_time=RECEIVED)
+        ClickHouseClient(internal).insert_spans_batch([_span(ch_update_time=RECEIVED)])
         (version,) = _column(internal, "ch_update_time")
         assert version.microsecond == 123456
 
@@ -96,7 +97,7 @@ class TestSpanVersion:
 class TestTraceVersion:
     def test_version_time_is_written_as_ch_update_time(self):
         internal = MagicMock()
-        ClickHouseClient(internal).insert_traces_batch([_trace()], version_time=RECEIVED)
+        ClickHouseClient(internal).insert_traces_batch([_trace(ch_update_time=RECEIVED)])
         assert _column(internal, "ch_update_time") == [RECEIVED]
         (created,) = _column(internal, "ch_create_time")
         assert created != RECEIVED
@@ -109,19 +110,13 @@ class TestTraceVersion:
         assert version >= before
         assert _column(internal, "ch_create_time") == [version]
 
-    def test_a_record_version_wins_over_the_batch_version(self):
+    def test_each_record_keeps_its_own_version(self):
         internal = MagicMock()
         own = datetime(1970, 1, 1, tzinfo=UTC)
         ClickHouseClient(internal).insert_traces_batch(
-            [_trace("t-own", ch_update_time=own), _trace("t-batch")], version_time=RECEIVED
+            [_trace("t-own", ch_update_time=own), _trace("t-batch", ch_update_time=RECEIVED)]
         )
         assert _column(internal, "ch_update_time") == [own, RECEIVED]
-
-    def test_a_record_version_wins_over_the_insert_time(self):
-        internal = MagicMock()
-        own = datetime(1970, 1, 1, tzinfo=UTC)
-        ClickHouseClient(internal).insert_traces_batch([_trace(ch_update_time=own)])
-        assert _column(internal, "ch_update_time") == [own]
 
 
 class TestDriverWritesMilliseconds:
@@ -129,7 +124,7 @@ class TestDriverWritesMilliseconds:
 
     def test_the_version_handed_to_insert_is_written_in_whole_milliseconds(self):
         internal = MagicMock()
-        ClickHouseClient(internal).insert_spans_batch([_span()], version_time=RECEIVED)
+        ClickHouseClient(internal).insert_spans_batch([_span(ch_update_time=RECEIVED)])
         (version,) = _column(internal, "ch_update_time")
         assert _written_ticks(version) == RECEIVED_MS
 
