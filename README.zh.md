@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-开源 AI Agent 改进平台
+traceroot：持续改进你的 AI Agent 的开源平台。
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]

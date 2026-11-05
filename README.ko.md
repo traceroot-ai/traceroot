@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-오픈 소스 AI 에이전트 개선 플랫폼
+traceroot: 여러분의 AI 에이전트를 지속적으로 개선하는 오픈 소스 플랫폼.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]

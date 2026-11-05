@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-Open Source AI Agent Improvement Platform
+traceroot: the open-source platform that continuously improves your ai agents.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
