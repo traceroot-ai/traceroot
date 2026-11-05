@@ -45,7 +45,7 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 
 See [Data Capture and Privacy](/tracing/data-capture) for `captureInput` and `captureOutput` examples that keep sensitive values off spans.
 
-To rewrite personal data in every span before export, pass a `redact` function to `TraceRoot.initialize()`. See [Data Capture and Privacy](/tracing/data-capture#redact-personal-data-before-export).
+To rewrite personal data in every span before export, pass a `redact` function to `TraceRoot.initialize()`. It may be async. See [Data Capture and Privacy](/tracing/data-capture#redact-personal-data-before-export).
 
 ## Setting Trace Context
 

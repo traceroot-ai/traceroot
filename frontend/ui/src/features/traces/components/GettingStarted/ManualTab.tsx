@@ -207,7 +207,9 @@ interface ManualTabProps {
 
 /**
  * Instrumenting by hand: the key, the install, the environment, the one call
- * that starts tracing, and the external integrations.
+ * that starts tracing, and running the application, which is what sends the
+ * first trace. The external integrations follow unnumbered, as on the "Using
+ * AI" tab, because a first trace does not need them.
  *
  * On the traces page the tab picks the stack itself, as step 4, and asks for
  * no model key. The model key is asked for during onboarding instead.
@@ -285,8 +287,15 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
 
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">
-          {ownsStack ? "6. External integrations" : "5. External integrations"}
+          {ownsStack ? "6. Run your application" : "5. Run your application"}
         </p>
+        <p className="text-[12px] text-muted-foreground">
+          Make an LLM request through the code you instrumented to send your first trace.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[13px] font-medium text-foreground">External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
         ) : workspaceId ? (

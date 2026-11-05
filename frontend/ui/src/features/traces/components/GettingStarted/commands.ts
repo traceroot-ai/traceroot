@@ -17,18 +17,14 @@ import { clientEnv } from "@/env.client";
  * option". Bumping this is therefore the last step of a CLI release, never the
  * first.
  *
- * Not `@latest`, which is what this was: `npm view traceroot-cli dist-tags`
- * answers 0.5.0, a version with no `setup` subcommand at all, so the line this
- * file prints dies with "unknown command 'setup'" on Cloud today. `@latest` is
- * also resolved per machine against npx's cache, so even once a good version is
- * published a warm cache can still hand back an older one, and a rollback
- * silently re-breaks the page.
+ * Not `@latest`: this pins a tested release rather than the mutable `latest`
+ * tag, so the command changes only when this web app is updated.
  *
  * Not a `^` range either, which would otherwise be the compromise: `^` is an
  * escape character in Windows `cmd.exe`, and this line has to survive being
  * pasted into whatever shell the reader happens to have open.
  */
-const SETUP_CLI_VERSION = "0.6.0";
+const SETUP_CLI_VERSION = "0.6.1";
 
 /** The invocation, before the flags this page is able to fill in. */
 const SETUP_BASE = `npx -y traceroot-cli@${SETUP_CLI_VERSION} setup`;
