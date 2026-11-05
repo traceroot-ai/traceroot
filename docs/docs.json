@@ -104,6 +104,7 @@
             "pages": [
               "tracing/introduction",
               "tracing/get-started",
+              "tracing/troubleshooting",
               {
                 "group": "SDKs",
                 "pages": [
