@@ -184,6 +184,8 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-6-sol", label: "gpt-6-sol" },
     { id: "gpt-6-luna", label: "gpt-6-luna" },
+    // Detector-only: gpt-6-luna on the Decisions API (DECISION_MODEL_ALIASES).
+    { id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions" },
     { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
     { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
     { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
@@ -378,11 +380,33 @@ export function isDecisionAdapter(adapter: string | null | undefined): boolean {
   return adapter === LLMAdapter.TYPESAFE;
 }
 
-const decisionModelIds = new Set<string>(
-  Object.entries(ADAPTER_MODELS)
+/**
+ * Detector-only catalog ids for decision models served by a chat adapter.
+ * The id is what a detector stores and the picker shows; `model` is the API
+ * model it calls, and the identity it is priced and traced under. gpt-6-luna
+ * itself stays a chat model (and the default chat judge), so the Decisions
+ * API needs an id of its own.
+ */
+export const DECISION_MODEL_ALIASES: Readonly<
+  Record<string, { adapter: LLMAdapter; model: string }>
+> = {
+  "gpt-6-luna-decisions": { adapter: LLMAdapter.OPENAI, model: "gpt-6-luna" },
+};
+
+/** The alias entry for a detector-only decision model id, or null. */
+export function decisionModelAlias(
+  modelId: string | null | undefined,
+): { adapter: LLMAdapter; model: string } | null {
+  if (!modelId || !Object.hasOwn(DECISION_MODEL_ALIASES, modelId)) return null;
+  return DECISION_MODEL_ALIASES[modelId];
+}
+
+const decisionModelIds = new Set<string>([
+  ...Object.entries(ADAPTER_MODELS)
     .filter(([adapter]) => isDecisionAdapter(adapter))
     .flatMap(([, models]) => models.map((m) => m.id)),
-);
+  ...Object.keys(DECISION_MODEL_ALIASES),
+]);
 
 export function isDecisionModelId(modelId: string): boolean {
   return decisionModelIds.has(modelId);
