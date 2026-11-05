@@ -7,12 +7,15 @@ import json
 import logging
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from shared.enums import SpanKind
 from worker.celery_app import app
 
 logger = logging.getLogger(__name__)
+
+# Trace fields the SDK's update_current_trace() can stamp on any span, not only the root.
+_CHILD_SOURCED_TRACE_FIELDS = ("user_id", "session_id", "metadata")
 
 
 def _json_serializer(obj: object) -> str:
@@ -379,6 +382,47 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                         if t["trace_id"] in root_bearing_trace_ids
                         or t["trace_id"] not in existing_ids
                     ]
+
+                # A root-bearing batch rebuilds its trace record from its own spans, but
+                # update_current_trace() called in a nested function stamps the ids on a
+                # child span, and children are exported before their root. The new row
+                # replaces the stored one (ReplacingMergeTree on ch_update_time), so carry
+                # over what an earlier batch already stored instead of writing NULL.
+                root_records_missing_attrs = [
+                    t
+                    for t in traces
+                    if t["trace_id"] in root_bearing_trace_ids
+                    and any(t.get(f) is None for f in _CHILD_SOURCED_TRACE_FIELDS)
+                ]
+                if root_records_missing_attrs:
+                    ids = [t["trace_id"] for t in root_records_missing_attrs]
+                    # A stored row was written by a batch of this trace's children, which
+                    # start after the root, so its trace_start_time is never earlier than
+                    # the root's. The bound lets the sort key's toDate() prune by date
+                    # instead of reading the whole project. The day absorbs clock skew
+                    # between processes and the client-local offset clickhouse-connect
+                    # applies to naive datetimes, so keep it at least that wide.
+                    since = min(t["trace_start_time"] for t in root_records_missing_attrs)
+                    result = ch_client.query(
+                        "SELECT trace_id, user_id, session_id, metadata FROM traces"
+                        " WHERE project_id = {project_id:String}"
+                        " AND trace_start_time >= {since:DateTime64(3)}"
+                        " AND trace_id IN {ids:Array(String)}"
+                        " ORDER BY ch_update_time DESC"
+                        " LIMIT 1 BY trace_id",
+                        parameters={
+                            "ids": ids,
+                            "project_id": project_id,
+                            "since": since - timedelta(days=1),
+                        },
+                    )
+                    stored = {row[0]: row[1:] for row in result.result_rows}
+                    for t in root_records_missing_attrs:
+                        for field, value in zip(
+                            _CHILD_SOURCED_TRACE_FIELDS, stored.get(t["trace_id"], ())
+                        ):
+                            if t.get(field) is None and value is not None:
+                                t[field] = value
 
                 if traces:
                     ch_client.insert_traces_batch(traces)
