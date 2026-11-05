@@ -548,7 +548,8 @@ class TestKnownJsonShapes:
         result = extract_attachments(s3, PROJECT, [], [row])
 
         omitted = (
-            f"[image omitted: content is not image/gif or image/jpeg, {len(RIFF_AUDIO)} bytes]"
+            "[image omitted: content is not a PNG, JPEG, GIF or WebP image, "
+            f"{len(RIFF_AUDIO)} bytes]"
         )
         assert [part["data"] for part in json.loads(row["input"])] == [omitted, omitted]
         assert s3.heads == []
@@ -604,7 +605,10 @@ class TestKnownJsonShapes:
 
         result = extract_attachments(FakeS3(), PROJECT, [], [row])
 
-        omitted = f"[image omitted: content is not image/png, {_MIN_IMAGE_BYTES} bytes]"
+        omitted = (
+            "[image omitted: content is not a PNG, JPEG, GIF or WebP image, "
+            f"{_MIN_IMAGE_BYTES} bytes]"
+        )
         assert json.loads(row["input"]) == {
             "part": {"mime_type": "image/png", "data": omitted},
             "copy": omitted,
@@ -784,25 +788,25 @@ class TestValidation:
         [
             pytest.param(
                 data_url(SVG, "image/png"),
-                "content is not image/png",
+                "content is not a PNG, JPEG, GIF or WebP image",
                 len(SVG),
                 id="svg-declared-as-png",
             ),
             pytest.param(
                 data_url(HTML, "image/gif"),
-                "content is not image/gif",
+                "content is not a PNG, JPEG, GIF or WebP image",
                 len(HTML),
                 id="html-declared-as-gif",
             ),
             pytest.param(
                 data_url(RIFF_AUDIO, "image/webp"),
-                "content is not image/webp",
+                "content is not a PNG, JPEG, GIF or WebP image",
                 len(RIFF_AUDIO),
                 id="riff-audio-declared-as-webp",
             ),
             pytest.param(
                 data_url(b"hello world!", "image/gif"),
-                "content is not image/gif",
+                "content is not a PNG, JPEG, GIF or WebP image",
                 12,
                 id="not-an-image",
             ),
@@ -933,7 +937,10 @@ class TestValidation:
         extract_attachments(FakeS3(), PROJECT, [], [row])
 
         assert json.loads(row["input"]) == {
-            "url": f"[image omitted: content is not image/webp, {len(RIFF_AUDIO)} bytes]",
+            "url": (
+                "[image omitted: content is not a PNG, JPEG, GIF or WebP image, "
+                f"{len(RIFF_AUDIO)} bytes]"
+            ),
             "note": "ok",
         }
 
