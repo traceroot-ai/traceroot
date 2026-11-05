@@ -11,7 +11,7 @@ from datetime import datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
-from worker.staged_batch import UndecodableBatchError
+from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 logger = logging.getLogger(__name__)
 
@@ -345,8 +345,6 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
     try:
         # 1. Download from S3
         s3_service = get_s3_service()
-        from worker.staged_batch import load_staged_batch
-
         otel_data = load_staged_batch(s3_service, s3_key)
         logger.debug(f"Downloaded OTEL data from {s3_key}")
 

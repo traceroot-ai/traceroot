@@ -256,7 +256,7 @@ class TestRequestSizeLimit:
         s3.upload_bytes.assert_not_called()
 
     def test_chunked_body_over_the_cap_gets_the_same_detail_and_log(self, ingest, caplog):
-        client, _, _, _ = ingest
+        client, _, _ = ingest
         with caplog.at_level(logging.WARNING, logger="rest.routers.public.traces"):
             response = client.post(INGEST_URL, content=_chunks(REQUEST_CAP * 4), headers=PROTOBUF)
         detail = f"Request body exceeds {REQUEST_CAP} bytes"
