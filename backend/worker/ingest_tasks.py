@@ -313,6 +313,20 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     return {"projects": len(by_project), "traces": traces}
 
 
+def _quarantine_on_failure(self, exc, task_id, args, kwargs, einfo) -> None:
+    """Move the batch to events/failed/; Celery calls this only once a task fails for good."""
+    from rest.services.s3 import get_s3_service
+    from worker.ingest_quarantine import quarantine_batch
+
+    # A raising on_failure makes Celery run it again with this error, so log instead.
+    try:
+        # Celery passes the arguments as the task was queued: by keyword or by position.
+        s3_key = kwargs["s3_key"] if "s3_key" in kwargs else args[0]
+        quarantine_batch(get_s3_service(), s3_key)
+    except Exception:
+        logger.error("Could not quarantine the batch of task %s", task_id, exc_info=True)
+
+
 @app.task(
     bind=True,
     autoretry_for=(Exception,),
@@ -321,6 +335,7 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     retry_backoff=True,
     retry_backoff_max=600,  # Max 10 minutes between retries
     max_retries=5,
+    on_failure=_quarantine_on_failure,
 )
 def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | None = None) -> dict:
     """Process OTEL traces from S3 and insert into ClickHouse.
