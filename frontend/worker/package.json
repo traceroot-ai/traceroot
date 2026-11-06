@@ -40,7 +40,7 @@
     "@types/nodemailer": "^6.4.14",
     "@vitest/coverage-v8": "^4.1.12",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   }
 }
