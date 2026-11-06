@@ -464,6 +464,11 @@ async function processWorkspace(
       if (reported) {
         (updateData.currentUsage as any).ai.lastReportedUnits = totalBillableUnits;
         (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
+      } else {
+        // Keep the baseline on a failed report, as the RCA meter does. Dropping it
+        // would make the next run re-report units Stripe already accepted.
+        (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
+        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
       }
     } else {
       // Preserve last reported values
