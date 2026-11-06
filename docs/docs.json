@@ -2,31 +2,27 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "traceroot",
   "theme": "mint",
+  "appearance": {
+    "default": "light",
+    "strict": true
+  },
   "thumbnails": {
     "appearance": "light",
     "background": "/images/og-background.png"
   },
   "colors": {
-    "primary": "#0f172a",
-    "light": "#FFFFFF",
-    "dark": "#000000"
+    "primary": "#0f766e",
+    "light": "#5ed4cd",
+    "dark": "#0f827d"
   },
   "rounded": "default",
-  "fonts": {
-    "heading": {
-      "family": "Inter"
-    },
-    "body": {
-      "family": "Inter"
-    }
-  },
   "layout": {
     "wide": true
   },
   "favicon": "/logo/favicon.png",
   "logo": {
-    "light": "/logo/light.png",
-    "dark": "/logo/dark.png",
+    "light": "/brand/logo-light.svg",
+    "dark": "/brand/logo-dark.svg",
     "href": "https://traceroot.ai",
     "size": 36
   },
@@ -71,18 +67,8 @@
       {
         "label": "traceroot Cloud",
         "href": "https://app.traceroot.ai"
-      },
-      {
-        "label": "Discord",
-        "icon": "discord",
-        "href": "https://discord.gg/TM2m3CtKuC"
       }
-    ],
-    "primary": {
-      "type": "github",
-      "label": "Github",
-      "href": "https://github.com/traceroot-ai/traceroot"
-    }
+    ]
   },
   "navigation": {
     "tabs": [
