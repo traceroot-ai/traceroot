@@ -202,6 +202,7 @@ describe("alertStateReset", () => {
       severity: DEFAULT_ALERT_SEVERITY,
       severityChangedAt: null,
       alertedAt: null,
+      pageDeliveredAt: null,
       lastEvaluatedAt: null,
       nextRunAt: RESET_AT,
       lastClaimedAt: null,

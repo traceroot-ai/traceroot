@@ -20,7 +20,9 @@ import {
   type AlertQueueJob,
 } from "../queues/alert-notification-queue.js";
 import {
+  clearAlertPageDelivered,
   recordAlertNotifyOutcome,
+  recordAlertPageDelivered,
   restoreAlertPendingClose,
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
@@ -372,13 +374,32 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
   }
 
   logInfo(`slack sent ${tag} channel=${resolution.target.channelId}`);
+  const deliveredAt = new Date();
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: "DELIVERED",
     severity: payload.severity,
     error: null,
-    at: new Date(),
+    at: deliveredAt,
   });
+  await recordPageDelivery(payload, deliveredAt);
+}
+
+/**
+ * Whether the channel has seen the breach the rule is in: a delivered page starts it,
+ * a delivered recovery ends it. A job queued before the emission claim existed cannot
+ * be placed against the row, so it records neither, and costs at most the close of a
+ * page that old.
+ */
+async function recordPageDelivery(payload: AlertNotificationJob, at: Date): Promise<void> {
+  const { emission } = payload;
+  if (emission === undefined) return;
+  const delivery = { alertId: payload.alertId, emittedAt: new Date(emission.evaluatedAt), at };
+  if (payload.severity === "OK") {
+    await clearAlertPageDelivered(delivery);
+  } else if (payload.severity === "ALERT" || payload.severity === "NO_DATA") {
+    await recordAlertPageDelivered(delivery);
+  }
 }
 
 /**

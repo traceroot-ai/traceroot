@@ -284,6 +284,10 @@ function auditEntry(
  * Only into an empty marker. A close still waiting to go out is for the page
  * the channel actually saw, and a second edit before then has no page of its
  * own to close, so the first marker is the one that stands.
+ *
+ * Callers leave one only when the discarded breach's page reached Slack
+ * (`pageDeliveredAt`): a page still retrying when the state is voided is then
+ * dropped as superseded, and an [OK] for it would close nothing the channel saw.
  */
 async function leavePendingClose(
   tx: Tx,
@@ -336,7 +340,7 @@ export async function updateAlert(input: {
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: alertSelect,
+      select: { ...alertSelect, pageDeliveredAt: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -449,7 +453,9 @@ export async function updateAlert(input: {
 
     const stateReset = rewritesRule || reArmed;
     const pageCleared = stateReset && hasOutstandingAlertPage(existing);
-    if (pageCleared) await leavePendingClose(tx, input, "edited", input.actorUserId);
+    if (pageCleared && existing.pageDeliveredAt !== null) {
+      await leavePendingClose(tx, input, "edited", input.actorUserId);
+    }
 
     const alert = await tx.alert.findFirst({
       where: { id: alertId, projectId },
@@ -505,7 +511,7 @@ export async function setAlertStatus(input: {
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: alertSelect,
+      select: { ...alertSelect, pageDeliveredAt: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
     if (existing.status === status) {
@@ -563,7 +569,9 @@ export async function setAlertStatus(input: {
     }
     const stateReset = status === "ACTIVE";
     const pageCleared = stateReset && hasOutstandingAlertPage(existing);
-    if (pageCleared) await leavePendingClose(tx, input, "resumed", input.actorUserId);
+    if (pageCleared && existing.pageDeliveredAt !== null) {
+      await leavePendingClose(tx, input, "resumed", input.actorUserId);
+    }
     return {
       result: {
         ok: true,
@@ -595,9 +603,11 @@ type DeleteAlertOutcome = Promise<
  * Hard-delete an alert for a MEMBER of its project, and the answer carries
  * `pageCleared` when an outstanding page was open. That page is closed in Slack
  * by this call itself once the delete has committed, best-effort: there is no
- * rule left for the worker to read a close from. A close an earlier edit or
- * resume left on the row, and the worker has not sent yet, goes out the same
- * way: the rule goes, but the page it closes was still seen.
+ * rule left for the worker to read a close from. Only a page Slack accepted is
+ * closed (`pageDeliveredAt`), the same rule an edit and a resume follow. A close
+ * an earlier edit or resume left on the row, and the worker has not sent yet,
+ * goes out the same way: the rule goes, but the page it closes was still seen,
+ * and the write that left it already checked that.
  */
 export async function deleteAlert(input: {
   actorUserId: string;
@@ -620,7 +630,14 @@ export async function deleteAlert(input: {
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: { id: true, name: true, severity: true, alertedAt: true, pendingClose: true },
+      select: {
+        id: true,
+        name: true,
+        severity: true,
+        alertedAt: true,
+        pendingClose: true,
+        pageDeliveredAt: true,
+      },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -629,7 +646,8 @@ export async function deleteAlert(input: {
 
     const pageCleared = hasOutstandingAlertPage(existing);
     let close: DeletedAlertClose | undefined;
-    if (pageCleared || existing.pendingClose !== null) {
+    const pageSeen = pageCleared && existing.pageDeliveredAt !== null;
+    if (pageSeen || existing.pendingClose !== null) {
       const actor = await tx.user.findUnique({
         where: { id: input.actorUserId },
         select: { name: true },
