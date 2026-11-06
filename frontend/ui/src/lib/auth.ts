@@ -39,10 +39,11 @@ export const auth = betterAuth({
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
-          captureServerEvent(user.id, "user_signed_up", signupAttributionProperties(context));
+          const attribution = signupAttributionProperties(context);
+          captureServerEvent(user.id, "user_signed_up", attribution);
           onUserCreated(
-            { id: user.id, email: user.email, name: user.name ?? null },
-            context ? { path: context.path, params: context.params } : null,
+            { id: user.id, email: user.email, name: user.name ?? null, createdAt: user.createdAt },
+            context ? { path: context.path, params: context.params, attribution } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },

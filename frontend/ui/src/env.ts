@@ -77,8 +77,13 @@ const serverSchema = z.object({
   // The public demo workspace: every user joins it as a VIEWER. Unset means no
   // demo workspace (self-hosted). See lib/demo-workspace.ts.
   DEMO_WORKSPACE_ID: z.string().trim().optional(),
-  // Sign-up follow-ups; unset means no Slack post.
+  // Slack incoming webhook for the "new user registered" notice; unset means no post.
   TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: z.string().optional(),
+  // Not Slack: receives a signed JSON event per sign-up (lib/signup/signup-webhook.ts).
+  // Nothing is sent unless the secret below is set too.
+  TRACEROOT_SIGNUP_WEBHOOK_URL: z.string().optional(),
+  // HMAC-SHA256 key for that event's X-TraceRoot-Signature, used exactly as set.
+  TRACEROOT_SIGNUP_WEBHOOK_SECRET: z.string().optional(),
   // Server-side read of a new user's PostHog person (city, device, referrer) for the Slack post
   POSTHOG_PERSONAL_API_KEY: z.string().optional(),
   POSTHOG_PROJECT_ID: z.string().optional(),
