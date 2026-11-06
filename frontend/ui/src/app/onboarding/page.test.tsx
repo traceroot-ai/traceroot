@@ -1096,4 +1096,11 @@ describe("OnboardingPage", () => {
 
     expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
   });
+
+  it("renders the project section glyph icon", () => {
+    renderPage();
+    const projectLabel = screen.getByText("Project");
+    const sectionContainer = projectLabel.closest(".flex.items-start");
+    expect(sectionContainer?.querySelector("svg")).toBeTruthy();
+  });
 });
