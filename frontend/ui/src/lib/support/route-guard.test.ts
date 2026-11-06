@@ -21,6 +21,12 @@ import { withImpersonationPolicy } from "./route-guard";
 import { requireAuth } from "@/lib/auth-helpers";
 import { supportRequest } from "./request-context";
 
+// requireAuth derives from the one session the policy resolved. Its 401 is a
+// fresh, single-use NextResponse on every call, so two calls are equivalent in
+// outcome, never in identity.
+const outcome = (result: Awaited<ReturnType<typeof requireAuth>>) =>
+  result.error ? { status: result.error.status } : { user: result.user };
+
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.session.mockResolvedValue({
@@ -44,7 +50,7 @@ describe("support policy", () => {
       const route = withImpersonationPolicy(async () => {
         const first = await requireAuth();
         const second = await requireAuth();
-        expect(second).toEqual(first);
+        expect(outcome(second)).toEqual(outcome(first));
         expect(!!supportRequest.getStore()?.impersonation).toBe(kind === "impersonated");
         return first.error ?? NextResponse.json({ id: first.user.id });
       });
