@@ -103,11 +103,19 @@ describe("auth options", () => {
     );
   });
 
-  it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
+  it("hands every new user to the sign-up follow-up with the endpoint path and campaign", async () => {
+    signupAttributionPropertiesMock.mockReturnValue({ utm_source: "github" });
+    const createdAt = new Date("2026-11-04T08:00:00Z");
     const { after } = options.databaseHooks.user.create;
-    await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
-    const user = { id: "u1", email: "a@example.com", name: null };
-    expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+    await after(
+      { id: "u1", email: "a@example.com", name: undefined, createdAt },
+      { path: "/sign-up/email" },
+    );
+    const user = { id: "u1", email: "a@example.com", name: null, createdAt };
+    expect(onUserCreatedMock).toHaveBeenCalledWith(user, {
+      path: "/sign-up/email",
+      attribution: { utm_source: "github" },
+    });
   });
 
   it("passes a Google sign-up's provider through to the follow-up", async () => {
@@ -116,7 +124,10 @@ describe("auth options", () => {
     // handlers). Handing on the path alone reports the provider as "unknown".
     const context = { path: "/callback/:id", params: { id: "google" } };
     await options.databaseHooks.user.create.after({ id: "u3", email: "g@example.com" }, context);
-    expect(onUserCreatedMock).toHaveBeenCalledWith(expect.anything(), context);
+    expect(onUserCreatedMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining(context),
+    );
   });
 
   it("resolves before the follow-up settles and logs its later rejection", async () => {
