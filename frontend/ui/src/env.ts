@@ -79,7 +79,7 @@ const serverSchema = z.object({
   DEMO_WORKSPACE_ID: z.string().trim().optional(),
   // Slack incoming webhook for the "new user registered" notice; unset means no post.
   TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: z.string().optional(),
-  // Not Slack: receives a signed JSON event per sign-up (lib/signup/signup-webhook.ts).
+  // Not Slack: receives a signed JSON event per sign-up (@traceroot/core/signup-webhook).
   // Nothing is sent unless the secret below is set too.
   TRACEROOT_SIGNUP_WEBHOOK_URL: z.string().optional(),
   // HMAC-SHA256 key for that event's X-TraceRoot-Signature, used exactly as set.

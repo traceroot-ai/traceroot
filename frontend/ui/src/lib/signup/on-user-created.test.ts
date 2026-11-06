@@ -24,8 +24,8 @@ vi.mock("@traceroot/core", () => ({
 }));
 vi.mock("./posthog-person", () => ({ findPostHogPerson }));
 vi.mock("./notify-slack", () => ({ notifySignupSlack }));
-vi.mock("./signup-webhook", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./signup-webhook")>()),
+vi.mock("@traceroot/core/signup-webhook", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@traceroot/core/signup-webhook")>()),
   sendSignupWebhook,
 }));
 
@@ -161,16 +161,20 @@ it("sends the sign-up event, sharing one invite lookup with the Slack post", asy
     marketing_attribution_model: "last_campaign_touch",
   };
   await onUserCreated(user, { path: "/callback/:id", params: { id: "google" }, attribution });
-  expect(sendSignupWebhook).toHaveBeenCalledExactlyOnceWith({
-    event: "user_signed_up",
-    occurred_at: "2026-11-04T08:00:00.000Z",
-    user: { id: "u1", email: "New@Example.com", name: "New User" },
-    signup: {
-      provider: "google",
-      via_invite: true,
-      utm: { utm_source: "newsletter", utm_medium: "email", utm_campaign: "november" },
+  expect(sendSignupWebhook).toHaveBeenCalledExactlyOnceWith(
+    {
+      event: "user_signed_up",
+      occurred_at: "2026-11-04T08:00:00.000Z",
+      delivery: "live",
+      user: { id: "u1", email: "New@Example.com", name: "New User" },
+      signup: {
+        provider: "google",
+        via_invite: true,
+        utm: { utm_source: "newsletter", utm_medium: "email", utm_campaign: "november" },
+      },
     },
-  });
+    { url: "https://receiver.example.com/events", secret: "test-secret" },
+  );
   expect(notifySignupSlack).toHaveBeenCalledWith(expect.objectContaining({ viaInvite: true }));
   expect(inviteFindFirst).toHaveBeenCalledTimes(1);
 });

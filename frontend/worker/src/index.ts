@@ -7,7 +7,9 @@
 
 import cron from "node-cron";
 import { prisma, syncStandardPrices } from "@traceroot/core";
+import { isSignupWebhookConfigured } from "@traceroot/core/signup-webhook";
 import { runBillingJob, closeClickHouseClient } from "./ee/billing/index.js";
+import { reconcileRecentSignups, signupWebhookConfigFromEnv } from "./signups/replay.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -60,8 +62,28 @@ async function main(): Promise<void> {
     }
   });
 
+  // Weekly replay of recent sign-ups to the sign-up webhook, for any the web
+  // app's live send missed. Only where the webhook is configured.
+  const reconcileCron = isSignupWebhookConfigured(signupWebhookConfigFromEnv())
+    ? process.env.SIGNUP_RECONCILE_CRON || "0 3 * * 1"
+    : null;
+  if (reconcileCron) {
+    cron.schedule(reconcileCron, async () => {
+      if (isShuttingDown) return;
+      try {
+        const result = await reconcileRecentSignups();
+        console.log(
+          `[Billing Worker] Sign-up reconcile: ${result.eligible} replayed, ${result.failed} failed`,
+        );
+      } catch (error) {
+        console.error("[Billing Worker] Sign-up reconcile failed:", error);
+      }
+    });
+  }
+
   console.log("[Billing Worker] Scheduled jobs:");
   console.log(`  - Billing: ${billingCron}`);
+  if (reconcileCron) console.log(`  - Sign-up reconcile: ${reconcileCron}`);
   console.log("[Billing Worker] Worker is running. Press Ctrl+C to stop.");
 
   // Keep the process alive

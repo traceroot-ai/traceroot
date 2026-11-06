@@ -41,6 +41,10 @@
     "./email": {
       "types": "./src/lib/email/index.ts",
       "default": "./src/lib/email/index.ts"
+    },
+    "./signup-webhook": {
+      "types": "./src/lib/signup-webhook.ts",
+      "default": "./src/lib/signup-webhook.ts"
     }
   },
   "scripts": {

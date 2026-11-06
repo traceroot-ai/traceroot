@@ -5,12 +5,16 @@
 // delivers topic mail to non-contacts, and the opt-out needs a record.
 import { prisma } from "@traceroot/core";
 import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
+import {
+  buildSignupWebhookEvent,
+  isSignupWebhookConfigured,
+  sendSignupWebhook,
+} from "@traceroot/core/signup-webhook";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
-import { buildSignupWebhookEvent, sendSignupWebhook } from "./signup-webhook";
 import { isSelfSignup } from "./attribution";
 
 export interface CreatedUser {
@@ -76,9 +80,11 @@ export async function onUserCreated(
     : undefined;
 
   const slackOn = Boolean(env.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL?.trim());
-  const webhookOn = Boolean(
-    env.TRACEROOT_SIGNUP_WEBHOOK_URL?.trim() && env.TRACEROOT_SIGNUP_WEBHOOK_SECRET?.trim(),
-  );
+  const webhookConfig = {
+    url: env.TRACEROOT_SIGNUP_WEBHOOK_URL,
+    secret: env.TRACEROOT_SIGNUP_WEBHOOK_SECRET,
+  };
+  const webhookOn = isSignupWebhookConfigured(webhookConfig);
 
   // The Slack post and the webhook both say whether the user was invited.
   const invited =
@@ -119,6 +125,7 @@ export async function onUserCreated(
             viaInvite: await invited,
             attribution: context?.attribution,
           }),
+          webhookConfig,
         ),
       )
     : undefined;

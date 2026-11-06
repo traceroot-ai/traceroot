@@ -1,16 +1,17 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-
-vi.mock("@/env", () => ({ env: {} }));
-
-import { buildSignupWebhookEvent, sendSignupWebhook } from "./signup-webhook";
+import {
+  buildSignupsReplayedEvent,
+  buildSignupWebhookEvent,
+  isSignupWebhookConfigured,
+  sendSignupWebhook,
+  type SignupsReplayedEvent,
+  type SignupWebhookEvent,
+} from "../lib/signup-webhook.ts";
 
 const now = 1_793_000_000_000;
 const secret = "test-secret";
-const env = {
-  TRACEROOT_SIGNUP_WEBHOOK_URL: "https://receiver.example.com/events",
-  TRACEROOT_SIGNUP_WEBHOOK_SECRET: secret,
-};
+const config = { url: "https://receiver.example.com/events", secret };
 const event = buildSignupWebhookEvent({
   user: { id: "u_123", email: "jane@example.com", name: null, createdAt: new Date(now - 5_000) },
   provider: "google",
@@ -34,15 +35,21 @@ function accepts(delivery: Delivery, key: string | undefined, clock = now): bool
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-async function deliver(options: { env?: typeof env } = {}) {
+async function deliver(
+  sent: SignupWebhookEvent | SignupsReplayedEvent = event,
+  options: { config?: typeof config; timeoutMs?: number } = {},
+) {
   const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-  const sent = await sendSignupWebhook(event, { fetchImpl, env, ...options });
+  const ok = await sendSignupWebhook(sent, options.config ?? config, {
+    fetchImpl,
+    timeoutMs: options.timeoutMs,
+  });
   const [url, init] = fetchImpl.mock.calls[0];
   const delivery = {
     body: init?.body as string,
     headers: init?.headers as Record<string, string>,
   };
-  return { sent, url, init, delivery };
+  return { ok, url, init, delivery };
 }
 
 beforeEach(() => {
@@ -69,27 +76,55 @@ it("carries the user, how they signed up and three campaign fields, nothing else
   expect(built).toEqual({
     event: "user_signed_up",
     occurred_at: new Date(now).toISOString(),
+    delivery: "live",
     user: { id: "u1", email: "a@example.com", name: "A" },
     signup: { provider: "email", via_invite: true, utm: { utm_source: "github" } },
   });
 });
 
+it("marks replayed sign-ups, and summarizes a replay by the users it covered", () => {
+  const replayed = buildSignupWebhookEvent({
+    user: { id: "u1", email: "a@example.com", name: null, createdAt: new Date(now) },
+    provider: "google",
+    viaInvite: false,
+    delivery: "backfill",
+  });
+  expect(replayed).toMatchObject({ delivery: "backfill", signup: { utm: {} } });
+  expect(
+    buildSignupsReplayedEvent({
+      delivery: "reconcile",
+      startedAt: new Date(now),
+      from: new Date("2026-10-23T03:00:00.000Z"),
+      to: new Date("2026-11-06T03:00:00.000Z"),
+      userIds: ["u1", "u2"],
+    }),
+  ).toEqual({
+    event: "signups_replayed",
+    occurred_at: new Date(now).toISOString(),
+    delivery: "reconcile",
+    window: { from: "2026-10-23T03:00:00.000Z", to: "2026-11-06T03:00:00.000Z" },
+    user_ids: ["u1", "u2"],
+  });
+});
+
 it.each([
   ["neither setting", {}],
-  ["only the URL", { TRACEROOT_SIGNUP_WEBHOOK_URL: env.TRACEROOT_SIGNUP_WEBHOOK_URL }],
-  ["only the secret", { TRACEROOT_SIGNUP_WEBHOOK_SECRET: secret }],
-  ["a blank URL", { ...env, TRACEROOT_SIGNUP_WEBHOOK_URL: " " }],
-  ["a blank secret", { ...env, TRACEROOT_SIGNUP_WEBHOOK_SECRET: " " }],
+  ["only the URL", { url: config.url }],
+  ["only the secret", { secret }],
+  ["a blank URL", { ...config, url: " " }],
+  ["a blank secret", { ...config, secret: " " }],
 ])("sends nothing with %s", async (_, partial) => {
   const fetchImpl = vi.fn<typeof fetch>();
-  await expect(sendSignupWebhook(event, { fetchImpl, env: partial })).resolves.toBe(false);
+  expect(isSignupWebhookConfigured(partial)).toBe(false);
+  await expect(sendSignupWebhook(event, partial, { fetchImpl })).resolves.toBe(false);
   expect(fetchImpl).not.toHaveBeenCalled();
 });
 
 it("posts the event as JSON, signed over the exact bytes sent", async () => {
-  const { sent, url, init, delivery } = await deliver();
-  expect(sent).toBe(true);
-  expect(url).toBe(env.TRACEROOT_SIGNUP_WEBHOOK_URL);
+  const { ok, url, init, delivery } = await deliver();
+  expect(ok).toBe(true);
+  expect(isSignupWebhookConfigured(config)).toBe(true);
+  expect(url).toBe(config.url);
   expect(init).toMatchObject({ method: "POST", redirect: "error" });
   expect(init?.signal).toBeInstanceOf(AbortSignal);
   expect(JSON.parse(delivery.body)).toEqual(event);
@@ -98,6 +133,19 @@ it("posts the event as JSON, signed over the exact bytes sent", async () => {
     "X-TraceRoot-Timestamp": String(now / 1000),
     "X-TraceRoot-Signature": expect.stringMatching(/^[0-9a-f]{64}$/),
   });
+  expect(accepts(delivery, secret)).toBe(true);
+});
+
+it("signs a replay summary the same way", async () => {
+  const summary = buildSignupsReplayedEvent({
+    delivery: "backfill",
+    startedAt: new Date(now),
+    from: new Date(0),
+    to: new Date(now),
+    userIds: ["u1"],
+  });
+  const { delivery } = await deliver(summary, { timeoutMs: 10_000 });
+  expect(JSON.parse(delivery.body)).toEqual(summary);
   expect(accepts(delivery, secret)).toBe(true);
 });
 
@@ -120,12 +168,12 @@ it("fails a receiver's check when it is stale or the receiver has no secret", as
 });
 
 it("signs with the secret exactly as configured", async () => {
-  const { delivery } = await deliver({ env: { ...env, TRACEROOT_SIGNUP_WEBHOOK_SECRET: "s3\n" } });
+  const { delivery } = await deliver(event, { config: { ...config, secret: "s3\n" } });
   expect(accepts(delivery, "s3\n")).toBe(true);
   expect(accepts(delivery, "s3")).toBe(false);
 });
 
 it("throws on a non-2xx response so the caller logs it", async () => {
   const fetchImpl = vi.fn<typeof fetch>(async () => new Response("no", { status: 500 }));
-  await expect(sendSignupWebhook(event, { fetchImpl, env })).rejects.toThrow("failed (500)");
+  await expect(sendSignupWebhook(event, config, { fetchImpl })).rejects.toThrow("failed (500)");
 });
