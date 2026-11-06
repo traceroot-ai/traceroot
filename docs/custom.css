@@ -1,5 +1,7 @@
 /* Brand tokens mirror the website. Mintlify owns navigation and page behavior. */
 :root {
+  --font-family-headings-custom: "Geist", sans-serif;
+  --font-family-body-custom: "Geist", sans-serif;
   --tr-brand: #14b8b0;
   --tr-link: #0f827d;
   --tr-text: #0b1015;
