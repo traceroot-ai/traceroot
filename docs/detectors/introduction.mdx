@@ -3,7 +3,7 @@ title: Introduction
 description: Find problems in your agent's traces
 ---
 
-A detector checks your agent's traces for one specific problem, such as a hallucination or a failed task. You hear about the problem without reading every trace. For each trace it checks, a model reads the trace and answers yes or no. A yes is a **finding**. TraceRoot groups findings of the same problem into a [signal](/signals/introduction), and the TraceRoot Agent can find the signal's root cause.
+A detector checks your agent's traces for one specific problem, such as a hallucination or a failed task. You hear about the problem without reading every trace. For each trace it checks, a model reads the trace and answers yes or no. A yes is a **finding**. traceroot groups findings of the same problem into a [signal](/signals/introduction), and the traceroot Agent can find the signal's root cause.
 
 Detectors work on every plan. Free includes 100 detector runs per billing period.
 
@@ -17,15 +17,15 @@ Detection runs in two steps. The second step, root cause analysis, costs more, s
 
 **Step 1, the judge.** About a minute after a trace's last span arrives, each detector checks whether the trace matches its filter and its sampling rate. If it does, the detector's model reads the trace, answers whether the problem is present, and writes a one-sentence summary. Detectors skip traces that come from [evaluations](/evals/introduction).
 
-**Step 2, the agent.** The TraceRoot Agent reads one trace of a signal and writes a root cause analysis with a code location and a recommendation. [Signals](/signals/introduction) explains when it runs.
+**Step 2, the agent.** The traceroot Agent reads one trace of a signal and writes a root cause analysis with a code location and a recommendation. [Signals](/signals/introduction) explains when it runs.
 
-Each step has its own model. You pick the judge model on each detector. You pick the agent model once per project, in **Settings → Detectors → Agent Model**. Either can be a model TraceRoot provides or a model from your own provider key ([bring your own key](/ai-agent/byok)).
+Each step has its own model. You pick the judge model on each detector. You pick the agent model once per project, in **Settings → Detectors → Agent Model**. Either can be a model traceroot provides or a model from your own provider key ([bring your own key](/ai-agent/byok)).
 
 ## How to create a detector
 
 You need a project that receives traces. See [Tracing](/tracing/get-started) to set one up.
 
-Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detectors** from the left nav, then click **New Detector**.
+Open your project in [traceroot Cloud](https://app.traceroot.ai), select **Detectors** from the left nav, then click **New Detector**.
 
 <Frame caption="Detectors page: New Detector button">
   <img src="/images/detector_new_button_v1.png" alt="Detectors page header with the New Detector button highlighted" />
@@ -41,18 +41,18 @@ Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detec
 
 ## Create detectors with AI
 
-Select **Home** from the left nav to open the TraceRoot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
+Select **Home** from the left nav to open the traceroot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
 
 - "Create a detector that flags traces where a tool call fails"
 - "Suggest a new detector based on my current detectors"
 
 The agent drafts the detector. Nothing is saved until you click **Create detector** under the chat; reply instead to revise the draft.
 
-<Frame caption="TraceRoot Agent: a detector request, the detectors it read, and its summary of them">
-  <img src="/images/detector_agent_v1.png" alt="TraceRoot Agent listing and reading the project's detectors, then summarizing their setup" />
+<Frame caption="traceroot Agent: a detector request, the detectors it read, and its summary of them">
+  <img src="/images/detector_agent_v1.png" alt="traceroot Agent listing and reading the project's detectors, then summarizing their setup" />
 </Frame>
 
-AI coding agents can also create detectors with the [TraceRoot CLI](/cli/get-started) (`traceroot detectors create`) or the public API under `/api/v1/public/detectors`. Writes need a signed-in user; a project API key can only read.
+AI coding agents can also create detectors with the [traceroot CLI](/cli/get-started) (`traceroot detectors create`) or the public API under `/api/v1/public/detectors`. Writes need a signed-in user; a project API key can only read.
 
 ## Root cause analysis
 
@@ -80,15 +80,15 @@ If the agent analyzed a trace, its analysis opens in the trace's chat panel, and
 
 ## Notifications
 
-TraceRoot tells you when a signal is created or reopened. It collects these signals over each alert window and sends them together in one message, a digest. New findings on a signal it already announced send nothing.
+traceroot tells you when a signal is created or reopened. It collects these signals over each alert window and sends them together in one message, a digest. New findings on a signal it already announced send nothing.
 
 In your project, open **Settings → Detectors** and go to **Notifications**:
 
 - **Email**: as a workspace admin, click **Add recipient**, enter an address and click **Save**. Members can view recipients but cannot edit them. If a save fails, an error explains that the recipients were not saved.
-- **Alert window**: pick how long TraceRoot collects signals before it sends a digest (1, 5, 10 or 30 minutes, 1 hour or 2 hours), then click **Save**. The default is 10 minutes.
+- **Alert window**: pick how long traceroot collects signals before it sends a digest (1, 5, 10 or 30 minutes, 1 hour or 2 hours), then click **Save**. The default is 10 minutes.
 - **Slack**: shows the connected workspace and channel. Click **Connect** or **Manage** to change them.
 
-With no email recipient and no Slack channel, TraceRoot sends nothing. Adding a recipient or channel later does not resend earlier signals.
+With no email recipient and no Slack channel, traceroot sends nothing. Adding a recipient or channel later does not resend earlier signals.
 
 Email and Slack get the same digest, split into **New** and **Reopened**. Each signal shows:
 
@@ -104,10 +104,10 @@ A digest lists up to 45 signals and counts the rest. The email also has a **View
 
 ### Connect Slack
 
-You connect Slack once per TraceRoot workspace. TraceRoot posts to one Slack channel.
+You connect Slack once per traceroot workspace. traceroot posts to one Slack channel.
 
 1. As a workspace admin, open your workspace settings and go to **Integrations**. From a project, you can also click **Connect** under **Settings → Detectors → Slack**.
-2. Click **Connect** and approve TraceRoot in Slack.
+2. Click **Connect** and approve traceroot in Slack.
 3. Click **Manage → Configure** and choose the channel. Click **Test Connection** to check that it works.
 
 <Note>
@@ -120,7 +120,7 @@ You connect Slack once per TraceRoot workspace. TraceRoot posts to one Slack cha
   <Card title="Signals" icon="lightbulb" href="/signals/introduction">
     See how findings are grouped, reviewed and resolved.
   </Card>
-  <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
+  <Card title="traceroot Agent" icon="brain" href="/ai-agent/overview">
     Learn how the agent behind root cause analysis works.
   </Card>
 </CardGroup>

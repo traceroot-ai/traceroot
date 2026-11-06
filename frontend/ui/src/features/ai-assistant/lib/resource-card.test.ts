@@ -670,6 +670,54 @@ describe("alert cards", () => {
     expect(model?.description).toBe("total cost over 1 hour is at or above $40");
   });
 
+  it.each([
+    { threshold: 0.0004, formatted: "0.0004" },
+    { threshold: 0.00045, formatted: "0.00045" },
+    { threshold: 0.0005, formatted: "0.0005" },
+    { threshold: 0.0004567, formatted: "0.000457" },
+    { threshold: 0.25, formatted: "0.25" },
+    { threshold: 12.5, formatted: "12.5" },
+    { threshold: 0, formatted: "0" },
+    { threshold: 0.00000001, formatted: "0.00000001" },
+    { threshold: -0.0004, formatted: "-0.0004" },
+  ])(
+    "keeps cost threshold $threshold consistent across alert cards",
+    ({ threshold, formatted }) => {
+      const rule = {
+        measure: "cost",
+        aggregation: "avg",
+        window: "10m",
+        threshold_operator: ">",
+        threshold,
+      };
+      const card = resourceCardModel(alertStep(rule));
+      expect(card?.description).toBe(`average cost over 10 minutes is above $${formatted}`);
+      expect((card?.body as { chips: string[] }).chips).toContain(`> $${formatted}`);
+
+      const list = readCardModel(
+        step({
+          toolName: "list_alerts",
+          args: {},
+          details: {
+            kind: "alert_list",
+            alerts: [{ id: "al1", view: "SPANS", ...rule }],
+          },
+        }),
+        "p1",
+      );
+      expect(list?.kind).toBe("alert_list");
+      if (list?.kind === "alert_list") {
+        expect(list.model.rows[0]?.summary).toBe(`avg cost > $${formatted} over 10m`);
+      }
+    },
+  );
+
+  it("preserves existing precision for non-cost thresholds", () => {
+    const card = resourceCardModel(alertStep({ threshold: 0.0004 }));
+    expect(card?.description).toBe("p95 latency over 10 minutes is above 0 ms");
+    expect((card?.body as { chips: string[] }).chips).toContain("> 0 ms");
+  });
+
   it("keeps the chips it can read when the rule as a whole cannot be charted", () => {
     const model = resourceCardModel(
       alertStep({ window: "45m", threshold: "2000", renotify: { mode: "EVERY" } }),

@@ -10,6 +10,7 @@ import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
+import { isSelfSignup } from "./attribution";
 
 export interface CreatedUser {
   id: string;
@@ -45,7 +46,7 @@ export async function onUserCreated(
   const demo = ensureDemoMembership(user.id);
 
   // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (context?.path === "/admin/create-user") {
+  if (!isSelfSignup(context)) {
     await demo;
     return;
   }

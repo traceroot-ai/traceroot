@@ -69,6 +69,14 @@ def _run(
 # ships them empty because a value committed here is a value every install shares.
 GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET")
 
+# Required by docker-compose.prod.yml, which refuses to start without it, but
+# supplied by docker-compose.yml as one of the dev stack's deliberately weak known
+# defaults. The dev path therefore has nothing to repair and leaves .env silent
+# about it; every path that brings up prod compose has to fill it.
+PROD_GENERATED_KEYS = ("SQL_GATEWAY_BOOTSTRAP_PASSWORD",)
+
+ALL_GENERATED_KEYS = GENERATED_KEYS + PROD_GENERATED_KEYS
+
 # Values this repository published at some point in .env.example or
 # docker-compose.prod.yml. Nobody chose them, so replacing them is safe; a value
 # that is not on this list is left alone, however weak it looks.
@@ -79,6 +87,7 @@ PUBLISHED_PLACEHOLDERS = frozenset(
         "your-better-auth-secret",
         "local-dev-secret-change-in-production",
         "changeme",
+        "dev-sql-gateway-bootstrap",
     }
 )
 
@@ -95,14 +104,14 @@ def is_placeholder(assigned: str) -> bool:
     return not cleaned or cleaned.lower() in PUBLISHED_PLACEHOLDERS
 
 
-def fill_secrets(text: str) -> str:
-    """Give every key in GENERATED_KEYS a generated value unless one is set.
+def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
+    """Give every key in ``keys`` a generated value unless one is set.
 
     Matches the optional ``export`` prefix so a key written that way is repaired
     in place rather than appended a second time, where it would take precedence
     over the operator's own value.
     """
-    for key in GENERATED_KEYS:
+    for key in keys:
         # Matches to end of line, so substituting drops any trailing comment
         # along with the placeholder -- "# CHANGEME" stops being true here.
         pattern = re.compile(rf"^(\s*(?:export\s+)?{key}\s*=)(.*)$", re.MULTILINE)
@@ -114,7 +123,11 @@ def fill_secrets(text: str) -> str:
     return text
 
 
-def ensure_env_file(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_PATH) -> None:
+def ensure_env_file(
+    env_path: Path = ENV_PATH,
+    example_path: Path = ENV_EXAMPLE_PATH,
+    keys: tuple[str, ...] = GENERATED_KEYS,
+) -> None:
     """Create .env if absent, then give every placeholder secret a real value."""
     if not env_path.exists():
         print("Creating .env from .env.example...")
@@ -125,7 +138,7 @@ def ensure_env_file(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_
     os.chmod(env_path, 0o600)  # it holds generated secrets, not just defaults
 
     text = env_path.read_text()
-    filled = fill_secrets(text)
+    filled = fill_secrets(text, keys)
     if filled != text:
         print("  Generated a unique value for the local auth secrets.")
         env_path.write_text(filled)
@@ -198,9 +211,19 @@ def run_setup():
     print("\nSetup complete. Launching development environment...\n")
 
 
+def run_env_only(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_PATH) -> None:
+    """Repair .env for the ``dev-lite`` make target, then let make take over.
+
+    ``dev-lite`` brings the stack up with docker-compose.prod.yml, so the set it
+    needs is prod compose's, not the dev one: repairing only the dev keys left
+    compose aborting on the ``:?`` gate of the prod-only secret.
+    """
+    ensure_env_file(env_path, example_path, keys=ALL_GENERATED_KEYS)
+
+
 def run_prod_setup():
     """Build Docker images and start all services. Idempotent."""
-    ensure_env_file()
+    ensure_env_file(keys=ALL_GENERATED_KEYS)
 
     print("Building Docker images (cached if unchanged)...")
     _run(f"{PROD_COMPOSE} build")
@@ -270,7 +293,7 @@ def _teardown_env() -> dict[str, str]:
     here reaches a container -- the containers are on their way out.
     """
     env = dict(os.environ)
-    for key in GENERATED_KEYS:
+    for key in ALL_GENERATED_KEYS:
         env.setdefault(key, "unused-for-teardown")
     return env
 
@@ -567,7 +590,7 @@ def main() -> None:
     mode.add_argument(
         "--env-only",
         action="store_true",
-        help="Create or repair .env and exit (used by the -lite make targets)",
+        help="Create or repair .env and exit (used by the dev-lite make target)",
     )
     args = parser.parse_args()
 
@@ -578,7 +601,7 @@ def main() -> None:
     os.chdir(ROOT)
 
     if args.env_only:
-        ensure_env_file()
+        run_env_only()
         return
     if args.reset:
         reset_dev_environment()

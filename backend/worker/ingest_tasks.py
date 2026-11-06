@@ -7,12 +7,19 @@ import json
 import logging
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
+from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 logger = logging.getLogger(__name__)
+
+#: Version for a placeholder trace row (a batch without the trace's root span). It
+#: sorts below every receive time, so a root-bearing row replaces it in either order.
+#: ch_update_time is DateTime64(3): receive times in the same millisecond tie, and
+#: merges and FINAL then keep the row inserted last.
+PLACEHOLDER_TRACE_VERSION = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _json_serializer(obj: object) -> str:
@@ -306,24 +313,46 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     return {"projects": len(by_project), "traces": traces}
 
 
+def _quarantine_on_failure(self, exc, task_id, args, kwargs, einfo) -> None:
+    """Move the batch to events/failed/; Celery calls this only once a task fails for good."""
+    from rest.services.s3 import get_s3_service
+    from worker.ingest_quarantine import quarantine_batch
+
+    # A raising on_failure makes Celery run it again with this error, so log instead.
+    try:
+        # Celery passes the arguments as the task was queued: by keyword or by position.
+        s3_key = kwargs["s3_key"] if "s3_key" in kwargs else args[0]
+        quarantine_batch(get_s3_service(), s3_key)
+    except Exception:
+        logger.error("Could not quarantine the batch of task %s", task_id, exc_info=True)
+
+
 @app.task(
     bind=True,
     autoretry_for=(Exception,),
+    # Stored bytes that don't decode fail the same way on every attempt.
+    dont_autoretry_for=(UndecodableBatchError,),
     retry_backoff=True,
     retry_backoff_max=600,  # Max 10 minutes between retries
     max_retries=5,
+    on_failure=_quarantine_on_failure,
 )
-def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
+def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | None = None) -> dict:
     """Process OTEL traces from S3 and insert into ClickHouse.
 
     This task:
-    1. Downloads the OTEL JSON from S3
+    1. Downloads the staged batch from S3 and loads it as OTLP JSON, decoding a
+       ``.pb`` or ``.pb.gz`` body first
     2. Transforms it to ClickHouse format
     3. Batch inserts traces and spans
 
     Args:
-        s3_key: S3 key where the OTEL JSON is stored
+        s3_key: S3 key of the staged batch; its suffix names the format
         project_id: Project ID for the traces
+        received_at: ISO-8601 UTC time the API received the batch. The inserted
+            spans and root-bearing traces are versioned by it, so a batch sent later
+            wins over one sent earlier whatever order they are processed in. A task
+            queued without it versions them by insert time
 
     Returns:
         Dict with counts of inserted traces and spans
@@ -338,14 +367,25 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     try:
         # 1. Download from S3
         s3_service = get_s3_service()
-        otel_data = s3_service.download_json(s3_key)
+        otel_data = load_staged_batch(s3_service, s3_key)
         logger.debug(f"Downloaded OTEL data from {s3_key}")
 
         # 2. Transform to ClickHouse format
         traces, spans = transform_otel_to_clickhouse(otel_data, project_id)
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
+        # Before anything reads the rows, so every reader sees references, not images.
+        # Off unless ATTACHMENT_ENABLED is set; ATTACHMENT_PROJECT_IDS can narrow it.
+        from shared.config import settings
+
+        if settings.attachments.applies_to(project_id):
+            from worker.attachment_extraction import extract_attachments
+
+            extract_attachments(s3_service, project_id, traces, spans)
+
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+        # None falls back to the insert time; #2863 removes this by storing it on the object.
+        version = datetime.fromisoformat(received_at) if received_at else None
 
         # 3. Insert into ClickHouse
         if traces or spans:
@@ -381,11 +421,18 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                     ]
 
                 if traces:
+                    for t in traces:
+                        t["ch_update_time"] = (
+                            version
+                            if t["trace_id"] in root_bearing_trace_ids
+                            else PLACEHOLDER_TRACE_VERSION
+                        )
                     ch_client.insert_traces_batch(traces)
                     logger.info(f"Inserted {len(traces)} traces into ClickHouse")
 
             if spans:
-                ch_client.insert_spans_batch(spans)
+                # Copies, so the spans published to the live view below don't gain the field.
+                ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).

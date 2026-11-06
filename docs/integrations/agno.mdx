@@ -68,7 +68,7 @@ traceroot.flush()
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `Agent.run`.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `Agent.run`.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -79,7 +79,7 @@ Run your code and confirm the trace arrives:
 | Reasoning steps | Individual ReAct-style steps within the agent loop |
 | Tool calls | Each tool invocation with input arguments and results |
 | LLM calls | Raw completion requests to the underlying provider |
-| Tokens & Cost | Aggregated token usage; cost when the model ID matches TraceRoot's pricing table |
+| Tokens & Cost | Aggregated token usage; cost when the model ID matches traceroot's pricing table |
 | Latency | Duration per agent run and per span |
 
 ## Limitations
@@ -101,6 +101,6 @@ Clone the repo and run a complete agent end-to-end.
     Explore the full Python SDK reference and instrumentation options.
   </Card>
   <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
-    Learn how TraceRoot calculates token costs and tracks model spend.
+    Learn how traceroot calculates token costs and tracks model spend.
   </Card>
 </CardGroup>

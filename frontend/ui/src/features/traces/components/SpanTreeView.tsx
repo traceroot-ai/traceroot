@@ -9,7 +9,7 @@ import { getSpanIO } from "@/lib/api";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
-import { MODEL_SPAN_KINDS, SpanStatus } from "@traceroot/core";
+import { MODEL_SPAN_KINDS, SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection, SpanTreeRow } from "../types";
 import {
@@ -396,10 +396,17 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         </span>
                       )}
 
-                      {MODEL_SPAN_KINDS.has(span.span_kind) &&
+                      {(MODEL_SPAN_KINDS.has(span.span_kind) || span.span_kind === SpanKind.TOOL) &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
+                          <span
+                            className={cn(
+                              "hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground",
+                              span.total_tokens != null
+                                ? "@[190px]:inline-flex"
+                                : "@[100px]:inline-flex",
+                            )}
+                          >
                             <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>
