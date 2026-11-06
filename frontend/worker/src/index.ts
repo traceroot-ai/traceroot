@@ -73,7 +73,8 @@ async function main(): Promise<void> {
       try {
         const result = await reconcileRecentSignups();
         console.log(
-          `[Billing Worker] Sign-up reconcile: ${result.eligible} replayed, ${result.failed} failed`,
+          `[Billing Worker] Sign-up reconcile: ${result.sent} of ${result.eligible} sent, ` +
+            `${result.failed} failed, summary ${result.summarySent ? "sent" : "not sent"}`,
         );
       } catch (error) {
         console.error("[Billing Worker] Sign-up reconcile failed:", error);

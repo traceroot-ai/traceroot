@@ -3,16 +3,12 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   userFindMany: vi.fn(),
-  inviteFindFirst: vi.fn(),
 }));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
     ...actual,
-    prisma: {
-      user: { findMany: mocks.userFindMany },
-      invite: { findFirst: mocks.inviteFindFirst },
-    },
+    prisma: { user: { findMany: mocks.userFindMany } },
   };
 });
 
@@ -37,13 +33,11 @@ const users = [
 ];
 const from = new Date(0);
 const to = new Date("2026-11-06T16:00:00Z");
+const accepted = () => new Response(null, { status: 202 });
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.userFindMany.mockResolvedValue(users);
-  mocks.inviteFindFirst.mockImplementation(async ({ where }) =>
-    where.email.equals === "B@Example.com" ? { id: "inv1" } : null,
-  );
 });
 
 it("counts what a dry run would send, and sends nothing", async () => {
@@ -60,21 +54,17 @@ it("counts what a dry run would send, and sends nothing", async () => {
     eligible: 2,
     sent: 0,
     failed: 0,
-    invited: 1,
+    summarySent: false,
     byProvider: { email: 1, google: 1 },
   });
   expect(fetchImpl).not.toHaveBeenCalled();
   expect(mocks.userFindMany).toHaveBeenCalledWith(
     expect.objectContaining({ where: { createdAt: { gte: from, lt: to } } }),
   );
-  expect(mocks.inviteFindFirst).toHaveBeenCalledWith({
-    where: { email: { equals: "B@Example.com", mode: "insensitive" } },
-    select: { id: true },
-  });
 });
 
 it("sends each sign-up with its original time and method, then a signed summary of all of them", async () => {
-  const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
+  const fetchImpl = vi.fn<typeof fetch>(async () => accepted());
   const result = await replaySignups({
     delivery: "backfill",
     from,
@@ -83,7 +73,7 @@ it("sends each sign-up with its original time and method, then a signed summary 
     send: true,
     fetchImpl,
   });
-  expect(result).toMatchObject({ eligible: 2, sent: 2, failed: 0 });
+  expect(result).toMatchObject({ eligible: 2, sent: 2, failed: 0, summarySent: true });
   const bodies = fetchImpl.mock.calls.map(([, init]) => JSON.parse(init?.body as string));
   expect(bodies).toEqual([
     {
@@ -91,14 +81,15 @@ it("sends each sign-up with its original time and method, then a signed summary 
       occurred_at: "2026-03-01T10:00:00.000Z",
       delivery: "backfill",
       user: { id: "u1", email: "a@example.com", name: "A" },
-      signup: { provider: "email", via_invite: false, utm: {} },
+      // Accepted invites are deleted, so a replay can't say.
+      signup: { provider: "email", via_invite: null, utm: {} },
     },
     {
       event: "user_signed_up",
       occurred_at: "2026-03-02T10:00:00.000Z",
       delivery: "backfill",
       user: { id: "u2", email: "B@Example.com", name: null },
-      signup: { provider: "google", via_invite: true, utm: {} },
+      signup: { provider: "google", via_invite: null, utm: {} },
     },
     {
       event: "signups_replayed",
@@ -122,7 +113,7 @@ it("keeps going past a failed send, and still sends the summary listing it", asy
   const fetchImpl = vi
     .fn<typeof fetch>()
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    .mockResolvedValue(new Response(null, { status: 202 }));
+    .mockResolvedValue(accepted());
   const result = await replaySignups({
     delivery: "reconcile",
     from,
@@ -132,12 +123,49 @@ it("keeps going past a failed send, and still sends the summary listing it", asy
     fetchImpl,
     log,
   });
-  expect(result).toMatchObject({ eligible: 2, sent: 1, failed: 1 });
+  expect(result).toMatchObject({ eligible: 2, sent: 1, failed: 1, summarySent: true });
   expect(log).toHaveBeenCalledWith(
     "[Signup replay] Sending user u1 failed: Sign-up webhook failed (503)",
   );
   const summary = JSON.parse(fetchImpl.mock.calls.at(-1)![1]?.body as string);
   expect(summary).toMatchObject({ event: "signups_replayed", user_ids: ["u1", "u2"] });
+});
+
+it("still returns the counts when the summary itself fails", async () => {
+  const log = vi.fn();
+  const fetchImpl = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(accepted())
+    .mockResolvedValueOnce(accepted())
+    .mockResolvedValueOnce(new Response(null, { status: 413 }));
+  const result = await replaySignups({
+    delivery: "backfill",
+    from,
+    to,
+    config,
+    send: true,
+    fetchImpl,
+    log,
+  });
+  expect(result).toMatchObject({ sent: 2, failed: 0, summarySent: false });
+  expect(log).toHaveBeenCalledWith(
+    "[Signup replay] Sending the summary failed: Sign-up webhook failed (413)",
+  );
+});
+
+it("counts nothing as sent when the webhook isn't configured", async () => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  const result = await replaySignups({
+    delivery: "reconcile",
+    from,
+    to,
+    config: { url: config.url },
+    send: true,
+    fetchImpl,
+    log: () => {},
+  });
+  expect(result).toMatchObject({ sent: 0, failed: 2, summarySent: false });
+  expect(fetchImpl).not.toHaveBeenCalled();
 });
 
 it("pages through users without loading them all at once", async () => {

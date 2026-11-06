@@ -25,7 +25,9 @@ export interface SignupWebhookEvent {
   occurred_at: string;
   delivery: SignupDelivery;
   user: { id: string; email: string; name: string | null };
-  signup: { provider: string; via_invite: boolean; utm: Partial<Record<UtmField, string>> };
+  // Null from replays: accepting an invite deletes it, so afterwards nothing
+  // says whether a sign-up came from one.
+  signup: { provider: string; via_invite: boolean | null; utm: Partial<Record<UtmField, string>> };
 }
 
 export interface SignupsReplayedEvent {
@@ -39,7 +41,7 @@ export interface SignupsReplayedEvent {
 export interface SignupWebhookInput {
   user: { id: string; email: string; name: string | null; createdAt: Date };
   provider: string;
-  viaInvite: boolean;
+  viaInvite: boolean | null;
   attribution?: Record<string, string>;
   delivery?: SignupDelivery;
 }
@@ -116,6 +118,9 @@ export async function sendSignupWebhook(
     redirect: "error",
     signal: AbortSignal.timeout(options.timeoutMs ?? 3_000),
   });
+  // Drained so the connection can be reused, which matters for a replay's
+  // thousands of sends.
+  await response.body?.cancel().catch(() => {});
   if (!response.ok) {
     throw new Error(`Sign-up webhook failed (${response.status})`);
   }

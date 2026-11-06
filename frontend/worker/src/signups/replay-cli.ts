@@ -5,13 +5,14 @@
  *   node worker/dist/signups/replay-cli.js --delivery backfill
  *   node worker/dist/signups/replay-cli.js --delivery backfill --send
  *
- * --from and --to bound the sign-up window (ISO dates). The default window is
- * everything up to an hour ago.
+ * --from and --to bound the sign-up window (ISO dates). By default a backfill
+ * covers everything up to an hour ago, and a reconcile the same two weeks as
+ * the weekly run.
  */
 import { parseArgs } from "node:util";
 import { prisma } from "@traceroot/core";
 import { isSignupWebhookConfigured } from "@traceroot/core/signup-webhook";
-import { replaySignups, signupWebhookConfigFromEnv } from "./replay.js";
+import { reconcileWindow, replaySignups, signupWebhookConfigFromEnv } from "./replay.js";
 
 function parseDate(value: string | undefined, fallback: Date, flag: string): Date {
   if (value === undefined) return fallback;
@@ -33,8 +34,12 @@ async function main(): Promise<void> {
   if (delivery !== "backfill" && delivery !== "reconcile") {
     throw new Error(`--delivery must be backfill or reconcile, not ${delivery}`);
   }
-  const from = parseDate(values.from, new Date(0), "--from");
-  const to = parseDate(values.to, new Date(Date.now() - 60 * 60 * 1000), "--to");
+  const defaults =
+    delivery === "reconcile"
+      ? reconcileWindow(new Date(), 14)
+      : { from: new Date(0), to: new Date(Date.now() - 60 * 60 * 1000) };
+  const from = parseDate(values.from, defaults.from, "--from");
+  const to = parseDate(values.to, defaults.to, "--to");
   const config = signupWebhookConfigFromEnv();
   if (values.send && !isSignupWebhookConfigured(config)) {
     throw new Error(
@@ -47,11 +52,14 @@ async function main(): Promise<void> {
   console.log(
     `[Signup replay] ${mode}: ${result.eligible} sign-ups (${delivery}) from ${from.toISOString()} to ${to.toISOString()}`,
   );
-  console.log(
-    `[Signup replay] By sign-up method: ${JSON.stringify(result.byProvider)}; invited: ${result.invited}`,
-  );
-  if (values.send) console.log(`[Signup replay] Delivered ${result.sent}, failed ${result.failed}`);
-  else console.log("[Signup replay] Pass --send to deliver them.");
+  console.log(`[Signup replay] By sign-up method: ${JSON.stringify(result.byProvider)}`);
+  if (values.send) {
+    const summary = result.summarySent ? "summary delivered" : "summary NOT delivered";
+    console.log(`[Signup replay] Delivered ${result.sent}, failed ${result.failed}, ${summary}`);
+    if (result.failed > 0 || !result.summarySent) process.exitCode = 1;
+  } else {
+    console.log("[Signup replay] Pass --send to deliver them.");
+  }
 }
 
 main()

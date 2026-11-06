@@ -7,8 +7,12 @@
  * sign-up it covered, so the receiver can report how many it already had and
  * how many the replay recovered.
  *
- * Nothing records how an account was created, so every user created in the
- * window is replayed; the receiver skips team and test accounts.
+ * Two facts the live send has can't be recovered afterwards, so replays leave
+ * them out. Accepting an invite deletes it, so via_invite is null. Nothing
+ * records how an account was created, so every user in the window is replayed,
+ * including any provisioned by staff through the admin plugin, which the live
+ * send skips. Those endpoints are closed to HTTP now; the receiver skips team
+ * and test accounts.
  */
 import { prisma } from "@traceroot/core";
 import {
@@ -37,7 +41,8 @@ export interface ReplayResult {
   eligible: number;
   sent: number;
   failed: number;
-  invited: number;
+  // Whether the closing summary reached the receiver.
+  summarySent: boolean;
   byProvider: Record<string, number>;
 }
 
@@ -80,7 +85,13 @@ async function* signupsBetween(from: Date, to: Date) {
 export async function replaySignups(options: ReplayOptions): Promise<ReplayResult> {
   const log = options.log ?? ((line: string) => console.log(line));
   const startedAt = new Date();
-  const result: ReplayResult = { eligible: 0, sent: 0, failed: 0, invited: 0, byProvider: {} };
+  const result: ReplayResult = {
+    eligible: 0,
+    sent: 0,
+    failed: 0,
+    summarySent: false,
+    byProvider: {},
+  };
   const userIds: string[] = [];
 
   for await (const user of signupsBetween(options.from, options.to)) {
@@ -88,23 +99,19 @@ export async function replaySignups(options: ReplayOptions): Promise<ReplayResul
     userIds.push(user.id);
     const provider = providerOf(user.accounts[0]?.providerId);
     result.byProvider[provider] = (result.byProvider[provider] ?? 0) + 1;
-    const invite = await prisma.invite.findFirst({
-      where: { email: { equals: user.email, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (invite) result.invited += 1;
     if (!options.send) continue;
     try {
-      await sendSignupWebhook(
+      const delivered = await sendSignupWebhook(
         buildSignupWebhookEvent({
           user: { id: user.id, email: user.email, name: user.name, createdAt: user.createdAt },
           provider,
-          viaInvite: invite != null,
+          viaInvite: null,
           delivery: options.delivery,
         }),
         options.config,
         { fetchImpl: options.fetchImpl, timeoutMs: 10_000 },
       );
+      if (!delivered) throw new Error("the sign-up webhook isn't configured");
       result.sent += 1;
     } catch (error) {
       result.failed += 1;
@@ -115,18 +122,26 @@ export async function replaySignups(options: ReplayOptions): Promise<ReplayResul
   }
 
   // Sent even when some sign-ups failed: the receiver reports them as missing.
+  // A failure here is logged, not thrown, so the counts above still reach the
+  // caller.
   if (options.send) {
-    await sendSignupWebhook(
-      buildSignupsReplayedEvent({
-        delivery: options.delivery,
-        startedAt,
-        from: options.from,
-        to: options.to,
-        userIds,
-      }),
-      options.config,
-      { fetchImpl: options.fetchImpl, timeoutMs: 30_000 },
-    );
+    try {
+      result.summarySent = await sendSignupWebhook(
+        buildSignupsReplayedEvent({
+          delivery: options.delivery,
+          startedAt,
+          from: options.from,
+          to: options.to,
+          userIds,
+        }),
+        options.config,
+        { fetchImpl: options.fetchImpl, timeoutMs: 30_000 },
+      );
+    } catch (error) {
+      log(
+        `[Signup replay] Sending the summary failed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
   }
   return result;
 }
