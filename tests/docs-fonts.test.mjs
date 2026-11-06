@@ -14,7 +14,10 @@ for (const [family, file] of [
       .map((match) => match[1])
       .find((rule) => rule.includes(`font-family: "${family}";`));
     assert.ok(face, `${family} font face is missing`);
-    const source = face.match(/url\("data:font\/woff2;base64,([A-Za-z0-9+/=]+)"\)/);
+    assert.equal([...face.matchAll(/(?:^|;)\s*src\s*:/g)].length, 1);
+    const source = face.match(
+      /(?:^|;)\s*src\s*:\s*url\("data:font\/woff2;base64,([A-Za-z0-9+/=]+)"\)\s+format\("woff2"\)\s*;/,
+    );
     assert.ok(source, `${family} must load without root-relative or CDN paths`);
     assert.deepEqual(
       Buffer.from(source[1], "base64"),
