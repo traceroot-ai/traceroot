@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MEASURE_TYPE_LABEL, getMeasureDoc, undocumentedMeasureIds } from "./measure-docs";
+import { MEASURE_TYPE_LABEL } from "@/lib/measure-doc";
+import { getMeasureDoc, undocumentedMeasureIds } from "./measure-docs";
 import { ALERT_AGGREGATIONS, ALERT_MEASURES_BY_VIEW } from "./rule-model";
 
 describe("alert measure docs", () => {
@@ -45,19 +46,10 @@ describe("alert measure docs", () => {
     expect(getMeasureDoc("SPANS", "cost")?.description).toBe("Cost recorded on one span.");
   });
 
-  it("marks no measure as unavailable", () => {
-    // The unique-id measures compute through traces, so nothing in the dropdown is blocked.
-    const blocked = ALERT_MEASURES_BY_VIEW.SPANS.filter(
-      (m) => getMeasureDoc("SPANS", m.id)?.unavailable !== undefined,
-    ).map((m) => m.id);
-    expect(blocked).toEqual([]);
-  });
-
   it("describes the id measures against traces, where their columns live", () => {
     for (const id of ["unique_user_ids", "unique_session_ids"]) {
       const doc = getMeasureDoc("SPANS", id);
       expect(doc?.description, id).toContain("a trace belongs to");
-      expect(doc?.unavailable, id).toBeUndefined();
     }
   });
 });

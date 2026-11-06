@@ -46,6 +46,10 @@ class FieldDef:
     # `builder_aggs` is the same split per aggregation, None meaning "same as aggs".
     in_builder: bool = True
     builder_aggs: tuple[str, ...] | None = None
+    # What one value of a measure is and counts in, shown on hover in the builder's
+    # Measure dropdown. Set on every field with `aggs`; a test holds them to it.
+    unit: str | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -198,11 +202,13 @@ def _string_dim(expr: str, label: str) -> FieldDef:
     )
 
 
-def _number_measure(expr: str, label: str) -> FieldDef:
+def _number_measure(expr: str, label: str, unit: str, description: str) -> FieldDef:
     return FieldDef(
         expr=expr,
         type="number",
         label=label,
+        unit=unit,
+        description=description,
         filter_ops=FILTER_OPS_NUMBER,
         aggs=AGGS_NUMBER,
         builder_aggs=BUILDER_AGGS_NUMBER,
@@ -236,16 +242,46 @@ REGISTRY: dict[str, ViewDef] = {
             # Labels follow the trace-list filter vocabulary (see
             # rest.services.filters.columns); units surface as input adornments
             # in the builder, not in the label.
-            "duration_ms": _number_measure("duration_ms", "Duration"),
-            "cost": _number_measure("cost", "Cost"),
-            "input_tokens": _number_measure("input_tokens", "Input tokens"),
-            "output_tokens": _number_measure("output_tokens", "Output tokens"),
-            "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
-            "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
+            "duration_ms": _number_measure(
+                "duration_ms",
+                "Duration",
+                "Milliseconds",
+                "Elapsed time of one span, from its start time to its end time.",
+            ),
+            "cost": _number_measure("cost", "Cost", "USD", "Cost recorded on one span."),
+            "input_tokens": _number_measure(
+                "input_tokens", "Input tokens", "Tokens", "Input tokens recorded on one span."
+            ),
+            "output_tokens": _number_measure(
+                "output_tokens", "Output tokens", "Tokens", "Output tokens recorded on one span."
+            ),
+            "cache_read_tokens": _number_measure(
+                "cache_read_tokens",
+                "Cache read tokens",
+                "Tokens",
+                (
+                    "Input tokens one span read from the prompt cache; a span that reported no"
+                    " cache usage has no value."
+                ),
+            ),
+            "cache_write_tokens": _number_measure(
+                "cache_write_tokens",
+                "Cache write tokens",
+                "Tokens",
+                (
+                    "Input tokens one span wrote to the prompt cache; a span that reported no"
+                    " cache usage has no value."
+                ),
+            ),
             # Total last: input + output. Cache read/write are a breakdown of
             # the input above, not additional addends — summing all four
             # double-counts the cache tokens.
-            "total_tokens": _number_measure("total_tokens", "Total tokens"),
+            "total_tokens": _number_measure(
+                "total_tokens",
+                "Total tokens",
+                "Tokens",
+                "Input plus output tokens recorded on one span.",
+            ),
             # Over the millisecond span duration, not a second-boundary count, so a
             # 200ms span reports its real rate. Zero duration reads NULL.
             "tokens_per_second": FieldDef(
@@ -254,6 +290,11 @@ REGISTRY: dict[str, ViewDef] = {
                 label="Tokens per second",
                 aggs=AGGS_NUMBER,
                 in_builder=False,
+                unit="Tokens per second",
+                description=(
+                    "A span's total tokens over its millisecond duration, as a per-second rate;"
+                    " a span with no measured duration has no value."
+                ),
             ),
             # Distinct-count measure for alerts. Not filterable or groupable: a
             # predicate or breakdown on one trace id is meaningless.
@@ -263,9 +304,21 @@ REGISTRY: dict[str, ViewDef] = {
                 label="Trace ID",
                 aggs=("count", "uniq"),
                 in_builder=False,
+                unit="Traces",
+                description=(
+                    "Trace identifier recorded on every span;"
+                    " aggregate with uniq to count distinct traces."
+                ),
             ),
             # expr="*" is a sentinel: the compiler translates it to count(*).
-            "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
+            "count": FieldDef(
+                expr="*",
+                type="number",
+                label="Count",
+                aggs=("count",),
+                unit="Spans",
+                description="Number of spans in the window.",
+            ),
             # Operators match the trace-list registry, so the same question spelled
             # in either UI lowers to the same comparison. Span scope only, unlike the
             # trace-list predicate, which ORs a trace-row arm onto the span scan: a
@@ -294,6 +347,11 @@ REGISTRY: dict[str, ViewDef] = {
                 groupable=True,
                 aggs=("count", "uniq"),
                 builder_aggs=(),
+                unit="Users",
+                description=(
+                    "Identifier of the user a trace belongs to;"
+                    " aggregate with uniq to count distinct users."
+                ),
             ),
             "session_id": FieldDef(
                 expr="session_id",
@@ -303,26 +361,90 @@ REGISTRY: dict[str, ViewDef] = {
                 groupable=True,
                 aggs=("count", "uniq"),
                 builder_aggs=(),
+                unit="Sessions",
+                description=(
+                    "Identifier of the session a trace belongs to;"
+                    " aggregate with uniq to count distinct sessions."
+                ),
             ),
             "environment": _string_dim("environment", "Environment"),
             # Same quantities the trace list exposes — same words (Latency,
             # Cost, Tokens, Errors), so filtering a widget reads like
             # filtering the trace list.
-            "duration_ms": _number_measure("duration_ms", "Latency"),
-            "cost": _number_measure("cost", "Cost"),
-            "input_tokens": _number_measure("input_tokens", "Input tokens"),
-            "output_tokens": _number_measure("output_tokens", "Output tokens"),
-            "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
-            "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
+            "duration_ms": _number_measure(
+                "duration_ms",
+                "Latency",
+                "Milliseconds",
+                (
+                    "Elapsed time of one trace, from the first start to the last end"
+                    " among its spans that start in the window."
+                ),
+            ),
+            "cost": _number_measure(
+                "cost",
+                "Cost",
+                "USD",
+                "Cost of one trace, summed across its spans that start in the window.",
+            ),
+            "input_tokens": _number_measure(
+                "input_tokens",
+                "Input tokens",
+                "Tokens",
+                "Input tokens of one trace, summed across its spans that start in the window.",
+            ),
+            "output_tokens": _number_measure(
+                "output_tokens",
+                "Output tokens",
+                "Tokens",
+                "Output tokens of one trace, summed across its spans that start in the window.",
+            ),
+            "cache_read_tokens": _number_measure(
+                "cache_read_tokens",
+                "Cache read tokens",
+                "Tokens",
+                (
+                    "Input tokens one trace read from the prompt cache, summed across its spans"
+                    " that start in the window."
+                ),
+            ),
+            "cache_write_tokens": _number_measure(
+                "cache_write_tokens",
+                "Cache write tokens",
+                "Tokens",
+                (
+                    "Input tokens one trace wrote to the prompt cache, summed across its spans"
+                    " that start in the window."
+                ),
+            ),
             # Total last: input + output. Cache read/write are a breakdown of
             # the input above, not additional addends — summing all four
             # double-counts the cache tokens.
-            "total_tokens": _number_measure("total_tokens", "Tokens"),
+            "total_tokens": _number_measure(
+                "total_tokens",
+                "Tokens",
+                "Tokens",
+                (
+                    "Input plus output tokens of one trace, summed across its spans that start"
+                    " in the window."
+                ),
+            ),
             # expr="*" is a sentinel: the compiler translates it to count(*).
-            "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
+            "count": FieldDef(
+                expr="*",
+                type="number",
+                label="Count",
+                aggs=("count",),
+                unit="Traces",
+                description="Number of traces in the window.",
+            ),
             # Last, so the list reads as the spans measures plus one trailing
             # trace-only addition when switching views.
-            "error_count": _number_measure("error_count", "Errors"),
+            "error_count": _number_measure(
+                "error_count",
+                "Errors",
+                "Spans",
+                "Spans in one trace with an error status, among those that start in the window.",
+            ),
         },
     ),
 }
@@ -350,6 +472,9 @@ def registry_schema() -> dict:
                     # histogram display instead of saving a widget that the
                     # query engine permanently rejects.
                     "histogrammable": f.type == "number" and f.expr != "*",
+                    # Shown on hover in the builder's Measure dropdown.
+                    "unit": f.unit,
+                    "description": f.description,
                 }
                 for fname, f in view.fields.items()
             }
@@ -360,9 +485,11 @@ def registry_schema() -> dict:
 
 def render_registry_snapshot() -> str:
     """Deterministic serialization of :func:`registry_schema` for the checked-in
-    frontend snapshot (``widget-registry.generated.json``), which the write
-    service validates widget specs against. Sorted keys, matching the public
-    OpenAPI artifact's rendering convention, so drift checks diff cleanly.
+    frontend snapshot (``widget-registry.generated.json``). The write service
+    validates widget specs against it on the server, and the alert form imports
+    it in the browser for its Measure hover text, so it ships in the client
+    bundle too. Sorted keys, matching the public OpenAPI artifact's rendering
+    convention, so drift checks diff cleanly.
 
     Returns:
         str: The registry schema as pretty-printed JSON with a trailing newline.

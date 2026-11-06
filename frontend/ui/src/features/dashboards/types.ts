@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MEASURE_TYPE_LABEL, type MeasureDoc } from "@/lib/measure-doc";
 
 export const DISPLAY_TYPES = [
   "line",
@@ -187,6 +188,10 @@ export interface WidgetSchemaField {
   // Whether the widget builder offers this field. Optional so an older cached
   // schema keeps working — treat absence as offered.
   inBuilder?: boolean;
+  // What one value of a measure is and counts in, shown on hover in the
+  // builder's Measure dropdown. Optional so an older cached schema keeps working.
+  unit?: string | null;
+  description?: string | null;
 }
 
 export type WidgetSchema = Record<
@@ -202,6 +207,25 @@ export interface WidgetFieldValue {
 export interface WidgetFieldValuesResponse {
   field: string;
   values: WidgetFieldValue[];
+}
+
+/**
+ * The hover panel's documentation for a measure, or undefined when the schema
+ * carries none (an older cached schema), which leaves the row plain.
+ */
+export function measureDoc(field: WidgetSchemaField): MeasureDoc | undefined {
+  return field.unit && field.description
+    ? { unit: field.unit, description: field.description }
+    : undefined;
+}
+
+/**
+ * The type a measure's hover panel shows. The count(*) sentinel is the one
+ * numeric field the registry marks non-histogrammable, so it takes the count label.
+ */
+export function measureTypeLabel(field: WidgetSchemaField): string {
+  if (field.type === "string") return MEASURE_TYPE_LABEL.string;
+  return field.histogrammable === false ? MEASURE_TYPE_LABEL.count : MEASURE_TYPE_LABEL.number;
 }
 
 /**
