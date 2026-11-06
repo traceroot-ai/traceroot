@@ -34,12 +34,12 @@ npx --yes mint@4.2.1204 validate
 npx --yes mint@4.2.1204 broken-links
 ```
 
-From the repository root, run `node --test tests/docs-footer.test.mjs` for
-consent lifecycle and functional color regression checks. These also run in CI.
+From the repository root, run `node --test tests/docs-*.test.mjs` for
+consent lifecycle, functional color and embedded font checks. These also run in CI.
 
 ## Brand styling
 
-`docs.json` owns the theme, fonts, logo and navigation. `custom.css` uses Mintlify's
+`docs.json` owns the theme, logo and navigation. `custom.css` uses Mintlify's
 public layout IDs, component parts and width variables; the Introduction's
 connected capability grid has its own `tr-capabilities` class. Original article
 content, paths, metadata and the OpenAPI generation chain stay in place.
@@ -64,11 +64,14 @@ Check that boundary on a connected deployment before treating it as a complete
 production consent manager.
 
 Brand assets and fonts are snapshots of the website, with sources listed in
-`brand/README.md`. `brand/geist-mono.css` embeds the adjacent WOFF2 font so the
+`brand/README.md`. `brand/fonts.css` embeds both adjacent WOFF2 fonts so the
 same CSS works at the local root and the production `/docs` subpath without a
-root-level `/brand` proxy. Keep that generated font source in sync if the font
-changes. The footer wordmark uses a standalone export of the website Home
-animation and its CSS defaults, with a static fallback if Canvas is unavailable.
+root-level `/brand` proxy. `custom.css` sets Mintlify's heading and body font
+variables. No `fonts` setting is needed in `docs.json`, which avoids Mintlify's
+cross-origin font rewriting and automatic Google Fonts requests. Keep the
+embedded sources in sync if the fonts change. The footer wordmark uses a
+standalone export of the website Home animation and its CSS defaults, with a
+static fallback if Canvas is unavailable.
 Sync and verification instructions are in `brand/README.md`.
 Functional turquoise text uses a darker tone for contrast;
 Mintlify's functional primary also covers API field names and response tabs.

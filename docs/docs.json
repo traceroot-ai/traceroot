@@ -16,18 +16,6 @@
     "dark": "#0f827d"
   },
   "rounded": "default",
-  "fonts": {
-    "heading": {
-      "family": "Geist",
-      "source": "/brand/geist.woff2",
-      "format": "woff2"
-    },
-    "body": {
-      "family": "Geist",
-      "source": "/brand/geist.woff2",
-      "format": "woff2"
-    }
-  },
   "layout": {
     "wide": true
   },

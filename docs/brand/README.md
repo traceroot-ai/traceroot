@@ -9,7 +9,7 @@ without loading the marketing site's JavaScript or depending on its asset URLs.
 | `mark.svg`, `github.svg`, `linkedin.svg`, `discord.svg` | `client/public/redesign/`, copied with repository newline normalization |
 | `geist.woff2` | `client/public/redesign/9b6f5ff45b278c74.woff2`, copied unchanged |
 | `geist-mono.woff2` | `client/public/redesign/5f3d6ad60f29d6cb.woff2`, copied unchanged |
-| `geist-mono.css` | `geist-mono.woff2` embedded as a data URL in an `@font-face`; this avoids a root-relative font URL under the production `/docs` prefix |
+| `fonts.css` | Both WOFF2 snapshots embedded as data URLs in variable-weight `@font-face` rules; this avoids cross-origin font rewriting and root-relative font URLs under the production `/docs` prefix |
 | `footer-wordmark.svg` | Static export of `PIX` glyphs and Bayer dithering in `client/src/components/redesign/footer-wordmark.ts` |
 | `footer-wordmark.runtime.js` | Generated standalone IIFE of Home's `footer-wordmark.ts`, `animation-scope.ts`, `motion-loop.ts` and CSS defaults; no React or external requests |
 | `logo-light.svg`, `logo-dark.svg` | Website `mark.svg` with the Geist wordmark converted to SVG outlines using a temporary fontkit tool; no runtime dependency |
@@ -17,6 +17,14 @@ without loading the marketing site's JavaScript or depending on its asset URLs.
 The Geist font snapshots are Copyright 2024 The Geist Project Authors and are
 distributed under the SIL Open Font License 1.1 in `OFL.txt`, copied from the
 upstream `vercel/geist-font` 1.4.2 release. Font metadata is retained unchanged.
+
+`custom.css` selects the embedded Geist family through Mintlify's heading and
+body font variables. Leave the native `fonts` configuration unset: local paths
+can be rewritten to a cross-origin asset host, and a family alone requests
+Google Fonts. When updating a snapshot, regenerate its base64 source in
+`fonts.css` from the adjacent WOFF2 and run `node --test tests/docs-*.test.mjs`
+from the repository root. Verify the deployed font faces are loaded, including
+on `/docs`, rather than checking only the computed family name.
 
 The wordmark uses Home's original 800:128 canvas, pixel glyphs, ink, dithering,
 speed and still-mode setting. Still mode disables assembly/scattering while
