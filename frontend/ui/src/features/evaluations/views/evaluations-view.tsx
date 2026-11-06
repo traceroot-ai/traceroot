@@ -66,10 +66,10 @@ function parseUrlDate(raw: string | null): Date | null {
 export function formatElapsed(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
   if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(totalSeconds / 60);
+  const rem = totalSeconds % 60;
   return `${m}m ${rem}s`;
 }
 
