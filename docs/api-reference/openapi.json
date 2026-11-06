@@ -124,6 +124,17 @@
             ],
             "title": "Last Notify Error"
           },
+          "last_notify_severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Severity"
+          },
           "last_notify_status": {
             "anyOf": [
               {
@@ -210,6 +221,7 @@
           "last_error_at",
           "last_notify_status",
           "last_notify_error",
+          "last_notify_severity",
           "last_notify_at",
           "create_time",
           "update_time",
@@ -506,6 +518,17 @@
             ],
             "title": "Last Notify Error"
           },
+          "last_notify_severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Severity"
+          },
           "last_notify_status": {
             "anyOf": [
               {
@@ -585,6 +608,7 @@
           "last_error_at",
           "last_notify_status",
           "last_notify_error",
+          "last_notify_severity",
           "last_notify_at",
           "create_time",
           "update_time",

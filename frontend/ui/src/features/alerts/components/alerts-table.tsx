@@ -67,6 +67,7 @@ export function AlertsTable({
                   lastEvaluatedAt={alert.lastEvaluatedAt}
                   lastNotifyStatus={alert.lastNotifyStatus}
                   lastNotifyError={alert.lastNotifyError}
+                  lastNotifySeverity={alert.lastNotifySeverity}
                 />
               </td>
               <td className={cn(DETECTOR_TD, "text-foreground")}>{alert.name}</td>
