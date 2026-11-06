@@ -1,19 +1,18 @@
 # docker/Dockerfile.migrate-clickhouse
 # Lightweight image for running goose ClickHouse migrations.
 FROM golang:1.27-alpine AS build
-# goose v3.28.0 (the latest release) pins dependencies that Amazon Inspector
-# reports as vulnerable: golang.org/x/crypto, x/net, andybalholm/brotli and
-# klauspost/compress. `go install pkg@ver` ignores version overrides, so build
-# goose inside a throwaway module that raises them. Drop each override once a
-# goose release requires that version.
+# goose and every dependency are pinned in docker/goose/go.mod and go.sum, which
+# Dependabot keeps current, so each version is reviewed and the build is
+# reproducible. Every caller runs goose with the ClickHouse driver only, so build
+# it with the other drivers left out: their dependencies (x/net, x/crypto and
+# ~40 more) stay in go.mod, which is tidied across all build tags, but never
+# reach the binary.
 WORKDIR /src
-RUN go mod init goose-build \
- && go get github.com/pressly/goose/v3/cmd/goose@v3.28.0 \
-           golang.org/x/crypto@v0.58.0 \
-           golang.org/x/net@v0.62.0 \
-           github.com/andybalholm/brotli@v1.2.7 \
-           github.com/klauspost/compress@v1.20.2 \
- && CGO_ENABLED=0 go build -o /go/bin/goose github.com/pressly/goose/v3/cmd/goose
+COPY docker/goose/go.mod docker/goose/go.sum ./
+RUN go mod download \
+ && CGO_ENABLED=0 go build -mod=readonly \
+      -tags 'no_postgres no_mysql no_sqlite3 no_mssql no_azuresql no_vertica no_ydb no_libsql' \
+      -o /go/bin/goose github.com/pressly/goose/v3/cmd/goose
 
 FROM alpine:3.24
 RUN apk upgrade --no-cache
