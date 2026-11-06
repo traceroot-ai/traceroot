@@ -1,0 +1,70 @@
+---
+title: Rate Limits
+description: Per-plan request quotas, rate limiting architecture, and burst handling on TraceRoot Cloud
+---
+
+TraceRoot Cloud enforces rate limits across its API endpoints. Limits are measured per minute, keyed by workspace rather than by individual API key, and split into independent buckets so one class of traffic cannot exhaust another's budget.
+
+Rate limits apply strictly to TraceRoot Cloud. In [self-hosted](/self-hosting/overview) deployments (`ENABLE_BILLING=false`), rate limiting is disabled entirely, and throughput is limited only by your own infrastructure capacity.
+
+## Architecture and keying
+
+Rate limits are implemented using Redis storage shared across backend replicas, with an automatic in-memory fallback:
+
+- Rate limits for API key traffic (such as telemetry ingestion and public reads) are keyed by your **workspace**, never by individual API keys. Generating additional API keys in the same project does not multiply your quota.
+- User-credentialed operations (such as interactive CLI sessions) include a per-member key (`...:{workspace}:{user}`). This prevents one member's terminal loops or scripts from consuming the read quota of their teammates.
+- Different operations run in separate rate limit buckets, ensuring that bursts of write actions do not interfere with high-volume telemetry ingestion or read queries.
+
+## Limits by plan tier
+
+All rate limits are measured **per minute** and scale with your workspace subscription tier:
+
+| Bucket | Free | Starter | Pro | Enterprise | Endpoints & Operations |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`ingest`** | 1,000 / min | 5,000 / min | 20,000 / min | 20,000 / min | Span and trace ingestion (`POST /api/v1/public/traces`) |
+| **`read`** | 60 / min | 300 / min | 1,000 / min | 1,000 / min | Dashboard data reads, trace search, list/get endpoints |
+| **`export`** | 30 / min | 100 / min | 1,000 / min | 1,000 / min | Full trace bundle export (`GET /api/v1/public/traces/{id}/export`) |
+| **`write`** | 60 / min | 60 / min* | 60 / min* | 60 / min* | Dashboard, widget, detector, and alert configuration writes |
+
+\* While the architecture supports tier-based write scaling, all public write routes currently enforce a single effective global limit of **60 requests/minute** across all plans.
+
+The `sql` bucket, which covers direct ClickHouse SQL gateway queries, has its own per-plan limits — see [Execution and rate limits](/cli/sql#execution-and-rate-limits).
+
+### Why SQL and export have dedicated buckets
+
+- **`sql`**: SQL queries execute directly against analytical ClickHouse tables and can scan extensive historical ranges. The bucket is throttled tighter than standard REST reads to keep interactive queries fast for all users.
+- **`export`**: The trace export route constructs and serializes comprehensive multi-span trace bundles. Because bundle construction is computationally heavier than metadata lookups, exports ride a dedicated budget that scales independently from standard reads.
+
+## Rate limit headers and HTTP 429 responses
+
+When a client exceeds its per-minute rate limit, TraceRoot responds with HTTP **429 Too Many Requests**:
+
+```json
+{
+  "error": "too_many_requests",
+  "detail": "Rate limit exceeded. Slow down and retry after the cooldown.",
+  "retry_after": 60
+}
+```
+
+The response includes standard rate limit headers:
+
+| Header | Description |
+| :--- | :--- |
+| `Retry-After` | The number of seconds the client must wait before making another request. |
+| `X-RateLimit-Limit` | The total request quota allowed in the current one-minute window. |
+| `X-RateLimit-Remaining` | The number of requests remaining in the current window. |
+| `X-RateLimit-Reset` | Unix epoch timestamp indicating when the quota window resets. |
+
+OpenTelemetry OTLP exporters recognize `Retry-After` and back off automatically. The TraceRoot SDKs do not retry 429s on the tracing path, so handle backoff yourself in any custom client.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="API Keys" icon="key" href="/platform/api-keys">
+    Configure and manage project access tokens.
+  </Card>
+  <Card title="Usage and Billing" icon="credit-card" href="/platform/usage-and-billing">
+    Learn how AI message runs and ingested events are metered.
+  </Card>
+</CardGroup>
