@@ -245,7 +245,7 @@ img.tr-docs-footer__social {
   line-height: 18px;
 }
 
-.tr-docs-footer__actions [data-tr-action="save"] {
+.tr-docs-footer .tr-docs-footer__actions [data-tr-action="save"] {
   background: var(--tr-brand);
   color: #0b1015;
 }
