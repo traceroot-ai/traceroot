@@ -1,4 +1,5 @@
 import registrySnapshot from "./widget-registry.generated.json";
+import { MAX_KEY_LENGTH } from "@/features/filters/predicate";
 import { BREAKDOWN_UNSUPPORTED_DISPLAYS, DISPLAY_TYPES } from "./types";
 import type { WidgetSpec, WidgetSchemaField } from "./types";
 
@@ -134,6 +135,29 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
         error:
           `filter op "${filter.op}" not allowed for field "${filter.field}" on view ` +
           `"${spec.view}" — valid ops: ${field.filterOps.join(", ")}`,
+      };
+    }
+    // The compiler's keyed-filter rules (widget_query.py): a field that reads a map
+    // needs a key, any other field refuses one, and a key is capped in characters.
+    if (field.requiresKey && filter.key === undefined) {
+      return {
+        ok: false,
+        error: `filter on field "${filter.field}" on view "${spec.view}" requires a key`,
+      };
+    }
+    if (!field.requiresKey && filter.key !== undefined) {
+      return {
+        ok: false,
+        error: `field "${filter.field}" on view "${spec.view}" does not take a key`,
+      };
+    }
+    // Spread counts code points, as Python's len() does; .length counts UTF-16 units.
+    if (filter.key !== undefined && [...filter.key].length > MAX_KEY_LENGTH) {
+      return {
+        ok: false,
+        error:
+          `key on field "${filter.field}" on view "${spec.view}" exceeds ` +
+          `${MAX_KEY_LENGTH} characters`,
       };
     }
     if (
