@@ -94,10 +94,18 @@ export interface JudgeInput {
   };
 }
 
+function truncationMarker(removed: number): string {
+  return `\n... (${removed} chars truncated) ...\n`;
+}
+
 function shorten(text: string, keep = SHORTEN_KEEP_CHARS): string {
   if (text.length <= 2 * keep) return text;
-  const removed = text.length - 2 * keep;
-  return `${text.slice(0, keep)}\n... (${removed} chars truncated) ...\n${text.slice(-keep)}`;
+  return `${text.slice(0, keep)}${truncationMarker(text.length - 2 * keep)}${text.slice(-keep)}`;
+}
+
+/** Length of `shorten(text, keep)`, without building it. */
+function shortenedLength(length: number, keep: number): number {
+  return length <= 2 * keep ? length : 2 * keep + truncationMarker(length - 2 * keep).length;
 }
 
 /** Parse JSON held in a string, twice at most: some SDKs store JSON text as a JSON string. */
@@ -350,57 +358,120 @@ function collapseRepeats(blocks: SpanBlock[]): number {
   return collapsed;
 }
 
-function render(
+type ShortenRule = (field: Field) => boolean;
+
+function shownText(field: Field, shortenField: ShortenRule, keep: number): string {
+  return shortenField(field) ? shorten(field.text, keep) : field.text;
+}
+
+/** The rendered text in pieces that join with "\n". */
+function* renderPieces(
   preamble: string,
   blocks: SpanBlock[],
-  shortenField: (field: Field) => boolean,
+  shortenField: ShortenRule,
   keep: number,
-): { text: string; shortened: number } {
-  let shortened = 0;
-  const out = [preamble];
+): Generator<string> {
+  yield preamble;
   for (const block of blocks) {
-    out.push("", block.header);
+    yield "";
+    yield block.header;
     for (const field of block.fields) {
-      let text = field.text;
-      if (shortenField(field)) {
-        const cut = shorten(text, keep);
-        if (cut !== text) shortened++;
-        text = cut;
-      }
-      out.push(text.includes("\n") ? `${field.label}:\n${text}` : `${field.label}: ${text}`);
+      const text = shownText(field, shortenField, keep);
+      yield text.includes("\n") ? `${field.label}:\n${text}` : `${field.label}: ${text}`;
     }
   }
-  return { text: out.join("\n"), shortened };
+}
+
+/** Length of the rendered text, counted without building it. */
+function renderedLength(
+  preamble: string,
+  blocks: SpanBlock[],
+  shortenField: ShortenRule,
+  keep: number,
+): number {
+  let length = preamble.length;
+  for (const block of blocks) {
+    length += 2 + block.header.length;
+    for (const field of block.fields) {
+      const n = field.text.length;
+      // "\n" + label + ": " (or ":\n") + text
+      length += 3 + field.label.length + (shortenField(field) ? shortenedLength(n, keep) : n);
+    }
+  }
+  return length;
+}
+
+function countShortened(blocks: SpanBlock[], shortenField: ShortenRule, keep: number): number {
+  let shortened = 0;
+  for (const block of blocks) {
+    for (const field of block.fields) {
+      if (shownText(field, shortenField, keep) !== field.text) shortened++;
+    }
+  }
+  return shortened;
+}
+
+function* splitLines(pieces: Iterable<string>): Generator<string> {
+  for (const piece of pieces) yield* piece.split("\n");
 }
 
 /** Number the lines, then keep an even sample of them under `budget`. */
 export function sampleLines(text: string, budget: number): string {
   if (text.length <= budget) return text;
   const lines = text.split("\n");
-  const width = String(lines.length).length;
-  const numbered = lines.map((line, i) => `L${String(i + 1).padStart(width, "0")}: ${line}`);
-  const head = numbered.slice(0, PRESERVE_HEADER_LINES);
-  const body = numbered.slice(PRESERVE_HEADER_LINES);
-  const total = numbered.length;
+  return sampleLineSource(() => lines, budget);
+}
+
+/**
+ * sampleLines over lines that `source` yields afresh on every call, so a
+ * caller can sample a text too large to hold whole.
+ */
+function sampleLineSource(source: () => Iterable<string>, budget: number): string {
+  const headLines: string[] = [];
+  let total = 0;
+  let bodyChars = 0;
+  for (const line of source()) {
+    if (total < PRESERVE_HEADER_LINES) headLines.push(line);
+    else bodyChars += line.length;
+    total++;
+  }
+  const width = String(total).length;
+  const numbered = (line: string, i: number) => `L${String(i + 1).padStart(width, "0")}: ${line}`;
+  const head = headLines.map(numbered);
+  const bodyCount = total - head.length;
   const note = (pct: number) =>
     `[SAMPLED VIEW: Showing ~${pct.toFixed(0)}% of ${total.toLocaleString("en-US")} lines. Gaps in line numbers indicate omitted content.]`;
-  if (body.length === 0) return numbered.join("\n").slice(0, budget);
+  if (bodyCount === 0) return head.join("\n").slice(0, budget);
 
+  // Measures the whole sample but keeps only the part that can fall within the budget.
   const sample = (target: number) => {
-    const step = body.length / target;
-    const kept: string[] = [];
-    for (let i = 0; i < target; i++) kept.push(body[Math.floor(i * step)]);
-    return [...head, note((kept.length / body.length) * 100), ...kept].join("\n");
+    const step = bodyCount / target;
+    const parts = [...head, note((target / bodyCount) * 100)];
+    let length = parts.join("\n").length;
+    let picked = 0;
+    let index = 0;
+    for (const line of source()) {
+      if (picked === target) break;
+      while (picked < target && index - head.length === Math.floor(picked * step)) {
+        const kept = numbered(line, index);
+        if (length < budget) parts.push(kept);
+        length += 1 + kept.length;
+        picked++;
+      }
+      index++;
+    }
+    return { text: parts.join("\n").slice(0, budget), length };
   };
   const fixed = head.join("\n").length + note(100).length + 2;
-  const average = body.reduce((sum, line) => sum + line.length + 1, 0) / body.length;
-  let target = Math.max(1, Math.min(body.length, Math.floor((budget - fixed) / average)));
+  // A numbered line adds "L", the padded number and ": ", plus its newline.
+  const average = (bodyChars + bodyCount * (width + 4)) / bodyCount;
+  let target = Math.max(1, Math.min(bodyCount, Math.floor((budget - fixed) / average)));
   let result = sample(target);
   for (let i = 0; i < SAMPLING_MAX_ITERATIONS && result.length > budget && target > 1; i++) {
     target = Math.max(1, Math.floor((target * budget * SAMPLING_REDUCTION_FACTOR) / result.length));
     result = sample(target);
   }
-  return result.slice(0, budget);
+  return result.text;
 }
 
 export function buildJudgeInput(
@@ -427,14 +498,22 @@ export function buildJudgeInput(
     if (typeof row.span_id === "string") indexById.set(row.span_id, i + 1);
   });
   const counters = { droppedMetadataValues: 0 };
-  const blocks = rows.map((row, i) => buildBlock(row, i + 1, indexById, counters));
+  const spanCount = rows.length;
+  const blocks: SpanBlock[] = [];
+  for (let i = 0; i < spanCount; i++) {
+    blocks.push(buildBlock(rows[i], i + 1, indexById, counters));
+    // The block holds all the text the span shows; drop the parsed row now.
+    rows[i] = {};
+  }
   const collapsedFields = collapseRepeats(blocks);
-  const preamble = `TRACE ${traceId} · ${rows.length} spans, in start order`;
+  // Only collapseRepeats compares texts.
+  for (const block of blocks) block.texts = {};
+  const preamble = `TRACE ${traceId} · ${spanCount} spans, in start order`;
 
   const stats = (pass: number, keep: number, text: string, shortened: number): JudgeInput => ({
     text,
     stats: {
-      span_count: rows.length,
+      span_count: spanCount,
       skipped_lines: skippedLines,
       pass,
       keep_chars: keep,
@@ -445,32 +524,44 @@ export function buildJudgeInput(
       final_chars: text.length,
     },
   });
+  // Lengths are counted, so only the text a pass returns is ever built.
+  const render = (shortenField: ShortenRule, keep: number) =>
+    Array.from(renderPieces(preamble, blocks, shortenField, keep)).join("\n");
 
-  const whole = render(preamble, blocks, () => false, 0);
-  if (whole.text.length <= budget) return stats(1, 0, whole.text, 0);
+  const never = () => false;
+  if (renderedLength(preamble, blocks, never, 0) <= budget) return stats(1, 0, render(never, 0), 0);
 
   // Longest text that a pass may shorten bounds the search for the keep length.
-  const longest = Math.max(0, ...blocks.flatMap((b) => b.fields.map((f) => f.text.length)));
-  const tryPass = (pass: number, shortenField: (field: Field) => boolean) => {
-    const at = (keep: number) => render(preamble, blocks, shortenField, keep);
-    if (at(SHORTEN_KEEP_CHARS).text.length > budget) return null;
+  let longest = 0;
+  for (const block of blocks) {
+    for (const field of block.fields) longest = Math.max(longest, field.text.length);
+  }
+  const tryPass = (pass: number, shortenField: ShortenRule) => {
+    const fits = (keep: number) => renderedLength(preamble, blocks, shortenField, keep) <= budget;
+    if (!fits(SHORTEN_KEEP_CHARS)) return null;
     let low = SHORTEN_KEEP_CHARS;
     let high = Math.max(low, Math.ceil(longest / 2));
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
-      if (at(mid).text.length <= budget) low = mid;
+      if (fits(mid)) low = mid;
       else high = mid - 1;
     }
-    const best = at(low);
-    return stats(pass, low, best.text, best.shortened);
+    return stats(pass, low, render(shortenField, low), countShortened(blocks, shortenField, low));
   };
 
+  const always = () => true;
   return (
     tryPass(2, (field) => !field.llmOutput) ??
-    tryPass(3, () => true) ??
-    (() => {
-      const all = render(preamble, blocks, () => true, SHORTEN_KEEP_CHARS);
-      return stats(4, SHORTEN_KEEP_CHARS, sampleLines(all.text, budget), all.shortened);
-    })()
+    tryPass(3, always) ??
+    stats(
+      4,
+      SHORTEN_KEEP_CHARS,
+      // Pass 3 failed, so this text is over the budget: sample it line by line, never whole.
+      sampleLineSource(
+        () => splitLines(renderPieces(preamble, blocks, always, SHORTEN_KEEP_CHARS)),
+        budget,
+      ),
+      countShortened(blocks, always, SHORTEN_KEEP_CHARS),
+    )
   );
 }

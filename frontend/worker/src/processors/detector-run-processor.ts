@@ -7,7 +7,7 @@ import {
   EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
-import { runDetectionForTrace } from "../detection/sandbox-eval.js";
+import { runDetectionForTrace, type JudgeInputCache } from "../detection/sandbox-eval.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
@@ -186,9 +186,10 @@ async function runSingleDetector(params: {
   traceId: string;
   projectId: string;
   spansJsonl: string;
+  judgeInputCache: JudgeInputCache;
   workspaceId: string;
 }): Promise<SingleDetectorOutcome> {
-  const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
+  const { detector, traceId, projectId, spansJsonl, judgeInputCache, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
   // The eval runs inside the self-trace: the detector-run root span is live
@@ -214,6 +215,7 @@ async function runSingleDetector(params: {
       runDetectionForTrace({
         traceId,
         spansJsonl,
+        judgeInputCache,
         detector: {
           id: detector.id,
           name: detector.name,
@@ -383,6 +385,10 @@ async function evaluateTrace(
     return;
   }
 
+  // The first chat detector to reach the judge builds its input for all of them;
+  // detectors on a decision model never need it, so it may never be built.
+  const judgeInputCache: JudgeInputCache = {};
+
   // Run all detectors in parallel; collect triggered results
   const settled = await Promise.allSettled(
     detectors.map((detector) => {
@@ -404,6 +410,7 @@ async function evaluateTrace(
         traceId,
         projectId,
         spansJsonl,
+        judgeInputCache,
         workspaceId,
       });
     }),

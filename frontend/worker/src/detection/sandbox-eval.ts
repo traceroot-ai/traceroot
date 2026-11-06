@@ -17,7 +17,7 @@ import {
   LLMAdapter,
 } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
-import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE } from "./judge-input.js";
+import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE, type JudgeInput } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
 import { usageFromError } from "./typesafe-client.js";
 
@@ -136,6 +136,9 @@ export async function resolveDetectorApiKey(
   return findByokKeyForPiProvider(workspaceId, piProvider, { nativeOnly: true });
 }
 
+/** Holds a trace's judge input once one of its detectors has built it. */
+export type JudgeInputCache = { value?: JudgeInput };
+
 /**
  * Run LLM detection for a single trace.
  * spansJsonl is the content of the trace's spans.jsonl file.
@@ -144,6 +147,8 @@ export async function resolveDetectorApiKey(
 export async function runDetectionForTrace(params: {
   traceId: string;
   spansJsonl: string;
+  /** Shared by a trace's detectors, which all judge the same text. */
+  judgeInputCache?: JudgeInputCache;
   detector: DetectorConfig;
   workspaceId: string;
 }): Promise<EvalResult> {
@@ -233,7 +238,10 @@ RULES:
 
 ${JUDGE_INPUT_FORMAT_NOTE}`;
 
-  const judgeInput = buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
+  const cache = params.judgeInputCache ?? {};
+  const judgeInput = (cache.value ??= buildJudgeInput(traceId, spansJsonl, {
+    budgetChars: SAFETY_TRUNCATE_CHARS,
+  }));
   console.log(
     `[sandbox-eval] judge input for trace ${traceId}: ${JSON.stringify(judgeInput.stats)}`,
   );
