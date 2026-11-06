@@ -42,7 +42,7 @@ export const auth = betterAuth({
           captureServerEvent(user.id, "user_signed_up", signupAttributionProperties(context));
           onUserCreated(
             { id: user.id, email: user.email, name: user.name ?? null },
-            context ? { path: context.path } : null,
+            context ? { path: context.path, params: context.params } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },

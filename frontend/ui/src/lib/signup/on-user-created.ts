@@ -18,11 +18,18 @@ export interface CreatedUser {
   name: string | null;
 }
 
-export function signupProvider(path: string | undefined): string {
-  if (!path) return "unknown";
-  if (path.includes("/sign-up/email")) return "email";
-  const social = /\/callback\/([a-z0-9-]+)/i.exec(path);
-  return social ? social[1].toLowerCase() : "unknown";
+// The parts of better-auth's endpoint context the follow-ups read.
+export interface SignupContext {
+  path?: string;
+  params?: Record<string, string | undefined>;
+}
+
+// better-auth reports the matched route, not the URL: an OAuth sign-up's path
+// is "/callback/:id", and the provider is the route's `id` param.
+export function signupProvider(context: SignupContext | null): string {
+  if (context?.path?.includes("/sign-up/email")) return "email";
+  const social = context?.path?.startsWith("/callback/") ? context.params?.id : undefined;
+  return social ? social.toLowerCase() : "unknown";
 }
 
 async function arm<T>(
@@ -40,7 +47,7 @@ async function arm<T>(
 
 export async function onUserCreated(
   user: CreatedUser,
-  context: { path?: string } | null,
+  context: SignupContext | null,
 ): Promise<void> {
   // Every account can look at the demo workspace, however it was created.
   const demo = ensureDemoMembership(user.id);
@@ -79,7 +86,7 @@ export async function onUserCreated(
         return notifySignupSlack({
           name: user.name,
           email: user.email,
-          provider: signupProvider(context?.path),
+          provider: signupProvider(context),
           viaInvite: invite != null,
           facts,
           supportConsoleUrl: `${env.NEXT_PUBLIC_APP_URL}/admin`,
