@@ -223,6 +223,7 @@
               "integrations/google-adk",
               "integrations/langchain",
               "integrations/langchain-deepagents",
+              "integrations/livekit",
               "integrations/llamaindex",
               "integrations/mastra",
               "integrations/microsoft-agent-framework",
