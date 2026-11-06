@@ -1,4 +1,4 @@
-import { Worker, DelayedError, type Job } from "bullmq";
+import { Worker, DelayedError, UnrecoverableError, type Job } from "bullmq";
 import { createHash } from "crypto";
 import { prisma, PlanType, calculateCost } from "@traceroot/core";
 import type { DetectorRunJob } from "../queues/detector-run-queue.js";
@@ -84,7 +84,16 @@ async function downloadSpansJsonl(projectId: string, traceId: string): Promise<s
     { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
   );
   if (!response.ok) {
-    throw new Error(`Failed to download spans for trace ${traceId}: HTTP ${response.status}`);
+    const message = `Failed to download spans for trace ${traceId}: HTTP ${response.status}`;
+    if (
+      response.status >= 400 &&
+      response.status < 500 &&
+      response.status !== 408 &&
+      response.status !== 429
+    ) {
+      throw new UnrecoverableError(message);
+    }
+    throw new Error(message);
   }
   return response.text();
 }
@@ -342,7 +351,9 @@ export async function processTrace(
         }).catch((err) => console.error("[Detector] Failed to write run:", err)),
       ),
     );
-    return;
+    // No detector has run yet. Let BullMQ retry transient download failures;
+    // terminal HTTP errors are UnrecoverableError and consume no more attempts.
+    throw e;
   }
 
   await evaluateTrace(traceId, projectId, detectorIds, spansJsonl);
