@@ -162,12 +162,16 @@ _TRACES_BASE = f"""
                 NULL
             ) AS duration_ms,
             countIf(status = 'ERROR') AS error_count,
-            sum(cost) AS total_cost,
-            sum(input_tokens) AS input_tokens,
-            sum(output_tokens) AS output_tokens,
-            sum(total_tokens) AS total_tokens,
-            sum(cache_read_tokens) AS cache_read_tokens,
-            sum(cache_write_tokens) AS cache_write_tokens
+            -- Same expressions as the trace-list Cost/Tokens filters: spans with no cost or
+            -- token count store NULL, and the list shows such a trace as $0 / 0 tokens.
+            -- Every per-trace sum counts a missing value as 0, so averages of these fields
+            -- divide by the same set of traces.
+            ifNull(sum(cost), 0) AS total_cost,
+            ifNull(sum(input_tokens), 0) AS input_tokens,
+            ifNull(sum(output_tokens), 0) AS output_tokens,
+            ifNull(sum(total_tokens), 0) AS total_tokens,
+            ifNull(sum(cache_read_tokens), 0) AS cache_read_tokens,
+            ifNull(sum(cache_write_tokens), 0) AS cache_write_tokens
         FROM (
             SELECT
                 trace_id, span_id, status, span_start_time, span_end_time, cost,
