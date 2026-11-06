@@ -16,9 +16,9 @@ crosses, so the surfaces are proven to agree on the *same* classification value:
    exerciser (frontend eval-dataset-sync.exerciser.test.ts) — the dataset payload is a
    separate control-plane surface, proven there against the same native-JSON contract.
 
-Placed under tests/ (CI-collected) on purpose: the detector predicate's own tests live
-in backend/worker/tests/, which is outside `testpaths`, so this is the CI-covered proof
-that the transformer's classification is exactly what the detector gate skips.
+The detector gate itself is tested in tests/worker/test_detector_tasks.py
+(TestEvaluationTraceSkip); this test is the cross-surface proof that the transformer's
+classification is exactly what that gate skips.
 """
 
 import json
