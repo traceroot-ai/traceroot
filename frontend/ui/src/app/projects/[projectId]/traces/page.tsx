@@ -37,6 +37,9 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
+// Same reason as the columns hook above: imported from its own module so the page tests' barrel
+// mock does not have to name it.
+import { useViewedTraces } from "@/features/traces/hooks/use-viewed-traces";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -82,18 +85,40 @@ export default function TracesPage() {
     queryOptions,
   } = useListPageState({ retentionDays: retention.retentionDays });
 
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
-  // Scope of the open trace. The list is customer-only, so selecting a row
-  // always means "user"; the one way to open an internal trace here is the
-  // ?traceId=&source=agent deep link (an RCA agent trace popped out of a
-  // viewer).
-  const [selectedSource, setSelectedSource] = useState<TraceSource>(
-    traceIdFromUrl && sourceFromUrl === "agent" ? "agent" : "user",
-  );
+  // The open trace and its scope, tagged with the project it was opened in. Only the [projectId]
+  // segment can change without remounting the page, and a selection must not survive that: a trace
+  // id belongs to one project, and keeping it would show (and mark) it under the wrong one. The
+  // live selection is derived against the current project, so the mismatch is impossible rather
+  // than cleared after a bad render.
+  const [selection, setSelection] = useState<{
+    traceId: string | null;
+    source: TraceSource;
+    projectId: string;
+  }>(() => ({
+    traceId: traceIdFromUrl,
+    // Scope of the open trace. The list is customer-only, so selecting a row always means "user";
+    // the one way to open an internal trace here is the ?traceId=&source=agent deep link (an RCA
+    // agent trace popped out of a viewer).
+    source: traceIdFromUrl && sourceFromUrl === "agent" ? "agent" : "user",
+    projectId,
+  }));
+  const selectionIsCurrentProject = selection.projectId === projectId;
+  const selectedTraceId = selectionIsCurrentProject ? selection.traceId : null;
+  const selectedSource: TraceSource = selectionIsCurrentProject ? selection.source : "user";
   const selectTrace = (traceId: string | null, source: TraceSource = "user") => {
-    setSelectedTraceId(traceId);
-    setSelectedSource(source);
+    setSelection({ traceId, source, projectId });
   };
+  // Read/unread state for the list: opening a trace (a click, the up/down navigation, or the
+  // ?traceId= deep link seeded into the selection) marks it viewed, which clears its row dot.
+  const { viewedTraceIds, markViewed } = useViewedTraces(projectId);
+  useEffect(() => {
+    if (selectedTraceId) markViewed(selectedTraceId);
+    // Only a new selection marks a trace. `markViewed` is deliberately not a dependency: it is
+    // rebuilt whenever the viewed set changes, so depending on it would re-run this effect after
+    // every mark and loop. A project change re-scopes the derived selection on its own, so it
+    // needs no re-run here either.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTraceId]);
   // Warm the span→dataset chip data as soon as a trace is selected, so the
   // "Dataset:" chip is ready before the user opens a span (no per-span latency).
   useTraceTestCases(projectId, selectedTraceId ?? "");
@@ -325,6 +350,7 @@ export default function TracesPage() {
                   visibleColumns={visibleColumns}
                   signalIdsByTrace={signalIds?.signalIds}
                   signalIdsFailed={signalIdsFailed}
+                  viewedTraceIds={viewedTraceIds}
                 />
               </div>
 

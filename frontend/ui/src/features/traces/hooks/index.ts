@@ -18,6 +18,9 @@ export { useTraceListState } from "./use-trace-list-state";
 // Column visibility for the trace list
 export { useTraceColumns } from "./use-trace-columns";
 
+// Read/unread state for the trace list
+export { useViewedTraces } from "./use-viewed-traces";
+
 // Live trace streaming
 export { useTraceStream } from "./use-trace-stream";
 
