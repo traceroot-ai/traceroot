@@ -27,4 +27,6 @@ def count_tokens(text: str | None, model: str) -> int:
     except KeyError:
         encoding = tiktoken.get_encoding("cl100k_base")
 
-    return len(encoding.encode(text))
+    # Span text is user content, so "<|endoftext|>" in a prompt is plain text here.
+    # encode() raises on special tokens by default, which would fail the whole batch.
+    return len(encoding.encode(text, disallowed_special=()))
