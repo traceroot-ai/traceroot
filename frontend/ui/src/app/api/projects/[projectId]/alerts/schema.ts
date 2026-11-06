@@ -101,7 +101,7 @@ const alertRuleShape = {
   filters: z.array(filterSchema).max(ALERT_FILTERS_MAX),
   window: z.string().refine(isAlertWindow, "Invalid window"),
   thresholdOperator: z.string().refine(isAlertThresholdOperator, "Invalid thresholdOperator"),
-  threshold: z.number().gte(-THRESHOLD_ABS_MAX).lte(THRESHOLD_ABS_MAX),
+  threshold: z.number().gte(0).lte(THRESHOLD_ABS_MAX),
   renotify: renotifySchema,
   // Optional on create as well as update: a caller with no opinion about gaps
   // takes the column default rather than having to name it.
