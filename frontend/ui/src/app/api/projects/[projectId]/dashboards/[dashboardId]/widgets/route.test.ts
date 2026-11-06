@@ -93,12 +93,21 @@ const fakeDashboard = {
   layout: [],
 };
 
+// A complete builder spec: query specs the schema can't read are refused.
+const querySpec = {
+  view: "spans",
+  filters: [],
+  metric: { measure: "duration_ms", agg: "p95" },
+  breakdown: null,
+  display: { type: "number" },
+};
+
 const fakeWidget = {
   id: "widget-1",
   dashboardId: "dash-1",
   title: "My Widget",
   type: "query",
-  spec: { view: "spans" },
+  spec: querySpec,
   displayConfig: {},
 };
 
@@ -282,7 +291,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
       makeRequest({
         title: "  My Widget  ",
         type: "query",
-        spec: { view: "spans" },
+        spec: querySpec,
       }),
       makeParams("proj-1", "dash-1"),
     )) as MockResponse;
@@ -297,7 +306,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     // Title is trimmed before persisting.
     expect(data.title).toBe("My Widget");
     expect(data.type).toBe("query");
-    expect(data.spec).toEqual({ view: "spans" });
+    expect(data.spec).toEqual(querySpec);
     // displayConfig defaults to {} when omitted.
     expect(data.displayConfig).toEqual({});
   });
@@ -307,7 +316,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     widgetCreateMock.mockResolvedValue(fakeWidget);
 
     const res = (await POST(
-      makeRequest({ title: "My Widget", type: "query", spec: { view: "spans" } }),
+      makeRequest({ title: "My Widget", type: "query", spec: querySpec }),
       makeParams(),
     )) as MockResponse;
     expect(res.status).toBe(201);
@@ -338,7 +347,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
     widgetCreateMock.mockResolvedValue(fakeWidget);
 
-    await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
+    await POST(makeRequest({ title: "W", type: "query", spec: querySpec }), makeParams());
     const [strings, ...values] = queryRawMock.mock.calls[0] as [string[], ...unknown[]];
     const sql = strings.join("?");
     expect(sql).toMatch(
@@ -419,9 +428,66 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
       makeParams(),
     )) as MockResponse;
     expect(res.status).toBe(201);
-    // Stored as sent — the route validates the vocabulary without rewriting.
+    // A complete spec round-trips through the schema unchanged.
     const data = (widgetCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
     expect(data.spec).toEqual(spec);
+  });
+
+  it("refuses a query spec the schema can't read", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "query", spec: { view: "spans" } }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/^spec is not a valid widget spec: metric: /);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an empty key", ""],
+    ["a null key", null],
+  ])(
+    "refuses a filter with %s instead of storing a widget that fails every query",
+    async (_, key) => {
+      dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+      const res = (await POST(
+        makeRequest({
+          title: "W",
+          type: "query",
+          spec: { ...querySpec, filters: [{ field: "metadata", op: "=", value: "acme", key }] },
+        }),
+        makeParams(),
+      )) as MockResponse;
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/^spec is not a valid widget spec: filters\.0\.key: /);
+      expect(widgetCreateMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("stores the parsed spec, dropping keys the schema doesn't declare", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+    const res = (await POST(
+      makeRequest({
+        title: "W",
+        type: "query",
+        spec: {
+          ...querySpec,
+          limit: 10,
+          filters: [{ field: "span_kind", op: "=", value: "LLM", negate: true }],
+        },
+      }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    const data = (widgetCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data.spec).toEqual({
+      ...querySpec,
+      filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+    });
   });
 
   it("leaves trace_feed specs to their own validation", async () => {
@@ -438,7 +504,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
     widgetCreateMock.mockResolvedValue(fakeWidget);
 
-    await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
+    await POST(makeRequest({ title: "W", type: "query", spec: querySpec }), makeParams());
     expect(transactionMock).toHaveBeenCalledTimes(1);
     // Every write went through the transaction client, none to the root one:
     // a lock taken outside the transaction is released at autocommit and
