@@ -138,6 +138,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      - name: Docs footer regression tests
+        run: node --test tests/docs-footer.test.mjs
+
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 

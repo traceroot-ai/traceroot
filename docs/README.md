@@ -34,6 +34,9 @@ npx --yes mint@4.2.1204 validate
 npx --yes mint@4.2.1204 broken-links
 ```
 
+From the repository root, run `node --test tests/docs-footer.test.mjs` for
+consent lifecycle and functional color regression checks. These also run in CI.
+
 ## Brand styling
 
 `docs.json` owns the theme, fonts, logo and navigation. `custom.css` uses Mintlify's
@@ -68,7 +71,8 @@ changes. The footer wordmark uses a standalone export of the website Home
 animation and its CSS defaults, with a static fallback if Canvas is unavailable.
 Sync and verification instructions are in `brand/README.md`.
 Functional turquoise text uses a darker tone for contrast;
-the original bright accent is retained for decorative elements.
+Mintlify's functional primary also covers API field names and response tabs.
+The original bright accent is retained for decorative elements.
 
 After changing these files or upgrading Mintlify, inspect Introduction,
 Quickstart, Integrations and a generated API endpoint at 1440px, 1024px, 768px and

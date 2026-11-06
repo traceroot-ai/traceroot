@@ -66,5 +66,10 @@ site without a verified SDK, the dialog explains that documentation preferences
 cannot be applied and links to the working website preferences; it does not
 pretend that saving a local key stopped an unknown collector. Production SDK
 exposure and consent before its first event still need deployment verification.
-Stored choices are applied on enhancement, window load, and retained-footer
-navigation as a best-effort synchronization. This uses no polling or extra SDK.
+Stored choices are applied at script initialization, window load, navigation,
+storage changes and explicit saves. When a verified SDK is not ready, a single
+bounded backoff chain retries for up to 9.5 seconds, reading the latest choice
+each time. It stops on success, a missing choice, disposal or the retry limit.
+No stored choice means no probes. This is best-effort synchronization of a late
+SDK, not a guarantee of consent before its first event; that belongs to the
+SDK initialization policy. No extra SDK is loaded.

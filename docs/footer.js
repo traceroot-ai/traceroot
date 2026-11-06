@@ -8,6 +8,7 @@
   if (previous && typeof previous.dispose === "function") previous.dispose();
 
   const consentKey = "traceroot-analytics-consent";
+  const consentRetryDelaysMs = [100, 200, 400, 800, 1600, 3200, 3200];
   // Public visitor-project token from docs.json. Verify it before controlling
   // window.posthog: Mintlify's own analytics must never be mistaken for ours.
   const visitorToken = "phc_X8eeQUsyMb7bk5sw0msmN8ARBxurlVyQxC0uvHVul7C";
@@ -15,6 +16,7 @@
   const globalEvents = new AbortController();
   let mounted = null;
   let timer = 0;
+  let consentTimer = 0;
   let generation = 0;
   let visitChoice;
 
@@ -54,7 +56,25 @@
   }
 
   function syncStoredChoice() {
-    try { applyChoice(visitorAnalytics(), storedChoice()); } catch { /* Analytics cannot disable the footer. */ }
+    window.clearTimeout(consentTimer);
+    let attempt = 0;
+    const sync = () => {
+      consentTimer = 0;
+      if (globalEvents.signal.aborted) return;
+      const choice = storedChoice();
+      if (!choice) return;
+      try {
+        const sdk = visitorAnalytics();
+        if (sdk) {
+          applyChoice(sdk, choice);
+          return;
+        }
+      } catch { /* A late SDK may not be fully initialized yet. */ }
+      // Bound readiness probes; never replace the SDK's initialization policy.
+      const delay = consentRetryDelaysMs[attempt++];
+      if (delay !== undefined) consentTimer = window.setTimeout(sync, delay);
+    };
+    sync();
   }
 
   function cleanMount() {
@@ -208,6 +228,7 @@
         applyChoice(sdk, next);
         visitChoice = next;
         try { localStorage.setItem(consentKey, next); } catch { /* Keep this visit's choice. */ }
+        syncStoredChoice();
         dialog.close();
       } catch {
         status.textContent = "The preference could not be applied. Please try again.";
@@ -227,7 +248,6 @@
       return;
     }
     if (mounted?.host === host && mounted.node.isConnected && !mounted.node.hidden) {
-      syncStoredChoice();
       if (mounted.dialog.open) mounted.dialog.close();
       return;
     }
@@ -255,7 +275,6 @@
       node.hidden = false;
       host.setAttribute("data-tr-footer-ready", "");
       mountWordmark();
-      syncStoredChoice();
     } catch {
       if (mounted === record) cleanMount();
     }
@@ -264,6 +283,7 @@
   function refresh() {
     window.clearTimeout(timer);
     generation += 1;
+    syncStoredChoice();
     // A retained footer needs no remount; a replaced footer is cleaned up.
     void mount(0, generation);
   }
@@ -294,11 +314,13 @@
     dispose() {
       generation += 1;
       window.clearTimeout(timer);
+      window.clearTimeout(consentTimer);
       globalEvents.abort();
       themeObserver.disconnect();
       cleanMount();
     },
   };
+  syncStoredChoice();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", refresh, { once: true, signal: globalEvents.signal });
   else refresh();
 })();
