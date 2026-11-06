@@ -41,6 +41,14 @@ public layout IDs, component parts and width variables; the Introduction's
 connected capability grid has its own `tr-capabilities` class. Original article
 content, paths, metadata and the OpenAPI generation chain stay in place.
 
+The current release is light-only. `appearance.default: "light"` and
+`appearance.strict: true` in `docs.json` use Mintlify's native policy to force
+light mode and hide the theme switch, including for visitors with a dark system
+theme or a saved dark preference. Do not override the theme with CSS or rewrite
+visitors' stored preferences. Dark styles and assets are dormant reference work,
+not approved for production. After dark-mode design approval, review those styles
+and assets, then change this one configuration policy and recheck both themes.
+
 The mint theme's hidden, inert Assistant bar is collapsed only in that semantic
 state, so it does not leave an empty block before the footer. When Mintlify makes
 the bar available, its native sticky layout remains active.
@@ -64,9 +72,10 @@ the original bright accent is retained for decorative elements.
 
 After changing these files or upgrading Mintlify, inspect Introduction,
 Quickstart, Integrations and a generated API endpoint at 1440px, 1024px, 768px and
-390px. Include dark mode, mobile navigation, native copying, client-side
-navigation/back/forward, footer fallback, and horizontal overflow. Mintlify's
-preview and the production `/docs` deployment must both be checked for assets,
+390px. Verify light mode under both light/dark system preferences and a saved
+dark preference, with no theme switch. Include mobile navigation, native copying,
+client-side navigation/back/forward, footer fallback, and horizontal overflow.
+Mintlify's preview and the production `/docs` deployment must both be checked for assets,
 search/Assistant, Markdown export and canonical/sitemap behavior.
 
 ## Integration Documentation Template
