@@ -13,10 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
+import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow, Role } from "@traceroot/core";
 import { updateProject } from "@/lib/api";
+import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
+import { useWorkspace } from "@/features/settings/workspace/hooks";
 import {
   ModelSelector,
   type ModelSelection,
@@ -40,6 +42,8 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   });
   const [emailAddresses, setEmailAddresses] = useState<string[]>([]);
   const [alertWindow, setAlertWindow] = useState<AlertWindow>(DEFAULT_ALERT_WINDOW);
+  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
+  const isAdmin = workspace?.role === Role.ADMIN;
 
   useEffect(() => {
     if (project) {
@@ -63,6 +67,21 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         rca_source: selection.source === "byok" ? "byok" : "system",
       });
     },
+    onError: (error) => {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof ImpersonationError) &&
+        error.status === 403
+      ) {
+        setAgentModelSelection({
+          model: project?.rca_model ?? "",
+          provider: project?.rca_provider ?? "",
+          source: (project?.rca_source as "system" | "byok") ?? "system",
+          adapter: "",
+        });
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -75,6 +94,16 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         alert_emails: emails.map((e) => e.trim()).filter((e) => e.length > 0),
       });
     },
+    onError: (error) => {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof ImpersonationError) &&
+        error.status === 403
+      ) {
+        setEmailAddresses(project?.alert_emails ?? []);
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -84,6 +113,16 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     mutationFn: (w: AlertWindow) => {
       if (!project) throw new Error("Project not found");
       return updateProject(project.workspace_id!, projectId, { alert_window: w });
+    },
+    onError: (error) => {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof ImpersonationError) &&
+        error.status === 403
+      ) {
+        setAlertWindow((project?.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -112,6 +151,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       <div>
         <h2 className="text-lg font-semibold">Detectors</h2>
         <p className="text-[13px] text-muted-foreground">Settings shared across all detectors.</p>
+        {workspace && !isAdmin && (
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            Only workspace admins can change these settings.
+          </p>
+        )}
       </div>
 
       <div className="border">
@@ -123,15 +167,21 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             value={agentModelSelection}
             onChange={setAgentModelSelection}
             workspaceId={project?.workspace_id}
+            disabled={!isAdmin}
           />
           <p className="mt-2 text-[12px] text-muted-foreground">
             Used for deep analysis when a finding is triggered. Shared across all detectors.
           </p>
+          {modelMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save agent model: {modelMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 h-7 text-[12px]"
             onClick={() => modelMutation.mutate(agentModelSelection)}
-            disabled={!canSave || modelMutation.isPending || !isModelDirty}
+            disabled={!isAdmin || !canSave || modelMutation.isPending || !isModelDirty}
           >
             {modelMutation.isPending ? "Saving..." : "Save"}
           </Button>
@@ -144,7 +194,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         </div>
 
         {/* Email subsection */}
-        <div className="px-4 py-3">
+        <fieldset disabled={!isAdmin} className="px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Mail className="h-3.5 w-3.5 text-muted-foreground" />
             <h4 className="text-[12px] font-medium">Email</h4>
@@ -155,6 +205,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             New and reopened signals are batched into one email per alert window.
           </p>
+          {emailsMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save email recipients: {emailsMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 h-7 text-[12px]"
@@ -163,7 +218,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           >
             {emailsMutation.isPending ? "Saving..." : "Save"}
           </Button>
-        </div>
+        </fieldset>
 
         {/* Slack subsection — read-only mirror, configured at workspace settings */}
         <div className="border-t border-border px-4 py-3">
@@ -199,7 +254,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             <h4 className="text-[12px] font-medium">Alert window</h4>
           </div>
           <div className="mt-2">
-            <Select value={alertWindow} onValueChange={(v) => setAlertWindow(v as AlertWindow)}>
+            <Select
+              value={alertWindow}
+              onValueChange={(v) => setAlertWindow(v as AlertWindow)}
+              disabled={!isAdmin}
+            >
               <SelectTrigger className="h-7 w-40 text-[12px]" aria-label="window">
                 <SelectValue />
               </SelectTrigger>
@@ -215,12 +274,17 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             New and reopened signals in each window are sent as one notification.
           </p>
+          {windowMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save alert window: {windowMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 h-7 text-[12px]"
             aria-label="Save alert window"
             onClick={() => windowMutation.mutate(alertWindow)}
-            disabled={!canSave || windowMutation.isPending || !isWindowDirty}
+            disabled={!isAdmin || !canSave || windowMutation.isPending || !isWindowDirty}
           >
             {windowMutation.isPending ? "Saving..." : "Save"}
           </Button>
