@@ -10,6 +10,7 @@ import {
 import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../detection/sandbox-eval.js";
 import { buildJudgeInput, type JudgeInput } from "../detection/judge-input.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
+import { downloadSpansJsonl } from "../detection/spans-download.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
 import { enqueueSignalHits } from "../ee/signals/queue.js";
@@ -77,17 +78,6 @@ function deterministicRunId(projectId: string, traceId: string, detectorId: stri
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
-}
-
-async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
-  const response = await fetch(
-    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/spans-jsonl?project_id=${projectId}`,
-    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to download spans for trace ${traceId}: HTTP ${response.status}`);
-  }
-  return response.text();
 }
 
 interface TriggeredResult {
