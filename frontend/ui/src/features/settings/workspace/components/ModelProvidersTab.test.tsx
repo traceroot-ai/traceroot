@@ -50,7 +50,7 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
-import { getBaseUrlPayload, ModelProvidersTab } from "./ModelProvidersTab";
+import { curatedModelsFor, getBaseUrlPayload, ModelProvidersTab } from "./ModelProvidersTab";
 
 function renderTab() {
   const queryClient = new QueryClient({
@@ -213,6 +213,65 @@ describe("ModelProvidersTab", () => {
         baseUrl: "https://example.com/v1testing",
       });
     });
+  });
+
+  describe("curatedModelsFor", () => {
+    it("offers the catalog for the adapter's own endpoint", () => {
+      expect(curatedModelsFor("openai", "")?.some((m) => m.id === "o3")).toBe(true);
+      expect(curatedModelsFor("openai", " https://api.openai.com/v1/ ")).not.toBeNull();
+      expect(curatedModelsFor("anthropic", "https://api.anthropic.com/")).not.toBeNull();
+      expect(
+        curatedModelsFor("google", "https://generativelanguage.googleapis.com/v1beta"),
+      ).not.toBeNull();
+    });
+
+    it("takes a typed model ID once the Base URL points somewhere else", () => {
+      expect(curatedModelsFor("openai", "http://localhost:11434/v1")).toBeNull();
+      expect(curatedModelsFor("anthropic", "https://proxy.example.com")).toBeNull();
+    });
+
+    it("keeps free text for pass-through adapters", () => {
+      expect(curatedModelsFor("openrouter", "")).toBeNull();
+    });
+  });
+
+  it("saves a typed model ID for an OpenAI provider with a custom Base URL", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "openai",
+          provider: "Ollama",
+          keyPreview: "ollama",
+          baseUrl: "http://localhost:11434/v1",
+          customModels: ["qwen3:4b"],
+          withDefaultModels: true,
+          config: null,
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.updateModelProvider.mockResolvedValue({ id: "provider-1" });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+
+    // The saved ID shows as itself, not as an "(Unsupported)" dropdown entry.
+    const modelInput = screen.getByDisplayValue("qwen3:4b");
+    expect(modelInput.tagName).toBe("INPUT");
+    fireEvent.change(modelInput, { target: { value: "llama3.2:3b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+
+    await waitFor(() => expect(mocks.updateModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.updateModelProvider).toHaveBeenCalledWith(
+      "ws-1",
+      "provider-1",
+      expect.objectContaining({ customModels: ["llama3.2:3b"] }),
+    );
   });
 
   it("sends null when a saved Base URL is cleared in edit mode", async () => {
