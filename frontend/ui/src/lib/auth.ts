@@ -11,7 +11,7 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
-import { signupAttributionProperties } from "@/lib/signup/attribution";
+import { signupAttributionProperties, signupMethod } from "@/lib/signup/attribution";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import {
   SESSION_EXPIRES_IN_SECONDS,
@@ -28,6 +28,14 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
 
+  user: {
+    additionalFields: {
+      // Set only by the user.create.before hook below: never read from a
+      // request, never returned in a session.
+      signupMethod: { type: "string", required: false, input: false, returned: false },
+    },
+  },
+
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -36,6 +44,16 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        // Records how the account was created in the same insert, so it is
+        // never missing for an account that exists.
+        before: async (user, context) => ({
+          data: {
+            ...user,
+            signupMethod: signupMethod(
+              context ? { path: context.path, params: context.params } : null,
+            ),
+          },
+        }),
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {

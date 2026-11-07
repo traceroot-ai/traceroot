@@ -15,21 +15,26 @@ const isProductMailConfigured = vi.hoisted(() => vi.fn());
 const sendWelcomeEmail = vi.hoisted(() => vi.fn());
 const ensureDemoMembership = vi.hoisted(() => vi.fn());
 const sendSignupWebhook = vi.hoisted(() => vi.fn());
+const userUpdateMany = vi.hoisted(() => vi.fn());
 vi.mock("@/env", () => ({ env: envState }));
 vi.mock("@/lib/demo-workspace", () => ({ ensureDemoMembership }));
 vi.mock("@traceroot/core/email", () => ({ ensureContact, isProductMailConfigured }));
 vi.mock("@/lib/email/welcome/send-welcome-email", () => ({ sendWelcomeEmail }));
 vi.mock("@traceroot/core", () => ({
-  prisma: { invite: { findFirst: inviteFindFirst }, user: { count: userCount } },
+  prisma: {
+    invite: { findFirst: inviteFindFirst },
+    user: { count: userCount, updateMany: userUpdateMany },
+  },
 }));
 vi.mock("./posthog-person", () => ({ findPostHogPerson }));
 vi.mock("./notify-slack", () => ({ notifySignupSlack }));
-vi.mock("./signup-webhook", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./signup-webhook")>()),
+vi.mock("@traceroot/core/signup-webhook", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@traceroot/core/signup-webhook")>()),
   sendSignupWebhook,
 }));
 
-import { onUserCreated, signupProvider } from "./on-user-created";
+import { onUserCreated } from "./on-user-created";
+import { signupMethod, signupProvider } from "./attribution";
 
 const user = {
   id: "u1",
@@ -85,6 +90,12 @@ it("reads the provider from the sign-up route", () => {
     "unknown",
     "unknown",
   ]);
+});
+
+it("records an account provisioned by staff as admin, never as a sign-up method", () => {
+  expect(signupMethod({ path: "/admin/create-user" })).toBe("admin");
+  expect(signupMethod({ path: "/callback/:id", params: { id: "google" } })).toBe("google");
+  expect(signupMethod({ path: "/sign-up/email" })).toBe("email");
 });
 
 it("does nothing, and logs nothing, when nothing is configured", async () => {
@@ -161,18 +172,41 @@ it("sends the sign-up event, sharing one invite lookup with the Slack post", asy
     marketing_attribution_model: "last_campaign_touch",
   };
   await onUserCreated(user, { path: "/callback/:id", params: { id: "google" }, attribution });
-  expect(sendSignupWebhook).toHaveBeenCalledExactlyOnceWith({
-    event: "user_signed_up",
-    occurred_at: "2026-11-04T08:00:00.000Z",
-    user: { id: "u1", email: "New@Example.com", name: "New User" },
-    signup: {
-      provider: "google",
-      via_invite: true,
-      utm: { utm_source: "newsletter", utm_medium: "email", utm_campaign: "november" },
+  expect(sendSignupWebhook).toHaveBeenCalledExactlyOnceWith(
+    {
+      event: "user_signed_up",
+      occurred_at: "2026-11-04T08:00:00.000Z",
+      delivery: "live",
+      user: { id: "u1", email: "New@Example.com", name: "New User" },
+      signup: {
+        provider: "google",
+        via_invite: true,
+        utm: { utm_source: "newsletter", utm_medium: "email", utm_campaign: "november" },
+      },
     },
-  });
+    { url: "https://receiver.example.com/events", secret: "test-secret" },
+  );
   expect(notifySignupSlack).toHaveBeenCalledWith(expect.objectContaining({ viaInvite: true }));
   expect(inviteFindFirst).toHaveBeenCalledTimes(1);
+});
+
+it("records that the receiver acknowledged the event, so the replay leaves it out", async () => {
+  enableWebhook();
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(userUpdateMany).toHaveBeenCalledExactlyOnceWith({
+    where: { id: "u1", signupDeliveredAt: null },
+    data: { signupDeliveredAt: expect.any(Date) },
+  });
+  expect(sendSignupWebhook.mock.invocationCallOrder[0]).toBeLessThan(
+    userUpdateMany.mock.invocationCallOrder[0]!,
+  );
+});
+
+it("records nothing when the event wasn't acknowledged, so the replay sends it", async () => {
+  enableWebhook();
+  sendSignupWebhook.mockRejectedValue(new Error("receiver down"));
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(userUpdateMany).not.toHaveBeenCalled();
 });
 
 it.each([

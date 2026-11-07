@@ -5,7 +5,7 @@ import { admin } from "better-auth/plugins";
 import { NextRequest } from "next/server";
 import { proxy } from "@/proxy";
 import { ATTRIBUTION_COOKIE, ATTRIBUTION_MAX_AGE_SECONDS } from "@/lib/marketing-attribution";
-import { signupAttributionProperties } from "./attribution";
+import { signupAttributionProperties, signupMethod } from "./attribution";
 
 const baseURL = "http://localhost:3000";
 const capturedAt = Date.now();
@@ -19,16 +19,26 @@ const expected = {
 
 function testAuth() {
   const created = vi.fn();
+  const db = { user: [] as Record<string, unknown>[], session: [], account: [], verification: [] };
   const auth = betterAuth({
     baseURL,
     secret: "local-test-secret-012345678901234567890123",
-    database: memoryAdapter({ user: [], session: [], account: [], verification: [] }),
+    database: memoryAdapter(db),
+    // As in auth.ts: the method is stored with the account by the before hook.
+    user: {
+      additionalFields: {
+        signupMethod: { type: "string", required: false, input: false, returned: false },
+      },
+    },
     emailAndPassword: { enabled: true },
     socialProviders: { google: { clientId: "test-client", clientSecret: "test-secret" } },
     plugins: [admin()],
     databaseHooks: {
       user: {
         create: {
+          before: async (user, context) => ({
+            data: { ...user, signupMethod: signupMethod(context) },
+          }),
           after: async (user, context) => {
             created({
               email: user.email,
@@ -42,7 +52,8 @@ function testAuth() {
       },
     },
   });
-  return { auth, created };
+  const storedMethod = (email: string) => db.user.find((u) => u.email === email)?.signupMethod;
+  return { auth, created, storedMethod };
 }
 
 function request(path: string, body?: Record<string, unknown>, cookie = campaignCookie) {
@@ -115,7 +126,7 @@ describe("campaign attribution through real better-auth handlers", () => {
   });
 
   it("reads request headers from the email signup database hook", async () => {
-    const { auth, created } = testAuth();
+    const { auth, created, storedMethod } = testAuth();
     const response = await auth.handler(
       request("/sign-up/email", {
         email: "email-test@example.com",
@@ -131,10 +142,25 @@ describe("campaign attribution through real better-auth handlers", () => {
       cookie: campaignCookie,
       properties: expected,
     });
+    expect(storedMethod("email-test@example.com")).toBe("email");
+  });
+
+  it("ignores a sign-up method sent in the sign-up request", async () => {
+    const { auth, storedMethod } = testAuth();
+    const response = await auth.handler(
+      request("/sign-up/email", {
+        email: "spoof@example.com",
+        name: "Spoof",
+        password: "test-password-123",
+        signupMethod: "admin",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(storedMethod("spoof@example.com")).toBeUndefined();
   });
 
   it("retains the campaign through the Google OAuth callback and user creation", async () => {
-    const { auth, created } = testAuth();
+    const { auth, created, storedMethod } = testAuth();
     const context = await auth.$context;
     const google = context.socialProviders.find((provider) => provider.id === "google")!;
     // Only Google's token exchange and profile response are replaced. State
@@ -173,6 +199,7 @@ describe("campaign attribution through real better-auth handlers", () => {
       cookie,
       properties: expected,
     });
+    expect(storedMethod("google@example.com")).toBe("google");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -193,7 +220,7 @@ describe("campaign attribution through real better-auth handlers", () => {
   );
 
   it("does not attribute a staff member's campaign to an account they provision", async () => {
-    const { auth, created } = testAuth();
+    const { auth, created, storedMethod } = testAuth();
     await auth.api.createUser({
       body: { email: "staff@example.com", name: "Staff", password: "password-123", role: "admin" },
     });
@@ -215,5 +242,6 @@ describe("campaign attribution through real better-auth handlers", () => {
         properties: {},
       }),
     );
+    expect(storedMethod("customer@example.com")).toBe("admin");
   });
 });

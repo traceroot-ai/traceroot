@@ -224,6 +224,12 @@ model User {
   banned        Boolean?
   banReason     String?           @map("ban_reason") @db.VarChar
   banExpires    DateTime?         @map("ban_expires") @db.Timestamp(6)
+  // How the account was created, written with it: the sign-up method ("email",
+  // "google", ...) or "admin" for one provisioned by staff. Null for accounts
+  // created before it was recorded.
+  signupMethod  String?           @map("signup_method") @db.VarChar
+  // When the sign-up webhook's receiver acknowledged this user's sign-up.
+  signupDeliveredAt DateTime?     @map("signup_delivered_at") @db.Timestamp(6)
   createdAt     DateTime          @default(now()) @db.Timestamp(6)
   updatedAt     DateTime          @updatedAt @db.Timestamp(6)
   invites       Invite[]
