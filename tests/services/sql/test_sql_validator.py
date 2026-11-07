@@ -256,6 +256,12 @@ BARE_EXPRESSION_CASES = [
     pytest.param("-- note\nselec x", id="typo-after-comment"),
     pytest.param("spans", id="bare-identifier"),
     pytest.param("1 + 1", id="bare-arithmetic"),
+    pytest.param("; selec x", id="typo-after-semicolon"),
+    pytest.param(";\nselec x", id="typo-after-semicolon-and-newline"),
+    pytest.param(";; selec x", id="typo-after-two-semicolons"),
+    pytest.param("; selec x;", id="typo-between-semicolons"),
+    pytest.param("; spans", id="bare-identifier-after-semicolon"),
+    pytest.param("; 1 + 1", id="bare-arithmetic-after-semicolon"),
 ]
 
 
@@ -281,6 +287,11 @@ STATEMENT_CASES = [
     pytest.param("OPTIMIZE TABLE spans FINAL", id="command-optimize"),
     pytest.param("SYSTEM FLUSH LOGS", id="command-system"),
     pytest.param("WITH t AS (SELECT 1) DELETE FROM spans", id="with-then-delete"),
+    pytest.param("; DELETE FROM spans", id="delete-after-semicolon"),
+    pytest.param(";;\nDROP TABLE spans", id="drop-after-two-semicolons"),
+    pytest.param("; INSERT INTO spans VALUES (1)", id="insert-after-semicolon"),
+    pytest.param("; SHOW TABLES", id="command-after-semicolon"),
+    pytest.param("; WITH t AS (SELECT 1) DELETE FROM spans", id="with-then-delete-after-semicolon"),
 ]
 
 

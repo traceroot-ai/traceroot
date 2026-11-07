@@ -299,9 +299,13 @@ def _opens_with_statement_keyword(sql: str) -> bool:
     """
     try:
         tokens = sqlglot.tokenize(sql, read="clickhouse")
-        if not tokens:
+        # The parser drops leading ``;``, so the statement opens after them. ``;`` is
+        # a STATEMENT_PARSERS key too, so reading it would pass any input as a statement.
+        first = next(
+            (t.token_type for t in tokens if t.token_type is not TokenType.SEMICOLON), None
+        )
+        if first is None:
             return True
-        first = tokens[0].token_type
         # WITH is dispatched through the expression parser, not STATEMENT_PARSERS,
         # so ``WITH t AS (...) DELETE ...`` must not be told to start with WITH.
         return (
