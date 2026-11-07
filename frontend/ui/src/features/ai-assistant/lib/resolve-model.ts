@@ -14,7 +14,7 @@
  *   No deduplication — both consumers depend on this ordering.
  * - Default-pick walks PROVIDER_PRIORITY by adapter, then falls back to models[0].
  */
-import { SYSTEM_MODELS, PROVIDER_PRIORITY } from "@traceroot/core";
+import { SYSTEM_MODELS, PROVIDER_PRIORITY, RCA_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core";
 import type { LLMModelsResponse } from "@/lib/api";
 
 export interface ResolvedModel {
@@ -74,7 +74,18 @@ export function pickDefaultModel(models: ResolvedModel[]): ResolvedModel | undef
   if (usable.length === 0) return undefined;
   for (const adapter of PROVIDER_PRIORITY) {
     const match = usable.find((m) => m.adapter === adapter);
-    if (match) return match;
+    if (match) {
+      // Mirror the runtime (getDefaultSystemModel): within a system provider,
+      // the named RCA default wins over catalog order. BYOK precedence unchanged.
+      if (match.source === "system") {
+        const named = usable.find(
+          (m) =>
+            m.source === "system" && m.adapter === adapter && m.id === RCA_SYSTEM_DEFAULT_MODEL_ID,
+        );
+        if (named) return named;
+      }
+      return match;
+    }
   }
   return usable[0];
 }
