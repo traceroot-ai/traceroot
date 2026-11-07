@@ -46,9 +46,10 @@ interface ManualSetupStepProps {
  *
  * The way out leads into the app with the application possibly still
  * uninstrumented, which is the honest state: these steps end in the user's
- * editor, and nothing in the browser can tell how far they got. The page picks
- * the destination, and picks one that keeps showing these same steps until the
- * first trace arrives, so leaving part-way through loses nothing.
+ * editor, and nothing in the browser can tell how far they got. The page sends
+ * the user to the project's traces page, which shows its getting-started panel
+ * until the first trace arrives. That panel opens on its "Using AI" tab, and
+ * the stack chosen here is not carried over to its manual tab.
  */
 export function ManualSetupStep({ projectId, onBack, onDone }: ManualSetupStepProps) {
   const { selected, select } = useStackSelection();

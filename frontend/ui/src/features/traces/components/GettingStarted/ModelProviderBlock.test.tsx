@@ -603,7 +603,7 @@ describe("a provider the workspace already has", () => {
     expect(
       await screen.findByText(
         new RegExp(
-          `^Verified and saved\\. The AI assistant and detectors now run on your own ${label} account\\.`,
+          `^Verified and saved\\. Its models are now offered in the AI assistant's model menu and as a detector's model; choose one there to run on your own ${label} account\\.`,
         ),
       ),
     ).toBeTruthy();
@@ -613,8 +613,8 @@ describe("a provider the workspace already has", () => {
   });
 
   it("says a row that is switched off is switched off, and still offers no form", async () => {
-    // A disabled row means the workspace is running on system models, so the
-    // enabled-row copy would be false. It is still a row the step must not
+    // A disabled row is a key nothing can use, so the enabled-row copy would
+    // be false. It is still a row the step must not
     // write through: the upsert keys on (workspace, label), so a save would
     // replace its key and switch it back on at the same time.
     mocks.getModelProviders.mockResolvedValue({
@@ -634,7 +634,7 @@ describe("a provider the workspace already has", () => {
     renderBlock();
     expect(await screen.findByText("Turned off")).toBeTruthy();
     expect(
-      screen.getByText(/This key is off, so the AI assistant and detectors still run/),
+      screen.getByText(/This key is off, so the AI assistant and detectors can't use it\./),
     ).toBeTruthy();
     expect(screen.queryByText(/already here/)).toBeNull();
     expect(screen.queryByText(/verified and saved/i)).toBeNull();
@@ -650,7 +650,7 @@ describe("the line a stored key is reported with", () => {
   it("confirms the save, under the provider's name, when this mount stored the key", () => {
     expect(storedKeyCopy({ usingOwnKey: true, justSavedLabel: "Anthropic", count: 1 })).toEqual({
       state:
-        "Verified and saved. The AI assistant and detectors now run on your own Anthropic account.",
+        "Verified and saved. Its models are now offered in the AI assistant's model menu and as a detector's model; choose one there to run on your own Anthropic account.",
       settings: "Replace or remove it in",
     });
   });
@@ -658,7 +658,7 @@ describe("the line a stored key is reported with", () => {
   it("still confirms the save when the provider it was stored for is unknown", () => {
     const { state } = storedKeyCopy({ usingOwnKey: true, justSavedLabel: null, count: 1 });
     expect(state).toBe(
-      "Verified and saved. The AI assistant and detectors now run on your own account.",
+      "Verified and saved. Its models are now offered in the AI assistant's model menu and as a detector's model; choose one there to run on your own account.",
     );
     expect(state).not.toMatch(/already/);
   });
@@ -675,8 +675,7 @@ describe("the line a stored key is reported with", () => {
     // would be false over it even on the mount that wrote it.
     for (const justSavedLabel of ["Anthropic", null, undefined]) {
       expect(storedKeyCopy({ usingOwnKey: false, justSavedLabel, count: 1 })).toEqual({
-        state:
-          "This key is off, so the AI assistant and detectors still run on TraceRoot's models.",
+        state: "This key is off, so the AI assistant and detectors can't use it.",
         settings: "Turn it back on in",
       });
     }
@@ -691,8 +690,7 @@ describe("the line a stored key is reported with", () => {
       settings: "Manage them in",
     });
     expect(storedKeyCopy({ usingOwnKey: false, count: 3 })).toEqual({
-      state:
-        "All of these are off, so the AI assistant and detectors still run on TraceRoot's models.",
+      state: "All of these are off, so the AI assistant and detectors can't use any of them.",
       settings: "Turn one back on in",
     });
   });
@@ -706,6 +704,23 @@ describe("the line a stored key is reported with", () => {
         for (const count of [1, 2]) {
           const { state, settings } = storedKeyCopy({ usingOwnKey, justSavedLabel, count });
           expect(`${state} ${settings}`).not.toMatch(/\badd\b|another|each provider/i);
+        }
+      }
+    }
+  });
+
+  it("never says a save or a switched-off key moved anything onto other models", () => {
+    // A save only makes the key's models available. New detectors start on the
+    // "system" source, which takes the server's own key first, and the
+    // assistant's default is chosen by provider priority across workspace and
+    // TraceRoot models, so neither is moved onto the key by saving it. A key
+    // that is off is used by nothing, and a detector set to one of its models
+    // fails rather than running on TraceRoot's.
+    for (const usingOwnKey of [true, false]) {
+      for (const justSavedLabel of ["OpenAI", null, undefined]) {
+        for (const count of [1, 2]) {
+          const { state } = storedKeyCopy({ usingOwnKey, justSavedLabel, count });
+          expect(state).not.toMatch(/now run on|still run on|TraceRoot's models/);
         }
       }
     }

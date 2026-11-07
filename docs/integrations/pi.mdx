@@ -1,13 +1,13 @@
 ---
 title: pi SDK
-description: Trace embedded pi coding-agent sessions with TraceRoot
+description: Trace embedded pi coding-agent sessions with traceroot
 ---
 
 Automatically capture agent runs, LLM calls, tool executions, and token usage from [pi](https://pi.dev) coding-agent sessions you drive with `@earendil-works/pi-coding-agent` — the library form of pi, where you run an `AgentSession` from your own Node process instead of the interactive CLI.
 
 <Note>
   Running the interactive `pi` CLI instead? Use the
-  [TraceRoot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension).
+  [traceroot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension).
 </Note>
 
 ## Install
@@ -70,7 +70,7 @@ AgentSession.prompt              # AGENT span — one per prompt() call
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `AgentSession.prompt`.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `AgentSession.prompt`.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -115,6 +115,6 @@ Clone the repo and run a complete session end-to-end.
     Explore the full TypeScript SDK reference and configuration options.
   </Card>
   <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
-    Learn how TraceRoot calculates token costs and tracks model spend.
+    Learn how traceroot calculates token costs and tracks model spend.
   </Card>
 </CardGroup>

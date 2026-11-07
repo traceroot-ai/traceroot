@@ -53,6 +53,11 @@ function fillAndSubmit() {
 }
 
 describe("SignInClient", () => {
+  it("titles the card with the product name", () => {
+    render(<SignInClient googleAuthConfigured={false} />);
+    expect(screen.getByRole("heading", { name: "Sign in to TraceRoot" })).toBeTruthy();
+  });
+
   it("carries the callback to the sign-up link so a new user finishes the round-trip", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
 

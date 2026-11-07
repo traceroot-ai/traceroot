@@ -88,6 +88,20 @@ describe("what onboarding's manual step asks for", () => {
     expect(keyBlock().dataset.workspace).toBe("ws-1");
   });
 
+  it("says the model key is optional and is not the application's", () => {
+    // The section sits between the stack picker and "Create an API key", with
+    // a field named for the provider, so without this line it reads as a step
+    // in instrumenting the application.
+    renderStep();
+
+    const line = screen.getByText(/^Optional\./);
+    expect(line.textContent).toBe(
+      "Optional. This key is for TraceRoot's AI assistant and detectors, not for your application, which keeps using its own key.",
+    );
+    expect(isAbove(screen.getByText("Use your own model key"), line)).toBe(true);
+    expect(isAbove(line, keyBlock())).toBe(true);
+  });
+
   it("renders the walkthrough itself rather than a second copy of it", () => {
     // Matched without the step numbers: inserting a step into the walkthrough
     // renumbers the ones below it, and that is not this step's business.
