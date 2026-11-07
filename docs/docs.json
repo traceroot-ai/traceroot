@@ -1,6 +1,12 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "traceroot",
+  "description": "The open-source platform that continuously improves your ai agents.",
+  "markdown": {
+    "instructions": [
+      "To set up traceroot in a repository, follow the setup prompt in https://traceroot.ai/docs/getting-started/coding-agents.md."
+    ]
+  },
   "theme": "mint",
   "thumbnails": {
     "appearance": "light",
