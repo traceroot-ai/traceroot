@@ -206,42 +206,9 @@ function findLiveProjectByName(projects: Project[], name: string): Project | nul
 }
 
 // The project this attempt should use: a new one, or the one an earlier attempt
-// created and could not report back.
-//
-// The same lost response as the workspace above, one step later. `createdProject`
-// is set from the response, so a POST that commits without answering leaves it
-// null and the retry submits the same name into the same workspace — by then the
-// adopted or remembered one, so the collision is with the project the first
-// attempt wrote. The route answers 409 and that is the end of the account: this
-// is the last screen of sign-up and pressing Create is all it offers.
-//
-// The status identifies the collision on its own, as it does for the workspace:
-// this endpoint's only 409 is that constraint (see
-// app/api/workspaces/[workspaceId]/projects/route.ts, which maps Prisma's P2002
-// to it; everything else it refuses is a 400 or a 403). The lookup is guarded
-// regardless, so a 409 that came to mean something else could not adopt
-// anything.
-//
-// `adoptable` is what holds that reasoning to the case it was argued for. A
-// project standing under the submitted name is this attempt's own only where
-// this attempt is also what put the workspace there — a workspace it created,
-// or one it adopted by the same lost-response rule. In project-only mode
-// (`?workspaceId=`) the workspace is one that already existed and can be shared,
-// and the form defaults the project name to `my-llm-project`, so a 409 there is
-// at least as likely to be a teammate's project as anything this sign-up wrote.
-// Adopting that one would report "Project created", hand the CLI's return trip a
-// project belonging to someone else, and send this user's traces into it.
-//
-// So the 409 stands in that mode. It is not the dead end it is on the first
-// screen: the refusal says "A project with this name already exists", and the
-// project name is a field on this form, which the user can change and submit
-// again. Naming the colliding project and offering to use it would be better
-// still, and is a question for whoever designs that prompt rather than something
-// to decide by defaulting to adoption.
-//
-// What this does not recover is an edited name after a lost response — with no
-// id in hand a retry under a different name cannot collide, so it creates a
-// second project and leaves the first unmentioned.
+// created and could not report back. `adoptable` says whether a 409 may be
+// adopted at all: false when the workspace predates this page, where a project
+// under the same name may be a teammate's, so the 409 is reported instead.
 async function createOrAdoptProject(
   workspaceId: string,
   name: string,

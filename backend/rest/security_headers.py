@@ -2,8 +2,8 @@
 
 The load balancer serves this API and the web app from one host, so browsers
 reach /api/v1 directly and its responses need the headers the web app sends
-from frontend/ui/next.config.js: no MIME sniffing of a JSON body, and HTTPS for
-the host from then on.
+from frontend/ui/next.config.js: no MIME sniffing of a JSON body, HTTPS for the
+host from then on, and no copy of a response kept by the browser or a proxy.
 """
 
 from collections.abc import Awaitable, Callable, MutableMapping
@@ -18,6 +18,9 @@ from starlette.datastructures import MutableHeaders
 SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=63072000",
     "X-Content-Type-Options": "nosniff",
+    # API responses carry customer trace data. A route that wants caching, such
+    # as /live with its no-cache event stream, sets its own value and keeps it.
+    "Cache-Control": "private, no-cache, no-store, max-age=0, must-revalidate",
 }
 
 

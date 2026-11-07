@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
   }
 
   const { userId, projectId, name, expiresInDays } = parsed.data;
-  // Resolved here and always written explicitly below: the column's own default
-  // is `admin`, so that keys predating it keep working, which means an omitted
-  // `scope` on the create would mint the opposite of the default above.
+  // Resolved here and always written explicitly below, so the scope a key gets
+  // is this route's documented default rather than whatever the column's own
+  // default happens to be.
   const scope = parsed.data.scope ?? "ingest";
 
   const project = await prisma.project.findUnique({
