@@ -148,7 +148,7 @@ Run your code and confirm the trace arrives:
 
 Embedding spans without reported usage keep their token counts unset. traceroot does not estimate embedding tokens from input text or output vectors, avoiding duplicate estimates on orchestration spans whose provider-call children report the actual usage.
 
-For AI SDK 7's `OpenTelemetry` integration, use `@ai-sdk/otel@1.0.76` or newer. If you use an older version, upgrade `@ai-sdk/otel`: older semconv emitters can repeat usage on both the embedding wrapper and its provider calls, while the fixed emitter reports usage only on provider calls.
+For AI SDK 7's `OpenTelemetry` integration, use `@ai-sdk/otel` version 1.0.76 or newer. If you use an older version, upgrade `@ai-sdk/otel`: older semconv emitters can repeat usage on both the embedding wrapper and its provider calls, while the fixed emitter reports usage only on provider calls.
 
 AI SDK 6's built-in telemetry and AI SDK 7's `LegacyOpenTelemetry` integration report raw embedding usage as `ai.usage.tokens`. traceroot reads this field only on provider calls identified by `ai.operationId` or `operation.name` as `ai.embed.doEmbed` or `ai.embedMany.doEmbed`. Preserve these operation attributes in custom span processors so usage can be distinguished from wrapper aggregates. If your emitter omits them, use an emitter that supplies them or switch to the current AI SDK 7 `OpenTelemetry` integration. Normalized OpenInference or GenAI usage fields continue to be supported independently.
 
