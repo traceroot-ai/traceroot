@@ -340,8 +340,10 @@ describe("alertThresholdProblem", () => {
     expect(disagreements([">="], [0], true)).toEqual([]);
   });
 
-  it("keeps the rules on zero that can still decide something on a measure that can be empty", () => {
-    // `< 0` stays: under NOTIFY it is a gap-only rule.
+  it("accepts every operator but `>=` at zero, on every measure", () => {
+    // The helper sees only the measure, operator and threshold. `< 0` is a gap-only rule under
+    // NOTIFY only where the aggregation can read empty: count, sum and distinct counts read 0
+    // on an empty window, where it never fires.
     expect(disagreements(["<", "=", "<=", "!=", ">"], [0], false)).toEqual([]);
   });
 

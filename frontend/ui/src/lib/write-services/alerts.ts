@@ -41,7 +41,6 @@ import {
 } from "@/app/api/projects/[projectId]/alerts/rule-state";
 import {
   alertSelect,
-  decimalToNumber,
   toAlertRecord,
   type AlertRecord,
   type AlertRow,
@@ -369,6 +368,8 @@ export async function updateAlert(input: {
       }
     }
 
+    const snapshot = toRuleSnapshot(existing);
+
     // Merged the same way: a threshold-only edit is judged against the stored
     // measure. An edit touching none of these four fields leaves the stored
     // condition alone, so renaming a rule saved before this check still goes
@@ -382,15 +383,14 @@ export async function updateAlert(input: {
       const thresholdProblem = thresholdProblemForMeasure(
         view,
         measure,
-        patch.thresholdOperator ?? existing.thresholdOperator,
-        patch.threshold ?? decimalToNumber(existing.threshold),
+        patch.thresholdOperator ?? snapshot.thresholdOperator,
+        patch.threshold ?? snapshot.threshold,
       );
       if (thresholdProblem !== null) {
         return { result: { ok: false, status: 400, error: thresholdProblem } };
       }
     }
 
-    const snapshot = toRuleSnapshot(existing);
     const { changed, data: edit } = diffPatch(patch, {
       ...snapshot,
       name: existing.name,

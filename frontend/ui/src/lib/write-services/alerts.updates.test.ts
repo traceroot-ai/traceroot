@@ -445,10 +445,10 @@ describe("updateAlert", () => {
       expect(current().threshold).toBe(500);
     });
 
-    it("refuses a whole-rule PATCH that carries an unchanged legacy negative threshold", async () => {
+    it("refuses a PATCH that repeats a stored negative threshold next to a rename", async () => {
       mockAccess();
       store.set("alert-1", row({ threshold: -5 }));
-      // The check judges the submitted rule, not the change: the form sends the whole rule.
+      // A threshold in the patch is judged even when unchanged, and the form sends one on every edit.
       expect(await update({ threshold: -5, name: "Renamed" })).toEqual({
         ok: false,
         status: 400,
@@ -456,6 +456,18 @@ describe("updateAlert", () => {
       });
       expect(tx.alert.updateMany).not.toHaveBeenCalled();
       expect(current()).toMatchObject({ name: baseRow.name, threshold: -5 });
+    });
+
+    it("refuses a measure-only edit on a rule stored with a negative threshold, naming the new measure", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ measure: "cost" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: cost can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ measure: "latency", threshold: -5 });
     });
 
     it("refuses an operator-only edit to `>=` against the stored zero threshold", async () => {
@@ -478,7 +490,7 @@ describe("updateAlert", () => {
       expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: -5 });
     });
 
-    it("renames a stored `< -5` gap-only rule and moves it onto `< 0`, which pages on the same gaps", async () => {
+    it("renames a stored `< -5` NOTIFY rule and accepts a threshold-only edit onto `< 0`", async () => {
       mockAccess();
       store.set("alert-1", row({ thresholdOperator: "<", threshold: -5, noDataMode: "NOTIFY" }));
       expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
