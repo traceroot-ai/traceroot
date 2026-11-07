@@ -1,64 +1,103 @@
 /**
- * One-off replay to the sign-up webhook, run by hand, for the backfill of
- * existing users. Dry run by default: it counts what it would send.
+ * Replays to the sign-up webhook, run by hand. Dry run by default: it counts
+ * what it would send.
  *
- *   node worker/dist/signups/replay-cli.js --delivery backfill
- *   node worker/dist/signups/replay-cli.js --delivery backfill --send
+ *   node worker/dist/signups/replay-cli.js --list-unrecorded > ids.txt
+ *   node worker/dist/signups/replay-cli.js --backfill ids.txt [--send]
+ *   node worker/dist/signups/replay-cli.js --reconcile [--send]
  *
- * --from and --to bound the sign-up window (ISO dates). By default a backfill
- * covers everything up to an hour ago, and a reconcile the same two weeks as
- * the weekly run.
+ * --list-unrecorded prints the ID and creation time of every account created
+ * before the sign-up method was recorded, for review: how those accounts were
+ * created is unknown, so only an approved list of them is ever sent.
+ * --backfill sends the user IDs in a file, one per line (blank lines and
+ * #-comments ignored). Accounts recorded as provisioned by staff are left out,
+ * and acknowledged ones aren't sent again, so an interrupted backfill can be
+ * rerun with the same file and is reported as the same run.
+ * --reconcile runs the weekly replay now.
  */
+import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { prisma } from "@traceroot/core";
 import { isSignupWebhookConfigured } from "@traceroot/core/signup-webhook";
-import { reconcileWindow, replaySignups, signupWebhookConfigFromEnv } from "./replay.js";
+import {
+  backfillSignups,
+  countUnrecordedAccounts,
+  parseUserIds,
+  reconcileSignups,
+  signupWebhookConfigFromEnv,
+  type ReplayResult,
+} from "./replay.js";
 
-function parseDate(value: string | undefined, fallback: Date, flag: string): Date {
-  if (value === undefined) return fallback;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error(`${flag} is not a date: ${value}`);
-  return date;
+async function listUnrecorded(): Promise<void> {
+  let after = "";
+  for (;;) {
+    const users = await prisma.user.findMany({
+      where: { signupMethod: null, id: { gt: after } },
+      orderBy: { id: "asc" },
+      take: 500,
+      select: { id: true, createdAt: true },
+    });
+    for (const user of users) console.log(`${user.id}  # created ${user.createdAt.toISOString()}`);
+    if (users.length < 500) return;
+    after = users[users.length - 1]!.id;
+  }
+}
+
+function report(result: ReplayResult, send: boolean): void {
+  const mode = send ? "Sent" : "Dry run, nothing sent";
+  console.log(`[Signup replay] ${mode}: run ${result.runId}, ${result.eligible} sign-ups`);
+  console.log(`[Signup replay] By sign-up method: ${JSON.stringify(result.byProvider)}`);
+  if (result.alreadyDelivered > 0) {
+    console.log(`[Signup replay] ${result.alreadyDelivered} already acknowledged, not sent again`);
+  }
+  if (result.excluded > 0 || result.notFound > 0) {
+    console.log(
+      `[Signup replay] Left out: ${result.excluded} provisioned by staff, ${result.notFound} not found`,
+    );
+  }
+  if (send) {
+    const summary = result.summarySent ? "summary delivered" : "summary NOT delivered";
+    console.log(`[Signup replay] Delivered ${result.sent}, failed ${result.failed}, ${summary}`);
+    if (result.failed > 0 || !result.summarySent) process.exitCode = 1;
+  } else {
+    console.log("[Signup replay] Pass --send to deliver them.");
+  }
 }
 
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
-      delivery: { type: "string", default: "backfill" },
-      from: { type: "string" },
-      to: { type: "string" },
+      "list-unrecorded": { type: "boolean", default: false },
+      backfill: { type: "string" },
+      reconcile: { type: "boolean", default: false },
       send: { type: "boolean", default: false },
     },
   });
-  const delivery = values.delivery;
-  if (delivery !== "backfill" && delivery !== "reconcile") {
-    throw new Error(`--delivery must be backfill or reconcile, not ${delivery}`);
+  const modes = [values["list-unrecorded"], values.backfill !== undefined, values.reconcile];
+  if (modes.filter(Boolean).length !== 1) {
+    throw new Error("Pass one of --list-unrecorded, --backfill <file> or --reconcile");
   }
-  const defaults =
-    delivery === "reconcile"
-      ? reconcileWindow(new Date(), 14)
-      : { from: new Date(0), to: new Date(Date.now() - 60 * 60 * 1000) };
-  const from = parseDate(values.from, defaults.from, "--from");
-  const to = parseDate(values.to, defaults.to, "--to");
+  if (values["list-unrecorded"]) return listUnrecorded();
+
   const config = signupWebhookConfigFromEnv();
   if (values.send && !isSignupWebhookConfigured(config)) {
     throw new Error(
       "--send needs TRACEROOT_SIGNUP_WEBHOOK_URL and TRACEROOT_SIGNUP_WEBHOOK_SECRET",
     );
   }
-
-  const result = await replaySignups({ delivery, from, to, config, send: values.send });
-  const mode = values.send ? "Sent" : "Dry run, nothing sent";
-  console.log(
-    `[Signup replay] ${mode}: ${result.eligible} sign-ups (${delivery}) from ${from.toISOString()} to ${to.toISOString()}`,
-  );
-  console.log(`[Signup replay] By sign-up method: ${JSON.stringify(result.byProvider)}`);
-  if (values.send) {
-    const summary = result.summarySent ? "summary delivered" : "summary NOT delivered";
-    console.log(`[Signup replay] Delivered ${result.sent}, failed ${result.failed}, ${summary}`);
-    if (result.failed > 0 || !result.summarySent) process.exitCode = 1;
-  } else {
-    console.log("[Signup replay] Pass --send to deliver them.");
+  const send = values.send;
+  if (values.backfill !== undefined) {
+    const userIds = parseUserIds(await readFile(values.backfill, "utf8"));
+    if (userIds.length === 0) throw new Error(`${values.backfill} lists no user IDs`);
+    report(await backfillSignups({ userIds, config, send }), send);
+    return;
+  }
+  report(await reconcileSignups({ config, send }), send);
+  const unrecorded = await countUnrecordedAccounts();
+  if (unrecorded > 0) {
+    console.log(
+      `[Signup replay] ${unrecorded} accounts have no recorded sign-up method and are only sent from an approved --backfill list`,
+    );
   }
 }
 

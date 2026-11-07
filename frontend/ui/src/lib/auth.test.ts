@@ -30,7 +30,8 @@ vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventM
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
-vi.mock("@/lib/signup/attribution", () => ({
+vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
   signupAttributionProperties: signupAttributionPropertiesMock,
 }));
 vi.mock("@/env", () => ({
@@ -52,9 +53,14 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  user: { additionalFields: Record<string, { input?: boolean; returned?: boolean }> };
   databaseHooks: {
     user: {
       create: {
+        before: (
+          user: Record<string, unknown>,
+          context?: { path: string; params?: Record<string, string> } | null,
+        ) => Promise<{ data: Record<string, unknown> }>;
         after: (
           user: Record<string, unknown>,
           context?: { path: string; params?: Record<string, string> } | null,
@@ -115,6 +121,24 @@ describe("auth options", () => {
     expect(onUserCreatedMock).toHaveBeenCalledWith(user, {
       path: "/sign-up/email",
       attribution: { utm_source: "github" },
+    });
+  });
+
+  it("stores how each account was created with it, never from the request", async () => {
+    expect(options.user.additionalFields.signupMethod).toMatchObject({
+      input: false,
+      returned: false,
+    });
+    const { before } = options.databaseHooks.user.create;
+    const user = { email: "g@example.com", name: "G" };
+    await expect(
+      before(user, { path: "/callback/:id", params: { id: "google" } }),
+    ).resolves.toEqual({ data: { ...user, signupMethod: "google" } });
+    await expect(before(user, { path: "/sign-up/email" })).resolves.toMatchObject({
+      data: { signupMethod: "email" },
+    });
+    await expect(before(user, { path: "/admin/create-user" })).resolves.toMatchObject({
+      data: { signupMethod: "admin" },
     });
   });
 

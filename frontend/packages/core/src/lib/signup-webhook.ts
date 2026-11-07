@@ -1,10 +1,12 @@
 /**
  * The signed events sent to TRACEROOT_SIGNUP_WEBHOOK_URL. The web app's
  * sign-up hook sends one `user_signed_up` per self-service sign-up as it
- * happens (delivery "live"). The worker replays sign-ups the live send may
- * have missed (weekly, "reconcile") and, once, existing users ("backfill"),
- * and ends each replay with a `signups_replayed` summary of the users it
- * covered. Nothing is sent unless both the URL and the secret are set.
+ * happens (delivery "live"). The worker replays sign-ups the receiver never
+ * acknowledged (weekly, "reconcile") and, once, an approved list of users who
+ * signed up before the live send existed ("backfill"). A replay names its run
+ * in every event and ends with a `signups_replayed` summary of the users it
+ * covered; the run ID is stable, so a rerun of the same run is reported as
+ * one. Nothing is sent unless both the URL and the secret are set.
  *
  * X-TraceRoot-Signature is the hex HMAC-SHA256, under the secret, of the
  * X-TraceRoot-Timestamp value (delivery time, Unix seconds), a period, and
@@ -24,6 +26,8 @@ export interface SignupWebhookEvent {
   event: "user_signed_up";
   occurred_at: string;
   delivery: SignupDelivery;
+  // Replays only: the run that sent it.
+  run_id?: string;
   user: { id: string; email: string; name: string | null };
   // Null from replays: accepting an invite deletes it, so afterwards nothing
   // says whether a sign-up came from one.
@@ -34,7 +38,8 @@ export interface SignupsReplayedEvent {
   event: "signups_replayed";
   occurred_at: string;
   delivery: Exclude<SignupDelivery, "live">;
-  window: { from: string; to: string };
+  run_id: string;
+  // Every user the run covered, including any it didn't need to send.
   user_ids: string[];
 }
 
@@ -44,6 +49,7 @@ export interface SignupWebhookInput {
   viaInvite: boolean | null;
   attribution?: Record<string, string>;
   delivery?: SignupDelivery;
+  runId?: string;
 }
 
 export interface SignupWebhookConfig {
@@ -65,6 +71,7 @@ export function buildSignupWebhookEvent(input: SignupWebhookInput): SignupWebhoo
     event: "user_signed_up",
     occurred_at: input.user.createdAt.toISOString(),
     delivery: input.delivery ?? "live",
+    ...(input.runId ? { run_id: input.runId } : {}),
     user: { id: input.user.id, email: input.user.email, name: input.user.name },
     signup: { provider: input.provider, via_invite: input.viaInvite, utm },
   };
@@ -72,16 +79,15 @@ export function buildSignupWebhookEvent(input: SignupWebhookInput): SignupWebhoo
 
 export function buildSignupsReplayedEvent(input: {
   delivery: Exclude<SignupDelivery, "live">;
+  runId: string;
   startedAt: Date;
-  from: Date;
-  to: Date;
   userIds: string[];
 }): SignupsReplayedEvent {
   return {
     event: "signups_replayed",
     occurred_at: input.startedAt.toISOString(),
     delivery: input.delivery,
-    window: { from: input.from.toISOString(), to: input.to.toISOString() },
+    run_id: input.runId,
     user_ids: input.userIds,
   };
 }

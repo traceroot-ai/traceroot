@@ -15,7 +15,7 @@ import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
-import { isSelfSignup } from "./attribution";
+import { isSelfSignup, signupProvider, type SignupRequest } from "./attribution";
 
 export interface CreatedUser {
   id: string;
@@ -26,18 +26,8 @@ export interface CreatedUser {
 
 // What the follow-ups read about the sign-up request: better-auth's matched
 // route and its params, and the campaign attribution the request carried.
-export interface SignupContext {
-  path?: string;
-  params?: Record<string, string | undefined>;
+export interface SignupContext extends SignupRequest {
   attribution?: Record<string, string>;
-}
-
-// better-auth reports the matched route, not the URL: an OAuth sign-up's path
-// is "/callback/:id", and the provider is the route's `id` param.
-export function signupProvider(context: SignupContext | null): string {
-  if (context?.path?.includes("/sign-up/email")) return "email";
-  const social = context?.path?.startsWith("/callback/") ? context.params?.id : undefined;
-  return social ? social.toLowerCase() : "unknown";
 }
 
 async function arm<T>(
@@ -116,9 +106,12 @@ export async function onUserCreated(
       })
     : undefined;
 
+  // Once the receiver acknowledges the event, the weekly replay leaves this
+  // user out; until then (a failed send, or a failed write here) it sends the
+  // sign-up again, and the receiver drops the repeat.
   const webhook = webhookOn
-    ? arm("signup webhook", user.id, async () =>
-        sendSignupWebhook(
+    ? arm("signup webhook", user.id, async () => {
+        const delivered = await sendSignupWebhook(
           buildSignupWebhookEvent({
             user,
             provider: signupProvider(context),
@@ -126,8 +119,14 @@ export async function onUserCreated(
             attribution: context?.attribution,
           }),
           webhookConfig,
-        ),
-      )
+        );
+        if (delivered) {
+          await prisma.user.updateMany({
+            where: { id: user.id, signupDeliveredAt: null },
+            data: { signupDeliveredAt: new Date() },
+          });
+        }
+      })
     : undefined;
 
   await Promise.all([demo, welcome, slack, webhook]);

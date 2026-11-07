@@ -82,27 +82,32 @@ it("carries the user, how they signed up and three campaign fields, nothing else
   });
 });
 
-it("marks replayed sign-ups, and summarizes a replay by the users it covered", () => {
+it("marks replayed sign-ups with their run, and summarizes a run by the users it covered", () => {
   const replayed = buildSignupWebhookEvent({
     user: { id: "u1", email: "a@example.com", name: null, createdAt: new Date(now) },
     provider: "google",
     viaInvite: false,
     delivery: "backfill",
+    runId: "backfill-0123456789abcdef",
   });
-  expect(replayed).toMatchObject({ delivery: "backfill", signup: { utm: {} } });
+  expect(replayed).toMatchObject({
+    delivery: "backfill",
+    run_id: "backfill-0123456789abcdef",
+    signup: { utm: {} },
+  });
+  expect(event).not.toHaveProperty("run_id");
   expect(
     buildSignupsReplayedEvent({
       delivery: "reconcile",
+      runId: "reconcile-2026-11-09",
       startedAt: new Date(now),
-      from: new Date("2026-10-23T03:00:00.000Z"),
-      to: new Date("2026-11-06T03:00:00.000Z"),
       userIds: ["u1", "u2"],
     }),
   ).toEqual({
     event: "signups_replayed",
     occurred_at: new Date(now).toISOString(),
     delivery: "reconcile",
-    window: { from: "2026-10-23T03:00:00.000Z", to: "2026-11-06T03:00:00.000Z" },
+    run_id: "reconcile-2026-11-09",
     user_ids: ["u1", "u2"],
   });
 });
@@ -139,9 +144,8 @@ it("posts the event as JSON, signed over the exact bytes sent", async () => {
 it("signs a replay summary the same way", async () => {
   const summary = buildSignupsReplayedEvent({
     delivery: "backfill",
+    runId: "backfill-0123456789abcdef",
     startedAt: new Date(now),
-    from: new Date(0),
-    to: new Date(now),
     userIds: ["u1"],
   });
   const { delivery } = await deliver(summary, { timeoutMs: 10_000 });
