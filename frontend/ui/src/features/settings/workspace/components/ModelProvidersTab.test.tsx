@@ -274,6 +274,48 @@ describe("ModelProvidersTab", () => {
     );
   });
 
+  it("keeps a row's protocol pick while its typed model ID changes", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "openai",
+          provider: "Ollama",
+          keyPreview: "ollama",
+          baseUrl: "http://localhost:11434/v1",
+          customModels: ["qwen3:4b"],
+          withDefaultModels: true,
+          config: { modelProtocols: { "qwen3:4b": "openai-completions" } },
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.updateModelProvider.mockResolvedValue({ id: "provider-1" });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+
+    // Typing goes through intermediate IDs; the Chat Completions pick must follow the row.
+    const modelInput = screen.getByDisplayValue("qwen3:4b");
+    fireEvent.change(modelInput, { target: { value: "llama" } });
+    fireEvent.change(modelInput, { target: { value: "llama3.2:3b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+
+    await waitFor(() => expect(mocks.updateModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.updateModelProvider).toHaveBeenCalledWith(
+      "ws-1",
+      "provider-1",
+      expect.objectContaining({
+        customModels: ["llama3.2:3b"],
+        config: { modelProtocols: { "llama3.2:3b": "openai-completions" } },
+      }),
+    );
+  });
+
   it("sends null when a saved Base URL is cleared in edit mode", async () => {
     mocks.getModelProviders.mockResolvedValue({
       byokEnabled: true,

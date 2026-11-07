@@ -297,8 +297,15 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
   function updateCustomModel(index: number, value: string) {
     const updated = [...customModels];
+    const previous = updated[index];
     updated[index] = value;
     setCustomModels(updated);
+    // Protocol picks are keyed by model ID, so carry the row's pick over to the new ID.
+    if (previous !== value) {
+      setModelProtocols(({ [value]: _, ...rest }) =>
+        rest[previous] ? { ...rest, [value]: rest[previous] } : rest,
+      );
+    }
   }
 
   if (isLoading) {
