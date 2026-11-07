@@ -795,9 +795,9 @@ class TestClaudeBedrockAndVertexIds:
     @pytest.mark.parametrize(
         "model_name,rates",
         [
-            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 and Sonnet 5.5 read cache at 0.05x.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
-            ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
         ],
@@ -806,6 +806,18 @@ class TestClaudeBedrockAndVertexIds:
         entry = next(e for e in _standard_price_entries() if e["modelName"] == model_name)
         keys = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
         assert entry["prices"] == pytest.approx(dict(zip(keys, rates)))
+
+    def test_sonnet_5_5_cache_read_rate_prices_at_published_rate(self):
+        from worker.tokens.buckets import TokenBuckets
+        from worker.tokens.pricing import cost_from_buckets
+
+        prices = next(
+            e["prices"] for e in _standard_price_entries() if e["modelName"] == "claude-sonnet-5-5"
+        )
+        reads = TokenBuckets(
+            input_uncached=0, output=0, cache_read=1_000_000, cache_write=0, cache_write_1h=0
+        )
+        assert cost_from_buckets(prices, reads) == pytest.approx(0.10)
 
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
