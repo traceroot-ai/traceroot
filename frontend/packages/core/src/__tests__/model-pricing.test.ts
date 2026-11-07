@@ -14,6 +14,7 @@ import {
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
+import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
 // cacheWrite1h = 2x input.
@@ -186,5 +187,17 @@ describe("getModelPricing — uncompilable pattern", () => {
     expect(await lookup("anything")).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken-entry"), expect.anything());
     warn.mockRestore();
+  });
+});
+
+describe("claude-sonnet-5-5 published pricing in standard-model-prices.json", () => {
+  it("prices 1 million cache read tokens at $0.10 (0.05x base input)", () => {
+    const entry = (standardModels as Array<{ modelName: string; prices: ModelPricing }>).find(
+      (e) => e.modelName === "claude-sonnet-5-5",
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.prices.cacheRead).toBe(1e-7);
+    const cost = calculateCostFromPricing(entry!.prices, 0, 0, 1_000_000);
+    expect(cost).toBeCloseTo(0.1, 10);
   });
 });
