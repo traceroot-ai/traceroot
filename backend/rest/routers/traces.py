@@ -365,7 +365,12 @@ async def get_trace(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id, source=source)
+    # Off the event loop, same reasoning as the trace list: both reads below are
+    # synchronous ClickHouse queries, and with ``fields=full`` (the agent's trace
+    # download) they decode every span's I/O, which takes seconds for a large trace.
+    trace = await asyncio.to_thread(
+        service.get_trace, project_id=project_id, trace_id=trace_id, source=source
+    )
 
     if not trace:
         raise HTTPException(
@@ -375,7 +380,9 @@ async def get_trace(
 
     enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
 
-    hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
+    await asyncio.to_thread(
+        hydrate_span_io, service, trace, project_id=project_id, trace_id=trace_id, groups=groups
+    )
     return trace
 
 

@@ -7,6 +7,7 @@ names the project via ``project_id``. Kept separate from the ingestion route so
 read and write concerns stay decoupled.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -235,7 +236,11 @@ async def get_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=SKELETON)
-    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
+    # Off the event loop, same reasoning as the dashboard trace read: the reads in
+    # _require_trace are synchronous ClickHouse queries.
+    trace = await asyncio.to_thread(
+        _require_trace, auth.project_id, trace_id, groups, auth.billing_plan
+    )
     return public_trace_detail(trace, auth.project_id)
 
 
@@ -278,7 +283,9 @@ async def export_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=FULL)
-    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
+    trace = await asyncio.to_thread(
+        _require_trace, auth.project_id, trace_id, groups, auth.billing_plan
+    )
     return export_bundle(trace, auth.project_id)
 
 
