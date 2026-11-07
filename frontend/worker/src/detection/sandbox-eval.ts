@@ -58,7 +58,7 @@ const MAX_ATTEMPTS = 2;
  * ~37k tokens at 4 chars/token: under 20% of a 200k-token window, the smallest
  * among the system models a detector can run on, leaving generous headroom for the system prompt + tool definitions + response budget.
  */
-const SAFETY_TRUNCATE_CHARS = 150_000;
+export const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
 export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
 /** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
@@ -136,9 +136,6 @@ export async function resolveDetectorApiKey(
   return findByokKeyForPiProvider(workspaceId, piProvider, { nativeOnly: true });
 }
 
-/** Holds a trace's judge input once one of its detectors has built it. */
-export type JudgeInputCache = { value?: JudgeInput };
-
 /**
  * Run LLM detection for a single trace.
  * spansJsonl is the content of the trace's spans.jsonl file.
@@ -147,8 +144,8 @@ export type JudgeInputCache = { value?: JudgeInput };
 export async function runDetectionForTrace(params: {
   traceId: string;
   spansJsonl: string;
-  /** Shared by a trace's detectors, which all judge the same text. */
-  judgeInputCache?: JudgeInputCache;
+  /** Returns the trace's judge input, shared by its detectors; built here when absent. */
+  getJudgeInput?: () => JudgeInput;
   detector: DetectorConfig;
   workspaceId: string;
 }): Promise<EvalResult> {
@@ -238,10 +235,9 @@ RULES:
 
 ${JUDGE_INPUT_FORMAT_NOTE}`;
 
-  const cache = params.judgeInputCache ?? {};
-  const judgeInput = (cache.value ??= buildJudgeInput(traceId, spansJsonl, {
-    budgetChars: SAFETY_TRUNCATE_CHARS,
-  }));
+  const judgeInput =
+    params.getJudgeInput?.() ??
+    buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
   console.log(
     `[sandbox-eval] judge input for trace ${traceId}: ${JSON.stringify(judgeInput.stats)}`,
   );
