@@ -47,9 +47,23 @@ beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-it("reads the provider from the endpoint path", () => {
-  const paths = ["/sign-up/email", "/callback/Oidc", "/x", undefined];
-  expect(paths.map((p) => signupProvider(p))).toEqual(["email", "oidc", "unknown", "unknown"]);
+it("reads the provider from the sign-up route", () => {
+  // The context shapes better-auth passes the hook; attribution.integration.test.ts
+  // checks them against its real handlers.
+  const contexts = [
+    { path: "/sign-up/email" },
+    { path: "/callback/:id", params: { id: "Google" } },
+    { path: "/callback/:id" },
+    { path: "/x", params: { id: "google" } },
+    null,
+  ];
+  expect(contexts.map((c) => signupProvider(c))).toEqual([
+    "email",
+    "google",
+    "unknown",
+    "unknown",
+    "unknown",
+  ]);
 });
 
 it("does nothing, and logs nothing, when nothing is configured", async () => {
@@ -108,6 +122,11 @@ it("records the contact, then sends the welcome and posts to Slack", async () =>
     supportConsoleUrl: "https://app.example.com/admin",
     totalUsers: 154,
   });
+});
+
+it("names the provider of an OAuth sign-up in the Slack post", async () => {
+  await onUserCreated(user, { path: "/callback/:id", params: { id: "google" } });
+  expect(notifySignupSlack).toHaveBeenCalledWith(expect.objectContaining({ provider: "google" }));
 });
 
 it("skips the welcome when the contact was not recorded; Slack still posts", async () => {
