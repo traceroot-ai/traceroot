@@ -1,0 +1,165 @@
+---
+title: Opper
+description: Trace Opper calls through the OpenAI-compatible SDK
+---
+
+Opper is an EU-hosted AI gateway with an OpenAI-compatible API: 700+ models from 50+ providers behind one key. Use the standard `openai` SDK with the Opper base URL (`https://api.opper.ai/v3/compat`). TraceRoot captures these calls through the existing OpenAI instrumentation, so no Opper-specific instrumentor or enum is required. The same approach works for other [OpenAI-compatible providers](/integrations/openai-compatible).
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot openai
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
+
+Create an API key in the [Opper console](https://platform.opper.ai) and set it as `OPPER_API_KEY`.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["OPPER_API_KEY"],
+        base_url="https://api.opper.ai/v3/compat",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPPER_API_KEY,
+      baseURL: 'https://api.opper.ai/v3/compat',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+
+    client = openai.OpenAI(
+        api_key=os.environ["OPPER_API_KEY"],
+        base_url="https://api.opper.ai/v3/compat",
+    )
+
+    # This Opper call is traced by TraceRoot's OpenAI integration
+    response = client.chat.completions.create(
+        model="claude-sonnet-4-6",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPPER_API_KEY,
+      baseURL: 'https://api.opper.ai/v3/compat',
+    });
+
+    // This Opper call is traced by TraceRoot's OpenAI integration
+    const response = await openai.chat.completions.create({
+      model: 'claude-sonnet-4-6',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ChatCompletion` (`OpenAI Chat Completions` on TypeScript).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute  | Description                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Model      | Any Opper model id, such as `claude-sonnet-4-6`, `gpt-5.5` or `deepseek-v4-pro`, or a pinned route such as `aws/claude-sonnet-4-6-eu` |
+| Messages   | Input messages array                                                                                                                  |
+| Response   | Completion content                                                                                                                    |
+| Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API                                                      |
+| Tokens     | Prompt, completion, and total tokens when returned by the provider                                                                    |
+| Cost       | Calculated when the model ID matches TraceRoot's pricing table; otherwise tokens are captured without cost                            |
+| Latency    | Request duration                                                                                                                      |
+
+## Limitations
+
+- Opper requests are traced through the standard OpenAI integration; cost needs a model ID that TraceRoot's pricing table recognizes.
+
+## Run the example
+
+The OpenAI examples create their client with `openai.OpenAI()` and `new OpenAI()`, which read `OPENAI_BASE_URL` and `OPENAI_API_KEY` from the environment. To run a complete agent end-to-end through Opper, set both in the example's `.env`:
+
+```bash
+OPENAI_BASE_URL=https://api.opper.ai/v3/compat
+OPENAI_API_KEY=your_opper_api_key_here
+```
+
+<CardGroup cols={2}>
+  <Card
+    title="Python"
+    icon="python"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/openai-tool-agent"
+  >
+    Run the Python OpenAI tool-agent example
+  </Card>
+  <Card
+    title="TypeScript"
+    icon="js"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/openai"
+  >
+    Run the TypeScript OpenAI example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>
