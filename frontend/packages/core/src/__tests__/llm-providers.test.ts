@@ -194,6 +194,13 @@ describe("ADAPTER_MODELS", () => {
   it("lists grok-4.7 first, so it is the default xAI model", () => {
     expect(ADAPTER_MODELS["xai"]?.[0]?.id).toBe("grok-4.7");
   });
+
+  it.each(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])(
+    "includes %s in the Moonshot model list",
+    (id) => {
+      expect(ADAPTER_MODELS["moonshot"]).toContainEqual({ id, label: id });
+    },
+  );
 });
 
 function getTableRows(docPath: URL, heading: string): { provider: string; ids: string[] }[] {
