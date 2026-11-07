@@ -1,8 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { OUTPUT_FIELD_TYPES, RESERVED_FIELD_NAMES, validateOutputSchema } from "./output-schema";
+import { validateOutputSchema } from "./output-schema";
 import { DETECTOR_TEMPLATES } from "./templates";
 
 /**
@@ -29,34 +26,6 @@ describe("validateOutputSchema — what the write path accepts", () => {
         { name: "flagged", type: "boolean" },
       ]),
     ).toBeNull();
-  });
-
-  it("offers exactly the types the worker's submit_result tool builds", () => {
-    // The worker cannot be imported from here: read the types it branches on.
-    // Every other type falls through to a string, which is listed explicitly.
-    const toolPath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../../worker/src/detection/submit-result-tool.ts",
-    );
-    const branched = [...readFileSync(toolPath, "utf8").matchAll(/\btype === "(\w+)"/g)].map(
-      (m) => m[1],
-    );
-    expect(branched.length).toBeGreaterThan(0);
-    expect([...OUTPUT_FIELD_TYPES].sort()).toEqual(["string", ...branched].sort());
-  });
-
-  it("reserves exactly the names the worker's submit_result tool drops", () => {
-    const toolPath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../../worker/src/detection/submit-result-tool.ts",
-    );
-    const literal = readFileSync(toolPath, "utf8").match(
-      /UNSAFE_FIELD_NAMES\s*=\s*new Set\(\[([^\]]*)\]\)/,
-    );
-    expect(literal).not.toBeNull();
-    const dropped = [...literal![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(dropped.length).toBeGreaterThan(0);
-    expect([...RESERVED_FIELD_NAMES].sort()).toEqual(dropped.sort());
   });
 });
 

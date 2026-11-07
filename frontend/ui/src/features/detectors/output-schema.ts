@@ -6,28 +6,22 @@
  * string, a repeated name keeps only the last declaration, a reserved name is
  * dropped, and an entry without a name is skipped.
  */
-
-/** The types the worker builds a tool field for; it reads any other as a string. */
-export const OUTPUT_FIELD_TYPES: readonly string[] = ["string", "number", "boolean"];
-
-/** Names the worker drops from the tool (UNSAFE_FIELD_NAMES there; a test keeps the two equal). */
-export const RESERVED_FIELD_NAMES: ReadonlySet<string> = new Set([
-  "__proto__",
-  "prototype",
-  "constructor",
-]);
+import {
+  OUTPUT_FIELD_TYPES,
+  RESERVED_FIELD_NAMES,
+  isUsableFieldName,
+} from "@traceroot/core/detector-output-schema";
+import { isPlainObject } from "@/lib/is-plain-object";
 
 function fieldError(item: unknown, index: number, seen: Set<string>): string | null {
   const at = `output field ${index + 1}`;
-  if (item === null || typeof item !== "object" || Array.isArray(item)) {
-    return `${at} must be an object`;
+  if (!isPlainObject(item)) return `${at} must be an object`;
+  const { name, type } = item;
+  if (typeof name === "string" && RESERVED_FIELD_NAMES.has(name)) {
+    return `${at} name ${JSON.stringify(name)} is reserved`;
   }
-  const { name, type } = item as Record<string, unknown>;
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return `${at} requires a non-empty name`;
-  }
-  if (RESERVED_FIELD_NAMES.has(name)) return `${at} name ${JSON.stringify(name)} is reserved`;
-  if (typeof type !== "string" || !OUTPUT_FIELD_TYPES.includes(type)) {
+  if (!isUsableFieldName(name)) return `${at} requires a non-empty name`;
+  if (!OUTPUT_FIELD_TYPES.some((known) => known === type)) {
     return `${at} type must be one of: ${OUTPUT_FIELD_TYPES.join(", ")}`;
   }
   if (seen.has(name)) return `${at} repeats the name ${JSON.stringify(name)}`;

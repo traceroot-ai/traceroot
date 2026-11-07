@@ -69,9 +69,8 @@ const triggerConditionsSchema = z
 // would be screened as a string and a repeated name would keep only the last
 // declaration, so both are refused here rather than stored.
 const outputSchemaSchema = z
-  .unknown()
+  .array(z.unknown(), "outputSchema must be an array")
   .superRefine((value, ctx) => {
-    if (value === undefined) return;
     const error = validateOutputSchema(value);
     if (error) ctx.addIssue({ code: "custom", message: error });
   })
@@ -183,7 +182,7 @@ export async function createDetector(input: {
       }
       const { name, template, detectionSource, enableRca, enableSignals, enabled } = parsed.data;
       let prompt = parsed.data.prompt;
-      let outputSchema = parsed.data.outputSchema as unknown[] | undefined;
+      let outputSchema = parsed.data.outputSchema;
       if (prompt === undefined) {
         // The schema rule only lets prompt be absent for a standard template,
         // so the canonical lookup cannot miss. A supplied outputSchema still

@@ -1,19 +1,11 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
+import { isUsableFieldName } from "@traceroot/core/detector-output-schema";
 
 export interface SubmitResultInput {
   identified: boolean;
   summary: string;
   data: Record<string, unknown>;
-}
-
-// Reject user-supplied output schema field names that would mutate Object.prototype
-// or be silently ignored after `Object.create(null)`. The `outputSchema` array is
-// detector-author input; treat it as untrusted.
-const UNSAFE_FIELD_NAMES = new Set(["__proto__", "prototype", "constructor"]);
-
-function isSafeFieldName(name: unknown): name is string {
-  return typeof name === "string" && name.trim().length > 0 && !UNSAFE_FIELD_NAMES.has(name);
 }
 
 function fieldToSchema(name: string, type: unknown): TSchema {
@@ -40,7 +32,7 @@ export function buildSubmitResultTool(outputSchemaFields: ReadonlyArray<unknown>
     // not an object or has no name is skipped, since throwing here would fail
     // every scan of the detector.
     const { name, type } = (field ?? {}) as { name?: unknown; type?: unknown };
-    if (!isSafeFieldName(name)) continue;
+    if (!isUsableFieldName(name)) continue;
     dataProps[name] = fieldToSchema(name, type);
   }
 
