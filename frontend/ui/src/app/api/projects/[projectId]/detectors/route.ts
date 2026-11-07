@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
@@ -15,7 +16,7 @@ type RouteParams = { params: Promise<{ projectId: string }> };
 // GET /api/projects/[projectId]/detectors - List detectors for the project.
 // Supports `search_query` (substring on name/template/prompt), `page`, `limit`.
 // Returns `{ data, meta }` to match the rest of the list endpoints.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/detectors - Create a new detector
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -91,6 +92,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     detectionProvider,
     detectionSource,
     enableRca,
+    enableSignals,
   } = body as Record<string, unknown>;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
@@ -159,12 +161,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (problem !== null) return errorResponse(problem, 400);
   }
 
-  // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
-  // so "false"/0 can't silently coerce.
+  // enableRca: optional boolean, defaults true (Automatic RCA, as the UI's
+  // create form starts). Reject non-booleans so "false"/0 can't silently coerce.
   if (enableRca !== undefined && typeof enableRca !== "boolean") {
     return errorResponse("enableRca must be a boolean", 400);
   }
   const resolvedEnableRca = enableRca ?? true;
+
+  // enableSignals: optional boolean, defaults true (group hits into signals).
+  if (enableSignals !== undefined && typeof enableSignals !== "boolean") {
+    return errorResponse("enableSignals must be a boolean", 400);
+  }
+  const resolvedEnableSignals = enableSignals ?? true;
 
   // enabled: optional boolean. Defaults to true, but a detector created at 0%
   // sampling should not show as "enabled but never fires" — fall back to
@@ -188,6 +196,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         sampleRate: resolvedSampleRate,
         enabled: resolvedEnabled,
         enableRca: resolvedEnableRca,
+        enableSignals: resolvedEnableSignals,
         detectionModel: resolvedModel,
         detectionProvider: resolvedProvider,
         detectionSource: sourceStr,
@@ -206,3 +215,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ detector }, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

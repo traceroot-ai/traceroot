@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { hasOutstandingAlertPage } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
@@ -21,21 +22,38 @@ import {
   type AlertSummary,
 } from "@/features/alerts/hooks/use-alerts";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useRememberListQuery } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 
 export default function AlertsPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
 
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+    hasOpenPage: boolean;
+  } | null>(null);
 
   const { state, queryOptions, updateKeyword, updateLimit, goToPage } = useListPageState();
+  // The page lives in the URL; recorded so an alert's Back, Cancel and Save
+  // return to this page instead of the first one.
+  const searchParams = useSearchParams();
+  useRememberListQuery(`alerts:${projectId}`, searchParams.toString());
 
   const { data, isLoading, error } = useAlertList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
+
+  // Every new page of rows, or a new search, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.search_query]),
+  );
 
   const { data: capacity } = useAlertCapacity(projectId);
   const { data: project } = useProject(projectId);
@@ -105,7 +123,7 @@ export default function AlertsPage() {
           />
         )}
 
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading alerts..." />
@@ -145,7 +163,13 @@ export default function AlertsPage() {
                 projectId={projectId}
                 workspaceId={project?.workspace_id}
                 onToggleStatus={handleToggleStatus}
-                onDelete={(alert) => setDeleteTarget({ id: alert.id, name: alert.name })}
+                onDelete={(alert) =>
+                  setDeleteTarget({
+                    id: alert.id,
+                    name: alert.name,
+                    hasOpenPage: hasOutstandingAlertPage(alert),
+                  })
+                }
                 isStatusPending={statusMutation.isPending}
               />
             </>
@@ -154,8 +178,8 @@ export default function AlertsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}
@@ -166,6 +190,7 @@ export default function AlertsPage() {
       {deleteTarget && (
         <DeleteAlertDialog
           alertName={deleteTarget.name}
+          hasOpenPage={deleteTarget.hasOpenPage}
           isOpen={true}
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleDeleteConfirm}

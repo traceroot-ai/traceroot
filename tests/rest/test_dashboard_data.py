@@ -62,9 +62,10 @@ def _widget(i: int, *, type_: str = "query", spec=None):
     }
 
 
-def _detail(widgets):
+def _detail(widgets, layout=None):
     return {
         "dashboard": {
+            "layout": layout,
             "id": "dash-1",
             "name": "Latency overview",
             "description": None,
@@ -127,6 +128,10 @@ def test_answers_every_query_widget_in_layout_order_and_lists_feeds():
     assert run.call_args.kwargs["max_rows"] == DASHBOARD_DATA_ROW_CAP + 1
     assert body["widgets"][1]["rows"] is None
     assert (body["queried"], body["skipped"], body["failed"]) == (2, 1, 0)
+    # Every widget carries its stored spec whatever its status, so a caller
+    # can draw the dashboard from this one read.
+    assert [w["spec"] for w in body["widgets"]] == [QUERY_SPEC, {"filters": []}, QUERY_SPEC]
+    assert body["layout"] is None
     assert body["window"]["range"] == "7d"
     assert _iso(body["window"]["end_time"]) - _iso(body["window"]["start_time"]) == timedelta(
         days=7
@@ -136,6 +141,24 @@ def test_answers_every_query_widget_in_layout_order_and_lists_feeds():
     for call in run.call_args_list:
         assert call.kwargs["project_id"] == "proj-A"
         assert (call.kwargs["end_time"] - call.kwargs["start_time"]) == timedelta(days=7)
+
+
+@respx.mock
+def test_the_dashboard_layout_comes_back_beside_the_widgets():
+    _mock_key_auth()
+    layout = [
+        {"i": "w-1", "x": 0, "y": 0, "w": 6, "h": 4},
+        {"i": "w-2", "x": 6, "y": 0, "w": 6, "h": 4},
+        {"i": "w-gone", "x": 0, "y": 4, "w": 6, "h": 4},
+    ]
+    _mock_detail(_detail([_widget(1), _widget(2)], layout=layout))
+    with patch(RUN, return_value=_rows(1)):
+        resp = TestClient(app).get(PATH, headers=KEY_HEADER)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # A placement for a widget no longer on the dashboard is not a placement.
+    assert body["layout"] == layout[:2]
+    assert "layout" not in body["dashboard"]
 
 
 @respx.mock
@@ -154,6 +177,7 @@ def test_one_widget_failing_does_not_fail_the_dashboard():
     failed = next(w for w in resp.json()["widgets"] if w["status"] == "error")
     assert failed["error"] == "breakdown: field is not groupable"
     assert failed["rows"] is None
+    assert failed["spec"] == QUERY_SPEC
     assert resp.json()["failed"] == 1
 
 
@@ -227,7 +251,7 @@ def test_a_series_over_a_window_with_too_many_buckets_is_an_inline_error():
         )
     assert resp.status_code == 200, resp.text
     widget = resp.json()["widgets"][0]
-    assert widget["status"] == "error" and "run_widget_query" in widget["error"]
+    assert widget["status"] == "error" and "get_widget_data" in widget["error"]
     assert run.call_count == 0
 
 
@@ -245,6 +269,9 @@ def test_query_widgets_past_the_cap_come_back_as_errors_without_running():
     assert [w["id"] for w in body["widgets"]] == [f"w-{i}" for i in range(1, n + 1)]
     statuses = [w["status"] for w in body["widgets"]]
     assert statuses == ["ok"] * DASHBOARD_DATA_QUERY_WIDGET_CAP + ["error"] * 2
+    assert all(
+        "get_widget_data" in w["error"] for w in body["widgets"][DASHBOARD_DATA_QUERY_WIDGET_CAP:]
+    )
     assert "query widgets" in body["widgets"][-1]["error"]
     assert (body["queried"], body["failed"]) == (DASHBOARD_DATA_QUERY_WIDGET_CAP, 2)
 

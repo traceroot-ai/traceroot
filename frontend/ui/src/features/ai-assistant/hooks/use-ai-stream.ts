@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { proposalDeclined } from "../utils/proposal-declined";
-import type { AIMessage } from "../types";
+import type { AIMessage, PendingConfirmation } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
 function generateId(): string {
@@ -48,6 +48,11 @@ interface SessionRun {
    *  from then on. A run that merely finished deregisters itself without it,
    *  so its final updates (freezing its bubble) still count. */
   stopped: boolean;
+  /** Resolves once the run is over — finished, superseded or aborted — for a
+   *  caller that must not open the session's next turn while this one is
+   *  live. */
+  settled: Promise<void>;
+  settle: () => void;
 }
 
 /**
@@ -111,6 +116,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     runsRef.current.delete(sessionId);
     run.reader?.cancel().catch(() => {});
     run.abortController.abort();
+    run.settle();
   }, []);
 
   const clearStreamingFlag = useCallback((sessionId: string) => {
@@ -230,6 +236,18 @@ export function useAIStream(options?: UseAIStreamOptions) {
    */
   const isSessionStreaming = useCallback((sessionId: string) => runsRef.current.has(sessionId), []);
 
+  /**
+   * Resolves once no run owns the session: at once when none does, otherwise
+   * when the live one finishes, is superseded, or is aborted. The service
+   * admits one run per session, so a caller with a message that must follow
+   * the current run — rather than be refused by it — waits on this.
+   */
+  const runSettled = useCallback(
+    (sessionId: string): Promise<void> =>
+      runsRef.current.get(sessionId)?.settled ?? Promise.resolve(),
+    [],
+  );
+
   /** Drop a session entirely (delete): cancel its run and forget its bucket. */
   const removeSession = useCallback(
     (sessionId: string) => {
@@ -269,7 +287,11 @@ export function useAIStream(options?: UseAIStreamOptions) {
       stopRun(sessionId);
 
       const abortController = new AbortController();
-      const run: SessionRun = { abortController, reader: null, stopped: false };
+      let settle!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const run: SessionRun = { abortController, reader: null, stopped: false, settled, settle };
       runsRef.current.set(sessionId, run);
 
       // Void once stopRun has marked this run stopped — superseded/aborted
@@ -380,6 +402,11 @@ export function useAIStream(options?: UseAIStreamOptions) {
         run.reader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
+        // Name from the preceding `event:` line, consumed by the next `data:`
+        // line. The agent's final trace event is a NAMED event whose payload
+        // has no `type` field, so without this it would be silently skipped
+        // and the live turn's steps would never grow their "Open span" links.
+        let namedEvent = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -390,9 +417,41 @@ export function useAIStream(options?: UseAIStreamOptions) {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
+            // A blank line ends the SSE event: a name with no data line of
+            // its own must not leak onto the next event's data.
+            if (line === "") {
+              namedEvent = "";
+              continue;
+            }
+            if (line.startsWith("event: ")) {
+              namedEvent = line.slice(7).trim();
+              continue;
+            }
             if (line.startsWith("data: ")) {
+              // The name is consumed by this data line whether or not it
+              // parses (`event: error` can carry a raw string).
+              const eventName = namedEvent;
+              namedEvent = "";
               try {
                 const eventData = JSON.parse(line.slice(6));
+
+                if (eventName === "trace") {
+                  // {status, traceId} — same fields the persisted row carries,
+                  // so the reloaded session renders the identical footer link.
+                  if (eventData.traceId && eventData.status !== "disabled") {
+                    const lastId = currentTextId ?? lastFrozenId;
+                    if (lastId) {
+                      safeUpdate((prev) =>
+                        prev.map((m) =>
+                          m.id === lastId
+                            ? { ...m, traceId: eventData.traceId, traceStatus: eventData.status }
+                            : m,
+                        ),
+                      );
+                    }
+                  }
+                  continue;
+                }
 
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;
@@ -468,14 +527,23 @@ export function useAIStream(options?: UseAIStreamOptions) {
                   safeUpdate((prev) => [...prev, toolStepMsg]);
                 }
 
-                // A confirm-class write was parked: mark its tool step pending
-                // so the panel can offer the decision. The step normally exists
+                // A confirm- or approval-class write was parked: mark its tool
+                // step pending so the panel can offer the decision. The step normally exists
                 // already (tool_execution_start precedes the park); if the
                 // start event was missed, the entry is appended whole. Keyed by
                 // toolCallId, a superseding event replaces the pending entry in
                 // place — one call can never show two pending cards.
                 if (eventData.type === "confirmation_pending") {
-                  const pending = { decisionId: eventData.decisionId };
+                  // The class decides the card and what a reply does; only
+                  // the two known values are carried, so a future one cannot
+                  // reach the composer as a string it never checks.
+                  const approvalClass = eventData.approvalClass;
+                  const pending: PendingConfirmation = {
+                    decisionId: eventData.decisionId,
+                    ...(approvalClass === "confirm" || approvalClass === "approval"
+                      ? { approvalClass }
+                      : {}),
+                  };
                   safeUpdate((prev) => {
                     if (prev.some((m) => m.id === eventData.toolCallId)) {
                       return prev.map((m) =>
@@ -574,6 +642,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
           runsRef.current.delete(sessionId);
           clearStreamingFlag(sessionId);
         }
+        run.settle();
       }
     },
     [stopRun, updateBucket, clearStreamingFlag],
@@ -595,6 +664,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     messagesBySession,
     streamingSessions,
     isSessionStreaming,
+    runSettled,
     sendMessage,
     setSessionMessages,
     sessionWriteEpoch,

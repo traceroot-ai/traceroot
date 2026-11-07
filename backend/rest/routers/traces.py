@@ -2,10 +2,14 @@
 
 import asyncio
 import logging
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
+from botocore.response import StreamingBody
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
+from pydantic import StringConstraints
 
 from rest.projection import (
     FIELDS_PARAM_DESC,
@@ -33,12 +37,26 @@ from rest.schemas.traces import (
 )
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
+from rest.services.s3 import get_s3_service
 from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.trace_reader import get_trace_reader_service
+from shared.attachments import (
+    ALLOWED_IMAGE_MIME_TYPES,
+    attachment_key,
+    find_attachment_refs,
+    is_attachment_hash,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
+
+# Cap on repeated ?trace_ids= values on the list endpoint — a signal hands back a
+# bounded set of member traces, never an open-ended id list.
+MAX_TRACE_IDS = 100
+
+# A query-param trace id, non-empty like every other id this endpoint accepts.
+_TraceIdParam = Annotated[str, StringConstraints(min_length=1)]
 
 
 @router.get("/exists")
@@ -73,6 +91,12 @@ async def list_traces(
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     name: str | None = Query(None, description="Filter by trace name (partial match)"),
     user_id: str | None = Query(None, description="Filter by user ID (exact match)"),
+    trace_ids: list[_TraceIdParam] | None = Query(
+        None,
+        max_length=MAX_TRACE_IDS,
+        description="Return only these trace ids (repeatable, e.g. ?trace_ids=a&trace_ids=b), "
+        "still subject to the caller's plan retention window like any other lookup.",
+    ),
     start_after: datetime | None = Query(None, description="Filter traces after this timestamp"),
     end_before: datetime | None = Query(None, description="Filter traces before this timestamp"),
     search_query: str | None = Query(
@@ -87,7 +111,16 @@ async def list_traces(
         "which are excluded by default.",
     ),
 ):
-    """List traces for a project with pagination and filtering."""
+    """List traces for a project with pagination and filtering.
+
+    ``trace_ids`` looks up a known, bounded set of traces (e.g. the member traces
+    of a signal), but the lookup still stays inside the caller's plan retention
+    window: the same clamp applied to every other read here also narrows an
+    id-only request, so a trace older than the plan's cutoff is omitted even
+    when it is named explicitly. An explicit ``start_after``/``end_before`` can
+    only narrow that window further, and ``filters`` bring their usual default
+    lookback.
+    """
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -109,6 +142,7 @@ async def list_traces(
             limit=limit,
             name=name,
             user_id=user_id,
+            trace_ids=trace_ids,
             start_after=start_after,
             end_before=end_before,
             search_query=search_query,
@@ -289,10 +323,11 @@ async def get_trace(
     trace_id: str,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
-    source: Literal["detector", "user"] | None = Query(
+    source: Literal["detector", "agent", "user"] | None = Query(
         None,
         description=(
-            "'detector' reads detector self-traces; omitted or 'user' reads customer traffic only"
+            "'detector' reads detector self-traces, 'agent' reads agent (RCA/chat) traces; "
+            "omitted or 'user' reads customer traffic only"
         ),
     ),
 ):
@@ -311,10 +346,11 @@ async def get_trace(
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
             the default `skeleton` projection.
-        source (Literal["detector", "user"] | None): "detector" restricts the
-            read to detector self-traces. "user" and None both restrict it to
-            customer traffic — internal telemetry is opt-in, so omitting the
-            parameter never widens the read.
+        source (Literal["detector", "agent", "user"] | None): "detector"
+            restricts the read to detector self-traces, "agent" to agent
+            (RCA/chat) traces. "user" and None both restrict it to customer
+            traffic — internal telemetry is opt-in, so omitting the parameter
+            never widens the read.
 
     Returns:
         TraceDetailResponse: The trace with span skeletons, plus per-span I/O
@@ -382,3 +418,113 @@ async def get_span_io(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get span I/O",
         ) from e
+
+
+# Span fields an attachment reference may sit in. A hash is served only when one of
+# these references it, so a caller can't fetch an image by guessing its hash.
+_ATTACHMENT_FIELDS = ("input", "output", "metadata")
+_ATTACHMENT_CHUNK_BYTES = 64 * 1024
+# An image is span data like any other, so neither the browser nor a proxy keeps a
+# copy past the retention check that served it.
+_ATTACHMENT_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": "inline",
+}
+
+
+def _stream_and_close(body: StreamingBody) -> Iterator[bytes]:
+    """Yield an object body in chunks, closing it however the response ends."""
+    try:
+        yield from body.iter_chunks(_ATTACHMENT_CHUNK_BYTES)
+    finally:
+        body.close()
+
+
+@router.get("/{trace_id}/spans/{span_id}/attachments/{attachment_hash}")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_span_attachment(
+    request: Request,
+    response: Response,
+    project_id: str,
+    trace_id: str,
+    span_id: str,
+    attachment_hash: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+):
+    """Stream an image that this span's input, output or metadata references.
+
+    Reads customer spans only, since an internal span may quote another trace's
+    reference. 403 outside the retention window; 404 unless the span references a
+    stored image.
+    """
+    if not is_attachment_hash(attachment_hash):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+
+    service = get_trace_reader_service()
+    try:
+        trace_start = await asyncio.to_thread(
+            service.get_trace_start_time, project_id, trace_id, customer_only=True
+        )
+        if trace_start is None:
+            # No root span yet, or none at all: judge retention by the trace's earliest
+            # span instead, so a missing root never lets an expired image through.
+            trace_start = await asyncio.to_thread(
+                service.get_customer_trace_earliest_span_time, project_id, trace_id
+            )
+            if trace_start is None:
+                # The trace has no span, so nothing can reference the image.
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")
+        enforce_retention_by_time(_access.billing_plan, trace_start)
+
+        span_io = await asyncio.to_thread(
+            service.get_span_io,
+            project_id=project_id,
+            trace_id=trace_id,
+            span_id=span_id,
+            customer_only=True,
+        )
+        if not span_io:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")
+
+        if not any(
+            attachment_hash in find_attachment_refs(span_io.get(field))
+            for field in _ATTACHMENT_FIELDS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+
+        stored = await asyncio.to_thread(
+            get_s3_service().get_object_stream, attachment_key(project_id, attachment_hash)
+        )
+        if stored is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+        if stored.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+            stored.body.close()
+            logger.warning(
+                f"Attachment {attachment_hash} in project {project_id} is stored as "
+                f"{stored.content_type!r}, not an allowed image type"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting span attachment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get span attachment",
+        ) from e
+
+    headers = dict(_ATTACHMENT_HEADERS)
+    if stored.content_length is not None:
+        headers["Content-Length"] = str(stored.content_length)
+    return StreamingResponse(
+        _stream_and_close(stored.body), media_type=stored.content_type, headers=headers
+    )

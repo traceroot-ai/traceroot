@@ -1,7 +1,9 @@
+import { randomUUID } from "crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma, syncStandardPrices, ModelSource } from "@traceroot/core";
+import { publicErrorMessage } from "@traceroot/core/public-error";
 import {
   createSession,
   getSession,
@@ -9,6 +11,8 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  executionBelongsToProject,
+  type TurnAttribution,
 } from "./session.js";
 import {
   getOrCreateAgent,
@@ -19,8 +23,22 @@ import {
 import { decisionsRoute } from "./decisions-route.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
 import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
+import {
+  isAgentTraceEnabled,
+  turnTraceId,
+  ROOT_SPAN_NAME,
+  type AgentTraceMeta,
+  type AgentTraceKind,
+} from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
-import { createExecutor } from "./executors/index.js";
+import { createExecutor, sandboxProvider } from "./executors/index.js";
+import { reclaimOrphanedSandboxes } from "./executors/docker.js";
+import {
+  SandboxRegistry,
+  idleTtlMsFromEnv,
+  reclaimOnStartFromEnv,
+  startSandboxHousekeeping,
+} from "./executors/registry.js";
 import {
   clearSessionDeleted,
   fenceExecutorToSession,
@@ -34,7 +52,6 @@ import {
   rememberListener,
 } from "./hot-reload.js";
 import { parseQueryWindow } from "./tools/query-window.js";
-import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "./session.js";
 
@@ -43,8 +60,26 @@ const app = new Hono();
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
-// Per-session executor cache (executor lifecycle tied to session)
-const sessionExecutors = new Map<string, Executor>();
+// Identifies this process to its sandbox containers. Startup reconciliation
+// removes every sandbox that does not carry it, so it must be fresh per process,
+// and agents sharing a Docker host must turn reconciliation off.
+const INSTANCE_ID = randomUUID();
+
+// Per-session executor cache. Sandboxes are also labelled with INSTANCE_ID so a
+// restart can reclaim them without any in-memory state, and the registry expires
+// them on an idle TTL so a session nobody deletes cannot hold one forever.
+const sessionExecutors = new SandboxRegistry({
+  create: (sessionId) =>
+    fenceExecutorToSession(createExecutor({ sessionId, ownerId: INSTANCE_ID }), sessionId),
+  idleTtlMs: idleTtlMsFromEnv(),
+});
+
+/** The self-trace kind of a turn is its attribution's turn kind (the three this route produces). */
+const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKind> = {
+  rca_execution: "rca",
+  rca_followup: "followup",
+  chat: "chat",
+};
 
 // When this module was (re-)executed. Reported by /health so a caller can tell
 // whether the running process predates the sources it is being graded against
@@ -77,13 +112,30 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ title?: string }>();
+  const body = await c.req.json<{ title?: string; executionId?: unknown }>();
+
+  // Every message in this session reaches its execution through the session's
+  // executionId, so an id from another project would attribute this project's
+  // turns to that one. The caller is trusted to reach the route, not to name
+  // an execution: confirm it exists under this project before storing it. A
+  // malformed id is rejected here rather than surfacing later as an FK error
+  // on the session's first message — and rather than being dropped: a caller
+  // that sends an execution id of the wrong shape (a number, "") has a bug,
+  // and silently creating an unattributed session would hide it.
+  const { executionId } = body;
+  if (executionId !== undefined && (typeof executionId !== "string" || executionId.trim() === "")) {
+    return c.json({ error: "executionId must be a non-empty string" }, 400);
+  }
+  if (executionId && !(await executionBelongsToProject(prisma, executionId, projectId))) {
+    return c.json({ error: "executionId does not belong to this project" }, 400);
+  }
 
   const session = await createSession({
     projectId,
     workspaceId,
     userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
+    executionId,
   });
   return c.json(session, 201);
 });
@@ -142,13 +194,9 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const settled = await waitForRunToSettle(sessionId);
 
   try {
-    const executor = sessionExecutors.get(sessionId);
-    if (executor) {
-      // Untracked before destroy: a teardown that throws must not leave a
-      // dead executor in the map for a later request to hand out.
-      sessionExecutors.delete(sessionId);
-      await executor.destroy();
-    }
+    // Untracked before destroy: a teardown that throws must not leave a dead
+    // executor in the registry for a later request to hand out.
+    await sessionExecutors.release(sessionId);
     removeAgent(sessionId);
   } finally {
     // The fence must never outlive the request that raised it, even when the
@@ -176,6 +224,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
+    agentTrace?: { traceId: string; kind: "rca"; metadata: Record<string, unknown> };
     /** The page's selected time range: a preset id, or custom bounds. */
     range?: string;
     start_time?: string;
@@ -213,12 +262,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     window,
   });
 
-  // Get or create executor for this session (lazy — not initialized until tool use)
-  let executor = sessionExecutors.get(sessionId);
-  if (!executor) {
-    executor = fenceExecutorToSession(createExecutor(), sessionId);
-    sessionExecutors.set(sessionId, executor);
-  }
+  // Get or create executor for this session (lazy — not initialized until tool
+  // use). This also marks the session as active for the idle sweep.
+  const executor = sessionExecutors.acquire(sessionId);
 
   // Both tenancy ids come from the ONE session row authorized above — never
   // the raw header or the raw path value — so tools can't be coerced into
@@ -245,8 +291,24 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
+  // Attribution is computed once per turn and applied to every row it
+  // produces (the user message, and every assistant/tool_step row the
+  // persister writes below) so a turn reads as one attributed unit.
+  // A follow-up's author is recorded (the RCA session has no user of its
+  // own); a chat turn's author is the session's user, so nothing is repeated.
+  const attribution = (
+    ownedSession.userId === null
+      ? userId
+        ? { turnKind: "rca_followup" as const, initiatorUserId: userId }
+        : { turnKind: "rca_execution" as const }
+      : { turnKind: "chat" as const }
+  ) satisfies TurnAttribution;
+
   let agent: Agent;
   let sessionManager: SessionManager;
+  // The user row's id is this turn's messageId, used below to derive a
+  // deterministic trace id for follow-up and chat turns.
+  let userRow: Awaited<ReturnType<SessionManager["appendMessage"]>>;
   try {
     ({ agent, sessionManager } = await getOrCreateAgent({
       sessionId,
@@ -262,8 +324,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
     console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-    // Persist user message to DB via SessionManager
-    await sessionManager.appendMessage("user", body.message);
+    // Persist user message to DB via SessionManager, attributed to this turn
+    userRow = await sessionManager.appendMessage("user", body.message, attribution);
 
     // Auto-generate session title from first user message (we already have
     // the session loaded above for the auth check — reuse it).
@@ -277,8 +339,51 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     throw error;
   }
 
-  return streamSSE(c, (stream) =>
-    runAgentStream(stream, {
+  // The trace kind is the attribution's turn kind under another name — one
+  // source of truth for what this turn is. The worker's agentTrace (forced
+  // trace id + finding metadata) is only honoured on an execution turn.
+  const kind = TRACE_KIND[attribution.turnKind];
+  const rcaTrace = kind === "rca" ? body.agentTrace : undefined;
+
+  // A follow-up on a system (RCA) session is a child of the execution that
+  // opened the session — carry its trace/finding ids into the follow-up's own
+  // trace metadata so the two are linkable in the UI. A tracing-only read: it
+  // is skipped when the follow-up will not be traced and can never fail the
+  // turn.
+  let parent: { traceId: string; findingId: string } | null = null;
+  if (kind === "followup" && ownedSession.executionId && isAgentTraceEnabled(kind)) {
+    try {
+      parent = await prisma.detectorRcaExecution.findUnique({
+        where: { id: ownedSession.executionId },
+        select: { traceId: true, findingId: true },
+      });
+    } catch (err) {
+      console.error(`[AgentTrace] parent execution lookup failed for session ${sessionId}:`, err);
+    }
+  }
+
+  const traceMeta: AgentTraceMeta = {
+    traceId: rcaTrace?.traceId ?? turnTraceId(sessionId, userRow.id),
+    projectId,
+    kind,
+    name: ROOT_SPAN_NAME,
+    input: body.message,
+    systemPrompt,
+    metadata: {
+      ...rcaTrace?.metadata,
+      session_id: sessionId,
+      ...(ownedSession.executionId ? { execution_id: ownedSession.executionId } : {}),
+      ...(parent ? { finding_id: parent.findingId, parent_trace_id: parent.traceId } : {}),
+    },
+  };
+
+  return streamSSE(c, (stream) => {
+    // Held for the whole turn: a tool loop can outlast the idle TTL, and without
+    // this the sweeper would tear the sandbox down mid-request.
+    const releaseSandbox = sessionExecutors.retain(sessionId);
+    // .finally, not a trailing call: an aborted or failed turn must give the
+    // sandbox back too, or that session is never swept again.
+    return runAgentStream(stream, {
       agent,
       message: body.message,
       sessionId,
@@ -289,8 +394,10 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       channelUserId: userId,
       isByok: body.source === ModelSource.BYOK,
       sessionManager,
-    }),
-  );
+      attribution,
+      trace: traceMeta,
+    }).finally(releaseSandbox);
+  });
 });
 
 // Graceful shutdown
@@ -301,11 +408,10 @@ async function shutdown(signal: string): Promise<void> {
   isShuttingDown = true;
   console.log(`\n[Agent] Received ${signal}, shutting down...`);
   try {
-    // Destroy all active executors (sandbox containers)
-    for (const [id, executor] of sessionExecutors) {
-      await executor.destroy();
-      sessionExecutors.delete(id);
-    }
+    // Destroy all active executors (sandbox containers) concurrently — N
+    // sequential `docker rm -f` calls can outlast compose's stop grace period,
+    // and everything still alive when SIGKILL lands is leaked.
+    await sessionExecutors.destroyAll();
     await prisma.$disconnect();
     console.log("[Agent] Cleanup complete");
     process.exit(0);
@@ -344,6 +450,17 @@ async function main(): Promise<void> {
   rememberListener(
     serve({ fetch: app.fetch, port: PORT }, (info) => {
       console.log(`[Agent] Listening on http://localhost:${info.port}`);
+      // Reclaim sandboxes left behind by an earlier instance, then expire the
+      // ones this instance stops using. Between them these replace `make reset`
+      // as the only sweeper in the repo. This waits for the port: a duplicate
+      // process that fails with EADDRINUSE must not remove the live sandboxes
+      // of the instance holding it.
+      void startSandboxHousekeeping({
+        provider: sandboxProvider(),
+        registry: sessionExecutors,
+        reclaimOnStart: reclaimOnStartFromEnv(),
+        reclaim: () => reclaimOrphanedSandboxes(INSTANCE_ID),
+      });
     }),
   );
 }

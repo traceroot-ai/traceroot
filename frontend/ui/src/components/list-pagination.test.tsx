@@ -116,4 +116,147 @@ describe("ListPagination", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: /next page/i }));
     expect(onPrefetchPage).not.toHaveBeenCalled();
   });
+
+  it("renders the Showing X–Y of N readout", () => {
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={124}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Showing 101–124 of 124")).toBeDefined();
+  });
+
+  it("allows selecting a limit from the items-per-page popover", () => {
+    const onLimitChange = vi.fn();
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={vi.fn()}
+        onLimitChange={onLimitChange}
+      />,
+    );
+
+    // Click limit button to open popover
+    fireEvent.click(screen.getByRole("button", { name: "50" }));
+    // Click option "100"
+    fireEvent.click(screen.getByRole("button", { name: "100" }));
+    expect(onLimitChange).toHaveBeenCalledWith(100);
+  });
+
+  it("blurs input on Enter key", () => {
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    const blurSpy = vi.spyOn(input, "blur");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(blurSpy).toHaveBeenCalled();
+  });
+
+  it("drops the range from the readout when the page is past the end of the list", () => {
+    // A deep link or a shrunken list can leave the page beyond the last row; the
+    // readout must not claim "Showing 4951–120 of 120".
+    render(
+      <ListPagination
+        page={99}
+        limit={50}
+        total={120}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/Showing/)).toBeNull();
+  });
+
+  it("shows the range on the last, partial page", () => {
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={101}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Showing 101–101 of 101")).toBeDefined();
+  });
+
+  it("renders nothing for an empty list, so no 'Showing 0–0 of 0'", () => {
+    const { container } = render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={0}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("navigates using the labelled first, previous, next and last page buttons", () => {
+    const onPageChange = vi.fn();
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={500} // 10 pages: 0-9
+        onPageChange={onPageChange}
+        onLimitChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(1);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(3);
+    fireEvent.click(screen.getByRole("button", { name: "First page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(0);
+    fireEvent.click(screen.getByRole("button", { name: "Last page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(9);
+  });
+
+  it("disables first/previous on the first page and next/last on the last page", () => {
+    const { rerender } = render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={120}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    const isDisabled = (name: string) =>
+      (screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
+    expect(isDisabled("First page")).toBe(true);
+    expect(isDisabled("Previous page")).toBe(true);
+    expect(isDisabled("Next page")).toBe(false);
+    expect(isDisabled("Last page")).toBe(false);
+
+    rerender(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={120}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(isDisabled("First page")).toBe(false);
+    expect(isDisabled("Next page")).toBe(true);
+    expect(isDisabled("Last page")).toBe(true);
+  });
 });

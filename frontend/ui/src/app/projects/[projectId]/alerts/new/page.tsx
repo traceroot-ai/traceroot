@@ -4,21 +4,19 @@ import { useParams } from "next/navigation";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { AlertForm } from "@/features/alerts/components/alert-form";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 
 export default function NewAlertPage() {
   const params = useParams();
   const projectId = params.projectId as string;
+  const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
 
   return (
     <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <PageBackHeader
-          backHref={`/projects/${projectId}/alerts`}
-          backLabel="Alerts"
-          title="New Alert"
-        />
+        <PageBackHeader backHref={listHref} backLabel="Alerts" title="New Alert" />
 
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <AlertForm projectId={projectId} />

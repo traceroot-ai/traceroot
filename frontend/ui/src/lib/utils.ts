@@ -39,29 +39,33 @@ export function buildUrlWithFilters(
 
 /**
  * Format duration in milliseconds to human readable string.
- * e.g., 1500 -> "1.5s", 150 -> "150ms", 65000 -> "1m 5s", 3700000 -> "1h 1m"
+ * e.g., 1500 -> "1.5s", 150 -> "150ms", 65000 -> "1m 5s", 3660000 -> "1h 1m"
  */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "-";
 
-  if (ms < 1000) {
-    return `${Math.round(ms)}ms`;
+  // Round to the displayed precision BEFORE picking a unit and splitting, so a
+  // remainder can never round up into a full unit ("1m 60s", "1h 60m", "60.0s").
+  const roundedMs = Math.round(ms);
+  if (roundedMs < 1000) {
+    return `${roundedMs}ms`;
   }
 
-  if (ms < 60000) {
-    return `${(ms / 1000).toFixed(1)}s`;
+  const tenthsOfSecond = Math.round(ms / 100);
+  if (tenthsOfSecond < 600) {
+    return `${(tenthsOfSecond / 10).toFixed(1)}s`;
+  }
+
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 3600) {
+    return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
   }
 
   // For >= 1 hour, show hours and minutes
-  if (ms >= 3600000) {
-    const hours = Math.floor(ms / 3600000);
-    const minutes = Math.round((ms % 3600000) / 60000);
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.round((ms % 60000) / 1000);
-  return `${minutes}m ${seconds}s`;
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
 const _compactTokenFormatter = new Intl.NumberFormat("en-US", {

@@ -284,3 +284,112 @@ describe("auth header helpers", () => {
     });
   });
 });
+
+describe("dispatch on edit entries", () => {
+  function makePatchEntry(): RegistryEntry {
+    return {
+      name: "update_dashboard",
+      description: "Update a dashboard.",
+      method: "patch",
+      path: "/api/v1/public/dashboards/{dashboard_id}",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dashboard_id: { type: "string" },
+          project_id: { type: "string" },
+          name: { type: ["string", "null"] },
+          description: { type: ["string", "null"] },
+        },
+        required: ["dashboard_id", "project_id"],
+        additionalProperties: false,
+      },
+      bodyParams: ["description", "name", "project_id"],
+      policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
+    };
+  }
+
+  it("forwards an explicit null in a PATCH body (clear) and omits undefined (untouched)", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    await dispatch(
+      makePatchEntry(),
+      { dashboard_id: "d1", project_id: "p1", description: null, name: undefined },
+      client,
+    );
+    const [method, path, opts] = requestSpy.mock.calls[0]!;
+    expect(method).toBe("patch");
+    expect(path).toBe("/api/v1/public/dashboards/d1");
+    expect(opts!.body).toStrictEqual({ project_id: "p1", description: null });
+    expect("name" in (opts!.body as Record<string, unknown>)).toBe(false);
+    const [, init] = fetchImpl.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(init.method).toBe("PATCH");
+    // Body keys follow the entry's (sorted) bodyParams order.
+    expect(init.body).toBe('{"description":null,"project_id":"p1"}');
+  });
+
+  it("still drops an explicit null from a POST body", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    await dispatch(
+      { ...makePatchEntry(), method: "post", path: "/api/v1/public/dashboards" },
+      { project_id: "p1", name: "ops", description: null },
+      client,
+    );
+    const [method, , opts] = requestSpy.mock.calls[0]!;
+    expect(method).toBe("post");
+    expect(opts!.body).toStrictEqual({ project_id: "p1", name: "ops" });
+  });
+
+  it("sends a DELETE entry's args as path + query with no body, dropping null and undefined", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    const remove: RegistryEntry = {
+      name: "delete_dashboard",
+      description: "Delete a dashboard.",
+      method: "delete",
+      path: "/api/v1/public/dashboards/{dashboard_id}",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dashboard_id: { type: "string" },
+          project_id: { type: "string" },
+          reason: { type: "string" },
+          dry_run: { type: "boolean" },
+          note: { type: "string" },
+        },
+        required: ["dashboard_id", "project_id", "reason"],
+        additionalProperties: false,
+      },
+      policy: { approvalClass: "approval", minRole: "MEMBER", tenancy: "project" },
+    };
+    await dispatch(
+      remove,
+      {
+        dashboard_id: "d1",
+        project_id: "p1",
+        reason: "no longer used",
+        dry_run: null,
+        note: undefined,
+      },
+      client,
+    );
+    const [method, path, opts] = requestSpy.mock.calls[0]!;
+    expect(method).toBe("delete");
+    expect(path).toBe("/api/v1/public/dashboards/d1");
+    expect(opts).toStrictEqual({
+      params: { project_id: "p1", reason: "no longer used" },
+      signal: undefined,
+    });
+    expect("body" in opts!).toBe(false);
+    const [url, init] = fetchImpl.mock.calls[0]! as unknown as [string, RequestInit];
+    const parsed = new URL(url);
+    expect(init.method).toBe("DELETE");
+    expect(init).not.toHaveProperty("body");
+    expect(parsed.searchParams.get("reason")).toBe("no longer used");
+    expect(parsed.searchParams.has("dry_run")).toBe(false);
+    expect(parsed.searchParams.has("note")).toBe(false);
+  });
+});

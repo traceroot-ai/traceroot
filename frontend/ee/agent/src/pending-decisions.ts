@@ -48,6 +48,14 @@ const MAX_DECLINES = 500;
 
 export type DecisionAction = "create" | "skip" | "revise";
 
+/**
+ * The registry's approval classes a park can carry. A confirm park (creates
+ * and updates) takes create, skip or revise; an approval park (deletes) takes
+ * only create or skip — a revise on it settles as a skip, since a delete is
+ * never re-proposed from typed changes.
+ */
+export type ParkApprovalClass = "confirm" | "approval";
+
 /** What a parked hook receives when its decision resolves. */
 export type DecisionOutcome =
   | { action: "create" }
@@ -75,6 +83,9 @@ export interface ConfirmationPendingEvent {
   toolCallId: string;
   toolName: string;
   args: unknown;
+  /** How the panel renders the card: a confirm card, or the destructive
+   *  approval card whose only answers are the button and skip. */
+  approvalClass: ParkApprovalClass;
 }
 
 /**
@@ -140,6 +151,7 @@ interface PendingEntry {
   toolCallId: string;
   toolName: string;
   args: unknown;
+  approvalClass: ParkApprovalClass;
   createdAt: number;
   resolve: (outcome: DecisionOutcome) => void;
   timeout: NodeJS.Timeout;
@@ -205,7 +217,14 @@ export class PendingDecisions {
    * Throws ParkRefusedError when the session or the service already holds
    * as many parked decisions as the bounds allow; nothing is registered then.
    */
-  park(input: { sessionId: string; toolCallId: string; toolName: string; args: unknown }): {
+  park(input: {
+    sessionId: string;
+    toolCallId: string;
+    toolName: string;
+    args: unknown;
+    /** Defaults to confirm; an approval park settles a revise as a skip. */
+    approvalClass?: ParkApprovalClass;
+  }): {
     decisionId: string;
     outcome: Promise<DecisionOutcome>;
   } {
@@ -223,6 +242,7 @@ export class PendingDecisions {
         toolCallId: input.toolCallId,
         toolName: input.toolName,
         args: input.args,
+        approvalClass: input.approvalClass ?? "confirm",
         createdAt: Date.now(),
         resolve,
         timeout,
@@ -236,6 +256,10 @@ export class PendingDecisions {
    * Resolve a parked decision on the user's behalf. The sessionId must match
    * the one the decision was parked under — a mismatch is indistinguishable
    * from an unknown id so callers cannot probe other sessions' decisions.
+   *
+   * A revise on an approval-class park (a delete) settles as a skip: there is
+   * no revise-by-typing for a destructive call, so typed text can only mean
+   * "not this", never "this, changed".
    */
   decide(
     decisionId: string,
@@ -254,7 +278,7 @@ export class PendingDecisions {
     const outcome: DecisionOutcome =
       request.action === "create"
         ? { action: "create" }
-        : request.action === "revise"
+        : request.action === "revise" && entry.approvalClass !== "approval"
           ? { action: "revise", text: request.text ?? "" }
           : { action: "skip", reason: userSkipReason(entry.toolName) };
     this.settle(entry, outcome);

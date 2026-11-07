@@ -1,10 +1,11 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership, type Role } from "@/lib/auth-helpers";
 import { prisma } from "@traceroot/core";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
@@ -26,7 +27,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   });
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_request: NextRequest, { params }: RouteParams) {
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
@@ -39,3 +40,5 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   await prisma.slackIntegration.deleteMany({ where: { workspaceId } });
   return NextResponse.json({ ok: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const DELETE = withImpersonationPolicy(handleDELETE);

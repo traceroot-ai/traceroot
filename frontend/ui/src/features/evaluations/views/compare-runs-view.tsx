@@ -33,9 +33,17 @@ const RUN_DOTS = [
 ];
 
 // ── Formatters ────────────────────────────────────────────────────────────
+const isUnitScore = (v: number) => v >= 0 && v <= 1;
+const fmtPlainNumber = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
 /** A [0,1] score reads as a percentage; anything else as a trimmed number. */
-const fmtScoreNumber = (v: number) =>
-  v >= 0 && v <= 1 ? pctFraction(v) : Number.isInteger(v) ? String(v) : v.toFixed(2);
+const fmtScoreNumber = (v: number) => (isUnitScore(v) ? pctFraction(v) : fmtPlainNumber(v));
+/** A score change reads in the scale of the two scores it compares: on a 1–5 rubric
+ *  4 -> 5 is +1, not +100%, even though the difference itself falls in [0,1]. */
+const fmtScoreDelta = (delta: number, value: number, base: number) =>
+  isUnitScore(value) && isUnitScore(base)
+    ? pctFraction(delta)
+    : // Round off float noise (4.1 - 3.1 = 0.9999999999999996) so a whole point reads "1".
+      fmtPlainNumber(Math.round(delta * 100) / 100);
 const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
 const fmtCost = (n: number) => `$${n.toFixed(4)}`;
 /** A scorer's value as a comparable number (booleans/pass-fail fold to 1/0). */
@@ -146,6 +154,7 @@ function NumericStack({
   dotFor,
   get,
   fmt,
+  fmtDelta,
   higherIsBetter,
 }: {
   ordered: Bundle[];
@@ -153,6 +162,8 @@ function NumericStack({
   dotFor: (runId: string) => string;
   get: (b: Bundle) => number | null;
   fmt: (n: number) => string;
+  /** Formats a change against the baseline; defaults to `fmt`. */
+  fmtDelta?: (delta: number, value: number, base: number) => string;
   higherIsBetter: boolean;
 }) {
   const base = get(baseline);
@@ -169,7 +180,13 @@ function NumericStack({
           node: (
             <span className="whitespace-nowrap">
               {v === null ? "—" : fmt(v)}
-              {delta !== null && <Delta value={delta} fmt={fmt} higherIsBetter={higherIsBetter} />}
+              {delta !== null && (
+                <Delta
+                  value={delta}
+                  fmt={fmtDelta ? (d) => fmtDelta(d, v!, base!) : fmt}
+                  higherIsBetter={higherIsBetter}
+                />
+              )}
             </span>
           ),
         };
@@ -441,6 +458,7 @@ export function CompareRunsView({
                           dotFor={dotFor}
                           get={(b) => agg.scorer.get(name)?.get(b.run.id) ?? null}
                           fmt={fmtScoreNumber}
+                          fmtDelta={fmtScoreDelta}
                           higherIsBetter={higherFor(name)}
                         />
                       </Td>
@@ -582,6 +600,7 @@ function CaseRow({
               dotFor={dotFor}
               get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
               fmt={fmtScoreNumber}
+              fmtDelta={fmtScoreDelta}
               higherIsBetter={higherFor(name)}
             />
           </Td>

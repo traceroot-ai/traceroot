@@ -238,7 +238,7 @@ type TypedValue =
   | { kind: "missing" };
 
 /** Resolve one score row into a typed value / error / missing. */
-function readScore(score: ComparisonScore | undefined | null): TypedValue {
+export function readScore(score: ComparisonScore | undefined | null): TypedValue {
   if (!score) return { kind: "missing" };
   if (score.error !== null && score.error !== undefined) return { kind: "error" };
   if (score.boolValue !== null && score.boolValue !== undefined) {
@@ -253,8 +253,28 @@ function readScore(score: ComparisonScore | undefined | null): TypedValue {
   return { kind: "missing" }; // present row, no value and no error → nothing to compare
 }
 
+/**
+ * One score per scorer name for a single result.
+ *
+ * A result can legitimately carry more than one row for the same scorer name (a scorer
+ * version bump, or a delayed re-score) — pick a winner that doesn't depend on the order
+ * the caller's rows arrived in (that order is undefined for a bare Prisma `include`, and
+ * differs between callers), so the same data classifies the same way everywhere. Highest
+ * scorerVersion wins.
+ */
+export function latestScoreByName(
+  scores: readonly ComparisonScore[] | undefined,
+): Map<string, ComparisonScore> {
+  const m = new Map<string, ComparisonScore>();
+  for (const s of scores ?? []) {
+    const existing = m.get(s.scorerName);
+    if (!existing || s.scorerVersion > existing.scorerVersion) m.set(s.scorerName, s);
+  }
+  return m;
+}
+
 /** Default direction when the SDK didn't declare one. */
-function defaultDirection(valueType: ScorerValueType): ScorerDirection {
+export function defaultDirection(valueType: ScorerValueType): ScorerDirection {
   return valueType === "categorical" ? "none" : "higher_is_better";
 }
 
@@ -337,22 +357,6 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
   let durBaseSum = 0;
   let durPairs = 0;
 
-  const scoreByName = (r: ComparisonResult | undefined) => {
-    const m = new Map<string, ComparisonScore>();
-    if (r) {
-      for (const s of r.scores) {
-        // A result can legitimately carry more than one row for the same scorer name
-        // (a scorer version bump, or a delayed re-score) — pick a winner that doesn't
-        // depend on the order the caller's rows arrived in (that order is undefined
-        // for a bare Prisma `include`, and differs between callers), so the same data
-        // classifies the same way everywhere. Highest scorerVersion wins.
-        const existing = m.get(s.scorerName);
-        if (!existing || s.scorerVersion > existing.scorerVersion) m.set(s.scorerName, s);
-      }
-    }
-    return m;
-  };
-
   // Iterate the union of test-case ids so an unpaired case on either side is counted.
   const allCaseIds = new Set<string>([
     ...candidateResults.map((r) => r.testCaseId),
@@ -368,8 +372,8 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
         : "candidate_only"
       : "baseline_only";
 
-    const candScores = scoreByName(cand);
-    const baseScores = scoreByName(base);
+    const candScores = latestScoreByName(cand?.scores);
+    const baseScores = latestScoreByName(base?.scores);
     const scorerNames = new Set<string>([...candScores.keys(), ...baseScores.keys()]);
 
     const scorerCells: ScorerCellComparison[] = [];

@@ -30,6 +30,7 @@ vi.mock("next/navigation", () => ({
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Role } from "@traceroot/core";
+import { SettingsAccessGate } from "../../demo-access";
 import { GeneralTab } from "./GeneralTab";
 
 function renderTab() {
@@ -113,5 +114,24 @@ describe("GeneralTab workspace delete dialog", () => {
     // Verify delete was called exactly once
     expect(mocks.deleteWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.deleteWorkspace).toHaveBeenCalledWith("w1");
+  });
+});
+
+describe("GeneralTab inside the demo viewer read-only gate", () => {
+  it("shows the workspace settings but disables every input and button", () => {
+    const qc = new QueryClient();
+    mocks.workspace.role = Role.VIEWER;
+    render(
+      <QueryClientProvider client={qc}>
+        <SettingsAccessGate access={{ mode: "read-only" }}>
+          <GeneralTab workspaceId="w1" />
+        </SettingsAccessGate>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByDisplayValue("Acme Corp")).toBeTruthy();
+    const controls = [...screen.queryAllByRole("textbox"), ...screen.queryAllByRole("button")];
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) expect(control.matches(":disabled")).toBe(true);
   });
 });

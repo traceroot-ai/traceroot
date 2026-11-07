@@ -64,7 +64,7 @@ vi.mock("@/lib/auth-client", () => ({
 const stringField = (label: string, extra: Record<string, unknown> = {}) => ({
   type: "string",
   label,
-  filterOps: ["=", "contains"],
+  filterOps: ["=", "contains", "in"],
   groupable: true,
   ...extra,
 });
@@ -77,7 +77,7 @@ const SPANS_SCHEMA_FIELDS = {
   span_kind: stringField("Span kind"),
   name: stringField("Span name"),
   is_root: stringField("Root span"),
-  metadata: stringField("Metadata", { requiresKey: true }),
+  metadata: stringField("Metadata", { requiresKey: true, filterOps: ["=", "contains"] }),
 };
 
 // The engine's numeric set. `count` is absent: the engine reserves it for the count(*) sentinel.
@@ -96,6 +96,7 @@ const DEFAULT_POSTED_RULE = {
   thresholdOperator: ">",
   threshold: 500,
   renotify: { mode: "OFF" },
+  noDataMode: "HOLD",
 };
 
 import { AlertForm, type AlertDraft } from "./alert-form";
@@ -108,6 +109,7 @@ const SAVED_DRAFT: AlertDraft = {
   operator: ">",
   threshold: "250",
   window: "1h",
+  noDataMode: "NOTIFY",
   renotify: { mode: "OFF" },
   name: "Checkout latency",
 };
@@ -126,6 +128,7 @@ describe("AlertForm", () => {
     props: {
       alertId?: string;
       initialDraft?: AlertDraft;
+      hasOpenPage?: boolean;
       schemaPending?: boolean;
       schemaError?: boolean;
       /** A background refetch failed but the cached schema is still there. */
@@ -227,18 +230,30 @@ describe("AlertForm", () => {
 
   const previewBucketSeconds = () => mocks.useWidgetPreview.mock.calls.at(-1)?.[3];
 
-  it("saves the window the Conditions section shows, not the one the form opened on", async () => {
+  it("saves the window the Condition section shows, not the one the form opened on", async () => {
     const fetchMock = stubCreateSuccess();
     renderForm();
     openSelect("window");
-    fireEvent.click(await screen.findByRole("option", { name: "Last 1h" }));
+    fireEvent.click(await screen.findByRole("option", { name: "1h" }));
     fillRequiredFields();
     fireEvent.click(saveButton());
 
     // The default is 10m, so a window that never reached the draft would post by accident.
-    expect(screen.getByLabelText("window").textContent).toContain("Last 1h");
+    expect(screen.getByLabelText("window").textContent).toContain("1h");
     await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
     expect(postedRule(fetchMock).window).toBe("1h");
+  });
+
+  it("saves the no-data mode the Notify section shows", async () => {
+    const fetchMock = stubCreateSuccess();
+    renderForm();
+    openSelect("no data mode");
+    fireEvent.click(await screen.findByRole("option", { name: "Notify when data stops" }));
+    fillRequiredFields();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
+    expect(postedRule(fetchMock).noDataMode).toBe("NOTIFY");
   });
 
   it("offers a numeric measure the engine-runnable aggregations, count excluded", async () => {
@@ -281,12 +296,12 @@ describe("AlertForm", () => {
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts"));
   });
 
-  it("charts the preview on the window the Conditions section shows", async () => {
+  it("charts the preview on the window the Condition section shows", async () => {
     renderForm();
     expect(previewBucketSeconds()).toBe(DEFAULT_BUCKET_SECONDS);
 
     openSelect("window");
-    fireEvent.click(await screen.findByRole("option", { name: "Last 1h" }));
+    fireEvent.click(await screen.findByRole("option", { name: "1h" }));
 
     // A chart bucketed on anything else describes a rule the user is not writing.
     expect(previewBucketSeconds()).toBe(3600);
@@ -303,6 +318,16 @@ describe("AlertForm", () => {
     // The draft is still on screen to edit, not thrown away by a navigation.
     expect(mocks.push).not.toHaveBeenCalled();
     expect((screen.getByLabelText("name") as HTMLInputElement).value).toBe("p95 latency");
+  });
+
+  it("offers only the operators an alert stores, not the engine's `in`", async () => {
+    renderForm();
+    fireEvent.click(screen.getByRole("button", { name: /Add filter/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Field/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "Span kind" }));
+    fireEvent.click(screen.getByRole("button", { name: "is" }));
+    expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "is any of" })).toBeNull();
   });
 
   it("drops a filter row with no value from the saved rule", async () => {
@@ -395,6 +420,19 @@ describe("AlertForm", () => {
       expect(previewMetrics()).not.toContainEqual({ measure: "count", agg: "count" });
     });
 
+    it("warns, without blocking the save, when the rule has an alert open", () => {
+      const hint = /Saving a change to its conditions will close it and post an \[OK\]\s+to Slack/;
+
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT, hasOpenPage: true });
+      expect(screen.getByText(hint)).toBeTruthy();
+      const save = screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      expect(save.disabled).toBe(false);
+      cleanup();
+
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      expect(screen.queryByText(hint)).toBeNull();
+    });
+
     it("saves by PATCHing the whole rule to the alert's own url", async () => {
       const fetchMock = stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
@@ -418,6 +456,8 @@ describe("AlertForm", () => {
         thresholdOperator: ">",
         threshold: 250,
         renotify: { mode: "OFF" },
+        // A stored non-default mode survives an edit that never touched it.
+        noDataMode: "NOTIFY",
       });
     });
 
@@ -456,6 +496,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -478,6 +519,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -500,6 +542,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -507,5 +550,46 @@ describe("AlertForm", () => {
     // the cached registry still resolves the field: the normal controls, not a warning row
     expect(screen.getByRole("button", { name: "Span kind" })).toBeTruthy();
     expect(screen.queryByRole("alert", { name: /Filter fields unavailable/ })).toBeNull();
+  });
+
+  describe("returning to the alerts list", () => {
+    // What the list page records for the page the user opened the form from.
+    const rememberListPage = () =>
+      sessionStorage.setItem("list-return:alerts:proj-1", "page_index=2&page_limit=10");
+    const rememberedList = "/projects/proj-1/alerts?page_index=2&page_limit=10";
+
+    afterEach(() => sessionStorage.clear());
+
+    it("cancels back to the list page the user came from", () => {
+      rememberListPage();
+      stubCreateSuccess();
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(mocks.push).toHaveBeenCalledWith(rememberedList);
+    });
+
+    it("returns to the list page the user came from after saving an edit", async () => {
+      rememberListPage();
+      stubFetch({ alert: { id: "alert-9" } });
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(rememberedList));
+    });
+
+    it("returns to the list page the user came from after creating a rule", async () => {
+      rememberListPage();
+      stubCreateSuccess();
+      renderForm();
+      fillRequiredFields();
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(rememberedList));
+    });
+
+    it("falls back to the bare list when no list page was recorded", async () => {
+      stubFetch({ alert: { id: "alert-9" } });
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts"));
+    });
   });
 });

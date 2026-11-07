@@ -75,7 +75,7 @@ describe("POST /api/internal/validate-session-live", () => {
 
     expect(findUniqueMock).toHaveBeenCalledWith({
       where: { id: "s1" },
-      select: { expiresAt: true },
+      select: { expiresAt: true, impersonatedBy: true },
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ live: true });
@@ -88,6 +88,15 @@ describe("POST /api/internal/validate-session-live", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ live: false });
+  });
+  it("rejects impersonated sessions even before their expiry", async () => {
+    findUniqueMock.mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60000),
+      impersonatedBy: "staff",
+    });
+    expect(await (await POST(makeRequest({ sessionId: "impersonated" }))).json()).toEqual({
+      live: false,
+    });
   });
 
   it("returns live:false for a session row that has already expired", async () => {

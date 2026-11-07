@@ -160,6 +160,33 @@ describe("AlertPreview", () => {
     expect(previewGeometry("p95", DENSE_RESULT).dots).toBe(0);
   });
 
+  it("labels the rows with the unit of the query that returned them, not the live draft", () => {
+    // keepPreviousData: the draft is already cost, the rows on screen are still latency's.
+    mocks.useWidgetPreview.mockReturnValue({
+      isPending: false,
+      error: null,
+      isPlaceholderData: true,
+      data: {
+        spec: {
+          view: "spans",
+          filters: [],
+          metric: { measure: "duration_ms", agg: "p95" },
+          breakdown: null,
+          display: { type: "line" },
+        },
+        result: GAPPY_RESULT,
+      },
+    });
+    const { container } = renderPreview({
+      measureId: "cost",
+      aggregation: "sum",
+      threshold: "100",
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Alert > 100 ms");
+    expect(text).not.toContain("$");
+  });
+
   it("shows the unavailable state for a combination the engine cannot run", () => {
     mocks.useWidgetPreview.mockReturnValue({ isPending: true, error: null, data: undefined });
     // count on a numeric column: the engine reserves count for its count(*) sentinel.

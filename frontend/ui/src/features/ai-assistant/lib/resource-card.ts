@@ -1,6 +1,7 @@
 /**
  * Turns a completed write-tool step into the card the assistant panel shows in
- * place of the plain tool line — the receipt for a resource the agent created.
+ * place of the plain tool line — the receipt for a resource the agent created,
+ * changed or deleted — and a parked one into the proposal card the user judges.
  *
  * Two rules shape everything here:
  * - The resource's identity comes from the step's structured `details`, read
@@ -20,6 +21,7 @@ import {
   ALERT_THRESHOLD_OPERATOR_LABELS,
   ALERT_THRESHOLD_OPERATOR_PHRASES,
   describeAlertFilter,
+  getAlertUnit,
   getMeasure,
   isAlertAggregation,
   isAlertSeverity,
@@ -27,6 +29,7 @@ import {
   isAlertThresholdOperator,
   isAlertView,
   isAlertWindow,
+  withAlertUnit,
   type AlertAggregation,
   type AlertFilter,
   type AlertSeverity,
@@ -38,8 +41,13 @@ import {
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
-import { resolveSiteRange } from "@/features/dashboards/range-presets";
-import type { DateFilterOption } from "@/lib/date-filter";
+import { findRangePreset, resolveSiteRange } from "@/features/dashboards/range-presets";
+import {
+  clampDateFilter,
+  DATE_FILTER_OPTIONS,
+  formatDateRange,
+  type DateFilterOption,
+} from "@/lib/date-filter";
 import {
   isWidgetType,
   parseSpec,
@@ -48,9 +56,17 @@ import {
 } from "@/features/dashboards/types";
 import {
   appendWidgetPlacement,
+  placeWidgets,
   type WidgetPlacement,
 } from "@/features/dashboards/widget-placement";
-import { resourceCreatedDetails, type ResourceCreatedDetails } from "./resource-created";
+import {
+  resourceCreatedDetails,
+  resourceDeletedDetails,
+  resourceUpdatedDetails,
+  type ResourceCreatedDetails,
+  type ResourceDeletedDetails,
+  type ResourceUpdatedDetails,
+} from "./resource-created";
 import type { AIMessage, ToolCallStep } from "../types";
 
 /** The resource types that have a card body; anything else keeps the tool line. */
@@ -87,6 +103,16 @@ export interface WidgetChart {
   projectId: string;
   spec: WidgetSpec;
   range: DateFilterOption;
+  /** Set when the window is a fixed span rather than a preset: a read the
+   *  server answered for explicit bounds, or one it clamped. The plot draws
+   *  exactly these bounds and `range` only carries their label. */
+  bounds?: CardBounds;
+}
+
+/** A frozen absolute window, as ISO instants. */
+export interface CardBounds {
+  start: string;
+  end: string;
 }
 
 /**
@@ -101,10 +127,19 @@ export interface PreviewTile {
   id: string;
   title: string;
   projectId: string;
-  widget: { type: WidgetType; spec: Record<string, unknown> };
+  /** Null for a widget kind the dashboard draws no body for (a legacy
+   *  detector widget): the tile keeps its place and title, empty, as the
+   *  dashboard itself shows it. */
+  widget: { type: WidgetType; spec: Record<string, unknown> } | null;
   /** The window this tile queries, snapshotted when the card model was built
    *  so the card's header and the preview cannot name different ranges. */
   range: DateFilterOption;
+  /** The fixed span to draw instead of the preset, as on WidgetChart. */
+  bounds?: CardBounds;
+  /** Why a read did not answer this widget. Such a tile draws the reason
+   *  and queries nothing: the server refused or failed that query, and the
+   *  card must not run it again past the read's own limits. */
+  notice?: string;
   x: number;
   y: number;
   w: number;
@@ -136,7 +171,21 @@ export type ResourceCardBody =
   | { kind: "dashboard"; tiles: PreviewTile[] }
   | { kind: "receipt"; rows: ReceiptRow[] }
   | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null }
-  | { kind: "alert"; chips: string[]; chart: AlertChart | null };
+  | { kind: "alert"; chips: string[]; chart: AlertChart | null }
+  | { kind: "changes"; chips: string[]; preview: ChangePreview | null }
+  | { kind: "delete"; reason: string; cascade: string | null; chips: string[] }
+  | { kind: "notice"; chips: string[]; text: string };
+
+/**
+ * What an edit card can picture beside its change chips: the widget's new
+ * spec drawn as its chart, the alert's edited rule drawn the way the alert
+ * form previews it, or a detector's new prompt. Null when the edit touches
+ * nothing a picture could show (a rename, a sample rate).
+ */
+export type ChangePreview =
+  | { kind: "widget"; chart: WidgetChart }
+  | { kind: "alert"; chart: AlertChart }
+  | { kind: "prompt"; prompt: DetectorPrompt };
 
 /**
  * A threshold rule as the alert form and the evaluator both read it. Every
@@ -177,6 +226,10 @@ export interface ResourceCardModel {
   resourceId: string;
   /** false when the write was idempotent and an existing resource was reused. */
   created: boolean;
+  /** What a receipt is the receipt of, when not a create: the footer labels it. */
+  outcome?: "updated" | "deleted";
+  /** True on the card of a proposed delete: the card reads as destructive. */
+  destructive?: boolean;
   title: string;
   /** Parts of the footer's meta line, joined by the renderer. */
   meta: string[];
@@ -328,7 +381,9 @@ function detectorChips(args: Record<string, unknown>): string[] {
   if (typeof args.sample_rate === "number" && Number.isFinite(args.sample_rate)) {
     chips.push(`sample ${args.sample_rate}%`);
   }
-  if (typeof args.enable_rca === "boolean") chips.push(args.enable_rca ? "RCA on" : "RCA off");
+  if (typeof args.enable_rca === "boolean") {
+    chips.push(args.enable_rca ? "RCA automatic" : "RCA manual");
+  }
   const detectionModel = str(args.detection_model);
   if (detectionModel !== null) chips.push(`model ${detectionModel}`);
 
@@ -343,20 +398,19 @@ function detectorChips(args: Record<string, unknown>): string[] {
   return chips;
 }
 
-/**
- * The unit a measure's threshold is stated in, where the bare number would
- * mislead. Keyed by alert measure id; mirrors FIELD_UNIT in the filter
- * controls, which keys the same two units by engine field.
- */
-const MEASURE_UNITS: Record<string, { prefix?: string; suffix?: string }> = {
-  latency: { suffix: " ms" },
-  cost: { prefix: "$" },
-};
+const SMALL_CURRENCY_THRESHOLD_FORMAT = new Intl.NumberFormat("en-US", {
+  maximumSignificantDigits: 3,
+  useGrouping: false,
+});
 
-/** "2000" as "2,000 ms", "5" as "$5": the threshold in the measure's unit. */
-function thresholdWords(measure: string, threshold: number): string {
-  const unit = MEASURE_UNITS[measure] ?? {};
-  return `${unit.prefix ?? ""}${threshold.toLocaleString("en-US")}${unit.suffix ?? ""}`;
+/** "2000" as "2,000 ms", "5" as "$5": the threshold in the rule's unit. */
+function thresholdWords(measure: string, aggregation: string, threshold: number): string {
+  const unit = getAlertUnit(measure, aggregation);
+  const value =
+    unit?.prefix === "$" && Math.abs(threshold) < 1
+      ? SMALL_CURRENCY_THRESHOLD_FORMAT.format(threshold)
+      : threshold.toLocaleString("en-US");
+  return withAlertUnit(value, unit);
 }
 
 /**
@@ -445,7 +499,7 @@ function alertChips(record: Record<string, unknown>): string[] {
     const label = isAlertThresholdOperator(operator)
       ? ALERT_THRESHOLD_OPERATOR_LABELS[operator]
       : operator;
-    chips.push(`${label} ${thresholdWords(measure ?? "", threshold)}`);
+    chips.push(`${label} ${thresholdWords(measure ?? "", aggregation ?? "", threshold)}`);
   }
 
   const filters = alertFilters(record).map(describeAlertFilter);
@@ -477,7 +531,7 @@ function alertRuleSummary(record: Record<string, unknown>): string | null {
   if (rule === null) return null;
   const label = getMeasure(rule.view, rule.measure)?.label.toLowerCase() ?? rule.measure;
   const subject = rule.aggregation === "count" ? "count" : `${rule.aggregation} ${label}`;
-  return `${subject} ${ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator]} ${thresholdWords(rule.measure, rule.threshold)} over ${rule.window}`;
+  return `${subject} ${ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator]} ${thresholdWords(rule.measure, rule.aggregation, rule.threshold)} over ${rule.window}`;
 }
 
 /** How an aggregation reads before its measure in a sentence: "total cost", "p95 latency". */
@@ -511,7 +565,7 @@ function alertRuleSentence(record: Record<string, unknown>): string | null {
     rule.aggregation === "count"
       ? "span count"
       : `${AGGREGATION_WORDS[rule.aggregation] ?? rule.aggregation} ${label}`;
-  return `${subject} over ${windowWords(rule.window)} is ${ALERT_THRESHOLD_OPERATOR_PHRASES[rule.operator]} ${thresholdWords(rule.measure, rule.threshold)}`;
+  return `${subject} over ${windowWords(rule.window)} is ${ALERT_THRESHOLD_OPERATOR_PHRASES[rule.operator]} ${thresholdWords(rule.measure, rule.aggregation, rule.threshold)}`;
 }
 
 /**
@@ -696,7 +750,10 @@ function pathSegment(value: unknown): string | null {
  * project or workspace receipt opens nothing: the panel is scoped to one
  * project, and the receipt is the whole story of the write.
  */
-function resourceHref(resourceType: CardResourceType, details: ResourceCreatedDetails) {
+function resourceHref(
+  resourceType: CardResourceType,
+  details: { projectId?: unknown; resourceId: string; dashboardId?: unknown },
+) {
   const projectId = pathSegment(details.projectId);
   if (projectId === null) return null;
   switch (resourceType) {
@@ -778,6 +835,10 @@ export function resourceCardModel(
   widgetsByDashboard?: ReadonlyMap<string, readonly ToolCallStep[]>,
   retentionDays?: number | null,
 ): ResourceCardModel | null {
+  const updated = resourceUpdatedDetails(step.result);
+  if (updated !== null) return updateReceiptModel(step, updated);
+  const deleted = resourceDeletedDetails(step.result);
+  if (deleted !== null) return deleteReceiptModel(deleted);
   const details = resourceCreatedDetails(step.result);
   if (details === null || !isCardResourceType(details.resourceType)) return null;
   const resourceType = details.resourceType;
@@ -862,53 +923,396 @@ export type PendingResourceType = Extract<
   "widget" | "dashboard" | "detector" | "alert"
 >;
 
+/** What a parked write would do to its resource. */
+export type PendingAction = "create" | "update" | "delete";
+
 /**
- * The confirm-class write tools and the resource each would create. Structural
- * creates (project, workspace) are CLI/API surface and never park in chat, so
- * they have no pending card — only the receipt card, once created elsewhere.
+ * The write tools that park on a card, the resource each acts on and what it
+ * does to it. Structural writes (project, workspace) are CLI/API surface and
+ * never park in chat, so they have no pending card — only the receipt card,
+ * once written elsewhere.
  */
-const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, PendingResourceType>> = {
-  create_widget: "widget",
-  create_dashboard: "dashboard",
-  create_detector: "detector",
-  create_alert: "alert",
+const PENDING_TOOLS: Readonly<
+  Record<string, { resourceType: PendingResourceType; action: PendingAction }>
+> = {
+  create_widget: { resourceType: "widget", action: "create" },
+  create_dashboard: { resourceType: "dashboard", action: "create" },
+  create_detector: { resourceType: "detector", action: "create" },
+  create_alert: { resourceType: "alert", action: "create" },
+  update_widget: { resourceType: "widget", action: "update" },
+  update_dashboard: { resourceType: "dashboard", action: "update" },
+  update_detector: { resourceType: "detector", action: "update" },
+  update_alert: { resourceType: "alert", action: "update" },
+  set_alert_status: { resourceType: "alert", action: "update" },
+  delete_widget: { resourceType: "widget", action: "delete" },
+  delete_dashboard: { resourceType: "dashboard", action: "delete" },
+  delete_detector: { resourceType: "detector", action: "delete" },
+  delete_alert: { resourceType: "alert", action: "delete" },
 };
 
 /** A pending dashboard's description is prose, so it gets more room than a chip. */
 const MAX_DESCRIPTION_CHARS = 200;
+/** A delete's reason is the card's one line of body; the registry caps it at this. */
+const MAX_REASON_CHARS = 500;
+
+/**
+ * What the panel knows about a resource from the transcript alone: the name
+ * it goes by and a snake_case record of its fields, as a read reported them
+ * or a write sent them. The panel never fetches for a card, so this is the
+ * only source of a before-value an edit card can show — and a resource
+ * nothing here describes shows its after-values alone, never an invented
+ * before.
+ */
+export interface KnownResource {
+  resourceType: CardResourceType;
+  name: string | null;
+  record: Record<string, unknown>;
+}
+
+/** The registry's id argument for a resource type: `detector_id`, `alert_id`, … */
+function idField(resourceType: CardResourceType): string {
+  return `${resourceType}_id`;
+}
+
+/**
+ * The fields a write call carries about the resource itself: everything but
+ * the tool's own label and the id that names the resource.
+ */
+function resourceFields(
+  args: Record<string, unknown> | null,
+  resourceType: CardResourceType,
+): Record<string, unknown> {
+  if (args === null) return {};
+  const { label: _label, [idField(resourceType)]: _id, ...fields } = args;
+  return fields;
+}
+
+/** The name a write call gives its resource: a widget's title, everything else's name. */
+function argsName(args: Record<string, unknown> | null): string | null {
+  if (args === null) return null;
+  return str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS);
+}
+
+/**
+ * What the transcript has said about each resource, keyed by id: a create's
+ * receipt and args, an alert read's record (a list's row, a detail's whole
+ * alert), an update's receipt folded over what was known, and a delete
+ * forgetting it. Later steps win, so the map is the panel's latest knowledge.
+ */
+export function knownResources(messages: readonly AIMessage[]): Map<string, KnownResource> {
+  const known = new Map<string, KnownResource>();
+  const remember = (id: string, resourceType: string, name: string | null, record: unknown) => {
+    const fields = plainObject(record);
+    if (!isCardResourceType(resourceType) || fields === null) return;
+    known.set(id, { resourceType, name, record: fields });
+  };
+  for (const message of messages) {
+    const step = message.toolStep;
+    if (message.role !== "tool_step" || step === undefined || step.isError === true) continue;
+    const args = plainObject(step.args);
+
+    const createdDetails = resourceCreatedDetails(step.result);
+    if (createdDetails !== null) {
+      const { resourceType } = createdDetails;
+      if (!isCardResourceType(resourceType)) continue;
+      // A reused create's args are not the stored row — an existing resource
+      // was handed back untouched — so only its name is known, never its
+      // fields; an edit of it shows after-values alone.
+      const reused = createdDetails.created === false;
+      remember(
+        createdDetails.resourceId,
+        resourceType,
+        str(createdDetails.name, MAX_TITLE_CHARS) ?? (reused ? null : argsName(args)),
+        reused ? {} : resourceFields(args, resourceType),
+      );
+      continue;
+    }
+    const updatedDetails = resourceUpdatedDetails(step.result);
+    if (updatedDetails !== null) {
+      const { resourceType, resourceId } = updatedDetails;
+      if (!isCardResourceType(resourceType)) continue;
+      const previous = known.get(resourceId);
+      remember(
+        resourceId,
+        resourceType,
+        str(updatedDetails.name, MAX_TITLE_CHARS) ?? argsName(args) ?? previous?.name ?? null,
+        { ...previous?.record, ...resourceFields(args, resourceType) },
+      );
+      continue;
+    }
+    const deletedDetails = resourceDeletedDetails(step.result);
+    if (deletedDetails !== null) {
+      known.delete(deletedDetails.resourceId);
+      // A dashboard takes its widgets with it: the ones the transcript placed
+      // on it are forgotten too, so a later card neither shows them as
+      // before-values nor counts them in a cascade.
+      if (deletedDetails.resourceType === "dashboard") {
+        for (const [id, resource] of known) {
+          if (
+            resource.resourceType === "widget" &&
+            resource.record.dashboard_id === deletedDetails.resourceId
+          ) {
+            known.delete(id);
+          }
+        }
+      }
+      continue;
+    }
+
+    const result = plainObject(step.result);
+    const details = result === null ? null : plainObject(result.details);
+    if (details === null) continue;
+    if (details.kind === "alert_list" && Array.isArray(details.alerts)) {
+      for (const row of details.alerts) {
+        const record = plainObject(row);
+        const id = record === null ? null : str(record.id, MAX_TITLE_CHARS);
+        if (record !== null && id !== null) {
+          remember(id, "alert", str(record.name, MAX_TITLE_CHARS), record);
+        }
+      }
+    } else if (details.kind === "alert_detail") {
+      const record = plainObject(details.alert);
+      const id = record === null ? null : str(record.id, MAX_TITLE_CHARS);
+      if (record !== null && id !== null) {
+        remember(id, "alert", str(record.name, MAX_TITLE_CHARS), record);
+      }
+    }
+  }
+  return known;
+}
 
 /**
  * What a parked write proposes, in the words the approval bar asks with: the
- * resource it would create and the name the call gave it (null when the args
- * carry none). Null for a tool this panel has no proposal card
- * for — the composer then offers no buttons, and only a typed reply can
- * answer the call.
+ * resource it acts on, what it does to it, the class of decision the user is
+ * asked for, and the name the question is phrased with (null when nothing
+ * names it). A create is named by its args; an update or delete by what the
+ * transcript already knows the resource as, falling back to its id — never
+ * the new name an edit would give it, since that is the change, not the
+ * subject. Null for a tool this panel has no proposal card for — the composer
+ * then offers no buttons, and only a typed reply can answer the call.
  */
 export function pendingProposal(
   step: ToolCallStep,
-): { resourceType: PendingResourceType; title: string | null } | null {
-  const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
-  if (resourceType === undefined) return null;
+  known?: ReadonlyMap<string, KnownResource>,
+): {
+  resourceType: PendingResourceType;
+  title: string | null;
+  action: PendingAction;
+  approvalClass: "confirm" | "approval";
+} | null {
+  const tool = PENDING_TOOLS[step.toolName];
+  if (tool === undefined) return null;
+  const { resourceType, action } = tool;
   const args = plainObject(step.args);
-  // Null when the args name nothing: the card falls back to the type's label,
-  // while the composer's question simply asks by type.
-  const title =
-    args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
-  return { resourceType, title };
+  let title: string | null;
+  if (action === "create") {
+    // Null when the args name nothing: the card falls back to the type's
+    // label, while the composer's question simply asks by type.
+    title = argsName(args);
+  } else {
+    const id = args === null ? null : str(args[idField(resourceType)], MAX_TITLE_CHARS);
+    title = (id === null ? null : (known?.get(id)?.name ?? null)) ?? id;
+  }
+  // The class comes off the parked event; a delete parked before the event
+  // carried one is still the destructive decision it always was.
+  const approvalClass =
+    step.pending?.approvalClass ?? (action === "delete" ? "approval" : "confirm");
+  return { resourceType, title, action, approvalClass };
+}
+
+/** "sample_rate" as "sample rate"; the one acronym reads as itself. */
+function fieldLabel(field: string): string {
+  return field === "enable_rca" ? "RCA" : field.replace(/_/g, " ");
+}
+
+/**
+ * One field's value as a chip prints it. Scalars read as themselves, a null
+ * as the clear it is, a boolean as yes/no; the structured fields are
+ * summarized in their own vocabulary rather than printed as the text an
+ * object stringifies to — a spec as its chips, conditions and filters as
+ * the editors word them, a schema by its size, a prompt as "replaced"
+ * (the card previews the text itself).
+ */
+function changeValue(field: string, value: unknown): string {
+  if (value === null) return "cleared";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "replaced";
+  if (typeof value === "string") return field === "prompt" ? "replaced" : (str(value) ?? "cleared");
+  if (field === "spec") return widgetChips({ spec: value }).join(" · ") || "replaced";
+  if (field === "trigger_conditions" && Array.isArray(value)) {
+    const chips = value.map(triggerChip).filter((chip): chip is string => chip !== null);
+    return chips.length === 0 ? "none" : chips.join(" · ");
+  }
+  if (field === "filters" && Array.isArray(value)) {
+    const chips = alertFilters({ filters: value }).map(describeAlertFilter);
+    return chips.length === 0 ? "none" : chips.join(" · ");
+  }
+  if (field === "output_schema" && Array.isArray(value)) {
+    return `${value.length} field${value.length === 1 ? "" : "s"}`;
+  }
+  if (field === "renotify") {
+    const renotify = plainObject(value);
+    const mode = renotify === null ? null : str(renotify.mode);
+    if (mode === "OFF") return "off";
+    if (mode === "EVERY") {
+      const minutes = renotify === null ? null : scalar(renotify.interval_minutes);
+      return minutes === null ? "on" : `every ${minutes} min`;
+    }
+  }
+  return "replaced";
+}
+
+/**
+ * The fields an edit sends, one chip each — "sample rate: 100 → 25" when
+ * the transcript knows the value being replaced, "sample rate: 25" when it
+ * does not (or the value is the same). A before-value only ever comes from
+ * the known record, never from the call, so the card cannot claim a change
+ * that is not one.
+ */
+function changeChips(
+  edited: Record<string, unknown>,
+  record: Record<string, unknown> | null,
+): string[] {
+  const chips: string[] = [];
+  for (const [field, value] of Object.entries(edited)) {
+    if (value === undefined) continue;
+    const after = changeValue(field, value);
+    const before =
+      record !== null && field in record && record[field] !== undefined
+        ? changeValue(field, record[field])
+        : null;
+    chips.push(
+      before === null || before === after
+        ? `${fieldLabel(field)}: ${after}`
+        : `${fieldLabel(field)}: ${before} → ${after}`,
+    );
+  }
+  return chips;
+}
+
+/** The rule fields whose edit changes what the alert chart draws. */
+const ALERT_RULE_FIELDS = new Set([
+  "view",
+  "measure",
+  "aggregation",
+  "window",
+  "threshold_operator",
+  "threshold",
+  "filters",
+]);
+
+/**
+ * What an edit card pictures: a detector's new prompt, a widget's new spec
+ * as its chart aimed at the panel's project, or an alert's edited rule
+ * merged over what the transcript knows of the stored one.
+ */
+function changePreview(
+  resourceType: PendingResourceType,
+  edited: Record<string, unknown>,
+  record: Record<string, unknown> | null,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): ChangePreview | null {
+  switch (resourceType) {
+    case "detector": {
+      const text = str(edited.prompt, MAX_PROMPT_CHARS);
+      return text === null ? null : { kind: "prompt", prompt: { kind: "custom", text } };
+    }
+    case "widget": {
+      const spec = edited.spec === undefined ? null : parseSpec(edited.spec);
+      if (spec === null || panelProjectId === undefined) return null;
+      return {
+        kind: "widget",
+        chart: {
+          projectId: panelProjectId,
+          spec,
+          range: resolveSiteRange(panelProjectId, retentionDays),
+        },
+      };
+    }
+    case "alert": {
+      if (!Object.keys(edited).some((field) => ALERT_RULE_FIELDS.has(field))) return null;
+      const chart = alertChart({ ...record, ...edited }, panelProjectId ?? null, retentionDays);
+      return chart === null ? null : { kind: "alert", chart };
+    }
+    default:
+      return null;
+  }
+}
+
+/** The chips a known resource is defined by, in its own card's vocabulary. */
+function knownChips(resourceType: CardResourceType, record: Record<string, unknown>): string[] {
+  switch (resourceType) {
+    case "widget":
+      return widgetChips(record);
+    case "detector":
+      return detectorChips(record);
+    case "alert":
+      return alertChips(record);
+    default:
+      return [];
+  }
+}
+
+/**
+ * "and its 4 widgets": what a delete removes along with the resource, or null
+ * for nothing. The counts are named by the receipt, so each name is capped
+ * like any other printed value, and a blank one reads as "resources".
+ */
+function cascadeWords(cascaded: Record<string, number> | undefined): string | null {
+  if (cascaded === undefined) return null;
+  const parts = Object.entries(cascaded)
+    .filter(([, count]) => count > 0)
+    .map(([what, count]) => {
+      const plural = str(what) ?? "resources";
+      return `${count} ${count === 1 ? plural.replace(/s$/, "") : plural}`;
+    });
+  return parts.length === 0 ? null : `and its ${parts.join(", ")}`;
+}
+
+/**
+ * The widgets the transcript knows a dashboard holds, as the cascade a
+ * delete of it would carry. The transcript is the only source: a dashboard
+ * read never reaches this map, so a dashboard filled elsewhere shows no
+ * cascade line rather than a wrong count.
+ */
+function knownCascade(
+  dashboardId: string | null,
+  known: ReadonlyMap<string, KnownResource> | undefined,
+): string | null {
+  if (dashboardId === null || known === undefined) return null;
+  let widgets = 0;
+  for (const resource of known.values()) {
+    if (resource.resourceType === "widget" && resource.record.dashboard_id === dashboardId) {
+      widgets += 1;
+    }
+  }
+  return cascadeWords({ widgets });
+}
+
+/** The meta parts a detector's template contributes. */
+function templateMeta(record: Record<string, unknown> | null): string[] {
+  const template = record === null ? null : str(record.template);
+  return template === null ? [] : [templateLabel(template)];
 }
 
 /**
  * The card for a write the agent has PROPOSED but not run — the same card the
  * receipt shows, built from the arguments alone, because the resource does not
- * exist yet and there are no `details` to read. Everything shown is what the
- * args carry; nothing is invented:
+ * exist yet (or has not changed yet) and there are no `details` to read.
+ * Everything shown is what the args carry, plus what the transcript already
+ * knows about the resource an edit or delete names; nothing is invented:
  * - a widget draws its real chart (the query endpoint is stateless, so the
  *   spec needn't exist), aimed at the panel's own project — the scope the
  *   write would land in;
  * - a dashboard can only show its name and description — its widgets arrive
  *   as separate pending calls;
  * - a detector shows the same body its receipt will;
- * - an alert shows its rule in words, the thing the user is judging.
+ * - an alert shows its rule in words, the thing the user is judging;
+ * - an edit shows each field it would change, before → after when the
+ *   transcript knows the before, with the new prompt, spec or rule pictured;
+ * - a delete shows the resource as the transcript knows it, with the reason
+ *   the model gave as its one line of body, in a destructive state.
  * Null for a tool this panel has no card for; the caller keeps the plain tool
  * line, matching the receipt convention.
  */
@@ -916,12 +1320,16 @@ export function pendingCardModel(
   step: ToolCallStep,
   panelProjectId: string | undefined,
   retentionDays?: number | null,
+  known?: ReadonlyMap<string, KnownResource>,
 ): ResourceCardModel | null {
-  const proposal = pendingProposal(step);
+  const proposal = pendingProposal(step, known);
   if (proposal === null) return null;
-  const { resourceType } = proposal;
+  const { resourceType, action } = proposal;
   const title = proposal.title ?? RESOURCE_TYPE_LABELS[resourceType];
   const args = plainObject(step.args);
+  if (action !== "create") {
+    return pendingChangeModel(step, proposal, panelProjectId, retentionDays, known);
+  }
 
   let body: ResourceCardBody;
   switch (resourceType) {
@@ -969,10 +1377,7 @@ export function pendingCardModel(
   if (body.kind === "widget" && body.chart !== null) {
     meta.push(body.chart.range.label);
   }
-  if (resourceType === "detector" && args !== null) {
-    const template = str(args.template);
-    if (template !== null) meta.push(templateLabel(template));
-  }
+  if (resourceType === "detector") meta.push(...templateMeta(args));
   if (body.kind === "alert" && body.chart !== null) {
     meta.push(body.chart.range.label);
   }
@@ -996,6 +1401,147 @@ export function pendingCardModel(
     href: null,
     ...(description === null ? {} : { description }),
     body,
+  };
+}
+
+/** The proposal card for an update or a delete (see pendingCardModel). */
+function pendingChangeModel(
+  step: ToolCallStep,
+  proposal: NonNullable<ReturnType<typeof pendingProposal>>,
+  panelProjectId: string | undefined,
+  retentionDays: number | null | undefined,
+  known: ReadonlyMap<string, KnownResource> | undefined,
+): ResourceCardModel {
+  const { resourceType, action } = proposal;
+  const args = plainObject(step.args);
+  const id = args === null ? null : str(args[idField(resourceType)], MAX_TITLE_CHARS);
+  const record = id === null ? null : (known?.get(id)?.record ?? null);
+  const title = proposal.title ?? RESOURCE_TYPE_LABELS[resourceType];
+  const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
+  // The template is the stored resource's, never the edit's: it cannot change.
+  if (resourceType === "detector") meta.push(...templateMeta(record));
+
+  if (action === "delete") {
+    return {
+      resourceType,
+      resourceId: step.toolCallId,
+      created: true,
+      title,
+      meta,
+      href: null,
+      destructive: true,
+      // The reason is what the user judges, so it opens with the card.
+      definitionOpen: true,
+      body: {
+        kind: "delete",
+        reason: (args === null ? null : str(args.reason, MAX_REASON_CHARS)) ?? "",
+        cascade: resourceType === "dashboard" ? knownCascade(id, known) : null,
+        chips: record === null ? [] : knownChips(resourceType, record),
+      },
+    };
+  }
+
+  const edited = resourceFields(args, resourceType);
+  const preview = changePreview(resourceType, edited, record, panelProjectId, retentionDays);
+  if (preview?.kind === "widget") meta.push(preview.chart.range.label);
+  if (preview?.kind === "alert") meta.push(preview.chart.range.label);
+  // An alert's live state rides on an edit proposal: a rule change on a
+  // firing alert clears its page, and the badge is how the user sees that.
+  const badge = resourceType === "alert" && record !== null ? alertBadgeOf(record) : null;
+  const description =
+    preview?.kind === "alert" ? alertRuleSentence({ ...record, ...edited }) : null;
+  return {
+    resourceType,
+    resourceId: step.toolCallId,
+    created: true,
+    title,
+    meta,
+    href: null,
+    ...(description === null ? {} : { description }),
+    ...(badge === null ? {} : { badge }),
+    // The changes are what the user judges, so they open with the card.
+    definitionOpen: true,
+    body: { kind: "changes", chips: changeChips(edited, record), preview },
+  };
+}
+
+/**
+ * The receipt for an update: the fields the route says changed, each as a
+ * chip with the value the call sent (the after-value — the receipt has no
+ * before to show, and must not invent one), the resource's page to open,
+ * and for an alert its returned state and what the edit did to it.
+ */
+function updateReceiptModel(
+  step: ToolCallStep,
+  details: ResourceUpdatedDetails,
+): ResourceCardModel | null {
+  const { resourceType } = details;
+  if (!isCardResourceType(resourceType)) return null;
+  const args = plainObject(step.args);
+  const changed = new Set(details.changed);
+  const edited = Object.fromEntries(
+    Object.entries(resourceFields(args, resourceType)).filter(([field]) => changed.has(field)),
+  );
+  const count = details.changed.length;
+  const meta = [
+    RESOURCE_TYPE_LABELS[resourceType],
+    count === 0 ? "unchanged" : `${count} field${count === 1 ? "" : "s"} changed`,
+  ];
+  const badge = resourceType === "alert" ? alertBadgeOfState(details.alertState) : null;
+  const description =
+    resourceType !== "alert"
+      ? null
+      : details.pageCleared === true
+        ? "This alert was firing; the edit cleared that page and reset its evaluation state."
+        : details.stateReset === true
+          ? "The edit reset the alert's evaluation state; the rule is due to run now."
+          : null;
+  return {
+    resourceType,
+    resourceId: details.resourceId,
+    created: true,
+    outcome: "updated",
+    title:
+      str(details.name, MAX_TITLE_CHARS) ??
+      argsName(args) ??
+      str(details.resourceId, MAX_TITLE_CHARS) ??
+      "",
+    meta,
+    href: resourceHref(resourceType, details),
+    ...(description === null ? {} : { description }),
+    ...(badge === null ? {} : { badge }),
+    definitionOpen: true,
+    body: { kind: "changes", chips: changeChips(edited, null), preview: null },
+  };
+}
+
+/**
+ * The receipt for a delete: what is gone, the reason as recorded, what went
+ * with it, and nothing to open — the page no longer exists.
+ */
+function deleteReceiptModel(details: ResourceDeletedDetails): ResourceCardModel | null {
+  const { resourceType } = details;
+  if (!isCardResourceType(resourceType)) return null;
+  const description =
+    resourceType === "alert" && details.pageCleared === true
+      ? "This alert was firing; deleting it cleared that page."
+      : null;
+  return {
+    resourceType,
+    resourceId: details.resourceId,
+    created: true,
+    outcome: "deleted",
+    title: str(details.name, MAX_TITLE_CHARS) ?? str(details.resourceId, MAX_TITLE_CHARS) ?? "",
+    meta: [RESOURCE_TYPE_LABELS[resourceType]],
+    href: null,
+    ...(description === null ? {} : { description }),
+    definitionOpen: true,
+    body: {
+      kind: "delete",
+      reason: str(details.reason, MAX_REASON_CHARS) ?? "",
+      cascade: cascadeWords(details.cascaded),
+      chips: [],
+    },
   };
 }
 
@@ -1094,7 +1640,7 @@ export interface AlertListCardModel {
 /** The card a read-tool step renders, when the panel has one for it. */
 export type ReadCardModel =
   | { kind: "alert_list"; model: AlertListCardModel }
-  | { kind: "alert"; model: ResourceCardModel };
+  | { kind: "alert" | "widget" | "dashboard"; model: ResourceCardModel };
 
 /**
  * A row's evaluation state in words: parked, then paused, outrank everything
@@ -1260,5 +1806,224 @@ export function readCardModel(
     const model = alertDetailCardModel(details, panelProjectId, retentionDays);
     return model === null ? null : { kind: "alert", model };
   }
+  if (details.kind === "widget_read") {
+    const model = widgetReadCardModel(details, panelProjectId, retentionDays);
+    return model === null ? null : { kind: "widget", model };
+  }
+  if (details.kind === "dashboard_read") {
+    const model = dashboardReadCardModel(details, panelProjectId, retentionDays);
+    return model === null ? null : { kind: "dashboard", model };
+  }
   return null;
+}
+
+/**
+ * The window a read's card is drawn over, resolved once so the header and
+ * the plot name the same one. Whenever the read says which bounds it
+ * answered for, the plot draws exactly those — the figures in the agent's
+ * reply came from that span, and a reloaded card must not slide to a new
+ * "now" — and the header names the span itself, never a preset: "Last 24
+ * hours" would be wrong the day after, when the chat is reopened. A
+ * definition read carries the page's preset with no bounds, draws relative
+ * to now, and says so by that preset (clamped to the plan, as the page
+ * clamps its own). A read that names no window is drawn over the page's,
+ * like every other card.
+ */
+function readWindow(
+  value: unknown,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): { range: DateFilterOption; bounds?: CardBounds } {
+  const window = plainObject(value);
+  const start = window === null ? null : instant(window.start_time);
+  const end = window === null ? null : instant(window.end_time);
+  if (start !== null && end !== null && end > start) {
+    const custom = DATE_FILTER_OPTIONS.find((o) => o.isCustom);
+    return {
+      range: {
+        id: custom?.id ?? "custom",
+        label: formatDateRange(start, end),
+        durationMinutes: null,
+        isCustom: true,
+      },
+      bounds: { start: start.toISOString(), end: end.toISOString() },
+    };
+  }
+  const rangeId = window === null ? null : str(window.range);
+  const known =
+    rangeId === null ? undefined : DATE_FILTER_OPTIONS.find((o) => o.id === rangeId && !o.isCustom);
+  if (known !== undefined) {
+    return { range: clampDateFilter(findRangePreset(known.id), retentionDays) };
+  }
+  return { range: resolveSiteRange(panelProjectId ?? null, retentionDays) };
+}
+
+/** A parseable ISO instant as a Date, or null. */
+function instant(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/** The dashboard page a read's widget or dashboard opens, when both ids are path-safe. */
+function dashboardPageHref(panelProjectId: string | undefined, dashboardId: unknown) {
+  const projectId = pathSegment(panelProjectId);
+  const id = pathSegment(dashboardId);
+  return projectId === null || id === null ? null : `/projects/${projectId}/dashboard/${id}`;
+}
+
+/** What a read says when it did not answer a widget: a feed, or the reason it failed. */
+function unansweredText(status: unknown, type: string | null, error: unknown): string | null {
+  if (status === "error") {
+    return `Couldn't answer this widget: ${str(error, MAX_REASON_CHARS) ?? "unknown error"}`;
+  }
+  if (status === "skipped" || (type !== null && type !== "query")) {
+    return type === "trace_feed"
+      ? "A trace feed: open the dashboard to see its traces."
+      : "This widget has no chart to draw here: open the dashboard to see it.";
+  }
+  return null;
+}
+
+/**
+ * The card for a widget read (get_widget, get_widget_data): the widget's own
+ * chart over the window the read answered for, its spec as chips in the
+ * definition panel, and its dashboard to open. A feed or a widget the read
+ * could not answer says so in one line instead of drawing a broken chart.
+ */
+function widgetReadCardModel(
+  details: Record<string, unknown>,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): ResourceCardModel | null {
+  const widget = plainObject(details.widget);
+  if (widget === null) return null;
+  const id = str(widget.id, MAX_TITLE_CHARS);
+  if (id === null) return null;
+  const type = str(widget.type);
+  const chips = widgetChips({ type, spec: widget.spec });
+  const notice = unansweredText(widget.status, type, widget.error);
+  const window = readWindow(details.window, panelProjectId, retentionDays);
+  const spec = notice === null ? parseSpec(widget.spec) : null;
+  const projectId = pathSegment(panelProjectId);
+  let body: ResourceCardBody;
+  if (notice !== null) {
+    body = { kind: "notice", chips, text: notice };
+  } else {
+    body = {
+      kind: "widget",
+      chips,
+      chart: spec === null || projectId === null ? null : { projectId, spec, ...window },
+    };
+  }
+
+  const meta: string[] = [RESOURCE_TYPE_LABELS.widget];
+  const dashboardName = str(widget.dashboard_name, MAX_TITLE_CHARS);
+  if (dashboardName !== null) meta.push(dashboardName);
+  // A chart names its window; a one-line notice draws nothing over one.
+  if (body.kind === "widget" && body.chart !== null) meta.push(window.range.label);
+  return {
+    resourceType: "widget",
+    resourceId: id,
+    created: true,
+    title: str(widget.title, MAX_TITLE_CHARS) ?? id,
+    meta,
+    href: dashboardPageHref(panelProjectId, widget.dashboard_id),
+    body,
+  };
+}
+
+/**
+ * The card for a dashboard read (get_dashboard, get_dashboard_data): the
+ * dashboard as it is, its widgets on their stored grid scaled to the card,
+ * every tile drawn by the dashboard's own tile body over the one window the
+ * read answered for. A feed the read skipped is drawn as the dashboard draws
+ * it; a widget the read could not answer shows the reason and is not queried
+ * again. A read that reported no layout — an older
+ * server — draws no preview rather than a grid the page never laid out.
+ */
+function dashboardReadCardModel(
+  details: Record<string, unknown>,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): ResourceCardModel | null {
+  const dashboard = plainObject(details.dashboard);
+  if (dashboard === null || !Array.isArray(details.widgets)) return null;
+  const id = str(dashboard.id, MAX_TITLE_CHARS);
+  if (id === null) return null;
+  const widgets: Record<string, unknown>[] = [];
+  for (const entry of details.widgets) {
+    const widget = plainObject(entry);
+    // A widget the details cannot read (a persisted row cut partway through
+    // the list) would draw a different dashboard: keep the plain tool line.
+    if (widget === null || str(widget.id, MAX_TITLE_CHARS) === null) return null;
+    widgets.push(widget);
+  }
+
+  const window = readWindow(details.window, panelProjectId, retentionDays);
+  const projectId = pathSegment(panelProjectId);
+  let tiles: PreviewTile[] = [];
+  if (Array.isArray(details.layout) && projectId !== null) {
+    const stored = details.layout
+      .map(plainObject)
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .flatMap((entry) => {
+        const coords = [entry.x, entry.y, entry.w, entry.h];
+        return typeof entry.i === "string" &&
+          coords.every((n) => typeof n === "number" && Number.isInteger(n) && n >= 0)
+          ? [
+              {
+                i: entry.i,
+                x: entry.x as number,
+                y: entry.y as number,
+                w: entry.w as number,
+                h: entry.h as number,
+              },
+            ]
+          : [];
+      });
+    const placed = placeWidgets(
+      stored,
+      widgets.map((widget) => widget.id as string),
+    );
+    tiles = widgets.map((widget, index) => {
+      const { x, y, w, h } = placed[index];
+      const type = widget.type;
+      const failed =
+        widget.status === "error"
+          ? (str(widget.error, MAX_REASON_CHARS) ?? "Couldn't answer this widget")
+          : null;
+      return {
+        id: widget.id as string,
+        title: str(widget.title, MAX_TITLE_CHARS) ?? (widget.id as string),
+        projectId,
+        // The spec as stored, unparsed: the tile body applies the dashboard's
+        // own schema and shows its own face for a spec it rejects.
+        widget:
+          isWidgetType(type) && failed === null
+            ? { type, spec: plainObject(widget.spec) ?? {} }
+            : null,
+        ...window,
+        ...(failed === null ? {} : { notice: failed }),
+        x,
+        y,
+        w,
+        h,
+      };
+    });
+  }
+
+  const meta: string[] = [RESOURCE_TYPE_LABELS.dashboard];
+  meta.push(widgets.length === 1 ? "1 widget" : `${widgets.length} widgets`);
+  // One window label for the whole preview, as the created-dashboard card does.
+  if (tiles.length > 0) meta.push(window.range.label);
+  return {
+    resourceType: "dashboard",
+    resourceId: id,
+    created: true,
+    title: str(dashboard.name, MAX_TITLE_CHARS) ?? id,
+    meta,
+    href: dashboardPageHref(panelProjectId, dashboard.id),
+    body: { kind: "dashboard", tiles },
+  };
 }

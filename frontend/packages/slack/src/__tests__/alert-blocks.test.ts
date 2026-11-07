@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AlertSeverity, AlertThresholdOperator } from "@traceroot/core";
-import { ALERT_SEVERITY_COLORS, buildAlertBlocks } from "../alert-blocks.ts";
+import {
+  ALERT_SEVERITY_COLORS,
+  buildAlertBlocks,
+  buildAlertClosedBlocks,
+} from "../alert-blocks.ts";
 
 const alertBase = {
   appBaseUrl: "https://app.example.test",
@@ -39,17 +43,17 @@ describe("buildAlertBlocks", () => {
     // the measured number is the point of the message; the threshold alone is not enough
     const breachMessage = buildAlertBlocks(alertBase);
     expect(sectionTexts(breachMessage)[0]).toContain(
-      "`p95(latency)` was 1834.57ms, above the 1500ms threshold, over the last 30m.",
+      "`p95(latency)` was 1834.57 ms, above the 1500 ms threshold, over the last 30m.",
     );
-    expect(breachMessage.text).toContain("1834.57ms");
+    expect(breachMessage.text).toContain("1834.57 ms");
 
     const recovered = { ...alertBase, severity: "OK" as const, previousSeverity: "ALERT" as const };
     expect(sectionTexts(buildAlertBlocks({ ...recovered, value: 900 }))[0]).toContain(
-      "`p95(latency)` recovered to 900ms, back within the 1500ms threshold, over the last 30m.",
+      "`p95(latency)` recovered to 900 ms, back within the 1500 ms threshold, over the last 30m.",
     );
     // a measured zero is a value, not a fall-through to no data
     const [zero] = sectionTexts(buildAlertBlocks({ ...recovered, value: 0 }));
-    expect(zero).toContain("recovered to 0ms");
+    expect(zero).toContain("recovered to 0 ms");
     expect(zero).not.toContain("No data");
 
     // one operator stands for the phrase table, and a self-describing measure
@@ -64,7 +68,7 @@ describe("buildAlertBlocks", () => {
       }),
     );
     expect(counted).toContain("`count(span_count)` was 12, at or below the 1500 threshold");
-    expect(counted).not.toContain("12ms");
+    expect(counted).not.toContain("12 ms");
   });
 
   it("keeps sub-unit thresholds and readings legible instead of rounding them to 0", () => {
@@ -78,7 +82,7 @@ describe("buildAlertBlocks", () => {
       value: 0.001125,
     };
     expect(sectionTexts(buildAlertBlocks(cost))[0]).toContain(
-      "`sum(cost)` was 0.00113, above the 0.0005 threshold, over the last 30m.",
+      "`sum(cost)` was $0.00113, above the $0.0005 threshold, over the last 30m.",
     );
     const tiny = {
       ...cost,
@@ -87,14 +91,22 @@ describe("buildAlertBlocks", () => {
       value: 4.5e-5,
     };
     expect(sectionTexts(buildAlertBlocks(tiny))[0]).toContain(
-      "`sum(cost)` recovered to 0.000045, back within the 0.0005 threshold, over the last 30m.",
+      "`sum(cost)` recovered to $0.000045, back within the $0.0005 threshold, over the last 30m.",
     );
     // a fraction of a millisecond is still two decimals once it is at or above 1
     expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 1.256 }))[0]).toContain(
-      "was 1.26ms",
+      "was 1.26 ms",
     );
     // and sub-unit readings on other measures use the same significant-digit rule
-    expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 0.5 }))[0]).toContain("was 0.5ms");
+    expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 0.5 }))[0]).toContain("was 0.5 ms");
+  });
+
+  it("drops the measure's unit under an aggregation that discards it", () => {
+    // uniq of a latency column counts distinct values; that number is not milliseconds.
+    const [distinct] = sectionTexts(
+      buildAlertBlocks({ ...alertBase, aggregation: "uniq", value: 12, threshold: 5 }),
+    );
+    expect(distinct).toContain("`uniq(latency)` was 12, above the 5 threshold");
   });
 
   it("names the row-count pseudo-measure once when aggregation and measure coincide", () => {
@@ -154,7 +166,7 @@ describe("buildAlertBlocks", () => {
       value: null,
     });
     expect(sectionTexts(recovered)[0]).toContain(
-      "`p95(latency)` recovered to 0ms, back within the 1500ms threshold, over the last 30m.",
+      "`p95(latency)` recovered to 0 ms, back within the 1500 ms threshold, over the last 30m.",
     );
     expect(recovered.text).not.toContain("No data");
   });
@@ -329,5 +341,81 @@ describe("buildAlertBlocks", () => {
     expect(JSON.parse(new URL(url).searchParams.get("filters")!)).toEqual([
       { field: "name", op: "in", value: ["<!channel> & co"] },
     ]);
+  });
+});
+
+describe("buildAlertClosedBlocks", () => {
+  const closedBase = {
+    appBaseUrl: "https://app.example.test",
+    projectId: "proj_1",
+    alertId: "al_1",
+    name: "Checkout p95 latency",
+    reason: "edited" as const,
+    actor: "Ada" as string | null,
+  };
+
+  it("closes the page under the rule's name, saying who edited it and that it is no recovery", () => {
+    const message = buildAlertClosedBlocks(closedBase);
+    const [header] = message.blocks as any[];
+    const [closed, links] = sectionTexts(message);
+
+    // The same header a recovery carries, so the [ALERT] it answers has its pair.
+    expect(header.text.text).toBe("[OK] Checkout p95 latency");
+    expect(closed).toContain("Rule edited by Ada, previous alert closed.");
+    expect(closed).toContain("announced as a new alert");
+    expect(links).toBe("<https://app.example.test/projects/proj_1/alerts/al_1|View alert>");
+    expect(message.color).toBe(ALERT_SEVERITY_COLORS.OK);
+    expect(message.text).toContain("[OK] Checkout p95 latency");
+    expect(message.text).toContain("Rule edited by Ada");
+
+    const context = (message.blocks as any[]).find((b) => b.type === "context");
+    expect(context.elements[0].text).toBe("Closed by a rule edit, not by a recovery");
+  });
+
+  it("names a resume as one, and drops the name of an account that is gone", () => {
+    const resumed = buildAlertClosedBlocks({ ...closedBase, reason: "resumed" });
+    expect(sectionTexts(resumed)[0]).toContain("Rule resumed by Ada, previous alert closed.");
+    const context = (resumed.blocks as any[]).find((b) => b.type === "context");
+    expect(context.elements[0].text).toBe("Closed by a rule resume, not by a recovery");
+
+    const unnamed = buildAlertClosedBlocks({ ...closedBase, actor: null });
+    expect(sectionTexts(unnamed)[0]).toContain("Rule edited, previous alert closed.");
+  });
+
+  it("says a delete closed it, that nothing follows, and links to no page that is gone", () => {
+    const deleted = buildAlertClosedBlocks({ ...closedBase, reason: "deleted" });
+    const sections = sectionTexts(deleted);
+
+    expect((deleted.blocks as any[])[0].text.text).toBe("[OK] Checkout p95 latency");
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toContain("Rule deleted by Ada, previous alert closed.");
+    expect(sections[0]).toContain("nothing more is announced for it");
+    expect(sections[0]).not.toContain("announced as a new alert");
+    expect(JSON.stringify(deleted.blocks)).not.toContain("/alerts/al_1");
+    expect(deleted.text).toContain("Rule deleted by Ada");
+    expect(deleted.color).toBe(ALERT_SEVERITY_COLORS.OK);
+    const context = (deleted.blocks as any[]).find((b) => b.type === "context");
+    expect(context.elements[0].text).toBe("Closed by a rule delete, not by a recovery");
+  });
+
+  it("keeps the close reason in the fallback text however long the rule's name is", () => {
+    const message = buildAlertClosedBlocks({ ...closedBase, name: "n".repeat(400) });
+
+    // One shared limit would spend itself on the name and cut the only words
+    // that tell a client rendering no blocks this is a close.
+    expect(message.text).toContain("Rule edited by Ada, previous alert closed.");
+    expect(message.text.length).toBeLessThanOrEqual(310);
+  });
+
+  it("escapes the rule's name and the actor's, both of which a user controls", () => {
+    const message = buildAlertClosedBlocks({
+      ...closedBase,
+      name: "<!channel> down",
+      actor: "<!here> & co",
+    });
+
+    expect(sectionTexts(message)[0]).toContain("by &lt;!here&gt; &amp; co,");
+    expect(message.text).not.toContain("<!channel>");
+    expect(message.text).not.toContain("<!here>");
   });
 });

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { listWorkspaceModels } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
@@ -7,7 +8,7 @@ type RouteParams = { params: Promise<{ workspaceId: string }> };
 // GET /api/workspaces/[workspaceId]/llm-models — the models a detector (or the
 // assistant) in this workspace can run on: system providers the deployment
 // holds keys for, plus the workspace's BYOK providers and their models.
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -18,3 +19,4 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   return successResponse(await listWorkspaceModels(workspaceId));
 }
+export const GET = withImpersonationPolicy(handleGET);

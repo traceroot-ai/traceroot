@@ -1,8 +1,8 @@
-"""Shared handler bodies for the dashboard read surfaces.
+"""Shared handler bodies for the dashboard and widget read surfaces.
 
 The public (dual-credential) and internal (project-scoped mirror) dashboard
-read routers expose the same reads over the same response schemas; only the
-auth source differs. Each router resolves auth, then delegates here, so the
+and widget read routers expose the same reads over the same response schemas;
+only the auth source differs. Each router resolves auth, then delegates here, so the
 proxy and error-mapping semantics cannot drift between the two surfaces.
 
 The dashboard catalog lives in Postgres/Prisma, so both reads are delegated to
@@ -12,6 +12,7 @@ through the shared internal read proxy, which owns the passthrough (400/403/
 """
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime
 from typing import Any
@@ -30,11 +31,15 @@ from rest.schemas.dashboards import (
 from rest.schemas.public import (
     DashboardDataResponse,
     DashboardDetail,
+    DashboardLayoutItem,
     DashboardListItem,
     DashboardSummary,
     DashboardWidgetData,
     DashboardWidgetItem,
     PublicDashboardListResponse,
+    WidgetDataResponse,
+    WidgetDetail,
+    WidgetRef,
 )
 from rest.services.date_presets import WindowSpecError, as_utc, resolve_window
 from rest.services.widget_query import (
@@ -102,6 +107,42 @@ async def list_dashboards_page(project_id: str) -> PublicDashboardListResponse:
     return PublicDashboardListResponse(data=items)
 
 
+def _layout_items(raw: Any, widget_ids: set[str]) -> list[DashboardLayoutItem] | None:
+    """The stored grid layout as placements of the dashboard's own widgets.
+
+    The layout column is free JSON the dashboard page writes, so an entry that
+    is not a placement (missing or non-integer coordinates, negative values)
+    or that names a widget no longer on the dashboard is dropped rather than
+    failing the read; the page itself ignores the same entries.
+
+    Args:
+        raw (Any): The stored layout, as the dashboard service returned it.
+        widget_ids (set[str]): The ids of the dashboard's widgets.
+
+    Returns:
+        list[DashboardLayoutItem] | None: The usable placements, or None when
+            the service reported no layout at all.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return []
+    items: list[DashboardLayoutItem] = []
+    for entry in raw:
+        # A non-string id (a list, an object) is not hashable, so it is
+        # checked before the membership test rather than failing the read.
+        widget_id = entry.get("i") if isinstance(entry, dict) else None
+        if not isinstance(widget_id, str) or widget_id not in widget_ids:
+            continue
+        coords = [entry.get(key) for key in ("x", "y", "w", "h")]
+        # bool is an int subclass; a stored true is not a coordinate.
+        if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in coords):
+            continue
+        x, y, w, h = coords
+        items.append(DashboardLayoutItem(i=widget_id, x=x, y=y, w=w, h=h))
+    return items
+
+
 async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardDetail:
     """Fetch one dashboard (with widgets) via the internal detail route.
 
@@ -127,6 +168,16 @@ async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardD
     )
     try:
         dashboard: Any = data["dashboard"]
+        widgets = [
+            DashboardWidgetItem(
+                id=w["id"],
+                title=w["title"],
+                type=w["type"],
+                spec=w["spec"],
+                create_time=w["createTime"],
+            )
+            for w in dashboard["widgets"]
+        ]
         return DashboardDetail(
             id=dashboard["id"],
             name=dashboard["name"],
@@ -135,16 +186,48 @@ async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardD
             creator=dashboard["creator"],
             create_time=dashboard["createTime"],
             update_time=dashboard["updateTime"],
-            widgets=[
-                DashboardWidgetItem(
-                    id=w["id"],
-                    title=w["title"],
-                    type=w["type"],
-                    spec=w["spec"],
-                    create_time=w["createTime"],
-                )
-                for w in dashboard["widgets"]
-            ],
+            widgets=widgets,
+            layout=_layout_items(dashboard.get("layout"), {w.id for w in widgets}),
+        )
+    except (KeyError, TypeError, ValidationError) as e:
+        raise _dashboard_service_error() from e
+
+
+async def get_widget_detail(project_id: str, widget_id: str) -> WidgetDetail:
+    """Fetch one saved widget, with its dashboard, via the internal widget route.
+
+    The internal route resolves the widget through its dashboard's project, so
+    a widget outside the resolved project simply isn't found — its 404 passes
+    through, indistinguishable from an unknown id.
+
+    Args:
+        project_id (str): The project the caller's credential resolved to.
+        widget_id (str): The widget to fetch.
+
+    Returns:
+        WidgetDetail: The widget as stored plus its dashboard's id and name.
+
+    Raises:
+        HTTPException: 404 passed through when the widget is not in the
+            project; 503 (fail closed) on any upstream ambiguity.
+    """
+    data = await post_internal_read(
+        "/api/internal/project-widget",
+        {"projectId": project_id, "widgetId": widget_id},
+        service=_SERVICE,
+    )
+    try:
+        widget: Any = data["widget"]
+        return WidgetDetail(
+            id=widget["id"],
+            dashboard_id=widget["dashboard"]["id"],
+            dashboard_name=widget["dashboard"]["name"],
+            title=widget["title"],
+            type=widget["type"],
+            spec=widget["spec"],
+            display_config=widget["displayConfig"],
+            create_time=widget["createTime"],
+            update_time=widget["updateTime"],
         )
     except (KeyError, TypeError, ValidationError) as e:
         raise _dashboard_service_error() from e
@@ -275,7 +358,12 @@ DASHBOARD_DATA_QUERY_WIDGET_CAP = 24
 
 def _widget_error(widget: DashboardWidgetItem, reason: str) -> DashboardWidgetData:
     return DashboardWidgetData(
-        id=widget.id, title=widget.title, type=widget.type, status="error", error=reason
+        id=widget.id,
+        title=widget.title,
+        type=widget.type,
+        status="error",
+        spec=widget.spec,
+        error=reason,
     )
 
 
@@ -284,12 +372,32 @@ async def _answer_widget(
     project_id: str,
     start: datetime,
     end: datetime,
-    gate: asyncio.Semaphore,
+    *,
+    row_cap: int | None,
+    series_row_cap: int | None,
+    gate: asyncio.Semaphore | None = None,
 ) -> DashboardWidgetData:
-    """Answer one widget for the window, never raising: every outcome is a status."""
+    """Answer one widget for the window, never raising: every outcome is a status.
+
+    Args:
+        widget (DashboardWidgetItem): The widget whose stored spec to run.
+        project_id (str): The project the caller's credential resolved to.
+        start (datetime): The window's lower bound, already clamped.
+        end (datetime): The window's upper bound.
+        row_cap (int | None): Rows a non-series display keeps, or None for
+            every row the engine returns. A series is never row-capped: a cap
+            would keep the oldest buckets of a long window.
+        series_row_cap (int | None): The bucket-count ceiling past which a
+            series is refused instead of answered, or None for no ceiling.
+        gate (asyncio.Semaphore | None): The concurrency gate a fan-out runs
+            under, or None when this is the only query in the request.
+
+    Returns:
+        DashboardWidgetData: The widget's answer with its ``status``.
+    """
     if widget.type != "query":
         return DashboardWidgetData(
-            id=widget.id, title=widget.title, type=widget.type, status="skipped"
+            id=widget.id, title=widget.title, type=widget.type, status="skipped", spec=widget.spec
         )
     try:
         spec = WidgetSpec.model_validate(widget.spec)
@@ -298,21 +406,21 @@ async def _answer_widget(
             f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}" for err in e.errors()[:3]
         )
         return _widget_error(widget, f"spec: {problems}")
-    # A series is answered whole: a row cap would keep the oldest buckets of a
-    # long window. Its size is the window's bucket count (times the groups),
-    # refused past a ceiling instead. Every other display is capped, and the
-    # cap goes into the SQL LIMIT, not only onto the response: the extra row
-    # is the truncation signal, and the engine never materializes the rows
-    # this read would drop anyway.
-    row_cap = None if is_series(spec) else DASHBOARD_DATA_ROW_CAP
-    if row_cap is None and series_row_bound(spec, start, end) > DASHBOARD_DATA_SERIES_ROW_CAP:
-        return _widget_error(
-            widget,
-            "not answered: the window has too many buckets for a dashboard read; "
-            "run this one with run_widget_query",
-        )
+    # A series is answered whole; its size is the window's bucket count (times
+    # the groups), refused past the ceiling instead. Every other display's cap
+    # goes into the SQL LIMIT, not only onto the response: the extra row is
+    # the truncation signal, and the engine never materializes the rows this
+    # read would drop anyway.
+    if is_series(spec):
+        row_cap = None
+        if series_row_cap is not None and series_row_bound(spec, start, end) > series_row_cap:
+            return _widget_error(
+                widget,
+                "not answered: the window has too many buckets for a dashboard read; "
+                "read it alone with get_widget_data",
+            )
     try:
-        async with gate:
+        async with gate if gate is not None else contextlib.nullcontext():
             result = await asyncio.to_thread(
                 run_widget_query,
                 spec=spec,
@@ -332,6 +440,7 @@ async def _answer_widget(
         title=widget.title,
         type=widget.type,
         status="ok",
+        spec=widget.spec,
         columns=result["columns"],
         rows=rows[:row_cap],
         meta=result.get("meta", {}),
@@ -386,13 +495,21 @@ async def get_dashboard_data_page(
     gate = asyncio.Semaphore(DASHBOARD_DATA_CONCURRENCY)
     over_cap = (
         f"not answered: the dashboard has more than {DASHBOARD_DATA_QUERY_WIDGET_CAP} query "
-        "widgets; run this one with run_widget_query"
+        "widgets; read it alone with get_widget_data"
     )
 
     async def answer(w: DashboardWidgetItem, past_cap: bool) -> DashboardWidgetData:
         if past_cap:
             return _widget_error(w, over_cap)
-        return await _answer_widget(w, project_id, start, end, gate)
+        return await _answer_widget(
+            w,
+            project_id,
+            start,
+            end,
+            row_cap=DASHBOARD_DATA_ROW_CAP,
+            series_row_cap=DASHBOARD_DATA_SERIES_ROW_CAP,
+            gate=gate,
+        )
 
     # Only query widgets count toward the cap; a feed anywhere is still a skip.
     queries_seen = 0
@@ -405,7 +522,7 @@ async def get_dashboard_data_page(
         calls.append(answer(w, past_cap))
     widgets = await asyncio.gather(*calls)
     statuses = [w.status for w in widgets]
-    summary = DashboardSummary(**detail.model_dump(exclude={"widgets"}))
+    summary = DashboardSummary(**detail.model_dump(exclude={"widgets", "layout"}))
     if caller_kind == "api_key":
         summary.creator = None
     return DashboardDataResponse(
@@ -415,4 +532,56 @@ async def get_dashboard_data_page(
         queried=statuses.count("ok"),
         skipped=statuses.count("skipped"),
         failed=statuses.count("error"),
+        layout=detail.layout,
+    )
+
+
+async def get_widget_data_page(
+    project_id: str,
+    widget_id: str,
+    billing_plan: str,
+    range_id: str | None,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> WidgetDataResponse:
+    """Answer one saved widget for one window.
+
+    The shared body of the public ``get_widget_data`` and the internal
+    ``/widgets/{widget_id}/data`` mirror. The window is resolved and clamped
+    first (a malformed window is a 422 before anything is fetched), then the
+    widget is read through the internal detail route and its stored spec runs
+    through the same per-widget path a dashboard read uses — with the
+    dashboard's caps switched off, since one widget has no fan-out to protect.
+    A feed is skipped and a broken spec is an inline error, never a 500.
+
+    Args:
+        project_id (str): The project the caller's credential resolved to.
+        widget_id (str): The widget to answer.
+        billing_plan (str): The plan whose retention bounds the window.
+        range_id (str | None): A preset id, or None for explicit bounds/default.
+        start_time (datetime | None): Explicit lower bound, if any.
+        end_time (datetime | None): Explicit upper bound, if any.
+
+    Returns:
+        WidgetDataResponse: The widget's identity, the window answered, and
+            its answer with a ``status``.
+
+    Raises:
+        HTTPException: 422 for an invalid window; 404 passed through when the
+            widget is not in the project; 503 on dashboard-service ambiguity.
+    """
+    start, end, window = _resolve_window_for_plan(range_id, start_time, end_time, billing_plan)
+    detail = await get_widget_detail(project_id, widget_id)
+    answer = await _answer_widget(detail, project_id, start, end, row_cap=None, series_row_cap=None)
+    return WidgetDataResponse(
+        widget=WidgetRef(
+            id=detail.id,
+            dashboard_id=detail.dashboard_id,
+            title=detail.title,
+            type=detail.type,
+            dashboard_name=detail.dashboard_name,
+            spec=detail.spec,
+        ),
+        window=window,
+        **answer.model_dump(exclude={"id", "title", "type", "spec"}),
     )

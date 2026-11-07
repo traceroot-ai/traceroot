@@ -75,6 +75,7 @@ export interface DetectorRow {
   name: string;
   template: string;
   prompt: string;
+  sampleRate: number;
 }
 
 export interface WidgetRow {
@@ -104,6 +105,9 @@ export interface AlertRow {
   window: string;
   thresholdOperator: string;
   threshold: unknown;
+  status: string;
+  /** The stored filter list, canonicalized on write. */
+  filters?: unknown;
 }
 
 /** A point-in-time read of everything the write tools can create in a project. */

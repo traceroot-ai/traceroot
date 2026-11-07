@@ -16,6 +16,7 @@ from starlette.responses import StreamingResponse
 from rest.retention import enforce_retention_by_time
 from rest.routers.deps import ProjectAccess
 from rest.services.trace_reader import get_trace_reader_service
+from rest.sql_utils import to_utc_naive
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -39,25 +40,38 @@ def _completion_state_in_clickhouse(
     with an end time is a completion candidate, not proof that no more
     descendant spans can arrive — some streaming handlers finish the root span
     before background work emits its children, so the last ingest time
-    (max ch_update_time) tells us whether spans are still actively arriving.
+    (max ch_create_time) tells us whether spans are still actively arriving.
+    It is the insert time, not ch_update_time: that column is the row's
+    version, which an insert can set earlier than the insert itself
+    (the receive time the ingest worker gives each row), so a row inserted just now
+    could look as if the trace had been quiet for a long time.
     """
     from db.clickhouse.client import get_clickhouse_client
 
     ch_client = get_clickhouse_client()
-    # Dedup ReplacingMergeTree rows without FINAL: keep the latest version per
-    # span_id (filtered to this trace), then aggregate on the deduped rows.
+    # Root end time: dedup ReplacingMergeTree rows without FINAL, keeping the
+    # latest version per span_id (filtered to this trace), then aggregate on
+    # the deduped rows. Last ingest time: every row of the trace still stored,
+    # so a version that lost to a newer one counts from its insert until a merge
+    # drops it — the worker publishes it to the live channel all the same.
     result = ch_client.query(
         """
         SELECT
-            maxIf(span_end_time, isNull(parent_span_id)),
-            max(ch_update_time)
-        FROM (
-            SELECT parent_span_id, span_end_time, ch_update_time FROM spans
-            WHERE project_id = {project_id:String}
-              AND trace_id   = {trace_id:String}
-            ORDER BY ch_update_time DESC
-            LIMIT 1 BY span_id
-        )
+            (
+                SELECT maxIf(span_end_time, isNull(parent_span_id))
+                FROM (
+                    SELECT parent_span_id, span_end_time FROM spans
+                    WHERE project_id = {project_id:String}
+                      AND trace_id   = {trace_id:String}
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY span_id
+                )
+            ),
+            (
+                SELECT max(ch_create_time) FROM spans
+                WHERE project_id = {project_id:String}
+                  AND trace_id   = {trace_id:String}
+            )
         """,
         parameters={"project_id": project_id, "trace_id": trace_id},
     )
@@ -118,6 +132,16 @@ async def live_trace_stream(
             root_end_time, last_ingest_time = await asyncio.to_thread(
                 _completion_state_in_clickhouse, project_id, trace_id
             )
+            # ClickHouse's DateTime64 columns here carry no explicit timezone,
+            # and the driver does not consistently return naive datetimes for
+            # them — normalize both to naive UTC before any comparison or
+            # arithmetic. Do this before max(), not just before the
+            # subtraction below: max() itself raises on a naive/aware pair
+            # just as the subtraction does on a naive-vs-aware pair.
+            if root_end_time is not None:
+                root_end_time = to_utc_naive(root_end_time)
+            if last_ingest_time is not None:
+                last_ingest_time = to_utc_naive(last_ingest_time)
 
             completion_deadline = None
             if root_end_time is not None:
@@ -126,8 +150,7 @@ async def live_trace_stream(
                 # holding the SSE connection and Redis subscription for the
                 # full window, while a trace whose descendants are still
                 # arriving (root ended early) keeps its late-span protection.
-                # ClickHouse stores naive UTC timestamps; clamp age at 0
-                # against clock skew.
+                # Clamp age at 0 against clock skew.
                 anchor = max(root_end_time, last_ingest_time or root_end_time)
                 now_utc = datetime.now(UTC).replace(tzinfo=None)
                 age = max(0.0, (now_utc - anchor).total_seconds())

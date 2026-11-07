@@ -1,3 +1,5 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, ModelSource, PlanType, isBillingEnabled } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -7,7 +9,7 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 type RouteParams = { params: Promise<{ projectId: string; sessionId: string }> };
 
 // GET /api/projects/[projectId]/ai/sessions/[sessionId]/messages — Load message history
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -17,8 +19,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (sessionId === "." || sessionId === "..") {
+    return Response.json({ error: "Invalid session ID" }, { status: 400 });
+  }
+
   const res = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}/messages`,
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
       headers: { "x-user-id": user.id },
     },
@@ -36,7 +43,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages — SSE passthrough
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -45,6 +52,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const denied = demoAgentWriteDenied(
+    accessResult.project.workspaceId,
+    accessResult.membership.role,
+  );
+  if (denied) return denied;
+
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (sessionId === "." || sessionId === "..") {
+    return Response.json({ error: "Invalid session ID" }, { status: 400 });
+  }
 
   const body = await request.json();
 
@@ -77,7 +94,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   // Proxy to agent service, passthrough SSE stream
   const agentRes = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}/messages`,
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
       method: "POST",
       headers: {
@@ -124,3 +141,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     },
   });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

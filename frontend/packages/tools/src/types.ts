@@ -19,7 +19,13 @@ export interface InputSchema {
   additionalProperties: false;
 }
 
-export type ToolMethod = "get" | "post";
+/**
+ * HTTP verbs the registry can express. `get` reads; `post` creates; `patch`
+ * partially updates (absent body field = untouched, explicit null = clear);
+ * `delete` removes, carrying its arguments in the path and query only.
+ * `put` is the expected next member; see SUPPORTED_METHODS in generate.ts.
+ */
+export type ToolMethod = "get" | "post" | "patch" | "delete";
 
 /** Guardrails a write tool carries; surfaces enforce them before dispatching. */
 export interface ToolPolicy {
@@ -29,8 +35,8 @@ export interface ToolPolicy {
    * - "confirm"  — an attended surface shows the proposal and waits for the
    *   user's yes; an unattended surface executes as if "none". A taste gate,
    *   not a security control.
-   * - "approval" — reserved for destructive ops (future deletes); fail-closed
-   *   everywhere today.
+   * - "approval" — destructive ops (deletes). Each surface decides how to
+   *   honor it; a surface that has not implemented it fails closed.
    */
   approvalClass: "none" | "confirm" | "approval";
   /** Minimum workspace role; "VIEWER" means no role floor (account-tenancy ops have no membership to gate). */
@@ -50,12 +56,15 @@ export interface RegistryEntry {
   /** Public path template, e.g. "/api/v1/public/traces/{trace_id}". */
   path: string;
   inputSchema: InputSchema;
-  /** Args routed to the JSON request body (write ops only). */
+  /** Args routed to the JSON request body. Present only on entries with a
+   * JSON request body (POST and PATCH); a DELETE has none, so its args are
+   * path and query params like a GET's. */
   bodyParams?: readonly string[];
   /** Body fields kept in the API/CLI contract but that the agent's tool
    * factory must neither show to the model nor accept from it. The entry's
    * inputSchema/bodyParams stay complete; filtering is the consumer's job. */
   agentHiddenParams?: readonly string[];
-  /** Required on every non-GET entry; validated at generation time. */
+  /** Required on every non-GET entry (POST, PATCH, DELETE); validated at
+   * generation time. */
   policy?: ToolPolicy;
 }

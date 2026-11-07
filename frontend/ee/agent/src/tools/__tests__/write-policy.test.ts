@@ -25,6 +25,11 @@ const CONFIRM_ENTRY = {
   policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
 } as const;
 
+const APPROVAL_ENTRY = {
+  name: "delete_detector",
+  policy: { approvalClass: "approval", minRole: "MEMBER", tenancy: "project" },
+} as const;
+
 /** A registry with an attended (or unattended) channel registered for s1. */
 function attendedSetup(userId = "u1") {
   const decisions = new PendingDecisions();
@@ -34,7 +39,10 @@ function attendedSetup(userId = "u1") {
     emit: (event) => emitted.push(event),
     keepalive: vi.fn(),
   });
-  const hook = createWritePolicyHook([CONFIRM_ENTRY], { sessionId: "s1", decisions });
+  const hook = createWritePolicyHook([CONFIRM_ENTRY, APPROVAL_ENTRY], {
+    sessionId: "s1",
+    decisions,
+  });
   return { decisions, emitted, hook };
 }
 
@@ -180,6 +188,7 @@ describe("createWritePolicyHook — parked confirmations", () => {
         toolCallId: "call-create_detector",
         toolName: "create_detector",
         args: { name: "latency" },
+        approvalClass: "confirm",
       },
     ]);
     decisions.releaseSession("s1", "cleanup");
@@ -298,6 +307,146 @@ describe("createWritePolicyHook — parked confirmations", () => {
     });
     const hook = createWritePolicyHook([CONFIRM_ENTRY], { sessionId: "s1", decisions });
     await expect(hook(contextFor("create_detector"))).resolves.toEqual({
+      block: true,
+      reason: CONFIRMATION_UNAVAILABLE_REASON,
+    });
+    expect(decisions.pendingCount()).toBe(0);
+  });
+});
+
+describe("createWritePolicyHook — approval class (deletes)", () => {
+  const deleteArgs = { detector_id: "d1", reason: "the user asked to remove the duplicate" };
+
+  it("parks delete_detector on the shared registry's own policy, as approval-class", async () => {
+    const decisions = new PendingDecisions();
+    const emitted: ConfirmationPendingEvent[] = [];
+    decisions.registerChannel("s1", {
+      userId: "u1",
+      emit: (event) => emitted.push(event),
+      keepalive: vi.fn(),
+    });
+    const hook = createWritePolicyHook(undefined, { sessionId: "s1", decisions });
+    const parked = settlement(hook(contextFor("delete_detector", deleteArgs)));
+    await tick();
+    expect(parked.settled()).toBe(false);
+    expect(emitted).toEqual([
+      expect.objectContaining({
+        type: "confirmation_pending",
+        toolName: "delete_detector",
+        args: deleteArgs,
+        approvalClass: "approval",
+      }),
+    ]);
+    decisions.releaseSession("s1", "cleanup");
+  });
+
+  it("parks an attended approval call with the reason on the event, and does not settle", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const parked = settlement(hook(contextFor("delete_detector", deleteArgs)));
+
+    await tick();
+    expect(parked.settled()).toBe(false);
+    expect(decisions.pendingCount("s1")).toBe(1);
+    expect(emitted).toEqual([
+      {
+        type: "confirmation_pending",
+        decisionId: expect.any(String),
+        toolCallId: "call-delete_detector",
+        toolName: "delete_detector",
+        args: deleteArgs,
+        approvalClass: "approval",
+      },
+    ]);
+    decisions.releaseSession("s1", "cleanup");
+  });
+
+  it("create → the delete proceeds unchanged", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const result = hook(contextFor("delete_detector", deleteArgs));
+    await tick();
+    decisions.decide(emitted[0].decisionId, "s1", { action: "create" });
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it("skip → the declined result says the delete was NOT executed", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const result = hook(contextFor("delete_detector", deleteArgs));
+    await tick();
+    decisions.decide(emitted[0].decisionId, "s1", { action: "skip" });
+    await expect(result).resolves.toEqual({
+      block: true,
+      reason: userSkipReason("delete_detector"),
+    });
+    expect(decisions.takeDecline("s1", "call-delete_detector")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+  });
+
+  it("revise → resolves as a skip: there is no revise-by-typing for a delete", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const result = hook(contextFor("delete_detector", deleteArgs));
+    await tick();
+    decisions.decide(emitted[0].decisionId, "s1", { action: "revise", text: "delete both" });
+    await expect(result).resolves.toEqual({
+      block: true,
+      reason: userSkipReason("delete_detector"),
+    });
+    // The decline is recorded as a skip, carrying no revision text the model
+    // could act on as a re-proposal.
+    expect(decisions.takeDecline("s1", "call-delete_detector")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+  });
+
+  it("unattended session (channel without userId) blocks an approval call fail-closed, no event", async () => {
+    // Unlike confirm, which executes as none when nobody is there: a system
+    // or RCA session never deletes.
+    const { decisions, emitted, hook } = attendedSetup("");
+    await expect(hook(contextFor("delete_detector", deleteArgs))).resolves.toEqual({
+      block: true,
+      reason: APPROVAL_REQUIRED_REASON,
+    });
+    expect(emitted).toEqual([]);
+    expect(decisions.pendingCount()).toBe(0);
+  });
+
+  it("blocks a session-bound approval call when no run channel is registered", async () => {
+    const hook = createWritePolicyHook([APPROVAL_ENTRY], {
+      sessionId: "s1",
+      decisions: new PendingDecisions(),
+    });
+    await expect(hook(contextFor("delete_detector", deleteArgs))).resolves.toEqual({
+      block: true,
+      reason: APPROVAL_REQUIRED_REASON,
+    });
+  });
+
+  it("fails closed with the registry's reason when the session already has a parked proposal", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const first = hook(contextFor("create_detector"));
+    await tick();
+    await expect(hook(contextFor("delete_detector", deleteArgs))).resolves.toEqual({
+      block: true,
+      reason: SESSION_PARK_LIMIT_REASON,
+    });
+    expect(emitted).toHaveLength(1);
+    decisions.decide(emitted[0].decisionId, "s1", { action: "create" });
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it("does not leak the parked approval when emitting the event throws", async () => {
+    const decisions = new PendingDecisions();
+    decisions.registerChannel("s1", {
+      userId: "u1",
+      emit: () => {
+        throw new Error("stream gone");
+      },
+      keepalive: vi.fn(),
+    });
+    const hook = createWritePolicyHook([APPROVAL_ENTRY], { sessionId: "s1", decisions });
+    await expect(hook(contextFor("delete_detector", deleteArgs))).resolves.toEqual({
       block: true,
       reason: CONFIRMATION_UNAVAILABLE_REASON,
     });

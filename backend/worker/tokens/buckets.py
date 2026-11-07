@@ -67,6 +67,10 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     "pydantic",  # pydantic-ai / pydantic_ai
     "logfire",
     "traceroot",
+    # npm-scoped traceroot emitters: @traceroot-ai/pi-extension,
+    # @traceroot-ai/claude-agent-sdk, @traceroot-ai/pi-coding-agent. "traceroot"
+    # above does not prefix-match the leading "@".
+    "@traceroot-ai/",
 )
 
 # Scopes recognized by EXACT name — too short to prefix-match safely (a bare

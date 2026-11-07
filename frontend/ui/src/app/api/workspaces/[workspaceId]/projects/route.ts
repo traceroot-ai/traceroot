@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -9,6 +10,7 @@ import {
 } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { seedDefaultDashboard } from "@/lib/dashboard-seed";
+import { captureServerEvent } from "@/lib/posthog-server";
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -18,7 +20,7 @@ const createProjectSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/projects - List projects in workspace
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/workspaces/[workspaceId]/projects - Create a new project (MEMBER+)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -107,6 +109,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return errorResponse("A project with this name already exists", 409);
   }
 
+  captureServerEvent(user.id, "project_created", {
+    workspace_id: workspaceId,
+    project_id: project.id,
+  });
+
   return NextResponse.json(
     {
       id: project.id,
@@ -118,3 +125,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

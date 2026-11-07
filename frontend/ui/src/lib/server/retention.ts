@@ -5,10 +5,16 @@ import { getRetentionDays } from "@traceroot/core";
 // backend gate (backend/rest/retention.py, hours=1).
 const BOUNDARY_BUFFER_MS = 3_600_000;
 
-function getRetentionCutoff(billingPlan: string): string | null {
+/** The plan's cutoff as epoch ms, or null when the plan has unlimited retention. */
+function getRetentionCutoffMs(billingPlan: string): number | null {
   const days = getRetentionDays(billingPlan);
   if (days === null) return null;
-  return new Date(Date.now() - days * 86_400_000 - BOUNDARY_BUFFER_MS).toISOString();
+  return Date.now() - days * 86_400_000 - BOUNDARY_BUFFER_MS;
+}
+
+function getRetentionCutoff(billingPlan: string): string | null {
+  const ms = getRetentionCutoffMs(billingPlan);
+  return ms === null ? null : new Date(ms).toISOString();
 }
 
 /**
@@ -27,4 +33,28 @@ export function clampStartAfter(billingPlan: string, startAfter: string | null):
     return cutoff;
   }
   return startAfter;
+}
+
+/**
+ * The by-id half of the gate: true when a record's own timestamp falls outside
+ * the plan's retention window, so the caller can answer 403.
+ *
+ * A list has a window to pull forward, so it clamps silently (`clampStartAfter`
+ * above). A by-id read has none — the only answers are the record or a refusal —
+ * which is exactly the split the telemetry routes already make between
+ * `clamp_retention_window` and `enforce_retention_by_time` in
+ * backend/rest/retention.py. This is that second helper for the Node routes, on
+ * the same cutoff (and the same one-hour boundary buffer) as the clamp.
+ *
+ * An unlimited-retention plan gates nothing. A missing timestamp gates nothing
+ * either, matching the Python helper's `timestamp is not None` guard: absent is
+ * not evidence of being outside the window.
+ */
+export function isOutsideRetention(
+  billingPlan: string,
+  timestamp: Date | null | undefined,
+): boolean {
+  const cutoffMs = getRetentionCutoffMs(billingPlan);
+  if (cutoffMs === null || timestamp == null) return false;
+  return timestamp.getTime() < cutoffMs;
 }

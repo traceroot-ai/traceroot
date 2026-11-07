@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
 const detectorCreateMock = vi.fn();
@@ -206,5 +211,20 @@ describe("POST .../detectors — detection model", () => {
       detectionProvider: "My OpenAI",
       detectionModel: "gpt-5.4",
     });
+  });
+});
+
+describe("POST — signals switch", () => {
+  it("defaults to grouping hits into signals and accepts turning it off", async () => {
+    await POST(makeRequest(validBody()), makeParams());
+    expect(detectorCreateMock.mock.calls[0][0].data.enableSignals).toBe(true);
+    await POST(makeRequest(validBody({ enableSignals: false })), makeParams());
+    expect(detectorCreateMock.mock.calls[1][0].data.enableSignals).toBe(false);
+  });
+
+  it("rejects a non-boolean", async () => {
+    const res = await POST(makeRequest(validBody({ enableSignals: "no" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(detectorCreateMock).not.toHaveBeenCalled();
   });
 });

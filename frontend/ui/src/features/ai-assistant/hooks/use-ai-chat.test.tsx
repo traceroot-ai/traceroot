@@ -5,6 +5,7 @@ import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAiChat } from "./use-ai-chat";
+import { DEMO_EXAMPLES } from "../lib/demo-agent-example";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
@@ -128,6 +129,137 @@ describe("useAiChat session switching", () => {
       expect(result.current.messages.some((m) => m.content === "partial answer")).toBe(true),
     );
   };
+
+  /** Holds every GET of a session list until the returned function is called. */
+  const holdSessionLists = () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answer = fetchMock.getMockImplementation() as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET" && String(input).endsWith("/ai/sessions")) await held;
+      return answer(input, init);
+    });
+    return release;
+  };
+
+  it("opens History for an ordinary member only when this project's list has arrived", async () => {
+    const release = holdSessionLists();
+    const { result } = renderChat();
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleOpenHistory();
+    });
+    expect(result.current.historyOpen).toBe(false);
+    release();
+    await act(async () => {
+      await opening;
+    });
+    expect(result.current.historyOpen).toBe(true);
+    expect(result.current.sessions).toEqual([sessionB]);
+  });
+
+  it("opens a demo visitor's History at once, without the last project's list", async () => {
+    const { result, rerender } = renderHook(
+      ({ projectId, demoReadOnly }: { projectId: string; demoReadOnly: boolean }) =>
+        useAiChat({ projectId, demoReadOnly }),
+      { wrapper, initialProps: { projectId: "own", demoReadOnly: false } },
+    );
+    await act(async () => {
+      await result.current.handleOpenHistory();
+    });
+    expect(result.current.sessions).toEqual([sessionB]);
+    act(() => result.current.setHistoryOpen(false));
+
+    rerender({ projectId: "demo", demoReadOnly: true });
+    const release = holdSessionLists();
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleOpenHistory();
+    });
+    expect(result.current.historyOpen).toBe(true);
+    expect(result.current.sessions.map((session) => session.id)).toEqual(
+      DEMO_EXAMPLES.map(({ session }) => session.id),
+    );
+    // Picking an example closes History; the list that lands later must not
+    // open it again over the transcript.
+    await act(async () => {
+      await result.current.handleSelectSession(result.current.sessions[0]);
+    });
+    expect(result.current.historyOpen).toBe(false);
+    release();
+    await act(async () => {
+      await opening;
+    });
+    expect(result.current.historyOpen).toBe(false);
+  });
+
+  it("keeps the demo example in History after opening RCA and returning Home", async () => {
+    const { result, rerender } = renderHook(
+      ({ initialSessionId }: { initialSessionId?: string }) =>
+        useAiChat({ projectId: "p1", initialSessionId, demoReadOnly: true }),
+      { wrapper, initialProps: { initialSessionId: "rca-1" as string | undefined } },
+    );
+    await waitFor(() => expect(result.current.messages[0]?.content).toBe("history of rca-1"));
+    rerender({ initialSessionId: undefined });
+    await act(async () => {
+      await result.current.handleOpenHistory();
+    });
+    const example = result.current.sessions.find((s) => s.id === "demo-example-policy");
+    expect(example).toBeDefined();
+    await act(async () => {
+      await result.current.handleSelectSession(example!);
+    });
+    expect(result.current.messages.at(-1)?.content).toContain("false positive");
+    await act(async () => {
+      expect(await result.current.handleSend("blocked", MODEL)).toBe(false);
+    });
+    expect(historyFetches).not.toContain("demo-example-policy");
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    expect(result.current.messages[0]?.content).toBe("history of B");
+    await act(async () => {
+      await result.current.handleSelectSession(example!);
+    });
+    expect(result.current.messages.at(-1)?.content).toContain("false positive");
+    act(() => result.current.handleNewSession());
+    expect(result.current.messages).toEqual([]);
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(
+      true,
+    );
+  });
+
+  it("switches through every bundled example without requesting a backend transcript", async () => {
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", demoReadOnly: true }), {
+      wrapper,
+    });
+    for (const example of DEMO_EXAMPLES) {
+      const listed = result.current.sessions.find((session) => session.id === example.session.id);
+      expect(listed).toBeDefined();
+      await act(async () => {
+        await result.current.handleSelectSession(listed!);
+      });
+      expect(result.current.currentSessionId).toBe(example.session.id);
+      expect(result.current.messages).toEqual(example.messages);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not list or load demo examples in ordinary workspaces", async () => {
+    const { result } = renderChat();
+    expect(result.current.sessions.some((session) => session.isExample)).toBe(false);
+    await act(async () => {
+      await result.current.handleSelectSession({ ...DEMO_EXAMPLES[0].session, projectId: "p1" });
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("loads an initialSessionId's history into its bucket on mount", async () => {
     const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }), {
@@ -1211,6 +1343,14 @@ describe("useAiChat revision by chat", () => {
           // stream cancelled — assertions read hook state
         }
       },
+      /** End the stream: the run it carries is over. */
+      close() {
+        try {
+          controller.close();
+        } catch {
+          // already cancelled
+        }
+      },
     };
   }
 
@@ -1542,6 +1682,8 @@ describe("useAiChat revision by chat", () => {
       decisionId: "d1",
       resourceType: "widget",
       title: "Tokens",
+      action: "create",
+      approvalClass: "confirm",
     });
 
     // A background session's parked call is not the composer's to decide.
@@ -1564,6 +1706,266 @@ describe("useAiChat revision by chat", () => {
     });
     expect(result.current.pendingDecision).toBeNull();
     expect(result.current.hasPendingDecision).toBe(false);
+  });
+
+  it("exposes a parked delete as an approval-class decision named by the transcript", async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("remove the errors widget", MODEL);
+    });
+    // An earlier receipt in the same session is how the panel knows the widget's title.
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc0",
+      toolName: "create_widget",
+      args: { title: "Errors", dashboard_id: "db1" },
+    });
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc0",
+      result: {
+        details: {
+          kind: "resource_created",
+          resourceType: "widget",
+          resourceId: "w1",
+          created: true,
+          projectId: "p1",
+          dashboardId: "db1",
+          name: "Errors",
+        },
+      },
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    await waitFor(() =>
+      expect(rendered.result.current.pendingDecision).toEqual({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        resourceType: "widget",
+        title: "Errors",
+        action: "delete",
+        approvalClass: "approval",
+      }),
+    );
+  });
+
+  /** Send a message in session A and park a delete_widget call on it. */
+  const parkPendingDelete = async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("remove the errors widget", MODEL);
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    await waitFor(() =>
+      expect(findStep(rendered.result)?.pending).toEqual({
+        decisionId: "d1",
+        approvalClass: "approval",
+      }),
+    );
+    return rendered;
+  };
+
+  /** How many sessions the hook has created so far. */
+  const sessionsCreated = () =>
+    fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        (init as RequestInit | undefined)?.method === "POST" &&
+        String(url).endsWith("/ai/sessions"),
+    ).length;
+
+  it("a send while a delete is parked skips it first, then sends the message once that run has ended", async () => {
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("actually keep it, rename it instead", MODEL);
+    });
+
+    // No revise-by-typing for a delete: the reply resolved the park as a skip…
+    await waitFor(() =>
+      expect(decisionCalls).toEqual([
+        {
+          url: "/api/projects/p1/ai/sessions/A/decisions",
+          body: { decisionId: "d1", action: "skip" },
+        },
+      ]),
+    );
+    await waitFor(() => expect(findStep(rendered.result)?.skipped).toBe(true));
+    // …but the run the skip landed on is still open — the model is acting on
+    // the decline — and the service admits one run per session, so posting
+    // now would be refused. The reply is held back.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(rendered.result.current.isStreaming).toBe(true);
+
+    // The run ends; only now does the reply go out as a turn of its own.
+    sse.close();
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await reply;
+    });
+    expect(accepted).not.toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual([
+      "remove the errors widget",
+      "actually keep it, rename it instead",
+    ]);
+    expect(findStep(rendered.result)?.pending).toBeUndefined();
+    expect(sessionsCreated()).toBe(1);
+  });
+
+  it("a reply whose skip is still in flight when the panel closes never starts a run", async () => {
+    let resolveSkip!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveSkip = r;
+      });
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("keep it", MODEL);
+    });
+    await waitFor(() => expect(decisionCalls).toHaveLength(1));
+    act(() => {
+      rendered.result.current.handleClose();
+    });
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      resolveSkip(jsonResponse({ ok: true }));
+      accepted = await reply;
+    });
+    // Refused, so the composer keeps the text — and nothing was posted: no
+    // fresh session for a closed panel, no message into the old one.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(sessionsCreated()).toBe(1);
+  });
+
+  it("a reply waiting for the skipped run to end is refused when the panel closes first", async () => {
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("keep it", MODEL);
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.skipped).toBe(true));
+    // Closing aborts the run, which ends the wait — across a boundary the
+    // reply must not cross.
+    act(() => {
+      rendered.result.current.handleClose();
+    });
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await reply;
+    });
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(sessionsCreated()).toBe(1);
+  });
+
+  it("a reply goes out once the user aborts the skipped run themselves", async () => {
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("keep it", MODEL);
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.skipped).toBe(true));
+    act(() => {
+      rendered.result.current.handleAbort();
+    });
+
+    await act(async () => {
+      await reply;
+    });
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget", "keep it"]);
+  });
+
+  it("a skip that cannot be delivered refuses the reply and leaves the card parked", async () => {
+    decisionResponse = () => Promise.reject(new TypeError("network down"));
+    const rendered = await parkPendingDelete();
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await rendered.result.current.handleSend("keep it", MODEL);
+    });
+    // The call is still parked server-side, so a message would be refused by
+    // the run it is parked on; the composer keeps the text and the card
+    // keeps its buttons.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(findStep(rendered.result)?.pending).toBeDefined();
+  });
+
+  it("a skip answered with a server error refuses the reply and leaves the card parked", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "boom" }), { status: 500 });
+    const rendered = await parkPendingDelete();
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await rendered.result.current.handleSend("keep it", MODEL);
+    });
+    // The run is still parked server-side: a reply would wait on it or be
+    // answered 409, so it is refused like an undelivered skip.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(findStep(rendered.result)?.pending).toBeDefined();
+  });
+
+  it("a skip answered 409 (decided elsewhere) refuses the send so the run acting on it is not cut", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "decided" }), { status: 409 });
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("remove the errors widget", MODEL);
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.pending).toBeDefined());
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await rendered.result.current.handleSend("keep it", MODEL);
+    });
+    // The composer gets its text back; the delete already decided runs on.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(findStep(rendered.result)?.pending).toBeUndefined();
+    expect(findStep(rendered.result)?.skipped).toBeUndefined();
   });
 
   it("keeps the same pendingDecision object across a streamed text delta", async () => {

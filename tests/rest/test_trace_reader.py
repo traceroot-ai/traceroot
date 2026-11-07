@@ -3,6 +3,8 @@
 Pure logic — get_model_price is patched, so no DB/ClickHouse is needed.
 """
 
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -22,6 +24,10 @@ def test_span_cost_details_reconciles_to_cost():
     from worker.tokens.buckets import TokenBuckets
     from worker.tokens.pricing import cost_from_buckets
 
+    expected = cost_from_buckets(
+        CLAUDE_PRICES,
+        TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000),
+    )
     with patch("rest.services.trace_reader.get_model_price", return_value=CLAUDE_PRICES):
         details = span_cost_details(
             "claude-3-5-sonnet-20241022",
@@ -32,12 +38,9 @@ def test_span_cost_details_reconciles_to_cost():
                 "cache_write_tokens": 2000,
                 "reasoning_tokens": 800,
             },
+            cost=expected,
         )
 
-    expected = cost_from_buckets(
-        CLAUDE_PRICES,
-        TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000),
-    )
     assert sum(details.values()) == pytest.approx(expected)
     assert details["cache_read_cost"] == pytest.approx(6000 * 0.0000003)
     assert details["input_uncached_cost"] == pytest.approx(2000 * 0.000003)
@@ -50,18 +53,6 @@ def test_span_cost_details_rebuilds_1h_portion():
 
     # input 1000 = 100 uncached + 0 read + 900 write; of the 900: 600 @1h, 300 remainder.
     prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}  # 2x the 0.000003 input rate
-    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
-        details = span_cost_details(
-            "claude-opus-4-7",
-            input_tokens=1000,
-            output_tokens=0,
-            usage_details={
-                "cache_read_tokens": 0,
-                "cache_write_tokens": 900,
-                "cache_write_1h_tokens": 600,
-            },
-        )
-
     expected = cost_from_buckets(
         prices,
         TokenBuckets(
@@ -72,6 +63,19 @@ def test_span_cost_details_rebuilds_1h_portion():
             cache_write_1h=600,
         ),
     )
+    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
+        details = span_cost_details(
+            "claude-opus-4-7",
+            input_tokens=1000,
+            output_tokens=0,
+            usage_details={
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 900,
+                "cache_write_1h_tokens": 600,
+            },
+            cost=expected,
+        )
+
     assert sum(details.values()) == pytest.approx(expected)
     # Independent ground truth: 300 remainder @cacheWrite + 600 @cacheWrite1h.
     assert details["cache_write_cost"] == pytest.approx(300 * 0.00000375 + 600 * 0.000006)
@@ -89,6 +93,7 @@ def test_span_cost_details_without_1h_key_matches_combined_rate():
             input_tokens=1000,
             output_tokens=0,
             usage_details={"cache_read_tokens": 0, "cache_write_tokens": 900},
+            cost=100 * 0.000003 + 900 * 0.00000375,
         )
     assert details["cache_write_cost"] == pytest.approx(900 * 0.00000375)
 
@@ -96,14 +101,26 @@ def test_span_cost_details_without_1h_key_matches_combined_rate():
 def test_span_cost_details_empty_without_model():
     from rest.services.trace_reader import span_cost_details
 
-    assert span_cost_details(None, 100, 50, {}) == {}
+    assert span_cost_details(None, 100, 50, {}, 0.001) == {}
 
 
 def test_span_cost_details_empty_for_unknown_model():
     from rest.services.trace_reader import span_cost_details
 
     with patch("rest.services.trace_reader.get_model_price", return_value=None):
-        assert span_cost_details("mystery-model", 100, 50, {}) == {}
+        assert span_cost_details("mystery-model", 100, 50, {}, 0.001) == {}
+
+
+def test_span_cost_details_only_when_it_sums_to_cost():
+    from rest.services.trace_reader import span_cost_details
+
+    with patch("rest.services.trace_reader.get_model_price", return_value=CLAUDE_PRICES):
+        listed = 100 * 0.000003 + 50 * 0.000015
+        assert sum(span_cost_details("claude", 100, 50, {}, listed).values()) == pytest.approx(
+            listed
+        )
+        # A caller-reported cost the list price cannot explain.
+        assert span_cost_details("claude", 100, 50, {}, 0.0123) == {}
 
 
 def test_span_path_attribute_names_are_the_sdk_wire_strings():
@@ -238,6 +255,7 @@ class TestGetTraceSkeleton:
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
+                        "",  # error_type
                     )
                 ]
             )
@@ -313,11 +331,53 @@ class TestGetTraceSkeleton:
         assert span["git_source_file"] == "file.py"
         assert span["git_source_line"] == 12
         assert span["git_source_function"] == "fn"
+        assert span["error_type"] == ""
 
         # Trace-level I/O is preserved.
         assert result["input"] == "trace-in"
         assert result["output"] == "trace-out"
         assert result["metadata"] == "trace-meta"
+
+    def test_error_span_carries_error_type_through_to_the_response(self):
+        """error_type is the last column, so nothing before it moves; it round-trips."""
+        from rest.schemas.traces import SpanResponse
+
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                trace_row = ("abc123", "proj", "t", datetime(2024, 1, 1)) + (None,) * 7
+                return _rows([trace_row])
+            return _rows(
+                [
+                    (
+                        "span-1",
+                        "abc123",
+                        None,
+                        "tool.call",
+                        "TOOL",
+                        datetime(2024, 1, 1),
+                        datetime(2024, 1, 1),
+                        "ERROR",
+                        "connection timed out",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        {},
+                        None,
+                        None,
+                        None,
+                        None,
+                        "TimeoutError",  # error_type
+                    )
+                ]
+            )
+
+        service, _ = _make_service(side_effect)
+        span = service.get_trace("proj", "abc123")["spans"][0]
+        assert span["status"] == "ERROR"
+        assert span["error_type"] == "TimeoutError"
+        assert SpanResponse.model_validate(span).error_type == "TimeoutError"
 
     def test_returns_none_when_trace_missing(self):
         def side_effect(query, parameters=None):
@@ -567,6 +627,14 @@ class TestGetSpanIO:
         assert result["output"] == "new-output"
         assert result["metadata"] == "new-meta"
 
+    def test_reads_every_source_by_default(self):
+        """The span I/O endpoint serves a span whatever its source."""
+        service, client = _make_service(lambda *a, **kw: _rows([]))
+
+        service.get_span_io("proj", "abc123", "span-1")
+
+        assert "source" not in client.query.call_args.args[0]
+
 
 class TestHasTraces:
     def test_returns_true_when_spans_exist(self):
@@ -576,6 +644,12 @@ class TestHasTraces:
     def test_returns_false_when_no_spans(self):
         service, _ = _make_service(lambda *a, **kw: _rows([]))
         assert service.has_traces("proj-1") is False
+
+    def test_counts_customer_spans_only(self):
+        """A project whose only rows are internal self-traces has no traces to show."""
+        service, client = _make_service(lambda *a, **kw: _rows([]))
+        service.has_traces("proj-1")
+        assert "source = 'user'" in client.query.call_args.args[0]
 
     def test_caches_true_result(self):
         call_count = {"n": 0}
@@ -597,6 +671,184 @@ class TestHasTraces:
         service.has_traces("c")
         assert "a" not in service._has_traces_cache
         assert "c" in service._has_traces_cache
+
+
+class TestTraceStartTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_a_missing_root_is_not_cached(self):
+        """A trace read before its root arrives still sees the root once it does."""
+        answers = iter([_rows([(None,)]), _rows([(self.OLD,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_trace_start_time("proj-1", "trace-1") is None
+        assert service.get_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 2
+
+    def test_a_found_root_is_cached(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert service.get_trace_start_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 1
+
+    def test_reads_root_spans_only(self):
+        service, client = _make_service(lambda *a, **kw: _rows([]))
+
+        assert service.get_trace_start_time("proj-1", "trace-1") is None
+        assert "isNull(parent_span_id)" in client.query.call_args.args[0]
+
+    def test_reads_every_source_by_default(self):
+        """Span I/O and the live view judge a trace by its root whatever its source."""
+        service, client = _make_service(lambda *a, **kw: _rows([]))
+
+        service.get_trace_start_time("proj-1", "trace-1")
+
+        assert "source" not in client.query.call_args.args[0]
+
+
+class TestCustomerTraceStartTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_reads_customer_root_spans_only(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_trace_start_time("proj-1", "trace-1", customer_only=True) == self.OLD
+        query = client.query.call_args.args[0]
+        assert "isNull(parent_span_id)" in query
+        assert "source = 'user'" in query
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj-1",
+            "trace_id": "trace-1",
+        }
+
+    def test_a_missing_root_is_not_cached(self):
+        answers = iter([_rows([(None,)]), _rows([(self.OLD,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_trace_start_time("proj-1", "trace-1", customer_only=True) is None
+        assert service.get_trace_start_time("proj-1", "trace-1", customer_only=True) == self.OLD
+        assert client.query.call_count == 2
+
+    def test_a_found_root_is_cached_apart_from_the_unscoped_one(self):
+        later = self.OLD + timedelta(days=1)
+        answers = iter([_rows([(self.OLD,)]), _rows([(later,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_trace_start_time("proj-1", "trace-1", customer_only=True) == self.OLD
+        assert service.get_trace_start_time("proj-1", "trace-1", customer_only=True) == self.OLD
+        # The unscoped read keeps its own entry: one scope never answers for the other.
+        assert service.get_trace_start_time("proj-1", "trace-1") == later
+        assert client.query.call_count == 2
+
+    def test_the_cache_stays_bounded(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+        service._TRACE_START_CACHE_MAX = 2
+
+        for trace_id in ("a", "b", "c"):
+            service.get_trace_start_time("proj-1", trace_id, customer_only=True)
+
+        assert list(service._trace_start_cache) == [("proj-1", "b", True), ("proj-1", "c", True)]
+
+    def test_two_reads_evicting_at_once_both_succeed(self):
+        # The image route and the live view run this reader on worker threads. A
+        # second read that evicts between the first one choosing the oldest entry and
+        # removing it must not make either read fail.
+        service, _ = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+        service._TRACE_START_CACHE_MAX = 2
+        results: dict[str, object] = {}
+
+        def read(trace_id: str) -> None:
+            try:
+                results[trace_id] = service.get_trace_start_time(
+                    "proj-1", trace_id, customer_only=True
+                )
+            except Exception as error:
+                results[trace_id] = error
+
+        other = threading.Thread(target=read, args=("d",))
+
+        class SwitchingCache(dict):
+            def pop(self, *args):
+                if not other.is_alive() and "d" not in results:
+                    # A thread switch here lets the other read evict first. It may
+                    # wait for this one instead, so the wait is bounded.
+                    other.start()
+                    other.join(timeout=0.25)
+                return super().pop(*args)
+
+        expiry = time.monotonic() + 3600
+        service._trace_start_cache = SwitchingCache(
+            {("proj-1", "a", True): (expiry, self.OLD), ("proj-1", "b", True): (expiry, self.OLD)}
+        )
+        read("c")
+        other.join(timeout=5)
+
+        assert results == {"c": self.OLD, "d": self.OLD}
+        assert len(service._trace_start_cache) == 2
+
+
+class TestCustomerTraceEarliestSpanTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_the_earliest_start_of_any_customer_span(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        query = " ".join(client.query.call_args.args[0].split())
+        assert "minOrNull(span_start_time)" in query
+        assert "parent_span_id" not in query
+        assert "source = 'user'" in query
+        # Each span's latest version only, like the other span readers.
+        assert "ORDER BY ch_update_time DESC LIMIT 1 BY span_id" in query
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj-1",
+            "trace_id": "trace-1",
+        }
+
+    @pytest.mark.parametrize("rows", [[], [(None,)]])
+    def test_none_when_the_trace_has_no_span(self, rows):
+        service, _ = _make_service(lambda *a, **kw: _rows(rows))
+
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") is None
+
+    def test_never_cached(self):
+        """An earlier span can still arrive, so every call reads again."""
+        later = self.OLD + timedelta(days=1)
+        answers = iter([_rows([(later,)]), _rows([(self.OLD,)])])
+        service, client = _make_service(lambda *a, **kw: next(answers))
+
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == later
+        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        assert client.query.call_count == 2
+
+
+class TestCustomerSpanIo:
+    def test_reads_a_customer_span_only(self):
+        service, client = _make_service(
+            lambda *a, **kw: _rows([("span-1", "abc123", "the-input", "the-output", "the-meta")])
+        )
+
+        assert service.get_span_io("proj", "abc123", "span-1", customer_only=True) == {
+            "span_id": "span-1",
+            "trace_id": "abc123",
+            "input": "the-input",
+            "output": "the-output",
+            "metadata": "the-meta",
+        }
+        query = " ".join(client.query.call_args.args[0].split())
+        assert "source = 'user'" in query
+        assert "ORDER BY ch_update_time DESC LIMIT 1" in query
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj",
+            "trace_id": "abc123",
+            "span_id": "span-1",
+        }
+
+    def test_none_for_a_span_outside_customer_traffic(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([]))
+
+        assert service.get_span_io("proj", "abc123", "span-1", customer_only=True) is None
 
 
 class TestListTracesRows:
@@ -631,3 +883,44 @@ class TestListTracesRows:
 
         assert result["data"][0]["metadata_map"] == {"tenant_id": "acme-corp"}
         assert result["data"][1]["metadata_map"] == {}
+
+    def test_page_order_breaks_start_time_ties_by_trace_id(self):
+        """Traces sharing a start time must page in a fixed order, so OFFSET pages are
+        disjoint: without a trace_id tie-breaker a tied trace can be skipped or
+        repeated across pages (#1747). Both the paged CTE and the final select carry it.
+        """
+        results = iter([_rows([]), _rows([[0]])])
+        service, client = _make_service(lambda *a, **kw: next(results))
+
+        service.list_traces(project_id="p1", page=1, limit=5)
+
+        page_query = " ".join(client.query.call_args_list[0].args[0].split())
+        assert "ORDER BY trace_start_time DESC, trace_id DESC LIMIT" in page_query
+        assert page_query.endswith("ORDER BY p.trace_start_time DESC, p.trace_id DESC")
+
+
+@pytest.mark.parametrize(
+    ("method_name", "page_order", "result_order"),
+    [
+        (
+            "list_sessions",
+            "ORDER BY max(t.trace_start_time) DESC, t.session_id DESC LIMIT",
+            "ORDER BY last_trace_time DESC, td.session_id DESC",
+        ),
+        (
+            "list_users",
+            "ORDER BY last_trace_time DESC, user_id DESC LIMIT",
+            "ORDER BY up.last_trace_time DESC, up.user_id DESC",
+        ),
+    ],
+)
+def test_aggregate_page_order_breaks_time_ties_by_id(method_name, page_order, result_order):
+    """Both page membership and displayed order need the same tie-breaker (#2618)."""
+    results = iter([_rows([]), _rows([[0]])])
+    service, client = _make_service(lambda *a, **kw: next(results))
+
+    getattr(service, method_name)(project_id="p1", page=1, limit=3)
+
+    page_query = " ".join(client.query.call_args_list[0].args[0].split())
+    assert page_order in page_query
+    assert page_query.endswith(result_order)

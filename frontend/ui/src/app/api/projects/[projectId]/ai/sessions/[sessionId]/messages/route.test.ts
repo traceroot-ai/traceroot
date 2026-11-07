@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -39,6 +42,7 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
     requireAuthMock.mockResolvedValue({ user: { id: "u1" } });
     requireProjectAccessMock.mockResolvedValue({
       project: { id: "p1", workspaceId: "ws1", name: "proj" },
+      membership: { workspaceId: "ws1", userId: "u1", role: "VIEWER" },
     });
     workspaceFindUniqueMock.mockResolvedValue({ aiBlocked: false, billingPlan: "PRO" });
     fetchMock = vi.fn();

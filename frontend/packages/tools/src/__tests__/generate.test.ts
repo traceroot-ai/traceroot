@@ -237,8 +237,18 @@ describe("generateRegistry", () => {
       "x-tool": { enabled: true, name: "replace_traces", description: "Replace." },
     };
     expect(() => generateRegistry(doc)).toThrow(
-      "Enabled tool on PUT /api/v1/public/traces: only GET and POST operations are supported",
+      "Enabled tool on PUT /api/v1/public/traces: only GET, POST, PATCH and DELETE operations " +
+        "are supported (PUT is not supported yet)",
     );
+    delete doc.paths["/api/v1/public/traces"].put;
+    doc.paths["/api/v1/public/traces"].head = {
+      "x-tool": { enabled: true, name: "head_traces", description: "Head." },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on HEAD /api/v1/public/traces: only GET, POST, PATCH and DELETE operations " +
+        "are supported",
+    );
+    expect(() => generateRegistry(doc)).not.toThrow("PUT");
   });
 
   it("emits GET entries without write-only keys", () => {
@@ -707,5 +717,345 @@ describe("generateRegistry write operations", () => {
     };
     doc.components!.schemas!.RealWorkspaceRequest = real;
     expect(() => generateRegistry(doc)).toThrow("request-body schema has no top-level properties");
+  });
+});
+
+/** Minimal fake of the public document's edit-operation shapes (PATCH + DELETE). */
+function fakeEditDoc(): OpenApiDocument {
+  return {
+    paths: {
+      "/api/v1/public/dashboards/{dashboard_id}": {
+        patch: {
+          "x-tool": {
+            enabled: true,
+            name: "update_dashboard",
+            description: "Update a dashboard.",
+            policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
+          },
+          parameters: [
+            {
+              name: "dashboard_id",
+              in: "path",
+              required: true,
+              schema: { type: "string", title: "Dashboard Id" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateDashboardRequest" },
+              },
+            },
+          },
+        },
+        delete: {
+          "x-tool": {
+            enabled: true,
+            name: "delete_dashboard",
+            description: "Delete a dashboard.",
+            policy: { approvalClass: "approval", minRole: "MEMBER", tenancy: "project" },
+          },
+          parameters: [
+            {
+              name: "dashboard_id",
+              in: "path",
+              required: true,
+              schema: { type: "string", title: "Dashboard Id" },
+            },
+            {
+              name: "project_id",
+              in: "query",
+              required: true,
+              schema: { type: "string", title: "Project Id" },
+            },
+            {
+              name: "reason",
+              in: "query",
+              required: true,
+              schema: { type: "string", title: "Reason", minLength: 3, maxLength: 500 },
+            },
+          ],
+        },
+      },
+    },
+    components: {
+      schemas: {
+        UpdateDashboardRequest: {
+          type: "object",
+          title: "UpdateDashboardRequest",
+          properties: {
+            project_id: { type: "string", title: "Project Id" },
+            name: { anyOf: [{ type: "string", maxLength: 50 }, { type: "null" }], title: "Name" },
+            description: {
+              anyOf: [{ type: "string", maxLength: 500 }, { type: "null" }],
+              title: "Description",
+              description: "Null clears it.",
+            },
+          },
+          required: ["project_id"],
+        },
+      },
+    },
+  };
+}
+
+describe("generateRegistry edit operations", () => {
+  it("emits a patch entry with flattened body params, path params, and its policy", () => {
+    const registry = generateRegistry(fakeEditDoc());
+    expect(registry.map((entry) => entry.name)).toEqual(["delete_dashboard", "update_dashboard"]);
+    const update = registry.find((entry) => entry.name === "update_dashboard")!;
+    expect(update.method).toBe("patch");
+    expect(update.path).toBe("/api/v1/public/dashboards/{dashboard_id}");
+    expect(update.inputSchema.properties.dashboard_id).toEqual({ type: "string" });
+    expect(update.inputSchema.properties.project_id).toEqual({ type: "string" });
+    expect(update.inputSchema.required).toEqual(["dashboard_id", "project_id"]);
+    expect(update.bodyParams).toEqual(["description", "name", "project_id"]);
+    expect(update.policy).toEqual({
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
+  });
+
+  it("emits a nullable PATCH body property as a type list so the model sees null is legal", () => {
+    const update = generateRegistry(fakeEditDoc()).find(
+      (entry) => entry.name === "update_dashboard",
+    )!;
+    // A type list, never a bare anyOf: some model providers reject typeless
+    // tool parameters. Every other constraint on T survives.
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"], maxLength: 50 });
+    expect(update.inputSchema.properties.description).toEqual({
+      type: ["string", "null"],
+      maxLength: 500,
+      description: "Null clears it.",
+    });
+  });
+
+  it("still collapses the same nullable property to T on a POST body", () => {
+    const doc = fakeEditDoc();
+    const ops = doc.paths["/api/v1/public/dashboards/{dashboard_id}"];
+    ops.post = { ...ops.patch, "x-tool": { ...ops.patch!["x-tool"], name: "create_dashboard" } };
+    delete ops.patch;
+    delete ops.delete;
+    const create = generateRegistry(doc)[0]!;
+    expect(create.method).toBe("post");
+    expect(create.inputSchema.properties.name).toEqual({ type: "string", maxLength: 50 });
+  });
+
+  it("applies the nullable type list at nested levels of a PATCH body", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      settings: { $ref: "#/components/schemas/DashboardSettings" },
+      spec: {
+        anyOf: [
+          { $ref: "#/components/schemas/QueryVariant" },
+          { $ref: "#/components/schemas/FeedVariant" },
+          { type: "null" },
+        ],
+        title: "Spec",
+      },
+      tags: {
+        anyOf: [{ type: "array", items: { type: ["string", "number"] } }, { type: "null" }],
+        title: "Tags",
+      },
+    };
+    doc.components!.schemas!.DashboardSettings = {
+      type: "object",
+      properties: {
+        breakdown: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+      },
+    };
+    doc.components!.schemas!.QueryVariant = {
+      type: "object",
+      properties: { view: { type: "string" } },
+    };
+    doc.components!.schemas!.FeedVariant = {
+      type: "object",
+      properties: { limit: { type: "integer" } },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.settings).toEqual({
+      type: "object",
+      properties: { breakdown: { type: ["string", "null"], default: null } },
+    });
+    // An all-object union keeps its stamped object type, now nullable too,
+    // and the preserved anyOf regains a null variant so a validator that
+    // checks the variants also admits null.
+    expect(update.inputSchema.properties.spec).toEqual({
+      type: ["object", "null"],
+      anyOf: [
+        { type: "object", properties: { view: { type: "string" } } },
+        { type: "object", properties: { limit: { type: "integer" } } },
+        { type: "null" },
+      ],
+    });
+    // A type that is already a list gains "null" instead of nesting.
+    expect(update.inputSchema.properties.tags).toEqual({
+      type: ["array", "null"],
+      items: { type: ["string", "number"] },
+    });
+  });
+
+  it("recognizes a `const: null` variant as the null branch of a PATCH body property", () => {
+    // Some OpenAPI emitters spell the null branch as `{const: null}` rather
+    // than `{type: "null"}`; both mean the field admits null.
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      name: { anyOf: [{ type: "string" }, { const: null }], title: "Name" },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"] });
+  });
+
+  it("collapses a `const: null` variant to T on a POST body", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      name: { anyOf: [{ type: "string" }, { const: null }], title: "Name" },
+    };
+    const ops = doc.paths["/api/v1/public/dashboards/{dashboard_id}"];
+    ops.post = { ...ops.patch, "x-tool": { ...ops.patch!["x-tool"], name: "create_dashboard" } };
+    delete ops.patch;
+    delete ops.delete;
+    const create = generateRegistry(doc)[0]!;
+    expect(create.method).toBe("post");
+    expect(create.inputSchema.properties.name).toEqual({ type: "string" });
+  });
+
+  it("does not double up null on a PATCH property whose type list already admits it", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      value: { anyOf: [{ type: ["string", "null"] }, { type: "null" }], title: "Value" },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.value).toEqual({ type: ["string", "null"] });
+  });
+
+  it("flattens an inline (non-$ref) PATCH body schema", () => {
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].patch!.requestBody = {
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: {
+              project_id: { type: "string", title: "Project Id" },
+              name: { anyOf: [{ type: "string" }, { type: "null" }], title: "Name" },
+            },
+            required: ["project_id"],
+          },
+        },
+      },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.bodyParams).toEqual(["name", "project_id"]);
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"] });
+  });
+
+  it("adds null to an enum on a nullable PATCH body property", () => {
+    // `enum` applies to every value, so a widened type alone would still
+    // reject null.
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      status: {
+        anyOf: [{ type: "string", enum: ["active", "paused"] }, { type: "null" }],
+        title: "Status",
+      },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.status).toEqual({
+      type: ["string", "null"],
+      enum: ["active", "paused", null],
+    });
+  });
+
+  const cannotWiden =
+    "Enabled tool on PATCH /api/v1/public/dashboards/{dashboard_id}: nullable body schema " +
+    'cannot be widened with "null" (it needs a type and no const, oneOf or allOf) — extend the ' +
+    "generator before enabling this operation";
+
+  it("throws when a nullable PATCH body property has no type to widen", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      value: { anyOf: [{ type: "string" }, { type: "integer" }, { type: "null" }], title: "Value" },
+    };
+    expect(() => generateRegistry(doc)).toThrow(cannotWiden);
+  });
+
+  it("throws when a nullable PATCH body property carries const, oneOf or allOf", () => {
+    for (const keyword of [
+      { const: "fixed" },
+      { oneOf: [{ type: "string" }] },
+      { allOf: [{ type: "string" }] },
+    ]) {
+      const doc = fakeEditDoc();
+      doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+        value: { anyOf: [{ type: "string", ...keyword }, { type: "null" }], title: "Value" },
+      };
+      expect(() => generateRegistry(doc)).toThrow(cannotWiden);
+    }
+  });
+
+  it("emits a delete entry with path and query params, its policy, and no bodyParams", () => {
+    const remove = generateRegistry(fakeEditDoc()).find(
+      (entry) => entry.name === "delete_dashboard",
+    )!;
+    expect(remove.method).toBe("delete");
+    expect("bodyParams" in remove).toBe(false);
+    expect(remove.inputSchema.properties).toEqual({
+      dashboard_id: { type: "string" },
+      project_id: { type: "string" },
+      reason: { type: "string", minLength: 3, maxLength: 500 },
+    });
+    expect(remove.inputSchema.required).toEqual(["dashboard_id", "project_id", "reason"]);
+    expect(remove.policy).toEqual({
+      approvalClass: "approval",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
+  });
+
+  it("throws on an enabled DELETE that declares a request body", () => {
+    // The public surface keeps DELETE bodies off the wire; silently ignoring
+    // one would ship a tool that drops arguments.
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].delete!.requestBody = {
+      content: { "application/json": { schema: { type: "object", properties: {} } } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on DELETE /api/v1/public/dashboards/{dashboard_id}: DELETE operations take " +
+        "no request body — declare its arguments as path or query parameters",
+    );
+  });
+
+  it("throws on an enabled PATCH or DELETE without a complete policy, naming the method", () => {
+    for (const method of ["patch", "delete"] as const) {
+      const doc = fakeEditDoc();
+      delete doc.paths["/api/v1/public/dashboards/{dashboard_id}"][method]!["x-tool"]!.policy;
+      expect(() => generateRegistry(doc)).toThrow(
+        `Enabled write tool on ${method.toUpperCase()} /api/v1/public/dashboards/{dashboard_id}: ` +
+          "x-tool policy {approvalClass, minRole, tenancy} is required and must be complete",
+      );
+    }
+  });
+
+  it("names the method in body-shape errors on a PATCH", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest = { type: "object" };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on PATCH /api/v1/public/dashboards/{dashboard_id}: request-body schema has " +
+        "no top-level properties — extend the generator before enabling this operation",
+    );
+  });
+
+  it("throws when agentHiddenParams is set on a DELETE, which has no body properties", () => {
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].delete!["x-tool"]!.agentHiddenParams = [
+      "reason",
+    ];
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled write tool on DELETE /api/v1/public/dashboards/{dashboard_id}: " +
+        'agentHiddenParams field "reason" is not a request-body property',
+    );
   });
 });

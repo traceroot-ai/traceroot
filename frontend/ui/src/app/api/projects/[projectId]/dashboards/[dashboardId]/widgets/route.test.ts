@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 // Mock responses don't carry NextResponse's full type — cast at call sites.
 type MockResponse = { status: number; json: () => Promise<unknown> };
 
@@ -336,9 +341,12 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
     const [strings, ...values] = queryRawMock.mock.calls[0] as [string[], ...unknown[]];
     const sql = strings.join("?");
-    expect(sql).toMatch(/SELECT layout FROM dashboards WHERE id = \? FOR UPDATE/);
+    expect(sql).toMatch(
+      /SELECT layout FROM dashboards WHERE id = \? AND project_id = \? FOR UPDATE/,
+    );
     expect(sql).not.toContain("dash-1");
-    expect(values).toEqual(["dash-1"]);
+    expect(sql).not.toContain("proj-1");
+    expect(values).toEqual(["dash-1", "proj-1"]);
     expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
       widgetCreateMock.mock.invocationCallOrder[0],
     );

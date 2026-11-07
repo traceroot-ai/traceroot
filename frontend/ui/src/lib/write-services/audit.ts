@@ -11,7 +11,7 @@ export interface AuditEntry {
   workspaceId?: string | null;
   projectId?: string | null;
   summary: Record<string, unknown>;
-  transport: "public-api" | "agent";
+  transport: "public-api" | "agent" | "ui";
   agentSessionId?: string | null;
 }
 

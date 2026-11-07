@@ -96,6 +96,9 @@ _SPANS = PublicTable(
         PublicColumn("git_source_file", "Nullable(String)"),
         PublicColumn("git_source_line", "Nullable(Int32)"),
         PublicColumn("git_source_function", "Nullable(String)"),
+        # Appended, not placed beside status_message: SELECT * expands in this order,
+        # and a mid-list insert would shift every later column for positional readers.
+        PublicColumn("error_type", "LowCardinality(String)"),
     ),
 )
 

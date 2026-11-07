@@ -11,7 +11,7 @@ const prismaMock = vi.hoisted(() => ({
   // the route tries the compound-unique lookup first and falls back to findFirst.
   dataset: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
 }));
-const apiAuth = vi.hoisted(() => ({ requireApiKeyProject: vi.fn() }));
+const apiAuth = vi.hoisted(() => ({ requireEvalApiKeyProject: vi.fn() }));
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -26,7 +26,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return { ...actual, prisma: prismaMock };
 });
-vi.mock("@/lib/eval/auth", () => ({ requireApiKeyProject: apiAuth.requireApiKeyProject }));
+vi.mock("@/lib/eval/auth", () => ({ requireEvalApiKeyProject: apiAuth.requireEvalApiKeyProject }));
 
 import { Prisma } from "@traceroot/core";
 import { GET, PATCH } from "./route";
@@ -50,6 +50,7 @@ const stored = {
   // The dataset key (pre-image of dataset_id) is echoed back so a pulled dataset
   // recovers it when key != name.
   key: "support-tickets",
+  updateTime: new Date("2026-09-14T00:00:00Z"),
 };
 
 async function body(res: { json: () => Promise<unknown> }) {
@@ -59,7 +60,7 @@ const patchData = () => prismaMock.dataset.update.mock.calls[0][0].data;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiAuth.requireApiKeyProject.mockResolvedValue({ projectId: "p1" });
+  apiAuth.requireEvalApiKeyProject.mockResolvedValue({ projectId: "p1" });
   prismaMock.dataset.update.mockResolvedValue(stored);
   // Default: the path param is not a client_dataset_id, so the lookup falls through
   // to the internal-id findFirst that these cases stub.
@@ -78,6 +79,7 @@ describe("GET", () => {
       description: "tickets",
       current_dataset_version_id: "dv2",
       key: "support-tickets",
+      updated_at: "2026-09-14T00:00:00.000Z",
     });
     // The project comes from the key, so another project's id reads as not found.
     expect(prismaMock.dataset.findFirst.mock.calls[0][0].where).toEqual({
@@ -99,6 +101,13 @@ describe("GET", () => {
     expect(prismaMock.dataset.findFirst).not.toHaveBeenCalled();
   });
 
+  it("answers with the SDK's own id when the dataset is addressed by its row id", async () => {
+    // The list and version reads report `clientDatasetId ?? id`; the detail read must
+    // too, or one dataset shows up under two ids.
+    prismaMock.dataset.findFirst.mockResolvedValue({ ...stored, clientDatasetId: "ds_sdk" });
+    expect((await body(await GET(getReq(), params))).dataset_id).toBe("ds_sdk");
+  });
+
   it("reports a null version for a dataset with nothing published yet", async () => {
     prismaMock.dataset.findFirst.mockResolvedValue({ ...stored, currentVersionId: null });
     expect((await body(await GET(getReq(), params))).current_dataset_version_id).toBeNull();
@@ -112,7 +121,7 @@ describe("GET", () => {
   });
 
   it("401s a request with a bad API key before touching the database", async () => {
-    apiAuth.requireApiKeyProject.mockResolvedValue({
+    apiAuth.requireEvalApiKeyProject.mockResolvedValue({
       error: { status: 401, json: async () => ({ error: "Invalid API key" }) },
     });
     const res = await GET(getReq(), params);
@@ -170,7 +179,7 @@ describe("PATCH", () => {
   });
 
   it("401s a request with a bad API key before touching the database", async () => {
-    apiAuth.requireApiKeyProject.mockResolvedValue({
+    apiAuth.requireEvalApiKeyProject.mockResolvedValue({
       error: { status: 401, json: async () => ({ error: "Invalid API key" }) },
     });
     const res = await PATCH(jsonReq({ name: "renamed" }), params);

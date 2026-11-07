@@ -113,12 +113,27 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
         "label": "Environment",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "error_type": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains",
+          "in"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Error type",
         "requiresKey": false,
         "type": "string"
       },
@@ -175,7 +190,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -188,7 +204,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -225,7 +242,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -238,7 +256,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": false,
         "histogrammable": false,
@@ -421,7 +440,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -482,7 +502,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -519,7 +540,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -556,7 +578,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,

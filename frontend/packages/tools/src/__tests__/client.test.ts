@@ -111,3 +111,50 @@ describe("write-capable registry entry types", () => {
     expect(entries[0]!.policy?.approvalClass).toBe("approval");
   });
 });
+
+describe("ApiClient.request edit methods", () => {
+  it("accepts patch and delete and uppercases them on the wire", async () => {
+    for (const method of ["patch", "delete"] as const) {
+      const fetchImpl = fakeFetch(200, { data: {} });
+      const client = new ApiClient({
+        baseUrl: "http://x",
+        headers: bearerAuth("sk-test"),
+        fetchImpl,
+      });
+      await client.request(method, "/api/v1/public/dashboards/d1", {});
+      const [, init] = fetchImpl.mock.calls[0]! as unknown as [string, RequestInit];
+      expect(init.method).toBe(method.toUpperCase());
+      expect(init).not.toHaveProperty("body");
+    }
+  });
+
+  it("serializes a PATCH body, keeping an explicit null field", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const body = { description: null, name: "ops" };
+    await client.request("patch", "/api/v1/public/dashboards/d1", { body });
+    const [, init] = fetchImpl.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(init.method).toBe("PATCH");
+    expect(init.body).toBe('{"description":null,"name":"ops"}');
+    expect((init.headers as Record<string, string>)["content-type"]).toBe("application/json");
+  });
+
+  it("types patch and delete registry entries", () => {
+    const patch: ToolMethod = "patch";
+    const remove: ToolMethod = "delete";
+    const entry: RegistryEntry = {
+      name: "delete_dashboard",
+      description: "Delete a dashboard.",
+      method: remove,
+      path: "/api/v1/public/dashboards/{dashboard_id}",
+      inputSchema: {
+        type: "object",
+        properties: { dashboard_id: { type: "string" } },
+        required: ["dashboard_id"],
+        additionalProperties: false,
+      },
+      policy: { approvalClass: "approval", minRole: "MEMBER", tenancy: "project" },
+    };
+    expect([patch, entry.method]).toEqual(["patch", "delete"]);
+  });
+});

@@ -6,6 +6,9 @@
  * Handlers against the in-memory fake prisma.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 
 const auth = vi.hoisted(() => ({
   requireAuth: vi.fn(),

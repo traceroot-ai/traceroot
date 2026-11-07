@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 import path from "path";
 import { pathToFileURL } from "url";
 import { z } from "zod";
@@ -37,13 +40,21 @@ vi.mock("@traceroot/core", async (orig) => {
         findFirst: (...a: any[]) => mockFindFirst(...a),
         update: (...a: any[]) => mockProjectUpdate(...a),
       },
+      // The update route delegates to the write service, which reads,
+      // checks the ADMIN membership and writes inside the transaction.
       $transaction: (fn: (t: unknown) => unknown) => {
         mockTransaction();
         return fn({
-          project: { create: (...a: any[]) => mockTxProjectCreate(...a) },
+          project: {
+            create: (...a: any[]) => mockTxProjectCreate(...a),
+            findUnique: (...a: unknown[]) => mockFindFirst(...a),
+            update: (...a: unknown[]) => mockProjectUpdate(...a),
+          },
           dashboard: { create: (...a: any[]) => mockTxDashboardCreate(...a) },
+          workspaceMember: { findUnique: async () => ({ role: "ADMIN" }) },
         });
       },
+      auditLog: { create: async () => ({}) },
     },
     Role: { ADMIN: "ADMIN", MEMBER: "MEMBER" },
   };
@@ -52,6 +63,7 @@ vi.mock("@traceroot/core", async (orig) => {
 const project = {
   id: "p1",
   workspaceId: "ws1",
+  deleteTime: null,
   name: "test",
   traceTtlDays: 30,
   rcaModel: "gpt-5.3",

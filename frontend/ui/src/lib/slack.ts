@@ -1,3 +1,5 @@
+import { throwIfImpersonationDenied } from "@/lib/api/errors";
+
 export interface SlackStatus {
   connected: boolean;
   teamName?: string;
@@ -18,12 +20,14 @@ export interface SlackChannelsResponse {
 
 export async function fetchSlackConnection(workspaceId: string): Promise<SlackStatus> {
   const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/slack`);
+  await throwIfImpersonationDenied(res);
   if (!res.ok) throw new Error("failed to fetch slack status");
   return res.json();
 }
 
 export async function fetchSlackChannels(workspaceId: string): Promise<SlackChannelsResponse> {
   const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/slack/channels`);
+  await throwIfImpersonationDenied(res);
   if (!res.ok) throw new Error("failed to fetch slack channels");
   return res.json();
 }
@@ -38,6 +42,7 @@ export async function saveSlackChannel(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ channelId, channelName }),
   });
+  await throwIfImpersonationDenied(res);
   if (!res.ok) throw new Error("failed to save slack channel");
 }
 
@@ -45,6 +50,7 @@ export async function disconnectSlack(workspaceId: string): Promise<void> {
   const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/slack`, {
     method: "DELETE",
   });
+  await throwIfImpersonationDenied(res);
   if (!res.ok) throw new Error("failed to disconnect slack");
 }
 
@@ -61,6 +67,7 @@ export async function sendSlackTestMessage(workspaceId: string): Promise<SlackTe
     method: "POST",
   });
   // Always parse the body — both success and error responses are JSON
+  await throwIfImpersonationDenied(res);
   const body: SlackTestMessageResponse = await res.json();
   if (!res.ok) {
     // Throw a typed error so onError handler can show the user-readable `message`

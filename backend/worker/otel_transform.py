@@ -34,11 +34,17 @@ OTEL JSON structure (camelCase - standard OTLP format):
 import base64
 import json
 import logging
+import math
 from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
-from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
+from shared.span_attributes import (
+    CAPTURE_MARKER_ATTRIBUTES,
+    SPAN_IDS_PATH,
+    SPAN_PATH,
+    SPAN_TREE_ATTRIBUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +114,10 @@ def _span_aggregates_child_usage(
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
     # nothing when the operation name is present, which is the shape observed today.
     return (
-        isinstance(scope_name, str) and scope_name.lower() == "gen_ai" and span_kind != SpanKind.LLM
+        not operation_name
+        and isinstance(scope_name, str)
+        and scope_name.lower() == "gen_ai"
+        and span_kind != SpanKind.LLM
     )
 
 
@@ -133,6 +142,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "output.value",
     "gen_ai.",
     "llm.token_count.",
+    "decision.token_count.",
     "llm.model_name",
     "llm.input_messages",
     "llm.output_messages",
@@ -145,10 +155,15 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
 _KNOWN_ATTRIBUTE_EXACT = frozenset(
     {
         "traceroot.llm.model",  # -> model_name column + LLM span-kind detection
+        "decision.model_name",  # -> model_name column (OpenInference DECISION spans)
+        "embedding.model_name",  # -> model_name column (OpenInference EMBEDDING spans)
         # -> token/cost pipeline (parse_manual_usage). Consumed only when a model
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
+        # -> cost column (OpenInference caller-reported total). Consumed on any
+        # non-wrapper span, with or without a model name.
+        "llm.cost.total",
     }
 )
 
@@ -186,6 +201,13 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
 # magnitude beyond any shipped context window, so nothing legitimate is near it.
 _MAX_PLAUSIBLE_TOKENS = 10**9
 
+# Upper sanity bound for a caller-reported per-call cost (llm.cost.total), in USD.
+# Same Decimal64(9) `cost` column as above: $10^6 stays three orders inside it.
+_MAX_PLAUSIBLE_COST = 10**6
+
+# Matches the filter's MAX_VALUE_LENGTH: a longer value could never be filtered on.
+_MAX_ERROR_TYPE_LENGTH = 1024
+
 
 def _usable_token_value(value: Any) -> bool:
     """Check whether a token attribute will survive ``int_or_zero`` intact.
@@ -204,9 +226,39 @@ def _usable_token_value(value: Any) -> bool:
         return False
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
     return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
+
+
+def _usable_cost(value: Any) -> float | None:
+    """Parse a caller-reported total cost (``llm.cost.total``) for the cost column.
+
+    Args:
+        value (Any): Raw OTEL attribute value.
+
+    Returns:
+        float | None: The cost in USD when it is a finite, non-negative number below
+            the plausible bound (zero is kept); None when missing or unusable. A
+            string is unusable even when numeric: the attribute is a number.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        logger.warning("Reported cost is a bool (%r); ignoring it", value)
+        return None
+    if isinstance(value, str):
+        logger.warning("Reported cost is not a usable number (%r); ignoring it", value)
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("Reported cost is not a usable number (%r); ignoring it", value)
+        return None
+    if not math.isfinite(parsed) or not 0 <= parsed < _MAX_PLAUSIBLE_COST:
+        logger.warning("Reported cost %r is out of range; ignoring it", value)
+        return None
+    return parsed
 
 
 def first_present_number(attrs: dict[str, Any], keys: list[str]) -> Any:
@@ -249,7 +301,7 @@ def int_or_zero(value: Any) -> int:
         return 0
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
     if parsed < 0:
@@ -515,6 +567,25 @@ def attributes_to_dict(attributes: list[dict]) -> dict[str, Any]:
     return result
 
 
+def _is_vercel_embedding_call(attrs: dict[str, Any]) -> bool:
+    """Recognize legacy provider calls without relying on a complete span tree."""
+    operation = first_present(attrs, ["ai.operationId", "operation.name"])
+    # operation.name can append the application's functionId after a space.
+    return str_attr(operation).split(" ", 1)[0] in (
+        "ai.embed.doEmbed",
+        "ai.embedMany.doEmbed",
+    )
+
+
+def _is_embedding_span(attrs: dict[str, Any]) -> bool:
+    """Embedding spans use reported usage only, never completion-text estimates."""
+    return (
+        str_attr(attrs.get("openinference.span.kind")).upper() == "EMBEDDING"
+        or str_attr(attrs.get("gen_ai.operation.name")).lower() == "embeddings"
+        or _is_vercel_embedding_call(attrs)
+    )
+
+
 def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     """Determine the span kind from span attributes.
 
@@ -525,7 +596,7 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER", "DECISION"
     """
     # Check explicit type attribute (handle None values). EVALUATION_SPAN_KINDS is
     # included so the SDK's offline-evaluation spans are preserved rather than silently
@@ -534,21 +605,28 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     # of the candidate's cost.
     explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
     if (
-        explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL)
+        explicit_type
+        in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL, SpanKind.DECISION)
         or explicit_type in EVALUATION_SPAN_KINDS
     ):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
     openinference_type = str_attr(attrs.get("openinference.span.kind")).upper()
-    if openinference_type == SpanKind.LLM:
+    # Embeddings use the existing LLM kind, just like GenAI's embeddings operation.
+    if openinference_type in (SpanKind.LLM, "EMBEDDING"):
         return SpanKind.LLM
     elif openinference_type == SpanKind.AGENT:
         return SpanKind.AGENT
     elif openinference_type == SpanKind.TOOL:
         return SpanKind.TOOL
+    elif openinference_type == SpanKind.DECISION:
+        return SpanKind.DECISION
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
+
+    if _is_vercel_embedding_call(attrs):
+        return SpanKind.LLM
 
     # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
     operation_name = str_attr(attrs.get("gen_ai.operation.name")).lower()
@@ -592,6 +670,24 @@ def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
 
 
+def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
+    """Return the bounded error group key for a span.
+
+    ERROR spans take `exception.type` from their last recorded exception event,
+    truncated to _MAX_ERROR_TYPE_LENGTH, or "unknown" when there is none or it
+    carries no type. OK spans store "" so the error-rate and error-type totals agree.
+    """
+    if not span_is_error:
+        return ""
+    exceptions = [e for e in otel_span.get("events") or [] if e.get("name") == "exception"]
+    if not exceptions:
+        return "unknown"
+    error_type = attributes_to_dict(exceptions[-1].get("attributes") or []).get("exception.type")
+    if not isinstance(error_type, str) or not error_type:
+        return "unknown"
+    return error_type[:_MAX_ERROR_TYPE_LENGTH]
+
+
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
@@ -599,7 +695,8 @@ def transform_otel_to_clickhouse(
     """Transform OTEL JSON to ClickHouse traces and spans.
 
     Never sets `source` on a record. Classification belongs to the ingest route, not
-    the payload: the internal route stamps 'detector' after this returns, and every
+    the payload: the internal route stamps the authenticated caller's source ('detector'
+    or 'agent') after this returns, and every
     other row is written as 'user' by the insert helpers (the column's DEFAULT is the
     backfill backstop for pre-migration rows, not the path live writes take). That makes the anti-spoof
     guarantee structural — a tenant-supplied traceroot.source is simply never read
@@ -741,6 +838,7 @@ def transform_otel_to_clickhouse(
                 if span_is_error:
                     span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
+                span_record["error_type"] = _extract_error_type(otel_span, span_is_error)
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
@@ -814,7 +912,20 @@ def transform_otel_to_clickhouse(
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
                     or span_attrs.get("llm.model_name")
+                    or span_attrs.get("decision.model_name")
+                    or span_attrs.get("embedding.model_name")
+                    or (
+                        span_attrs.get("ai.model.id")
+                        if _is_vercel_embedding_call(span_attrs)
+                        else None
+                    )
                 )
+                # Agent-invocation and step spans stamp aggregate
+                # gen_ai.usage.* totals restating the SUM of their LLM
+                # children — the same wrapper pattern as the raw ai.usage.*
+                # keys gated below, moved into the normalized namespace.
+                # Adopting them prices every token twice.
+                aggregate_wrapper = _span_aggregates_child_usage(scope_name, span_kind, span_attrs)
                 if model_name:
                     span_record["model_name"] = model_name
 
@@ -824,11 +935,13 @@ def transform_otel_to_clickhouse(
                         "llm.token_count.prompt",
                         "gen_ai.usage.input_tokens",
                         "gen_ai.usage.prompt_tokens",
+                        "decision.token_count.input",
                     ]
                     output_token_keys = [
                         "llm.token_count.completion",
                         "gen_ai.usage.output_tokens",
                         "gen_ai.usage.completion_tokens",
+                        "decision.token_count.output",
                     ]
                     if span_kind == SpanKind.LLM:
                         # Vercel AI SDK raw GROSS totals are the only token source it
@@ -842,6 +955,12 @@ def transform_otel_to_clickhouse(
                         # real usage still lands on an LLM .doGenerate child.
                         input_token_keys += ["ai.usage.inputTokens", "ai.usage.promptTokens"]
                         output_token_keys += ["ai.usage.outputTokens", "ai.usage.completionTokens"]
+                        # Legacy embeddings expose only ai.usage.tokens on BOTH the
+                        # operation wrapper and provider calls. Read it only on the
+                        # latter; equal usage or same-batch ancestry cannot identify
+                        # aggregates reliably. Embeddings consume input tokens only.
+                        if _is_vercel_embedding_call(span_attrs):
+                            input_token_keys.append("ai.usage.tokens")
                     api_input_tokens = first_present_number(span_attrs, input_token_keys)
                     api_output_tokens = first_present_number(span_attrs, output_token_keys)
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
@@ -874,6 +993,12 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
+                            # traceroot-pi-extension (src/handlers/llm.ts) spells the
+                            # write side with "cache_write" while its read side uses
+                            # cache_read_input_tokens above. Without this entry every
+                            # Pi span stored cache_write_tokens=0 while reads landed,
+                            # under-pricing every call by the write premium.
+                            "gen_ai.usage.cache_write_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
@@ -908,15 +1033,6 @@ def transform_otel_to_clickhouse(
                             "ai.usage.outputTokenDetails.reasoningTokens",
                             "ai.usage.reasoningTokens",
                         ],
-                    )
-
-                    # Agent-invocation and step spans stamp aggregate
-                    # gen_ai.usage.* totals restating the SUM of their LLM
-                    # children — the same wrapper pattern as the raw ai.usage.*
-                    # keys gated above, moved into the normalized namespace.
-                    # Adopting them prices every token twice.
-                    aggregate_wrapper = _span_aggregates_child_usage(
-                        scope_name, span_kind, span_attrs
                     )
 
                     # Manual usage reported via the SDKs' update-span API
@@ -1023,11 +1139,15 @@ def transform_otel_to_clickhouse(
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
+                        and not _is_embedding_span(span_attrs)
                         and not errored_without_response
                         and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
-                        # spans. Wrapper AGENT/CHAIN spans restate text their LLM children
+                        # spans. Embedding parents can restate a provider child's input,
+                        # and their output vectors are not generated text. Neither is
+                        # a reliable token source; keep only explicitly reported usage.
+                        # Wrapper AGENT/CHAIN spans restate text their LLM children
                         # already account for (e.g. the Vercel AI SDK's ai.generateText
                         # wrapper carries a model name and the conversation text but no
                         # token counts), so estimating them double-counts the trace.
@@ -1079,6 +1199,13 @@ def transform_otel_to_clickhouse(
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
 
+                # A reported cost (llm.cost.total) replaces any list price, with or
+                # without a model, so tool and API calls are costed too.
+                if not aggregate_wrapper:
+                    reported_cost = _usable_cost(span_attrs.get("llm.cost.total"))
+                    if reported_cost is not None:
+                        span_record["cost"] = reported_cost
+
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.
                 #
@@ -1089,9 +1216,15 @@ def transform_otel_to_clickhouse(
                 # its parent was still open. That hit exactly the spans users
                 # annotate — usually leaves, whose long-lived parents are the ones
                 # still in flight — so the paths ride along with user metadata.
+                #
+                # The capture markers ride along for the same reason: they say
+                # the recorded input/output is not the whole of it, and they are
+                # set on exactly the spans that also carry explicit metadata (an
+                # agent self-trace's root stamps the trace metadata and records
+                # the prompt and answer through the capture policy).
                 span_path_attrs = {
                     key: span_attrs[key]
-                    for key in SPAN_TREE_ATTRIBUTES
+                    for key in (*SPAN_TREE_ATTRIBUTES, *CAPTURE_MARKER_ATTRIBUTES)
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")

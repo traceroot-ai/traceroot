@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resourceCreatedDetails } from "./resource-created";
+import {
+  resourceCreatedDetails,
+  resourceDeletedDetails,
+  resourceUpdatedDetails,
+} from "./resource-created";
 
 const dashboardResult = (overrides: Record<string, unknown> = {}) => ({
   content: [{ type: "text", text: 'Created dashboard "Spend" (id db1)' }],
@@ -53,5 +57,104 @@ describe("resourceCreatedDetails", () => {
     // non-boolean must not reach a consumer that only compares it to false.
     expect(resourceCreatedDetails(dashboardResult({ created: "false" }))).toBeNull();
     expect(resourceCreatedDetails(dashboardResult({ created: undefined }))).toBeNull();
+  });
+});
+
+const updatedResult = (overrides: Record<string, unknown> = {}) => ({
+  content: [{ type: "text", text: 'Updated detector "Timeouts" (id d1) — changed: name' }],
+  details: {
+    kind: "resource_updated",
+    resourceType: "detector",
+    resourceId: "d1",
+    name: "Timeouts",
+    changed: ["name"],
+    projectId: "p1",
+    ...overrides,
+  },
+});
+
+const deletedResult = (overrides: Record<string, unknown> = {}) => ({
+  content: [{ type: "text", text: 'Deleted widget "Errors" (id w1) — reason: duplicate' }],
+  details: {
+    kind: "resource_deleted",
+    resourceType: "widget",
+    resourceId: "w1",
+    name: "Errors",
+    reason: "duplicate",
+    projectId: "p1",
+    ...overrides,
+  },
+});
+
+describe("resourceUpdatedDetails", () => {
+  it("returns the details of a well-formed resource_updated result, flags included", () => {
+    expect(resourceUpdatedDetails(updatedResult({ stateReset: true, pageCleared: false }))).toEqual(
+      {
+        kind: "resource_updated",
+        resourceType: "detector",
+        resourceId: "d1",
+        name: "Timeouts",
+        changed: ["name"],
+        projectId: "p1",
+        stateReset: true,
+        pageCleared: false,
+      },
+    );
+  });
+
+  it("accepts an empty changed list — a no-op edit is still an update receipt", () => {
+    expect(resourceUpdatedDetails(updatedResult({ changed: [] }))?.changed).toEqual([]);
+  });
+
+  it("returns null for anything that is not a well-formed resource_updated result", () => {
+    expect(resourceUpdatedDetails(undefined)).toBeNull();
+    expect(resourceUpdatedDetails({ details: null })).toBeNull();
+    expect(resourceUpdatedDetails(dashboardResult())).toBeNull();
+    expect(resourceUpdatedDetails(updatedResult({ resourceId: 7 }))).toBeNull();
+    expect(resourceUpdatedDetails(updatedResult({ resourceType: null }))).toBeNull();
+    // changed is what the receipt lists; a malformed one must not reach a consumer.
+    expect(resourceUpdatedDetails(updatedResult({ changed: "name" }))).toBeNull();
+    expect(resourceUpdatedDetails(updatedResult({ changed: ["name", 7] }))).toBeNull();
+    expect(resourceUpdatedDetails(updatedResult({ changed: undefined }))).toBeNull();
+  });
+});
+
+describe("resourceDeletedDetails", () => {
+  it("returns the details of a well-formed resource_deleted result", () => {
+    expect(
+      resourceDeletedDetails(deletedResult({ cascaded: { widgets: 3 }, pageCleared: true })),
+    ).toEqual({
+      kind: "resource_deleted",
+      resourceType: "widget",
+      resourceId: "w1",
+      name: "Errors",
+      reason: "duplicate",
+      projectId: "p1",
+      cascaded: { widgets: 3 },
+      pageCleared: true,
+    });
+  });
+
+  it("returns null for anything that is not a well-formed resource_deleted result", () => {
+    expect(resourceDeletedDetails(undefined)).toBeNull();
+    expect(resourceDeletedDetails("Deleted widget w1")).toBeNull();
+    expect(resourceDeletedDetails(updatedResult())).toBeNull();
+    expect(resourceDeletedDetails(deletedResult({ resourceId: 7 }))).toBeNull();
+    // The reason is what the card quotes; a missing one is not a delete receipt.
+    expect(resourceDeletedDetails(deletedResult({ reason: undefined }))).toBeNull();
+    expect(resourceDeletedDetails(deletedResult({ reason: 7 }))).toBeNull();
+  });
+
+  it("returns null when the cascade is not counts by name — the card reads it as such", () => {
+    expect(resourceDeletedDetails(deletedResult({ cascaded: null }))).toBeNull();
+    expect(resourceDeletedDetails(deletedResult({ cascaded: [3] }))).toBeNull();
+    expect(resourceDeletedDetails(deletedResult({ cascaded: "3 widgets" }))).toBeNull();
+    expect(resourceDeletedDetails(deletedResult({ cascaded: { widgets: "3" } }))).toBeNull();
+    expect(resourceDeletedDetails(deletedResult({ cascaded: { widgets: NaN } }))).toBeNull();
+    // No cascade at all is a delete of a leaf resource.
+    expect(
+      resourceDeletedDetails(deletedResult({ cascaded: undefined }))?.cascaded,
+    ).toBeUndefined();
+    expect(resourceDeletedDetails(deletedResult({ cascaded: {} }))?.cascaded).toEqual({});
   });
 });

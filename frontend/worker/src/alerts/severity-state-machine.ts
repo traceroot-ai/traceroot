@@ -1,6 +1,7 @@
 import {
   DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_WINDOW,
+  hasOutstandingAlertPage,
   windowToMs,
   type AlertNoDataMode,
   type AlertRenotify,
@@ -74,19 +75,6 @@ function shouldRenotify(previous: AlertRuntimeState, now: Date, renotify: AlertR
 }
 
 /**
- * A breach that has been announced and not yet recovered. In ALERT it is the
- * emission that put the rule there; in NO_DATA it is the one `nextAlertedAt`
- * carried across the gap, which is what lets a rule leaving NO_DATA tell a
- * recovery from a first reading.
- */
-function hasOutstandingPage(previous: AlertRuntimeState): boolean {
-  return (
-    (previous.severity === "ALERT" || previous.severity === "NO_DATA") &&
-    previous.alertedAt !== null
-  );
-}
-
-/**
  * How long a gap must stand before NOTIFY pages it, read off the rule's own
  * window because that is the span it judges over: a 1m rule reads empty on any
  * quiet minute, where a 2h rule reading empty has already watched two hours of
@@ -147,7 +135,7 @@ function shouldEmit(
       // on OK and otherwise repeats only on renotify's terms, exactly as it would
       // have under HOLD. Announcing every reappearance re-pages a rule the user
       // was already paged for each time sparse data comes and goes.
-      if (hasOutstandingPage(previous)) {
+      if (hasOutstandingAlertPage(previous)) {
         return severity === "OK" || shouldRenotify(previous, now, renotify);
       }
       // Nothing outstanding and nothing said about the gap: only a fresh breach speaks.
@@ -156,7 +144,7 @@ function shouldEmit(
   }
   // Under every other reading a gap judges nothing, so it says nothing.
   if (severity === "NO_DATA") return false;
-  if (hasOutstandingPage(previous)) {
+  if (hasOutstandingAlertPage(previous)) {
     // OK ends the breach the user was paged for, whether or not the source
     // dropped out on the way. ALERT is that same breach still standing, so a
     // source flapping through NO_DATA repeats itself only when renotify says to.
@@ -176,7 +164,7 @@ function nextAlertedAt(
   if (emit) return now;
   // A gap holds an outstanding page open and drops anything else, so the quiet
   // stretch after a recovery cannot be mistaken for a breach waiting to clear.
-  if (severity === "NO_DATA") return hasOutstandingPage(previous) ? previous.alertedAt : null;
+  if (severity === "NO_DATA") return hasOutstandingAlertPage(previous) ? previous.alertedAt : null;
   return previous.alertedAt;
 }
 

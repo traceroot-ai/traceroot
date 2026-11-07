@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { readCardModel } from "../lib/resource-card";
 import { mapDbMessages } from "./map-db-messages";
 
 const base = { createTime: "2026-01-01T00:00:00Z" };
 
 describe("mapDbMessages", () => {
   it("maps persisted tool_step rows into the bubble shape the live stream produces", () => {
+    // The persister stores a kept result as the structured value the live
+    // stream showed (bounded leaf by leaf), and the reloaded bubble renders it
+    // the same way.
     const [msg] = mapDbMessages([
       {
         ...base,
@@ -16,6 +20,7 @@ describe("mapDbMessages", () => {
           toolName: "get_traces",
           args: { traceId: "abc" },
           result: { spans: 3 },
+          outputBytes: 11,
           isError: false,
         },
       },
@@ -26,9 +31,106 @@ describe("mapDbMessages", () => {
       toolName: "get_traces",
       args: { traceId: "abc" },
       result: { spans: 3 },
+      outputBytes: 11,
       isError: false,
       status: "done",
     });
+  });
+
+  it("rebuilds a card read's row into a step the panel cards again, as it did live", () => {
+    // The persister keeps a card read's details alone (no text), so a
+    // reloaded chat draws the same card instead of a plain tool line.
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row2",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t2",
+          toolName: "get_widget_data",
+          args: { widget_id: "w-1" },
+          result: {
+            details: {
+              kind: "widget_read",
+              widget: {
+                id: "w-1",
+                title: "Recent failures",
+                type: "trace_feed",
+                spec: { limit: 10 },
+                status: "skipped",
+                error: null,
+                dashboard_id: "db1",
+                dashboard_name: "Overview",
+              },
+              window: null,
+            },
+          },
+          outputBytes: 900,
+          isError: false,
+        },
+      },
+    ]);
+    expect(readCardModel(msg.toolStep!, "p1")).toMatchObject({
+      kind: "widget",
+      model: { title: "Recent failures", href: "/projects/p1/dashboard/db1" },
+    });
+  });
+
+  it("keeps a truncated result as text — a cut JSON string is not valid JSON — and passes the flag through", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "get_traces",
+          args: {},
+          result: '{"spans":[{"span_id":"a"},{"span_… [truncated]',
+          truncated: true,
+          outputBytes: 90_000,
+        },
+      },
+    ]);
+    expect(msg.toolStep?.result).toBe('{"spans":[{"span_id":"a"},{"span_… [truncated]');
+    expect(msg.toolStep?.truncated).toBe(true);
+    expect(msg.toolStep?.outputBytes).toBe(90_000);
+  });
+
+  it("keeps a plain-string result as the string it was", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: { toolCallId: "t1", toolName: "bash", args: {}, result: "total 0\n" },
+      },
+    ]);
+    expect(msg.toolStep?.result).toBe("total 0\n");
+  });
+
+  it("passes a withheld result's reason and size through, with no result", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "bash",
+          args: { command: "ls" },
+          withheld: "not-allowlisted",
+          outputBytes: 44,
+          isError: false,
+        },
+      },
+    ]);
+    expect(msg.toolStep).toMatchObject({ withheld: "not-allowlisted", outputBytes: 44 });
+    expect(msg.toolStep?.result).toBeUndefined();
   });
 
   it("marks a failed tool step with error status", () => {
@@ -231,6 +333,29 @@ describe("mapDbMessages", () => {
     ]);
     expect(msgs).toHaveLength(2);
     expect(msgs[1].inputTokens).toBe(5);
+  });
+
+  it("passes traceId/traceStatus on assistant rows and spanId on tool_step rows through", () => {
+    const out = mapDbMessages([
+      {
+        id: "t1",
+        role: "tool_step",
+        content: "",
+        createTime: "2026-01-01T00:00:00Z",
+        metadata: { toolCallId: "c1", toolName: "bash", args: {}, spanId: "abcdef0123456789" },
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "done",
+        createTime: "2026-01-01T00:00:01Z",
+        metadata: { traceId: "f".repeat(32), traceStatus: "available" },
+        inputTokens: 1,
+        outputTokens: 1,
+      },
+    ]);
+    expect(out[0].toolStep?.spanId).toBe("abcdef0123456789");
+    expect(out[1]).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
   });
 
   it("renders a persisted run error as an error bubble like the live stream", () => {

@@ -58,6 +58,7 @@ EXPECTED_SPANS_COLUMNS = {
     "git_source_file",
     "git_source_line",
     "git_source_function",
+    "error_type",
 }
 
 EXPECTED_TRACES_COLUMNS = {
@@ -138,11 +139,22 @@ def test_column_types_match_clickhouse_contract():
     assert spans_types["duration_ms"] == "Nullable(Int64)"
     assert spans_types["cost"] == "Nullable(Decimal64(9))"
     assert spans_types["git_source_line"] == "Nullable(Int32)"
+    # The physical type, projected without a CAST, so the contract says what the view surfaces.
+    assert spans_types["error_type"] == "LowCardinality(String)"
 
     traces_types = {c.name: c.type for c in PUBLIC_TABLES["traces"].columns}
     assert traces_types["trace_id"] == "String"
     assert traces_types["trace_start_time"] == "DateTime64(3)"
     assert traces_types["user_id"] == "Nullable(String)"
+
+
+def test_error_type_is_appended_after_the_existing_spans_columns():
+    # SELECT * expands in contract order, so a column added later goes last: placing it
+    # mid-list would shift every column after it for a caller reading by position.
+    assert [c.name for c in PUBLIC_TABLES["spans"].columns][-2:] == [
+        "git_source_function",
+        "error_type",
+    ]
 
 
 def test_view_row_filters_restrict_rows_to_customer_traffic():

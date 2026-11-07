@@ -2,12 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_DETECTOR_SAMPLE_RATE,
-  DETECTOR_QUICK_ADD_TEMPLATES,
-  buildTemplateDetectorInput,
-  getTemplate,
-} from "./templates";
+import { DEFAULT_DETECTOR_SAMPLE_RATE, buildTemplateDetectorInput, getTemplate } from "./templates";
 
 describe("DEFAULT_DETECTOR_SAMPLE_RATE", () => {
   it("matches the Prisma column default, which cannot import the constant", () => {
@@ -18,18 +13,6 @@ describe("DEFAULT_DETECTOR_SAMPLE_RATE", () => {
     const match = readFileSync(schemaPath, "utf8").match(/sampleRate\s+Int\s+@default\((\d+)\)/);
     expect(match).not.toBeNull();
     expect(Number(match![1])).toBe(DEFAULT_DETECTOR_SAMPLE_RATE);
-  });
-});
-
-describe("DETECTOR_QUICK_ADD_TEMPLATES", () => {
-  it("excludes the blank template and keeps the rest in order", () => {
-    expect(DETECTOR_QUICK_ADD_TEMPLATES.map((t) => t.id)).toEqual([
-      "failure",
-      "hallucination",
-      "logic",
-      "task",
-      "safety",
-    ]);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { WIDGET_TYPES } from "./types";
-import { appendWidgetPlacement } from "./widget-placement";
+import { appendWidgetPlacement, placeWidgets, removeWidgetPlacement } from "./widget-placement";
 
 const query = { id: "w-new", type: "query" as const };
 const feed = { id: "w-new", type: "trace_feed" as const };
@@ -94,6 +94,64 @@ describe("appendWidgetPlacement", () => {
     expect(appendWidgetPlacement(null, query)).toEqual([{ i: "w-new", x: 0, y: 0, w: 6, h: 4 }]);
     expect(appendWidgetPlacement({ i: "w1" }, query)).toEqual([
       { i: "w-new", x: 0, y: 0, w: 6, h: 4 },
+    ]);
+  });
+});
+
+describe("removeWidgetPlacement", () => {
+  it("drops the widget's entry and keeps the others in place", () => {
+    const layout = [
+      { i: "w1", x: 0, y: 0, w: 6, h: 4 },
+      { i: "w2", x: 6, y: 0, w: 6, h: 4 },
+    ];
+    expect(removeWidgetPlacement(layout, "w1")).toEqual([{ i: "w2", x: 6, y: 0, w: 6, h: 4 }]);
+  });
+
+  it("returns null when the widget has no entry, so nothing is rewritten", () => {
+    expect(removeWidgetPlacement([{ i: "w2", x: 0, y: 0, w: 6, h: 4 }], "w1")).toBeNull();
+    expect(removeWidgetPlacement(null, "w1")).toBeNull();
+  });
+
+  it("drops malformed entries alongside the removed one, since the layout is rewritten anyway", () => {
+    const layout = [{ i: "w1", x: 0, y: 0, w: 6, h: 4 }, null, { i: "w2", x: "a" }];
+    expect(removeWidgetPlacement(layout, "w1")).toEqual([]);
+  });
+
+  it("still rewrites the layout when the removed widget's own entry is malformed", () => {
+    // The entry goes whether or not it renders: skipping the rewrite would
+    // leave a broken entry behind for a widget that no longer exists.
+    const layout = [
+      { i: "w1", x: "a" },
+      { i: "w2", x: 6, y: 0, w: 6, h: 4 },
+    ];
+    expect(removeWidgetPlacement(layout, "w1")).toEqual([{ i: "w2", x: 6, y: 0, w: 6, h: 4 }]);
+  });
+});
+
+describe("placeWidgets", () => {
+  it("keeps stored placements and stacks unplaced widgets at the left edge below them", () => {
+    const layout = [
+      { i: "a", x: 0, y: 0, w: 6, h: 4 },
+      { i: "b", x: 6, y: 0, w: 6, h: 6 },
+    ];
+    expect(placeWidgets(layout, ["b", "c", "a", "d"])).toEqual([
+      { i: "b", x: 6, y: 0, w: 6, h: 6 },
+      { i: "c", x: 0, y: 6, w: 4, h: 4 },
+      { i: "a", x: 0, y: 0, w: 6, h: 4 },
+      { i: "d", x: 0, y: 10, w: 4, h: 4 },
+    ]);
+  });
+
+  it("counts a deleted widget's entry toward the bottom edge but gives it no tile", () => {
+    expect(placeWidgets([{ i: "gone", x: 0, y: 0, w: 6, h: 8 }], ["a"])).toEqual([
+      { i: "a", x: 0, y: 8, w: 4, h: 4 },
+    ]);
+  });
+
+  it("stacks every widget from the top when nothing is stored", () => {
+    expect(placeWidgets([], ["a", "b"])).toEqual([
+      { i: "a", x: 0, y: 0, w: 4, h: 4 },
+      { i: "b", x: 0, y: 4, w: 4, h: 4 },
     ]);
   });
 });

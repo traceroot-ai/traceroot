@@ -13,9 +13,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Literal
 
-from rest.services.trace_reader import customer_traffic_only
+from rest.services.trace_reader import customer_traffic_only, windowed_evaluation_exclusion
 
-FILTER_OPS_STRING = ("=", "contains")
+FILTER_OPS_STRING = ("=", "contains", "in")
+# Keyed (Map) fields compare one entry's value, so they take no `in`.
+FILTER_OPS_KEYED = ("=", "contains")
 FILTER_OPS_NUMBER = (">", ">=", "<", "<=", "=")
 AGGS_NUMBER = ("sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq")
 
@@ -80,9 +82,17 @@ KEYED_COLUMN_SLOT = "--keyed-columns"
 METADATA_MAP_COLUMN = "metadata_map"
 
 
+# Offline-evaluation traces are not production traffic: the Tracing page and the
+# dashboard's trace-feed tiles already hide them, so a metric tile counting them would
+# disagree with the list beside it, and a metric alert would fire on a CI eval run.
+# Applied at every scan site next to the source guard, bounded by the same window
+# parameters every base relation binds.
+_NOT_EVALUATION = windowed_evaluation_exclusion("start_time", "end_time")
+
+
 _SPANS_BASE = f"""
     SELECT
-        name, span_kind, status, model_name, environment, trace_id,
+        name, span_kind, status, error_type, model_name, environment, trace_id,
         parent_span_id, {_IS_ROOT_EXPR} AS is_root,
         span_start_time AS event_time,
         dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms,
@@ -93,12 +103,14 @@ _SPANS_BASE = f"""
         {KEYED_COLUMN_SLOT}
     FROM (
         SELECT
-            span_id, trace_id, parent_span_id, name, span_kind, status, model_name, environment,
-            span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens, usage_details
+            span_id, trace_id, parent_span_id, name, span_kind, status, error_type, model_name,
+            environment, span_start_time, span_end_time, cost, input_tokens, output_tokens,
+            total_tokens, usage_details
             {KEYED_COLUMN_SLOT}
         FROM spans
         WHERE project_id = {{project_id:String}}
           AND {customer_traffic_only()}
+          AND {_NOT_EVALUATION}
           AND span_start_time >= {{start_time:DateTime64(3)}}
           AND span_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
@@ -135,6 +147,7 @@ _TRACES_BASE = f"""
         FROM traces
         WHERE project_id = {{project_id:String}}
           AND {customer_traffic_only()}
+          AND {_NOT_EVALUATION}
           AND trace_start_time >= {{start_time:DateTime64(3)}}
           AND trace_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
@@ -164,6 +177,7 @@ _TRACES_BASE = f"""
             FROM spans
             WHERE project_id = {{project_id:String}}
               AND {customer_traffic_only()}
+              AND {_NOT_EVALUATION}
               AND span_start_time >= {{start_time:DateTime64(3)}}
               AND span_start_time < {{end_time:DateTime64(3)}}
             ORDER BY ch_update_time DESC
@@ -206,6 +220,8 @@ REGISTRY: dict[str, ViewDef] = {
             "status": FieldDef(
                 expr="status", type="string", label="Status", filter_ops=FILTER_OPS_STRING
             ),
+            # Exception class name stamped at ingest; bounded, so it groups.
+            "error_type": _string_dim("error_type", "Error type"),
             "model_name": _string_dim("model_name", "Model"),
             "environment": _string_dim("environment", "Environment"),
             # Equality only: the domain is two values, so `contains` is a slower `=`.
@@ -258,7 +274,7 @@ REGISTRY: dict[str, ViewDef] = {
                 expr=METADATA_MAP_COLUMN,
                 type="string",
                 label="Metadata",
-                filter_ops=FILTER_OPS_STRING,
+                filter_ops=FILTER_OPS_KEYED,
                 requires_key=True,
                 in_builder=False,
             ),

@@ -22,6 +22,8 @@ import {
   clearSessionDeleted,
 } from "../executors/deleted-session-fence.js";
 
+const ATTRIBUTION = { turnKind: "chat" as const };
+
 vi.mock("../agent.js", () => ({
   runAgent: vi.fn(),
 }));
@@ -69,6 +71,7 @@ function options(sessionId: string, decisions: PendingDecisions) {
     channelUserId: "u1",
     isByok: false,
     sessionManager: { appendMessage: vi.fn(async () => ({}) as never) },
+    attribution: ATTRIBUTION,
     decisions,
   };
 }
@@ -202,6 +205,7 @@ describe("runAgentStream", () => {
     expect(opts.sessionManager.appendMessage).toHaveBeenCalledWith(
       "assistant",
       "",
+      ATTRIBUTION,
       expect.objectContaining({ runError: "model exploded" }),
       undefined,
     );
@@ -322,6 +326,7 @@ describe("runAgentStream", () => {
     expect(opts.sessionManager.appendMessage).toHaveBeenCalledWith(
       "tool_step",
       "",
+      ATTRIBUTION,
       expect.objectContaining({
         result: expect.objectContaining({ details: declinedDetails }),
         isError: true,
