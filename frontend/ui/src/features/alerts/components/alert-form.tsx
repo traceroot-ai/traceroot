@@ -9,6 +9,7 @@ import {
   DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_VIEW,
+  alertThresholdProblem,
   getMeasure,
   isCompleteAlertFilter,
   type AlertAggregation,
@@ -95,6 +96,13 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
   // Parsed, not coerced: Number("") is 0, and 0 is a threshold the schema
   // accepts, so a blank input would silently save a rule that fires above zero.
   const threshold = parseThreshold(draft.threshold);
+  // The write service's own check, so the form holds back what the API would
+  // refuse and says why instead of answering with a failed save.
+  const measure = getMeasure(draft.view, draft.measureId);
+  const thresholdProblem =
+    threshold === null || measure === undefined
+      ? null
+      : alertThresholdProblem(measure, draft.operator, threshold);
   const isNameValid = draft.name.trim() !== "";
   // The same predicate the preview panel reports unavailable through, and the
   // one the API gates on.
@@ -103,7 +111,12 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
   const isPending = createAlert.isPending || updateAlert.isPending;
   const submitError = createAlert.error ?? updateAlert.error;
   const canSubmit =
-    threshold !== null && isNameValid && isDraftEvaluable && !isPending && !isBlockedByCapacity;
+    threshold !== null &&
+    thresholdProblem === null &&
+    isNameValid &&
+    isDraftEvaluable &&
+    !isPending &&
+    !isBlockedByCapacity;
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -136,7 +149,8 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
     // would lose the user's place.
     const options = { onSuccess: () => router.push(listHref) };
     // The whole rule goes on every edit, not a diff: the route's change
-    // detection compares values, so unchanged fields stay unchanged.
+    // detection compares values, so unchanged fields stay unchanged. The
+    // threshold check judges the submitted rule, not the change.
     if (alertId !== undefined) updateAlert.mutate({ alertId, input }, options);
     else createAlert.mutate(input, options);
   };
@@ -165,6 +179,7 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
             aggregation={draft.aggregation}
             operator={draft.operator}
             threshold={draft.threshold}
+            thresholdProblem={thresholdProblem}
             window={draft.window}
             onMeasureChange={handleMeasureChange}
             onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}

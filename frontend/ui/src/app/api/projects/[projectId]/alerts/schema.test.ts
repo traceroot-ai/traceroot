@@ -14,6 +14,7 @@ import {
   isAggregationValidForMeasure,
   isMeasureValidForView,
   THRESHOLD_ABS_MAX,
+  thresholdProblemForMeasure,
   toAlertFilters,
   type AlertCreateInput,
 } from "./schema";
@@ -121,7 +122,10 @@ describe("alertCreateSchema", () => {
   });
 
   describe("threshold", () => {
-    it("accepts zero, negatives and both extremes of the storable range", () => {
+    it("bounds the magnitude only, leaving the sign to the measure", () => {
+      // The shape cannot see the measure. thresholdProblemForMeasure refuses
+      // these negatives on every measure that cannot go below zero, which
+      // today is every measure.
       for (const threshold of [0, -500.25, THRESHOLD_ABS_MAX, -THRESHOLD_ABS_MAX]) {
         expect(alertCreateSchema.safeParse(createBody({ threshold })).success).toBe(true);
       }
@@ -330,6 +334,22 @@ describe("isAggregationValidForMeasure", () => {
 
     expect(isAggregationValidForMeasure("SPANS", "unique_user_ids", "uniq", filters)).toBe(false);
     expect(isAggregationValidForMeasure("SPANS", "latency", "p95", filters)).toBe(true);
+  });
+});
+
+describe("thresholdProblemForMeasure", () => {
+  it("refuses a negative threshold on a measure that cannot go below zero", () => {
+    expect(thresholdProblemForMeasure("SPANS", "latency", ">", -500.25)).toBe(
+      "Threshold must be zero or more: latency can never be negative",
+    );
+    expect(thresholdProblemForMeasure("SPANS", "latency", ">", 500)).toBeNull();
+  });
+
+  it("has no opinion on a view, measure or operator the registry does not declare", () => {
+    // Each has its own refusal; a stored row carrying one must not throw here.
+    expect(thresholdProblemForMeasure("TRACES", "latency", ">", -5)).toBeNull();
+    expect(thresholdProblemForMeasure("SPANS", "not_a_measure", ">", -5)).toBeNull();
+    expect(thresholdProblemForMeasure("SPANS", "latency", "~", -5)).toBeNull();
   });
 });
 

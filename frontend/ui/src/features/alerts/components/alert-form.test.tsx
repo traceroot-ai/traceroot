@@ -281,6 +281,18 @@ describe("AlertForm", () => {
     expect(saveButton().hasAttribute("disabled")).toBe(false);
   });
 
+  it("blocks the save on a threshold the API would refuse, and says why", () => {
+    const reason = "Threshold must be zero or more: count can never be negative";
+    renderForm();
+    fillRequiredFields("p95 latency", "-3");
+    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(reason).className).toContain("text-destructive");
+
+    fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "3" } });
+    expect(saveButton().hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText(reason)).toBeNull();
+  });
+
   it("posts the draft under the names the create endpoint reads", async () => {
     const fetchMock = stubCreateSuccess();
     renderForm();
@@ -418,6 +430,15 @@ describe("AlertForm", () => {
       // The first call, not the last: a frame on the defaults would bill a query.
       expect(previewMetrics()[0]).toEqual({ measure: "duration_ms", agg: "p95" });
       expect(previewMetrics()).not.toContainEqual({ measure: "count", agg: "count" });
+    });
+
+    it("blocks the save of a legacy negative threshold and says why", () => {
+      renderForm({ alertId: "alert-9", initialDraft: { ...SAVED_DRAFT, threshold: "-5" } });
+      const save = screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+      expect(
+        screen.getByText("Threshold must be zero or more: latency can never be negative"),
+      ).toBeTruthy();
     });
 
     it("warns, without blocking the save, when the rule has an alert open", () => {

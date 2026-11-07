@@ -7,6 +7,7 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   KEYED_ALERT_FILTER_FIELDS,
   SETTABLE_ALERT_STATUSES,
+  alertThresholdProblem,
   getMeasure,
   isAlertAggregation,
   isAlertFilterField,
@@ -143,6 +144,22 @@ export function isAggregationValidForMeasure(
 ): boolean {
   if (!isAlertView(view) || !isAlertAggregation(aggregation)) return false;
   return isEvaluableAlertMetric(view, measure, aggregation, filters);
+}
+
+/**
+ * Why the threshold can never decide anything on this measure, or null. An
+ * undeclared view, measure or operator has its own refusal, so it gets no
+ * opinion here.
+ */
+export function thresholdProblemForMeasure(
+  view: string,
+  measure: string,
+  operator: string,
+  threshold: number,
+): string | null {
+  if (!isAlertView(view) || !isAlertThresholdOperator(operator)) return null;
+  const known = getMeasure(view, measure);
+  return known === undefined ? null : alertThresholdProblem(known, operator, threshold);
 }
 
 /**

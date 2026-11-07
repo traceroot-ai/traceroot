@@ -36,6 +36,8 @@ interface ConditionSectionProps {
   aggregation: AlertAggregation;
   operator: AlertOperator;
   threshold: string;
+  /** Why the API would refuse this threshold on the measure, shown under the row. */
+  thresholdProblem?: string | null;
   window: AlertWindow;
   onMeasureChange: (measureId: string) => void;
   onAggregationChange: (aggregation: AlertAggregation) => void;
@@ -58,6 +60,7 @@ export function ConditionSection({
   aggregation,
   operator,
   threshold,
+  thresholdProblem,
   window,
   onMeasureChange,
   onAggregationChange,
@@ -125,8 +128,9 @@ export function ConditionSection({
               </SelectContent>
             </Select>
             {/* The unit lives inside the field's border so it reads as part of
-                the value. A bare input, not NumberField: that one refuses
-                negatives, and a threshold may be one. */}
+                the value. A bare input, not NumberField: that one drops a
+                minus sign without a word, while a negative threshold is
+                refused below with the reason. */}
             <div
               className={cn(
                 CONTROL_SIZE,
@@ -169,6 +173,11 @@ export function ConditionSection({
               </Select>
             </div>
           </div>
+          {thresholdProblem && (
+            <p role="alert" className="text-[12px] text-destructive">
+              {thresholdProblem}
+            </p>
+          )}
         </div>
       </TooltipProvider>
     </SectionBox>
