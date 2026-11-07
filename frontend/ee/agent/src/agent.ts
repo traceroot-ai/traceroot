@@ -7,7 +7,12 @@ import {
 import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Message } from "@earendil-works/pi-ai";
-import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
+import {
+  ADAPTER_TO_PI_AI,
+  BEDROCK_USE_DEFAULT_CREDENTIALS,
+  ModelSource,
+  RCA_SYSTEM_DEFAULT_MODEL_ID,
+} from "@traceroot/core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
 import { withheldOutputText } from "@traceroot/core/capture-note";
 import { instrumentPiAgentCore, type ToolIoCaptureContext } from "@traceroot-ai/traceroot";
@@ -131,7 +136,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   agent: Agent;
   sessionManager: SessionManager;
 }> {
-  const requestedModel = config.model || "claude-sonnet-4-5";
+  const requestedModel = config.model || RCA_SYSTEM_DEFAULT_MODEL_ID;
   const cacheKeyModel = `${requestedModel}:${config.providerName || ""}:${config.source || ""}`;
   const cachedModel = sessionModels.get(config.sessionId);
   const existingAgent = sessionAgents.get(config.sessionId);
@@ -170,7 +175,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   const model = resolvePiModel(config.model, providerConfig);
   console.log(
-    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
+    `[Agent] Using model="${config.model || RCA_SYSTEM_DEFAULT_MODEL_ID}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
     JSON.stringify(model),
   );
 
