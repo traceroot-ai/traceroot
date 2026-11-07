@@ -19,13 +19,15 @@ Setup signs you in, has your coding agent add the traceroot SDK, and waits for y
 
 ### Run without prompts
 
-Setup never prompts when it isn't attached to a terminal, when `CI` is set, or with `--no-input` or `--json`. Pass what it would otherwise ask for:
+Setup never prompts when it isn't attached to a terminal, when `CI` is set to anything but empty or `false`, or with `--no-input` or `--json`. Pass what it would otherwise ask for:
 
 ```bash
 npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
 ```
 
-A project API key also sets the project. If you signed in with `traceroot login` instead and have several projects, pass `--project`. Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to a file rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one.
+A project API key also sets the project. If you don't have a key, run `npx -y traceroot-cli@latest login` first: it prints a URL and a code for a person to confirm in a browser, and waits, so a coding agent has to show them to you. If setup exits 10, it can't choose for you, usually because you have several projects or none: follow the remedy it prints. With several projects, you can pass `--project`.
+
+Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to `.traceroot/prompts/setup-instrument.md` rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one. After the task is done and the application has run, finish by running the same setup command with `--resume` added, such as `npx -y traceroot-cli@latest setup --no-input --resume`, which prints a link to the first trace. [Coding agents](/getting-started/coding-agents#set-up-tracing) has these steps as a prompt for your coding agent.
 
 ## Install
 
@@ -34,6 +36,8 @@ Every command also runs through `npx`, as above. To keep the `traceroot` command
 ```bash
 npm install -g traceroot-cli
 ```
+
+The examples below use `traceroot`. Without a global install, replace it with `npx -y traceroot-cli@latest`.
 
 The CLI needs Node.js 20.3 or later, and `setup` needs 20.12 or later.
 
@@ -49,7 +53,7 @@ Run `traceroot login` to sign in through your browser:
 traceroot login
 ```
 
-This opens your browser to approve the sign-in and saves a session to `~/.config/traceroot/credentials.json`, which refreshes automatically.
+It prints a URL and a code, tries to open your browser, and saves a session to `~/.config/traceroot/credentials.json`. If no browser opens, open the URL yourself.
 
 ### API key login (CI & scripts)
 
@@ -161,10 +165,11 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | :-- | :-- |
 | `setup` | Connect this repository to traceroot and see your first trace. See [Tracing](/tracing/get-started). |
 | `setup doctor` | Diagnose a setup that did not complete. Flag: `--service <path>`. |
+| `doctor` | Check credentials, the repository, environment, and skills. |
 | `login` | Sign in through your browser and save the session; with `--api-key`, validate and save a project API key instead. |
 | `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
 | `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
-| `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
+| `traces get <id>` | Show one trace: header, span tree, duration, and web app link. `--json` leaves span I/O `null`; add `--fields full` to include it. |
 | `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
 | `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
 | `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
@@ -175,6 +180,26 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
 | `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
 | `sql schema` | List every table and column available to read-only SQL. |
+
+## Output and exit codes
+
+With `--json`, a command writes one JSON document to stdout. If it fails, stdout is empty and stderr gets `{"error":{"code":"...","message":"..."}}`. Three commands are different. `doctor` and `setup doctor` write their report to stdout and exit 1 if a check fails. `setup` writes one JSON event per line, ending in a `result` event with `ok` and `data.trace_url`. Without `--json`, all its messages, including the link to your first trace, go to stderr.
+
+| Exit code | Meaning |
+| :- | :- |
+| 0 | Success. For `setup`, also check for the link: it can exit 0 when it's paused or hasn't seen a trace yet |
+| 1 | Internal error, a failed `doctor` check, or any HTTP error not listed here, such as 409 or a 5xx |
+| 2 | Usage error, including a missing `--project` after a browser login |
+| 3 | Not authenticated, or not allowed |
+| 4 | Not found |
+| 5 | Network error or rate limit, retry |
+| 10 | `setup`: it can't choose for you, usually because there are several projects or none. Follow the remedy it prints |
+| 11 | `setup`: unsupported language, service path, or coding agent |
+| 12 | `setup`: the coding agent failed |
+| 14 | `setup`: no trace arrived in time |
+| 15 | `setup`: this deployment doesn't support a step |
+| 16 | `setup`: it would overwrite something unsafely, or couldn't verify an existing key |
+| 130 | Interrupted |
 
 ## Next steps
 
