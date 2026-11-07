@@ -290,12 +290,12 @@ model Verification {
 }
 
 // Device Codes - better-auth device-authorization plugin (CLI login).
-// deviceCode and userCode are looked up on every poll/approval, so both get
-// indexes beyond the upstream plugin's unindexed defaults.
+// deviceCode and userCode are looked up on every poll/approval and are unique
+// as of better-auth 1.7.
 model DeviceCode {
   id              String    @id @default(cuid()) @db.VarChar
-  deviceCode      String    @map("device_code") @db.VarChar
-  userCode        String    @map("user_code") @db.VarChar
+  deviceCode      String    @unique(map: "uq_device_code_device_code") @map("device_code") @db.VarChar
+  userCode        String    @unique(map: "uq_device_code_user_code") @map("user_code") @db.VarChar
   userId          String?   @map("user_id") @db.VarChar
   expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
   status          String    @db.VarChar
@@ -306,8 +306,6 @@ model DeviceCode {
   createdAt       DateTime  @default(now()) @db.Timestamp(6)
   updatedAt       DateTime  @updatedAt @db.Timestamp(6)
 
-  @@index([deviceCode], map: "ix_device_code_device_code")
-  @@index([userCode], map: "ix_device_code_user_code")
   // Supports pruning expired rows (cleanup) and bounds the hot verify/poll path.
   @@index([expiresAt], map: "ix_device_code_expires_at")
   @@map("device_codes")
@@ -323,6 +321,8 @@ model Jwks {
   privateKey String    @map("private_key") @db.VarChar
   createdAt  DateTime  @default(now()) @db.Timestamp(6)
   expiresAt  DateTime? @map("expires_at") @db.Timestamp(6)
+  alg        String?   @db.VarChar
+  crv        String?   @db.VarChar
 
   @@map("jwks")
 }

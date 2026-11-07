@@ -135,7 +135,7 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `RunnableSequence` or `CompiledStateGraph`.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `RunnableSequence` or `CompiledStateGraph`.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -147,7 +147,7 @@ Run your code and confirm the trace arrives:
 | LLM calls | All LLM calls within the chain/graph |
 | Graph structure | Parent-child relationships between steps |
 | Token usage | Aggregated across all LLM calls |
-| Cost | Aggregated when the underlying model IDs match TraceRoot's pricing table |
+| Cost | Aggregated when the underlying model IDs match traceroot's pricing table |
 
 ## Limitations
 
