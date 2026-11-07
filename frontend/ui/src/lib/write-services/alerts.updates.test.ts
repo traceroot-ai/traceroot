@@ -502,6 +502,36 @@ describe("updateAlert", () => {
         noDataMode: "NOTIFY",
       });
     });
+
+    it("refuses a mode-only or aggregation-only edit that leaves `< 0` unable to fire", async () => {
+      mockAccess();
+      store.set("alert-1", row({ thresholdOperator: "<", threshold: 0, noDataMode: "NOTIFY" }));
+      expect(await update({ noDataMode: "HOLD" })).toEqual({
+        ok: false,
+        status: 400,
+        error:
+          "This alert can never fire: latency can never be negative, and a window with no data pages only under no-data mode NOTIFY",
+      });
+      expect(await update({ aggregation: "sum" })).toEqual({
+        ok: false,
+        status: 400,
+        error:
+          "This alert can never fire: latency can never be negative, and a window with no data reads 0. Use = 0 to alert on an empty window",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ aggregation: "p95", noDataMode: "NOTIFY" });
+    });
+
+    it("renames and pauses a stored `< 0` count rule that can never fire", async () => {
+      mockAccess();
+      store.set(
+        "alert-1",
+        row({ measure: "count", aggregation: "count", thresholdOperator: "<", threshold: 0 }),
+      );
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await setStatus("PAUSED")).toMatchObject({ ok: true });
+      expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: 0 });
+    });
   });
 
   describe("a parked rule re-arms on the edit that replaces what it was parked on", () => {

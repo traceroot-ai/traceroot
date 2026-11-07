@@ -441,6 +441,22 @@ describe("AlertForm", () => {
       ).toBeTruthy();
     });
 
+    it("saves `< 0` only where a gap pages, and otherwise says why it never fires", () => {
+      const lessThanZero = { ...SAVED_DRAFT, operator: "<" as const, threshold: "0" };
+      renderForm({ alertId: "alert-9", initialDraft: lessThanZero });
+      const save = () => screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      expect(save().disabled).toBe(false);
+      cleanup();
+
+      renderForm({ alertId: "alert-9", initialDraft: { ...lessThanZero, noDataMode: "HOLD" } });
+      expect(save().disabled).toBe(true);
+      expect(
+        screen.getByText(
+          "This alert can never fire: latency can never be negative, and a window with no data pages only under no-data mode NOTIFY",
+        ),
+      ).toBeTruthy();
+    });
+
     it("warns, without blocking the save, when the rule has an alert open", () => {
       const hint = /Saving a change to its conditions will close it and post an \[OK\]\s+to Slack/;
 

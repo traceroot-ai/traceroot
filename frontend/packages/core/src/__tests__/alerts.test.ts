@@ -43,7 +43,9 @@ import {
   isEvaluableAlertMetric,
   resolveAlertMetricSource,
   windowToMs,
+  type AlertAggregation,
   type AlertFilter,
+  type AlertNoDataMode,
   type AlertThresholdOperator,
   alertFiltersToTracePredicates,
   describeAlertFilter,
@@ -305,19 +307,35 @@ describe("alertThresholdProblem", () => {
   // Every measure of every view: each is a count, a distinct count, a duration,
   // money or tokens.
   const measures = ALERT_VIEWS.flatMap((view) => ALERT_MEASURES_BY_VIEW[view]);
+  // An empty window reads 0 under these, and no value under the rest.
+  const zeroWhenEmpty: readonly AlertAggregation[] = ["sum", "count", "uniq"];
+  const canBeEmpty = ALERT_AGGREGATIONS.filter((a) => !zeroWhenEmpty.includes(a));
 
-  /** Each measure, operator and threshold the helper answers differently than `refused` says. */
+  /** Each case the helper answers differently than `refused` says. */
   function disagreements(
     operators: readonly AlertThresholdOperator[],
     thresholds: readonly number[],
     refused: boolean,
+    aggregations: readonly AlertAggregation[] = ALERT_AGGREGATIONS,
+    modes: readonly AlertNoDataMode[] = ALERT_NO_DATA_MODES,
   ): string[] {
     const found: string[] = [];
     for (const measure of measures) {
       for (const operator of operators) {
         for (const threshold of thresholds) {
-          if ((alertThresholdProblem(measure, operator, threshold) !== null) !== refused) {
-            found.push(`${measure.id} ${operator} ${threshold}`);
+          for (const aggregation of aggregations) {
+            for (const mode of modes) {
+              const problem = alertThresholdProblem(
+                measure,
+                operator,
+                threshold,
+                aggregation,
+                mode,
+              );
+              if ((problem !== null) !== refused) {
+                found.push(`${measure.id} ${aggregation} ${operator} ${threshold} ${mode}`);
+              }
+            }
           }
         }
       }
@@ -340,26 +358,39 @@ describe("alertThresholdProblem", () => {
     expect(disagreements([">="], [0], true)).toEqual([]);
   });
 
-  it("accepts every operator but `>=` at zero, on every measure", () => {
-    // The helper sees only the measure, operator and threshold. `< 0` is a gap-only rule under
-    // NOTIFY only where the aggregation can read empty: count, sum and distinct counts read 0
-    // on an empty window, where it never fires.
-    expect(disagreements(["<", "=", "<=", "!=", ">"], [0], false)).toEqual([]);
+  it("accepts the no-traffic and any-traffic rules on zero everywhere", () => {
+    expect(disagreements(["=", "<=", "!=", ">"], [0], false)).toEqual([]);
+  });
+
+  it("accepts `< 0` only where an empty window is a gap that NOTIFY pages", () => {
+    // Never true on data, so it can only page a gap.
+    expect(disagreements(["<"], [0], false, canBeEmpty, ["NOTIFY"])).toEqual([]);
+    expect(disagreements(["<"], [0], true, canBeEmpty, ["HOLD", "ZERO"])).toEqual([]);
+    // An empty window reads 0 here, so there is no gap to page.
+    expect(disagreements(["<"], [0], true, zeroWhenEmpty)).toEqual([]);
   });
 
   it("names the measure and the fix", () => {
     const latency = getMeasure("SPANS", "latency")!;
-    expect(alertThresholdProblem(latency, ">", -5)).toBe(
+    const count = getMeasure("SPANS", "count")!;
+    expect(alertThresholdProblem(latency, ">", -5, "p95", "NOTIFY")).toBe(
       "Threshold must be zero or more: latency can never be negative",
     );
-    expect(alertThresholdProblem(latency, ">=", 0)).toBe(
+    expect(alertThresholdProblem(latency, ">=", 0, "p95", "NOTIFY")).toBe(
       "This alert would fire on every window with data: latency can never be negative",
+    );
+    expect(alertThresholdProblem(count, "<", 0, "count", "NOTIFY")).toBe(
+      "This alert can never fire: count can never be negative, and a window with no data reads 0. Use = 0 to alert on an empty window",
+    );
+    expect(alertThresholdProblem(latency, "<", 0, "p95", "HOLD")).toBe(
+      "This alert can never fire: latency can never be negative, and a window with no data pages only under no-data mode NOTIFY",
     );
   });
 
   it("leaves a measure that can go negative to its own threshold", () => {
     const latency = getMeasure("SPANS", "latency")!;
-    expect(alertThresholdProblem({ ...latency, signed: true }, ">", -5)).toBeNull();
+    expect(alertThresholdProblem({ ...latency, signed: true }, ">", -5, "p95", "HOLD")).toBeNull();
+    expect(alertThresholdProblem({ ...latency, signed: true }, "<", 0, "sum", "HOLD")).toBeNull();
   });
 });
 

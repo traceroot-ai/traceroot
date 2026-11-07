@@ -102,7 +102,13 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
   const thresholdProblem =
     threshold === null || measure === undefined
       ? null
-      : alertThresholdProblem(measure, draft.operator, threshold);
+      : alertThresholdProblem(
+          measure,
+          draft.operator,
+          threshold,
+          draft.aggregation,
+          draft.noDataMode,
+        );
   const isNameValid = draft.name.trim() !== "";
   // The same predicate the preview panel reports unavailable through, and the
   // one the API gates on.

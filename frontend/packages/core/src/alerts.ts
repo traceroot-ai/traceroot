@@ -352,27 +352,42 @@ export function getMeasure(view: AlertView, measureId: string): AlertMeasure | u
   return ALERT_MEASURES_BY_VIEW[view].find((m) => m.id === measureId);
 }
 
+// Aggregations that read a window with no data as 0 rather than as no value, so
+// such a window is never NO_DATA. The backend's `_measured_value` keeps these and
+// drops the rest (`_NON_ADDITIVE_AGGS` in `backend/rest/services/widget_query.py`).
+const ZERO_WHEN_EMPTY_AGGREGATIONS: readonly AlertAggregation[] = ["sum", "count", "uniq"];
+
 /**
  * Why this condition can never decide anything on the measure, or null when it
  * can. Against a reading that is never below zero, a negative threshold makes
  * every operator always or never true: `> -5` fires on every window with data.
  * At zero the same holds for `>= 0`, which fires on every window with data.
- * `< 0` stays: on a measure that can be empty, under NOTIFY it is a gap-only
- * rule, paging when data stops and again when it returns. So do `= 0`, `<= 0`,
- * `!= 0` and `> 0`, the no-traffic and any-traffic rules. The one check the
- * write service and the form share, so the form refuses exactly what the API
- * would.
+ * `< 0` is never true on data, so it can only page a gap: it stays where a
+ * window with no data reads NO_DATA and NOTIFY pages it, paging when data stops
+ * and again when it returns. `= 0`, `<= 0`, `!= 0` and `> 0`, the no-traffic and
+ * any-traffic rules, stay everywhere. The one check the write service and the
+ * form share, so the form refuses exactly what the API would.
  */
 export function alertThresholdProblem(
   measure: AlertMeasure,
   operator: AlertThresholdOperator,
   threshold: number,
+  aggregation: AlertAggregation,
+  noDataMode: AlertNoDataMode,
 ): string | null {
   if (measure.signed) return null;
   const label = measure.label.toLowerCase();
   if (threshold < 0) return `Threshold must be zero or more: ${label} can never be negative`;
   if (threshold === 0 && operator === ">=") {
     return `This alert would fire on every window with data: ${label} can never be negative`;
+  }
+  if (threshold === 0 && operator === "<") {
+    if (ZERO_WHEN_EMPTY_AGGREGATIONS.includes(aggregation)) {
+      return `This alert can never fire: ${label} can never be negative, and a window with no data reads 0. Use = 0 to alert on an empty window`;
+    }
+    if (noDataMode !== "NOTIFY") {
+      return `This alert can never fire: ${label} can never be negative, and a window with no data pages only under no-data mode NOTIFY`;
+    }
   }
   return null;
 }
