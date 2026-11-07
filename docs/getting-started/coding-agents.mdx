@@ -1,0 +1,164 @@
+---
+title: Coding agents
+description: Set up traceroot with your coding agent, give it skills and docs search over MCP, let it read your traces with the CLI, and trace its own sessions
+---
+
+Your coding agent can set up traceroot, read your traces from the CLI, and look up these docs while it works.
+
+| You want your agent to | Use |
+| :- | :- |
+| Set up tracing in a repository | [The setup prompt](#set-up-tracing) |
+| Learn how to use traceroot | [Skills](#skills) |
+| Search these docs | [Docs MCP](#docs-mcp) or [Markdown docs](#markdown-docs) |
+| Read traces, findings, and evaluations | [The CLI](#the-cli) |
+
+To send your coding agent's own sessions to traceroot, see [Trace your coding agent](#trace-your-coding-agent).
+
+## Set up tracing
+
+You need Node.js 20.12 or later and a Python or TypeScript/JavaScript application. If you don't have a traceroot account yet, you can create one when you sign in. Paste this into Claude Code, Codex, or another coding agent, from the root of your repository:
+
+```text Setup prompt wrap
+Set up traceroot tracing in this repo with the traceroot setup wizard.
+
+1. From the repo root, run: npx -y traceroot-cli@latest setup --no-input
+   - If it says no credential is configured, run npx -y traceroot-cli@latest login
+     (allow up to 10 minutes), show me the URL and code it prints, and wait while
+     I sign in. Then run setup again.
+   - If it stops for any other reason, follow the remedy it prints. Ask me before
+     choosing a project.
+2. Setup writes a project API key to .env and an instrumentation task to
+   .traceroot/prompts/setup-instrument.md. Carry out that task yourself, in this session.
+3. Run the app once, then run: npx -y traceroot-cli@latest setup --no-input --resume
+   You're done when it prints a link to the first trace.
+
+Don't print the API key or commit .env.
+Reference: https://traceroot.ai/docs/cli/get-started.md
+```
+
+Your agent runs setup, shows you a sign-in link and code if it needs one, adds the traceroot SDK, and finishes with a link to your first trace. Setup never reverts your agent's edits, so review them with `git status` and `git diff`.
+
+To run setup in your terminal instead, see [Tracing](/tracing/get-started). If you're self-hosting, start with [Self-hosted traceroot](/tracing/get-started#self-hosted-traceroot).
+
+## Skills
+
+Skills teach your agent how to work with traceroot. Setup installs its own instrumentation skill, so you don't need one to set up tracing.
+
+| Skill | Use it to |
+| :- | :- |
+| `traceroot-cli` | Read traces, evaluations, datasets, and detector findings from the terminal |
+| `traceroot-eval` | Write and run offline evaluations |
+| `traceroot-quickstart` | Send a first test trace without an existing LLM application |
+
+Install one with:
+
+```bash
+npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
+```
+
+`npx skills` is a third-party CLI that needs Node.js 22.20 or later. The `traceroot-cli` skill expects the `traceroot` command, so install it with `npm install -g traceroot-cli`.
+
+## Docs MCP
+
+`https://traceroot.ai/docs/mcp` lets your agent search and read these docs. It needs no API key. It can't read your traces, so use [the CLI](#the-cli) for that.
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add --transport http traceroot-docs https://traceroot.ai/docs/mcp
+    ```
+  </Tab>
+  <Tab title="Codex">
+    ```bash
+    codex mcp add traceroot-docs --url https://traceroot.ai/docs/mcp
+    ```
+  </Tab>
+  <Tab title="Cursor">
+    Add this to `.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "traceroot-docs": {
+          "url": "https://traceroot.ai/docs/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Markdown docs
+
+For any page as Markdown, add `.md` to its URL. Requests that send `Accept: text/markdown` get Markdown too.
+
+- [llms.txt](https://traceroot.ai/docs/llms.txt) lists every page. Start here.
+- [llms-full.txt](https://traceroot.ai/docs/llms-full.txt) holds every page in one file, about 300 KB.
+- [skill.md](https://traceroot.ai/docs/skill.md) is a short guide for agents: setup, common mistakes, and where to look next.
+
+## The CLI
+
+Agents read your project through the traceroot CLI. Run these from the directory you ran setup in. Anywhere else, sign in with `traceroot login` and [scope to a project](/cli/get-started#scope-to-a-project) first. Without a global install, replace `traceroot` with `npx -y traceroot-cli@latest`.
+
+```bash
+# Recent traces
+traceroot traces list --since 1h --limit 10 --json
+
+# One trace, with span input and output
+traceroot traces get <trace-id> --fields full --json
+
+# Recent detector findings
+traceroot findings list --since 24h --json
+
+# Recent evaluation runs
+traceroot evals runs list --json
+```
+
+Without `--fields full`, `traces get --json` leaves span input and output `null`.
+
+Run `traceroot <command> --help` for every flag, and `traceroot doctor` to check your setup. [Output and exit codes](/cli/get-started#output-and-exit-codes) covers what scripts and agents can rely on.
+
+## Trace your coding agent
+
+These plugins send your coding agent's own sessions to traceroot, which is separate from tracing your application. Sessions can include your prompts, tool input and output, commands, and file contents. An exported `TRACEROOT_API_KEY` also applies to anything else you or your agent start from that shell, and it takes priority over the key in a repository's `.env`.
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+    claude plugin install traceroot-observability@traceroot-claude-code-plugin
+    export TRACEROOT_API_KEY="tr-..."
+    ```
+
+    Nothing is sent until the key is set, so restart Claude Code after setting it. Needs `uv`, or Python 3.11 or later with the `traceroot` package. See the [plugin README](https://github.com/traceroot-ai/traceroot-claude-code-plugin).
+  </Tab>
+  <Tab title="Codex">
+    ```bash
+    codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+    codex plugin add tracing@traceroot-codex-plugin
+    codex features enable hooks
+    ```
+
+    It stays off until you trust its hooks and add `~/.codex/traceroot.json` with `"enabled": true` and your `api_key`. Runs without a trust prompt, such as `codex exec`, send nothing until the hooks are trusted. See the [plugin README](https://github.com/traceroot-ai/traceroot-codex-plugin).
+  </Tab>
+  <Tab title="pi">
+    ```bash
+    pi install npm:@traceroot-ai/pi-extension
+    export TRACEROOT_ENABLED=true
+    export TRACEROOT_API_KEY="tr-..."
+    ```
+
+    Restart pi after setting these. This is separate from the [pi SDK integration](/integrations/pi), which traces pi sessions embedded in your own application.
+  </Tab>
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Tracing" icon="route" href="/tracing/get-started">
+    Run setup yourself, add the SDK by hand, and troubleshoot.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/cli/get-started">
+    Authenticate, inspect traces, and read evaluations from the terminal.
+  </Card>
+</CardGroup>
