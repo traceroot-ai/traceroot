@@ -31,6 +31,8 @@ MAX_RANGE_SECONDS = 24 * 3600
 MAX_TOTAL_SECONDS = 2 * MAX_RANGE_SECONDS
 MAX_ROWS = 200
 
+_PLAIN_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)?")
+
 _BOUNDS = re.compile(
     r"start_time = toTimeZone\(toDateTime64\('([^']+)'(?: \+ toIntervalMillisecond\(1\))?, 3\), timezone\(\)\), "
     r"end_time = toTimeZone\(toDateTime64\('([^']+)'(?: \+ toIntervalMillisecond\(1\))?, 3\), timezone\(\)\)"
@@ -77,6 +79,14 @@ def check_bounded(rendered: str) -> None:
             raise HTTPException(
                 status_code=422,
                 detail="Every time range must be written as constant timestamps.",
+            )
+        # Only a plain timestamp: ClickHouse and Python read some other spellings
+        # differently ("20261020" is a date to one and a unix time to the other), and
+        # the bound that counts is the one ClickHouse resolves.
+        if not all(_PLAIN_TIMESTAMP.fullmatch(value) for value in match.groups()):
+            raise HTTPException(
+                status_code=422,
+                detail="Write time ranges as 'YYYY-MM-DD hh:mm:ss' (or just 'YYYY-MM-DD').",
             )
         try:
             start, end = (datetime.fromisoformat(value) for value in match.groups())

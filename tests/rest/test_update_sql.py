@@ -170,3 +170,24 @@ def test_mixed_offsets_are_a_client_error(secret, service):
         "AND span_start_time < '2026-10-26 12:00:00'"
     )
     assert post(secret, query).status_code in (422,)
+
+
+@pytest.mark.parametrize(
+    "start",
+    ["20261020", "1792000000", "2026-10-26T09:00:00Z", "2026-10-26 09:00:00+02:00", "26-10-26"],
+)
+def test_refuses_timestamp_spellings_the_two_parsers_read_differently(secret, service, start):
+    query = (
+        f"SELECT count() FROM traces WHERE trace_start_time >= '{start}' "
+        "AND trace_start_time < '2026-10-26 12:00:00'"
+    )
+    assert post(secret, query).status_code == 422
+    service.run.assert_not_called()
+
+
+def test_accepts_a_plain_date_and_fractional_seconds(secret, service):
+    query = (
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-10-26' "
+        "AND span_start_time < '2026-10-26 12:00:00.250'"
+    )
+    assert post(secret, query).status_code == 200
