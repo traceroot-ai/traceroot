@@ -112,6 +112,17 @@ describe("oversize repository", () => {
     ]);
     expect(await git(target, "rev-list", "--count", "HEAD")).toBe("1");
     expect(await git(target, "ls-tree", "-r", "-l", "HEAD")).toContain("payload.bin");
+
+    // The blobless clone alone is tiny; the payload arrives when the changed paths are
+    // checked out, so a size limit is measured after that step.
+    const du = async () => {
+      const out = await run("du", ["-sk", target]);
+      return Number(out.stdout.split("\t")[0]) / 1024;
+    };
+    expect(await du()).toBeLessThan(1);
+    await git(target, "sparse-checkout", "set", "--no-cone", "payload.bin");
+    await git(target, "checkout", "-q", "HEAD");
+    expect(await du()).toBeGreaterThan(1.9);
   });
 });
 

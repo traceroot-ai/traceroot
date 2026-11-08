@@ -9,10 +9,12 @@ import { parseArgs } from "node:util";
 import { prisma } from "@traceroot/core";
 import { frozenClock, systemClock } from "@traceroot/core/updates";
 import { triggerManualRun } from "../trigger.js";
+import { assertLocalStack } from "./seed/run.js";
 
 async function main(): Promise<void> {
   // This CLI exists for development; the guard still refuses a production value.
   process.env.NODE_ENV ??= "development";
+  assertLocalStack();
   const { values } = parseArgs({
     options: { project: { type: "string" }, now: { type: "string" } },
   });

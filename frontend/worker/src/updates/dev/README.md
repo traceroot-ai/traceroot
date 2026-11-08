@@ -70,7 +70,8 @@ be obeyed.
 --shallow-since=... file://<out>/seed-app.git` works as it does against a host.
 - `seed-big.git`: an oversize repository: a small base commit before the windows and
   a commit inside the previous window that adds an incompressible payload, so a
-  clone limited to that history and the changed paths has to fetch it.
+  clone limited to that history and the changed paths has to fetch it. The blobless
+  clone alone is small; measure the size after the sparse checkout of changed paths.
 - Slow case: `serve-slow` serves `<out>` over git's HTTP protocol and holds every
   response back by `--delay-ms` (default 70 s; the blobless shallow-since no-checkout clone makes three
   requests, so the default clone takes ~210 s, past the 180 s clone ceiling;
