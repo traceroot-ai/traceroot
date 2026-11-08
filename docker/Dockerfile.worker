@@ -7,6 +7,12 @@ RUN pip install uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# The task-group fit pulls in numpy, scipy, scikit-learn and numba, whose test
+# suites ship inside the packages (about 40 MB). Nothing imports them at runtime.
+RUN for pkg in numpy scipy sklearn numba llvmlite pynndescent umap; do \
+      find /app/.venv/lib/python3.12/site-packages/$pkg -type d -name tests -prune -exec rm -rf {} + ; \
+    done
+
 COPY backend ./backend
 
 FROM python:3.12-slim AS runner
@@ -23,6 +29,8 @@ COPY --from=builder /app/backend ./backend
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/backend"
+# numba (used by the task-group fit) caches compiled code here; the app directory may be read-only.
+ENV NUMBA_CACHE_DIR="/tmp/numba_cache"
 
 WORKDIR /app/backend
 

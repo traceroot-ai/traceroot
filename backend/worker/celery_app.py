@@ -62,12 +62,21 @@ app.conf.update(
 # Auto-discover tasks from worker.ingest_tasks module
 app.autodiscover_tasks(["worker"], related_name="ingest_tasks")
 
+# Task groups: the fit and its scheduler tick.
+app.autodiscover_tasks(["worker.task_groups"], related_name="tasks")
+
 # Periodic reconciliation: fill in eval-result costs that span-ingest could not (a result
 # row that committed after its spans were processed). Requires a `celery beat` process
 # harmless if beat isn't run — the task simply never fires.
 app.conf.beat_schedule = {
     "backfill-eval-result-costs": {
         "task": "worker.ingest_tasks.backfill_eval_result_costs",
+        "schedule": 600.0,  # every 10 minutes
+    },
+    # Finds projects due for a daily or requested fit; the fit task claims its run, so a
+    # tick that fires twice still fits once.
+    "task-group-tick": {
+        "task": "worker.task_groups.tasks.tick",
         "schedule": 600.0,  # every 10 minutes
     },
 }
