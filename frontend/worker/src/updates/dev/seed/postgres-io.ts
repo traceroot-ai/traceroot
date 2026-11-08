@@ -1,5 +1,5 @@
 import { encryptKey, prisma } from "@traceroot/core";
-import { nextSlotAfter } from "@traceroot/core/updates";
+import { latestSlotAtOrBefore } from "@traceroot/core/updates";
 import { hexId } from "./prng.js";
 import { scheduleOf, workspaceIdOf, type Scenario } from "./scenario.js";
 
@@ -86,7 +86,8 @@ export async function writePostgres(
         weekday: schedule.weekday,
         hour: schedule.hour,
         timezone: schedule.timezone,
-        nextSlotAt: nextSlotAfter(schedule, params.now),
+        // The slot that has just passed and not yet run: a tick at the seed's "now" starts the seeded window.
+        nextSlotAt: latestSlotAtOrBefore(schedule, params.now),
       },
     });
     if (project.plan.workspace === "a" && options.inbox) {

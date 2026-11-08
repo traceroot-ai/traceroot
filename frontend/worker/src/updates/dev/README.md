@@ -97,6 +97,25 @@ be obeyed.
   manifest to the digit, then checks the schedules and each signal's hit counts in
   Postgres and that the manifest is complete; it exits non-zero on any difference.
 
+## Tick
+
+```bash
+pnpm update:tick --now 2026-11-02T09:30:00Z [--times 2] [--parallel]
+```
+
+Runs the due-schedule tick once (or several times, in sequence or at the same
+moment) as of `--now`. Seeded schedules are due for the slot that has just passed
+at the seed's "now", so a tick at that instant records one run per project for the
+seeded window; running it again, or from two processes, records nothing new.
+
+## Facts check
+
+`pnpm update:seed check-facts` (needs the backend running) reads both windows of
+every seeded project from the aggregate endpoint, computes the findings, and
+grades them against the manifest: every planted change found with the right
+direction and a magnitude within tolerance, no control flagged, nothing invented,
+the tiny sample shown as absolute numbers only, the empty project as no traffic.
+
 ## Manual trigger
 
 ```bash

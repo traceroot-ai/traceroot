@@ -5,6 +5,7 @@
  *   pnpm --filter traceroot-worker update:seed clean [--prefix seedupd]
  *   pnpm --filter traceroot-worker update:seed counts
  *   pnpm --filter traceroot-worker update:seed verify  [--out dir]   (ClickHouse vs the manifest)
+ *   pnpm --filter traceroot-worker update:seed check-facts [--out dir] (computed facts vs the planted changes; needs the backend)
  *   pnpm --filter traceroot-worker update:seed serve-slow [--port 18581] [--delay-ms 70000]
  *
  * See README.md next to this file.
@@ -14,6 +15,9 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { clickHouseTargetFromEnv } from "./clickhouse-io.js";
 import { verifyManifest, verifyPostgres } from "./verify.js";
+import { computeUpdateFacts } from "@traceroot/core/updates";
+import { aggregatesConfigFromEnv, readRunAggregates } from "../../aggregates-client.js";
+import { checkFacts } from "./check-facts.js";
 import { startSlowRemote } from "./slow-remote.js";
 import {
   DEFAULT_BIG_BYTES,
@@ -91,6 +95,34 @@ async function main(): Promise<void> {
     ];
     console.log(JSON.stringify({ ok: problems.length === 0, problems }, null, 2));
     if (problems.length > 0) process.exitCode = 1;
+  } else if (command === "check-facts") {
+    const manifest = JSON.parse(await readFile(path.join(outDir, "manifest.json"), "utf8"));
+    const keys = Object.keys(manifest.projects);
+    const report: Record<string, unknown> = {};
+    let failed = false;
+    for (const key of keys) {
+      const windows = {
+        windowStart: new Date(manifest.windows.current.start),
+        windowEnd: new Date(manifest.windows.current.end),
+        prevWindowStart: new Date(manifest.windows.previous.start),
+        prevWindowEnd: new Date(manifest.windows.previous.end),
+      };
+      const { current, previous } = await readRunAggregates(
+        aggregatesConfigFromEnv(),
+        manifest.projects[key].id,
+        windows,
+      );
+      const facts = computeUpdateFacts(current, previous);
+      const problems = checkFacts(manifest, key, facts);
+      if (problems.length > 0) failed = true;
+      report[key] = {
+        findings: facts.findings.map((f) => f.id),
+        nothingNotable: facts.nothingNotable,
+        problems,
+      };
+    }
+    console.log(JSON.stringify({ ok: !failed, report }, null, 2));
+    if (failed) process.exitCode = 1;
   } else if (command === "seed") {
     const slackToken = process.env.TRACEROOT_E2E_SLACK_BOT_TOKEN;
     const slackChannel = process.env.TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID;
@@ -122,7 +154,9 @@ async function main(): Promise<void> {
       ),
     );
   } else {
-    throw new Error(`Unknown command "${command}". Use seed, clean, counts, verify or serve-slow.`);
+    throw new Error(
+      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts or serve-slow.`,
+    );
   }
 }
 

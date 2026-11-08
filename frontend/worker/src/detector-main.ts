@@ -16,6 +16,8 @@ import { initSelfTraceEmitter, shutdownSelfTraceEmitter } from "./detection/self
 import { isAlertsSchedulerEnabled, startAlertScheduler } from "./alerts/scheduler.js";
 import { logInfo } from "./alerts/log.js";
 import { startAlertNotificationWorker } from "./notifications/alert-slack.js";
+import { startUpdateRunWorker } from "./processors/update-run-processor.js";
+import { isUpdateSchedulerEnabled, startUpdateScheduler } from "./updates/scheduler.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -25,6 +27,8 @@ let detectorDigestWorker: ReturnType<typeof startDetectorDigestWorker> | undefin
 let signalAssignWorker: ReturnType<typeof startSignalAssignWorker> | undefined;
 let alertNotificationWorker: ReturnType<typeof startAlertNotificationWorker> | undefined;
 let alertScheduler: ReturnType<typeof startAlertScheduler> | undefined;
+let updateRunWorker: ReturnType<typeof startUpdateRunWorker> | undefined;
+let updateScheduler: ReturnType<typeof startUpdateScheduler> | undefined;
 
 // A tick can run tens of seconds but compose's stop grace is 10s: an unbounded drain is a SIGKILL.
 const ALERT_TICK_DRAIN_TIMEOUT_MS = 5_000;
@@ -44,6 +48,10 @@ async function shutdown(signal: string): Promise<void> {
           `[Detector Worker] alert tick still running after ${ALERT_TICK_DRAIN_TIMEOUT_MS}ms, continuing shutdown`,
         );
       }
+    }
+    updateScheduler?.stop();
+    if (updateRunWorker) {
+      await updateRunWorker.close();
     }
     if (alertNotificationWorker) {
       await alertNotificationWorker.close();
@@ -115,6 +123,12 @@ async function main(): Promise<void> {
     alertScheduler = startAlertScheduler();
   } else {
     logInfo('alerts disabled (set ALERTS_SCHEDULER_ENABLED="true" to run them)');
+  }
+
+  // Background updates: the due-schedule tick and the consumer of the runs it queues.
+  if (isUpdateSchedulerEnabled()) {
+    updateRunWorker = startUpdateRunWorker();
+    updateScheduler = startUpdateScheduler();
   }
 
   // Construct the self-trace emitter up front so the first detector run does

@@ -72,6 +72,18 @@ export function buildManifest(scenario: Scenario, repos: RepoCases) {
       "lookup_order calls fall with the same volume drop",
       "Project-level totals move because the planted changes add up; the digest should explain them by the planted entities",
     ],
+    /** Entities, per project, whose numbers move only as a consequence of a planted change or by design of the case. */
+    derivedEntities: {
+      main: ["model:claude-sonnet-4-5", "tool:lookup_order"],
+      nogit: ["tool:lookup_invoice"],
+      tiny: ["workflow:tiny_agent", "tool:tiny_new_tool"],
+      empty: [],
+      other: [
+        "workflow:tenantb_marker_agent",
+        "model:tenantb-secret-model-9",
+        "tool:tenantb_vault_tool",
+      ],
+    },
     signalsRollup: {
       project: scenario.projects.find((p) => p.key === "main")!.id,
       new: scenario.projects

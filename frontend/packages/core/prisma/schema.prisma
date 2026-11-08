@@ -588,6 +588,10 @@ model ProjectUpdateRun {
   timezone        String    @db.VarChar
   status          String    @default("pending") @db.VarChar // "pending" | "running" | "succeeded" | "failed" | "stopped"
   error           String?   @db.Text
+  attempts        Int       @default(0)
+  // The computed numbers of the update (deltas, findings) and the signals roll-up.
+  facts           Json?
+  signalsRollup   Json?     @map("signals_rollup")
   startedAt       DateTime? @map("started_at") @db.Timestamp(6)
   finishedAt      DateTime? @map("finished_at") @db.Timestamp(6)
   createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
