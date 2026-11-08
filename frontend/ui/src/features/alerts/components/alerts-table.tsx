@@ -11,7 +11,7 @@ import type { AlertSummary } from "../hooks/use-alerts";
 import { AlertSeverityBadge } from "./alert-severity-badge";
 import { formatAlertWindow, resolveAlertDisplayState } from "./alert-display";
 
-const ACTION_ITEM = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px]";
+const ACTION_ITEM = "flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px]";
 
 interface AlertsTableProps {
   alerts: AlertSummary[];
@@ -33,15 +33,15 @@ export function AlertsTable({
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
 
   return (
-    <table className="w-full">
+    <table className="data-table w-full">
       <thead>
-        <tr className="border-b border-border bg-muted/50">
-          <th className={cn(DETECTOR_TH, "w-[110px]")}>Severity</th>
+        <tr className="border-b border-border">
+          <th className={cn(DETECTOR_TH, "w-[110px]")}>Status</th>
           <th className={DETECTOR_TH}>Name</th>
           <th className={cn(DETECTOR_TH, "w-[120px]")}>Window</th>
-          <th className={cn(DETECTOR_TH, "w-[180px]")}>Last Evaluated</th>
-          <th className="w-[56px] px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-            Actions
+          <th className={cn(DETECTOR_TH, "w-[180px]")}>Last evaluated</th>
+          <th className="col-sticky-end-head w-[56px] whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+            <span className="sr-only">Actions</span>
           </th>
         </tr>
       </thead>
@@ -54,7 +54,7 @@ export function AlertsTable({
             <tr
               key={alert.id}
               className={cn(
-                "border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50",
+                "border-b border-border transition-colors hover:bg-muted",
                 isStopped && "opacity-50",
               )}
             >
@@ -81,7 +81,7 @@ export function AlertsTable({
               >
                 {alert.lastEvaluatedAt ? formatDate(alert.lastEvaluatedAt) : "Never"}
               </td>
-              <td className="px-2 text-right">
+              <td className="col-sticky-end px-2 text-right">
                 <Popover
                   open={actionsOpen === alert.id}
                   onOpenChange={(open) => setActionsOpen(open ? alert.id : null)}
@@ -90,7 +90,7 @@ export function AlertsTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-5 w-6 p-0 text-muted-foreground hover:text-foreground"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                       aria-label={`Actions for ${alert.name}`}
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
@@ -98,7 +98,7 @@ export function AlertsTable({
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-36 p-1">
                     <button
-                      className={cn(ACTION_ITEM, "hover:bg-muted/60 disabled:opacity-50")}
+                      className={cn(ACTION_ITEM, "hover:bg-muted disabled:opacity-50")}
                       disabled={isStatusPending}
                       onClick={() => {
                         onToggleStatus(alert);
@@ -114,7 +114,7 @@ export function AlertsTable({
                     </button>
                     <Link
                       href={`/projects/${projectId}/alerts/${alert.id}`}
-                      className={cn(ACTION_ITEM, "hover:bg-muted/60")}
+                      className={cn(ACTION_ITEM, "hover:bg-muted")}
                       onClick={() => setActionsOpen(null)}
                     >
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground" />

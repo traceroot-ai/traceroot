@@ -16,7 +16,7 @@ export default function NewAlertPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <PageBackHeader backHref={listHref} backLabel="Alerts" title="New Alert" />
+        <PageBackHeader backHref={listHref} backLabel="Alerts" title="New alert" />
 
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <AlertForm projectId={projectId} />

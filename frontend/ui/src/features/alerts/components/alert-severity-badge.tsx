@@ -18,7 +18,8 @@ const TONE_STYLES: Record<AlertTone, string> = {
   neutral: "bg-muted text-muted-foreground",
 };
 
-const BADGE = "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium";
+const BADGE =
+  "inline-flex min-w-[3.5rem] items-center justify-center rounded-[2px] border border-transparent px-1.5 py-0.5 text-[12px] font-medium";
 
 export interface AlertSeverityBadgeProps extends AlertDisplayInput {
   /** Omitted by callers with no workspace in hand: the reason still shows, the link does not. */
