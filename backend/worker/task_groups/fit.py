@@ -44,7 +44,7 @@ class FitParams:
     # cluster of unrelated one-off requests is.
     reach_cap: float = 0.7
     # Dimensions the vectors are first projected to (PCA) so the neighbour search is cheap.
-    pca_components: int = 64
+    pca_components: int = 384
     seed: int = 42
 
 

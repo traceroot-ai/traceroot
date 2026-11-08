@@ -18,7 +18,7 @@ meets that one only in ClickHouse: it reads `trace_task_digests`, and writes
    retried up to three times; a run stuck "running" for 30 minutes is taken as
    dead.
 3. Read the last 14 days of summaries (newest 50,000), in trace id order.
-4. `fit.fit_groups`: project to 64 dimensions (PCA), reduce with UMAP (cosine),
+4. `fit.fit_groups`: project to 384 dimensions (PCA), reduce with UMAP (cosine),
    cluster with HDBSCAN, then describe each cluster in the original cosine space:
    a unit-length **center**, and a **reach** (the 95th percentile of member
    distance, times 1.5, never above 0.7). A row HDBSCAN left out that lies inside

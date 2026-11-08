@@ -53,3 +53,41 @@ def test_a_minor_contamination_does_not_count_as_mixed():
     groups = ["g1"] * 9 + ["g2"] + ["g2"] * 9 + ["g1"]
     s = score(m, _assign(m, groups))
     assert not s.mixed_groups
+
+
+def test_assignments_file_is_read_with_empty_group_for_none(tmp_path):
+    import json
+
+    from scripts.topic_corpus.score import assignments_from_file
+
+    path = tmp_path / "a.json"
+    path.write_text(json.dumps({"assignments": {"t1": "b_1", "t2": None, "t3": ""}}))
+    assert assignments_from_file(str(path)) == {"t1": "b_1", "t2": "", "t3": ""}
+
+
+def test_the_command_scores_an_assignments_file(tmp_path, capsys):
+    import json
+
+    from scripts.topic_corpus import score as score_module
+
+    manifest = _manifest(["a"] * 10 + ["b"] * 10)
+    mpath = tmp_path / "m.json"
+    mpath.write_text(json.dumps(manifest))
+    apath = tmp_path / "a.json"
+    apath.write_text(json.dumps({"assignments": _assign(manifest, ["g1"] * 10 + ["g2"] * 10)}))
+    code = score_module.main(["--manifest", str(mpath), "--assignments", str(apath)])
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["passes"] is True
+
+
+def test_the_command_exits_nonzero_when_the_fit_fails(tmp_path, capsys):
+    import json
+
+    from scripts.topic_corpus import score as score_module
+
+    manifest = _manifest(["a"] * 10 + ["b"] * 10)
+    mpath = tmp_path / "m.json"
+    mpath.write_text(json.dumps(manifest))
+    apath = tmp_path / "a.json"
+    apath.write_text(json.dumps({"assignments": _assign(manifest, ["g1"] * 20)}))
+    assert score_module.main(["--manifest", str(mpath), "--assignments", str(apath)]) == 1
