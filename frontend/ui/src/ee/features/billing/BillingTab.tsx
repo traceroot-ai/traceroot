@@ -63,25 +63,25 @@ function UsageSection({
 
   return (
     <div className="border">
-      <div className="border-b bg-muted/30 px-4 py-3">
-        <h3 className="text-sm font-medium">{title}</h3>
+      <div className="flex h-9 items-center border-b px-4">
+        <h3 className="text-[13px] font-medium">{title}</h3>
       </div>
       <div className="space-y-4 px-4 py-3">
         <div>
           <div className="flex items-baseline justify-between">
-            <p className="text-sm font-medium">{runsLabel}</p>
-            <span className="text-sm font-medium">{runsValue}</span>
+            <p className="text-[13px] font-medium">{runsLabel}</p>
+            <span className="text-[13px] font-medium tabular-nums">{runsValue}</span>
           </div>
-          <p className="text-xs text-muted-foreground">{runsHelper}</p>
+          <p className="text-[12px] text-muted-foreground">{runsHelper}</p>
         </div>
 
         <div>
           <div className="flex items-baseline justify-between">
-            <p className="text-sm font-medium">Internal Models</p>
-            <span className="text-sm font-medium">{formatCost(systemCost)}</span>
+            <p className="text-[13px] font-medium">Internal models</p>
+            <span className="text-[13px] font-medium tabular-nums">{formatCost(systemCost)}</span>
           </div>
-          <p className="text-xs text-muted-foreground">{systemHelper}</p>
-          <div className="mt-2 flex justify-between text-sm text-muted-foreground">
+          <p className="text-[12px] text-muted-foreground">{systemHelper}</p>
+          <div className="mt-2 flex justify-between text-[12px] text-muted-foreground">
             <span>Input / Output</span>
             <span>
               {systemInputTokens.toLocaleString()} / {systemOutputTokens.toLocaleString()}
@@ -91,13 +91,13 @@ function UsageSection({
 
         {attributedByModel && attributedByModel.length > 0 && (
           <div className="-mx-4 border-t px-4 pt-3">
-            <p className="text-xs font-medium uppercase text-muted-foreground">By model</p>
-            <div className="mt-2 space-y-1.5 text-sm">
+            <p className="text-[12px] font-medium text-muted-foreground">By model</p>
+            <div className="mt-2 space-y-1.5 text-[12px]">
               {attributedByModel.map((row) => (
                 <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
                   <span className="text-muted-foreground">
                     {row.model}
-                    {row.isByok && <span className="ml-1 text-xs opacity-60">BYOK</span>}
+                    {row.isByok && <span className="ml-1 text-[12px] opacity-60">BYOK</span>}
                   </span>
                   <span className="text-muted-foreground">{formatModelUsage(row)}</span>
                 </div>
@@ -166,8 +166,8 @@ export function BillingTab({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-semibold">Billing</h2>
+      <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
+        <h2 className="text-[15px] font-medium">Billing</h2>
         <p className="text-sm text-muted-foreground">
           Manage your subscription and billing details
         </p>
@@ -182,8 +182,8 @@ export function BillingTab({
 
       {/* Current Plan Section */}
       <div className="border">
-        <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Current plan</h3>
+        <div className="flex h-9 items-center border-b px-4">
+          <h3 className="text-[13px] font-medium">Current plan</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
@@ -193,13 +193,11 @@ export function BillingTab({
 
           {/* Cancellation Notice */}
           {subscriptionInfo?.cancellation && (
-            <div className="mt-3 flex items-start gap-2 border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
-              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+            <div className="mt-3 flex items-start gap-2 border border-warning-border bg-warning-soft p-3">
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
               <div className="text-sm">
-                <p className="font-medium text-amber-800 dark:text-amber-200">
-                  Subscription ending
-                </p>
-                <p className="text-amber-700 dark:text-amber-300">
+                <p className="font-medium text-warning">Subscription ending</p>
+                <p className="text-warning">
                   Your subscription will be canceled on{" "}
                   {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}. You will
                   be downgraded to the Free plan after this date.
@@ -210,13 +208,11 @@ export function BillingTab({
 
           {/* Scheduled Plan Change Notice */}
           {subscriptionInfo?.scheduledChange && (
-            <div className="mt-3 flex items-start gap-2 border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950">
-              <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+            <div className="mt-3 flex items-start gap-2 border border-info-border bg-info-soft p-3">
+              <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0 text-info" />
               <div className="text-sm">
-                <p className="font-medium text-blue-800 dark:text-blue-200">
-                  Plan change scheduled
-                </p>
-                <p className="text-blue-700 dark:text-blue-300">
+                <p className="font-medium text-info">Plan change scheduled</p>
+                <p className="text-info">
                   Your plan will change to{" "}
                   <span className="font-medium">
                     {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
@@ -250,10 +246,10 @@ export function BillingTab({
         </div>
       </div>
 
-      {/* Event Usage Section */}
+      {/* Event usage Section */}
       <div className="border">
-        <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Event Usage</h3>
+        <div className="flex h-9 items-center border-b px-4">
+          <h3 className="text-[13px] font-medium">Event usage</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
@@ -292,7 +288,7 @@ export function BillingTab({
                   </span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span title="Traces and spans written by detector scans and agent analyses TraceRoot ran in this project">
+                  <span title="Traces and spans written by detector scans and agent analyses traceroot ran in this project">
                     Platform events
                   </span>
                   <span>
@@ -318,8 +314,8 @@ export function BillingTab({
       </div>
 
       <UsageSection
-        title="Chat Usage"
-        runsLabel="Chat Runs"
+        title="Chat usage"
+        runsLabel="Chat runs"
         runsValue={
           aiRunQuota.included === Infinity
             ? `${aiUsage?.runsUsed ?? 0} (Unlimited)`
@@ -343,8 +339,8 @@ export function BillingTab({
       />
 
       <UsageSection
-        title="Detector Usage"
-        runsLabel="Detector Runs"
+        title="Detector usage"
+        runsLabel="Detector runs"
         runsValue={
           detectorRunQuota.included === Infinity
             ? formatDetectorScanLabel(detectorUsage?.scansRun ?? 0)
@@ -359,8 +355,8 @@ export function BillingTab({
       />
 
       <UsageSection
-        title="Root Cause Analysis Usage"
-        runsLabel="Root Cause Analysis Runs"
+        title="Root cause analysis usage"
+        runsLabel="Root cause analysis runs"
         runsValue={formatRcaQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0)}
         runsHelper={
           "Triggered by detector findings." +
