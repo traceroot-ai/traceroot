@@ -76,8 +76,22 @@ def check_bounded(rendered: str) -> None:
                 status_code=422,
                 detail="Every time range must be written as constant timestamps.",
             )
-        start, end = match.groups()
-        total += (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()
+        try:
+            start, end = (datetime.fromisoformat(value) for value in match.groups())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="A time range holds a timestamp that cannot be read."
+            ) from exc
+        seconds = (end - start).total_seconds()
+        # Each read must be a real, bounded range by itself. An inverted one would
+        # otherwise cancel a wide read in the sum below.
+        if seconds <= 0 or seconds > MAX_RANGE_SECONDS:
+            raise HTTPException(
+                status_code=422,
+                detail="Each time range must be positive and at most "
+                f"{MAX_RANGE_SECONDS // 3600} hours.",
+            )
+        total += seconds
     if calls == 0:
         raise HTTPException(status_code=422, detail="Query reads no table.")
     if total > MAX_RANGE_SECONDS:

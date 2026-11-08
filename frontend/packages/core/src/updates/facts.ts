@@ -16,7 +16,8 @@ import type { WindowAggregates } from "./aggregates.ts";
 export interface NoiseRules {
   /** Fewest traces (or calls) each window needs before a rate or latency change is compared. */
   minSample: number;
-  errorRate: { minAbs: number; minRel: number };
+  /** `minFailures` is the smallest change in the number of failed traces worth a finding. */
+  errorRate: { minAbs: number; minRel: number; minFailures: number };
   /** `minBase` is the smallest earlier value a percentage may be shown against. */
   volume: { minAbs: number; minRel: number; minBase: number };
   latencyMs: { minAbs: number; minRel: number };
@@ -27,7 +28,7 @@ export interface NoiseRules {
 
 export const DEFAULT_NOISE_RULES: NoiseRules = {
   minSample: 30,
-  errorRate: { minAbs: 0.02, minRel: 0.25 },
+  errorRate: { minAbs: 0.02, minRel: 0.25, minFailures: 3 },
   volume: { minAbs: 20, minRel: 0.25, minBase: 30 },
   latencyMs: { minAbs: 200, minRel: 0.25 },
   costUsd: { minAbs: 0.25, minRel: 0.3, minBase: 0.1 },
@@ -207,7 +208,8 @@ function rateFindings(
   const rateAfter = after.total === 0 ? 0 : after.failures / after.total;
   const samples: [number, number] = [before.total, after.total];
   if (before.total >= rules.minSample && after.total >= rules.minSample) {
-    return passes(rateBefore, rateAfter, rules.errorRate)
+    return passes(rateBefore, rateAfter, rules.errorRate) &&
+      Math.abs(after.failures - before.failures) >= rules.errorRate.minFailures
       ? [change(scope, entity, "error_rate", rateBefore, rateAfter, samples)]
       : [];
   }

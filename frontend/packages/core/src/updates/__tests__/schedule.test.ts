@@ -53,6 +53,9 @@ describe("parseScheduleInput", () => {
     [{ hour: -1 }],
     [{ hour: "9" }],
     [{ timezone: "Mars/Olympus" }],
+    [{ timezone: "utc" }],
+    [{ timezone: "america/new_york" }],
+    [{ timezone: "+01:00" }],
     [{ timezone: "" }],
     [{ enabled: "yes" }],
   ])("rejects %j", (input) => {

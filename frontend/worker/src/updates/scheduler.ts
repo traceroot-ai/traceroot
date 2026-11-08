@@ -7,6 +7,7 @@ import {
   windowsForSlot,
 } from "@traceroot/core/updates";
 import { enqueueUpdateRun, createUpdateRunQueue, type UpdateRunQueue } from "./queue.js";
+import { STALE_RUNNING_MS } from "./execute.js";
 import { insertRun, type RunDb } from "./runs.js";
 
 /**
@@ -35,6 +36,7 @@ export interface TickResult {
   claimed: number;
   created: number;
   recovered: number;
+  reclaimed: number;
 }
 
 export async function runUpdateTick(
@@ -42,7 +44,7 @@ export async function runUpdateTick(
   queue: UpdateRunQueue,
   now: Date,
 ): Promise<TickResult> {
-  const result: TickResult = { claimed: 0, created: 0, recovered: 0 };
+  const result: TickResult = { claimed: 0, created: 0, recovered: 0, reclaimed: 0 };
 
   const due = await db.projectUpdateSchedule.findMany({
     where: { enabled: true, nextSlotAt: { lte: now }, project: { deleteTime: null } },
@@ -91,6 +93,26 @@ export async function runUpdateTick(
 
   // A run recorded but never queued (the process died between the two) is queued
   // again. The job id is deterministic, so a run that is queued already is a no-op.
+  // A run still "running" long after it started belongs to a worker that died. It goes
+  // back to pending, and its finished job is replaced so the queue takes it again.
+  const lost = await db.projectUpdateRun.findMany({
+    where: {
+      status: "running",
+      startedAt: { lt: new Date(now.getTime() - STALE_RUNNING_MS) },
+    },
+    orderBy: { startedAt: "asc" },
+    take: RECOVER_LIMIT,
+  });
+  for (const run of lost) {
+    const back = await db.projectUpdateRun.updateMany({
+      where: { id: run.id, status: "running" },
+      data: { status: "pending" },
+    });
+    if (back.count === 0) continue;
+    await enqueueUpdateRun(queue, run, { replace: true });
+    result.reclaimed += 1;
+  }
+
   const stale = await db.projectUpdateRun.findMany({
     where: {
       status: "pending",

@@ -95,6 +95,23 @@ describe("computeUpdateFacts", () => {
     ).toBeUndefined();
   });
 
+  it("does not call one more failure in a small window a rise", () => {
+    const small = (failures: number) =>
+      aggregates({
+        totals: {
+          traces: 30,
+          errorTraces: failures,
+          p50Ms: 1000,
+          p95Ms: 2500,
+          p99Ms: 3000,
+          gitContextTraces: 0,
+        },
+      });
+    expect(
+      find(computeUpdateFacts(small(1), small(0)), "project:all traffic:error_rate"),
+    ).toBeUndefined();
+  });
+
   it("does not report a movement below the minimum relative change", () => {
     const now = aggregates({
       llm: { calls: 1000, inputTokens: 0, outputTokens: 0, totalTokens: 1_000_000, cost: "10.6" },
@@ -250,7 +267,10 @@ describe("computeUpdateFacts", () => {
         gitContextTraces: 0,
       },
     });
-    const strict = { ...DEFAULT_NOISE_RULES, errorRate: { minAbs: 0.005, minRel: 0.1 } };
+    const strict = {
+      ...DEFAULT_NOISE_RULES,
+      errorRate: { minAbs: 0.005, minRel: 0.1, minFailures: 1 },
+    };
     expect(
       find(computeUpdateFacts(now, aggregates(), strict), "project:all traffic:error_rate"),
     ).toBeDefined();

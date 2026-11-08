@@ -10,6 +10,8 @@ export interface UpdateRunJob {
 }
 
 export interface UpdateRunQueue {
+  /** Needed only to replace a finished job under the same id. */
+  getJob?(id: string): Promise<{ remove(): Promise<void> } | undefined | null>;
   add(
     name: string,
     data: UpdateRunJob,
@@ -57,7 +59,14 @@ export function updateRunJobId(run: {
 export async function enqueueUpdateRun(
   queue: UpdateRunQueue,
   run: { id: string; projectId: string; trigger: string; slotAt: Date },
+  options: { replace?: boolean } = {},
 ): Promise<void> {
+  // A finished job keeps its id for a week, which would turn a second add into a no-op.
+  // A run taken back from a dead worker has to replace it.
+  if (options.replace) {
+    const old = await queue.getJob?.(updateRunJobId(run));
+    await old?.remove().catch(() => undefined);
+  }
   await queue.add(
     "update-run",
     { runId: run.id, projectId: run.projectId },

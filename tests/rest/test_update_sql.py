@@ -59,7 +59,7 @@ def test_refuses_a_raw_seven_day_scan(secret, service):
     week = DAY.replace("2026-10-26 21:00:00", "2026-11-02 09:00:00")
     response = post(secret, week)
     assert response.status_code == 422
-    assert "wider than the limit" in response.json()["detail"]
+    assert "at most 24 hours" in response.json()["detail"]
     service.run.assert_not_called()
 
 
@@ -123,3 +123,22 @@ def test_allows_two_short_reads_within_the_total(secret, service):
         "AND span_start_time < '2026-10-27 06:00:00'"
     )
     assert post(secret, query).status_code == 200
+
+
+def test_an_inverted_range_cannot_cancel_a_wide_one(secret, service):
+    query = (
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-10-01 00:00:00' "
+        "AND span_start_time < '2026-11-30 00:00:00' UNION ALL "
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-11-30 00:00:00' "
+        "AND span_start_time < '2026-10-01 00:00:00'"
+    )
+    assert post(secret, query).status_code == 422
+    service.run.assert_not_called()
+
+
+def test_a_timestamp_that_cannot_be_read_is_a_client_error(secret, service):
+    query = (
+        "SELECT count() FROM spans WHERE span_start_time >= 'garbage' "
+        "AND span_start_time < '2026-10-01 00:00:00'"
+    )
+    assert post(secret, query).status_code == 422

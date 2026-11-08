@@ -39,14 +39,18 @@ export const UPDATE_SCHEDULE_PRESETS: Record<
   weekly: { frequency: "weekly", weekday: 1, hour: 9 },
 };
 
+let canonicalZones: Set<string> | null = null;
+
+/**
+ * A timezone is valid when it is a canonical IANA name. `Intl` also accepts
+ * spellings the rest of the pipeline's timezone database does not ("utc",
+ * "+01:00", lower-cased names), so the accepted set is the canonical list.
+ */
 export function isValidTimezone(name: string): boolean {
   if (typeof name !== "string" || name.trim() === "") return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: name });
-    return true;
-  } catch {
-    return false;
-  }
+  if (name === "UTC") return true;
+  canonicalZones ??= new Set(Intl.supportedValuesOf("timeZone"));
+  return canonicalZones.has(name);
 }
 
 export type ScheduleParseResult =

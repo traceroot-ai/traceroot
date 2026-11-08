@@ -5,3 +5,4 @@ export * from "./aggregates.ts";
 export * from "./facts.ts";
 export * from "./result.ts";
 export * from "./skills/index.ts";
+export * from "./links.ts";

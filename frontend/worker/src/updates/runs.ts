@@ -52,6 +52,10 @@ export async function insertRun(db: RunDb, input: InsertRunInput): Promise<Inser
     (trigger === "scheduled"
       ? scheduledDedupeKey(projectId, windows.slotAt)
       : manualDedupeKey(projectId));
+  // Look first: inside a transaction a failed insert would abort it, so the usual
+  // path must not rely on catching the duplicate.
+  const existing = await db.projectUpdateRun.findUnique({ where: { dedupeKey } });
+  if (existing) return { run: existing, created: false };
   try {
     const run = await db.projectUpdateRun.create({
       data: {

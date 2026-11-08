@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@traceroot/core";
-import type { UpdateWindows } from "@traceroot/core/updates";
+import { signalLink, type UpdateWindows } from "@traceroot/core/updates";
 
 /**
  * The signals section of an update: which signals are new, resolved or
@@ -26,10 +26,6 @@ export interface SignalsRollup {
 export const SPIKE_RULES = { minHits: 10, minMultiple: 2, minIncrease: 5 };
 
 type RollupDb = Pick<PrismaClient, "signal" | "signalHit" | "signalStatusEvent">;
-
-export function signalLink(appBaseUrl: string, projectId: string, signalId: string): string {
-  return `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/signals?signalId=${encodeURIComponent(signalId)}`;
-}
 
 export async function buildSignalsRollup(
   db: RollupDb,
@@ -61,7 +57,7 @@ export async function buildSignalsRollup(
       where: {
         toStatus: "resolved",
         createTime: { gte: windows.windowStart, lt: windows.windowEnd },
-        signal: { projectId, mergedIntoId: null },
+        signal: { projectId, mergedIntoId: null, status: "resolved" },
       },
       select: { signalId: true, signal: { select: { title: true } } },
       orderBy: { signalId: "asc" },

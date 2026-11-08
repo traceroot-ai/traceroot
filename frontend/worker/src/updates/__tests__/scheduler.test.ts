@@ -58,8 +58,34 @@ function fakeDb(schedules: ScheduleRow[]) {
         async ({ where }: { where: { dedupeKey: string } }) =>
           runs.find((r) => r.dedupeKey === where.dedupeKey) ?? null,
       ),
-      findMany: vi.fn(async ({ where }: { where: { createTime: { lt: Date } } }) =>
-        runs.filter((r) => r.status === "pending" && (r.createTime as Date) < where.createTime.lt),
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { status: string; createTime?: { lt: Date }; startedAt?: { lt: Date } };
+        }) =>
+          runs.filter(
+            (r) =>
+              r.status === where.status &&
+              (where.createTime ? (r.createTime as Date) < where.createTime.lt : true) &&
+              (where.startedAt
+                ? ((r.startedAt as Date) ?? new Date(0)) < where.startedAt.lt
+                : true),
+          ),
+      ),
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string; status: string };
+          data: { status: string };
+        }) => {
+          const run = runs.find((r) => r.id === where.id && r.status === where.status);
+          if (!run) return { count: 0 };
+          run.status = data.status;
+          return { count: 1 };
+        },
       ),
     },
     $transaction: async (fn: (tx: unknown) => unknown) => fn(db),
@@ -176,6 +202,27 @@ describe("runUpdateTick", () => {
     const { db, runs } = fakeDb([weeklyUtc({ frequency: "hourly" })]);
     await runUpdateTick(db as never, queue(), AFTER_SLOT);
     expect(runs).toHaveLength(0);
+  });
+});
+
+describe("a run left running by a dead worker", () => {
+  it("goes back to pending and is queued again, replacing its finished job", async () => {
+    const { db, runs } = fakeDb([weeklyUtc()]);
+    await runUpdateTick(db as never, queue(), AFTER_SLOT);
+    runs[0].status = "running";
+    runs[0].startedAt = new Date("2026-11-02T09:05:00Z");
+    const remove = vi.fn(async () => undefined);
+    const q = { add: vi.fn(async () => undefined), getJob: vi.fn(async () => ({ remove })) };
+
+    const early = await runUpdateTick(db as never, q, new Date("2026-11-02T09:10:00Z"));
+    expect(early.reclaimed).toBe(0);
+    expect(runs[0].status).toBe("running");
+
+    const late = await runUpdateTick(db as never, q, new Date("2026-11-02T09:30:00Z"));
+    expect(late.reclaimed).toBe(1);
+    expect(runs[0].status).toBe("pending");
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(q.add).toHaveBeenCalled();
   });
 });
 
