@@ -17,7 +17,7 @@ Call submit_task_summary. Do not reply in text.`;
 /** The run text with any copy of the closing tag defanged, so it cannot end the fence early. */
 function fenceSafe(runText: string): string {
   return runText.replace(/<\/?\s*recorded_run\s*>/gi, (tag) =>
-    tag.replace("<", "(").replace(">", ")"),
+    tag.replace(/</g, "(").replace(/>/g, ")"),
   );
 }
 
