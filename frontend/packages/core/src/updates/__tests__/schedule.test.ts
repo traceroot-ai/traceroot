@@ -62,6 +62,18 @@ describe("parseScheduleInput", () => {
     expect(parseScheduleInput(input).ok).toBe(false);
   });
 
+  it.each([
+    "Asia/Kolkata",
+    "Asia/Calcutta",
+    "Europe/Kyiv",
+    "Asia/Kathmandu",
+    "America/Argentina/Buenos_Aires",
+    "Etc/GMT+5",
+    "UTC",
+  ])("accepts the timezone %s", (timezone) => {
+    expect(parseScheduleInput({ timezone }).ok).toBe(true);
+  });
+
   it("rejects a non-object", () => {
     expect(parseScheduleInput(null).ok).toBe(false);
     expect(parseScheduleInput([]).ok).toBe(false);

@@ -139,6 +139,8 @@ describe("windows are never empty, in any zone", () => {
     "America/New_York",
     "Europe/Berlin",
     "America/Nuuk",
+    "Africa/Cairo",
+    "America/Santiago",
     "America/Scoresbysund",
     "Australia/Lord_Howe",
     "Pacific/Apia",
@@ -169,6 +171,25 @@ describe("windows are never empty, in any zone", () => {
       }
     }
   }, 120_000);
+
+  it("keeps whole days when clocks skip local midnight", () => {
+    // Cairo's clocks went forward at 00:00 on 2026-04-24, so midnight did not exist.
+    const schedule = daily("Africa/Cairo", 0);
+    let slot = latestSlotAtOrBefore(schedule, new Date("2026-04-22T12:00:00Z"));
+    const lengths = [] as number[];
+    for (let i = 0; i < 5; i += 1) {
+      const w = windowsForSlot(schedule, slot);
+      lengths.push(hours(w.windowStart, w.windowEnd));
+      slot = nextSlotAfter(schedule, slot);
+    }
+    expect(lengths.every((h) => h >= 23 && h <= 25)).toBe(true);
+    const weekly = windowsAt(
+      { ...schedule, frequency: "weekly", weekday: 5 },
+      new Date("2026-04-25T12:00:00Z"),
+    );
+    expect(hours(weekly.windowStart, weekly.windowEnd)).toBeGreaterThanOrEqual(167);
+    expect(hours(weekly.windowStart, weekly.windowEnd)).toBeLessThanOrEqual(169);
+  });
 
   it("gives the day after a skipped 23:00 a full day, not an empty one", () => {
     // Nuuk skipped 23:00 local on 2026-03-28 when its clocks went forward.

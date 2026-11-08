@@ -24,7 +24,7 @@ export const SKILL_LIBRARY: readonly UpdateSkill[] = [
   skill({
     name: "update-orient",
     title: "Orient",
-    summary: "Read the project profile, the last update and the notes; confirm the window.",
+    summary: "Read the last update's notes; confirm the window and what is different this time.",
     required: false,
     when: "always",
     body: `Start every update by getting your bearings before you look at any number.
@@ -114,7 +114,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
     body: `If the project ran evaluations in the window, report the runs and how scores moved against the previous window.
 
 - Report a score change only when the facts carry it with both sample sizes. Otherwise report the run and its score as they are.
-- If there were no evaluation runs, say nothing about evaluations.
+- Evaluation data reaches you only if get_update_facts carries it, and it may not. If it carries none, leave this section out.
 - Link each run.`,
   }),
   skill({
@@ -152,7 +152,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
 
 Shape of a query:
 - Two tables: spans (span_id, trace_id, parent_span_id, span_start_time, span_end_time, duration_ms, name, span_kind, status, status_message, model_name, cost, input_tokens, output_tokens, total_tokens, error_type) and traces (trace_id, trace_start_time, name, git_ref, git_repo, user_id, session_id). Read-only; nothing else exists.
-- Every table in the query must be filtered on its start time (span_start_time or trace_start_time) with constant timestamps, written like span_start_time >= '2026-10-27 00:00:00' AND span_start_time < '2026-10-27 12:00:00'. The time ranges of all the tables in the query add up to at most 24 hours. A query with no range, a wider range, or a range written with a function is refused.
+- Every table in the query must be filtered on its start time (span_start_time or trace_start_time) with constant timestamps, written like span_start_time >= '2026-10-27 00:00:00' AND span_start_time < '2026-10-27 12:00:00'. Each table's range is at most 24 hours, and the ranges of all the tables in the query add up to at most 48 hours. A query with no range, a wider range, or a range written with a function is refused.
 - At most 200 rows come back. If more matched, the result says truncated; narrow the question rather than asking again.
 
 How to work:

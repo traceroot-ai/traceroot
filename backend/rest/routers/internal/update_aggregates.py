@@ -48,7 +48,7 @@ _PER_TRACE = f"""
     FROM (
         SELECT trace_id,
                max(status = 'ERROR') AS failed,
-               maxIf(duration_ms, parent_span_id IS NULL) AS duration_ms
+               dateDiff('millisecond', min(span_start_time), max(span_end_time)) AS duration_ms
         FROM {_SPANS}
         GROUP BY trace_id
     ) AS s

@@ -39,18 +39,26 @@ export const UPDATE_SCHEDULE_PRESETS: Record<
   weekly: { frequency: "weekly", weekday: 1, hour: 9 },
 };
 
-let canonicalZones: Set<string> | null = null;
+/** The shape of an IANA name: Area/Location, each part capitalised. Rejects "utc", "+01:00", "america/new_york". */
+const IANA_SHAPE = /^[A-Z][A-Za-z]+(\/[A-Z][A-Za-z0-9_+-]+){1,2}$/;
 
 /**
- * A timezone is valid when it is a canonical IANA name. `Intl` also accepts
- * spellings the rest of the pipeline's timezone database does not ("utc",
- * "+01:00", lower-cased names), so the accepted set is the canonical list.
+ * A timezone is valid when it is "UTC" or an IANA-shaped name the runtime knows.
+ * The shape rule keeps out the spellings `Intl` also accepts but the rest of the
+ * pipeline's timezone database does not: lower-cased names and numeric offsets.
+ * Both the old and the new names of a renamed zone ("Asia/Calcutta", "Asia/Kolkata")
+ * pass, because browsers differ in which they list.
  */
 export function isValidTimezone(name: string): boolean {
   if (typeof name !== "string" || name.trim() === "") return false;
   if (name === "UTC") return true;
-  canonicalZones ??= new Set(Intl.supportedValuesOf("timeZone"));
-  return canonicalZones.has(name);
+  if (!IANA_SHAPE.test(name)) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type ScheduleParseResult =

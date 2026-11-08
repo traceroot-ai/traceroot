@@ -143,14 +143,18 @@ export function nextSlotAfter(schedule: UpdateScheduleSettings, at: Date): Date 
 }
 
 /**
- * The local date a slot was scheduled for. A slot whose hour fell in a skipped
- * stretch of local time was moved to just after the gap, which can be the next
- * date; the instant just before it is still on the scheduled date.
+ * The local date a slot was scheduled for. Usually the date it shows. A slot whose
+ * hour fell in a skipped stretch of local time was moved to just after the gap,
+ * which can be the next date, so the date is the one whose own slot is this instant.
  */
 function localDateOf(slot: Date, timezone: string, hour: number): LocalDate {
   const shown = zonedParts(slot, timezone);
-  const parts = shown.hour === hour ? shown : zonedParts(new Date(slot.getTime() - 1), timezone);
-  return { y: parts.y, m: parts.m, d: parts.d };
+  const candidates: LocalDate[] = [shown, addDays(shown, -1)];
+  const match = candidates.find(
+    (date) => localToUtc(date, hour, timezone).getTime() === slot.getTime(),
+  );
+  const chosen = match ?? shown;
+  return { y: chosen.y, m: chosen.m, d: chosen.d };
 }
 
 /** The slot one cadence step before `slot`, on the local calendar. */

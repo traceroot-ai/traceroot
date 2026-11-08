@@ -22,8 +22,9 @@ export interface NoiseRules {
   volume: { minAbs: number; minRel: number; minBase: number };
   /** `minSample` is the fewest traces each window needs for a percentile comparison. */
   latencyMs: { minAbs: number; minRel: number; minSample: number };
-  costUsd: { minAbs: number; minRel: number; minBase: number };
-  tokens: { minAbs: number; minRel: number; minBase: number };
+  /** `minCalls` is the fewest model calls each window needs for a percentage. */
+  costUsd: { minAbs: number; minRel: number; minBase: number; minCalls: number };
+  tokens: { minAbs: number; minRel: number; minBase: number; minCalls: number };
   toolCalls: { minAbs: number; minRel: number; minBase: number };
 }
 
@@ -31,9 +32,9 @@ export const DEFAULT_NOISE_RULES: NoiseRules = {
   minSample: 30,
   errorRate: { minAbs: 0.02, minRel: 0.25, minFailures: 3, minZ: 2.5 },
   volume: { minAbs: 20, minRel: 0.25, minBase: 30 },
-  latencyMs: { minAbs: 200, minRel: 0.25, minSample: 100 },
-  costUsd: { minAbs: 0.25, minRel: 0.3, minBase: 0.1 },
-  tokens: { minAbs: 50_000, minRel: 0.3, minBase: 5_000 },
+  latencyMs: { minAbs: 200, minRel: 0.25, minSample: 200 },
+  costUsd: { minAbs: 0.25, minRel: 0.3, minBase: 0.1, minCalls: 30 },
+  tokens: { minAbs: 50_000, minRel: 0.3, minBase: 5_000, minCalls: 30 },
   toolCalls: { minAbs: 20, minRel: 0.3, minBase: 30 },
 };
 
@@ -179,9 +180,12 @@ function scalar(
   before: number,
   after: number,
   rule: { minAbs: number; minRel: number; minBase: number },
+  /** Number of events behind each side; a percentage needs this many in both. */
+  support?: { calls: [number, number]; minCalls: number },
 ): Finding[] {
   if (!passes(before, after, rule)) return [];
-  if (before >= rule.minBase) return [change(scope, entity, m, before, after)];
+  const supported = !support || Math.min(...support.calls) >= support.minCalls;
+  if (before >= rule.minBase && supported) return [change(scope, entity, m, before, after)];
   return [
     {
       ...change(scope, entity, m, before, after),
@@ -191,6 +195,9 @@ function scalar(
     },
   ];
 }
+
+/** An item seen fewer times than this is not worth calling new or gone. */
+const MIN_CATEGORICAL_COUNT = 3;
 
 function categorical(
   scope: FindingScope,
@@ -326,7 +333,13 @@ export function computeUpdateFacts(
   findings.push(...latencyFindings("project", "all traffic", p, c, rules));
   const costNow = Number(current.llm.cost);
   const costBefore = Number(previous.llm.cost);
-  findings.push(...scalar("project", "all models", "cost", costBefore, costNow, rules.costUsd));
+  const llmCalls: [number, number] = [previous.llm.calls, current.llm.calls];
+  findings.push(
+    ...scalar("project", "all models", "cost", costBefore, costNow, rules.costUsd, {
+      calls: llmCalls,
+      minCalls: rules.costUsd.minCalls,
+    }),
+  );
   findings.push(
     ...scalar(
       "project",
@@ -335,6 +348,7 @@ export function computeUpdateFacts(
       previous.llm.totalTokens,
       current.llm.totalTokens,
       rules.tokens,
+      { calls: llmCalls, minCalls: rules.tokens.minCalls },
     ),
   );
 
@@ -344,7 +358,8 @@ export function computeUpdateFacts(
   for (const [name, now] of curWorkflows) {
     const before = prevWorkflows.get(name);
     if (!before) {
-      if (!cut.has("workflows")) findings.push(categorical("workflow", name, "new", now.traces));
+      if (!cut.has("workflows") && now.traces >= MIN_CATEGORICAL_COUNT)
+        findings.push(categorical("workflow", name, "new", now.traces));
       continue;
     }
     findings.push(...volumeFinding("workflow", name, before.traces, now.traces, rules));
@@ -360,9 +375,13 @@ export function computeUpdateFacts(
     findings.push(...latencyFindings("workflow", name, before, now, rules));
   }
   for (const [name, before] of prevWorkflows) {
-    if (!curWorkflows.has(name))
-      if (!cut.has("workflows"))
-        findings.push(categorical("workflow", name, "vanished", before.traces));
+    if (
+      !curWorkflows.has(name) &&
+      !cut.has("workflows") &&
+      before.traces >= MIN_CATEGORICAL_COUNT
+    ) {
+      findings.push(categorical("workflow", name, "vanished", before.traces));
+    }
   }
 
   // Models: cost and tokens, and the ones that appeared or went.
@@ -371,19 +390,27 @@ export function computeUpdateFacts(
   for (const [name, now] of curModels) {
     const before = prevModels.get(name);
     if (!before) {
-      if (!cut.has("models")) findings.push(categorical("model", name, "new", now.calls));
+      if (!cut.has("models") && now.calls >= MIN_CATEGORICAL_COUNT)
+        findings.push(categorical("model", name, "new", now.calls));
       continue;
     }
     findings.push(
-      ...scalar("model", name, "cost", Number(before.cost), Number(now.cost), rules.costUsd),
+      ...scalar("model", name, "cost", Number(before.cost), Number(now.cost), rules.costUsd, {
+        calls: [before.calls, now.calls],
+        minCalls: rules.costUsd.minCalls,
+      }),
     );
     findings.push(
-      ...scalar("model", name, "tokens", before.totalTokens, now.totalTokens, rules.tokens),
+      ...scalar("model", name, "tokens", before.totalTokens, now.totalTokens, rules.tokens, {
+        calls: [before.calls, now.calls],
+        minCalls: rules.tokens.minCalls,
+      }),
     );
   }
   for (const [name, before] of prevModels) {
     if (!curModels.has(name))
-      if (!cut.has("models")) findings.push(categorical("model", name, "vanished", before.calls));
+      if (!cut.has("models") && before.calls >= MIN_CATEGORICAL_COUNT)
+        findings.push(categorical("model", name, "vanished", before.calls));
   }
 
   // Tools.
@@ -392,10 +419,15 @@ export function computeUpdateFacts(
   for (const [name, now] of curTools) {
     const before = prevTools.get(name);
     if (!before) {
-      if (!cut.has("tools")) findings.push(categorical("tool", name, "new", now.calls));
+      if (!cut.has("tools") && now.calls >= MIN_CATEGORICAL_COUNT)
+        findings.push(categorical("tool", name, "new", now.calls));
       continue;
     }
-    findings.push(...scalar("tool", name, "tool_calls", before.calls, now.calls, rules.toolCalls));
+    if (Math.abs(now.calls - before.calls) / Math.sqrt(now.calls + before.calls) >= 3) {
+      findings.push(
+        ...scalar("tool", name, "tool_calls", before.calls, now.calls, rules.toolCalls),
+      );
+    }
     findings.push(
       ...rateFindings(
         "tool",
@@ -408,7 +440,8 @@ export function computeUpdateFacts(
   }
   for (const [name, before] of prevTools) {
     if (!curTools.has(name))
-      if (!cut.has("tools")) findings.push(categorical("tool", name, "vanished", before.calls));
+      if (!cut.has("tools") && before.calls >= MIN_CATEGORICAL_COUNT)
+        findings.push(categorical("tool", name, "vanished", before.calls));
   }
 
   findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

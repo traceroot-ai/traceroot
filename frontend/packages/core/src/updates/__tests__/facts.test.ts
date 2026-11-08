@@ -179,12 +179,12 @@ describe("computeUpdateFacts", () => {
       p95Ms: p50 * 2,
     });
     const control = { name: "control", traces: 400, errorTraces: 12, p50Ms: 900, p95Ms: 1800 };
-    const now = aggregates({ workflows: [wf(100, 3, 1900), control] });
-    const before = aggregates({ workflows: [wf(300, 9, 1000), control] });
+    const now = aggregates({ workflows: [wf(200, 6, 1900), control] });
+    const before = aggregates({ workflows: [wf(400, 12, 1000), control] });
     const facts = computeUpdateFacts(now, before);
     expect(find(facts, "workflow:a:trace_volume")).toMatchObject({
       direction: "down",
-      relativeChange: -0.666667,
+      relativeChange: -0.5,
     });
     expect(find(facts, "workflow:a:latency_p50")).toMatchObject({
       direction: "up",
@@ -279,6 +279,38 @@ describe("computeUpdateFacts", () => {
     expect(facts.overview.latencyP50Ms.relativeChange).toBeNull();
     expect(facts.overview.llmCostUsd.relativeChange).toBeNull();
     expect(facts.overview.errorRate.absoluteChange).toBeCloseTo(0.006);
+  });
+
+  it("needs enough calls behind a cost percentage, not just a big enough number", () => {
+    const model = (calls: number, cost: string) => [
+      { model: "m1", calls, totalTokens: calls * 100_000, cost },
+    ];
+    const facts = computeUpdateFacts(
+      aggregates({
+        byModel: model(3, "1.20"),
+        llm: { ...aggregates().llm, calls: 3, cost: "1.20" },
+      }),
+      aggregates({
+        byModel: model(1, "0.40"),
+        llm: { ...aggregates().llm, calls: 1, cost: "0.40" },
+      }),
+    );
+    expect(find(facts, "model:m1:cost")).toMatchObject({
+      kind: "absolute_only",
+      relativeChange: null,
+    });
+    expect(find(facts, "project:all models:cost")).toMatchObject({ kind: "absolute_only" });
+    expect(facts.overview.llmCostUsd.relativeChange).toBeNull();
+  });
+
+  it("does not call a tool seen once or twice new", () => {
+    const now = aggregates({
+      tools: [
+        { name: "search", calls: 500, errors: 10 },
+        { name: "blip", calls: 2, errors: 0 },
+      ],
+    });
+    expect(find(computeUpdateFacts(now, aggregates()), "tool:blip:presence")).toBeUndefined();
   });
 
   it("lists the top models by spend with shares worked out in code", () => {
