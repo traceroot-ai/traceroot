@@ -1,4 +1,4 @@
-import type { Finding, UpdateFacts } from "@traceroot/core/updates";
+import type { Finding, UpdateFacts, WindowAggregates } from "@traceroot/core/updates";
 import type { buildManifest } from "./manifest.js";
 
 type Manifest = ReturnType<typeof buildManifest>;
@@ -97,6 +97,110 @@ export function checkFacts(manifest: Manifest, projectKey: string, facts: Update
   if (projectKey === "empty") {
     if (!facts.nothingNotable || facts.nothingNotableReason !== "no_traffic") {
       problems.push("empty project: expected nothing notable for no traffic");
+    }
+  }
+  return problems;
+}
+
+const nano = (text: string | number): bigint => {
+  const [whole, frac = ""] = String(text).split(".");
+  return BigInt(whole) * 1_000_000_000n + BigInt(frac.padEnd(9, "0").slice(0, 9));
+};
+
+/**
+ * The aggregate endpoint's answer for one window against the manifest, to the
+ * digit: totals, percentiles, tokens and cost, and every model, model and day,
+ * tool, workflow and ref.
+ */
+export function checkAggregates(
+  manifest: Manifest,
+  projectKey: string,
+  windowName: "current" | "previous",
+  agg: WindowAggregates,
+): string[] {
+  const expected = manifest.projects[projectKey as keyof Manifest["projects"]].expected[windowName];
+  const problems: string[] = [];
+  const label = `${projectKey}/${windowName}`;
+  const eq = (what: string, actual: unknown, want: unknown) => {
+    if (String(actual) !== String(want))
+      problems.push(`${label} ${what}: got ${actual}, expected ${want}`);
+  };
+  eq("traces", agg.totals.traces, expected.traces);
+  eq("errorTraces", agg.totals.errorTraces, expected.errorTraces);
+  if (expected.traces > 0) {
+    eq("p50Ms", agg.totals.p50Ms, expected.p50Ms);
+    eq("p95Ms", agg.totals.p95Ms, expected.p95Ms);
+  }
+  eq("llmCalls", agg.llm.calls, expected.llmCalls);
+  eq("totalTokens", agg.llm.totalTokens, expected.totalTokens);
+  eq("cost", nano(agg.llm.cost), nano(expected.cost));
+  eq(
+    "models",
+    agg.byModel
+      .map((m) => m.model)
+      .sort()
+      .join(),
+    Object.keys(expected.byModel).join(),
+  );
+  for (const m of agg.byModel) {
+    const e = expected.byModel[m.model];
+    if (!e) continue;
+    eq(`${m.model} calls`, m.calls, e.calls);
+    eq(`${m.model} cost`, nano(m.cost), nano(e.cost));
+  }
+  eq("model-day cells", agg.byModelDay.length, Object.keys(expected.byModelDay).length);
+  for (const d of agg.byModelDay) {
+    const e = expected.byModelDay[`${d.model}|${d.day}`];
+    if (!e) problems.push(`${label} unexpected model-day ${d.model}|${d.day}`);
+    else {
+      eq(`${d.model} ${d.day} tokens`, d.totalTokens, e.totalTokens);
+      eq(`${d.model} ${d.day} cost`, nano(d.cost), nano(e.cost));
+    }
+  }
+  eq(
+    "tools",
+    agg.tools
+      .map((t) => t.name)
+      .sort()
+      .join(),
+    Object.keys(expected.byTool).join(),
+  );
+  for (const t of agg.tools) {
+    const e = expected.byTool[t.name];
+    if (e) {
+      eq(`tool ${t.name} calls`, t.calls, e.calls);
+      eq(`tool ${t.name} errors`, t.errors, e.errors);
+    }
+  }
+  eq(
+    "workflows",
+    agg.workflows
+      .map((w) => w.name)
+      .sort()
+      .join(),
+    Object.keys(expected.byWorkflow).join(),
+  );
+  for (const w of agg.workflows) {
+    const e = expected.byWorkflow[w.name];
+    if (e) {
+      eq(`${w.name} traces`, w.traces, e.traces);
+      eq(`${w.name} errors`, w.errorTraces, e.errorTraces);
+      eq(`${w.name} p95`, w.p95Ms, e.p95Ms);
+    }
+  }
+  eq(
+    "refs",
+    agg.refs
+      .map((r) => r.name)
+      .sort()
+      .join(),
+    Object.keys(expected.byRef).sort().join(),
+  );
+  for (const r of agg.refs) {
+    const e = expected.byRef[r.name];
+    if (e) {
+      eq(`ref ${r.name.slice(0, 7)} traces`, r.traces, e.traces);
+      eq(`ref ${r.name.slice(0, 7)} errors`, r.errorTraces, e.errorTraces);
     }
   }
   return problems;

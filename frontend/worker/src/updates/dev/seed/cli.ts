@@ -17,7 +17,7 @@ import { clickHouseTargetFromEnv } from "./clickhouse-io.js";
 import { verifyManifest, verifyPostgres } from "./verify.js";
 import { computeUpdateFacts } from "@traceroot/core/updates";
 import { aggregatesConfigFromEnv, readRunAggregates } from "../../aggregates-client.js";
-import { checkFacts } from "./check-facts.js";
+import { checkAggregates, checkFacts } from "./check-facts.js";
 import { startSlowRemote } from "./slow-remote.js";
 import {
   DEFAULT_BIG_BYTES,
@@ -113,7 +113,11 @@ async function main(): Promise<void> {
         windows,
       );
       const facts = computeUpdateFacts(current, previous);
-      const problems = checkFacts(manifest, key, facts);
+      const problems = [
+        ...checkAggregates(manifest, key, "current", current),
+        ...checkAggregates(manifest, key, "previous", previous),
+        ...checkFacts(manifest, key, facts),
+      ];
       if (problems.length > 0) failed = true;
       report[key] = {
         findings: facts.findings.map((f) => f.id),
