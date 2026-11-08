@@ -17,7 +17,7 @@ export interface NoiseRules {
   /** Fewest traces (or calls) each window needs before a rate or latency change is compared. */
   minSample: number;
   /** `minFailures` is the smallest change in the number of failed traces worth a finding. */
-  errorRate: { minAbs: number; minRel: number; minFailures: number };
+  errorRate: { minAbs: number; minRel: number; minFailures: number; minZ: number };
   /** `minBase` is the smallest earlier value a percentage may be shown against. */
   volume: { minAbs: number; minRel: number; minBase: number };
   latencyMs: { minAbs: number; minRel: number };
@@ -28,7 +28,7 @@ export interface NoiseRules {
 
 export const DEFAULT_NOISE_RULES: NoiseRules = {
   minSample: 30,
-  errorRate: { minAbs: 0.02, minRel: 0.25, minFailures: 3 },
+  errorRate: { minAbs: 0.02, minRel: 0.25, minFailures: 3, minZ: 2.5 },
   volume: { minAbs: 20, minRel: 0.25, minBase: 30 },
   latencyMs: { minAbs: 200, minRel: 0.25 },
   costUsd: { minAbs: 0.25, minRel: 0.3, minBase: 0.1 },
@@ -85,6 +85,16 @@ export interface UpdateFacts {
     totalTokens: OverviewMetric;
   };
   findings: Finding[];
+  /** The top models by spend this window, with shares worked out in code. */
+  topModels: {
+    model: string;
+    costUsd: number;
+    shareOfCost: number;
+    previousCostUsd: number;
+    totalTokens: number;
+  }[];
+  /** Lists cut at the entity cap; new and vanished items of these are not reported. */
+  truncatedLists: string[];
   /** Cost and tokens by model and day for the current window, for the weekly view. */
   modelDays: { model: string; day: string; totalTokens: number; costUsd: number }[];
   hasGitContext: boolean;
@@ -103,12 +113,13 @@ function relative(before: number, after: number): number | null {
   return before === 0 ? null : round((after - before) / before);
 }
 
-function metric(current: number, previous: number): OverviewMetric {
+/** `showPercent` is false when the base or the sample is too small for a percentage. */
+function metric(current: number, previous: number, showPercent: boolean): OverviewMetric {
   return {
     current: round(current),
     previous: round(previous),
     absoluteChange: round(current - previous),
-    relativeChange: relative(previous, current),
+    relativeChange: showPercent ? relative(previous, current) : null,
   };
 }
 
@@ -192,6 +203,19 @@ function categorical(
   };
 }
 
+/** Two-proportion z statistic with a pooled rate: how far apart the rates are, in standard errors. */
+export function zScore(
+  before: { failures: number; total: number },
+  after: { failures: number; total: number },
+): number {
+  const total = before.total + after.total;
+  if (before.total === 0 || after.total === 0 || total === 0) return 0;
+  const pooled = (before.failures + after.failures) / total;
+  const error = Math.sqrt(pooled * (1 - pooled) * (1 / before.total + 1 / after.total));
+  if (error === 0) return 0;
+  return (after.failures / after.total - before.failures / before.total) / error;
+}
+
 interface RateSide {
   failures: number;
   total: number;
@@ -209,7 +233,8 @@ function rateFindings(
   const samples: [number, number] = [before.total, after.total];
   if (before.total >= rules.minSample && after.total >= rules.minSample) {
     return passes(rateBefore, rateAfter, rules.errorRate) &&
-      Math.abs(after.failures - before.failures) >= rules.errorRate.minFailures
+      Math.abs(after.failures - before.failures) >= rules.errorRate.minFailures &&
+      Math.abs(zScore(before, after)) >= rules.errorRate.minZ
       ? [change(scope, entity, "error_rate", rateBefore, rateAfter, samples)]
       : [];
   }
@@ -375,21 +400,41 @@ export function computeUpdateFacts(
   findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const empty = c.traces === 0 && p.traces === 0;
+  const enoughTraffic = c.traces >= rules.minSample && p.traces >= rules.minSample;
+  const totalCost = costNow;
+  const previousCosts = new Map(previous.byModel.map((m) => [m.model, Number(m.cost)]));
+  const topModels = [...current.byModel]
+    .sort((a, b) => Number(b.cost) - Number(a.cost) || (a.model < b.model ? -1 : 1))
+    .slice(0, 5)
+    .map((m) => ({
+      model: m.model,
+      costUsd: Number(m.cost),
+      shareOfCost: totalCost > 0 ? round(Number(m.cost) / totalCost, 4) : 0,
+      previousCostUsd: previousCosts.get(m.model) ?? 0,
+      totalTokens: m.totalTokens,
+    }));
   const nothingNotable = findings.length === 0;
   return {
     window: { start: current.start, end: current.end },
     previousWindow: { start: previous.start, end: previous.end },
     overview: {
-      traces: metric(c.traces, p.traces),
+      traces: metric(c.traces, p.traces, p.traces >= rules.volume.minBase),
       errorRate: metric(
         c.traces === 0 ? 0 : c.errorTraces / c.traces,
         p.traces === 0 ? 0 : p.errorTraces / p.traces,
+        enoughTraffic,
       ),
-      latencyP50Ms: metric(c.p50Ms, p.p50Ms),
-      latencyP95Ms: metric(c.p95Ms, p.p95Ms),
-      llmCostUsd: metric(costNow, costBefore),
-      totalTokens: metric(current.llm.totalTokens, previous.llm.totalTokens),
+      latencyP50Ms: metric(c.p50Ms, p.p50Ms, enoughTraffic),
+      latencyP95Ms: metric(c.p95Ms, p.p95Ms, enoughTraffic),
+      llmCostUsd: metric(costNow, costBefore, costBefore >= rules.costUsd.minBase),
+      totalTokens: metric(
+        current.llm.totalTokens,
+        previous.llm.totalTokens,
+        previous.llm.totalTokens >= rules.tokens.minBase,
+      ),
     },
+    topModels,
+    truncatedLists: [...cut].sort(),
     findings,
     modelDays: current.byModelDay.map((d) => ({
       model: d.model,

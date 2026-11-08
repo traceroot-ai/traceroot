@@ -9,7 +9,7 @@ One call returns one window. All reads are limited to customer traffic
 capped in execution time, so a call cannot scan beyond its window.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -117,6 +117,17 @@ class UpdateAggregates(BaseModel):
     truncated: list[str]
 
 
+def _by_day(rows: list[tuple], zone: ZoneInfo) -> list[tuple]:
+    """Fold (model, 15-minute slot, tokens, cost) rows into (model, local day, tokens, cost)."""
+    days: dict[tuple[str, str], list] = {}
+    for model, slot, tokens, cost in rows:
+        local = datetime.fromtimestamp(int(slot), tz=UTC).astimezone(zone)
+        entry = days.setdefault((model, local.date().isoformat()), [0, Decimal(0)])
+        entry[0] += int(tokens or 0)
+        entry[1] += Decimal(cost or 0)
+    return [(m, d, t, c) for (m, d), (t, c) in sorted(days.items())]
+
+
 def _ms(value: Any) -> int:
     """A latency percentile as whole milliseconds; an empty set gives NaN or NULL, which is 0."""
     if value is None or value != value:
@@ -154,12 +165,12 @@ def get_update_aggregates(
         raise HTTPException(status_code=422, detail=f"window longer than {MAX_WINDOW_DAYS} days")
 
     try:
-        ZoneInfo(tz)
+        zone = ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="unknown timezone") from exc
 
     ch = get_clickhouse_client()
-    params = {"project_id": project_id, "start": start_utc, "end": end_utc, "tz": tz}
+    params = {"project_id": project_id, "start": start_utc, "end": end_utc}
 
     ((traces, failed, p50, p95, p99, with_ref),) = _rows(
         ch,
@@ -191,15 +202,19 @@ def get_update_aggregates(
         params,
     )
 
-    by_model_day = _rows(
+    # Bucketed to 15 minutes in SQL and into days here, in the project's timezone, so
+    # the day boundaries never depend on the database's timezone list.
+    quarter_hours = _rows(
         ch,
         f"""
-        SELECT model_name, toString(toDate(span_start_time, {{tz:String}})) AS day, sum(total_tokens), sum(cost)
+        SELECT model_name, toUnixTimestamp(toStartOfFifteenMinutes(span_start_time)) AS slot,
+               sum(total_tokens), sum(cost)
         FROM {_SPANS} WHERE span_kind = 'LLM' AND model_name IS NOT NULL
-        GROUP BY model_name, day ORDER BY model_name, day LIMIT {MAX_ENTITIES * 10}
+        GROUP BY model_name, slot ORDER BY model_name, slot LIMIT {MAX_ENTITIES * 700}
         """,
         params,
     )
+    by_model_day = _by_day(quarter_hours, zone)
 
     tools = _rows(
         ch,

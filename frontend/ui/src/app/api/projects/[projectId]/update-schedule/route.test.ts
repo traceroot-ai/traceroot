@@ -136,6 +136,16 @@ describe("update schedule route", () => {
     expect(schedules.size).toBe(0);
   });
 
+  it("keeps the saved values for fields a later save leaves out", async () => {
+    await put({ frequency: "daily", hour: 7, timezone: "Europe/Berlin" });
+    await put({ hour: 8 });
+    expect(schedules.get("p1")).toMatchObject({
+      frequency: "daily",
+      hour: 8,
+      timezone: "Europe/Berlin",
+    });
+  });
+
   it("clears the next slot when turned off", async () => {
     await put({ frequency: "weekly" });
     await put({ frequency: "weekly", enabled: false });

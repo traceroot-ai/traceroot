@@ -125,8 +125,8 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
     when: "always",
     body: `Report where model spend and tokens went: the total, the change, and the models and days that drive it.
 
-- Total cost and tokens, with the computed change, come from get_update_facts. The by-model and by-day figures come from the same place.
-- Name the top one or two cost drivers by model. Say which day was highest when it stands out.
+- Total cost and tokens, with the computed change, come from the overview in get_update_facts. The by-model figures are topModels and the by-day figures are modelDays, from the same place.
+- Name the top one or two cost drivers from topModels in the facts, with the shareOfCost it carries. Say which day was highest from modelDays when it stands out.
 - A cost finding for a model is about that model's spend, not about quality. Do not suggest the model is worse or better.
 - Mention plan-quota use only when the facts carry it; the facts may not, in which case leave it out.`,
   }),
@@ -235,7 +235,7 @@ Return nothing outside this structure.`,
     when: "weekly",
     body: `The weekly update looks at the whole week, not at the last day.
 
-- Use the by-day figures to say whether a shift built up through the week or came in on one day.
+- Use modelDays (cost and tokens by model and day) to say whether a spend shift built up through the week or came in on one day. There is no per-day volume figure; do not claim one.
 - Group findings that share a theme (for example several workflows slowing down together) into one item with several links.
 - Compare with last week through the computed deltas only.
 - Close with what the reader should look at first.`,

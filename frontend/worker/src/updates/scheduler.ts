@@ -25,6 +25,7 @@ import { insertRun, type RunDb } from "./runs.js";
 export const UPDATE_TICK_CRON = process.env.UPDATE_TICK_CRON || "*/5 * * * *";
 const DUE_LIMIT = 200;
 const RECOVER_LIMIT = 100;
+const MAX_ATTEMPTS = 3;
 /** A run still pending this long after it was recorded probably lost its job. */
 const RECOVER_AFTER_MS = 60_000;
 
@@ -104,6 +105,14 @@ export async function runUpdateTick(
     take: RECOVER_LIMIT,
   });
   for (const run of lost) {
+    // Reclaimed as many times as the queue would retry; after that the run fails.
+    if (run.attempts >= MAX_ATTEMPTS) {
+      await db.projectUpdateRun.updateMany({
+        where: { id: run.id, status: "running" },
+        data: { status: "failed", error: "the worker was lost on every attempt", finishedAt: now },
+      });
+      continue;
+    }
     const back = await db.projectUpdateRun.updateMany({
       where: { id: run.id, status: "running" },
       data: { status: "pending" },

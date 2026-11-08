@@ -30,8 +30,8 @@ MAX_RANGE_SECONDS = 24 * 3600
 MAX_ROWS = 200
 
 _BOUNDS = re.compile(
-    r"start_time = toTimeZone\(toDateTime64\('([^']+)', 3\), timezone\(\)\), "
-    r"end_time = toTimeZone\(toDateTime64\('([^']+)', 3\), timezone\(\)\)"
+    r"start_time = toTimeZone\(toDateTime64\('([^']+)'(?: \+ toIntervalMillisecond\(1\))?, 3\), timezone\(\)\), "
+    r"end_time = toTimeZone\(toDateTime64\('([^']+)'(?: \+ toIntervalMillisecond\(1\))?, 3\), timezone\(\)\)"
 )
 
 

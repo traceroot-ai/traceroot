@@ -100,20 +100,33 @@ async function handlePUT(request: NextRequest, { params }: RouteParams) {
   } catch {
     return errorResponse("The body must be JSON.", 400);
   }
-  const parsed = parseScheduleInput(body);
+  // A client sends only what it changes: the rest keeps its saved value (or the default).
+  const saved = await prisma.projectUpdateSchedule.findUnique({ where: { projectId } });
+  const base: Record<string, unknown> = saved
+    ? {
+        enabled: saved.enabled,
+        frequency: saved.frequency,
+        weekday: saved.weekday,
+        hour: saved.hour,
+        timezone: saved.timezone,
+      }
+    : {};
+  const parsed = parseScheduleInput(
+    typeof body === "object" && body !== null && !Array.isArray(body) ? { ...base, ...body } : body,
+  );
   if (!parsed.ok) return errorResponse(parsed.error, 400);
   const settings = parsed.value;
 
   // The next slot is the first one after now: saving never starts a run for a slot
   // that has already passed.
   const nextSlotAt = settings.enabled ? nextSlotAfter(settings, new Date()) : null;
-  const saved = await prisma.projectUpdateSchedule.upsert({
+  const stored = await prisma.projectUpdateSchedule.upsert({
     where: { projectId },
     create: { projectId, ...settings, nextSlotAt },
     update: { ...settings, nextSlotAt },
   });
 
-  return successResponse({ ...serialize(settings, true), next_slot_at: saved.nextSlotAt });
+  return successResponse({ ...serialize(settings, true), next_slot_at: stored.nextSlotAt });
 }
 
 export const GET = withImpersonationPolicy(handleGET);

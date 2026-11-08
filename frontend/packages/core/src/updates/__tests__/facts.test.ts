@@ -238,6 +238,80 @@ describe("computeUpdateFacts", () => {
     expect(facts.findings.filter((f) => f.scope === "tool" && f.metric === "presence")).toEqual([]);
   });
 
+  it("keeps percentages out of the overview when the base or sample is small", () => {
+    const tiny = (traces: number, failures: number) =>
+      aggregates({
+        totals: {
+          traces,
+          errorTraces: failures,
+          p50Ms: 800,
+          p95Ms: 900,
+          p99Ms: 900,
+          gitContextTraces: 0,
+        },
+        llm: {
+          calls: traces,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: traces * 100,
+          cost: String(traces * 0.001),
+        },
+      });
+    const { overview } = computeUpdateFacts(tiny(10, 2), tiny(6, 0));
+    for (const metric of Object.values(overview)) expect(metric.relativeChange).toBeNull();
+    expect(overview.traces).toMatchObject({ current: 10, previous: 6, absoluteChange: 4 });
+    const big = computeUpdateFacts(
+      aggregates({ totals: { ...aggregates().totals, traces: 1500 } }),
+      aggregates(),
+    );
+    expect(big.overview.traces.relativeChange).toBe(0.5);
+  });
+
+  it("lists the top models by spend with shares worked out in code", () => {
+    const models = [
+      { model: "a", calls: 1, totalTokens: 10, cost: "6.0" },
+      { model: "b", calls: 1, totalTokens: 10, cost: "3.0" },
+      { model: "c", calls: 1, totalTokens: 10, cost: "1.0" },
+    ];
+    const facts = computeUpdateFacts(
+      aggregates({ byModel: models, llm: { ...aggregates().llm, cost: "10.0" } }),
+      aggregates({ byModel: [{ model: "a", calls: 1, totalTokens: 10, cost: "5.0" }] }),
+    );
+    expect(facts.topModels.map((m) => [m.model, m.shareOfCost])).toEqual([
+      ["a", 0.6],
+      ["b", 0.3],
+      ["c", 0.1],
+    ]);
+    expect(facts.topModels[0].previousCostUsd).toBe(5);
+  });
+
+  it("rarely calls an unchanged error rate a change, at any volume", () => {
+    // A seeded stream of binomial draws around a fixed 5% rate.
+    let state = 12345;
+    const next = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const draw = (n: number) => Array.from({ length: n }, next).filter((x) => x < 0.05).length;
+    for (const n of [40, 100, 300]) {
+      let flagged = 0;
+      const trials = 400;
+      for (let i = 0; i < trials; i += 1) {
+        const side = (failures: number) =>
+          aggregates({
+            totals: {
+              traces: n,
+              errorTraces: failures,
+              p50Ms: 1000,
+              p95Ms: 2500,
+              p99Ms: 3000,
+              gitContextTraces: 0,
+            },
+          });
+        const facts = computeUpdateFacts(side(draw(n)), side(draw(n)));
+        if (facts.findings.some((f) => f.id === "project:all traffic:error_rate")) flagged += 1;
+      }
+      expect(flagged / trials).toBeLessThan(0.05);
+    }
+  });
+
   it("is deterministic: same input, same ordered output", () => {
     const now = aggregates({
       totals: {
@@ -269,7 +343,7 @@ describe("computeUpdateFacts", () => {
     });
     const strict = {
       ...DEFAULT_NOISE_RULES,
-      errorRate: { minAbs: 0.005, minRel: 0.1, minFailures: 1 },
+      errorRate: { minAbs: 0.005, minRel: 0.1, minFailures: 1, minZ: 1 },
     };
     expect(
       find(computeUpdateFacts(now, aggregates(), strict), "project:all traffic:error_rate"),

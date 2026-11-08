@@ -36,15 +36,15 @@ def mock_ch(monkeypatch):
 
     def query(sql, parameters=None, settings=None):
         result = MagicMock()
-        if (
+        if "toStartOfFifteenMinutes" in sql:
+            # 2026-10-27 22:30 UTC, which is already the 28th in Auckland.
+            result.result_rows = [("gpt-4o", 1793140200, 100, Decimal("0.5"))]
+        elif (
             "spans_public_v1" in sql
             and "span_kind = 'LLM'" in sql
             and "model_name IS NOT NULL" in sql
         ):
-            if "toDate(" in sql:
-                result.result_rows = [("gpt-4o", "2026-10-27", 100, Decimal("0.5"))]
-            else:
-                result.result_rows = [("gpt-4o", 2, 100, Decimal("0.5"))]
+            result.result_rows = [("gpt-4o", 2, 100, Decimal("0.5"))]
         elif "span_kind = 'LLM'" in sql:
             result.result_rows = [(2, 80, 20, 100, Decimal("0.5"))]
         elif "span_kind = 'TOOL'" in sql:
@@ -131,3 +131,16 @@ def test_an_empty_window_reports_zero_latency_not_an_error(secret, mock_ch):
     response = TestClient(app).get(URL, params=WINDOW, headers=secret)
     assert response.status_code == 200
     assert response.json()["totals"]["p95_ms"] == 0
+
+
+def test_days_follow_the_project_timezone(secret, mock_ch):
+    client = TestClient(app)
+    utc = client.get(URL, params=WINDOW, headers=secret).json()
+    auckland = client.get(URL, params={**WINDOW, "tz": "Pacific/Auckland"}, headers=secret).json()
+    assert utc["by_model_day"][0]["day"] == "2026-10-27"
+    assert auckland["by_model_day"][0]["day"] == "2026-10-28"
+
+
+def test_an_unknown_timezone_is_a_client_error(secret, mock_ch):
+    response = TestClient(app).get(URL, params={**WINDOW, "tz": "Mars/Base"}, headers=secret)
+    assert response.status_code == 422

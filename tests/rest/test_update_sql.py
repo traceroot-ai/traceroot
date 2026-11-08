@@ -142,3 +142,14 @@ def test_a_timestamp_that_cannot_be_read_is_a_client_error(secret, service):
         "AND span_start_time < '2026-10-01 00:00:00'"
     )
     assert post(secret, query).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "span_start_time > '2026-10-26 09:00:00' AND span_start_time <= '2026-10-26 12:00:00'",
+        "span_start_time BETWEEN '2026-10-26 09:00:00' AND '2026-10-26 12:00:00'",
+    ],
+)
+def test_accepts_the_other_ways_to_write_a_range(secret, service, condition):
+    assert post(secret, f"SELECT count() FROM spans WHERE {condition}").status_code == 200

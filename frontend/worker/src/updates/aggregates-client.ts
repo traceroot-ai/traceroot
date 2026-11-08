@@ -40,9 +40,12 @@ interface AggregatesDto {
   truncated: string[];
 }
 
+/** A hung backend must fail the attempt, not hold the run until it is reclaimed. */
+const REQUEST_TIMEOUT_MS = 60_000;
+
 export type FetchLike = (
   url: string,
-  init: { headers: Record<string, string> },
+  init: { headers: Record<string, string>; signal?: AbortSignal },
 ) => Promise<Response>;
 
 export interface AggregatesClientConfig {
@@ -121,6 +124,7 @@ export async function readWindowAggregates(
   const doFetch: FetchLike = config.fetchImpl ?? ((u, init) => fetch(u, init));
   const response = await doFetch(url.toString(), {
     headers: { "X-Internal-Secret": config.secret },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(
