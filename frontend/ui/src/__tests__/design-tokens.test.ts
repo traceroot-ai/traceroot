@@ -59,8 +59,13 @@ describe.each([
     expect(ratio(tokens[fg], tokens[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("focus ring and primary are the brand teal", () => {
+  it("primary is the brand teal", () => {
     expect(tokens.primary).toBe("177 80% 40%");
-    expect(tokens.ring).toBe(tokens.primary);
+  });
+
+  // Non-text UI (focus ring) needs 3:1 against the page (WCAG 1.4.11).
+  it("focus ring meets 3:1 on the page and on cards", () => {
+    expect(ratio(tokens.ring, tokens.background)).toBeGreaterThanOrEqual(3);
+    expect(ratio(tokens.ring, tokens.card)).toBeGreaterThanOrEqual(3);
   });
 });
