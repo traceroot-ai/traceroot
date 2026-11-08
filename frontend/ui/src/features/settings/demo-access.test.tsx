@@ -125,7 +125,7 @@ describe("the settings layouts for a demo viewer", () => {
     state.workspace = DEMO_VIEWER;
     renderWorkspacePage("members");
 
-    for (const tab of ["General", "Members", "Model Providers", "Integrations", "Billing"]) {
+    for (const tab of ["General", "Members", "Model providers", "Integrations", "Billing"]) {
       expect(screen.getByRole("link", { name: tab })).toBeTruthy();
     }
     expect(screen.getByText("Demo workspace settings")).toBeTruthy();
@@ -141,10 +141,10 @@ describe("the settings layouts for a demo viewer", () => {
     state.workspace = DEMO_VIEWER;
     renderProjectPage("detectors");
 
-    for (const tab of ["General", "API Keys", "Detectors"]) {
+    for (const tab of ["General", "API keys", "Detectors"]) {
       expect(screen.getByRole("link", { name: tab })).toBeTruthy();
     }
-    expect(screen.getByRole("link", { name: "Org Settings" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Workspace" }).getAttribute("href")).toBe(
       "/workspaces/ws-demo/settings/general",
     );
     expect(screen.getByText("Demo project settings")).toBeTruthy();

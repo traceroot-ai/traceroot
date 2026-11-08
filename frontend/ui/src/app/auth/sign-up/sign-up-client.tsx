@@ -129,7 +129,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Create your account</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
@@ -142,7 +142,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
             <div>
               <label className="mb-1 block text-[13px] font-medium">Name</label>
               <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-              {errors.name && <p className="mt-1 text-[11px] text-danger">{errors.name.message}</p>}
+              {errors.name && <p className="mt-1 text-[12px] text-danger">{errors.name.message}</p>}
             </div>
 
             <div>
@@ -154,7 +154,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-danger">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
               )}
             </div>
 
@@ -176,7 +176,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-danger">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
               )}
             </div>
 
@@ -198,7 +198,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-1 text-[11px] text-danger">{errors.confirmPassword.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.confirmPassword.message}</p>
               )}
             </div>
 
@@ -213,7 +213,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t" />
                 </div>
-                <div className="relative flex justify-center text-[11px] uppercase">
+                <div className="relative flex justify-center text-[12px] uppercase">
                   <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
                 </div>
               </div>
