@@ -49,7 +49,7 @@ const DrawerContent = React.forwardRef<
       // case" panel. No overlay is rendered, so the page is never greyed out.
       onInteractOutside={(e) => e.preventDefault()}
       className={cn(
-        "animate-slide-in-right fixed inset-y-0 right-0 z-50 flex max-w-[96vw] flex-col border-l border-border bg-background shadow-xl",
+        "animate-slide-in-right fixed inset-y-0 right-0 z-50 flex max-w-[96vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]",
         "focus:outline-none",
         width,
         className,
@@ -59,7 +59,7 @@ const DrawerContent = React.forwardRef<
       {children}
       {!hideClose && (
         <DialogPrimitive.Close
-          className="absolute right-3 top-3 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+          className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           aria-label="Close"
         >
           <X className="h-4 w-4" />

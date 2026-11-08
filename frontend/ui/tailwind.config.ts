@@ -78,10 +78,22 @@ const config: Config = {
           border: "hsl(var(--info-border))",
         },
       },
+      // One corner radius for every control, card and popover.
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "2px",
+        md: "2px",
+        sm: "2px",
+        DEFAULT: "2px",
+      },
+      // One type scale: 12 / 13 / 15 px. text-xs and text-sm land on the app's two
+      // working sizes instead of 12 / 14, and nothing in the UI is heavier than 500.
+      fontSize: {
+        xs: ["12px", "16px"],
+        sm: ["13px", "20px"],
+      },
+      fontWeight: {
+        semibold: "500",
+        bold: "500",
       },
     },
   },
