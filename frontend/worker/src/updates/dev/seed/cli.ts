@@ -5,7 +5,7 @@
  *   pnpm --filter traceroot-worker update:seed clean [--prefix seedupd]
  *   pnpm --filter traceroot-worker update:seed counts
  *   pnpm --filter traceroot-worker update:seed verify  [--out dir]   (ClickHouse vs the manifest)
- *   pnpm --filter traceroot-worker update:seed serve-slow [--port 18581] [--delay-ms 20000]
+ *   pnpm --filter traceroot-worker update:seed serve-slow [--port 18581] [--delay-ms 45000]
  *
  * See README.md next to this file.
  */
@@ -13,7 +13,7 @@ import { parseArgs } from "node:util";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { clickHouseTargetFromEnv } from "./clickhouse-io.js";
-import { verifyManifest } from "./verify.js";
+import { verifyManifest, verifyPostgres } from "./verify.js";
 import { startSlowRemote } from "./slow-remote.js";
 import {
   DEFAULT_BIG_BYTES,
@@ -85,7 +85,10 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(await countSeed(params), null, 2));
   } else if (command === "verify") {
     const manifest = JSON.parse(await readFile(path.join(outDir, "manifest.json"), "utf8"));
-    const problems = await verifyManifest(clickHouseTargetFromEnv(), manifest);
+    const problems = [
+      ...(await verifyManifest(clickHouseTargetFromEnv(), manifest)),
+      ...(await verifyPostgres(manifest)),
+    ];
     console.log(JSON.stringify({ ok: problems.length === 0, problems }, null, 2));
     if (problems.length > 0) process.exitCode = 1;
   } else if (command === "seed") {

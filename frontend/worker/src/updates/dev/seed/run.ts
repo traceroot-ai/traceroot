@@ -24,7 +24,12 @@ import { prisma } from "@traceroot/core";
 export const DEFAULT_OUT_DIR = path.join(os.tmpdir(), "traceroot-update-seed");
 export const DEFAULT_BIG_BYTES = 30 * 1024 * 1024;
 export const DEFAULT_SLOW_PORT = 18581;
-export const DEFAULT_SLOW_DELAY_MS = 20_000;
+/**
+ * A blobless shallow clone makes about five requests, each held back by this
+ * long, so the default clone takes ~225 s: past the 180 s clone ceiling.
+ */
+export const DEFAULT_SLOW_DELAY_MS = 45_000;
+export const SLOW_CLONE_REQUESTS = 5;
 
 export interface SeedOptions {
   params: SeedParams;
@@ -42,8 +47,22 @@ const projectIds = (prefix: string) => PROJECT_KEYS.map((k) => projectIdOf(prefi
 export async function cleanSeed(params: SeedParams, outDir = DEFAULT_OUT_DIR): Promise<void> {
   await deleteProjectRows(clickHouseTargetFromEnv(), projectIds(params.prefix));
   await cleanPostgres(params.prefix);
-  await fs.rm(outDir, { recursive: true, force: true });
+  // Only the entries this script writes, never the directory itself: --out may
+  // point at a directory that holds other things.
+  for (const entry of OUTPUT_ENTRIES) {
+    await fs.rm(path.join(outDir, entry), { recursive: true, force: true });
+  }
+  await fs.rmdir(outDir).catch(() => undefined);
 }
+
+const OUTPUT_ENTRIES = [
+  "manifest.json",
+  "github-fixtures.json",
+  "seed-app.git",
+  "seed-app-work",
+  "seed-big.git",
+  "seed-big-work",
+];
 
 export async function countSeed(params: SeedParams) {
   return {
@@ -88,6 +107,7 @@ export async function runSeed(options: SeedOptions) {
       path: "seed-app.git",
       url: `http://127.0.0.1:${slowPort}/seed-app.git`,
       delayMs: slowDelayMs,
+      approxCloneMs: slowDelayMs * SLOW_CLONE_REQUESTS,
       port: slowPort,
     },
     unreachable: { url: "http://127.0.0.1:9/seed-org/seed-unreachable.git" },

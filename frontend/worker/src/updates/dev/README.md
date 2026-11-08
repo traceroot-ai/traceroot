@@ -7,7 +7,7 @@ production: the worker entry points never import this directory.
 
 Builds a deterministic dataset with known ground truth and writes it to the
 local stack (ClickHouse, Postgres) and to a directory (git repositories,
-fixtures, manifest). The same seed always produces the same rows, the same git
+fixtures, manifest). The same seed and prefix always produce the same rows (ids derive from the prefix, so a different prefix gives a different but equally reproducible dataset), the same git
 commit hashes and the same manifest.
 
 ```bash
@@ -70,7 +70,9 @@ be obeyed.
 --shallow-since=... file://<out>/seed-app.git` works as it does against a host.
 - `seed-big.git`: an oversize repository (incompressible payload).
 - Slow case: `serve-slow` serves `<out>` over git's HTTP protocol and holds every
-  response back by `--delay-ms`. Clone `http://127.0.0.1:<port>/seed-app.git`.
+  response back by `--delay-ms` (default 45 s; a blobless shallow clone makes about
+  five requests, so the default clone takes ~225 s, past the 180 s clone ceiling;
+  the manifest records `approxCloneMs`). Clone `http://127.0.0.1:<port>/seed-app.git`.
 - Unreachable case: `http://127.0.0.1:9/seed-org/seed-unreachable.git` (nothing listens).
 
 ### Properties
@@ -79,9 +81,11 @@ be obeyed.
   `contentDigest` in the manifest is a hash of every row written.
 - Idempotent and cleanable: `seed` first removes what the prefix owns, `clean`
   removes only that (ClickHouse rows by project id, the two workspaces and
-  everything under them, the output directory).
+  everything under them, and the files it wrote into the output directory; it never
+  deletes the directory's other contents).
 - `verify` runs exact aggregate queries on ClickHouse and compares them with the
-  manifest to the digit; it exits non-zero on any difference.
+  manifest to the digit, then checks the schedules and each signal's hit counts in
+  Postgres and that the manifest is complete; it exits non-zero on any difference.
 
 ## Manual trigger
 

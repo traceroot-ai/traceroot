@@ -6,7 +6,14 @@ export interface RepoCases {
   seeded: { repo: string; path: string };
   oversize: { repo: string; path: string; bytes: number };
   /** The seeded repository served over HTTP with every response held back (`serve-slow`). */
-  slow: { repo: string; path: string; url: string; delayMs: number; port: number };
+  slow: {
+    repo: string;
+    path: string;
+    url: string;
+    delayMs: number;
+    approxCloneMs: number;
+    port: number;
+  };
   unreachable: { url: string };
 }
 

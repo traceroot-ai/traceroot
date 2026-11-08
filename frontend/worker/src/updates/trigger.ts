@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@traceroot/core";
 import {
   DEFAULT_UPDATE_SCHEDULE,
+  parseScheduleInput,
   windowsAt,
   type Clock,
   type UpdateScheduleSettings,
@@ -57,15 +58,19 @@ export async function triggerManualRun(
   if (!project) throw new Error(`Project ${input.projectId} not found.`);
 
   const row = await db.projectUpdateSchedule.findUnique({ where: { projectId: project.id } });
-  const schedule: UpdateScheduleSettings = row
-    ? {
-        enabled: row.enabled,
-        frequency: row.frequency as UpdateScheduleSettings["frequency"],
-        weekday: row.weekday,
-        hour: row.hour,
-        timezone: row.timezone,
-      }
-    : DEFAULT_UPDATE_SCHEDULE;
+  let schedule: UpdateScheduleSettings = DEFAULT_UPDATE_SCHEDULE;
+  if (row) {
+    const parsed = parseScheduleInput({
+      enabled: row.enabled,
+      frequency: row.frequency,
+      weekday: row.weekday,
+      hour: row.hour,
+      timezone: row.timezone,
+    });
+    if (!parsed.ok)
+      throw new Error(`Stored schedule for ${project.id} is invalid: ${parsed.error}`);
+    schedule = parsed.value;
+  }
 
   const windows = windowsAt(schedule, input.clock.now());
   const result = await insertRun(db, {

@@ -38,6 +38,13 @@ describe("parseScheduleInput", () => {
     },
   );
 
+  it.each([{ interval: "1h" }, { period: "hourly" }, { whatever: 1 }])(
+    "rejects the unknown field %j instead of ignoring it",
+    (extra) => {
+      expect(parseScheduleInput({ frequency: "daily", ...extra }).ok).toBe(false);
+    },
+  );
+
   it.each([
     [{ weekday: 0 }],
     [{ weekday: 8 }],

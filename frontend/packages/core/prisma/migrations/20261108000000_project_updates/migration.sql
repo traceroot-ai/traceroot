@@ -60,4 +60,10 @@ ALTER TABLE "project_update_schedules" ADD CONSTRAINT "project_update_schedules_
 ALTER TABLE "project_update_runs" ADD CONSTRAINT "project_update_runs_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
+-- A schedule can only be daily or weekly, with a real weekday and hour.
+ALTER TABLE "project_update_schedules"
+  ADD CONSTRAINT "ck_project_update_schedule_frequency" CHECK ("frequency" IN ('daily', 'weekly')),
+  ADD CONSTRAINT "ck_project_update_schedule_weekday" CHECK ("weekday" BETWEEN 1 AND 7),
+  ADD CONSTRAINT "ck_project_update_schedule_hour" CHECK ("hour" BETWEEN 0 AND 23);
+
 COMMIT;

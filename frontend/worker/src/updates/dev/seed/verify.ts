@@ -1,3 +1,4 @@
+import { prisma } from "@traceroot/core";
 import { queryText, type ClickHouseTarget } from "./clickhouse-io.js";
 import type { buildManifest } from "./manifest.js";
 
@@ -165,6 +166,53 @@ export async function verifyManifest(
       check(`${label} ref count`, refs.length, Object.keys(expected.byRef).length);
       for (const r of refs)
         check(`${label} ref ${r.ref} traces`, r.traces, expected.byRef[r.ref]?.traces);
+    }
+  }
+  return problems;
+}
+
+const EXPECTED_PROJECTS = ["main", "nogit", "tiny", "empty", "other"];
+
+/**
+ * The Postgres half of the ground truth: the projects and their schedules, and
+ * each seeded signal with its hit counts per window. Also refuses a manifest
+ * that is missing a project or whose planted changes point at a project it
+ * does not list, so an emptied manifest cannot pass.
+ */
+export async function verifyPostgres(manifest: Manifest): Promise<string[]> {
+  const problems: string[] = [];
+  const keys = Object.keys(manifest.projects);
+  if (keys.slice().sort().join(",") !== EXPECTED_PROJECTS.slice().sort().join(",")) {
+    problems.push(
+      `manifest projects are ${keys.join(",")}, expected ${EXPECTED_PROJECTS.join(",")}`,
+    );
+  }
+  const ids = new Set(Object.values(manifest.projects).map((p) => p.id));
+  for (const change of manifest.plantedChanges) {
+    if (!ids.has(change.project))
+      problems.push(`planted change ${change.id} names an unknown project`);
+  }
+  if (manifest.plantedChanges.length === 0) problems.push("manifest lists no planted changes");
+
+  const windows = manifest.windows;
+  for (const project of Object.values(manifest.projects)) {
+    const schedule = await prisma.projectUpdateSchedule.findUnique({
+      where: { projectId: project.id },
+    });
+    if (!schedule) problems.push(`${project.id}: no update schedule row`);
+    for (const signal of project.signals) {
+      const hits = await prisma.signalHit.findMany({
+        where: { signalId: signal.id },
+        select: { seenAt: true },
+      });
+      const within = (from: string, to: string) =>
+        hits.filter((h) => h.seenAt >= new Date(from) && h.seenAt < new Date(to)).length;
+      const cur = within(windows.current.start, windows.current.end);
+      const prev = within(windows.previous.start, windows.previous.end);
+      if (cur !== signal.hitsCurrent)
+        problems.push(`${signal.id}: ${cur} hits now, expected ${signal.hitsCurrent}`);
+      if (prev !== signal.hitsPrevious)
+        problems.push(`${signal.id}: ${prev} hits before, expected ${signal.hitsPrevious}`);
     }
   }
   return problems;

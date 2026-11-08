@@ -53,6 +53,8 @@ export type ScheduleParseResult =
   | { ok: true; value: UpdateScheduleSettings }
   | { ok: false; error: string };
 
+const KNOWN_KEYS = ["enabled", "frequency", "weekday", "hour", "timezone"];
+
 const TOO_FREQUENT =
   "Updates run at most once a day. Choose frequency 'daily' or 'weekly'; anything more frequent is not supported.";
 
@@ -67,10 +69,15 @@ export function parseScheduleInput(input: unknown): ScheduleParseResult {
   }
   const raw = input as Record<string, unknown>;
 
-  // Any field that expresses a sub-daily interval is refused by name, so the
-  // message explains the limit instead of reporting an unknown key.
-  for (const key of ["everyMinutes", "everyHours", "intervalMinutes", "intervalHours", "cron"]) {
-    if (raw[key] !== undefined) return { ok: false, error: TOO_FREQUENT };
+  // A field that expresses a sub-daily interval gets the explanation of the
+  // limit; any other key we do not know is refused too, never ignored.
+  for (const key of Object.keys(raw)) {
+    if (KNOWN_KEYS.includes(key)) continue;
+    const isInterval = /every|interval|cron|minute|hour|period/i.test(key);
+    return {
+      ok: false,
+      error: isInterval ? TOO_FREQUENT : `Unknown schedule field "${key}".`,
+    };
   }
 
   const frequency = raw.frequency === undefined ? DEFAULT_UPDATE_SCHEDULE.frequency : raw.frequency;
