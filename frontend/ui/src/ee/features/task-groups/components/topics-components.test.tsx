@@ -80,7 +80,9 @@ describe("TopicsStatusPanel", () => {
   });
 
   it("reports the spend cap, and keeps showing data once groups exist", () => {
-    panel(overview({ status: "capped", spentTodayUsd: 1, fittedAt: "2026-11-08T00:00:00Z" }));
+    const capped = overview({ status: "capped", fittedAt: "2026-11-08T00:00:00Z" });
+    capped.state.spentTodayUsd = 1;
+    panel(capped);
     expect(screen.getByText("Today's spend cap has been reached")).toBeTruthy();
     expect(screen.queryByText("Not enough data yet")).toBeNull();
   });
