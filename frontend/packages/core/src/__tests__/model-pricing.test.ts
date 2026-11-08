@@ -1,3 +1,5 @@
+import standardPrices from "../standard-model-prices.json";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // lookup.ts imports prisma at module load (registerCacheClear); mock it so the
@@ -186,5 +188,29 @@ describe("getModelPricing — uncompilable pattern", () => {
     expect(await lookup("anything")).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken-entry"), expect.anything());
     warn.mockRestore();
+  });
+});
+
+describe("getModelPricing — Fable 5.1 catalogue rates", () => {
+  it.each([
+    "claude-fable-5-1",
+    "anthropic/claude-fable-5-1",
+    "claude-fable-5-1[1m]",
+    "claude-fable-5-1-20261101",
+    "us.anthropic.claude-fable-5-1-20261101-v1:0",
+  ])("prices %s independently of Fable 5", async (modelId) => {
+    // Put the older model first to catch overlapping patterns regardless of DB order.
+    const rows = [...standardPrices]
+      .filter((row) => ["claude-fable-5", "claude-fable-5-1"].includes(row.modelName))
+      .sort((a, b) => a.modelName.localeCompare(b.modelName))
+      .map((row) => ({
+        ...row,
+        prices: Object.entries(row.prices).map(([usageType, price]) => ({ usageType, price })),
+      }));
+    const { getModelPricing: lookup } = await loadWithCatalogue(rows);
+    const price = await lookup(modelId);
+    expect(price).not.toBeNull();
+    expect(price!.cacheRead! * 1_000_000).toBeCloseTo(0.25, 12);
+    expect((await lookup("anthropic/claude-fable-5"))!.cacheRead! * 1_000_000).toBe(1);
   });
 });

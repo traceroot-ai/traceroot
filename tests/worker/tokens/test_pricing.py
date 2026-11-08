@@ -692,7 +692,12 @@ class TestCalculateCost:
 
 # (model_id, expected modelName) for IDs the worker must price correctly.
 CLAUDE_BEDROCK_VERTEX_CASES = [
-    # Fable 5 — plain, [1m] variant, anthropic/ prefix, Bedrock (no Vertex reversed-alias)
+    # Fable 5 / 5.1 — plain, [1m] variant, anthropic/ prefix, Bedrock (no Vertex reversed-alias)
+    ("claude-fable-5-1", "claude-fable-5-1"),
+    ("anthropic/claude-fable-5-1", "claude-fable-5-1"),
+    ("claude-fable-5-1[1m]", "claude-fable-5-1"),
+    ("claude-fable-5-1-20261101", "claude-fable-5-1"),
+    ("us.anthropic.claude-fable-5-1-20261101-v1:0", "claude-fable-5-1"),
     ("claude-fable-5", "claude-fable-5"),
     ("claude-fable-5[1m]", "claude-fable-5"),
     ("anthropic/claude-fable-5", "claude-fable-5"),
@@ -793,11 +798,35 @@ class TestClaudeBedrockAndVertexIds:
         assert matching == [family], f"{model_id} matched {matching}"
 
     @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-fable-5-1",
+            "anthropic/claude-fable-5-1",
+            "claude-fable-5-1[1m]",
+            "claude-fable-5-1-20261101",
+            "us.anthropic.claude-fable-5-1-20261101-v1:0",
+        ],
+    )
+    def test_fable_5_1_does_not_match_fable_5(self, real_cache, model_id):
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == ["claude-fable-5-1"]
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+        assert price[MATCHED_MODEL_NAME] == "claude-fable-5-1"
+        assert price["cacheRead"] * 1_000_000 == pytest.approx(0.25)
+
+    @pytest.mark.parametrize(
         "model_name,rates",
         [
             # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
             ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-fable-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
+            ("claude-fable-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
         ],

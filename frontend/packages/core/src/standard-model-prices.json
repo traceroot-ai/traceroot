@@ -1,8 +1,21 @@
 [
   {
+    "id": "tr-claude-fable-5-1",
+    "modelName": "claude-fable-5-1",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5-1(\\[1m\\])?(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-fable-5-1(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?(-v\\d+:\\d+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.00000025,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
     "id": "tr-claude-fable-5",
     "modelName": "claude-fable-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-fable-5(-[\\d-]+)?(-v\\d+:\\d+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5(\\[1m\\])?(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-fable-5(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?(-v\\d+:\\d+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.00001,
