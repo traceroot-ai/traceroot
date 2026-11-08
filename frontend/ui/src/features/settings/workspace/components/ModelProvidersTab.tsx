@@ -287,8 +287,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   if (data && !data.byokEnabled) {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-xl font-semibold">Model Providers</h2>
+        <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
+          <h2 className="text-[15px] font-medium">Model providers</h2>
           <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
         </div>
         <div className="border">
@@ -302,7 +302,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               size="sm"
               onClick={() => (window.location.href = `/workspaces/${workspaceId}/settings/billing`)}
             >
-              Upgrade Plan
+              Upgrade plan
               <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
             </Button>
           </div>
@@ -338,26 +338,26 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Model Providers</h2>
+      <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 className="text-[15px] font-medium">Model providers</h2>
           <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
         </div>
-        <AddButton onClick={openAddDialog}>Add Provider</AddButton>
+        <AddButton onClick={openAddDialog}>Add provider</AddButton>
       </div>
 
       <div className="border">
-        <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Configured Providers</h3>
+        <div className="flex h-9 items-center border-b border-border px-4">
+          <h3 className="text-[13px] font-medium">Configured providers</h3>
         </div>
         {providers.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             No API keys configured. Add a provider to use your own LLM keys.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="data-table w-full">
             <thead>
-              <tr className="border-b bg-muted/10 text-left">
+              <tr className="border-b text-left">
                 <th className="px-4 py-2 font-medium text-muted-foreground">Provider</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Adapter</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Key</th>
@@ -369,7 +369,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               {providers.map((p) => {
                 const cfg = ADAPTER_CONFIG[p.adapter];
                 return (
-                  <tr key={p.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                  <tr key={p.id} className="border-b last:border-b-0 hover:bg-muted">
                     <td className="px-4 py-2">{p.provider}</td>
                     <td className="px-4 py-2 text-muted-foreground">
                       <span className="flex items-center gap-2">
@@ -408,7 +408,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editProvider ? "Edit Provider" : "Add Provider"}</DialogTitle>
+            <DialogTitle>{editProvider ? "Edit provider" : "Add provider"}</DialogTitle>
             <DialogDescription>
               {editProvider
                 ? "Update the provider configuration."
@@ -440,7 +440,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
             {/* Provider name (user label) */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Provider Name</label>
+              <label className="text-sm font-medium">Provider name</label>
               <Input
                 value={providerName}
                 onChange={(e) => setProviderName(e.target.value)}
@@ -454,7 +454,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {/* Credentials — conditional on adapter type */}
             {adapterConfig?.credentialType === "aws" ? (
               <div className="space-y-3">
-                <label className="text-sm font-medium">AWS Credentials</label>
+                <label className="text-sm font-medium">AWS credentials</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -470,7 +470,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 {!useDefaultCredentials && (
                   <>
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">Access Key ID</label>
+                      <label className="text-xs text-muted-foreground">Access key ID</label>
                       <Input
                         value={awsAccessKeyId}
                         onChange={(e) => setAwsAccessKeyId(e.target.value)}
@@ -478,7 +478,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">Secret Access Key</label>
+                      <label className="text-xs text-muted-foreground">Secret access key</label>
                       <Input
                         type="password"
                         value={awsSecretAccessKey}
@@ -500,7 +500,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             ) : adapterConfig ? (
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  API Key{editProvider ? " (leave blank to keep current)" : ""}
+                  API key{editProvider ? " (leave blank to keep current)" : ""}
                 </label>
                 <Input
                   type="password"
@@ -547,7 +547,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     disabled={isAddModelDisabled}
                   >
                     <Plus className="mr-1 h-3 w-3" />
-                    Add Model
+                    Add model
                   </Button>
                 </div>
 
@@ -642,7 +642,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   onClick={handleTest}
                 >
                   {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                  Test Connection
+                  Test connection
                 </Button>
                 {testResult?.success && (
                   <span className="flex items-center gap-1 text-xs">
@@ -700,7 +700,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Provider</DialogTitle>
+            <DialogTitle>Delete provider</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete {deleteTarget?.provider}? Models from this provider
               will no longer be available.

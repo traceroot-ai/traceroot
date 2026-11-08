@@ -87,7 +87,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Sign in to TraceRoot</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Sign in to traceroot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
@@ -106,7 +106,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-danger">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
               )}
             </div>
 
@@ -128,7 +128,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-danger">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
               )}
             </div>
 
@@ -143,7 +143,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t" />
                 </div>
-                <div className="relative flex justify-center text-[11px] uppercase">
+                <div className="relative flex justify-center text-[12px] uppercase">
                   <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
                 </div>
               </div>

@@ -279,7 +279,7 @@ describe("ModelProvidersTab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
     const baseUrlInput = screen.getByDisplayValue("https://example.com/v1testing");
     fireEvent.change(baseUrlInput, { target: { value: " https://example.com/v1testing " } });
-    fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
 
     await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
     expect(mocks.testModelProvider).toHaveBeenCalledWith(
