@@ -109,19 +109,19 @@ export default function DashboardIndexPage() {
           <table className="w-full min-w-[48rem]">
             <thead className="sticky top-0 bg-background">
               <tr className="border-b border-border bg-muted/50">
-                <th className="w-[16rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="h-9 w-[16rem] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                   Name
                 </th>
-                <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                   Description
                 </th>
-                <th className="w-[12rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="h-9 w-[12rem] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                   Owner
                 </th>
-                <th className="w-[10rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="h-9 w-[10rem] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                   Created
                 </th>
-                <th className="w-[10rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="h-9 w-[10rem] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                   Updated
                 </th>
                 <th className="w-10 px-2 py-1.5" />
@@ -141,25 +141,25 @@ export default function DashboardIndexPage() {
                   onClick={() => router.push(`/projects/${projectId}/dashboard/${d.id}`)}
                   className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
                 >
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                  <td className="h-9 whitespace-nowrap px-3 text-[12px] text-foreground">
                     <span className="block truncate" title={d.name}>
                       {d.name}
                     </span>
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                     <span className="block truncate" title={d.description ?? undefined}>
                       {d.description || "—"}
                     </span>
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                     <span className="block truncate" title={d.creator ?? undefined}>
                       {d.creator ?? "—"}
                     </span>
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                     {formatDate(d.createTime)}
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                     {formatDate(d.updateTime)}
                   </td>
                   <td className="px-2 text-right">

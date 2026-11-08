@@ -24,7 +24,8 @@ import { useSignalSetup, useSignals } from "@/ee/features/signals/hooks";
 import { SignalsEmptyState } from "@/ee/features/signals/components/signals-empty-state";
 import { Button } from "@/components/ui/button";
 import { SignalDetailPanel } from "@/ee/features/signals/components/signal-detail-panel";
-import { STATUS_LABELS } from "@/ee/features/signals/components/signal-status-control";
+import { SignalStatusBadge } from "@/ee/features/signals/components/signal-status-badge";
+import { IdCell, TruncCell } from "@/components/ui/table";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import { buildUrlWithFilters, formatDate, cn } from "@/lib/utils";
 
@@ -76,9 +77,8 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
   ];
 }
 
-const TH =
-  "border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground";
-const TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
+const TH = "h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground";
+const TD = "h-9 whitespace-nowrap px-3 text-[12px]";
 
 export default function SignalsPage() {
   const params = useParams();
@@ -249,17 +249,14 @@ export default function SignalsPage() {
             )
           ) : (
             <table className="w-full min-w-[48rem]">
-              <thead className="sticky top-0 bg-background">
-                <tr className="border-b border-border bg-muted/50">
-                  <th className={cn(TH, "w-[150px]")}>Timestamp</th>
-                  <th className={TH}>Signal ID</th>
-                  <th className={TH}>Signal name</th>
-                  <th className={TH}>Detector ID</th>
-                  <th className={TH}>Detector name</th>
-                  <th className={cn(TH, "w-[120px] text-right")}>Affected traces</th>
-                  <th className="w-[90px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Status
-                  </th>
+              <thead className="sticky top-0 z-10 bg-background">
+                <tr className="border-b border-border bg-muted/60">
+                  <th className={cn(TH, "w-[170px]")}>Timestamp</th>
+                  <th className={cn(TH, "w-[120px]")}>Signal ID</th>
+                  <th className={TH}>Signal</th>
+                  <th className={TH}>Detector</th>
+                  <th className={cn(TH, "w-[130px] text-right")}>Affected traces</th>
+                  <th className={cn(TH, "w-[110px]")}>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -269,27 +266,28 @@ export default function SignalsPage() {
                     onClick={() => setSelectedSignalId(signal.id)}
                     className={cn(
                       "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                      selectedSignalId === signal.id ? "bg-muted" : "hover:bg-muted/50",
+                      selectedSignalId === signal.id ? "bg-accent" : "hover:bg-accent/50",
                     )}
                   >
-                    <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
+                    <td className={cn(TD, "text-muted-foreground")}>
                       {formatDate(signal.createTime)}
                     </td>
-                    <td className={cn(TD, "font-mono text-[11px] text-muted-foreground")}>
-                      {signal.id}
+                    <td className={TD}>
+                      <IdCell id={signal.id} />
                     </td>
-                    <td className={cn(TD, "text-foreground")}>{signal.title}</td>
-                    <td className={cn(TD, "font-mono text-[11px] text-muted-foreground")}>
+                    <td className={cn(TD, "text-foreground")}>
+                      <TruncCell>{signal.title}</TruncCell>
+                    </td>
+                    <td className={TD}>
                       <Link
                         href={`/projects/${projectId}/detectors/${signal.detectorId}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="hover:text-foreground hover:underline"
+                        className="block max-w-[16rem] truncate text-muted-foreground hover:text-foreground hover:underline"
                         aria-label={`Open detector ${signal.detectorName ?? signal.detectorId}`}
                       >
-                        {signal.detectorId}
+                        {signal.detectorName ?? "—"}
                       </Link>
                     </td>
-                    <td className={cn(TD, "text-foreground")}>{signal.detectorName ?? "—"}</td>
                     <td className={cn(TD, "text-right tabular-nums text-muted-foreground")}>
                       <Link
                         href={tracesHref(signal.id)}
@@ -300,8 +298,8 @@ export default function SignalsPage() {
                         {signal.rangeHitCount ?? signal.hitCount}
                       </Link>
                     </td>
-                    <td className="px-3 py-1.5 text-[12px] text-foreground">
-                      {STATUS_LABELS[signal.status]}
+                    <td className={TD}>
+                      <SignalStatusBadge status={signal.status} />
                     </td>
                   </tr>
                 ))}

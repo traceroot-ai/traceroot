@@ -170,19 +170,19 @@ export default function SessionsPage() {
                 <table className="w-full min-w-[48rem]">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[140px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Timestamp
                       </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Session ID
                       </th>
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[140px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[110px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Tokens
                       </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[100px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
                       <th className="w-[70px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
@@ -204,16 +204,16 @@ export default function SessionsPage() {
                             : "hover:bg-muted/50",
                         )}
                       >
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                           {formatDate(session.first_trace_time)}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] font-medium text-foreground">
+                        <td className="h-9 whitespace-nowrap px-3 text-[12px] font-medium text-foreground">
                           {session.session_id}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                           {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                           {(session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0) >
                           0 ? (
                             <span
@@ -226,7 +226,7 @@ export default function SessionsPage() {
                             "-"
                           )}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                           {formatCost(getTotalCost(session))}
                         </td>
                         <td className="px-3 py-1.5 text-[12px] text-muted-foreground">

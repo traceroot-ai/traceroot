@@ -1,6 +1,7 @@
 "use client";
 
 import { AddButton } from "@/components/ui/add-button";
+import { IdCell } from "@/components/ui/table";
 import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -173,6 +174,8 @@ export default function DetectorsPage() {
     if (next >= 0 && next < detectors.length) setSelectedDetectorId(detectors[next].id);
   };
 
+  // Sampling is only worth a column once a detector samples less than everything.
+  const showSampling = detectors.some((d) => d.sampleRate < 100);
   const isEmptyProject = !isLoading && !error && (meta?.total ?? 0) === 0 && !state.keyword;
   const isEmptySearch = !isLoading && !error && detectors.length === 0 && !!state.keyword;
 
@@ -248,35 +251,34 @@ export default function DetectorsPage() {
             <table className="w-full min-w-[48rem]">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                     Name
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                     Template
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                     Model
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Sampling
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                  {showSampling && (
+                    <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
+                      Sampling
+                    </th>
+                  )}
+                  <th className="h-9 whitespace-nowrap px-3 text-right text-[12px] font-medium text-muted-foreground">
                     Judge Runs
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                  <th className="h-9 whitespace-nowrap px-3 text-right text-[12px] font-medium text-muted-foreground">
                     Signals
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                  <th className="h-9 whitespace-nowrap px-3 text-right text-[12px] font-medium text-muted-foreground">
                     Agent Runs
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Created At
+                  <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
+                    Updated
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Updated At
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Detector ID
+                  <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
+                    ID
                   </th>
                   <th className="w-[56px] px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
                     Actions
@@ -292,7 +294,7 @@ export default function DetectorsPage() {
                   const agentRunCount = c?.agent_run_count ?? 0;
                   const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
-                    "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                    "h-9 whitespace-nowrap px-3 text-right text-[12px] text-muted-foreground tabular-nums";
                   const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
                   // Judge runs open the detector page; signals open the
                   // Signals page narrowed to this detector.
@@ -312,21 +314,23 @@ export default function DetectorsPage() {
                       }
                       className={cn(
                         "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                        selectedDetectorId === detector.id ? "bg-muted" : "hover:bg-muted/50",
+                        selectedDetectorId === detector.id ? "bg-accent" : "hover:bg-accent/50",
                       )}
                     >
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                      <td className="h-9 whitespace-nowrap px-3 text-[12px] text-foreground">
                         {detector.name}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                         {template?.label ?? detector.template}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                         {modelLabel}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detector.sampleRate}%
-                      </td>
+                      {showSampling && (
+                        <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
+                          {detector.sampleRate}%
+                        </td>
+                      )}
                       <td className={countClass}>
                         <CountLink
                           href={countLinks.runs}
@@ -347,14 +351,11 @@ export default function DetectorsPage() {
                       >
                         {counts ? agentRunCount : "—"}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {formatDate(detector.createTime)}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="h-9 whitespace-nowrap px-3 text-[12px] text-muted-foreground">
                         {formatDate(detector.updateTime)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                        {detector.id}
+                      <td className="h-9 whitespace-nowrap px-3">
+                        <IdCell id={detector.id} />
                       </td>
                       <td className="px-2 text-right">
                         <Popover

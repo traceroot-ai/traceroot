@@ -74,7 +74,12 @@ function NavLink({
               : "hover:bg-muted/50",
           )}
         >
-          <Icon className="h-3.5 w-3.5 shrink-0" />
+          <Icon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              isNavItemActive(pathname, projectId, item) && "text-brand",
+            )}
+          />
           {!collapsed && item.label}
         </Link>
       </TooltipTrigger>

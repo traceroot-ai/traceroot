@@ -252,27 +252,14 @@ describe("TraceListTable header widths", () => {
   });
 });
 
-describe("TraceListTable row-ending divider", () => {
-  // The divider is positional: whichever column the user leaves ending the row goes without
-  // one, so hiding the columns that used to end it leaves no stray rule against the edge.
-  it("draws no divider on a default column that ends the row", () => {
+describe("TraceListTable cell dividers", () => {
+  // Columns are separated by whitespace, not vertical rules, so resizing never leaves a stray line.
+  it("draws no vertical divider on any column", () => {
     renderTable({ traces: [makeTrace({ trace_id: "t-1" })] });
-    expect(hasRowDivider(headerCell("Cost"))).toBe(true);
-    expect(hasRowDivider(headerCell("Latency"))).toBe(false);
-    expect(hasRowDivider(cellAt("t-1", "Latency"))).toBe(false);
-  });
-
-  it("draws no divider on an opt-in field column that ends the row", () => {
-    // Every column that used to follow it is hidden, so an opted-in one now ends the row.
-    renderTable({
-      traces: [makeTrace({ trace_id: "t-1", total_input_tokens: 4, total_output_tokens: 6 })],
-      visibleColumns: visibleFixedColumns(["tokens", "cost", "latency", "total_usage"]),
-    });
-    expect(headerNames().at(-1)).toBe("Total usage");
-    expect(hasRowDivider(headerCell("Output"))).toBe(true);
-    expect(hasRowDivider(headerCell("Total usage"))).toBe(false);
-    // The body row walks the same column list, so its last cell has to agree with the header.
-    expect(hasRowDivider(cellAt("t-1", "Total usage"))).toBe(false);
+    for (const name of headerNames()) {
+      expect(hasRowDivider(headerCell(name)), name).toBe(false);
+    }
+    expect(hasRowDivider(cellAt("t-1", "Cost"))).toBe(false);
   });
 });
 

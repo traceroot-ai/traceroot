@@ -84,7 +84,7 @@ export function SelectAllHeaderCell({
   onToggle: () => void;
 }) {
   return (
-    <th className="w-8 border-r border-border/50 px-3 py-1.5 text-left">
+    <th className="h-9 w-8 px-3 text-left">
       <Checkbox
         checked={checked}
         indeterminate={indeterminate}
@@ -109,7 +109,7 @@ export function SelectRowCell({
   label: string;
 }) {
   return (
-    <td className="w-8 border-r border-border/50 px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+    <td className="h-9 w-8 px-3" onClick={(e) => e.stopPropagation()}>
       <Checkbox
         checked={checked}
         indeterminate={indeterminate}

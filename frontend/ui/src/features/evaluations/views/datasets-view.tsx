@@ -13,7 +13,7 @@ import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change"
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
-import { Table, TBody, Td, Th, THead, TR, TRHead, TableEmpty } from "@/components/ui/table";
+import { Table, TBody, Td, Th, THead, TR, TRHead, TableEmpty, IdCell } from "@/components/ui/table";
 import { useDatasets, useDeleteDataset, useEvaluations } from "../hooks";
 import type { DatasetRow } from "../types";
 import { NewDatasetPanel, DatasetEditPanel } from "../components/dataset-panels";
@@ -117,9 +117,9 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         <Table>
           <THead>
             <TRHead>
-              <Th className="w-[170px]">Updated At</Th>
+              <Th className="w-[170px]">Updated</Th>
               <Th>Name</Th>
-              <Th className="w-[240px]">Dataset ID</Th>
+              <Th className="w-[150px]">ID</Th>
               <Th className="w-[110px] text-right">Items</Th>
               <Th className="w-[90px] text-right">Versions</Th>
               <Th className="w-[110px] text-right">Evaluations</Th>
@@ -159,11 +159,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                         single click target (keyboard-reachable via the interactive TR),
                         so there's no competing name link. */}
                     <Td className="text-foreground">{dataset.name}</Td>
-                    <Td
-                      className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
-                      title={dataset.clientDatasetId ?? dataset.id}
-                    >
-                      {dataset.clientDatasetId ?? dataset.id}
+                    <Td>
+                      <IdCell id={dataset.clientDatasetId ?? dataset.id} className="w-[14ch]" />
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.caseCount}

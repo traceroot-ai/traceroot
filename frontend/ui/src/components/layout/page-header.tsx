@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { PixelMark } from "@/components/ui/pixel-mark";
 
 interface PageHeaderProps {
   title: string;
@@ -19,9 +20,12 @@ export function PageHeader({ title, description, actions, className }: PageHeade
         className,
       )}
     >
-      <div className="min-w-0">
-        <h1 className="truncate text-sm font-medium">{title}</h1>
-        {description && <p className="text-[12px] text-muted-foreground">{description}</p>}
+      <div className="flex min-w-0 items-start gap-2.5">
+        <PixelMark size={3} className="mt-[5px]" />
+        <div className="min-w-0">
+          <h1 className="truncate text-[15px] font-semibold tracking-tight">{title}</h1>
+          {description && <p className="text-[12px] text-muted-foreground">{description}</p>}
+        </div>
       </div>
       {actions && (
         <div data-slot="actions" className="flex flex-wrap items-center gap-2">

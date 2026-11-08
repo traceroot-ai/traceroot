@@ -10,10 +10,10 @@ import { cn } from "@/lib/utils";
 
 /** Header cell classes — mirrors DETECTOR_TH. */
 export const TH =
-  "h-7 whitespace-nowrap border-r border-border/50 px-3 text-left text-[12px] font-medium text-muted-foreground last:border-r-0";
+  "h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground";
 
 /** Body cell classes — mirrors DETECTOR_TD. */
-export const TD = "border-r border-border/50 px-3 py-1.5 text-[12px] last:border-r-0";
+export const TD = "h-9 whitespace-nowrap px-3 text-[12px]";
 
 /** Right-aligned numeric cell (durations, costs, scores). */
 export const TD_NUM = cn(TD, "text-right tabular-nums");
@@ -38,7 +38,7 @@ export function THead({ className, ...props }: React.HTMLAttributes<HTMLTableSec
 }
 
 export function TRHead({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) {
-  return <tr className={cn("border-b border-border bg-muted/50", className)} {...props} />;
+  return <tr className={cn("border-b border-border bg-muted/60", className)} {...props} />;
 }
 
 export function TBody(props: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -82,7 +82,7 @@ export function TR({ className, selected, interactive, onClick, onKeyDown, ...pr
         interactive && "cursor-pointer",
         interactive &&
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-        selected ? "bg-muted" : interactive && "hover:bg-muted/50",
+        selected ? "bg-accent" : interactive && "hover:bg-accent/50",
         className,
       )}
       {...props}
@@ -106,5 +106,41 @@ export function TableEmpty({ colSpan, children }: { colSpan: number; children: R
         {children}
       </td>
     </tr>
+  );
+}
+
+/**
+ * A long identifier in a fixed-width cell: the start of the id, truncated, in
+ * the data font, with the full value on hover. Ids stay scannable and never
+ * stretch a column; the full value is one click away (copy) or in the detail.
+ */
+export function IdCell({ id, className }: { id: string; className?: string }) {
+  return (
+    <span
+      title={id}
+      className={cn(
+        "block w-[9ch] truncate font-mono text-[11px] text-muted-foreground",
+        className,
+      )}
+    >
+      {id}
+    </span>
+  );
+}
+
+/** Text that may be long: one line, ellipsis, full value on hover. */
+export function TruncCell({
+  children,
+  title,
+  className,
+}: {
+  children: string;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <span title={title ?? children} className={cn("block max-w-[28rem] truncate", className)}>
+      {children}
+    </span>
   );
 }

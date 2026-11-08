@@ -171,16 +171,16 @@ export default function UsersPage() {
                 <table className="w-full min-w-[48rem]">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[100px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
                       </th>
-                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[110px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Tokens
                       </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="h-9 w-[100px] whitespace-nowrap px-3 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
                       <th className="w-[160px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
@@ -195,13 +195,11 @@ export default function UsersPage() {
                         onClick={() => handleUserClick(user.user_id)}
                         className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
                       >
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-foreground">
-                          {user.user_id}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="px-3 py-2 text-[12px] text-foreground">{user.user_id}</td>
+                        <td className="px-3 py-2 text-[12px] text-muted-foreground">
                           {user.trace_count}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="px-3 py-2 text-[12px] text-muted-foreground">
                           {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0 ? (
                             <span
                               title={`${formatExactTokens(user.total_input_tokens)} / ${formatExactTokens(user.total_output_tokens)}`}
@@ -213,7 +211,7 @@ export default function UsersPage() {
                             "-"
                           )}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="px-3 py-2 text-[12px] text-muted-foreground">
                           {formatCost(user.total_cost)}
                         </td>
                         <td className="px-3 py-2 text-[12px] text-muted-foreground">

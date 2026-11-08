@@ -25,7 +25,7 @@ const ADDED_COLUMN_TABLE_MIN_WIDTH = "min-w-[72rem]";
 
 // The right-hand divider, carried by every cell except the one that ends the row. Positional
 // rather than pinned to Latency, so hiding the last column leaves no divider on the edge.
-const CELL_BORDER = "border-r border-border/50";
+const CELL_BORDER = "";
 
 const HEADER_CELL = "px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground";
 
