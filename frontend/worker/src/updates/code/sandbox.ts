@@ -109,6 +109,7 @@ export class DockerSandboxProvider implements SandboxProvider {
     const network = options.networkAccess ? this.cloneNetwork : "none";
     const created = await run([
       "create",
+      "--rm",
       "--label",
       `${DOCKER_LABEL}=1`,
       "--network",

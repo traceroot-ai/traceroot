@@ -337,8 +337,8 @@ export function UpdatesTab({ projectId }: UpdatesTabProps) {
           <p className="text-[12px] text-muted-foreground">
             Adds what merged or shipped in the period beside the shifts in traffic. It uses the
             GitHub connection you already have, reads a short-lived copy of the repository in a
-            sandbox that never has a network or your token, and never puts code in an update. Off
-            until you turn it on, and only for the repositories listed here.
+            sandbox, analyses it in a second one with no network and no token, and never puts code
+            in an update. Off until you turn it on, and only for the repositories listed here.
           </p>
           <label className="flex flex-col gap-1 text-[12px]">
             Repositories (owner/name, one per line)

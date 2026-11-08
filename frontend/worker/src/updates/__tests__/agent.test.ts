@@ -468,6 +468,10 @@ describe("code in the update, and cause", () => {
     expect(looksLikeCode("    for attempt in range(5):")).toBe(true);
     expect(looksLikeCode("-  retries = 3;\n+  retries = 5;")).toBe(true);
     expect(looksLikeCode("const retries = compute(5);")).toBe(true);
+    expect(looksLikeCode("Changed `timeout=30` in the client.")).toBe(true);
+    expect(looksLikeCode("-    return old_value\n+    return new_value")).toBe(true);
+    expect(looksLikeCode("api_key = os.environ['X']")).toBe(true);
+    expect(looksLikeCode("- Error rate rose on PR #101.\n- Latency held steady.")).toBe(false);
     expect(looksLikeCode("PR #101 changed the retry policy of the planner.")).toBe(false);
   });
 

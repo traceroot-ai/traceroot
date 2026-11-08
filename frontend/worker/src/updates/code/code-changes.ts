@@ -182,7 +182,7 @@ export async function gatherCodeChanges(
     token,
     fetchImpl: deps.github.fetchImpl,
   };
-  let metadata;
+  let metadata: Awaited<ReturnType<typeof fetchRepoMetadata>>;
   try {
     metadata = await fetchRepoMetadata(api, repo, window.windowStart, window.windowEnd);
   } catch {
@@ -260,48 +260,57 @@ export async function gatherCodeChanges(
     }
   }
 
-  const joined = joinChangesToTraffic({
-    pulls: metadata.pulls,
-    releases: metadata.releases,
-    current,
-    previous,
-    commits,
-  });
-  const excerpts: CodeChangesReport["excerpts"] = [];
-  if (reader) {
-    // The files behind a shift first, then the rest, a few lines each.
-    const ordered = [
-      ...joined.items.filter((i) => i.evidence !== null),
-      ...joined.items.filter((i) => i.evidence === null),
-    ].flatMap((i) => i.files);
-    for (const file of [...new Set(ordered)].slice(0, MAX_EXCERPT_FILES)) {
-      try {
-        excerpts.push({ path: file, lines: await reader.readFile(file, EXCERPT_LINES) });
-      } catch {
-        // A file the copy does not hold is simply not shown.
+  try {
+    return await finish();
+  } catch (error) {
+    await reader?.close();
+    throw error;
+  }
+
+  async function finish(): Promise<CodeChangesGather> {
+    const joined = joinChangesToTraffic({
+      pulls: metadata.pulls,
+      releases: metadata.releases,
+      current,
+      previous,
+      commits,
+    });
+    const excerpts: CodeChangesReport["excerpts"] = [];
+    if (reader) {
+      // The files behind a shift first, then the rest, a few lines each.
+      const ordered = [
+        ...joined.items.filter((i) => i.evidence !== null),
+        ...joined.items.filter((i) => i.evidence === null),
+      ].flatMap((i) => i.files);
+      for (const file of [...new Set(ordered)].slice(0, MAX_EXCERPT_FILES)) {
+        try {
+          excerpts.push({ path: file, lines: await reader.readFile(file, EXCERPT_LINES) });
+        } catch {
+          // A file the copy does not hold is simply not shown.
+        }
       }
     }
+    const report: CodeChangesReport = {
+      status: "ready",
+      repo,
+      hasGitContext: joined.hasGitContext,
+      method: joined.method,
+      methodNote: joined.methodNote,
+      clone,
+      items: joined.items,
+      commits: (commits ?? [])
+        .slice(0, 30)
+        .map((c) => ({ sha: c.sha, at: c.at, subject: c.subject, fileCount: c.files.length })),
+      excerpts,
+      notes,
+    };
+    return {
+      report,
+      reader,
+      allowedUrls: joined.items.map((i) => i.url),
+      close: async () => {
+        await reader?.close();
+      },
+    };
   }
-  const report: CodeChangesReport = {
-    status: "ready",
-    repo,
-    hasGitContext: joined.hasGitContext,
-    method: joined.method,
-    methodNote: joined.methodNote,
-    clone,
-    items: joined.items,
-    commits: (commits ?? [])
-      .slice(0, 30)
-      .map((c) => ({ sha: c.sha, at: c.at, subject: c.subject, fileCount: c.files.length })),
-    excerpts,
-    notes,
-  };
-  return {
-    report,
-    reader,
-    allowedUrls: joined.items.map((i) => i.url),
-    close: async () => {
-      await reader?.close();
-    },
-  };
 }

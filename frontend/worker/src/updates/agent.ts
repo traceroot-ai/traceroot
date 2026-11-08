@@ -321,7 +321,12 @@ export function looksLikeCode(text: string): boolean {
     /^\s*(for|while|if|elif|def|class)\b[^\n]*:\s*$/m.test(text) ||
     /^[+-]\s{0,3}\S[^\n]*[;{}]\s*$/m.test(text) ||
     /`[^`\n]*(\bfor\b[^`\n]*\bin\b|\bdef\b|\breturn\b|=>|;\s*)[^`\n]*`/.test(text) ||
-    /^\s*(const|let|var)\s+\w+\s*=.*;\s*$/m.test(text)
+    /^\s*(const|let|var)\s+\w+\s*=.*;\s*$/m.test(text) ||
+    /^-\s{2,8}\S[^\n]*\n\+\s{2,8}\S/m.test(text) ||
+    /^\s*\w+(\.\w+)*\s*=\s*[\w.]+(\[[^\]]+\]|\([^)]*\))\s*$/m.test(text) ||
+    (/^\s*(print|raise|assert|await|throw)\b[^\n]*$/m.test(text) &&
+      /\w\(.*\)|raise \w+Error|throw new/.test(text)) ||
+    /`[^`\n]*\w+\s*=\s*[^`\s][^`\n]*`/.test(text)
   );
 }
 
@@ -335,7 +340,10 @@ export function codeSectionProblems(result: UpdateResult): string[] {
   const everything = [
     result.headline,
     result.summary,
-    ...result.sections.flatMap((s) => s.items.map((i) => i.text)),
+    ...result.sections.flatMap((s) => [s.title, ...s.items.map((i) => i.text)]),
+    ...result.sections.flatMap((s) => s.items.flatMap((i) => i.evidence.map((e) => e.label))),
+    ...result.suggestedDetectors.flatMap((d) => [d.name, d.checks]),
+    result.notesForNextRun ?? "",
   ];
   if (everything.some(looksLikeCode))
     problems.push("the update contains code or a diff; use paths, titles and links only");
