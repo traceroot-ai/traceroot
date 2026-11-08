@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
 from rest.routers.internal.auth import verify_internal_secret
+from rest.services.trace_reader import _evaluation_exclusion, customer_traffic_only
 
 router = APIRouter(prefix="/task-groups")
 
@@ -54,8 +55,9 @@ def list_candidates(
     """List traces that could be summarized, in sampling order, and how many of the
     window already have a summary.
 
-    A candidate started in ``[since_ms, until_ms)``, has had no write since
-    ``idle_before_ms`` (so it is finished), and has no summary yet for ``lens``.
+    A candidate is customer traffic (not a detector or assistant self-trace, not an
+    offline evaluation run), started in ``[since_ms, until_ms)``, has had no write
+    since ``idle_before_ms`` (so it is finished), and has no summary yet for ``lens``.
     The order is the sampling key, ascending, so the first N rows are the sample.
 
     Returns:
@@ -67,6 +69,9 @@ def list_candidates(
         "project_id": project_id,
         "since": _ms_to_utc(since_ms),
         "until": _ms_to_utc(until_ms),
+        # The evaluation exclusion reads its bounds under these names.
+        "start_after": _ms_to_utc(since_ms),
+        "end_before": _ms_to_utc(until_ms),
         "idle_before": _ms_to_utc(idle_before_ms),
         "lens": lens,
         "limit": limit,
@@ -76,14 +81,16 @@ def list_candidates(
         SELECT trace_id, toUnixTimestamp64Milli(trace_time) AS trace_time_ms,
                toString({_SAMPLE_KEY_SQL}) AS sample_key
         FROM (
-            SELECT project_id, trace_id,
-                   min(trace_start_time) AS trace_time,
-                   max(ch_update_time) AS last_write
-            FROM traces
-            WHERE project_id = {{project_id:String}}
-              AND trace_start_time >= {{since:DateTime64(3)}}
-              AND trace_start_time < {{until:DateTime64(3)}}
-            GROUP BY project_id, trace_id
+            SELECT t.project_id AS project_id, t.trace_id AS trace_id,
+                   min(t.trace_start_time) AS trace_time,
+                   max(t.ch_update_time) AS last_write
+            FROM traces t
+            WHERE t.project_id = {{project_id:String}}
+              AND t.trace_start_time >= {{since:DateTime64(3)}}
+              AND t.trace_start_time < {{until:DateTime64(3)}}
+              AND {customer_traffic_only("t")}
+              AND {_evaluation_exclusion(params)}
+            GROUP BY t.project_id, t.trace_id
             HAVING last_write <= {{idle_before:DateTime64(3)}}
         )
         WHERE trace_id NOT IN (
