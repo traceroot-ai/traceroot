@@ -39,14 +39,29 @@ export const UPDATE_SCHEDULE_PRESETS: Record<
   weekly: { frequency: "weekly", weekday: 1, hour: 9 },
 };
 
-export function isValidTimezone(name: string): boolean {
-  if (typeof name !== "string" || name.trim() === "") return false;
+/** The shape of an IANA name: Area/Location. Rejects numeric offsets such as "+01:00". */
+const IANA_SHAPE = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){1,2}$/;
+
+/**
+ * The canonical spelling of a timezone name, or null when it is not one.
+ *
+ * `Intl` reads names without regard to case, and the rest of the pipeline reads
+ * them with it, so a name is saved in the spelling `Intl` resolves it to
+ * ("america/new_york" becomes "America/New_York"). Numeric offsets are not zones.
+ */
+export function canonicalTimezone(name: unknown): string | null {
+  if (typeof name !== "string" || name.trim() === "") return null;
+  if (name.toLowerCase() === "utc") return "UTC";
+  if (!IANA_SHAPE.test(name)) return null;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: name });
-    return true;
+    return new Intl.DateTimeFormat("en-US", { timeZone: name }).resolvedOptions().timeZone;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isValidTimezone(name: string): boolean {
+  return canonicalTimezone(name) !== null;
 }
 
 export type ScheduleParseResult =
@@ -95,8 +110,10 @@ export function parseScheduleInput(input: unknown): ScheduleParseResult {
     return { ok: false, error: "hour must be a whole number from 0 to 23." };
   }
 
-  const timezone = raw.timezone === undefined ? DEFAULT_UPDATE_SCHEDULE.timezone : raw.timezone;
-  if (typeof timezone !== "string" || !isValidTimezone(timezone)) {
+  const timezone = canonicalTimezone(
+    raw.timezone === undefined ? DEFAULT_UPDATE_SCHEDULE.timezone : raw.timezone,
+  );
+  if (timezone === null) {
     return { ok: false, error: "timezone must be a valid IANA timezone name." };
   }
 

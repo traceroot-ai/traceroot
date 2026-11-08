@@ -53,10 +53,40 @@ describe("parseScheduleInput", () => {
     [{ hour: -1 }],
     [{ hour: "9" }],
     [{ timezone: "Mars/Olympus" }],
+    [{ timezone: "+01:00" }],
     [{ timezone: "" }],
     [{ enabled: "yes" }],
   ])("rejects %j", (input) => {
     expect(parseScheduleInput(input).ok).toBe(false);
+  });
+
+  it.each([
+    "Asia/Kolkata",
+    "Asia/Calcutta",
+    "Europe/Kyiv",
+    "Asia/Kathmandu",
+    "America/Argentina/Buenos_Aires",
+    "Etc/GMT+5",
+    "UTC",
+  ])("accepts the timezone %s", (timezone) => {
+    expect(parseScheduleInput({ timezone }).ok).toBe(true);
+  });
+
+  it.each([
+    ["utc", "UTC"],
+    ["america/new_york", "America/New_York"],
+    ["America/New_york", "America/New_York"],
+    ["EUROPE/berlin", "Europe/Berlin"],
+  ])("saves %s in its canonical spelling %s", (given, canonical) => {
+    expect(parseScheduleInput({ timezone: given })).toMatchObject({
+      ok: true,
+      value: { timezone: canonical },
+    });
+  });
+
+  it("rejects numeric offsets as zones", () => {
+    expect(parseScheduleInput({ timezone: "+01:00" }).ok).toBe(false);
+    expect(parseScheduleInput({ timezone: "GMT+1" }).ok).toBe(false);
   });
 
   it("rejects a non-object", () => {

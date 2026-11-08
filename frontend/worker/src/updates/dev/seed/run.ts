@@ -20,6 +20,7 @@ import {
 } from "./postgres-io.js";
 import { buildScenario, projectIdOf, scheduleOf, type SeedParams } from "./scenario.js";
 import { prisma } from "@traceroot/core";
+import { createUpdateRunQueue } from "../../queue.js";
 
 export const DEFAULT_OUT_DIR = path.join(os.tmpdir(), "traceroot-update-seed");
 export const DEFAULT_BIG_BYTES = 30 * 1024 * 1024;
@@ -67,12 +68,29 @@ export async function cleanSeed(params: SeedParams, outDir = DEFAULT_OUT_DIR): P
   assertLocalStack();
   await deleteProjectRows(clickHouseTargetFromEnv(), projectIds(params.prefix));
   await cleanPostgres(params.prefix);
+  await clearRunQueue(params.prefix);
   // Only the entries this script writes, never the directory itself: --out may
   // point at a directory that holds other things.
   for (const entry of OUTPUT_ENTRIES) {
     await fs.rm(path.join(outDir, entry), { recursive: true, force: true });
   }
   await fs.rmdir(outDir).catch(() => undefined);
+}
+
+/**
+ * Queued and finished run jobs are keyed by project and slot, so a re-seeded
+ * project would find its old job and never run. Only this prefix's jobs go.
+ */
+async function clearRunQueue(prefix: string): Promise<void> {
+  const { queue, close } = createUpdateRunQueue();
+  try {
+    const jobs = await queue.getJobs(["waiting", "delayed", "completed", "failed", "paused"]);
+    for (const job of jobs) {
+      if (job.data.projectId.startsWith(`${prefix}-`)) await job.remove().catch(() => undefined);
+    }
+  } finally {
+    await close();
+  }
 }
 
 const OUTPUT_ENTRIES = [

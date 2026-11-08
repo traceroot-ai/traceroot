@@ -139,7 +139,7 @@ export function buildProjectPlans(volume: number): ProjectPlan[] {
           name: "triage_agent",
           model: "gpt-4o-mini",
           llmCalls: 1,
-          traces: { prev: n(200), cur: n(200) },
+          traces: { prev: n(400), cur: n(400) },
           errorRate: { prev: 0.03, cur: 0.03 },
           p50Ms: { prev: 1000, cur: 1900 },
           sigma: 0.35,
