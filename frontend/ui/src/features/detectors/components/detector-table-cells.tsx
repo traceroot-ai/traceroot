@@ -14,10 +14,10 @@
  * (the table default) centers the label, so no vertical padding is needed.
  */
 export const DETECTOR_TH =
-  "h-7 whitespace-nowrap border-r border-border/50 px-3 text-left text-[12px] font-medium text-muted-foreground";
+  "h-7 whitespace-nowrap border-r border-border px-3 text-left text-[12px] font-medium text-muted-foreground";
 
 /** Body cell classes. */
-export const DETECTOR_TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
+export const DETECTOR_TD = "whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px]";
 
 /** "Yes" (red) when a run produced a finding, else a muted "No". */
 export function IdentifiedBadge({ identified }: { identified: boolean }) {
@@ -31,7 +31,7 @@ export function IdentifiedBadge({ identified }: { identified: boolean }) {
 /** Truncated summary text, or an em-dash when there is no summary. */
 export function SummaryText({ summary }: { summary: string }) {
   if (!summary) {
-    return <span className="font-mono text-[11px] text-muted-foreground">—</span>;
+    return <span className="font-mono text-[12px] text-muted-foreground">—</span>;
   }
   return (
     <span className="block truncate" title={summary}>
