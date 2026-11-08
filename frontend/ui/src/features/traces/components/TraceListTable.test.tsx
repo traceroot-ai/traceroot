@@ -45,6 +45,8 @@ interface TableProps {
   onSelectTrace?: (traceId: string) => void;
   signalIdsByTrace?: Record<string, string[]>;
   signalIdsFailed?: boolean;
+  topicsByTrace?: Record<string, { groupId: string; name: string }>;
+  topicsFailed?: boolean;
 }
 
 function renderTable(props: TableProps) {
@@ -55,6 +57,8 @@ function renderTable(props: TableProps) {
       traces={props.traces}
       signalIdsByTrace={props.signalIdsByTrace}
       signalIdsFailed={props.signalIdsFailed}
+      topicsByTrace={props.topicsByTrace}
+      topicsFailed={props.topicsFailed}
       selectedTraceId={null}
       onSelectTrace={onSelectTrace}
       // The resolved default-on set, never an empty list: empty is the "no columns selected"
@@ -430,5 +434,38 @@ describe("TraceListTable metadata reveal", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("TraceListTable Topic column", () => {
+  const topicsColumn = visibleFixedColumns(["topic"]);
+
+  it("is an opt-in column, off by default", () => {
+    renderTable({ traces: [makeTrace({ trace_id: "t-1" })] });
+    expect(headerNames()).not.toContain("Topic");
+  });
+
+  it("shows a trace's topic as a chip that opens that topic's traces, not the trace", () => {
+    const { onSelectTrace } = renderTable({
+      traces: [makeTrace({ trace_id: "t-1" }), makeTrace({ trace_id: "t-2" })],
+      visibleColumns: topicsColumn,
+      topicsByTrace: { "t-1": { groupId: "g-9", name: "Refunds" } },
+    });
+    const link = within(cellAt("t-1", "Topic")).getByRole("link");
+    expect(link.textContent).toBe("Refunds");
+    expect(decodeURIComponent(link.getAttribute("href")!)).toContain('"value":"g-9"');
+    fireEvent.click(link);
+    expect(onSelectTrace).not.toHaveBeenCalled();
+    // Most traces are not sampled and have no topic: a dash once the read is done.
+    expect(cellAt("t-2", "Topic").textContent).toBe("-");
+  });
+
+  it("is blank while loading and says so when the read failed", () => {
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1" })],
+      visibleColumns: topicsColumn,
+      topicsFailed: true,
+    });
+    expect(cellAt("t-1", "Topic").textContent).toBe("?");
   });
 });

@@ -38,6 +38,8 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
+import { useTraceTaskGroups } from "@/ee/features/task-groups/hooks";
+import { TopicBadge } from "@/ee/features/task-groups/components/topic-badge";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
@@ -168,6 +170,12 @@ export default function TracesPage() {
     projectId,
     traceIds,
     visibleColumns.includes("signal_ids"),
+  );
+  // Read only while the Topic column is shown.
+  const { data: topics, isError: topicsFailed } = useTraceTaskGroups(
+    projectId,
+    traceIds,
+    visibleColumns.includes("topic"),
   );
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
@@ -325,6 +333,8 @@ export default function TracesPage() {
                   visibleColumns={visibleColumns}
                   signalIdsByTrace={signalIds?.signalIds}
                   signalIdsFailed={signalIdsFailed}
+                  topicsByTrace={topics?.groups}
+                  topicsFailed={topicsFailed}
                 />
               </div>
 
@@ -374,6 +384,17 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          // The trace's topic, when the list has read it (the Topic column is shown).
+          headerStatus={
+            topics?.groups[selectedTraceId] ? (
+              <TopicBadge
+                name={topics.groups[selectedTraceId].name}
+                groupId={topics.groups[selectedTraceId].groupId}
+                projectId={projectId}
+                className="mr-1"
+              />
+            ) : undefined
+          }
           // Offline eval: save any span (or the trace root) as a dataset test case.
           spanHeaderAction={(selection: TraceSelection) => (
             <Button

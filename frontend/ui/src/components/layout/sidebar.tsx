@@ -21,6 +21,7 @@ import {
   FlaskConical,
   LogOut,
 } from "lucide-react";
+import { TASK_GROUPS_LABEL } from "@traceroot/core/task-groups";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
@@ -191,6 +192,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 {collapsed && (
                   <TooltipContent side="right" sideOffset={16}>
                     Signals
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/topics`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/topics") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <DOMAIN_ICONS.topic className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && TASK_GROUPS_LABEL}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    {TASK_GROUPS_LABEL}
                   </TooltipContent>
                 )}
               </Tooltip>

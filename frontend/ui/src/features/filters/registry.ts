@@ -5,6 +5,8 @@
  * this; the fallback only needs to be shape-correct, not authoritative.
  */
 
+import { TASK_GROUP_LABEL } from "@traceroot/core/task-groups";
+
 export interface FilterFieldDef {
   field: string;
   label: string;
@@ -56,6 +58,15 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Signal ID",
     type: "text",
     level: "SIGNAL",
+    operators: ["eq"],
+    value_source: "free_text",
+    enum_values: [],
+  },
+  {
+    field: "group_id",
+    label: TASK_GROUP_LABEL,
+    type: "text",
+    level: "TASK_GROUP",
     operators: ["eq"],
     value_source: "free_text",
     enum_values: [],

@@ -5,6 +5,8 @@
 
 /** The feature's name in the UI. A working name; change it here and nowhere else. */
 export const TASK_GROUPS_LABEL = "Topics";
+/** The same name for one group, in a column header or a filter chip. */
+export const TASK_GROUP_LABEL = "Topic";
 
 /** The one question asked of each trace today; a column in every task-group table. */
 export const TASK_LENS = "task";
