@@ -39,6 +39,8 @@ const TEXT_PAIRS: [string, string][] = [
   ["secondary-foreground", "secondary"],
   ["accent-foreground", "accent"],
   ["destructive-foreground", "destructive"],
+  ["destructive", "background"],
+  ["destructive", "card"],
   ["brand", "background"],
   ["brand", "brand-soft"],
   ["success", "success-soft"],
