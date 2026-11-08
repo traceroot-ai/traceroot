@@ -1,3 +1,5 @@
+import { TASK_GROUP_LABEL } from "@traceroot/core/task-groups";
+
 // `user_id` and `session_id` must keep these spellings; earlier releases persisted them.
 export type FixedColumnId =
   | "timestamp"
@@ -11,6 +13,7 @@ export type FixedColumnId =
   | "user_id"
   | "session_id"
   | "signal_ids"
+  | "topic"
   | "input_usage"
   | "output_usage"
   | "total_usage"
@@ -37,6 +40,8 @@ export const FIXED_COLUMNS: readonly FixedColumn[] = [
   { id: "session_id", label: "Session ID", isDefaultOn: false },
   // A trace's signals, one per detector hit, so possibly several.
   { id: "signal_ids", label: "Signal IDs", isDefaultOn: false },
+  // The group the trace was placed in; only sampled traces have one.
+  { id: "topic", label: TASK_GROUP_LABEL, isDefaultOn: false },
   { id: "input_usage", label: "Input usage", isDefaultOn: false },
   { id: "output_usage", label: "Output usage", isDefaultOn: false },
   { id: "total_usage", label: "Total usage", isDefaultOn: false },

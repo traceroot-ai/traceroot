@@ -93,6 +93,10 @@ async def list_traces(
     # surfaces as a 400 with an actionable message, not a 500.
     try:
         parsed_filters = parse_filters_param(filters)
+        for predicate in parsed_filters:
+            column = filter_columns.get_column(predicate.field)
+            if column is not None and not column.public:
+                raise ValueError(f"Unknown filter field: {predicate.field}")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)

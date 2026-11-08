@@ -5,6 +5,7 @@ shape of what is written. The queries themselves were run against a live
 ClickHouse (see the evidence in the pull request).
 """
 
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -183,5 +184,81 @@ class TestGroupsAndMembers:
             f"{BASE}/members",
             json={"project_id": "p", "fit_id": "f", "source": "model", "rows": []},
             headers=HEADERS,
+        )
+        assert response.status_code == 422
+
+
+class TestOverview:
+    PARAMS: ClassVar[dict] = {
+        "project_id": "p",
+        "since_ms": 0,
+        "until_ms": 5000,
+        "window_since_ms": 0,
+    }
+
+    def test_before_any_fit_there_are_no_groups_but_the_summary_count_is_known(
+        self, client, mock_ch
+    ):
+        mock_ch.query.side_effect = [_result([]), _result([(12,)]), _result([(12,)]), _result([])]
+        body = client.get(f"{BASE}/overview", params=self.PARAMS, headers=HEADERS).json()
+        assert body["fit"] is None and body["groups"] == []
+        assert body["sampled"] == 12 and body["digests_in_window"] == 12 and body["ungrouped"] == 12
+
+    def test_counts_and_trend_per_group_and_the_ungrouped_remainder(self, client, mock_ch):
+        mock_ch.query.side_effect = [
+            _result(
+                [
+                    ("fit1", 9000, "g1", "Flights", "Booking flights"),
+                    ("fit1", 9000, "g2", "Refunds", ""),
+                ]
+            ),
+            _result([(10,)]),
+            _result([(110,)]),
+            _result(
+                [
+                    ("g1", "2026-11-06", 3),
+                    ("g1", "2026-11-07", 4),
+                    ("g2", "2026-11-07", 2),
+                    ("", "2026-11-07", 1),
+                ]
+            ),
+        ]
+        body = client.get(f"{BASE}/overview", params=self.PARAMS, headers=HEADERS).json()
+        assert body["fit"] == {"fit_id": "fit1", "fitted_at_ms": 9000}
+        g1, g2 = body["groups"]
+        assert (g1["count"], g2["count"]) == (7, 2)
+        assert g1["trend"] == [{"day": "2026-11-06", "count": 3}, {"day": "2026-11-07", "count": 4}]
+        # 10 sampled, 9 in current groups: one left over (the empty-id row is "no group").
+        assert body["ungrouped"] == 1
+
+    def test_every_query_is_scoped_to_the_project(self, client, mock_ch):
+        mock_ch.query.side_effect = [_result([]), _result([(0,)]), _result([(0,)]), _result([])]
+        client.get(
+            f"{BASE}/overview", params={**self.PARAMS, "project_id": "proj-a"}, headers=HEADERS
+        )
+        for call in mock_ch.query.call_args_list:
+            assert call.kwargs["parameters"]["p"] == "proj-a"
+            assert "project_id = {p:String}" in call.args[0]
+
+    def test_requires_the_secret(self, client):
+        assert client.get(f"{BASE}/overview", params=self.PARAMS).status_code in (401, 403)
+
+
+class TestByTrace:
+    def test_maps_trace_ids_to_group_and_name(self, client, mock_ch):
+        mock_ch.query.return_value = _result([("t1", "g1", "Flights")])
+        body = client.get(
+            f"{BASE}/by-trace",
+            params=[("project_id", "p"), ("trace_id", "t1"), ("trace_id", "t2")],
+            headers=HEADERS,
+        ).json()
+        assert body == {"data": {"t1": {"group_id": "g1", "name": "Flights"}}}
+        assert mock_ch.query.call_args.kwargs["parameters"]["ids"] == ["t1", "t2"]
+        assert mock_ch.query.call_args.kwargs["parameters"]["p"] == "p"
+
+    def test_too_many_ids_are_refused(self, client):
+        ids = [("trace_id", f"t{i}") for i in range(201)]
+        response = client.get(
+            f"{BASE}/by-trace", params=[("project_id", "p"), *ids], headers=HEADERS
         )
         assert response.status_code == 422

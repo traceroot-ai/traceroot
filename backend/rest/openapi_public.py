@@ -206,6 +206,8 @@ def _filter_predicate_variants() -> list[dict[str, Any]]:
     """
     variants: list[dict[str, Any]] = []
     for col in FILTER_COLUMNS:
+        if not col.public:
+            continue
         if col.type == FilterType.CATEGORICAL:
             # Per-element length cap, mirroring the runtime validator; the list
             # itself is unbounded (each element binds into one Array parameter).

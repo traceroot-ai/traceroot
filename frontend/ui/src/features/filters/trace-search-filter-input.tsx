@@ -39,6 +39,8 @@ interface TraceSearchFilterInputProps {
   fields?: FilterFieldDef[];
   /** Shown while no filter is set; defaults to "Filter traces…". */
   placeholder?: string;
+  /** A readable stand-in for a chip's value (a name for an id), or undefined to show the value. */
+  valueNames?: (p: Predicate) => string | undefined;
 }
 
 export function TraceSearchFilterInput({
@@ -49,6 +51,7 @@ export function TraceSearchFilterInput({
   endBefore,
   fields: customFields,
   placeholder = "Filter traces…",
+  valueNames,
 }: TraceSearchFilterInputProps) {
   const traceFields = useFilterFields(projectId, !customFields);
   const fields = customFields ?? traceFields;
@@ -113,7 +116,7 @@ export function TraceSearchFilterInput({
               className="flex items-center gap-1 rounded bg-muted/70 py-0.5 pl-1.5 pr-1 text-[12px]"
             >
               <span className="font-medium text-foreground">
-                {predicateLabel(p, fieldName(p.field))}
+                {predicateLabel(p, fieldName(p.field), valueNames?.(p))}
               </span>
               <button
                 type="button"

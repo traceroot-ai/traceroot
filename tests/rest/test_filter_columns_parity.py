@@ -23,13 +23,20 @@ AGGREGATE_FIELDS = {"cost", "total_tokens", "duration_ms", "errors"}
 TRACE_FIELDS = {"trace_id"}
 # Signal: the traces holding a hit of one signal, read from signal_assignments.
 SIGNAL_FIELDS = {"signal_id"}
+# Task group: the traces placed in one group, read from trace_group_members.
+TASK_GROUP_FIELDS = {"group_id"}
 
 
 def test_registry_column_set_is_exactly_the_declared_tiers():
     """The registry holds precisely the membership, keyed-map, aggregate, trace,
     and signal fields."""
     assert {c.name for c in reg.FILTER_COLUMNS} == (
-        MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS | SIGNAL_FIELDS
+        MEMBERSHIP_FIELDS
+        | KEYED_MAP_FIELDS
+        | AGGREGATE_FIELDS
+        | TRACE_FIELDS
+        | SIGNAL_FIELDS
+        | TASK_GROUP_FIELDS
     )
 
 
@@ -79,6 +86,18 @@ def test_signal_id_is_an_exact_text_field_on_its_own_level():
     assert col.operators == (reg.FilterOperator.EQ,)
     assert col.ch_type == "String"
     assert col.detector_trigger is False
+
+
+def test_group_id_is_an_exact_text_field_that_the_public_api_does_not_offer():
+    """group_id lowers to a semi-join over trace_group_members and matches only exactly;
+    it is for the app's own trace list, not the public contract."""
+    col = reg.get_column("group_id")
+    assert col.level is reg.FilterLevel.TASK_GROUP
+    assert col.type is reg.FilterType.TEXT
+    assert col.operators == (reg.FilterOperator.EQ,)
+    assert col.detector_trigger is False
+    assert col.public is False
+    assert all(c.public for c in reg.FILTER_COLUMNS if c.name != "group_id")
 
 
 def test_metadata_is_a_keyed_map_text_field_on_its_own_level():
@@ -181,7 +200,7 @@ _DERIVED_FIELDS = {"errors"}
 
 # Fields read from a table the Gateway does not curate: signal_id comes from
 # signal_assignments, not from the traces or spans the Gateway exposes.
-_NON_GATEWAY_TABLE_FIELDS = {"signal_id"}
+_NON_GATEWAY_TABLE_FIELDS = {"signal_id", "group_id"}
 
 # --- Cross-check against the SQL Gateway curated columns (lights up on merge) ---
 

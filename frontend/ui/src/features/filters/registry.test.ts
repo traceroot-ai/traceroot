@@ -13,6 +13,7 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
         "environment",
         "error_type",
         "errors",
+        "group_id",
         "metadata",
         "model_name",
         "name",
@@ -45,6 +46,8 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
       else if (f.type === "numeric") expect(f.operators).toEqual(["eq", "gt", "gte", "lt", "lte"]);
       // A signal id is copied whole, never typed in part: exact match only.
       else if (f.field === "signal_id") expect(f.operators).toEqual(["eq"]);
+      // A group id is picked from the Topics page, never typed in part: exact match only.
+      else if (f.field === "group_id") expect(f.operators).toEqual(["eq"]);
       else if (f.type === "text") expect(f.operators).toEqual(["eq", "contains"]);
     }
   });

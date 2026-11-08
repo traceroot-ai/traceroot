@@ -66,6 +66,8 @@ export const DOMAIN_ICONS = {
   // "Category of kinds" — e.g. the span_kind filter/widget field, which
   // covers all kinds at once rather than meaning one specific kind.
   kind: Shapes,
+  // A group of traces by the task they were asked to do (the Topics page).
+  topic: Shapes,
   status: CircleCheck,
   latency: Clock,
   error: CircleAlert,

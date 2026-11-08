@@ -6,6 +6,8 @@ import type { ReactElement } from "react";
 import Link from "next/link";
 import { signalDeepLinkPath } from "@traceroot/core/signals";
 import type { TraceListItem } from "@/types/api";
+import { TopicBadge } from "@/ee/features/task-groups/components/topic-badge";
+import type { TraceTaskGroup } from "@/ee/features/task-groups/types";
 import {
   formatDuration,
   formatDate,
@@ -54,6 +56,10 @@ interface TraceListTableProps {
   signalIdsByTrace?: Record<string, string[]>;
   /** Reading the signal ids failed: the column says so rather than staying blank. */
   signalIdsFailed?: boolean;
+  /** Each trace's group for the Topic column; undefined until read. */
+  topicsByTrace?: Record<string, TraceTaskGroup>;
+  /** Reading the groups failed: the column says so rather than staying blank. */
+  topicsFailed?: boolean;
 }
 
 export function TraceListTable({
@@ -64,6 +70,8 @@ export function TraceListTable({
   visibleColumns,
   signalIdsByTrace,
   signalIdsFailed = false,
+  topicsByTrace,
+  topicsFailed = false,
 }: TraceListTableProps) {
   const hasAddedColumns = visibleColumns.some((id) => !isDefaultOnColumn(id));
   const hasColumns = visibleColumns.length > 0;
@@ -89,6 +97,8 @@ export function TraceListTable({
               trace={trace}
               signalIds={signalIdsByTrace && (signalIdsByTrace[trace.trace_id] ?? [])}
               signalIdsFailed={signalIdsFailed}
+              topics={topicsByTrace && { group: topicsByTrace[trace.trace_id] ?? null }}
+              topicsFailed={topicsFailed}
               isSelected={selectedTraceId === trace.trace_id}
               onSelect={onSelectTrace}
               columns={visibleColumns}
@@ -129,6 +139,8 @@ function TraceRow({
   trace,
   signalIds,
   signalIdsFailed,
+  topics,
+  topicsFailed,
   isSelected,
   onSelect,
   columns,
@@ -137,6 +149,8 @@ function TraceRow({
   trace: TraceListItem;
   signalIds: readonly string[] | undefined;
   signalIdsFailed: boolean;
+  topics: { group: TraceTaskGroup | null } | undefined;
+  topicsFailed: boolean;
   isSelected: boolean;
   onSelect: (traceId: string) => void;
   /** The same column list the header row walked, so the two cannot fall out of step. */
@@ -159,6 +173,8 @@ function TraceRow({
             trace={trace}
             signalIds={signalIds}
             signalIdsFailed={signalIdsFailed}
+            topics={topics}
+            topicsFailed={topicsFailed}
             borderClassName={position === columns.length - 1 ? false : CELL_BORDER}
           />
         );
@@ -173,6 +189,9 @@ interface FixedCellProps {
   /** The trace's signal ids; undefined until read. */
   signalIds: readonly string[] | undefined;
   signalIdsFailed: boolean;
+  /** The trace's group once read (null: none); undefined until read. */
+  topics: { group: TraceTaskGroup | null } | undefined;
+  topicsFailed: boolean;
   /** The row divider, or false on the column that ends the row. */
   borderClassName: string | false;
 }
@@ -281,6 +300,20 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
         )}
       </td>
     ),
+  topic: ({ projectId, topics, topicsFailed, borderClassName }) => (
+    <td className={cn("max-w-[200px]", borderClassName, "px-3 py-1.5 text-[12px]")}>
+      {topics?.group ? (
+        <TopicBadge name={topics.group.name} groupId={topics.group.groupId} projectId={projectId} />
+      ) : topics ? (
+        // A dash for a trace with no group (most are not sampled).
+        <span className="text-muted-foreground">-</span>
+      ) : topicsFailed ? (
+        <span className="text-muted-foreground" title="Topics could not be loaded">
+          ?
+        </span>
+      ) : null}
+    </td>
+  ),
   // The three quantities the Tokens chip compresses into `in → out (total)`, each exact.
   input_usage: ({ trace, borderClassName }) => (
     <UsageCell value={trace.total_input_tokens} borderClassName={borderClassName} />
