@@ -136,7 +136,7 @@ describe("MessageList tool entries", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Dashboard · 1 widget · Last 24 hours")).toBeTruthy();
+    expect(screen.getByText("Dashboard · 1 widget · Last 7 days")).toBeTruthy();
   });
 
   it("keeps the plain tool step for a resource type it has no card for", () => {
@@ -226,7 +226,7 @@ describe("MessageList tool entries", () => {
     );
     // The dashboard card still counts (and its preview draws) the widget;
     // the widget's own step stays a traceable tool line, not a second card.
-    expect(screen.getByText("Dashboard · 1 widget · Last 24 hours")).toBeTruthy();
+    expect(screen.getByText("Dashboard · 1 widget · Last 7 days")).toBeTruthy();
     expect(screen.getByText("(create_widget)")).toBeTruthy();
     // The title appears once — the preview's tile — and there is no card
     // footer (no definition toggle) for the widget, because its card was

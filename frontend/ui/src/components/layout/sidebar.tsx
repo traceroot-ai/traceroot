@@ -10,18 +10,16 @@ import {
   LifeBuoy,
   ChevronRight,
   Github,
-  House,
   Sun,
   Moon,
   Monitor,
   MonitorSmartphone,
   Settings,
   UserRoundSearch,
-  Database,
-  FlaskConical,
   LogOut,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { NAV_GROUPS, NAV_HOME, isNavItemActive, navHref, type NavItem } from "./nav-items";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
@@ -48,6 +46,45 @@ function getInitials(name?: string | null, email?: string | null): string {
 
 interface SidebarProps {
   collapsed?: boolean;
+}
+
+function NavLink({
+  item,
+  projectId,
+  pathname,
+  collapsed,
+}: {
+  item: NavItem;
+  projectId: string;
+  pathname: string;
+  collapsed: boolean;
+}) {
+  const Icon = item.icon;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          href={navHref(projectId, item)}
+          aria-current={isNavItemActive(pathname, projectId, item) ? "page" : undefined}
+          className={cn(
+            "flex items-center gap-2 py-2 text-[13px] transition-colors",
+            collapsed ? "justify-center px-2" : "px-3",
+            isNavItemActive(pathname, projectId, item)
+              ? "bg-accent text-accent-foreground"
+              : "hover:bg-muted/50",
+          )}
+        >
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          {!collapsed && item.label}
+        </Link>
+      </TooltipTrigger>
+      {collapsed && (
+        <TooltipContent side="right" sideOffset={16}>
+          {item.label}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
 }
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
@@ -113,170 +150,34 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         {/* Navigation */}
         <nav className="flex-1">
           {projectId ? (
-            // Project context navigation
+            // Project context navigation, grouped along the product loop
             <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/home`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/home") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <House className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Home"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Home
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/traces`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <DOMAIN_ICONS.trace className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Tracing"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Tracing
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/detectors`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/detectors") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <DOMAIN_ICONS.detector className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Detectors"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Detectors
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/signals`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/signals") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <DOMAIN_ICONS.signal className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Signals"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Signals
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/dashboard`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/dashboard") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <DOMAIN_ICONS.dashboard className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Dashboard"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Dashboard
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/alerts`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/alerts") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <DOMAIN_ICONS.alert className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Alerts"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Alerts
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/datasets`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.startsWith(`/projects/${projectId}/datasets`)
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
-                    )}
-                  >
-                    <Database className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Datasets"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Datasets
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`/projects/${projectId}/evaluations`}
-                    className={cn(
-                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                      collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/evaluations") ? "bg-muted" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <FlaskConical className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Evaluations"}
-                  </Link>
-                </TooltipTrigger>
-                {collapsed && (
-                  <TooltipContent side="right" sideOffset={16}>
-                    Evaluations
-                  </TooltipContent>
-                )}
-              </Tooltip>
+              <NavLink
+                item={NAV_HOME}
+                projectId={projectId}
+                pathname={pathname}
+                collapsed={collapsed}
+              />
+              {NAV_GROUPS.map((group) => (
+                <div key={group.label} role="group" aria-label={group.label}>
+                  {collapsed ? (
+                    <div className="mx-3 mt-2 border-t border-border" aria-hidden />
+                  ) : (
+                    <div className="px-3 pb-1 pt-4 font-mono text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                      {group.label}
+                    </div>
+                  )}
+                  {group.items.map((item) => (
+                    <NavLink
+                      key={item.key}
+                      item={item}
+                      projectId={projectId}
+                      pathname={pathname}
+                      collapsed={collapsed}
+                    />
+                  ))}
+                </div>
+              ))}
             </>
           ) : (
             // Default navigation (Workspaces)

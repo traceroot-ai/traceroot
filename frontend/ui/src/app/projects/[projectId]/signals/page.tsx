@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -29,8 +30,6 @@ import { buildUrlWithFilters, formatDate, cn } from "@/lib/utils";
 
 /** The list opens on open signals; removing the chip sticks (see useUrlFilters). */
 const SIGNALS_DEFAULT_FILTERS: Predicate[] = [{ field: "status", op: "in", value: ["open"] }];
-/** The time window when none is picked or stored. It counts hits; it never hides a signal. */
-const SIGNALS_DEFAULT_DATE_FILTER_ID = "7d";
 
 /** The filter chips of this list; every value is typed or picked, none is looked up in traces. */
 function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
@@ -108,7 +107,6 @@ export default function SignalsPage() {
     goToPage,
   } = useListPageState({
     defaultFilters: SIGNALS_DEFAULT_FILTERS,
-    defaultDateFilterId: SIGNALS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
   });
   // The window counts each signal's affected traces, in the list and the panel.
@@ -178,9 +176,10 @@ export default function SignalsPage() {
       <div className="relative flex h-full text-[13px]">
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-4 py-2">
-            <h1 className="text-[13px] font-medium">Signals</h1>
-          </div>
+          <PageHeader
+            title="Signals"
+            description="Patterns your detectors found in production traces."
+          />
           <div className="flex-1 overflow-auto">
             <SignalsEmptyState projectId={projectId} setup={setup.data} />
           </div>
@@ -194,9 +193,10 @@ export default function SignalsPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Signals</h1>
-        </div>
+        <PageHeader
+          title="Signals"
+          description="Patterns your detectors found in production traces."
+        />
 
         <SearchFilterBar
           searchInput={
@@ -248,7 +248,7 @@ export default function SignalsPage() {
               </div>
             )
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[48rem]">
               <thead className="sticky top-0 bg-background">
                 <tr className="border-b border-border bg-muted/50">
                   <th className={cn(TH, "w-[150px]")}>Timestamp</th>

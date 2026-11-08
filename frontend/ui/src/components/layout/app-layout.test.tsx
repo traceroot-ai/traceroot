@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { useEffect, useLayoutEffect } from "react";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
@@ -119,5 +119,46 @@ describe("AppLayout navbar AI button", () => {
       </AppLayout>,
     );
     expect(screen.queryByTitle("AI Assistant")).not.toBeNull();
+  });
+});
+
+describe("AppLayout mobile navigation", () => {
+  it("keeps the permanent sidebar desktop-only and starts with the drawer closed", () => {
+    const { container } = renderAt("/projects/p1/traces");
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+    expect(screen.getAllByTestId("sidebar")).toHaveLength(1);
+    expect(container.querySelector('[data-testid="desktop-nav"]')?.className).toContain(
+      "hidden md:block",
+    );
+  });
+
+  it("opens the sidebar as a drawer from the header button and closes it again", () => {
+    renderAt("/projects/p1/traces");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(
+      screen.getByTestId("mobile-nav").querySelector('[data-testid="sidebar"]'),
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+  });
+
+  it("closes the drawer on Escape", () => {
+    renderAt("/projects/p1/traces");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+  });
+
+  it("closes the drawer after navigating", () => {
+    const { rerender } = renderAt("/projects/p1/traces");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    mocks.pathname = "/projects/p1/signals";
+    rerender(
+      <AppLayout>
+        <div data-testid="page">page</div>
+      </AppLayout>,
+    );
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
   });
 });

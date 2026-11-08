@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -17,7 +18,12 @@ import { useToast } from "@/components/ui/toast";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { DateFilterSelect } from "@/components/date-filter-select";
-import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
+import {
+  DATE_FILTER_OPTIONS,
+  DEFAULT_DATE_FILTER,
+  toTimestampBounds,
+  type DateFilterOption,
+} from "@/lib/date-filter";
 import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
@@ -52,8 +58,6 @@ const RUNS_COLUMN_COUNT = 10;
 // picked size rides in `?page_limit=`; useUrlPagination caps it at the route's
 // maximum so the page-count math lines up with what the server returns per page.
 const RUNS_PAGE_LIMIT = 50;
-const DEFAULT_RUNS_DATE_FILTER =
-  DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
 
 /** Parses an ISO `?start=` / `?end=` param; null when absent or not a date. */
 function parseUrlDate(raw: string | null): Date | null {
@@ -85,6 +89,10 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
       <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
+      <PageHeader
+        title="Evaluations"
+        description="Runs of your agent against datasets, to verify a fix did not regress."
+      />
       <RunsTab projectId={projectId} />
     </div>
   );
@@ -192,9 +200,9 @@ function RunsTab({ projectId }: { projectId: string }) {
   // without them falls back to the default window rather than querying unbounded.
   const dateFilter = React.useMemo(() => {
     const option = DATE_FILTER_OPTIONS.find((o) => o.id === urlDateFilterId);
-    if (!option) return DEFAULT_RUNS_DATE_FILTER;
+    if (!option) return DEFAULT_DATE_FILTER;
     if (option.isCustom && !(customStart && customEnd && customStart <= customEnd)) {
-      return DEFAULT_RUNS_DATE_FILTER;
+      return DEFAULT_DATE_FILTER;
     }
     return option;
   }, [urlDateFilterId, customStart, customEnd]);
@@ -209,7 +217,7 @@ function RunsTab({ projectId }: { projectId: string }) {
   // write would rebuild from the stale params and lose the new window.
   const writeDateWindow = (id: string, start: Date | null, end: Date | null) => {
     const params = new URLSearchParams(listQuery);
-    if (id === DEFAULT_RUNS_DATE_FILTER.id) params.delete("date_filter");
+    if (id === DEFAULT_DATE_FILTER.id) params.delete("date_filter");
     else params.set("date_filter", id);
     if (start && end) {
       params.set("start", start.toISOString());

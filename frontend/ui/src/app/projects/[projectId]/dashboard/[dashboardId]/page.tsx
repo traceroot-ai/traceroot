@@ -1,5 +1,6 @@
 "use client";
 
+import { AddButton } from "@/components/ui/add-button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -17,7 +18,6 @@ import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
-import { Button } from "@/components/ui/button";
 
 export default function DashboardDetailPage() {
   const params = useParams();
@@ -143,11 +143,7 @@ export default function DashboardDetailPage() {
           <div className="flex items-center gap-2">
             {/* Held back until the detail loads so it can't act on a
                 dashboard the app doesn't know yet. */}
-            {dashboard && (
-              <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
-                ＋ Create widget
-              </Button>
-            )}
+            {dashboard && <AddButton onClick={openCreate}>New widget</AddButton>}
             <DateFilterSelect
               dateFilter={dateFilter}
               customStartDate={customStartDate}
@@ -175,9 +171,7 @@ export default function DashboardDetailPage() {
           ) : widgets.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">No widgets yet.</p>
-              <Button size="sm" className="text-[12px]" onClick={openCreate}>
-                ＋ Create widget
-              </Button>
+              <AddButton onClick={openCreate}>New widget</AddButton>
             </div>
           ) : (
             <DashboardGrid

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { projectSwitchHref } from "./index";
+import { projectSwitchHref, projectSectionLabel } from "./index";
 
 describe("projectSwitchHref", () => {
   it("preserves a top-level sub-page when switching projects", () => {
@@ -28,5 +28,25 @@ describe("projectSwitchHref", () => {
     expect(projectSwitchHref("/projects/abc", "xyz")).toBe("/projects/xyz/traces");
     expect(projectSwitchHref("/workspaces/ws-1/projects", "xyz")).toBe("/projects/xyz/traces");
     expect(projectSwitchHref("", "xyz")).toBe("/projects/xyz/traces");
+  });
+});
+
+describe("projectSectionLabel", () => {
+  it("names a top-level project section by its navigation label", () => {
+    expect(projectSectionLabel("/projects/p1/signals", "p1")).toBe("Signals");
+    expect(projectSectionLabel("/projects/p1/traces", "p1")).toBe("Tracing");
+    expect(projectSectionLabel("/projects/p1/home", "p1")).toBe("Home");
+    expect(projectSectionLabel("/projects/p1/evaluations/", "p1")).toBe("Evaluations");
+  });
+
+  it("names the tracing tabs", () => {
+    expect(projectSectionLabel("/projects/p1/users", "p1")).toBe("Users");
+    expect(projectSectionLabel("/projects/p1/sessions", "p1")).toBe("Sessions");
+  });
+
+  it("has no label for nested or unknown pages, which name themselves", () => {
+    expect(projectSectionLabel("/projects/p1/detectors/d1", "p1")).toBeUndefined();
+    expect(projectSectionLabel("/projects/p1/settings", "p1")).toBeUndefined();
+    expect(projectSectionLabel("/projects/other/signals", "p1")).toBeUndefined();
   });
 });

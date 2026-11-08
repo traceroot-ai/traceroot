@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   clampDateFilter,
   DATE_FILTER_OPTIONS,
-  DETECTORS_DEFAULT_DATE_FILTER_ID,
+  DEFAULT_DATE_FILTER,
   findDateFilterOption,
   isOptionLocked,
 } from "./date-filter";
+import * as dateFilterModule from "./date-filter";
 
 // The unlocked preset ids (durationed, non-custom) for a given retention window.
 const unlockedIds = (retentionDays: number | null) =>
@@ -13,21 +14,19 @@ const unlockedIds = (retentionDays: number | null) =>
     (o) => o.durationMinutes !== null && !isOptionLocked(o, retentionDays),
   ).map((o) => o.id);
 
-describe("DETECTORS_DEFAULT_DATE_FILTER_ID", () => {
-  it("references an id that exists in DATE_FILTER_OPTIONS", () => {
-    // Guards against the constant drifting from the option list: if the "14d"
-    // option were renamed or removed, findDateFilterOption would silently fall
-    // back to the 1d default instead of surfacing the mismatch.
-    const optionIds = DATE_FILTER_OPTIONS.map((option) => option.id);
-
-    expect(optionIds).toContain(DETECTORS_DEFAULT_DATE_FILTER_ID);
+describe("DEFAULT_DATE_FILTER", () => {
+  it("is the single 7-day default every time filter falls back to", () => {
+    expect(DEFAULT_DATE_FILTER.id).toBe("7d");
+    expect(DEFAULT_DATE_FILTER.durationMinutes).toBe(7 * 24 * 60);
+    expect(DATE_FILTER_OPTIONS).toContain(DEFAULT_DATE_FILTER);
   });
 
-  it("resolves to the 14-day window so the detectors default cannot drift to 1d", () => {
-    const option = findDateFilterOption(DETECTORS_DEFAULT_DATE_FILTER_ID);
+  it("is what an unknown id resolves to", () => {
+    expect(findDateFilterOption("nope")).toBe(DEFAULT_DATE_FILTER);
+  });
 
-    expect(option.id).toBe("14d");
-    expect(option.durationMinutes).toBe(14 * 24 * 60);
+  it("has no per-section default constants left to drift", () => {
+    expect(dateFilterModule).not.toHaveProperty("DETECTORS_DEFAULT_DATE_FILTER_ID");
   });
 });
 

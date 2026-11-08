@@ -110,7 +110,7 @@ export default function NewDetectorPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h1 className="text-[13px] font-medium">New Detector</h1>
+          <h1 className="text-[13px] font-medium">New detector</h1>
         </div>
 
         {/* Scrollable form */}

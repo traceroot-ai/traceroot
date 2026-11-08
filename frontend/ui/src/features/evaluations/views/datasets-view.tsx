@@ -1,8 +1,9 @@
 "use client";
 
+import { AddButton } from "@/components/ui/add-button";
+import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
@@ -95,12 +96,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
       <ProjectBreadcrumb projectId={projectId} current="Datasets" />
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <h1 className="text-[13px] font-medium">Datasets</h1>
-        <Button size="sm" className="h-7 text-[12px]" onClick={() => setNewOpen(true)}>
-          New Dataset
-        </Button>
-      </div>
+      <PageHeader
+        title="Datasets"
+        description="Test cases saved from your traces, used to evaluate changes."
+        actions={<AddButton onClick={() => setNewOpen(true)}>New dataset</AddButton>}
+      />
 
       {/* No date filter here: the list has no date predicate to apply one to
           (server-side search only), and a rendered-but-inert filter chip would

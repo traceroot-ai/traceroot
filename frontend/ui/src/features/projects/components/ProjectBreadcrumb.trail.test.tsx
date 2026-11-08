@@ -12,6 +12,7 @@ import { render, cleanup, screen, act } from "@testing-library/react";
 import type { BreadcrumbItem } from "@/components/layout/breadcrumb";
 
 const state = vi.hoisted(() => ({
+  pathname: "/projects/proj-1/detectors/d1",
   project: undefined as unknown,
   workspace: undefined as unknown,
   workspaces: undefined as unknown,
@@ -22,7 +23,7 @@ vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHeaderContent: state.setHeaderContent }),
 }));
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/projects/proj-1/traces",
+  usePathname: () => state.pathname,
 }));
 vi.mock("../hooks", () => ({ useProject: () => ({ data: state.project }) }));
 vi.mock("@/features/workspaces/hooks", () => ({
@@ -65,7 +66,10 @@ beforeEach(() => {
   ];
   state.setHeaderContent.mockClear();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  state.pathname = "/projects/proj-1/detectors/d1";
+});
 
 describe("ProjectBreadcrumb trail", () => {
   it("pushes the workspace and project segments", () => {
@@ -77,6 +81,21 @@ describe("ProjectBreadcrumb trail", () => {
     expect(items[1].label).toBe("Billing");
     // Nothing follows it, so the project is the current page and not a link.
     expect(items[1].href).toBeUndefined();
+  });
+
+  it("names a top-level section when the caller passes no label", () => {
+    state.pathname = "/projects/proj-1/signals";
+    render(<ProjectBreadcrumb projectId="proj-1" />);
+    const items = pushedItems();
+    expect(items.map((i) => i.label)).toEqual(["Acme", "Billing", "Signals"]);
+    expect(items[1].href).toBe("/projects/proj-1/traces");
+    expect(items[2].href).toBeUndefined();
+  });
+
+  it("prefers the caller's label over the derived one", () => {
+    state.pathname = "/projects/proj-1/signals";
+    render(<ProjectBreadcrumb projectId="proj-1" current="Custom" />);
+    expect(pushedItems().map((i) => i.label)).toEqual(["Acme", "Billing", "Custom"]);
   });
 
   it("renders placeholder labels while the data loads", () => {

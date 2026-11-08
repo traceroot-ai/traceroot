@@ -70,7 +70,7 @@ describe("resourceCardModel", () => {
       created: true,
       title: "Tokens by model",
       href: "/projects/p1/dashboard/db1",
-      meta: ["Widget", "Last 24 hours"],
+      meta: ["Widget", "Last 7 days"],
       body: {
         kind: "widget",
         chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
@@ -162,7 +162,7 @@ describe("resourceCardModel", () => {
       created: true,
       title: "Latency overview",
       href: "/projects/p1/dashboard/db1",
-      meta: ["Dashboard", "2 widgets", "Last 24 hours"],
+      meta: ["Dashboard", "2 widgets", "Last 7 days"],
       body: {
         kind: "dashboard",
         tiles: [
@@ -202,7 +202,7 @@ describe("resourceCardModel", () => {
     expect(resourceCardModel(dashboard, new Map([["db1", [widgetStep()]]]))?.meta).toEqual([
       "Dashboard",
       "1 widget",
-      "Last 24 hours",
+      "Last 7 days",
     ]);
     expect(resourceCardModel(dashboard)?.meta).toEqual(["Dashboard"]);
   });
@@ -615,7 +615,7 @@ describe("alert cards", () => {
       created: true,
       title: "p95 latency over 2s",
       href: "/projects/p1/alerts/al1",
-      meta: ["Alert", "Last 24 hours"],
+      meta: ["Alert", "Last 7 days"],
       description: "p95 latency over 10 minutes is above 2,000 ms",
       badge: {
         status: "ACTIVE",
@@ -781,7 +781,7 @@ describe("alert cards", () => {
       created: true,
       title: "p95 latency over 2s",
       href: null,
-      meta: ["Alert", "Last 24 hours"],
+      meta: ["Alert", "Last 7 days"],
       description: "p95 latency over 10 minutes is above 2,000 ms",
       body: {
         kind: "alert",
@@ -1046,7 +1046,7 @@ describe("readCardModel", () => {
         created: true,
         title: "Error rate spike",
         href: "/projects/p1/alerts/al-2",
-        meta: ["Alert", "Last 24 hours"],
+        meta: ["Alert", "Last 7 days"],
         description: "span count over 5 minutes is at or above 25",
         badge: {
           status: "ACTIVE",
@@ -1246,9 +1246,9 @@ describe("dashboard preview tiles", () => {
   });
 
   it("labels the card's window whenever a tile will query it — a feed included", () => {
-    expect(dashboardModel([query("w1", "p95")])?.meta).toContain("Last 24 hours");
-    expect(dashboardModel([feed("w1", "Recent")])?.meta).toContain("Last 24 hours");
-    expect(dashboardModel([])?.meta).not.toContain("Last 24 hours");
+    expect(dashboardModel([query("w1", "p95")])?.meta).toContain("Last 7 days");
+    expect(dashboardModel([feed("w1", "Recent")])?.meta).toContain("Last 7 days");
+    expect(dashboardModel([])?.meta).not.toContain("Last 7 days");
   });
 
   it("has no tiles when the transcript created no widgets in the dashboard", () => {
@@ -1432,7 +1432,7 @@ describe("pendingCardModel", () => {
       created: true,
       title: "Tokens by model",
       href: null,
-      meta: ["Widget", "Last 24 hours"],
+      meta: ["Widget", "Last 7 days"],
       body: {
         kind: "widget",
         chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
@@ -1747,7 +1747,7 @@ describe("meta window label follows the site's stored range", () => {
 
   it("keeps the default label for an unknown stored id", () => {
     stubStoredRange("p1", "eleventy");
-    expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 24 hours"]);
+    expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 7 days"]);
   });
 });
 
@@ -2140,7 +2140,7 @@ describe("pendingCardModel — updates", () => {
         },
       },
     });
-    expect(widget?.meta).toEqual(["Widget", "Last 24 hours"]);
+    expect(widget?.meta).toEqual(["Widget", "Last 7 days"]);
   });
 
   it("previews an alert's edited rule merged over the cached one, badged with its live state", () => {
@@ -2174,7 +2174,7 @@ describe("pendingCardModel — updates", () => {
     });
     expect(model?.description).toBe("p95 latency over 10 minutes is above 3,000 ms");
     expect(model?.badge).toMatchObject({ status: "ACTIVE", severity: "ALERT" });
-    expect(model?.meta).toEqual(["Alert", "Last 24 hours"]);
+    expect(model?.meta).toEqual(["Alert", "Last 7 days"]);
   });
 
   it("reads a status change as an alert update with one chip and no chart", () => {
@@ -2594,7 +2594,7 @@ describe("readCardModel: widget and dashboard reads", () => {
   });
 
   it("labels a preset read by its span, however long ago it was answered", () => {
-    // Reopened days later, "Last 24 hours" would describe a window the chart
+    // Reopened days later, "Last 7 days" would describe a window the chart
     // does not show.
     vi.setSystemTime(new Date("2026-09-14T12:00:00Z"));
     const window = {

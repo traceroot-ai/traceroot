@@ -1,5 +1,7 @@
 "use client";
 
+import { AddButton } from "@/components/ui/add-button";
+import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -21,7 +23,6 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-return";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
-import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
@@ -92,7 +93,6 @@ export default function DetectorsPage() {
     goToPage,
     clampToTotal,
   } = useListPageState({
-    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
   });
 
@@ -182,16 +182,15 @@ export default function DetectorsPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Detectors</h1>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-          >
-            New Detector
-          </Button>
-        </div>
+        <PageHeader
+          title="Detectors"
+          description="Detectors scan your traces for problems and open signals."
+          actions={
+            <AddButton onClick={() => router.push(`/projects/${projectId}/detectors/new`)}>
+              New detector
+            </AddButton>
+          }
+        />
 
         {/* Search / time-range filter */}
         <SearchFilterBar
@@ -224,13 +223,12 @@ export default function DetectorsPage() {
               <p className="text-[12px] text-muted-foreground">
                 Create a detector to automatically analyze your traces.
               </p>
-              <Button
-                size="sm"
-                className="mt-1 h-7 text-[12px]"
+              <AddButton
+                className="mt-1"
                 onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
               >
-                New Detector
-              </Button>
+                New detector
+              </AddButton>
             </div>
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
@@ -247,7 +245,7 @@ export default function DetectorsPage() {
               </Button>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[48rem]">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">

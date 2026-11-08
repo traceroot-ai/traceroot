@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { useMemo, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -100,6 +101,10 @@ export default function UsersPage() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col">
+        <PageHeader
+          title="Tracing"
+          description="Every run of your agent, with its users and sessions."
+        />
         {/* Tab navigation */}
         <div className="border-b border-border bg-background">
           <div className="flex">
@@ -163,7 +168,7 @@ export default function UsersPage() {
           ) : (
             <div className="flex h-full flex-col">
               <div ref={listRef} className="flex-1 overflow-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[48rem]">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
                       <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">

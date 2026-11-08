@@ -35,7 +35,7 @@ vi.mock("@/features/dashboards/hooks/use-widget-data", () => ({
   useWidgetPreview: mocks.useWidgetPreview,
 }));
 
-import { AlertPreview } from "./alert-preview";
+import { AlertPreview, previewDefaultFilter } from "./alert-preview";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 
 type PreviewOverrides = Partial<React.ComponentProps<typeof AlertPreview>>;
@@ -209,5 +209,16 @@ describe("AlertPreview", () => {
     });
     renderPreview();
     expect(screen.getByText("Preview failed to load.")).toBeTruthy();
+  });
+});
+
+describe("previewDefaultFilter", () => {
+  it("keeps the shared default when its window fits the rule's bucket count", () => {
+    expect(previewDefaultFilter(60 * 60 * 1000)?.id).toBe("7d");
+  });
+
+  it("falls back to the widest preset that still fits a short bucket", () => {
+    // 10-minute buckets: 500 of them cover about 3.4 days, so 7d is too wide.
+    expect(previewDefaultFilter(10 * 60 * 1000)?.id).toBe("1d");
   });
 });

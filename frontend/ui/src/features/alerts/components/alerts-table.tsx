@@ -33,7 +33,7 @@ export function AlertsTable({
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
 
   return (
-    <table className="w-full">
+    <table className="w-full min-w-[48rem]">
       <thead>
         <tr className="border-b border-border bg-muted/50">
           <th className={cn(DETECTOR_TH, "w-[110px]")}>Severity</th>

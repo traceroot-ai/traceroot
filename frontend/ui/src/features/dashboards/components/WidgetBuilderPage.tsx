@@ -338,7 +338,7 @@ export function WidgetBuilderPage({
                     onClick={handleAddFilter}
                     className="mt-0.5 self-start text-[11.5px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    ＋ Add filter
+                    Add filter
                   </button>
                 </div>
               </div>

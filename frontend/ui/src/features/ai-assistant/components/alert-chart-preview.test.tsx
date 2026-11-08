@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { DEFAULT_DATE_FILTER } from "@/lib/date-filter";
+import { DEFAULT_DATE_FILTER, findDateFilterOption } from "@/lib/date-filter";
 import type { AlertChart } from "../lib/resource-card";
 
 const mocks = vi.hoisted(() => ({
@@ -65,7 +65,7 @@ const CHART: AlertChart = {
   threshold: 2000,
   filters: [{ field: "environment", op: "=", value: "production" }],
   projectId: "p1",
-  range: DEFAULT_DATE_FILTER,
+  range: findDateFilterOption("1d"),
 };
 
 const DATA = {

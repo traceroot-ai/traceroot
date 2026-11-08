@@ -60,7 +60,7 @@ export function CreateWorkspaceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!isControlled && (
-        <DialogTrigger asChild>{trigger || <AddButton>New Workspace</AddButton>}</DialogTrigger>
+        <DialogTrigger asChild>{trigger || <AddButton>New workspace</AddButton>}</DialogTrigger>
       )}
       <DialogContent>
         <form onSubmit={handleSubmit}>

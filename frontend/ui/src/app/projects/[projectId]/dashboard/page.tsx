@@ -1,5 +1,7 @@
 "use client";
 
+import { AddButton } from "@/components/ui/add-button";
+import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -96,16 +98,15 @@ export default function DashboardIndexPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex h-[45px] shrink-0 items-center justify-between border-b border-border px-4">
-          <h1 className="text-[13px] font-medium">Dashboards</h1>
-          <Button size="sm" className="h-7 text-[12px]" onClick={() => setCreateOpen(true)}>
-            ＋ New dashboard
-          </Button>
-        </div>
+        <PageHeader
+          title="Dashboards"
+          description="Charts of cost, latency and usage across your traces."
+          actions={<AddButton onClick={() => setCreateOpen(true)}>New dashboard</AddButton>}
+        />
 
         {/* List */}
         <div className="flex-1 overflow-auto bg-background">
-          <table className="w-full">
+          <table className="w-full min-w-[48rem]">
             <thead className="sticky top-0 bg-background">
               <tr className="border-b border-border bg-muted/50">
                 <th className="w-[16rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">

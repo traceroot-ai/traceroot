@@ -21,8 +21,16 @@ export const TD_NUM = cn(TD, "text-right tabular-nums");
 /** Monospace identifier cell. */
 export const TD_ID = cn(TD, "font-mono text-[11px] text-muted-foreground");
 
+/**
+ * List tables never shrink below this: a narrower screen scrolls the table
+ * inside its container instead of crushing the columns.
+ */
+export const LIST_TABLE_MIN_WIDTH = "min-w-[48rem]";
+
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
-  return <table className={cn("w-full border-collapse", className)} {...props} />;
+  return (
+    <table className={cn("w-full border-collapse", LIST_TABLE_MIN_WIDTH, className)} {...props} />
+  );
 }
 
 export function THead({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {

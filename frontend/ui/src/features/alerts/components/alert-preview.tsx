@@ -34,7 +34,7 @@ import {
 import { SERIES_COLORS } from "@/features/dashboards/series-colors";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { makeRange } from "@/features/dashboards/range-presets";
-import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
 import {
   getAlertUnitForSource,
@@ -68,6 +68,19 @@ const DAY_MS = 86_400_000;
 // Mirrors MAX_EXPLICIT_BUCKETS in backend/rest/services/widget_query.py, which
 // rejects a range the rule's window divides into more points than this.
 export const MAX_PREVIEW_BUCKETS = 500;
+
+/**
+ * The window a preview opens on: the shared default, or when that holds too
+ * many buckets for the rule's grain, the widest preset that still fits, so the
+ * chart keeps the rule's own bucket until the user picks another window.
+ */
+export function previewDefaultFilter(bucketMs: number): DateFilterOption {
+  const fits = (o: DateFilterOption) =>
+    o.durationMinutes !== null && o.durationMinutes * 60_000 <= bucketMs * MAX_PREVIEW_BUCKETS;
+  if (fits(DEFAULT_DATE_FILTER)) return DEFAULT_DATE_FILTER;
+  const presets = DATE_FILTER_OPTIONS.filter(fits);
+  return presets.length > 0 ? presets[presets.length - 1] : DEFAULT_DATE_FILTER;
+}
 
 function rangeFor(
   option: DateFilterOption,
@@ -267,7 +280,8 @@ export function AlertPreview({
 }: AlertPreviewProps) {
   const spec = buildPreviewSpec(view, measureId, aggregation, filters);
   const bucketMs = ALERT_WINDOWS[window];
-  const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
+  const [pickedFilter, setDateFilter] = useState<DateFilterOption | null>(null);
+  const dateFilter = pickedFilter ?? previewDefaultFilter(bucketMs);
   const [customStart, setCustomStart] = useState<Date | null>(null);
   const [customEnd, setCustomEnd] = useState<Date | null>(null);
   const range = useMemo(

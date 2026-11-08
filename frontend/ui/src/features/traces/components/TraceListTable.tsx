@@ -69,7 +69,7 @@ export function TraceListTable({
   const hasColumns = visibleColumns.length > 0;
 
   return (
-    <table className={cn("w-full", hasAddedColumns && ADDED_COLUMN_TABLE_MIN_WIDTH)}>
+    <table className={cn("w-full min-w-[48rem]", hasAddedColumns && ADDED_COLUMN_TABLE_MIN_WIDTH)}>
       {/* Every column can be hidden, so the header row is omitted rather than left empty. */}
       {hasColumns && (
         <thead className="sticky top-0 bg-background">

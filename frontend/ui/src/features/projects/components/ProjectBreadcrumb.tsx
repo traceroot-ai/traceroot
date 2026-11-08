@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useProject } from "../hooks";
-import { projectSwitchHref } from "../utils";
+import { projectSectionLabel, projectSwitchHref } from "../utils";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
 import { useWorkspace, useWorkspaces } from "@/features/workspaces/hooks";
@@ -50,6 +50,9 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
   // Depend on the trail's content, not its array identity, so an inline-literal
   // trail from a caller doesn't re-run the effect (and re-set the header) each render.
   const trailKey = JSON.stringify(trail ?? []);
+  // Top-level pages name themselves in the header even when the caller passes no label.
+  const currentLabel =
+    current ?? (trail?.length ? undefined : projectSectionLabel(pathname, projectId));
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
@@ -68,7 +71,7 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
       },
       {
         label: project?.name || "...",
-        href: current || trail?.length ? `/projects/${projectId}/traces` : undefined,
+        href: currentLabel || trail?.length ? `/projects/${projectId}/traces` : undefined,
         options: workspace?.projects?.map((p) => ({
           id: p.id,
           label: p.name,
@@ -88,15 +91,24 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
       breadcrumbItems.push(segment);
     }
 
-    if (current) {
-      breadcrumbItems.push({ label: current });
+    if (currentLabel) {
+      breadcrumbItems.push({ label: currentLabel });
     }
 
     setHeaderContent(<Breadcrumb items={breadcrumbItems} />);
     return () => setHeaderContent(null);
     // trailKey encodes `trail`'s content (see above); listing trail itself would churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setHeaderContent, project, workspace, workspaces, projectId, current, trailKey, pathname]);
+  }, [
+    setHeaderContent,
+    project,
+    workspace,
+    workspaces,
+    projectId,
+    currentLabel,
+    trailKey,
+    pathname,
+  ]);
 
   return (
     <>

@@ -174,14 +174,14 @@ describe("DashboardDetailPage", () => {
   it("shows the active range preset label", () => {
     renderPage();
     // Same default as the trace list (DEFAULT_DATE_FILTER = 24 hours).
-    expect(screen.getByRole("button", { name: "Last 24 hours" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Last 7 days" })).toBeTruthy();
   });
 
   it("pushes to the widgets/new route from the header create-widget button", () => {
     renderPage();
     // The empty-state CTA renders the same label, so target the header button
     // (the first one in document order) specifically.
-    const [headerButton] = screen.getAllByRole("button", { name: "＋ Create widget" });
+    const [headerButton] = screen.getAllByRole("button", { name: "New widget" });
     fireEvent.click(headerButton);
     expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d1/widgets/new");
   });
@@ -190,7 +190,7 @@ describe("DashboardDetailPage", () => {
     renderPage();
     expect(screen.getByText("No widgets yet.")).toBeTruthy();
 
-    const buttons = screen.getAllByRole("button", { name: "＋ Create widget" });
+    const buttons = screen.getAllByRole("button", { name: "New widget" });
     expect(buttons.length).toBe(2);
 
     fireEvent.click(buttons[1]);
@@ -201,7 +201,7 @@ describe("DashboardDetailPage", () => {
     mockDetail({ ...DASH_B, layout: [], widgets: [WIDGET] });
     renderPage();
 
-    expect(screen.getAllByRole("button", { name: "＋ Create widget" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "New widget" }).length).toBe(1);
     expect(lastGridProps?.readOnly).toBeUndefined();
   });
 
@@ -209,7 +209,7 @@ describe("DashboardDetailPage", () => {
     mockDetail(undefined);
     renderPage();
 
-    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New widget" })).toBeNull();
   });
 
   it("offers no delete affordance — deleting lives in the list page's row actions", () => {
@@ -220,8 +220,8 @@ describe("DashboardDetailPage", () => {
 
   it("renders the create-widget button before the time-range control", () => {
     renderPage();
-    const create = screen.getAllByRole("button", { name: "＋ Create widget" })[0];
-    const range = screen.getByRole("button", { name: "Last 24 hours" });
+    const create = screen.getAllByRole("button", { name: "New widget" })[0];
+    const range = screen.getByRole("button", { name: "Last 7 days" });
     expect(create.compareDocumentPosition(range) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -274,7 +274,7 @@ describe("DashboardDetailPage", () => {
     renderPage();
 
     expect(screen.getByText("Loading…")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New widget" })).toBeNull();
   });
 
   it("passes widgets, layout and range to the grid and wires edit/delete", () => {

@@ -174,7 +174,7 @@ describe("runs list page memory", () => {
     nav.search = search;
     const before = Date.now();
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText("Last 14 days")).toBeDefined();
+    expect(await screen.findByText("Last 7 days")).toBeDefined();
     await screen.findByText(/of 120/);
     const startedAfter = Date.parse(lastRunsRequest().get("started_after")!);
     const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
@@ -185,7 +185,7 @@ describe("runs list page memory", () => {
   it("applying a custom range writes the URL once, with both bounds", async () => {
     nav.search = "page_index=2";
     mount(<EvaluationsView projectId="p1" />);
-    fireEvent.click(await screen.findByText("Last 14 days"));
+    fireEvent.click(await screen.findByText("Last 7 days"));
     fireEvent.click(await screen.findByRole("button", { name: "Custom" }));
     fireEvent.click(await screen.findByRole("button", { name: "Apply stub range" }));
     expect(nav.replace).toHaveBeenCalledTimes(1);
@@ -269,9 +269,9 @@ describe("runs list page memory", () => {
   it("changing the date window writes it to the URL and drops the page", async () => {
     nav.search = "page_index=2";
     mount(<EvaluationsView projectId="p1" />);
-    fireEvent.click(await screen.findByText("Last 14 days"));
     fireEvent.click(await screen.findByText("Last 7 days"));
-    expect(nav.replace).toHaveBeenCalledWith("/projects/p1/evaluations?date_filter=7d", {
+    fireEvent.click(await screen.findByText("Last 14 days"));
+    expect(nav.replace).toHaveBeenCalledWith("/projects/p1/evaluations?date_filter=14d", {
       scroll: false,
     });
   });

@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -192,6 +193,10 @@ export default function TracesPage() {
 
       {/* Main content */}
       <div className="flex min-w-0 flex-1 flex-col">
+        <PageHeader
+          title="Tracing"
+          description="Every run of your agent, with its users and sessions."
+        />
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">

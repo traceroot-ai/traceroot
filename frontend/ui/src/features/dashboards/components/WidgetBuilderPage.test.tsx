@@ -169,7 +169,7 @@ describe("WidgetBuilderPage", () => {
 
     // The preset-only dropdown can't express custom: default preview window,
     // stored preference preserved for the pages that can render it.
-    expect(screen.getByText("Last 24 hours")).toBeTruthy();
+    expect(screen.getByText("Last 7 days")).toBeTruthy();
     expect(readStoredDateFilter("p1")).toEqual(custom);
   });
 
@@ -398,7 +398,7 @@ describe("WidgetBuilderPage", () => {
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
     expect(screen.queryByText("Field")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "＋ Add filter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
     expect(screen.getByText("Field")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));

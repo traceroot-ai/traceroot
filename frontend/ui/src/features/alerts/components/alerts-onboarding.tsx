@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Check, Plus } from "lucide-react";
+import { addButtonClassName } from "@/components/ui/add-button";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
 import { SlackIntegrationLink } from "./slack-integration-link";
@@ -68,12 +69,9 @@ export function AlertsOnboarding({ projectId }: AlertsOnboardingProps) {
           title="Create an alert"
           description="Choose a metric — latency, cost, or token usage — and the threshold that triggers the alert."
         >
-          <Link
-            href={`/projects/${projectId}/alerts/new`}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            New Alert
+          <Link href={`/projects/${projectId}/alerts/new`} className={addButtonClassName()}>
+            <Plus className="h-3 w-3" aria-hidden="true" />
+            New alert
           </Link>
         </Step>
       </div>

@@ -112,17 +112,17 @@ describe("useUrlDateFilter persistence", () => {
   });
 
   it("resets pagination when restoring changes the effective window", async () => {
-    localStorage.setItem(KEY, JSON.stringify({ id: "7d" }));
+    localStorage.setItem(KEY, JSON.stringify({ id: "1d" }));
     const onFilterChange = vi.fn();
 
     const { result } = renderHook(() => useUrlDateFilter(onFilterChange));
 
-    await waitFor(() => expect(result.current.dateFilter.id).toBe("7d"));
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("1d"));
     expect(onFilterChange).toHaveBeenCalledTimes(1);
   });
 
   it("does not fire the change callback when the stored value matches the default", () => {
-    localStorage.setItem(KEY, JSON.stringify({ id: "1d" }));
+    localStorage.setItem(KEY, JSON.stringify({ id: "7d" }));
     const onFilterChange = vi.fn();
 
     renderHook(() => useUrlDateFilter(onFilterChange));
@@ -142,7 +142,7 @@ describe("useUrlDateFilter persistence", () => {
 
     const { result } = renderHook(() => useUrlDateFilter());
 
-    await waitFor(() => expect(result.current.dateFilter.id).toBe("1d"));
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("7d"));
     expect(result.current.customStartDate).toBeNull();
   });
 
@@ -193,7 +193,7 @@ describe("useUrlDateFilter persistence", () => {
 
     // Nothing to adopt: stays at the shared default instead of a broken custom.
     await waitFor(() =>
-      expect(result.current.dateFilter.id).toBe(DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!.id),
+      expect(result.current.dateFilter.id).toBe(DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!.id),
     );
     expect(result.current.customStartDate).toBeNull();
   });

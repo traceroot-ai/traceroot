@@ -14,7 +14,6 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { listReturnHrefWithDateWindow, useListReturnHref } from "@/lib/hooks/use-list-return";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
-import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
@@ -84,7 +83,6 @@ export default function DetectorDetailPage() {
     updateLimit,
     goToPage,
   } = useListPageState({
-    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
   });
 

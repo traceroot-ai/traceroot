@@ -252,7 +252,7 @@ describe("DashboardPreview", () => {
     const [, start, end] = feed.textContent!.match(/^p1:(\d+)-(\d+)$/)!;
     const floored = quantizeRange({ start: new Date(Number(start)), end: new Date(Number(end)) });
     expect(vi.mocked(api.runWidgetQuery).mock.calls[0][2]).toEqual(floored);
-    expect(Number(end) - Number(start)).toBe(24 * 60 * 60 * 1000);
+    expect(Number(end) - Number(start)).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it("draws a widget the read could not answer as its reason, querying nothing for it", async () => {
@@ -304,7 +304,7 @@ describe("DashboardPreview", () => {
     expect(api.runWidgetQuery).not.toHaveBeenCalled();
   });
 
-  it("freezes one shared window across every tile, the default 24 hours", async () => {
+  it("freezes one shared window across every tile, the default 7 days", async () => {
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
     const { client, rerenderPreview } = renderPreview([tile(), tile({ id: "w2", x: 6 })]);
     scrollIntoView();
@@ -313,7 +313,7 @@ describe("DashboardPreview", () => {
     const [first, second] = vi.mocked(api.runWidgetQuery).mock.calls.map((c) => c[2]);
     expect(first.start.getTime()).toBe(second.start.getTime());
     expect(first.end.getTime()).toBe(second.end.getTime());
-    expect(first.end.getTime() - first.start.getTime()).toBe(24 * 60 * 60 * 1000);
+    expect(first.end.getTime() - first.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
 
     // The freeze holds beyond the first render: minutes later, a re-render
     // plus a forced refetch still queries the window frozen at first

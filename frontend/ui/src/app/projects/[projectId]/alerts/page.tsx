@@ -1,5 +1,7 @@
 "use client";
 
+import { AddButton } from "@/components/ui/add-button";
+import { PageHeader } from "@/components/layout/page-header";
 import { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { hasOutstandingAlertPage } from "@traceroot/core";
@@ -89,26 +91,27 @@ export default function AlertsPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Alerts</h1>
-          {showListChrome && (
-            <div className="flex items-center gap-3">
-              {capacity && isAlertCapacityLow(capacity) && (
-                <span className="text-[12px] text-muted-foreground">
-                  {capacity.used} of {capacity.max} alerts used
-                </span>
-              )}
-              <Button
-                size="sm"
-                className="h-7 text-[12px]"
-                disabled={isAtAlertCapacity(capacity)}
-                onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
-              >
-                New Alert
-              </Button>
-            </div>
-          )}
-        </div>
+        <PageHeader
+          title="Alerts"
+          description="Get notified when a metric crosses a threshold."
+          actions={
+            showListChrome && (
+              <>
+                {capacity && isAlertCapacityLow(capacity) && (
+                  <span className="text-[12px] text-muted-foreground">
+                    {capacity.used} of {capacity.max} alerts used
+                  </span>
+                )}
+                <AddButton
+                  disabled={isAtAlertCapacity(capacity)}
+                  onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
+                >
+                  New alert
+                </AddButton>
+              </>
+            )
+          }
+        />
 
         {/* No date filter: an alert is configuration, and the list endpoint
             takes no time range. */}

@@ -44,7 +44,8 @@ export function isOptionLocked(
   return option.durationMinutes / (60 * 24) > retentionDays;
 }
 
-export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!;
+/** The one default range for every time filter; no page picks its own. */
+export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!;
 
 export function clampDateFilter(
   option: DateFilterOption,
@@ -60,14 +61,6 @@ export function clampDateFilter(
   );
   return unlocked.length > 0 ? unlocked[unlocked.length - 1] : DEFAULT_DATE_FILTER;
 }
-
-/**
- * Default date filter for the detectors section (findings/runs lists). Detectors
- * default to a wider window than the other list pages, so the id is centralized
- * here and shared by both the detectors list and detail pages — a single source
- * of truth that keeps their fallback ranges from drifting apart.
- */
-export const DETECTORS_DEFAULT_DATE_FILTER_ID = "14d";
 
 /**
  * Convert a date filter option to timestamp bounds.

@@ -173,7 +173,7 @@ describe("WidgetChartPreview", () => {
 
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
     const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
-    expect(range.end.getTime() - range.start.getTime()).toBe(24 * 60 * 60 * 1000);
+    expect(range.end.getTime() - range.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it("refires no query on window focus — the preview is a frozen receipt", async () => {
