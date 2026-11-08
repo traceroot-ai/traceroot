@@ -10,6 +10,14 @@ import {
   type AggregatesClientConfig,
 } from "./aggregates-client.js";
 import type { SlackPoster } from "./deliver.js";
+import type { CodeChangesDeps } from "./code/code-changes.js";
+import { DEFAULT_REPO_LIMITS } from "./code/repo-reader.js";
+import {
+  DaytonaSandboxProvider,
+  DockerSandboxProvider,
+  type SandboxProvider,
+} from "./code/sandbox.js";
+import { internalTokenProvider } from "./code/token.js";
 import { resolveUpdateModel } from "./model.js";
 import type { AgentStageDeps } from "./stage.js";
 
@@ -77,11 +85,66 @@ function faultyEmail(send: typeof sendEmail): typeof sendEmail {
   };
 }
 
+/**
+ * The sandbox provider for the code changes section: Daytona when it has a key
+ * (the production arrangement), Docker where asked for (development), otherwise
+ * none, in which case the section runs on the host's metadata alone and says so.
+ */
+export async function sandboxProviderFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<SandboxProvider | null> {
+  const wanted = (env.UPDATE_SANDBOX ?? (env.DAYTONA_API_KEY ? "daytona" : "none")).toLowerCase();
+  if (wanted === "docker") {
+    return new DockerSandboxProvider({
+      cloneNetwork: env.UPDATE_SANDBOX_CLONE_NETWORK === "host" ? "host" : "bridge",
+      limits: env.UPDATE_SANDBOX_LIMITS === "none" ? {} : undefined,
+    });
+  }
+  if (wanted === "daytona" && env.DAYTONA_API_KEY) {
+    const { Daytona } = await import("@daytonaio/sdk");
+    const daytona = new Daytona({
+      apiKey: env.DAYTONA_API_KEY,
+      apiUrl: "https://app.daytona.io/api",
+      target: "us",
+    });
+    return new DaytonaSandboxProvider(daytona as never);
+  }
+  return null;
+}
+
+export function codeChangesDepsFromEnv(
+  provider: SandboxProvider | null,
+  env: NodeJS.ProcessEnv = process.env,
+): CodeChangesDeps {
+  const stubToken = env.UPDATE_GITHUB_STUB_TOKEN;
+  return {
+    provider,
+    github: { baseUrl: env.UPDATE_GITHUB_API_BASE_URL || "https://api.github.com" },
+    log: (line) => console.log(`[Updates] code ${line}`),
+    // A stand-in API issues its own token; the real path asks the app for an installation token.
+    tokenFor: stubToken
+      ? async () => stubToken
+      : internalTokenProvider({
+          appBaseUrl: env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+          internalSecret: env.INTERNAL_API_SECRET || "",
+        }),
+    limits: {
+      cloneTimeoutSec:
+        Number(env.UPDATE_CLONE_TIMEOUT_SECONDS) || DEFAULT_REPO_LIMITS.cloneTimeoutSec,
+      maxRepoBytes:
+        (Number(env.UPDATE_CLONE_MAX_MB) || DEFAULT_REPO_LIMITS.maxRepoBytes / 1048576) * 1048576,
+      maxArchiveBytes: DEFAULT_REPO_LIMITS.maxArchiveBytes,
+    },
+  };
+}
+
 /** The agent, its tools and delivery wired to the real services. */
 export function buildAgentStageDeps(
   config: AggregatesClientConfig = aggregatesConfigFromEnv(),
+  sandbox: SandboxProvider | null = null,
 ): AgentStageDeps {
   return {
+    codeChanges: codeChangesDepsFromEnv(sandbox),
     resolveModel: (project) => resolveUpdateModel(project),
     complete: complete as AgentStageDeps["complete"],
     log: process.env.UPDATE_AGENT_DEBUG

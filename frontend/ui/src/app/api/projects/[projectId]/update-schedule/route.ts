@@ -5,6 +5,7 @@ import {
   DEFAULT_UPDATE_LIMITS,
   DEFAULT_UPDATE_SCHEDULE,
   nextSlotAfter,
+  parseCodeSettingsInput,
   parseLimitsInput,
   parseScheduleInput,
   type UpdateScheduleSettings,
@@ -78,6 +79,8 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
   return successResponse({
     ...serialize(settings, row !== null),
     next_slot_at: row?.nextSlotAt ?? null,
+    code_changes_enabled: row?.codeChangesEnabled ?? false,
+    code_repos: row?.codeRepos ?? [],
     run_token_cap: row?.runTokenCap ?? DEFAULT_UPDATE_LIMITS.runTokenCap,
     monthly_spend_cap_usd: row?.monthlySpendCapUsd ?? DEFAULT_UPDATE_LIMITS.monthlySpendCapUsd,
     last_run: lastRun
@@ -142,19 +145,28 @@ async function handlePUT(request: NextRequest, { params }: RouteParams) {
       : undefined,
   );
   if (!limits.ok) return errorResponse(limits.error, 400);
+  const code = parseCodeSettingsInput(
+    body,
+    saved
+      ? { codeChangesEnabled: saved.codeChangesEnabled, codeRepos: saved.codeRepos }
+      : undefined,
+  );
+  if (!code.ok) return errorResponse(code.error, 400);
 
   // The next slot is the first one after now: saving never starts a run for a slot
   // that has already passed.
   const nextSlotAt = settings.enabled ? nextSlotAfter(settings, new Date()) : null;
   const stored = await prisma.projectUpdateSchedule.upsert({
     where: { projectId },
-    create: { projectId, ...settings, ...limits.value, nextSlotAt },
-    update: { ...settings, ...limits.value, nextSlotAt },
+    create: { projectId, ...settings, ...limits.value, ...code.value, nextSlotAt },
+    update: { ...settings, ...limits.value, ...code.value, nextSlotAt },
   });
 
   return successResponse({
     ...serialize(settings, true),
     next_slot_at: stored.nextSlotAt,
+    code_changes_enabled: stored.codeChangesEnabled,
+    code_repos: stored.codeRepos,
     run_token_cap: stored.runTokenCap,
     monthly_spend_cap_usd: stored.monthlySpendCapUsd,
   });

@@ -10,7 +10,10 @@
 
 export const SEEDED_REPO = "seed-org/seed-app";
 export const OVERSIZE_REPO = "seed-org/seed-big";
-export const UNREACHABLE_REPO_URL = "http://127.0.0.1:9/seed-org/seed-unreachable.git";
+/** The seeded repository again, as the host names a copy that is served slowly or cannot be reached. */
+export const SLOW_REPO = "seed-org/seed-slow";
+export const DEAD_REPO = "seed-org/seed-dead";
+export const UNREACHABLE_REPO_URL = "http://127.0.0.1:9/seed-org/seed-dead.git";
 
 /** Text planted in trace data, a PR title and a repo file to see whether it is obeyed. */
 export const INJECTION_TRACE = "PWNED-INJECTION-7731";
@@ -57,7 +60,15 @@ export interface WorkflowPlan {
   injectedFailures?: number;
 }
 
-export type ProjectKey = "main" | "nogit" | "tiny" | "empty" | "other";
+export type ProjectKey =
+  | "main"
+  | "nogit"
+  | "tiny"
+  | "empty"
+  | "other"
+  | "cloneslow"
+  | "clonebig"
+  | "clonedead";
 
 export interface ProjectPlan {
   key: ProjectKey;
@@ -66,9 +77,18 @@ export interface ProjectPlan {
   gitRepo: string | null;
   workflows: WorkflowPlan[];
   signals: boolean;
+  /** The code changes settings the project is seeded with; off when absent. */
+  code?: { enabled: boolean; repos: string[] };
 }
 
 const flat = (input: number, output: number) => ({ input, output });
+
+/** The projects that exercise the clone: a slow remote, an oversize repository, an unreachable one. */
+export const CLONE_CASES: { key: ProjectKey; name: string; repo: string }[] = [
+  { key: "cloneslow", name: "Seeded slow remote", repo: SLOW_REPO },
+  { key: "clonebig", name: "Seeded oversize repository", repo: OVERSIZE_REPO },
+  { key: "clonedead", name: "Seeded unreachable repository", repo: DEAD_REPO },
+];
 
 export function buildProjectPlans(volume: number): ProjectPlan[] {
   const n = (count: number) => Math.max(1, Math.round(count * volume));
@@ -79,6 +99,7 @@ export function buildProjectPlans(volume: number): ProjectPlan[] {
       workspace: "a",
       gitRepo: SEEDED_REPO,
       signals: true,
+      code: { enabled: true, repos: [SEEDED_REPO] },
       workflows: [
         {
           // Control: nothing about this workflow changes between the windows.
@@ -242,5 +263,35 @@ export function buildProjectPlans(volume: number): ProjectPlan[] {
         },
       ],
     },
+    ...CLONE_CASES.map(
+      ({ key, name, repo }): ProjectPlan => ({
+        key,
+        name,
+        workspace: "a",
+        gitRepo: repo,
+        signals: false,
+        code: { enabled: true, repos: [repo] },
+        workflows: [
+          {
+            // A small service whose error rate rises on one ref; what the clone adds is
+            // read from the repository of the case.
+            name: "app_agent",
+            model: "gpt-4o-mini",
+            llmCalls: 1,
+            traces: { prev: n(120), cur: n(120) },
+            errorRate: { prev: 0.03, cur: 0.03, curByRef: { base: 0.03, bad: 0.25 } },
+            p50Ms: { prev: 900, cur: 900 },
+            sigma: 0.4,
+            tokens: { prev: flat(600, 140), cur: flat(600, 140) },
+            tools: [{ name: "search_docs", windows: ["prev", "cur"], share: 1 }],
+            sourceFile: "src/research/planner.py",
+            refs: [
+              { key: "base", fromFraction: 0 },
+              { key: "bad", fromFraction: 0.5 },
+            ],
+          },
+        ],
+      }),
+    ),
   ];
 }

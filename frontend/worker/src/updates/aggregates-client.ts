@@ -37,6 +37,8 @@ interface AggregatesDto {
   tools: { name: string; calls: number; errors: number }[];
   workflows: GroupDto[];
   refs: GroupDto[];
+  repos?: { name: string; traces: number }[];
+  source_files?: { file: string; spans: number; errors: number }[];
   truncated: string[];
 }
 
@@ -108,6 +110,12 @@ export function fromDto(dto: AggregatesDto): WindowAggregates {
     tools: dto.tools,
     workflows: dto.workflows.map(toGroup),
     refs: dto.refs.map(toGroup),
+    repos: dto.repos ?? [],
+    sourceFiles: (dto.source_files ?? []).map((f) => ({
+      file: f.file,
+      spans: f.spans,
+      errors: f.errors,
+    })),
     truncated: dto.truncated ?? [],
   };
 }

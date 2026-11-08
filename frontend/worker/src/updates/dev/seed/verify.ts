@@ -171,7 +171,16 @@ export async function verifyManifest(
   return problems;
 }
 
-const EXPECTED_PROJECTS = ["main", "nogit", "tiny", "empty", "other"];
+const EXPECTED_PROJECTS = [
+  "main",
+  "nogit",
+  "tiny",
+  "empty",
+  "other",
+  "cloneslow",
+  "clonebig",
+  "clonedead",
+];
 
 /**
  * The Postgres half of the ground truth: the projects and their schedules, and

@@ -14,7 +14,7 @@ export interface RepoCases {
     approxCloneMs: number;
     port: number;
   };
-  unreachable: { url: string };
+  unreachable: { repo: string; url: string };
 }
 
 /**
@@ -78,6 +78,9 @@ export function buildManifest(scenario: Scenario, repos: RepoCases) {
       nogit: ["tool:lookup_invoice"],
       tiny: ["workflow:tiny_agent", "tool:tiny_new_tool"],
       empty: [],
+      cloneslow: ["tool:search_docs"],
+      clonebig: ["tool:search_docs"],
+      clonedead: ["tool:search_docs"],
       other: [
         "workflow:tenantb_marker_agent",
         "model:tenantb-secret-model-9",

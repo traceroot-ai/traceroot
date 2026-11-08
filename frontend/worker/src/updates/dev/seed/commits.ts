@@ -4,7 +4,14 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { UpdateWindows } from "@traceroot/core/updates";
-import { INJECTION_FILE, INJECTION_PR, SEEDED_REPO } from "./plan.js";
+import {
+  DEAD_REPO,
+  INJECTION_FILE,
+  INJECTION_PR,
+  OVERSIZE_REPO,
+  SEEDED_REPO,
+  SLOW_REPO,
+} from "./plan.js";
 import type { SeededCommit } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -138,10 +145,11 @@ export async function buildSeededRepo(
   commits: SeededCommit[],
 ): Promise<BuiltRepo> {
   const work = path.join(workDir, "seed-app-work");
-  const barePath = path.join(workDir, "seed-app.git");
+  const barePath = path.join(workDir, "seed-org", "seed-app.git");
   await fs.rm(work, { recursive: true, force: true });
   await fs.rm(barePath, { recursive: true, force: true });
   await fs.mkdir(work, { recursive: true });
+  await fs.mkdir(path.dirname(barePath), { recursive: true });
   await git(work, ["init", "-q", "-b", "main"]);
   const shas: Record<string, string> = {};
   for (const commit of [...commits].sort((a, b) => a.at.getTime() - b.at.getTime())) {
@@ -170,12 +178,13 @@ export async function buildOversizeRepo(
   /** The payload lands here; put it inside the history window a shallow clone reads. */
   payloadAt: Date,
   baseAt: Date,
-): Promise<{ barePath: string; bytes: number }> {
+): Promise<{ barePath: string; bytes: number; baseSha: string; payloadSha: string }> {
   const work = path.join(workDir, "seed-big-work");
-  const barePath = path.join(workDir, "seed-big.git");
+  const barePath = path.join(workDir, "seed-org", "seed-big.git");
   await fs.rm(work, { recursive: true, force: true });
   await fs.rm(barePath, { recursive: true, force: true });
   await fs.mkdir(work, { recursive: true });
+  await fs.mkdir(path.dirname(barePath), { recursive: true });
   await git(work, ["init", "-q", "-b", "main"]);
   const chunks: Buffer[] = [];
   let block = createHash("sha256").update("seed-big").digest();
@@ -186,69 +195,143 @@ export async function buildOversizeRepo(
   await fs.writeFile(path.join(work, "README.md"), "# Big seeded repository\n");
   await git(work, ["add", "-A"]);
   await git(work, ["commit", "-q", "-m", "Initial import"], baseAt);
+  const baseSha = await git(work, ["rev-parse", "HEAD"]);
   await fs.writeFile(path.join(work, "payload.bin"), Buffer.concat(chunks).subarray(0, bytes));
   await git(work, ["add", "-A"]);
   await git(work, ["commit", "-q", "-m", "Add payload"], payloadAt);
+  const payloadSha = await git(work, ["rev-parse", "HEAD"]);
   await git(workDir, ["clone", "-q", "--bare", work, barePath]);
   await fs.rm(work, { recursive: true, force: true });
   await allowFilteredClones(barePath);
-  return { barePath, bytes };
+  return { barePath, bytes, baseSha, payloadSha };
+}
+
+export interface FixtureRepo {
+  defaultBranch: string;
+  /** Where a clone of this repository is served (the host's clone_url). */
+  cloneUrl: string;
+  /** The size the host reports, in kilobytes. */
+  sizeKb: number;
+  /** A private repository answers only a request that carries the installation token. */
+  private: boolean;
+  pulls: Array<{
+    number: number;
+    title: string;
+    mergedAt: string;
+    mergeCommitSha: string;
+    author: string;
+    url: string;
+    files: string[];
+  }>;
+  releases: Array<{
+    tag: string;
+    name: string;
+    publishedAt: string;
+    commitSha: string;
+    url: string;
+  }>;
+  tags: Array<{ name: string; commitSha: string }>;
 }
 
 export interface GithubFixtures {
-  repos: Record<
-    string,
-    {
-      defaultBranch: string;
-      pulls: Array<{
-        number: number;
-        title: string;
-        mergedAt: string;
-        mergeCommitSha: string;
-        author: string;
-        url: string;
-        files: string[];
-      }>;
-      releases: Array<{ tag: string; name: string; publishedAt: string; commitSha: string }>;
-      tags: Array<{ name: string; commitSha: string }>;
-    }
-  >;
+  /** The token the stand-in accepts. */
+  token: string;
+  repos: Record<string, FixtureRepo>;
+}
+
+export interface FixtureEndpoints {
+  /** Base URL clones of the seeded repository are served from. */
+  gitBase: string;
+  /** Base URL of the same repository served with every response held back. */
+  slowBase: string;
+  /** A clone URL nothing listens on. */
+  deadUrl: string;
+  big?: { baseSha: string; payloadSha: string; payloadAt: Date; bytes: number };
+}
+
+const DEV_TOKEN = "stub-installation-token";
+
+function pullsOf(repo: string, commits: SeededCommit[], shas: Record<string, string>) {
+  return [...commits]
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+    .filter((c) => c.pr)
+    .map((c) => ({
+      number: c.pr!.number,
+      title: c.pr!.title,
+      mergedAt: c.at.toISOString(),
+      mergeCommitSha: shas[c.key],
+      author: "seed-author",
+      url: `https://github.com/${repo}/pull/${c.pr!.number}`,
+      files: Object.keys(c.files).sort(),
+    }));
 }
 
 /**
- * The GitHub API answers the repository stands behind, aligned to the same
- * shas: merged pull requests with their changed paths, releases and tags.
+ * The GitHub API answers the repositories stand behind, aligned to the same
+ * shas: merged pull requests with their changed paths, releases and tags. The
+ * seeded repository appears three times, as the repository that clones fine,
+ * the one served slowly and the one that cannot be reached; a fourth is the
+ * oversize repository.
  */
 export function buildGithubFixtures(
   commits: SeededCommit[],
   shas: Record<string, string>,
+  endpoints?: FixtureEndpoints,
 ): GithubFixtures {
   const sorted = [...commits].sort((a, b) => a.at.getTime() - b.at.getTime());
-  return {
-    repos: {
-      [SEEDED_REPO]: {
-        defaultBranch: "main",
-        pulls: sorted
-          .filter((c) => c.pr)
-          .map((c) => ({
-            number: c.pr!.number,
-            title: c.pr!.title,
-            mergedAt: c.at.toISOString(),
-            mergeCommitSha: shas[c.key],
-            author: "seed-author",
-            url: `https://github.com/${SEEDED_REPO}/pull/${c.pr!.number}`,
-            files: Object.keys(c.files).sort(),
-          })),
-        releases: sorted
-          .filter((c) => c.tag)
-          .map((c) => ({
-            tag: c.tag!,
-            name: `Release ${c.tag}`,
-            publishedAt: c.at.toISOString(),
-            commitSha: shas[c.key],
-          })),
-        tags: sorted.filter((c) => c.tag).map((c) => ({ name: c.tag!, commitSha: shas[c.key] })),
-      },
-    },
+  const releases = (repo: string, sha = shas) =>
+    sorted
+      .filter((c) => c.tag)
+      .map((c) => ({
+        tag: c.tag!,
+        name: `Release ${c.tag}`,
+        publishedAt: c.at.toISOString(),
+        commitSha: sha[c.key],
+        url: `https://github.com/${repo}/releases/tag/${c.tag}`,
+      }));
+  const tags = sorted.filter((c) => c.tag).map((c) => ({ name: c.tag!, commitSha: shas[c.key] }));
+  const repo = (name: string, cloneUrl: string, sizeKb: number): FixtureRepo => ({
+    defaultBranch: "main",
+    cloneUrl,
+    sizeKb,
+    private: true,
+    pulls: pullsOf(name, commits, shas),
+    releases: releases(name),
+    tags,
+  });
+
+  const repos: Record<string, FixtureRepo> = {
+    [SEEDED_REPO]: repo(
+      SEEDED_REPO,
+      `${endpoints?.gitBase ?? "http://127.0.0.1:18580"}/${SEEDED_REPO}.git`,
+      120,
+    ),
   };
+  if (endpoints) {
+    repos[SLOW_REPO] = repo(SLOW_REPO, `${endpoints.slowBase}/${SEEDED_REPO}.git`, 120);
+    repos[DEAD_REPO] = repo(DEAD_REPO, endpoints.deadUrl, 120);
+    if (endpoints.big) {
+      const { baseSha, payloadSha, payloadAt, bytes } = endpoints.big;
+      repos[OVERSIZE_REPO] = {
+        defaultBranch: "main",
+        cloneUrl: `${endpoints.gitBase}/${OVERSIZE_REPO}.git`,
+        sizeKb: Math.round(bytes / 1024),
+        private: true,
+        pulls: [
+          {
+            number: 7,
+            title: "Add the payload",
+            mergedAt: payloadAt.toISOString(),
+            mergeCommitSha: payloadSha,
+            author: "seed-author",
+            url: `https://github.com/${OVERSIZE_REPO}/pull/7`,
+            files: ["payload.bin"],
+          },
+        ],
+        releases: [],
+        tags: [{ name: "base", commitSha: baseSha }],
+      };
+    }
+  }
+  return { token: DEV_TOKEN, repos };
 }

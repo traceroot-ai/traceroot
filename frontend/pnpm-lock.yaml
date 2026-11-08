@@ -405,6 +405,9 @@ importers:
 
   worker:
     dependencies:
+      '@daytonaio/sdk':
+        specifier: 0.148.0
+        version: 0.148.0(ws@8.21.3)
       '@earendil-works/pi-ai':
         specifier: 0.80.3
         version: 0.80.3(ws@8.21.3)(zod@4.6.7)

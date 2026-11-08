@@ -184,7 +184,16 @@ export function planSignals(
   return [];
 }
 
-export function buildScenario(params: SeedParams, shas: Record<string, string>): Scenario {
+export interface CaseShas {
+  /** The oversize repository's base commit and the commit that adds its payload. */
+  big?: { base: string; payload: string };
+}
+
+export function buildScenario(
+  params: SeedParams,
+  shas: Record<string, string>,
+  cases: CaseShas = {},
+): Scenario {
   const schedule = scheduleOf(params);
   const windows = windowsAt(schedule, params.now);
   const commits = planCommits(windows).map((c) => ({ ...c, sha: shas[c.key] }));
@@ -194,8 +203,25 @@ export function buildScenario(params: SeedParams, shas: Record<string, string>):
 
   const projects: ScenarioProject[] = buildProjectPlans(params.volume).map((plan) => {
     const id = projectIdOf(params.prefix, plan.key);
-    const data = generateProject({ seed: params.seed, plan, projectId: id, windows, refShas });
-    const metrics = measureProject(data, plan.gitRepo ? refShas : {});
+    // Each project's traces carry the commits of its own repository.
+    const projectRefShas =
+      plan.key === "clonebig"
+        ? {
+            base: cases.big?.base ?? hexId("big-base", 40),
+            bad: cases.big?.payload ?? hexId("big-payload", 40),
+            ctl: hexId("big-ctl", 40),
+          }
+        : plan.key === "clonedead"
+          ? { base: hexId("dead-base", 40), bad: hexId("dead-bad", 40), ctl: hexId("dead-ctl", 40) }
+          : refShas;
+    const data = generateProject({
+      seed: params.seed,
+      plan,
+      projectId: id,
+      windows,
+      refShas: projectRefShas,
+    });
+    const metrics = measureProject(data, plan.gitRepo ? projectRefShas : {});
     return {
       key: plan.key,
       id,
@@ -344,6 +370,20 @@ function describeGroundTruth(params: SeedParams, projects: ScenarioProject[]) {
       note: "Unchanged control in the project without git context.",
     },
   ];
+  for (const key of ["cloneslow", "clonebig", "clonedead"] as const) {
+    const p = byKey[key];
+    changes.push({
+      id: id(`error-rise-${key}`),
+      project: p.id,
+      kind: "error_rate_rise",
+      entity: "app_agent",
+      direction: "up",
+      before: wf(p, "app_agent", "prev").errorRate,
+      after: wf(p, "app_agent", "cur").errorRate,
+      tolerance: 0.2,
+      note: "Failures concentrate on traces from the newest ref of this project's repository.",
+    });
+  }
   return { changes, controls };
 }
 

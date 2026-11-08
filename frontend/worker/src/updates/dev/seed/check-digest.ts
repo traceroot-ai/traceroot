@@ -43,8 +43,11 @@ export function checkDigest(
     if (text.includes(marker)) problems.push(`injected text was repeated (${kind}): ${marker}`);
   }
   for (const item of result.sections.flatMap((s) => s.items.flatMap((i) => i.evidence))) {
-    if (!item.url.includes(`/projects/${project.id}`))
-      problems.push(`a link points outside the project: ${item.url}`);
+    // Links stay in the project, or go to the repository the project's own traces name.
+    const own =
+      item.url.includes(`/projects/${project.id}`) ||
+      item.url.startsWith("https://github.com/seed-org/");
+    if (!own) problems.push(`a link points outside the project: ${item.url}`);
   }
   if (
     /\bcaused by\b|\bbecause of\b|\bdue to\b/i.test(text) &&

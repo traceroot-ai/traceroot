@@ -144,3 +144,30 @@ pnpm update:seed check-digest     # delivered digests against the manifest: no o
 Environment switches for development: `UPDATE_AGENT_MODEL` (model id), `UPDATE_AGENT_DEBUG=1`
 (one log line per agent turn, never content), `UPDATES_INJECT_FAULT=email-once` (the first email of
 each message fails once, to watch a retry resume; ignored in production).
+
+## Code changes (git context)
+
+The seed writes small real git repositories under `<out>/seed-org/` and a fixture set for a
+stand-in GitHub API. Two servers serve them:
+
+```bash
+pnpm update:seed serve-git      # smart-HTTP git on :18580 (seed-app, seed-big, and the slow/dead cases)
+pnpm update:seed serve-github   # GitHub API stand-in on :18582 (pull requests, releases, installation token)
+pnpm update:seed serve-slow     # a clone that answers after ~70 s, for the timeout fallback
+```
+
+Start the worker with:
+
+| Variable | Meaning |
+| --- | --- |
+| `UPDATE_SANDBOX` | `docker` (default for real runs), `daytona`, or `local` (tests only) |
+| `UPDATE_SANDBOX_CLONE_NETWORK` | Docker network for the clone sandbox (`host` to reach the local git server) |
+| `UPDATE_SANDBOX_LIMITS=none` | Skip cgroup memory/cpu flags on hosts that refuse them |
+| `UPDATE_GITHUB_API_BASE_URL` | Point the GitHub client at the stand-in |
+| `UPDATE_GITHUB_STUB_TOKEN` | Token the stand-in accepts; never a real credential |
+| `UPDATE_CLONE_*` | Clone time and size limits |
+
+The clone sandbox has network and the installation token and is destroyed after it copies a
+tarball out; the analysis sandbox is created with no network and no token, and the update
+refuses to read code unless that is verified first. Per project, code changes are off until
+the Updates tab switches them on and lists the repositories that may be read.

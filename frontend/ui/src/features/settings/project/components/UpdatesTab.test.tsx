@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     next_slot_at: "2026-11-09T08:00:00.000Z",
     run_token_cap: 200000,
     monthly_spend_cap_usd: 20,
+    code_changes_enabled: false,
+    code_repos: [],
     last_run: {
       id: "r1",
       status: "succeeded",
@@ -99,6 +101,8 @@ describe("UpdatesTab", () => {
       timezone: "America/New_York",
       runTokenCap: 200000,
       monthlySpendCapUsd: 20,
+      codeChangesEnabled: false,
+      codeRepos: [],
     });
   });
 
@@ -108,6 +112,21 @@ describe("UpdatesTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(mocks.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ frequency: "daily", hour: 9 }),
+    );
+  });
+
+  it("keeps code changes off until switched on, and saves the repositories listed", () => {
+    render(<UpdatesTab projectId="p1" />);
+    const box = screen.getByLabelText("Repositories") as HTMLTextAreaElement;
+    expect(box.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "Off" }));
+    fireEvent.change(box, { target: { value: "acme/web-app\n\nAcme/Web-App\nacme/api" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codeChangesEnabled: true,
+        codeRepos: ["acme/web-app", "acme/api"],
+      }),
     );
   });
 

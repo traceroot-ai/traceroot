@@ -117,6 +117,7 @@ export async function executeRun(deps: ExecuteDeps, runId: string): Promise<Exec
       facts,
       signalsRollup,
       run.frequency as "daily" | "weekly",
+      { current, previous },
     );
     if (outcome.status === "succeeded") {
       await db.projectUpdateRun.update({

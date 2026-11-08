@@ -161,6 +161,18 @@ describe("update schedule route", () => {
     expect((await put({ monthlySpendCapUsd: -5 })).status).toBe(400);
   });
 
+  it("saves code changes settings, keeps them when left out, and rejects a bad repository", async () => {
+    await put({ frequency: "daily", codeChangesEnabled: true, codeRepos: ["acme/app"] });
+    await put({ hour: 6 });
+    expect(schedules.get("p1")).toMatchObject({
+      hour: 6,
+      codeChangesEnabled: true,
+      codeRepos: ["acme/app"],
+    });
+    expect((await put({ codeRepos: ["not a repo"] })).status).toBe(400);
+    expect((await put({ codeChangesEnabled: "yes" })).status).toBe(400);
+  });
+
   it("clears the next slot when turned off", async () => {
     await put({ frequency: "weekly" });
     await put({ frequency: "weekly", enabled: false });

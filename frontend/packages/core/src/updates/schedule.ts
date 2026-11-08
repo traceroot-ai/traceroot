@@ -77,6 +77,9 @@ const KNOWN_KEYS = [
   // Limits are read by parseLimitsInput; the schedule itself ignores them.
   "runTokenCap",
   "monthlySpendCapUsd",
+  // The code changes settings are read by parseCodeSettingsInput.
+  "codeChangesEnabled",
+  "codeRepos",
 ];
 
 const TOO_FREQUENT =
@@ -188,4 +191,56 @@ export function parseLimitsInput(
     };
   }
   return { ok: true, value: { runTokenCap: tokens as number, monthlySpendCapUsd: spend } };
+}
+
+/** The code changes section: off by default, and limited to the repositories listed. */
+export interface UpdateCodeSettings {
+  codeChangesEnabled: boolean;
+  /** Repositories as "owner/name", compared without regard to case. */
+  codeRepos: string[];
+}
+
+export const DEFAULT_UPDATE_CODE_SETTINGS: UpdateCodeSettings = {
+  codeChangesEnabled: false,
+  codeRepos: [],
+};
+
+export const MAX_CODE_REPOS = 20;
+const REPO_NAME = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+
+export function isRepoName(value: unknown): value is string {
+  return typeof value === "string" && REPO_NAME.test(value) && !value.includes("..");
+}
+
+/** Whether a repository (as traces name it) is on the list. */
+export function repoAllowed(allowlist: readonly string[], repo: string): boolean {
+  const wanted = repo.toLowerCase();
+  return allowlist.some((entry) => entry.toLowerCase() === wanted);
+}
+
+export type CodeSettingsParseResult =
+  | { ok: true; value: UpdateCodeSettings }
+  | { ok: false; error: string };
+
+/** Validate the code changes settings in a request; a field left out keeps its current value. */
+export function parseCodeSettingsInput(
+  input: unknown,
+  current: UpdateCodeSettings = DEFAULT_UPDATE_CODE_SETTINGS,
+): CodeSettingsParseResult {
+  const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+  const enabled =
+    raw.codeChangesEnabled === undefined ? current.codeChangesEnabled : raw.codeChangesEnabled;
+  if (typeof enabled !== "boolean") {
+    return { ok: false, error: "codeChangesEnabled must be true or false." };
+  }
+  const repos = raw.codeRepos === undefined ? current.codeRepos : raw.codeRepos;
+  if (!Array.isArray(repos) || repos.length > MAX_CODE_REPOS || !repos.every(isRepoName)) {
+    return {
+      ok: false,
+      error: `codeRepos must be a list of at most ${MAX_CODE_REPOS} repositories written owner/name.`,
+    };
+  }
+  const seen = new Set<string>();
+  const unique = repos.filter((r) => !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase()));
+  return { ok: true, value: { codeChangesEnabled: enabled, codeRepos: unique } };
 }

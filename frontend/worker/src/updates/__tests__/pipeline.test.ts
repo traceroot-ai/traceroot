@@ -26,6 +26,8 @@ const agg = (traces: number, errors: number): WindowAggregates => ({
   tools: [],
   workflows: [{ name: "wf", traces, errorTraces: errors, p50Ms: 1000, p95Ms: 2000 }],
   refs: [],
+  repos: [],
+  sourceFiles: [],
   truncated: [],
 });
 

@@ -104,6 +104,8 @@ export async function writePostgres(
         timezone: schedule.timezone,
         // The slot that has just passed and not yet run: a tick at the seed's "now" starts the seeded window.
         nextSlotAt: latestSlotAtOrBefore(schedule, params.now),
+        codeChangesEnabled: project.plan.code?.enabled ?? false,
+        codeRepos: project.plan.code?.repos ?? [],
       },
     });
     if (project.plan.workspace === "a" && options.inbox) {

@@ -11,7 +11,7 @@ import {
 } from "./clickhouse-io.js";
 import { buildGithubFixtures, buildOversizeRepo, buildSeededRepo, planCommits } from "./commits.js";
 import { buildManifest, type RepoCases } from "./manifest.js";
-import { OVERSIZE_REPO, SEEDED_REPO } from "./plan.js";
+import { DEAD_REPO, OVERSIZE_REPO, SEEDED_REPO, SLOW_REPO, UNREACHABLE_REPO_URL } from "./plan.js";
 import {
   cleanPostgres,
   countPostgres,
@@ -25,6 +25,8 @@ import { createUpdateRunQueue } from "../../queue.js";
 export const DEFAULT_OUT_DIR = path.join(os.tmpdir(), "traceroot-update-seed");
 export const DEFAULT_BIG_BYTES = 30 * 1024 * 1024;
 export const DEFAULT_SLOW_PORT = 18581;
+/** Where the seeded repositories are served without delay. */
+export const DEFAULT_GIT_PORT = 18580;
 /**
  * A blobless, shallow-since, no-checkout clone makes three requests, each held
  * back by this long, so the default clone takes ~210 s: past the 180 s clone ceiling.
@@ -37,11 +39,21 @@ export interface SeedOptions {
   outDir?: string;
   bigBytes?: number;
   slowPort?: number;
+  gitPort?: number;
   slowDelayMs?: number;
   postgres?: PostgresOptions;
 }
 
-const PROJECT_KEYS = ["main", "nogit", "tiny", "empty", "other"] as const;
+const PROJECT_KEYS = [
+  "main",
+  "nogit",
+  "tiny",
+  "empty",
+  "other",
+  "cloneslow",
+  "clonebig",
+  "clonedead",
+] as const;
 const projectIds = (prefix: string) => PROJECT_KEYS.map((k) => projectIdOf(prefix, k));
 
 /** Remove only what this prefix created: its rows, workspaces and output directory. */
@@ -96,9 +108,8 @@ async function clearRunQueue(prefix: string): Promise<void> {
 const OUTPUT_ENTRIES = [
   "manifest.json",
   "github-fixtures.json",
-  "seed-app.git",
+  "seed-org",
   "seed-app-work",
-  "seed-big.git",
   "seed-big-work",
 ];
 
@@ -127,14 +138,13 @@ export async function runSeed(options: SeedOptions) {
   const windows = windowsAt(scheduleOf(params), params.now);
   const plannedCommits = planCommits(windows);
   const seeded = await buildSeededRepo(outDir, plannedCommits);
-  const big = await buildOversizeRepo(
-    outDir,
-    bigBytes,
-    new Date(windows.prevWindowStart.getTime() + 3_600_000),
-    plannedCommits[0].at,
-  );
+  // The payload lands when the planted bad release merges, inside the current window.
+  const payloadAt = plannedCommits.find((c) => c.key === "bad")!.at;
+  const big = await buildOversizeRepo(outDir, bigBytes, payloadAt, plannedCommits[0].at);
 
-  const scenario = buildScenario(params, seeded.shas);
+  const scenario = buildScenario(params, seeded.shas, {
+    big: { base: big.baseSha, payload: big.payloadSha },
+  });
   const target = clickHouseTargetFromEnv();
   for (const project of scenario.projects) {
     await insertTraces(target, project.data.traces);
@@ -143,23 +153,32 @@ export async function runSeed(options: SeedOptions) {
   await writePostgres(scenario, options.postgres);
 
   const repos: RepoCases = {
-    seeded: { repo: SEEDED_REPO, path: "seed-app.git" },
-    oversize: { repo: OVERSIZE_REPO, path: "seed-big.git", bytes: big.bytes },
+    seeded: { repo: SEEDED_REPO, path: "seed-org/seed-app.git" },
+    oversize: { repo: OVERSIZE_REPO, path: "seed-org/seed-big.git", bytes: big.bytes },
     slow: {
-      repo: SEEDED_REPO,
-      path: "seed-app.git",
-      url: `http://127.0.0.1:${slowPort}/seed-app.git`,
+      repo: SLOW_REPO,
+      path: "seed-org/seed-app.git",
+      url: `http://127.0.0.1:${slowPort}/seed-org/seed-app.git`,
       delayMs: slowDelayMs,
       approxCloneMs: slowDelayMs * SLOW_CLONE_REQUESTS,
       port: slowPort,
     },
-    unreachable: { url: "http://127.0.0.1:9/seed-org/seed-unreachable.git" },
+    unreachable: { repo: DEAD_REPO, url: UNREACHABLE_REPO_URL },
   };
   const manifest = buildManifest(scenario, repos);
   await fs.writeFile(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   await fs.writeFile(
     path.join(outDir, "github-fixtures.json"),
-    JSON.stringify(buildGithubFixtures(scenario.commits, seeded.shas), null, 2) + "\n",
+    JSON.stringify(
+      buildGithubFixtures(scenario.commits, seeded.shas, {
+        gitBase: `http://127.0.0.1:${options.gitPort ?? DEFAULT_GIT_PORT}`,
+        slowBase: `http://127.0.0.1:${slowPort}`,
+        deadUrl: UNREACHABLE_REPO_URL,
+        big: { baseSha: big.baseSha, payloadSha: big.payloadSha, payloadAt, bytes: big.bytes },
+      }),
+      null,
+      2,
+    ) + "\n",
   );
   return { manifest, outDir, scenario };
 }
