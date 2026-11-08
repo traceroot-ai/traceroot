@@ -12,18 +12,12 @@ def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
-def _ok(name="Flight Booking", description="Booking flights.", kinds=1):
+def _ok(name="Flight Booking", description="Booking flights."):
     return httpx.Response(
         200,
         json={
             "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {"name": name, "description": description, "kinds": kinds}
-                        )
-                    }
-                }
+                {"message": {"content": json.dumps({"name": name, "description": description})}}
             ],
             "usage": {"prompt_tokens": 1000, "completion_tokens": 100},
         },

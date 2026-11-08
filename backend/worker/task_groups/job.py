@@ -13,12 +13,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from worker.task_groups import store
-from worker.task_groups.fit import FitParams, exemplar_indices, fit_groups
+from worker.task_groups.fit import FitParams, exemplar_indices, fit_groups, spread_indices
 from worker.task_groups.identity import match_groups, new_group_id
 from worker.task_groups.naming import name_group
 
 logger = logging.getLogger(__name__)
 
+# Summaries the namer reads: spread across the group, so the name fits all of it.
 EXEMPLARS_FOR_NAME = 10
 EXEMPLARS_STORED = 8
 NAMING_THREADS = 4
@@ -131,7 +132,7 @@ def _fit_claimed(project_id: str, now, api_key: str, params: FitParams) -> FitOu
             c,
             [
                 window.summaries[i]
-                for i in exemplar_indices(window.vectors, result, c, EXEMPLARS_FOR_NAME)
+                for i in spread_indices(window.vectors, result, c, EXEMPLARS_FOR_NAME)
             ],
         )
         for c in range(k)
