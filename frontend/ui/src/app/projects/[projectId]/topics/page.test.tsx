@@ -82,7 +82,7 @@ describe("Topics page", () => {
     expect(screen.getByRole("link", { name: "Refunds" }).getAttribute("href")).toContain(
       "/projects/p1/traces?",
     );
-    expect(screen.getByText(/Shares are estimates from 10 sampled traces/)).toBeTruthy();
+    expect(screen.getByText(/10 sampled traces in this range/)).toBeTruthy();
     expect(screen.getByTestId("chart")).toBeTruthy();
   });
 
@@ -93,7 +93,7 @@ describe("Topics page", () => {
       fittedAt: null,
     });
     render(<TopicsPage />);
-    expect(screen.getByText("Topics is off for this project")).toBeTruthy();
+    expect(screen.getByText("Topics are off for this project")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     expect(hooks.update).toHaveBeenCalledWith({ enabled: true });
@@ -110,15 +110,20 @@ describe("Topics page", () => {
     });
     render(<TopicsPage />);
     expect(screen.getByText("Not enough data yet")).toBeTruthy();
-    expect(screen.getByText(/62 of 100 summaries so far/)).toBeTruthy();
+    expect(screen.getByText(/62 of 100 traces summarized so far/)).toBeTruthy();
   });
 
-  it("disables Refresh now while off and while a recent request cools down", () => {
+  it("says so, instead of listing zeros, when the range holds no sampled traces", () => {
+    show({ sampled: 0, groups: [{ ...base.groups[0], count: 0, share: 0 }] });
+    render(<TopicsPage />);
+    expect(screen.getByText("No sampled traces in this time range.")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("offers no Refresh now while off, and disables it while a recent request cools down", () => {
     show({ state: { ...base.state, enabled: false, status: "off" }, groups: [], fittedAt: null });
     const { unmount } = render(<TopicsPage />);
-    expect(
-      (screen.getByRole("button", { name: /Refresh now/ }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(screen.queryByRole("button", { name: /Refresh now/ })).toBeNull();
     unmount();
     show({ refreshAvailableAt: new Date(Date.now() + 600_000).toISOString() });
     render(<TopicsPage />);

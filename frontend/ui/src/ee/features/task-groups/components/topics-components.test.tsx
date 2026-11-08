@@ -57,7 +57,7 @@ describe("TopicsStatusPanel", () => {
   it("explains the feature when off and offers to turn it on", () => {
     const onTurnOn = vi.fn();
     panel(overview({ status: "off" }), true, onTurnOn);
-    expect(screen.getByText("Topics is off for this project")).toBeTruthy();
+    expect(screen.getByText("Topics are off for this project")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     expect(onTurnOn).toHaveBeenCalled();
   });
@@ -69,13 +69,13 @@ describe("TopicsStatusPanel", () => {
 
   it("says plainly that a model key is missing", () => {
     panel(overview({ status: "no_key" }));
-    expect(screen.getByText("Topics needs a model key")).toBeTruthy();
+    expect(screen.getByText("An OpenAI API key is needed for Topics")).toBeTruthy();
   });
 
   it("says how far it is from enough data", () => {
     panel(overview({ status: "collecting", digestsInWindow: 40 }));
     expect(screen.getByText("Not enough data yet")).toBeTruthy();
-    expect(screen.getByText(/40 of 100 summaries so far/)).toBeTruthy();
+    expect(screen.getByText(/40 of 100 traces summarized so far/)).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
   });
 
@@ -123,7 +123,7 @@ describe("TopicsTable", () => {
     );
     expect(screen.getByText("No topic")).toBeTruthy();
     expect(screen.getByText("≈ 40%")).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Flight Booking: traces per day" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Flight Booking: traces per day, 0, 6/ })).toBeTruthy();
   });
 
   it("formats small shares without claiming precision", () => {
@@ -135,20 +135,39 @@ describe("TopicsTable", () => {
 
 describe("buildTrendSeries", () => {
   it("fills missing days with zero and sums the groups beyond the colour budget", () => {
-    const many: TaskGroupRow[] = Array.from({ length: 10 }, (_, i) => ({
+    const many: TaskGroupRow[] = Array.from({ length: 14 }, (_, i) => ({
       groupId: `g${i}`,
       name: `G${i}`,
       description: "",
-      count: 10 - i,
+      count: 14 - i,
       share: 0.1,
-      trend: [{ day: "2026-11-07", count: 10 - i }],
+      trend: [{ day: "2026-11-07", count: 14 - i }],
     }));
     const { keys, data } = buildTrendSeries(many, ["2026-11-06", "2026-11-07"]);
-    expect(keys).toHaveLength(9);
+    expect(keys).toHaveLength(13);
     expect(keys.at(-1)).toBe("Other");
     expect(data[0]).toMatchObject({ day: "2026-11-06", G0: 0, Other: 0 });
     // The two smallest groups (counts 2 and 1) are summed into Other.
     expect(data[1].Other).toBe(3);
+  });
+});
+
+describe("table colours", () => {
+  it("gives each row the colour of its series in the chart", () => {
+    const { container } = render(
+      <TopicsTable
+        rows={rows}
+        days={["2026-11-07"]}
+        sampled={10}
+        ungrouped={0}
+        hrefFor={() => "#"}
+      />,
+    );
+    const swatches = container.querySelectorAll("tbody td:first-child a span[aria-hidden]");
+    expect(swatches).toHaveLength(2);
+    expect((swatches[0] as HTMLElement).style.background).not.toBe(
+      (swatches[1] as HTMLElement).style.background,
+    );
   });
 });
 
@@ -160,7 +179,7 @@ describe("TopicBadge", () => {
         <TopicBadge name="Refunds" groupId="g9" projectId="p1" />
       </div>,
     );
-    const link = screen.getByRole("link");
+    const link = screen.getByRole("link", { name: "Topic: Refunds" });
     expect(link.getAttribute("href")).toBe(topicTracesHref("p1", "g9"));
     expect(decodeURIComponent(link.getAttribute("href")!)).toContain('"field":"group_id"');
     fireEvent.click(link);

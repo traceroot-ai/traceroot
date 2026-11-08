@@ -17,16 +17,23 @@ import { MAX_FILTERS } from "./predicate";
  * available. A keyed predicate has its key appended HERE (`metadata.session_id = ...`),
  * because the field alone does not say what was filtered and two keys can be active at
  * once — so a caller that pre-dots the key into the name would spell it twice.
+ *
+ * `valueDisplay` replaces the value of a single-value chip when the raw value is an id a
+ * reader cannot use (a topic's id shown as its name).
  */
-export function predicateLabel(p: Predicate, displayName: string = p.field): string {
+export function predicateLabel(
+  p: Predicate,
+  displayName: string = p.field,
+  valueDisplay?: string,
+): string {
   const name = p.key === undefined ? displayName : `${displayName}.${p.key}`;
   switch (p.op) {
     case "in":
       return p.value.length === 1
-        ? `${name} = ${p.value[0]}`
+        ? `${name} = ${valueDisplay ?? p.value[0]}`
         : `${name} in [${p.value.join(", ")}]`;
     case "eq":
-      return `${name} = ${p.value}`;
+      return `${name} = ${valueDisplay ?? p.value}`;
     case "gt":
       return `${name} > ${p.value}`;
     case "gte":

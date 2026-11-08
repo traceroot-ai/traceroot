@@ -235,3 +235,21 @@ describe("upsertPredicate", () => {
     });
   });
 });
+
+describe("predicateLabel with a value display", () => {
+  it("shows the stand-in for a single value, for = and a one-item in", () => {
+    expect(predicateLabel({ field: "group_id", op: "eq", value: "g_1" }, "topic", "Refunds")).toBe(
+      "topic = Refunds",
+    );
+    expect(predicateLabel({ field: "x", op: "in", value: ["a"] }, "x", "Readable")).toBe(
+      "x = Readable",
+    );
+  });
+
+  it("leaves several values and other operators alone", () => {
+    expect(predicateLabel({ field: "x", op: "in", value: ["a", "b"] }, "x", "Readable")).toBe(
+      "x in [a, b]",
+    );
+    expect(predicateLabel({ field: "x", op: "gt", value: 3 }, "x", "Readable")).toBe("x > 3");
+  });
+});

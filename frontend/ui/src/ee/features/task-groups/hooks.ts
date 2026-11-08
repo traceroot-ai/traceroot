@@ -18,7 +18,7 @@ async function getJson<T>(url: string, what: string): Promise<T> {
 }
 
 /** The groups of a project with their counts in the range, and the pipeline's state. */
-export function useTaskGroups(projectId: string, range: TaskGroupsRange) {
+export function useTaskGroups(projectId: string, range: TaskGroupsRange, enabled = true) {
   const params = new URLSearchParams();
   if (range.startAfter) params.set("start_after", range.startAfter);
   if (range.endBefore) params.set("end_before", range.endBefore);
@@ -29,7 +29,7 @@ export function useTaskGroups(projectId: string, range: TaskGroupsRange) {
         `/api/projects/${projectId}/task-groups?${params.toString()}`,
         "topics",
       ),
-    enabled: !!projectId,
+    enabled: enabled && !!projectId,
     // The pipeline works in the background: pick up new summaries and fits.
     refetchInterval: 30_000,
   });

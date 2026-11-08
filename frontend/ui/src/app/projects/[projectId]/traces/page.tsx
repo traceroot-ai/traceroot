@@ -13,7 +13,7 @@ import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-i
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
-import type { TraceListItem } from "@/types/api";
+import type { Predicate, TraceListItem } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
@@ -38,7 +38,7 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
-import { useTraceTaskGroups } from "@/ee/features/task-groups/hooks";
+import { useTaskGroups, useTraceTaskGroups } from "@/ee/features/task-groups/hooks";
 import { TopicBadge } from "@/ee/features/task-groups/components/topic-badge";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -187,6 +187,13 @@ export default function TracesPage() {
   const selectedTopic = selectedTraceId
     ? (topics?.groups[selectedTraceId] ?? openTraceTopic?.groups[selectedTraceId])
     : undefined;
+  // A topic filter chip reads as the topic's name, not its id.
+  const hasTopicFilter = (state.filters ?? []).some((f) => f.field === "group_id");
+  const { data: topicNames } = useTaskGroups(projectId, {}, hasTopicFilter);
+  const topicChipName = (p: Predicate) =>
+    p.field === "group_id" && typeof p.value === "string"
+      ? topicNames?.groups.find((g) => g.groupId === p.value)?.name
+      : undefined;
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
   // Hide AI button during loading AND when GettingStarted is shown
@@ -247,6 +254,7 @@ export default function TracesPage() {
                 onFiltersChange={updateFilters}
                 startAfter={queryOptions.start_after}
                 endBefore={queryOptions.end_before}
+                valueNames={topicChipName}
               />
             }
             dateFilter={state.dateFilter}

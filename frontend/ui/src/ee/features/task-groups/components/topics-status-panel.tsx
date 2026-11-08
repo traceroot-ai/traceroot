@@ -1,9 +1,10 @@
 import { TASK_GROUPS_LABEL } from "@traceroot/core/task-groups";
+import { AlertTriangle, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TaskGroupsOverview } from "../types";
 
 function usd(value: number): string {
-  return `$${value.toFixed(value < 1 ? 3 : 2)}`;
+  return value > 0 && value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
 }
 
 /**
@@ -27,12 +28,13 @@ export function TopicsStatusPanel({
   if (state.status === "off") {
     return (
       <div className={base} role="status">
-        <p className="text-[13px] font-medium text-foreground">
-          {TASK_GROUPS_LABEL} is off for this project
+        <p className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+          <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          {TASK_GROUPS_LABEL} are off for this project
         </p>
         <p className="mt-1 max-w-2xl text-muted-foreground">
           Turn it on to summarize a sample of up to 300 traces a day with a language model and group
-          them by the task they were asked to do. It costs a little: summaries stop for the day at a
+          them by the task they were asked to do. It uses your OpenAI key and stops for the day at a
           spend cap of {usd(state.dailyCostCapUsd)}. Nothing is read or sent until you turn it on.
         </p>
         {canChange && (
@@ -52,12 +54,13 @@ export function TopicsStatusPanel({
   if (state.status === "no_key") {
     return (
       <div className={base} role="status">
-        <p className="text-[13px] font-medium text-foreground">
-          {TASK_GROUPS_LABEL} needs a model key
+        <p className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+          <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          An OpenAI API key is needed for {TASK_GROUPS_LABEL}
         </p>
         <p className="mt-1 max-w-2xl text-muted-foreground">
-          This deployment has no OpenAI key, which summaries and group names run on. Set
-          OPENAI_API_KEY for the backend and the worker; it starts on its own once the key is there.
+          Ask whoever runs this deployment to set OPENAI_API_KEY for the backend and the worker.{" "}
+          {TASK_GROUPS_LABEL} starts on its own once the key is there.
         </p>
       </div>
     );
@@ -67,12 +70,13 @@ export function TopicsStatusPanel({
   if (state.status === "capped") {
     parts.push(
       <div key="capped">
-        <p className="text-[13px] font-medium text-foreground">
+        <p className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+          <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
           Today&apos;s spend cap has been reached
         </p>
         <p className="mt-1 max-w-2xl text-muted-foreground">
-          {usd(state.spentTodayUsd)} of {usd(state.dailyCostCapUsd)} spent. No new traces are
-          summarized until tomorrow (UTC); groups already found keep working.
+          {usd(state.spentTodayUsd)} spent today against a cap of {usd(state.dailyCostCapUsd)}. No
+          new traces are summarized until tomorrow (UTC); topics already found keep working.
         </p>
       </div>,
     );
@@ -81,14 +85,18 @@ export function TopicsStatusPanel({
     const pct = Math.min(100, Math.round((digestsInWindow / minDigests) * 100));
     parts.push(
       <div key="collecting">
-        <p className="text-[13px] font-medium text-foreground">Not enough data yet</p>
+        <p className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+          <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          Not enough data yet
+        </p>
         <p className="mt-1 max-w-2xl text-muted-foreground">
-          {digestsInWindow} of {minDigests} summaries so far. Groups appear on their own once{" "}
-          {minDigests} traces have been summarized (a sample of up to 300 a day).
+          {digestsInWindow} of {minDigests} traces summarized so far. {TASK_GROUPS_LABEL} appear on
+          their own once {minDigests} traces have been summarized (a sample of up to 300 a day).
         </p>
         <div
-          className="mt-2 h-1.5 w-64 overflow-hidden rounded bg-muted"
+          className="mt-2 h-1.5 w-full max-w-64 overflow-hidden rounded bg-muted"
           role="progressbar"
+          aria-label="Traces summarized so far"
           aria-valuemin={0}
           aria-valuemax={minDigests}
           aria-valuenow={Math.min(digestsInWindow, minDigests)}

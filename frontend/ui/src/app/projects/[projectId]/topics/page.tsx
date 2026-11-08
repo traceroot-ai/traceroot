@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useParams } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { TASK_GROUPS_LABEL } from "@traceroot/core/task-groups";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -69,14 +69,30 @@ export default function TopicsPage() {
     <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3">
+          <div className="min-w-0 flex-1 basis-56">
             <h1 className="text-[15px] font-semibold text-foreground">{TASK_GROUPS_LABEL}</h1>
             <p className="text-muted-foreground">
               What your agents are asked to do, grouped automatically from a sample of traces.
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex max-w-full flex-wrap items-center gap-3">
+            {data?.fittedAt && (
+              <DateFilterSelect
+                dateFilter={state.dateFilter}
+                customStartDate={state.customStartDate}
+                customEndDate={state.customEndDate}
+                onDateFilterChange={updateDateFilter}
+                onCustomRangeChange={updateCustomRange}
+                retentionDays={retention.retentionDays}
+                onUpgradeClick={retention.onUpgradeClick}
+              />
+            )}
+            {enabled && refreshWaitsUntil && (
+              <span className="text-[11px] text-muted-foreground">
+                Can refresh again at {timeOfDay(refreshWaitsUntil)} (your time)
+              </span>
+            )}
             {data && (
               <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
                 <span>{enabled ? "On" : "Off"}</span>
@@ -88,23 +104,25 @@ export default function TopicsPage() {
                 <span className="sr-only">{TASK_GROUPS_LABEL} for this project</span>
               </label>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 text-[12px]"
-              disabled={refreshBlocked}
-              title={
-                !enabled
-                  ? `Turn ${TASK_GROUPS_LABEL} on first`
-                  : refreshWaitsUntil
-                    ? `Available again at ${timeOfDay(refreshWaitsUntil)}`
-                    : "Fit the groups again now"
-              }
-              onClick={() => refresh.mutate()}
-            >
-              <RefreshCw className="h-3 w-3" />
-              Refresh now
-            </Button>
+            {data && enabled && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                disabled={refreshBlocked}
+                title={
+                  !enabled
+                    ? `Turn ${TASK_GROUPS_LABEL} on first`
+                    : refreshWaitsUntil
+                      ? `Available again at ${timeOfDay(refreshWaitsUntil)}`
+                      : "Regroup the traces now"
+                }
+                onClick={() => refresh.mutate()}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh now
+              </Button>
+            )}
           </div>
         </div>
 
@@ -127,18 +145,6 @@ export default function TopicsPage() {
           </p>
         )}
 
-        <div className="flex items-center justify-end border-b border-border px-4 py-2">
-          <DateFilterSelect
-            dateFilter={state.dateFilter}
-            customStartDate={state.customStartDate}
-            customEndDate={state.customEndDate}
-            onDateFilterChange={updateDateFilter}
-            onCustomRangeChange={updateCustomRange}
-            retentionDays={retention.retentionDays}
-            onUpgradeClick={retention.onUpgradeClick}
-          />
-        </div>
-
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
@@ -146,20 +152,18 @@ export default function TopicsPage() {
             </div>
           ) : error || !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">
-                Could not load {TASK_GROUPS_LABEL.toLowerCase()}
+              <p className="flex items-center gap-2 text-[13px] text-destructive" role="alert">
+                <AlertTriangle className="h-4 w-4" aria-hidden />
+                Could not load {TASK_GROUPS_LABEL.toLowerCase()}. Try again in a moment.
               </p>
               <Button variant="outline" size="sm" onClick={() => void refetch()}>
                 Try again
               </Button>
             </div>
-          ) : rows.length === 0 ? (
+          ) : data.fittedAt === null ? null : rows.length === 0 || data.sampled === 0 ? (
             <div className="flex h-48 flex-col items-center justify-center gap-1 text-center text-muted-foreground">
-              {data.fittedAt === null ? (
-                <p>No {TASK_GROUPS_LABEL.toLowerCase()} yet.</p>
-              ) : (
-                <p>No sampled traces in this time range.</p>
-              )}
+              <p>No sampled traces in this time range.</p>
+              <p className="text-[12px]">Pick a longer range to see the topics.</p>
             </div>
           ) : (
             <>
@@ -171,12 +175,19 @@ export default function TopicsPage() {
                 ungrouped={data.ungrouped}
                 hrefFor={tracesHref}
               />
-              <p className="px-4 py-3 text-[11px] text-muted-foreground">
-                Shares are estimates from {data.sampled} sampled{" "}
-                {data.sampled === 1 ? "trace" : "traces"} in this range, not from every trace: up to
-                300 traces a day are summarized, and the rest have no topic.
-                {data.fittedAt && ` Fitted ${new Date(data.fittedAt).toLocaleString()}.`}
-              </p>
+              {data.fittedAt && (
+                <p className="px-4 py-3 text-[11px] text-muted-foreground">
+                  {data.sampled} sampled {data.sampled === 1 ? "trace" : "traces"} in this range.
+                  Last updated{" "}
+                  {new Date(data.fittedAt).toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  .
+                </p>
+              )}
             </>
           )}
         </div>

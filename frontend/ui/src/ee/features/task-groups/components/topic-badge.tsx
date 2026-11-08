@@ -24,7 +24,7 @@ export function TopicBadge({
   className?: string;
 }) {
   const chip = cn(
-    "inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-foreground",
+    "inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[12px] font-medium text-foreground",
     className,
   );
   const content = (
@@ -35,7 +35,7 @@ export function TopicBadge({
   );
   if (!projectId) {
     return (
-      <span className={chip} title={name}>
+      <span className={chip} title={name} aria-label={`Topic: ${name}`}>
         {content}
       </span>
     );
@@ -46,6 +46,7 @@ export function TopicBadge({
       // The row opens the trace; the chip opens the group's traces instead.
       onClick={(e) => e.stopPropagation()}
       title={`${name} — show this topic's traces`}
+      aria-label={`Topic: ${name}`}
       className={cn(chip, "transition-colors hover:bg-muted")}
     >
       {content}

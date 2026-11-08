@@ -3,10 +3,11 @@
 import { useMemo } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { seriesColor } from "@/features/dashboards/series-colors";
+import { MAX_COLOURED_TOPICS, topicColor } from "./topic-colors";
 import type { TaskGroupRow } from "../types";
 
 /** Groups drawn in their own colour; the rest are summed into one series. */
-const MAX_SERIES = 8;
+const MAX_SERIES = MAX_COLOURED_TOPICS;
 const OTHER = "Other";
 
 function shortDay(day: string): string {
@@ -46,27 +47,33 @@ export function TopicsTrendChart({
   days: readonly string[];
 }) {
   const { keys, data } = useMemo(() => buildTrendSeries(rows, days), [rows, days]);
-  if (rows.length === 0 || days.length === 0) return null;
+  // One day is a single bar: the table says as much.
+  if (rows.length === 0 || days.length < 2) return null;
   return (
     <div className="border-b border-border px-4 py-3">
-      <div className="mb-2 flex items-baseline justify-between">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4">
         <h2 className="text-[12px] font-medium text-foreground">Over time</h2>
         <span className="text-[11px] text-muted-foreground">
           Sampled traces per day, by topic (UTC days)
+          {keys.includes(OTHER) ? `; the smaller topics are grouped as ${OTHER}` : ""}
         </span>
       </div>
       <div
         className="h-[170px] w-full"
         data-testid="topics-trend-chart"
         role="img"
-        aria-label={`Sampled traces per day for ${keys.join(", ")}`}
+        aria-label={`Sampled traces per day for ${keys.join(", ")}. The numbers are in the table below.`}
       >
         <ResponsiveContainer
           width="100%"
           height="100%"
           initialDimension={{ width: 640, height: 170 }}
         >
-          <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
+          <BarChart
+            accessibilityLayer={false}
+            data={data}
+            margin={{ top: 4, right: 8, bottom: 0, left: -12 }}
+          >
             <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
             <XAxis
               dataKey="day"
@@ -97,7 +104,7 @@ export function TopicsTrendChart({
                 key={key}
                 dataKey={key}
                 stackId="topics"
-                fill={seriesColor(i)}
+                fill={key === OTHER ? topicColor(MAX_SERIES) : seriesColor(i)}
                 isAnimationActive={false}
               />
             ))}
@@ -109,7 +116,9 @@ export function TopicsTrendChart({
           <li key={key} className="flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-sm"
-              style={{ background: seriesColor(i) }}
+              style={{
+                background: key === OTHER ? "hsl(var(--muted-foreground))" : seriesColor(i),
+              }}
               aria-hidden
             />
             {key}
