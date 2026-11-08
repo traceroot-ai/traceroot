@@ -146,6 +146,21 @@ describe("update schedule route", () => {
     });
   });
 
+  it("saves the limits and keeps them when a later save leaves them out", async () => {
+    await put({ frequency: "daily", runTokenCap: 5000, monthlySpendCapUsd: 3 });
+    await put({ hour: 6 });
+    expect(schedules.get("p1")).toMatchObject({
+      hour: 6,
+      runTokenCap: 5000,
+      monthlySpendCapUsd: 3,
+    });
+  });
+
+  it("rejects limits out of range", async () => {
+    expect((await put({ runTokenCap: 10 })).status).toBe(400);
+    expect((await put({ monthlySpendCapUsd: -5 })).status).toBe(400);
+  });
+
   it("clears the next slot when turned off", async () => {
     await put({ frequency: "weekly" });
     await put({ frequency: "weekly", enabled: false });

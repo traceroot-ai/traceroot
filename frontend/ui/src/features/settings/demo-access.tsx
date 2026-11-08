@@ -59,6 +59,10 @@ const PROJECT_DEMO_VIEWER_ACCESS: Record<ProjectSettingsTab, SettingsAccess> = {
     "project",
     "Detector settings are not available in this demo project. You can explore detectors and findings, or configure detectors in your own project.",
   ),
+  updates: denied(
+    "project",
+    "Update settings are not available in this demo project. You can schedule updates in your own project.",
+  ),
 };
 
 type Membership = { is_demo?: boolean; role?: string } | undefined;

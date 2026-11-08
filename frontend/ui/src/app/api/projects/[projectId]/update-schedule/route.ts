@@ -2,8 +2,10 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import {
+  DEFAULT_UPDATE_LIMITS,
   DEFAULT_UPDATE_SCHEDULE,
   nextSlotAfter,
+  parseLimitsInput,
   parseScheduleInput,
   type UpdateScheduleSettings,
 } from "@traceroot/core/updates";
@@ -43,7 +45,7 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
     prisma.projectUpdateSchedule.findUnique({ where: { projectId } }),
     prisma.projectUpdateRun.findFirst({
       where: { projectId },
-      orderBy: { slotAt: "desc" },
+      orderBy: { createTime: "desc" },
       select: {
         id: true,
         status: true,
@@ -51,6 +53,14 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
         slotAt: true,
         finishedAt: true,
         error: true,
+        stopReason: true,
+        deliveryNote: true,
+        skillsRan: true,
+        tokensIn: true,
+        tokensOut: true,
+        costUsd: true,
+        slackDeliveredAt: true,
+        emailDeliveredAt: true,
       },
     }),
   ]);
@@ -68,6 +78,8 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
   return successResponse({
     ...serialize(settings, row !== null),
     next_slot_at: row?.nextSlotAt ?? null,
+    run_token_cap: row?.runTokenCap ?? DEFAULT_UPDATE_LIMITS.runTokenCap,
+    monthly_spend_cap_usd: row?.monthlySpendCapUsd ?? DEFAULT_UPDATE_LIMITS.monthlySpendCapUsd,
     last_run: lastRun
       ? {
           id: lastRun.id,
@@ -76,6 +88,13 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
           slot_at: lastRun.slotAt,
           finished_at: lastRun.finishedAt,
           error: lastRun.error,
+          stop_reason: lastRun.stopReason,
+          delivery_note: lastRun.deliveryNote,
+          skills_ran: Array.isArray(lastRun.skillsRan) ? lastRun.skillsRan : [],
+          tokens: lastRun.tokensIn + lastRun.tokensOut,
+          cost_usd: lastRun.costUsd,
+          slack_delivered: lastRun.slackDeliveredAt !== null,
+          email_delivered: lastRun.emailDeliveredAt !== null,
         }
       : null,
   });
@@ -116,17 +135,29 @@ async function handlePUT(request: NextRequest, { params }: RouteParams) {
   );
   if (!parsed.ok) return errorResponse(parsed.error, 400);
   const settings = parsed.value;
+  const limits = parseLimitsInput(
+    body,
+    saved
+      ? { runTokenCap: saved.runTokenCap, monthlySpendCapUsd: saved.monthlySpendCapUsd }
+      : undefined,
+  );
+  if (!limits.ok) return errorResponse(limits.error, 400);
 
   // The next slot is the first one after now: saving never starts a run for a slot
   // that has already passed.
   const nextSlotAt = settings.enabled ? nextSlotAfter(settings, new Date()) : null;
   const stored = await prisma.projectUpdateSchedule.upsert({
     where: { projectId },
-    create: { projectId, ...settings, nextSlotAt },
-    update: { ...settings, nextSlotAt },
+    create: { projectId, ...settings, ...limits.value, nextSlotAt },
+    update: { ...settings, ...limits.value, nextSlotAt },
   });
 
-  return successResponse({ ...serialize(settings, true), next_slot_at: stored.nextSlotAt });
+  return successResponse({
+    ...serialize(settings, true),
+    next_slot_at: stored.nextSlotAt,
+    run_token_cap: stored.runTokenCap,
+    monthly_spend_cap_usd: stored.monthlySpendCapUsd,
+  });
 }
 
 export const GET = withImpersonationPolicy(handleGET);

@@ -156,3 +156,70 @@ export async function readRunAggregates(
   ]);
   return { current, previous };
 }
+
+export interface SampleTraceDto {
+  trace_id: string;
+  name: string;
+  reason: string;
+  failed: boolean;
+  duration_ms: number;
+  cost: string;
+  git_ref: string | null;
+  status_message: string | null;
+}
+
+async function getJson<T>(config: AggregatesClientConfig, url: URL): Promise<T> {
+  const doFetch: FetchLike = config.fetchImpl ?? ((u, init) => fetch(u, init));
+  const response = await doFetch(url.toString(), {
+    headers: { "X-Internal-Secret": config.secret },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok)
+    throw new Error(
+      `Backend request failed: ${response.status} ${(await response.text()).slice(0, 200)}`,
+    );
+  return (await response.json()) as T;
+}
+
+/** The fixed, labelled sample of traces for drill-down. The seed makes it repeatable per run. */
+export async function readTraceSample(
+  config: AggregatesClientConfig,
+  projectId: string,
+  start: Date,
+  end: Date,
+  seed: number,
+): Promise<SampleTraceDto[]> {
+  const url = new URL("/api/v1/internal/update-aggregates/sample", config.baseUrl);
+  url.searchParams.set("project_id", projectId);
+  url.searchParams.set("start", start.toISOString());
+  url.searchParams.set("end", end.toISOString());
+  url.searchParams.set("seed", String(seed));
+  return (await getJson<{ traces: SampleTraceDto[] }>(config, url)).traces;
+}
+
+/**
+ * The bounded SQL tool. A refusal (no time range, too wide, bad query) comes
+ * back as the tool's own message so the model can narrow its question.
+ */
+export async function runBoundedSql(
+  config: AggregatesClientConfig,
+  projectId: string,
+  query: string,
+): Promise<{ columns: string[]; rows: unknown[][]; truncated: boolean }> {
+  const doFetch = config.fetchImpl as unknown as typeof fetch | undefined;
+  const response = await (doFetch ?? fetch)(
+    new URL("/api/v1/internal/update-sql", config.baseUrl).toString(),
+    {
+      method: "POST",
+      headers: { "X-Internal-Secret": config.secret, "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId, query }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    },
+  );
+  if (response.status === 422) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(`The query was refused: ${body.detail ?? "invalid query"}`);
+  }
+  if (!response.ok) throw new Error(`The query failed (${response.status}).`);
+  return (await response.json()) as { columns: string[]; rows: unknown[][]; truncated: boolean };
+}

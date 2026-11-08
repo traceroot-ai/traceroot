@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_UPDATE_SCHEDULE, parseScheduleInput } from "../schedule.ts";
+import {
+  DEFAULT_UPDATE_LIMITS,
+  DEFAULT_UPDATE_SCHEDULE,
+  parseLimitsInput,
+  parseScheduleInput,
+} from "../schedule.ts";
 import { frozenClock } from "../clock.ts";
 
 describe("parseScheduleInput", () => {
@@ -105,5 +110,30 @@ describe("frozenClock", () => {
 
   it("refuses an unreadable instant", () => {
     expect(() => frozenClock("not a date")).toThrow();
+  });
+});
+
+describe("limits", () => {
+  it("defaults, and keeps current values for fields left out", () => {
+    expect(parseLimitsInput({})).toEqual({ ok: true, value: DEFAULT_UPDATE_LIMITS });
+    expect(
+      parseLimitsInput({ runTokenCap: 5000 }, { runTokenCap: 9000, monthlySpendCapUsd: 3 }),
+    ).toEqual({
+      ok: true,
+      value: { runTokenCap: 5000, monthlySpendCapUsd: 3 },
+    });
+  });
+
+  it.each([
+    { runTokenCap: 10 },
+    { runTokenCap: 1.5 },
+    { runTokenCap: 10_000_000 },
+    { monthlySpendCapUsd: -1 },
+    { monthlySpendCapUsd: "5" },
+    { monthlySpendCapUsd: 1e9 },
+  ])("rejects %j", (input) => expect(parseLimitsInput(input).ok).toBe(false));
+
+  it("lets the schedule parser pass the limit keys through", () => {
+    expect(parseScheduleInput({ frequency: "daily", runTokenCap: 5000 }).ok).toBe(true);
   });
 });

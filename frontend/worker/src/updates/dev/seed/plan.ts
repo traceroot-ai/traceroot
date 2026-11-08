@@ -132,7 +132,7 @@ export function buildProjectPlans(volume: number): ProjectPlan[] {
             { key: "base", fromFraction: 0 },
             { key: "bad", fromFraction: 0.4 },
           ],
-          injectedFailures: 3,
+          injectedFailures: 12,
         },
         {
           // Latency shift: the median nearly doubles, volume and errors hold.

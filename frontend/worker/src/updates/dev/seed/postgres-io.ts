@@ -6,6 +6,8 @@ import { scheduleOf, workspaceIdOf, type Scenario } from "./scenario.js";
 export interface PostgresOptions {
   /** Address that receives the update email. */
   inbox?: string;
+  /** An existing user, made an admin of the seeded workspace so the data can be seen in the app. */
+  memberEmail?: string;
   /** When given, the seeded workspace gets a Slack connection with this bot. */
   slack?: { botToken: string; channelId: string };
 }
@@ -53,6 +55,20 @@ export async function writePostgres(
   for (const which of ["a", "b"] as const) {
     await prisma.workspace.create({
       data: { id: workspaceIdOf(params.prefix, which), name: `${WORKSPACE_NAME} ${which}` },
+    });
+  }
+
+  if (options.memberEmail) {
+    const user = await prisma.user.findUnique({ where: { email: options.memberEmail } });
+    if (!user)
+      throw new Error(`No user with the email ${options.memberEmail} exists to make a member.`);
+    await prisma.workspaceMember.create({
+      data: {
+        id: `${params.prefix}-member`,
+        workspaceId: workspaceIdOf(params.prefix, "a"),
+        userId: user.id,
+        role: "ADMIN",
+      },
     });
   }
 

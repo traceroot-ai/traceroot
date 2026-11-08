@@ -358,6 +358,29 @@ describe("computeUpdateFacts", () => {
     }
   });
 
+  it("writes each finding as a line to quote, with percentages and units worked out", () => {
+    const now = aggregates({
+      totals: {
+        traces: 1000,
+        errorTraces: 146,
+        p50Ms: 1900,
+        p95Ms: 2500,
+        p99Ms: 3000,
+        gitContextTraces: 0,
+      },
+      tools: [{ name: "fresh", calls: 87, errors: 0 }],
+    });
+    const facts = computeUpdateFacts(now, aggregates());
+    const line = (id: string) => facts.findings.find((f) => f.id === id)!.display;
+    expect(line("project:all traffic:error_rate")).toBe(
+      "all traffic: error rate 3.0% to 15% (+11.6 percentage points), from 1,000 and 1,000 traces",
+    );
+    expect(line("project:all traffic:latency_p50")).toBe(
+      "all traffic: median latency 1,000 ms to 1,900 ms (+90%)",
+    );
+    expect(line("tool:fresh:presence")).toBe("fresh: new this window (87 uses, none before)");
+  });
+
   it("is deterministic: same input, same ordered output", () => {
     const now = aggregates({
       totals: {
