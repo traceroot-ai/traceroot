@@ -165,6 +165,18 @@ class ClickHouseClient:
             column_names=columns,
         )
 
+    def insert_rows(self, table: str, column_names: list[str], rows: list[list[Any]]) -> None:
+        """Insert rows into a table with a fixed, caller-chosen column list.
+
+        Args:
+            table (str): Table name. A literal from our own code, never user input.
+            column_names (list[str]): Columns, in the order of each row's values.
+            rows (list[list[Any]]): One list of values per row.
+        """
+        if not rows:
+            return
+        self._client.insert(table, rows, column_names=column_names)
+
     def delete_given_up_signal_assignments(self, project_id: str, run_ids: list[str]) -> None:
         """Delete the give-up rows (empty ``signal_id``) of these runs, so the
         signal assignment worker reads the hits as waiting again.

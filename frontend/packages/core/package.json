@@ -34,6 +34,10 @@
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
     },
+    "./task-groups": {
+      "types": "./src/ee/task-groups/index.ts",
+      "default": "./src/ee/task-groups/index.ts"
+    },
     "./signals": {
       "types": "./src/ee/signals/index.ts",
       "default": "./src/ee/signals/index.ts"
