@@ -322,6 +322,8 @@ class SampleTrace(BaseModel):
     duration_ms: int
     cost: str
     git_ref: str | None
+    # The first error message of a failed trace, cut short: customer data, shown as such.
+    status_message: str | None = None
 
 
 class UpdateSample(BaseModel):
@@ -331,8 +333,14 @@ class UpdateSample(BaseModel):
 
 _SAMPLE_BASE = f"""
     SELECT per.trace_id AS trace_id, per.name AS name, per.failed AS failed,
-           per.duration_ms AS duration_ms, per.git_ref AS git_ref, ifNull(c.cost, 0) AS cost
+           per.duration_ms AS duration_ms, per.git_ref AS git_ref, ifNull(c.cost, 0) AS cost,
+           ifNull(e.message, '') AS message
     FROM ({_PER_TRACE}) AS per
+    LEFT JOIN (
+        SELECT trace_id, any(substring(ifNull(status_message, ''), 1, 240)) AS message
+        FROM {_SPANS} WHERE status = 'ERROR'
+        GROUP BY trace_id
+    ) AS e ON per.trace_id = e.trace_id
     LEFT JOIN (
         SELECT trace_id, sum(cost) AS cost
         FROM {_SPANS} WHERE span_kind = 'LLM'
@@ -359,7 +367,7 @@ def get_update_sample(
     ch = get_clickhouse_client()
     params = {"project_id": project_id, "start": start_utc, "end": end_utc, "seed": seed}
     parts = [
-        ("failure", "failed = 1", "trace_id DESC", SAMPLE_FAILURES),
+        ("failure", "failed = 1", "cityHash64(trace_id, {seed:UInt32}), trace_id", SAMPLE_FAILURES),
         ("slowest", "1", "duration_ms DESC, trace_id", SAMPLE_SLOWEST),
         ("costliest", "cost > 0", "cost DESC, trace_id", SAMPLE_COSTLIEST),
         ("random", "1", "cityHash64(trace_id, {seed:UInt32}), trace_id", SAMPLE_RANDOM),
@@ -368,12 +376,12 @@ def get_update_sample(
     for reason, condition, order, limit in parts:
         rows = _rows(
             ch,
-            f"SELECT trace_id, name, failed, duration_ms, cost, git_ref FROM ({_SAMPLE_BASE}) "
+            f"SELECT trace_id, name, failed, duration_ms, cost, git_ref, message FROM ({_SAMPLE_BASE}) "
             f"WHERE {condition} ORDER BY {order} LIMIT {limit + len(chosen)}",
             params,
         )
         taken = 0
-        for trace_id, name, failed, duration, cost, git_ref in rows:
+        for trace_id, name, failed, duration, cost, git_ref, message in rows:
             if trace_id in chosen or taken >= limit:
                 continue
             chosen[trace_id] = SampleTrace(
@@ -384,6 +392,7 @@ def get_update_sample(
                 duration_ms=_ms(duration),
                 cost=_cost(cost),
                 git_ref=git_ref or None,
+                status_message=(message or None) if failed else None,
             )
             taken += 1
     return UpdateSample(traces=list(chosen.values()))

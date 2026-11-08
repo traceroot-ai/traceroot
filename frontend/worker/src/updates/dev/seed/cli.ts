@@ -18,6 +18,9 @@ import { verifyManifest, verifyPostgres } from "./verify.js";
 import { computeUpdateFacts } from "@traceroot/core/updates";
 import { aggregatesConfigFromEnv, readRunAggregates } from "../../aggregates-client.js";
 import { checkAggregates, checkFacts } from "./check-facts.js";
+import { checkDigest } from "./check-digest.js";
+import { prisma } from "@traceroot/core";
+import type { UpdateResult } from "@traceroot/core/updates";
 import { startSlowRemote } from "./slow-remote.js";
 import {
   DEFAULT_BIG_BYTES,
@@ -45,6 +48,7 @@ const options = {
   port: { type: "string" },
   "delay-ms": { type: "string" },
   slack: { type: "boolean" },
+  "member-email": { type: "string" },
 } as const;
 
 function paramsFrom(values: Record<string, string | boolean | undefined>) {
@@ -127,6 +131,30 @@ async function main(): Promise<void> {
     }
     console.log(JSON.stringify({ ok: !failed, report }, null, 2));
     if (failed) process.exitCode = 1;
+  } else if (command === "check-digest") {
+    const manifest = JSON.parse(await readFile(path.join(outDir, "manifest.json"), "utf8"));
+    const report: Record<string, unknown> = {};
+    let failed = false;
+    for (const key of Object.keys(manifest.projects)) {
+      const run = await prisma.projectUpdateRun.findFirst({
+        where: {
+          projectId: manifest.projects[key].id,
+          status: "succeeded",
+          result: { not: undefined },
+        },
+        orderBy: { createTime: "desc" },
+      });
+      const result = run?.result as UpdateResult | null | undefined;
+      if (!result) {
+        report[key] = { run: null };
+        continue;
+      }
+      const check = checkDigest(manifest, key, result);
+      if (check.problems.length > 0 && !result.nothingToReport) failed = true;
+      report[key] = { run: run!.id, nothingToReport: result.nothingToReport, ...check };
+    }
+    console.log(JSON.stringify({ ok: !failed, report }, null, 2));
+    if (failed) process.exitCode = 1;
   } else if (command === "seed") {
     const slackToken = process.env.TRACEROOT_E2E_SLACK_BOT_TOKEN;
     const slackChannel = process.env.TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID;
@@ -143,6 +171,7 @@ async function main(): Promise<void> {
       slowDelayMs: values["delay-ms"] ? Number(values["delay-ms"]) : undefined,
       postgres: {
         inbox: process.env.TRACEROOT_E2E_TEST_INBOX,
+        memberEmail: values["member-email"],
         slack: values.slack ? { botToken: slackToken!, channelId: slackChannel! } : undefined,
       },
     });
@@ -159,7 +188,7 @@ async function main(): Promise<void> {
     );
   } else {
     throw new Error(
-      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts or serve-slow.`,
+      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts, check-digest or serve-slow.`,
     );
   }
 }

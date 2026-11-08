@@ -68,7 +68,16 @@ export type ScheduleParseResult =
   | { ok: true; value: UpdateScheduleSettings }
   | { ok: false; error: string };
 
-const KNOWN_KEYS = ["enabled", "frequency", "weekday", "hour", "timezone"];
+const KNOWN_KEYS = [
+  "enabled",
+  "frequency",
+  "weekday",
+  "hour",
+  "timezone",
+  // Limits are read by parseLimitsInput; the schedule itself ignores them.
+  "runTokenCap",
+  "monthlySpendCapUsd",
+];
 
 const TOO_FREQUENT =
   "Updates run at most once a day. Choose frequency 'daily' or 'weekly'; anything more frequent is not supported.";
@@ -132,4 +141,51 @@ export function parseScheduleInput(input: unknown): ScheduleParseResult {
       timezone,
     },
   };
+}
+
+/** What one project may spend on updates. */
+export interface UpdateLimits {
+  /** Most tokens one run may use before it is stopped. */
+  runTokenCap: number;
+  /** Most the project's runs may cost in a calendar month (UTC), in US dollars. */
+  monthlySpendCapUsd: number;
+}
+
+export const DEFAULT_UPDATE_LIMITS: UpdateLimits = { runTokenCap: 200_000, monthlySpendCapUsd: 20 };
+export const RUN_TOKEN_CAP_RANGE = { min: 1_000, max: 5_000_000 } as const;
+export const MONTHLY_SPEND_CAP_RANGE = { min: 0, max: 10_000 } as const;
+
+export type LimitsParseResult = { ok: true; value: UpdateLimits } | { ok: false; error: string };
+
+/** Validate the limits in a request; a field left out keeps its current value. */
+export function parseLimitsInput(
+  input: unknown,
+  current: UpdateLimits = DEFAULT_UPDATE_LIMITS,
+): LimitsParseResult {
+  const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+  const tokens = raw.runTokenCap === undefined ? current.runTokenCap : raw.runTokenCap;
+  if (
+    !Number.isInteger(tokens) ||
+    (tokens as number) < RUN_TOKEN_CAP_RANGE.min ||
+    (tokens as number) > RUN_TOKEN_CAP_RANGE.max
+  ) {
+    return {
+      ok: false,
+      error: `runTokenCap must be a whole number from ${RUN_TOKEN_CAP_RANGE.min} to ${RUN_TOKEN_CAP_RANGE.max}.`,
+    };
+  }
+  const spend =
+    raw.monthlySpendCapUsd === undefined ? current.monthlySpendCapUsd : raw.monthlySpendCapUsd;
+  if (
+    typeof spend !== "number" ||
+    !Number.isFinite(spend) ||
+    spend < MONTHLY_SPEND_CAP_RANGE.min ||
+    spend > MONTHLY_SPEND_CAP_RANGE.max
+  ) {
+    return {
+      ok: false,
+      error: `monthlySpendCapUsd must be a number from ${MONTHLY_SPEND_CAP_RANGE.min} to ${MONTHLY_SPEND_CAP_RANGE.max}.`,
+    };
+  }
+  return { ok: true, value: { runTokenCap: tokens as number, monthlySpendCapUsd: spend } };
 }

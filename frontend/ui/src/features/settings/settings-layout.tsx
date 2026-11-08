@@ -9,6 +9,7 @@ import {
   CreditCard,
   Key,
   ArrowLeftRight,
+  CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -26,7 +27,7 @@ export type WorkspaceSettingsTab =
   | "model-providers"
   | "integrations"
   | "billing";
-export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
+export type ProjectSettingsTab = "general" | "accessKeys" | "detectors" | "updates";
 
 export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
@@ -46,6 +47,7 @@ export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "accessKeys", label: "API Keys", icon: Key, href: "accessKeys" },
   { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
+  { id: "updates", label: "Updates", icon: CalendarClock, href: "updates" },
 ];
 
 // User-level (not workspace/project scoped) settings — sessions are a

@@ -66,7 +66,12 @@ export interface Finding {
   /** Sample sizes behind a rate, as [before, after]. */
   samples?: [number, number];
   note?: string;
+  /** The finding as one line of text, worked out in code: the form to quote. */
+  display: string;
 }
+
+/** A finding before its display line is written. */
+type Draft = Omit<Finding, "display">;
 
 export interface OverviewMetric {
   current: number;
@@ -87,6 +92,8 @@ export interface UpdateFacts {
     totalTokens: OverviewMetric;
   };
   findings: Finding[];
+  /** The overview as lines to quote: the same numbers, formatted. */
+  overviewLines: string[];
   /** The top models by spend this window, with shares worked out in code. */
   topModels: {
     model: string;
@@ -121,7 +128,7 @@ function relative(before: number, after: number): number | null {
  * A percentage in the overview appears only when the same movement is a finding:
  * it passed the minimum sample, size and significance rules.
  */
-function shows(findings: Finding[], id: string): boolean {
+function shows(findings: Draft[], id: string): boolean {
   return findings.some((f) => f.id === id && f.kind === "change");
 }
 
@@ -133,6 +140,39 @@ function metric(current: number, previous: number, showPercent: boolean): Overvi
     absoluteChange: round(current - previous),
     relativeChange: showPercent ? relative(previous, current) : null,
   };
+}
+
+const number = (value: number, places = 0) =>
+  value.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places });
+const signed = (value: number, text: string) => `${value < 0 ? "-" : "+"}${text}`;
+const percent = (fraction: number) =>
+  `${number(Math.abs(fraction) * 100, Math.abs(fraction) >= 0.1 ? 0 : 1)}%`;
+const dollars = (value: number) => `$${number(value, 2)}`;
+
+/** One line for a finding: the numbers as a reader should be given them. */
+function displayOf(f: Draft): string {
+  const rel =
+    f.relativeChange === null ? "" : ` (${signed(f.relativeChange, percent(f.relativeChange))})`;
+  switch (f.metric) {
+    case "trace_volume":
+      return `${f.entity}: ${number(f.before)} to ${number(f.after)} traces${rel}`;
+    case "error_rate":
+      if (f.kind === "absolute_only") return `${f.entity}: ${f.note}`;
+      return `${f.entity}: error rate ${percent(f.before)} to ${percent(f.after)} (${signed(f.absoluteChange, number(Math.abs(f.absoluteChange) * 100, 1))} percentage points)${f.samples ? `, from ${number(f.samples[0])} and ${number(f.samples[1])} traces` : ""}`;
+    case "latency_p50":
+    case "latency_p95":
+      return `${f.entity}: ${f.metric === "latency_p50" ? "median" : "95th percentile"} latency ${number(f.before)} ms to ${number(f.after)} ms${rel}`;
+    case "cost":
+      return `${f.entity}: cost ${dollars(f.before)} to ${dollars(f.after)}${rel}`;
+    case "tokens":
+      return `${f.entity}: ${number(f.before)} to ${number(f.after)} tokens${rel}`;
+    case "tool_calls":
+      return `${f.entity}: ${number(f.before)} to ${number(f.after)} calls${rel}`;
+    case "presence":
+      return f.kind === "new"
+        ? `${f.entity}: new this window (${number(f.after)} uses, none before)`
+        : `${f.entity}: no longer used (${number(f.before)} uses before, none now)`;
+  }
 }
 
 const direction = (before: number, after: number): "up" | "down" =>
@@ -152,7 +192,7 @@ function change(
   before: number,
   after: number,
   samples?: [number, number],
-): Finding {
+): Draft {
   return {
     id: `${scope}:${entity}:${m}`,
     kind: "change",
@@ -182,7 +222,7 @@ function scalar(
   rule: { minAbs: number; minRel: number; minBase: number },
   /** Number of events behind each side; a percentage needs this many in both. */
   support?: { calls: [number, number]; minCalls: number },
-): Finding[] {
+): Draft[] {
   if (!passes(before, after, rule)) return [];
   const supported = !support || Math.min(...support.calls) >= support.minCalls;
   if (before >= rule.minBase && supported) return [change(scope, entity, m, before, after)];
@@ -204,7 +244,7 @@ function categorical(
   entity: string,
   kind: "new" | "vanished",
   count: number,
-): Finding {
+): Draft {
   const appeared = kind === "new";
   return {
     id: `${scope}:${entity}:presence`,
@@ -245,7 +285,7 @@ function rateFindings(
   before: RateSide,
   after: RateSide,
   rules: NoiseRules,
-): Finding[] {
+): Draft[] {
   const rateBefore = before.total === 0 ? 0 : before.failures / before.total;
   const rateAfter = after.total === 0 ? 0 : after.failures / after.total;
   const samples: [number, number] = [before.total, after.total];
@@ -282,11 +322,11 @@ function latencyFindings(
   before: { traces: number; p50Ms: number; p95Ms: number },
   after: { traces: number; p50Ms: number; p95Ms: number },
   rules: NoiseRules,
-): Finding[] {
+): Draft[] {
   if (before.traces < rules.latencyMs.minSample || after.traces < rules.latencyMs.minSample)
     return [];
   const samples: [number, number] = [before.traces, after.traces];
-  const out: Finding[] = [];
+  const out: Draft[] = [];
   if (passes(before.p50Ms, after.p50Ms, rules.latencyMs)) {
     out.push(change(scope, entity, "latency_p50", before.p50Ms, after.p50Ms, samples));
   }
@@ -302,10 +342,33 @@ function volumeFinding(
   before: number,
   after: number,
   rules: NoiseRules,
-): Finding[] {
+): Draft[] {
   // Counts vary by chance: the difference must also stand out against sqrt(before + after).
   if (before + after > 0 && Math.abs(after - before) / Math.sqrt(before + after) < 3) return [];
   return scalar(scope, entity, "trace_volume", before, after, rules.volume);
+}
+
+function overviewLines(
+  c: WindowAggregates["totals"],
+  p: WindowAggregates["totals"],
+  costNow: number,
+  costBefore: number,
+  current: WindowAggregates,
+  previous: WindowAggregates,
+  errorRateMoved: boolean,
+): string[] {
+  const change = (before: number, after: number, minBase: number) =>
+    before >= minBase && before !== 0
+      ? ` (${signed(after - before, percent((after - before) / before))})`
+      : "";
+  const rate = (a: number, b: number) => (b === 0 ? 0 : a / b);
+  return [
+    `Traces: ${number(p.traces)} to ${number(c.traces)}${change(p.traces, c.traces, DEFAULT_NOISE_RULES.volume.minBase)}`,
+    `Error rate: ${percent(rate(p.errorTraces, p.traces))} to ${percent(rate(c.errorTraces, c.traces))} (${number(p.errorTraces)} of ${number(p.traces)} traces, then ${number(c.errorTraces)} of ${number(c.traces)})${errorRateMoved ? "" : ", not a significant change"}`,
+    `Latency: median ${number(p.p50Ms)} ms to ${number(c.p50Ms)} ms, 95th percentile ${number(p.p95Ms)} ms to ${number(c.p95Ms)} ms`,
+    `Model spend: ${dollars(costBefore)} to ${dollars(costNow)}${change(costBefore, costNow, DEFAULT_NOISE_RULES.costUsd.minBase)}`,
+    `Tokens: ${number(previous.llm.totalTokens)} to ${number(current.llm.totalTokens)}`,
+  ];
 }
 
 /** Compare a window with the one before it. Pure: the same inputs give the same findings. */
@@ -314,7 +377,7 @@ export function computeUpdateFacts(
   previous: WindowAggregates,
   rules: NoiseRules = DEFAULT_NOISE_RULES,
 ): UpdateFacts {
-  const findings: Finding[] = [];
+  const findings: Draft[] = [];
   // A list cut at the entity cap cannot tell new from merely beyond the cap.
   const cut = new Set([...current.truncated, ...previous.truncated]);
   const c = current.totals;
@@ -479,9 +542,18 @@ export function computeUpdateFacts(
         shows(findings, "project:all models:tokens"),
       ),
     },
+    overviewLines: overviewLines(
+      c,
+      p,
+      costNow,
+      costBefore,
+      current,
+      previous,
+      shows(findings, "project:all traffic:error_rate"),
+    ),
     topModels,
     truncatedLists: [...cut].sort(),
-    findings,
+    findings: findings.map((f) => ({ ...f, display: displayOf(f) })),
     modelDays: current.byModelDay.map((d) => ({
       model: d.model,
       day: d.day,

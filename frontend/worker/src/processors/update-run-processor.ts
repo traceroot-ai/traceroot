@@ -3,6 +3,7 @@ import { prisma } from "@traceroot/core";
 import { createRedisConnection } from "../queues/detector-run-queue.js";
 import { aggregatesConfigFromEnv, readRunAggregates } from "../updates/aggregates-client.js";
 import { executeRun } from "../updates/execute.js";
+import { buildAgentStageDeps } from "../updates/runtime.js";
 import { UPDATE_RUN_QUEUE, type UpdateRunJob } from "../updates/queue.js";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -18,6 +19,7 @@ export function startUpdateRunWorker(): Worker<UpdateRunJob> {
           readAggregates: (projectId, windows, timezone) =>
             readRunAggregates(config, projectId, windows, timezone),
           appBaseUrl: APP_BASE_URL,
+          agent: buildAgentStageDeps(config),
         },
         job.data.runId,
       );

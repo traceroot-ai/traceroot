@@ -156,7 +156,7 @@ describe("planted ground truth (S2)", () => {
 
   it("plants the injection strings only where intended", () => {
     const traces = main.data.traces.filter((t) => t.input?.includes("PWNED-INJECTION-7731"));
-    expect(traces.length).toBe(3);
+    expect(traces.length).toBe(12);
     expect(traces.every((t) => t.name === "research_agent")).toBe(true);
   });
 });

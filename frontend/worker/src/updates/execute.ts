@@ -6,13 +6,19 @@ import {
   type WindowAggregates,
 } from "@traceroot/core/updates";
 import { buildSignalsRollup, type SignalsRollup } from "./signals-rollup.js";
+import { runAgentStage, type AgentStageDeps } from "./stage.js";
 
 /** A run still "running" this long after it started belongs to a worker that is gone. */
 export const STALE_RUNNING_MS = 15 * 60_000;
 
 export type ExecuteDb = Pick<
   PrismaClient,
-  "projectUpdateRun" | "project" | "signal" | "signalHit" | "signalStatusEvent"
+  | "projectUpdateRun"
+  | "projectUpdateSchedule"
+  | "project"
+  | "signal"
+  | "signalHit"
+  | "signalStatusEvent"
 >;
 
 export interface ExecuteDeps {
@@ -24,6 +30,8 @@ export interface ExecuteDeps {
   ) => Promise<{ current: WindowAggregates; previous: WindowAggregates }>;
   appBaseUrl: string;
   now?: () => Date;
+  /** The agent and delivery. Without it a run stops after the numbers. */
+  agent?: AgentStageDeps;
 }
 
 export interface ExecuteOutcome {
@@ -61,7 +69,14 @@ export async function executeRun(deps: ExecuteDeps, runId: string): Promise<Exec
   try {
     const project = await db.project.findFirst({
       where: { id: run.projectId, deleteTime: null },
-      select: { id: true },
+      select: {
+        id: true,
+        name: true,
+        workspaceId: true,
+        rcaSource: true,
+        rcaProvider: true,
+        rcaModel: true,
+      },
     });
     if (!project) {
       // Not retryable: the project is gone, so the run is over.
@@ -76,16 +91,48 @@ export async function executeRun(deps: ExecuteDeps, runId: string): Promise<Exec
     const facts = { ...computeUpdateFacts(current, previous), timezone: run.timezone };
     const signalsRollup = await buildSignalsRollup(db, run.projectId, run, deps.appBaseUrl);
 
-    await db.projectUpdateRun.update({
-      where: { id: runId },
-      data: {
-        status: "succeeded",
-        finishedAt: now(),
-        facts: facts as unknown as Prisma.InputJsonValue,
-        signalsRollup: signalsRollup as unknown as Prisma.InputJsonValue,
-      },
-    });
-    return { status: "succeeded", facts, signalsRollup };
+    const stored = {
+      facts: facts as unknown as Prisma.InputJsonValue,
+      signalsRollup: signalsRollup as unknown as Prisma.InputJsonValue,
+    };
+    if (!deps.agent) {
+      await db.projectUpdateRun.update({
+        where: { id: runId },
+        data: { status: "succeeded", finishedAt: now(), ...stored },
+      });
+      return { status: "succeeded", facts, signalsRollup };
+    }
+
+    await db.projectUpdateRun.update({ where: { id: runId }, data: stored });
+    const fresh = await db.projectUpdateRun.findUniqueOrThrow({ where: { id: runId } });
+    const outcome = await runAgentStage(
+      { ...deps.agent, db, appBaseUrl: deps.appBaseUrl, now },
+      fresh,
+      project,
+      facts,
+      signalsRollup,
+      run.frequency as "daily" | "weekly",
+    );
+    if (outcome.status === "succeeded") {
+      await db.projectUpdateRun.update({
+        where: { id: runId },
+        data: { status: "succeeded", finishedAt: now(), deliveryNote: outcome.note },
+      });
+      return { status: "succeeded", facts, signalsRollup };
+    }
+    if (outcome.status === "stopped") {
+      await db.projectUpdateRun.update({
+        where: { id: runId },
+        data: {
+          status: "stopped",
+          finishedAt: now(),
+          stopReason: outcome.stopReason,
+          error: outcome.message,
+        },
+      });
+      return { status: "stopped", facts, signalsRollup, error: outcome.message };
+    }
+    throw new Error(outcome.error);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db.projectUpdateRun.update({

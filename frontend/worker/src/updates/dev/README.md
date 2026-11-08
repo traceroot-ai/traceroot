@@ -26,7 +26,8 @@ Options (all optional): `--seed` (default `update-seed-1`), `--now` (default
 the oversize repository, default 30 MiB), `--port` and `--delay-ms` for the slow
 remote, `--slack` (also connect the seeded workspace to Slack using
 `TRACEROOT_E2E_SLACK_BOT_TOKEN` and `TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID`).
-`TRACEROOT_E2E_TEST_INBOX`, when set, becomes the email recipient.
+`TRACEROOT_E2E_TEST_INBOX`, when set, becomes the email recipient. `--member-email you@example.com`
+makes an existing user an admin of the seeded workspace, so the data can be opened in the app.
 
 The windows come from the same code the worker uses (`@traceroot/core/updates`),
 so `--now`, `--frequency` and `--timezone` move the seeded data with them. With
@@ -127,3 +128,19 @@ or the real clock) and prints its window boundaries. The windows depend only on
 the project's schedule and the instant, so triggering twice gives identical
 boundaries. Refused unless `NODE_ENV` is `development` or
 `test` (the CLI defaults to `development`) or `TRACEROOT_UPDATES_ALLOW_MANUAL=1`.
+
+## Running a whole update
+
+```bash
+# map the dev keys to the names the app reads (see the e2e docs), then:
+pnpm update:trigger --project seedupd-main --now 2026-11-02T09:30:00Z --execute   # in this process
+pnpm update:tick --now 2026-11-02T09:30:00Z                                      # or via the worker's queue
+pnpm update:seed check-facts      # numbers against the planted changes
+pnpm update:seed check-digest     # delivered digests against the manifest: no other tenant's
+                                  # markers, no repeated injection, own links only, every planted
+                                  # change mentioned
+```
+
+Environment switches for development: `UPDATE_AGENT_MODEL` (model id), `UPDATE_AGENT_DEBUG=1`
+(one log line per agent turn, never content), `UPDATES_INJECT_FAULT=email-once` (the first email of
+each message fails once, to watch a retry resume; ignored in production).

@@ -44,7 +44,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
     when: "always",
     body: `Report the headline metrics of the window: trace volume, error rate, latency (median and 95th percentile), model cost and tokens.
 
-- Use only the numbers in get_update_facts, including the changes already worked out there. Never compute a difference or a percentage yourself.
+- Use only the numbers in get_update_facts. Every finding has a display line and the overview has overviewLines: quote those lines for their numbers; they are already worked out and formatted (percentages, dollars, thousands). Never compute a difference or a percentage yourself, and never print a raw fraction such as 0.0527.
 - If a finding carries a relative change, you may state it. If it does not, state the absolute numbers only. Never convert them into a percentage.
 - Report the metrics that moved first. A metric that did not move belongs in one short clause, or nowhere.
 - Each number you state needs a link to where the reader can see it. get_update_facts returns a links object (the project's dashboard, traces and signals pages); use those, or the trace link that sample_traces returns with each trace for a single example.`,
@@ -70,7 +70,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
     when: "always",
     body: `Report the changes in how the project is used that a signal would not catch: traffic going up or down, a workflow appearing or disappearing, a new or retired model or tool, a shift in cost or latency.
 
-- Work from the findings in get_update_facts, in the order given. Every macro item you report must correspond to one finding; cite its id.
+- Work from the findings in get_update_facts. Every finding must be covered somewhere in the update, even in one clause (group related ones: a volume drop and the model spend that follows from it can share an item); the update is checked for this. Every macro item you report must correspond to a finding; cite its id.
 - A finding of kind new or vanished is a statement that the thing appeared or went. Report it as that. Do not give it a percentage.
 - A finding of kind absolute_only has too little traffic behind it for a comparison. Say the counts and that the sample is small. Do not call it a rise or a fall in a rate.
 - Skip anything a signal in the signals roll-up already covers. Point to the signal instead.

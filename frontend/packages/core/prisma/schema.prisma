@@ -561,6 +561,9 @@ model ProjectUpdateSchedule {
   timezone   String    @default("UTC") @db.VarChar // IANA name
   // The next slot not yet turned into a run; null while disabled.
   nextSlotAt DateTime? @map("next_slot_at") @db.Timestamp(6)
+  // Limits: most tokens one run may use, and most the project's runs may cost in a calendar month (USD).
+  runTokenCap        Int   @default(200000) @map("run_token_cap")
+  monthlySpendCapUsd Float @default(20) @map("monthly_spend_cap_usd")
   createTime DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
@@ -592,6 +595,24 @@ model ProjectUpdateRun {
   // The computed numbers of the update (deltas, findings) and the signals roll-up.
   facts           Json?
   signalsRollup   Json?     @map("signals_rollup")
+  // The structured result the agent produced, and what produced it.
+  result          Json?
+  skillsRan       Json?     @map("skills_ran")
+  model           String?   @db.VarChar
+  tokensIn        Int       @default(0) @map("tokens_in")
+  tokensOut       Int       @default(0) @map("tokens_out")
+  costUsd         Float     @default(0) @map("cost_usd")
+  // Why a run was stopped on purpose: "token_cap", "spend_limit" or "project_gone".
+  stopReason      String?   @map("stop_reason") @db.VarChar
+  // Delivery, one pair per channel: set only after the channel accepted the message,
+  // so a retry sends to the channel that has none and never to one that has.
+  slackDeliveredAt DateTime? @map("slack_delivered_at") @db.Timestamp(6)
+  slackMessageTs   String?   @map("slack_message_ts") @db.VarChar
+  // Thread posts already made under the headline, so a retry continues rather than repeats.
+  slackThreadPosts Int       @default(0) @map("slack_thread_posts")
+  emailDeliveredAt DateTime? @map("email_delivered_at") @db.Timestamp(6)
+  // Plain words about a channel that was skipped or limited, shown beside the status.
+  deliveryNote     String?   @map("delivery_note") @db.Text
   startedAt       DateTime? @map("started_at") @db.Timestamp(6)
   finishedAt      DateTime? @map("finished_at") @db.Timestamp(6)
   createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
