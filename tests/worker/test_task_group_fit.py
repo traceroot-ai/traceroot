@@ -79,3 +79,15 @@ def test_no_reach_exceeds_the_cap(fitted):
 
     _x, _, result = fitted
     assert (result.reaches <= FitParams().reach_cap + 1e-6).all()
+
+
+def test_a_loose_cluster_has_its_reach_capped():
+    from worker.task_groups.fit import FitParams
+
+    # One tight blob and one very diffuse blob: the diffuse one would otherwise get a reach near 1.
+    rng = np.random.default_rng(5)
+    tight = rng.normal(size=64) + 0.2 * rng.normal(size=(80, 64))
+    loose = 2.0 * rng.normal(size=(80, 64))
+    result = fit_groups(np.concatenate([tight, loose]).astype(np.float32))
+    assert result is not None and len(result.reaches) >= 1
+    assert result.reaches.max() <= FitParams().reach_cap + 1e-6

@@ -129,7 +129,10 @@ def fit_groups(vectors: np.ndarray, params: FitParams = FitParams()) -> FitResul
     )
     reaches = np.array(
         [
-            params.reach_margin * np.quantile(own[labels == c], params.reach_quantile)
+            min(
+                params.reach_cap,
+                params.reach_margin * np.quantile(own[labels == c], params.reach_quantile),
+            )
             for c in range(k)
         ],
         dtype=np.float32,
