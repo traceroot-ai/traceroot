@@ -23,7 +23,6 @@
   --border: 0 0% 87%;
   --input: 0 0% 87%;
   --ring: 178 87% 26%;
-  --radius: 0.25rem;
 
   /* Teal as text: the darker shade keeps AA on white. */
   --brand: 178 87% 26%;
@@ -118,4 +117,131 @@
 
 .animate-slide-in-left {
   animation: slideInFromLeft 0.3s ease-out;
+}
+
+/* Table end column (row actions) stays reachable while a wide table scrolls sideways. */
+.col-sticky-end,
+.col-sticky-end-head {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background-color: hsl(var(--background));
+}
+
+/* One table language: hairline row rules, no column rules, muted caption headers. */
+.data-table th,
+.data-table td {
+  border-right-width: 0;
+}
+
+.data-table thead tr {
+  background-color: hsl(var(--background));
+  border-bottom: 1px solid hsl(var(--border));
+}
+.data-table thead th {
+  font-size: 12px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.data-table tbody td {
+  white-space: nowrap;
+  font-size: 13px;
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.data-table tbody td.font-mono,
+.data-table tbody td .font-mono {
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* Controls that belong together sit flush, divided by a single hairline. */
+.btn-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 2px;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--border));
+}
+.btn-group > * {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: hsl(var(--background));
+}
+.btn-group > *:hover {
+  background-color: hsl(var(--muted));
+}
+
+/* One left and right gutter for page title, toolbar and table. */
+.data-table th:first-child,
+.data-table td:first-child {
+  padding-left: 16px;
+}
+.data-table th:last-child,
+.data-table td:last-child {
+  padding-right: 16px;
+}
+
+/* Scrolling lists must not rubber-band into blank space past their edges. */
+.overflow-auto,
+.overflow-x-auto,
+.overflow-y-auto {
+  overscroll-behavior: none;
+}
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Scrollbars: thin and quiet, one hairline grey. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.data-table tbody tr {
+  border-bottom: 1px solid hsl(var(--border));
+}
+.data-table tbody tr:last-child {
+  border-bottom: 0;
+}
+
+/* The pinned action cell follows the row's hover and selected fill. */
+.data-table tbody tr:hover .col-sticky-end,
+.data-table tbody tr[data-selected="true"] .col-sticky-end {
+  background-color: hsl(var(--muted));
+}
+.data-table tbody tr[data-selected="true"] .col-sticky-end {
+  background-color: hsl(var(--accent));
+}
+.data-table tbody td input[type="checkbox"] {
+  display: block;
+  margin: 0;
+}
+
+/* Tables with a sticky multi-row header: collapsed borders do not travel with a sticky
+   thead in Chrome (rows flash through a gap on fast scroll), so draw the rules on the
+   cells of a separated-border table instead. */
+.data-table.sticky-sep {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.data-table.sticky-sep thead tr,
+.data-table.sticky-sep tbody tr {
+  border-bottom: 0;
+}
+.data-table.sticky-sep thead th,
+.data-table.sticky-sep thead td {
+  border-bottom: 1px solid hsl(var(--border));
+}
+.data-table.sticky-sep tbody td {
+  border-bottom: 1px solid hsl(var(--border) / 0.6);
+}
+.data-table.sticky-sep tbody tr:last-child td {
+  border-bottom: 0;
 }

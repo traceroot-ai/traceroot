@@ -184,11 +184,12 @@ export function formatDate(date: string | Date | null | undefined): string {
 
 /**
  * Format cost to human readable string with appropriate precision.
- * e.g., 0.000123 -> "$0.000123", 0.0523 -> "$0.0523", 1.50 -> "$1.50"
+ * e.g., 0.000123 -> "$0.0001" (4 decimals under $1), 0.00001 -> "<$0.0001",
+ * 0.0523 -> "$0.0523", 1.50 -> "$1.50" (2 decimals from $1)
  */
 export function formatCost(cost: number | null | undefined): string {
   if (cost === null || cost === undefined || cost === 0) return "-";
-  if (cost < 0.01) return `$${cost.toFixed(6)}`;
+  if (cost < 0.0001) return "<$0.0001";
   if (cost < 1) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
 }
