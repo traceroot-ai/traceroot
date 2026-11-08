@@ -27,12 +27,12 @@ Set up traceroot tracing in this repo with the traceroot setup wizard.
      I sign in. Then run setup again.
    - If it stops for any other reason, follow the remedy it prints. Ask me before
      choosing a project.
-2. Setup writes a project API key to .env and an instrumentation task to
+2. Setup writes a project API key to .env.local or .env and an instrumentation task to
    .traceroot/prompts/setup-instrument.md. Carry out that task yourself, in this session.
 3. Run the app once, then run: npx -y traceroot-cli@latest setup --no-input --resume
    You're done when it prints a link to the first trace.
 
-Don't print the API key or commit .env.
+Don't print the API key or commit the file that holds it.
 Reference: https://traceroot.ai/docs/cli/get-started.md
 ```
 
@@ -120,7 +120,7 @@ Run `traceroot <command> --help` for every flag, and `traceroot doctor` to check
 
 ## Trace your coding agent
 
-These plugins send your coding agent's own sessions to traceroot, which is separate from tracing your application. Sessions can include your prompts, tool input and output, commands, and file contents. An exported `TRACEROOT_API_KEY` also applies to anything else you or your agent start from that shell, and it takes priority over the key in a repository's `.env`.
+These plugins send your coding agent's own sessions to traceroot, which is separate from tracing your application. Sessions can include your prompts, tool input and output, commands, and file contents. An exported `TRACEROOT_API_KEY` also applies to anything else you or your agent start from that shell, and it takes priority over the key in a repository's env file.
 
 <Tabs>
   <Tab title="Claude Code">
