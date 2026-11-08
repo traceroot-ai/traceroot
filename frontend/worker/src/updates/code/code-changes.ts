@@ -199,7 +199,10 @@ export async function gatherCodeChanges(
   let commits: Awaited<ReturnType<RepoReader["commitsSince"]>> | null = null;
   let clone: CodeChangesReport["clone"];
 
-  const tooBig = metadata.repo.sizeKb !== null && metadata.repo.sizeKb * 1024 > limits.maxRepoBytes;
+  // The host's size counts the whole history; the clone is blobless and shallow, so the limit is
+  // enforced on the clone itself. This only refuses repositories no clone could be expected to fit.
+  const tooBig =
+    metadata.repo.sizeKb !== null && metadata.repo.sizeKb * 1024 > limits.maxRepoBytes * 40;
   if (!deps.provider) {
     clone = {
       mode: "api_only",

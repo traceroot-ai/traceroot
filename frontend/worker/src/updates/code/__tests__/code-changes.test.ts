@@ -257,9 +257,9 @@ describe("gatherCodeChanges", () => {
       }
     }, 60_000);
 
-    it("without cloning at all when the host reports the repository over the size limit", async () => {
+    it("without cloning at all when the host reports the repository far over the size limit", async () => {
       const big: GithubFixtures = JSON.parse(JSON.stringify(fixtures));
-      big.repos["seed-org/seed-app"].sizeKb = 40 * 1024;
+      big.repos["seed-org/seed-app"].sizeKb = 2000 * 1024;
       const { deps: d, provider } = deps();
       const fixturesBefore = fixtures;
       fixtures = big;

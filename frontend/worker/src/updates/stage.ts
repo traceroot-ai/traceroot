@@ -282,6 +282,12 @@ export function codeReportProblems(result: UpdateResult, report: CodeChangesRepo
     );
   }
   if (
+    report.status === "no_repository_data" &&
+    !/code changes (were )?skipped|could not (be )?read|did not answer|unavailable/i.test(text)
+  ) {
+    problems.push("say that code changes were skipped because the code host could not be reached");
+  }
+  if (
     report.status === "not_allowed" &&
     !/not on (this project's|the project's|the) (repository )?(list|allowlist)|allowlist|not (been )?read|no code was read/i.test(
       text,

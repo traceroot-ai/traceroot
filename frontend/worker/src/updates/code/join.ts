@@ -96,7 +96,12 @@ export function joinChangesToTraffic(input: JoinInput): JoinResult {
   const baseline = { failures: previous.totals.errorTraces, total: previous.totals.traces };
 
   const refOf = (sha: string) =>
-    current.refs.find((r) => r.name === sha || r.name.startsWith(sha) || sha.startsWith(r.name));
+    current.refs.find(
+      (r) =>
+        r.name === sha ||
+        (sha.length >= 7 && r.name.startsWith(sha)) ||
+        (r.name.length >= 7 && sha.startsWith(r.name)),
+    );
   const fileOf = (path: string, list: WindowAggregates["sourceFiles"]) =>
     list.find((f) => f.file === path);
 

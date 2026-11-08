@@ -158,14 +158,14 @@ pnpm update:seed serve-slow     # a clone that answers after ~70 s, for the time
 
 Start the worker with:
 
-| Variable | Meaning |
-| --- | --- |
-| `UPDATE_SANDBOX` | `docker` (default for real runs), `daytona`, or `local` (tests only) |
+| Variable                       | Meaning                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| `UPDATE_SANDBOX`               | `docker` (default for real runs), `daytona`, or `local` (tests only)        |
 | `UPDATE_SANDBOX_CLONE_NETWORK` | Docker network for the clone sandbox (`host` to reach the local git server) |
-| `UPDATE_SANDBOX_LIMITS=none` | Skip cgroup memory/cpu flags on hosts that refuse them |
-| `UPDATE_GITHUB_API_BASE_URL` | Point the GitHub client at the stand-in |
-| `UPDATE_GITHUB_STUB_TOKEN` | Token the stand-in accepts; never a real credential |
-| `UPDATE_CLONE_*` | Clone time and size limits |
+| `UPDATE_SANDBOX_LIMITS=none`   | Skip cgroup memory/cpu flags on hosts that refuse them                      |
+| `UPDATE_GITHUB_API_BASE_URL`   | Point the GitHub client at the stand-in                                     |
+| `UPDATE_GITHUB_STUB_TOKEN`     | Token the stand-in accepts; never a real credential                         |
+| `UPDATE_CLONE_*`               | Clone time and size limits                                                  |
 
 The clone sandbox has network and the installation token and is destroyed after it copies a
 tarball out; the analysis sandbox is created with no network and no token, and the update
