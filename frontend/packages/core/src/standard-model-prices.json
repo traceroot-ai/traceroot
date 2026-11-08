@@ -1204,9 +1204,9 @@
     "matchPattern": "(?i)^(deepseek\\/)?(deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
     "provider": "deepseek",
     "prices": {
-      "input": 0.00000014,
-      "output": 0.00000028,
-      "cacheRead": 0.0000000028,
+      "input": 0.00000015,
+      "output": 0.0000006,
+      "cacheRead": 0.000000003,
       "cacheWrite": null
     }
   },
@@ -1216,9 +1216,9 @@
     "matchPattern": "(?i)^(deepseek\\/)?deepseek-v4-pro(-[\\d-]+)?$",
     "provider": "deepseek",
     "prices": {
-      "input": 0.000000435,
-      "output": 0.00000087,
-      "cacheRead": 0.000000003625,
+      "input": 0.00000066,
+      "output": 0.00000198,
+      "cacheRead": 0.000000022,
       "cacheWrite": null
     }
   },
