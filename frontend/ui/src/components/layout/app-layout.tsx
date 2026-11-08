@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, createContext, useContext, ReactNode 
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
-import { PanelLeft } from "lucide-react";
+import { Menu, PanelLeft } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { isChromelessRoute } from "@/lib/chromeless-routes";
@@ -53,12 +53,22 @@ const LayoutContext = createContext<LayoutContextType>({
   registerAiHost: () => () => {},
 });
 
+// Between the mobile drawer (md, 768px) and a roomy desktop the full sidebar costs too much width.
+const COMPACT_NAV_QUERY = "(max-width: 1099px)";
+
 export function useLayout() {
   return useContext(LayoutContext);
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Three navigation stages follow the window: a permanent sidebar, an icon rail below
+  // COMPACT_NAV_QUERY, and an off-canvas drawer below md (768px). An explicit toggle by the
+  // user wins over the rail until the page is reloaded.
+  const [userCollapsed, setUserCollapsed] = useState<boolean | null>(null);
+  const [compactViewport, setCompactViewport] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const sidebarCollapsed = userCollapsed ?? compactViewport;
+  const setSidebarCollapsed = useCallback((collapsed: boolean) => setUserCollapsed(collapsed), []);
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
@@ -73,7 +83,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     setAiPanelOpen(false);
     setAiContext(null);
     setAiInitialSessionId(undefined);
+    setMobileNavOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(COMPACT_NAV_QUERY);
+    const sync = () => setCompactViewport(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mobileNavOpen]);
 
   const registerAiHost = useCallback(() => {
     setAiHostRefCount((c) => c + 1);
@@ -124,8 +153,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         initialContext={aiContext}
         initialSessionId={aiInitialSessionId}
       >
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar collapsed={sidebarCollapsed} />
+        <div className="flex h-dvh overflow-hidden">
+          <div data-testid="desktop-nav" className="hidden md:block">
+            <Sidebar collapsed={sidebarCollapsed} />
+          </div>
+          {mobileNavOpen && (
+            <div data-testid="mobile-nav" className="fixed inset-0 z-50 md:hidden">
+              <button
+                type="button"
+                aria-label="Close navigation"
+                className="absolute inset-0 bg-foreground/40"
+                onClick={() => setMobileNavOpen(false)}
+              />
+              <div className="animate-slide-in-left absolute inset-y-0 left-0 shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
+                <Sidebar collapsed={false} />
+              </div>
+            </div>
+          )}
 
           <ResizablePanelGroup orientation="horizontal" className="min-w-0 flex-1 overflow-hidden">
             <ResizablePanel
@@ -134,11 +178,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               className="flex min-w-0 flex-col overflow-hidden"
             >
               {/* Top header bar */}
-              <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
+              <header className="flex h-11 shrink-0 items-center gap-1 border-b bg-background px-3">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0"
+                  className="h-7 w-7 shrink-0 md:hidden"
+                  aria-label="Open navigation"
+                  onClick={() => setMobileNavOpen(true)}
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="mr-1 hidden h-7 w-7 shrink-0 md:inline-flex"
+                  aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 >
                   <PanelLeft className="h-4 w-4" />
@@ -151,7 +205,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 shrink-0"
+                      className="h-7 w-7 shrink-0"
                       onClick={() => {
                         if (aiPanelOpen) setAiContext(null);
                         setAiInitialSessionId(undefined);
