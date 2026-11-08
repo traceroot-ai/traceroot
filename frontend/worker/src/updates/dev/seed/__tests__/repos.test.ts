@@ -111,7 +111,7 @@ describe("oversize repository", () => {
       target,
     ]);
     expect(await git(target, "rev-list", "--count", "HEAD")).toBe("1");
-    expect(await git(target, "ls-tree", "-r", "-l", "HEAD")).toContain("payload.bin");
+    expect(await git(target, "ls-tree", "-r", "--name-only", "HEAD")).toContain("payload.bin");
 
     // The blobless clone alone is tiny; the payload arrives when the changed paths are
     // checked out, so a size limit is measured after that step.
