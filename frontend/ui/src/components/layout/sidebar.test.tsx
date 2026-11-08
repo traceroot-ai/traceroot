@@ -100,6 +100,29 @@ describe("Sidebar", () => {
     expect(links[1].className.split(" ")).not.toContain("bg-muted");
   });
 
+  it("lists Topics after Signals, links to the project's topics and marks it active there", () => {
+    navigation.pathname = "/projects/p1/topics";
+    navigation.params = { projectId: "p1" };
+    render();
+
+    const links = Array.from(container.querySelectorAll("nav a"));
+    const labels = links.map((l) => l.textContent);
+    expect(labels.indexOf("Topics")).toBe(labels.indexOf("Signals") + 1);
+    const topics = links[labels.indexOf("Topics")];
+    expect(topics.getAttribute("href")).toBe("/projects/p1/topics");
+    expect(topics.className.split(" ")).toContain("bg-muted");
+    expect(links[labels.indexOf("Signals")].className.split(" ")).not.toContain("bg-muted");
+  });
+
+  it("keeps the Topics link, with its name in a tooltip, when collapsed", () => {
+    navigation.pathname = "/projects/p1/traces";
+    navigation.params = { projectId: "p1" };
+    render({ collapsed: true });
+    const topics = container.querySelector('nav a[href="/projects/p1/topics"]');
+    expect(topics).not.toBeNull();
+    expect(topics?.textContent).toBe("");
+  });
+
   it("shows the upgrade button only in a project or workspace context", () => {
     render();
     expect(container.querySelector('[data-testid="upgrade-button"]')).toBeNull();
