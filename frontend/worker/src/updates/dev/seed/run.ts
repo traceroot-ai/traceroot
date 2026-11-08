@@ -68,7 +68,7 @@ export async function cleanSeed(params: SeedParams, outDir = DEFAULT_OUT_DIR): P
   assertLocalStack();
   await deleteProjectRows(clickHouseTargetFromEnv(), projectIds(params.prefix));
   await cleanPostgres(params.prefix);
-  await clearRunQueue();
+  await clearRunQueue(params.prefix);
   // Only the entries this script writes, never the directory itself: --out may
   // point at a directory that holds other things.
   for (const entry of OUTPUT_ENTRIES) {
@@ -79,13 +79,15 @@ export async function cleanSeed(params: SeedParams, outDir = DEFAULT_OUT_DIR): P
 
 /**
  * Queued and finished run jobs are keyed by project and slot, so a re-seeded
- * project would find its old job and never run. This is a local development
- * stack (assertLocalStack), where the update queue holds nothing else of value.
+ * project would find its old job and never run. Only this prefix's jobs go.
  */
-async function clearRunQueue(): Promise<void> {
+async function clearRunQueue(prefix: string): Promise<void> {
   const { queue, close } = createUpdateRunQueue();
   try {
-    await queue.obliterate({ force: true });
+    const jobs = await queue.getJobs(["waiting", "delayed", "completed", "failed", "paused"]);
+    for (const job of jobs) {
+      if (job.data.projectId.startsWith(`${prefix}-`)) await job.remove().catch(() => undefined);
+    }
   } finally {
     await close();
   }

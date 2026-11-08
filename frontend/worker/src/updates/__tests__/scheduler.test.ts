@@ -226,6 +226,18 @@ describe("a run left running by a dead worker", () => {
   });
 });
 
+describe("queue job ids", () => {
+  it("uses three colon-separated parts for both kinds, as the queue requires", () => {
+    const slotAt = new Date("2026-11-02T09:00:00Z");
+    expect(
+      updateRunJobId({ id: "r1", projectId: "p1", trigger: "scheduled", slotAt }).split(":"),
+    ).toHaveLength(3);
+    expect(
+      updateRunJobId({ id: "r1", projectId: "p1", trigger: "manual", slotAt }).split(":"),
+    ).toHaveLength(3);
+  });
+});
+
 describe("isUpdateSchedulerEnabled", () => {
   it("is on by default and off for an explicit off", () => {
     expect(isUpdateSchedulerEnabled(undefined)).toBe(true);

@@ -71,10 +71,13 @@ const toGroup = (g: GroupDto) => ({
   p95Ms: g.p95_ms,
 });
 
+/** The backend sends naive UTC datetimes; say so, so no reader takes them for local time. */
+const asUtc = (value: string) => (/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
+
 export function fromDto(dto: AggregatesDto): WindowAggregates {
   return {
-    start: dto.start,
-    end: dto.end,
+    start: asUtc(dto.start),
+    end: asUtc(dto.end),
     totals: {
       traces: dto.totals.traces,
       errorTraces: dto.totals.error_traces,

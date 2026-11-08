@@ -53,7 +53,7 @@ export function updateRunJobId(run: {
 }): string {
   return run.trigger === "scheduled"
     ? `update:${run.projectId}:${run.slotAt.getTime()}`
-    : `update:${run.id}`;
+    : `update:manual:${run.id}`;
 }
 
 export async function enqueueUpdateRun(
