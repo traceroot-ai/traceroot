@@ -46,7 +46,7 @@ export function renderSlack(result: UpdateResult, ctx: RenderContext): SlackRend
   const window = formatWindowRange(ctx.windowStart, ctx.windowEnd);
   const headlineText = `${ctx.projectName}: ${result.headline}`;
   const headline: SlackPost = {
-    text: clip(headlineText, 300),
+    text: clip(escapeMrkdwn(headlineText), 300),
     blocks: [
       {
         type: "section",

@@ -356,14 +356,20 @@ function LastRun({ run, timezone }: { run: UpdateScheduleResponse["last_run"]; t
       )}
       {run.error && run.status !== "succeeded" && <p className="text-red-600">{run.error}</p>}
       {run.delivery_note && <p className="text-muted-foreground">{run.delivery_note}</p>}
-      <p className="text-[12px] text-muted-foreground">
-        Sent to{" "}
-        {[run.slack_delivered && "Slack", run.email_delivered && "email"]
-          .filter(Boolean)
-          .join(" and ") || "no channel"}
-        {" · "}
-        {run.tokens.toLocaleString()} tokens · ${run.cost_usd.toFixed(3)}
-      </p>
+      {(run.status === "succeeded" || run.tokens > 0) && (
+        <p className="text-[12px] text-muted-foreground">
+          {run.status === "succeeded" && (
+            <>
+              Sent to{" "}
+              {[run.slack_delivered && "Slack", run.email_delivered && "email"]
+                .filter(Boolean)
+                .join(" and ") || "no channel"}
+              {" · "}
+            </>
+          )}
+          {run.tokens.toLocaleString()} tokens · ${run.cost_usd.toFixed(3)}
+        </p>
+      )}
     </div>
   );
 }

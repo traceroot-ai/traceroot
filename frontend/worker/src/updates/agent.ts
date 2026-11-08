@@ -278,11 +278,24 @@ export class FigureBook {
 export function uncoveredFindings(result: UpdateResult, facts: UpdateFacts): string[] {
   if (result.nothingToReport) return [];
   const text = JSON.stringify([result.headline, result.summary, result.sections]).toLowerCase();
+  const plain = text.replace(/[^a-z0-9]/g, "");
   const missing = new Set<string>();
   for (const finding of facts.findings) {
     if (finding.scope === "project") continue;
-    if (!text.includes(finding.entity.toLowerCase()))
-      missing.add(`${finding.entity} (${finding.metric})`);
+    const entity = finding.entity.toLowerCase();
+    // Named as is, or loosely: "Sonnet 4.5" for "claude-sonnet-4-5", "Checkout agent" for "checkout_agent".
+    const loose = entity.replace(/[^a-z0-9]/g, "");
+    const withoutVendor = entity.includes("-")
+      ? entity.slice(entity.indexOf("-") + 1).replace(/[^a-z0-9]/g, "")
+      : loose;
+    if (
+      text.includes(entity) ||
+      plain.includes(loose) ||
+      (withoutVendor.length >= 6 && plain.includes(withoutVendor))
+    ) {
+      continue;
+    }
+    missing.add(`${finding.entity} (${finding.metric})`);
   }
   return [...missing];
 }

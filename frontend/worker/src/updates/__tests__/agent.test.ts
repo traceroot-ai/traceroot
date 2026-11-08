@@ -279,6 +279,22 @@ describe("coverage of the findings", () => {
     expect(JSON.stringify(contexts[1].messages)).toContain("legacy_search (presence)");
   });
 
+  it("accepts a loose way of naming an entity", async () => {
+    const facts2 = {
+      window: { start: "a", end: "b" },
+      findings: [
+        { id: "m", scope: "model", entity: "claude-sonnet-4-5", metric: "cost" },
+        { id: "w", scope: "workflow", entity: "checkout_agent", metric: "trace_volume" },
+      ],
+    } as unknown as UpdateFacts;
+    const loose = {
+      ...good(links.dashboard),
+      headline: "Checkout agent volume fell and Sonnet 4.5 spend with it.",
+    };
+    const { input } = setup([message([call("submit_update", loose)])], { facts: facts2 });
+    expect((await runUpdateAgent(input)).result.headline).toContain("Sonnet 4.5");
+  });
+
   it("does not demand findings when the update says there is nothing to report", async () => {
     const quiet = {
       nothingToReport: true,

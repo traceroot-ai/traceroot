@@ -183,9 +183,9 @@ export async function runAgentStage(
             result: result as unknown as Prisma.InputJsonValue,
             skillsRan: out.skillsRan,
             model: resolved.model.id,
-            tokensIn: out.usage.inputTokens,
-            tokensOut: out.usage.outputTokens,
-            costUsd: out.usage.costUsd,
+            tokensIn: { increment: out.usage.inputTokens },
+            tokensOut: { increment: out.usage.outputTokens },
+            costUsd: { increment: out.usage.costUsd },
           },
         });
       } catch (error) {
@@ -194,9 +194,9 @@ export async function runAgentStage(
             where: { id: run.id },
             data: {
               model: resolved.model.id,
-              tokensIn: error.usage.inputTokens,
-              tokensOut: error.usage.outputTokens,
-              costUsd: error.usage.costUsd,
+              tokensIn: { increment: error.usage.inputTokens },
+              tokensOut: { increment: error.usage.outputTokens },
+              costUsd: { increment: error.usage.costUsd },
             },
           });
           return { status: "stopped", stopReason: "token_cap", message: error.message };
@@ -205,9 +205,9 @@ export async function runAgentStage(
           await db.projectUpdateRun.update({
             where: { id: run.id },
             data: {
-              tokensIn: error.usage.inputTokens,
-              tokensOut: error.usage.outputTokens,
-              costUsd: error.usage.costUsd,
+              tokensIn: { increment: error.usage.inputTokens },
+              tokensOut: { increment: error.usage.outputTokens },
+              costUsd: { increment: error.usage.costUsd },
             },
           });
           return { status: "failed", error: error.message };

@@ -82,7 +82,12 @@ export async function executeRun(deps: ExecuteDeps, runId: string): Promise<Exec
       // Not retryable: the project is gone, so the run is over.
       await db.projectUpdateRun.update({
         where: { id: runId },
-        data: { status: "stopped", finishedAt: now(), error: "project not found" },
+        data: {
+          status: "stopped",
+          finishedAt: now(),
+          stopReason: "project_gone",
+          error: "project not found",
+        },
       });
       return { status: "stopped", error: "project not found" };
     }
