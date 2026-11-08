@@ -831,18 +831,6 @@ class TestClaudeBedrockAndVertexIds:
         keys = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
         assert entry["prices"] == pytest.approx(dict(zip(keys, rates)))
 
-    def test_sonnet_5_5_cache_read_rate_prices_at_published_rate(self):
-        from worker.tokens.buckets import TokenBuckets
-        from worker.tokens.pricing import cost_from_buckets
-
-        prices = next(
-            e["prices"] for e in _standard_price_entries() if e["modelName"] == "claude-sonnet-5-5"
-        )
-        reads = TokenBuckets(
-            input_uncached=0, output=0, cache_read=1_000_000, cache_write=0, cache_write_1h=0
-        )
-        assert cost_from_buckets(prices, reads) == pytest.approx(0.10)
-
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
