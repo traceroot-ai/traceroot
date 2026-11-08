@@ -189,7 +189,7 @@ describe("TraceListTable opt-in field columns", () => {
 });
 
 describe("TraceListTable Signal IDs column", () => {
-  it("lists every signal of a trace, each linking to its signal", () => {
+  it("shows the first signal on one line with a +N count for the rest, so rows keep one height", () => {
     renderTable({
       traces: [makeTrace({ trace_id: "t-1" }), makeTrace({ trace_id: "t-2" })],
       visibleColumns: visibleFixedColumns(["signal_ids"]),
@@ -197,8 +197,9 @@ describe("TraceListTable Signal IDs column", () => {
     });
     const cell = cellAt("t-1", "Signal IDs");
     const links = within(cell).getAllByRole("link");
-    expect(links.map((a) => a.textContent)).toEqual(["sig-a", "sig-b"]);
-    expect(links[1].getAttribute("href")).toBe("/projects/p-1/signals?signalId=sig-b");
+    expect(links.map((a) => a.textContent)).toEqual(["sig-a"]);
+    expect(links[0].getAttribute("href")).toBe("/projects/p-1/signals?signalId=sig-a");
+    expect(cell.textContent).toContain("+1");
     // A trace with no signal shows a dash once its signals are read.
     expect(cellAt("t-2", "Signal IDs").textContent).toBe("-");
   });
@@ -248,7 +249,7 @@ describe("TraceListTable header widths", () => {
       traces: [makeTrace({ trace_id: "t-1", user_id: "u-1" })],
       visibleColumns: visibleFixedColumns(["user_id"]),
     });
-    expect(widthClassesOf(headerCell("User ID"))).toEqual(["w-[140px]", "max-w-[180px]"]);
+    expect(widthClassesOf(headerCell("User ID"))).toEqual(["w-[130px]", "max-w-[130px]"]);
   });
 });
 

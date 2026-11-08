@@ -262,7 +262,7 @@ export function unavailableKeyCopy(binding: ProviderKeyBinding): {
 } {
   if (binding.kind === "none") {
     return {
-      state: `TraceRoot has no ${binding.provider} adapter, so there is no key to paste here.`,
+      state: `traceroot has no ${binding.provider} adapter, so there is no key to paste here.`,
       settings: null,
     };
   }
@@ -562,7 +562,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
     return (
       <p className="text-[12px] text-muted-foreground">
         Your own model keys are not available on this workspace&apos;s plan. Detectors and the AI
-        assistant run on TraceRoot&apos;s models in the meantime.
+        assistant run on traceroot&apos;s models in the meantime.
       </p>
     );
   }

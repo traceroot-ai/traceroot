@@ -83,7 +83,7 @@ describe("the manual tab", () => {
       "Install SDK",
       "Set environment variables",
       "Select your integration",
-      "Initialize TraceRoot for OpenAI",
+      "Initialize traceroot for OpenAI",
       "Run your application",
     ]);
     expect(
@@ -99,7 +99,7 @@ describe("the manual tab", () => {
     pickMode("Manual");
     pickStack("CrewAI");
 
-    expect(screen.getByText("5. Initialize TraceRoot for CrewAI")).toBeTruthy();
+    expect(screen.getByText("5. Initialize traceroot for CrewAI")).toBeTruthy();
     // The snippet's body, not its heading: the heading would still read "for
     // CrewAI" over OpenAI's code.
     expect(container.textContent).toContain("Integration.CREWAI");

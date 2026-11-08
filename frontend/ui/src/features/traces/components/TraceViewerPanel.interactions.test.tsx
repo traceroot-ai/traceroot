@@ -184,7 +184,7 @@ describe("TraceViewerPanel header actions", () => {
     const panel = container.firstElementChild as HTMLElement;
     expect(panel.className).toContain("w-[70%]");
     fireEvent.click(screen.getByTitle("Expand to full screen"));
-    expect(panel.className).toContain("w-[calc(100%-12rem)]");
+    expect(panel.className).toContain("w-[calc(100%-14rem)]");
     fireEvent.click(screen.getByTitle("Restore default size"));
     expect(panel.className).toContain("w-[70%]");
   });

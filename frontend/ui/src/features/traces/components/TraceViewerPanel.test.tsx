@@ -100,11 +100,11 @@ afterEach(() => {
 });
 
 describe("TraceViewerPanel layout", () => {
-  it("clears the expanded sidebar (w-48 / 12rem) when fullscreen", () => {
+  it("clears the expanded sidebar (w-56 / 14rem) when fullscreen", () => {
     mocks.sidebarCollapsed = false;
     const panel = renderPanel({ initialFullscreen: true });
-    expect(panel.className).toContain("w-[calc(100%-12rem)]");
-    expect(panel.className).toContain("top-14");
+    expect(panel.className).toContain("w-[calc(100%-14rem)]");
+    expect(panel.className).toContain("top-11");
   });
 
   it("clears the collapsed sidebar (w-14 / 3.5rem) when fullscreen", () => {

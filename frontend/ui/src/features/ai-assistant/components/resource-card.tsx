@@ -98,14 +98,14 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
   const [expanded, setExpanded] = useState(false);
   if (prompt.kind === "standard") {
     return (
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[12px] text-muted-foreground">
         Uses the standard {prompt.templateLabel} prompt
       </p>
     );
   }
   const clampable = promptNeedsClamp(prompt.text);
   const promptClasses = [
-    "whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-1.5 py-1 font-mono text-[10px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]",
+    "whitespace-pre-wrap break-words rounded-sm bg-muted px-1.5 py-1 font-mono text-[12px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]",
     clampable && !expanded ? "line-clamp-6" : "",
   ]
     .filter(Boolean)
@@ -116,7 +116,7 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
       {clampable && (
         <button
           type="button"
-          className="text-[10px] font-medium text-muted-foreground underline-offset-2 hover:underline"
+          className="text-[12px] font-medium text-muted-foreground underline-offset-2 hover:underline"
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? "Show less" : "Show more"}
@@ -129,11 +129,11 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
 /** Label/value rows: a project receipt's body, or an alert read's facts. */
 function ReceiptRows({ rows }: { rows: ReceiptRow[] }) {
   return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px]">
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[12px]">
       {rows.map((row) => (
         <div key={row.label} className="contents">
           <dt className="text-muted-foreground/70">{row.label}</dt>
-          <dd className="min-w-0 break-words font-mono text-[10px] text-foreground/70 [overflow-wrap:anywhere]">
+          <dd className="min-w-0 break-words font-mono text-[12px] text-foreground/70 [overflow-wrap:anywhere]">
             {row.value}
           </dd>
         </div>
@@ -184,7 +184,7 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
       );
     case "delete":
       return (
-        <div className="space-y-0.5 text-[11px]">
+        <div className="space-y-0.5 text-[12px]">
           <p className="break-words italic text-foreground/80 [overflow-wrap:anywhere]">
             {`“${body.reason}”`}
           </p>
@@ -206,7 +206,7 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
       // A read that did not answer the widget — a feed, or a reason it
       // failed — says so in one line instead of drawing a broken chart.
       return (
-        <p className="break-words text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+        <p className="break-words text-[12px] text-muted-foreground [overflow-wrap:anywhere]">
           {body.text}
         </p>
       );
@@ -254,7 +254,7 @@ function definitionChips(body: ResourceCardBody): string[] {
 }
 
 const iconActionClasses =
-  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground";
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground";
 
 export function ResourceCard({
   model,
@@ -334,7 +334,7 @@ export function ResourceCard({
             never carries one — its rule has no state yet — but an edit of a
             live alert does, so the user sees what the edit's reset clears. */}
         {model.badge !== undefined && <AlertSeverityBadge {...model.badge} />}
-        <span className="min-w-0 max-w-[45%] truncate text-[11px] text-muted-foreground/70">
+        <span className="min-w-0 max-w-[45%] truncate text-[12px] text-muted-foreground/70">
           {meta}
         </span>
         {(model.href !== null || previewable) && (
@@ -378,7 +378,7 @@ export function ResourceCard({
       {hasDefinition && definitionOpen && (
         <div className="space-y-1.5 border-t border-border px-2.5 py-2">
           {model.description !== undefined && (
-            <p className="break-words text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+            <p className="break-words text-[12px] text-muted-foreground [overflow-wrap:anywhere]">
               {model.description}
             </p>
           )}
