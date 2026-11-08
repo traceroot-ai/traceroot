@@ -1,0 +1,55 @@
+"""Tests for the corpus scoring script."""
+
+from scripts.topic_corpus.score import MIN_ARI, score
+
+
+def _manifest(labels):
+    return {"traces": [{"trace_id": f"t{i}", "label": label} for i, label in enumerate(labels)]}
+
+
+def _assign(manifest, groups):
+    return {t["trace_id"]: g for t, g in zip(manifest["traces"], groups)}
+
+
+def test_a_perfect_fit_scores_one_and_passes():
+    labels = ["a"] * 10 + ["b"] * 10 + ["noise"] * 4
+    m = _manifest(labels)
+    s = score(m, _assign(m, ["g1"] * 10 + ["g2"] * 10 + [""] * 4))
+    assert s.ari == 1.0 and s.worst_topic_recall == 1.0 and not s.mixed_groups
+    assert s.unassigned_share == 0.0 and s.noise_unassigned_share == 1.0
+    assert s.passes
+
+
+def test_merging_two_topics_into_one_group_is_flagged_and_fails():
+    m = _manifest(["a"] * 10 + ["b"] * 10)
+    s = score(m, _assign(m, ["g1"] * 20))
+    assert len(s.mixed_groups) == 1 and s.mixed_groups[0]["topics"] == {"a": 0.5, "b": 0.5}
+    assert s.ari < MIN_ARI
+    assert not s.passes
+
+
+def test_splitting_a_topic_lowers_its_recall():
+    m = _manifest(["a"] * 10 + ["b"] * 10)
+    s = score(m, _assign(m, ["g1"] * 5 + ["g3"] * 5 + ["g2"] * 10))
+    assert s.topic_recall["a"] == 0.5 and s.topic_recall["b"] == 1.0
+    assert not s.passes
+
+
+def test_traces_left_in_no_group_count_against_the_fit():
+    m = _manifest(["a"] * 10 + ["b"] * 10)
+    s = score(m, _assign(m, ["g1"] * 10 + [""] * 10))
+    assert s.unassigned_share == 0.5 and not s.passes
+
+
+def test_only_summarized_traces_are_scored():
+    m = _manifest(["a"] * 10 + ["b"] * 10)
+    partial = {f"t{i}": ("g1" if i < 10 else "g2") for i in range(0, 20, 2)}
+    s = score(m, partial)
+    assert s.traces_scored == 10
+
+
+def test_a_minor_contamination_does_not_count_as_mixed():
+    m = _manifest(["a"] * 10 + ["b"] * 10)
+    groups = ["g1"] * 9 + ["g2"] + ["g2"] * 9 + ["g1"]
+    s = score(m, _assign(m, groups))
+    assert not s.mixed_groups

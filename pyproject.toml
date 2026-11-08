@@ -46,6 +46,9 @@ dependencies = [
     # PostgreSQL (for standard model pricing lookup)
     "psycopg2-binary>=2.9",
     "bullmq>=2.25,<3",
+    "umap-learn>=0.5.7",
+    "scikit-learn>=1.5",
+    "numpy>=1.26",
 ]
 
 [dependency-groups]

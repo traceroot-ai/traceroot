@@ -10,7 +10,7 @@ import { ASSIGN_CHAT_MODEL_ID } from "../signals/config.js";
 export const SUMMARY_MODEL_ID = ASSIGN_CHAT_MODEL_ID;
 
 /** Bumped whenever the summary prompt changes, so old rows stay identifiable. */
-export const DIGEST_VERSION = 1;
+export const DIGEST_VERSION = 2;
 
 /** Characters of rendered trace text the summary model reads. */
 export const SUMMARY_INPUT_BUDGET_CHARS = 24_000;

@@ -23,6 +23,8 @@ COPY --from=builder /app/backend ./backend
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/backend"
+# numba (used by the task-group fit) caches compiled code here; the app directory may be read-only.
+ENV NUMBA_CACHE_DIR="/tmp/numba_cache"
 
 WORKDIR /app/backend
 
