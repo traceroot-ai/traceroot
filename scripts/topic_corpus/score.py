@@ -148,6 +148,13 @@ def load_assignments(project_id: str) -> dict[str, str]:
     return {tid: gid or "" for tid, gid in result.result_rows}
 
 
+def assignments_from_file(path: str) -> dict[str, str]:
+    """Read ``{"assignments": {trace_id: group_id}}``, as the incremental baseline writes it."""
+    with open(path) as f:
+        data = json.load(f)
+    return {tid: gid or "" for tid, gid in data["assignments"].items()}
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -155,13 +162,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--manifest", required=True, nargs="+", help="manifest file(s) of the project"
     )
-    parser.add_argument("--project-id", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--project-id", help="score the project's current groups in ClickHouse")
+    source.add_argument("--assignments", help="score an assignments file (trace id -> group id)")
     args = parser.parse_args(argv)
     manifest: dict = {"traces": []}
     for path in args.manifest:
         with open(path) as f:
             manifest["traces"].extend(json.load(f)["traces"])
-    result = score(manifest, load_assignments(args.project_id))
+    assignments = (
+        load_assignments(args.project_id)
+        if args.project_id
+        else assignments_from_file(args.assignments)
+    )
+    result = score(manifest, assignments)
     print(json.dumps(result.to_dict(), indent=2))
     return 0 if result.passes else 1
 

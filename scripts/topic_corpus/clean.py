@@ -19,9 +19,11 @@ def clean_corpus(corpus: Corpus, *, project_id: str) -> int:
     for i in range(0, len(ids), CHUNK):
         chunk = ids[i : i + CHUNK]
         for table in TABLES:
+            # ALTER ... DELETE rather than a lightweight DELETE: spans carries projections,
+            # which a lightweight delete refuses. mutations_sync waits for it to finish.
             ch.query(
-                f"DELETE FROM {table} WHERE project_id = {{project_id:String}} "
-                "AND trace_id IN {ids:Array(String)}",
+                f"ALTER TABLE {table} DELETE WHERE project_id = {{project_id:String}} "
+                "AND trace_id IN {ids:Array(String)} SETTINGS mutations_sync = 2",
                 parameters={"project_id": project_id, "ids": chunk},
             )
     return len(ids)
