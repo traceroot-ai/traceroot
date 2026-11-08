@@ -15,7 +15,8 @@ export function startUpdateRunWorker(): Worker<UpdateRunJob> {
       const outcome = await executeRun(
         {
           db: prisma,
-          readAggregates: (projectId, windows) => readRunAggregates(config, projectId, windows),
+          readAggregates: (projectId, windows, timezone) =>
+            readRunAggregates(config, projectId, windows, timezone),
           appBaseUrl: APP_BASE_URL,
         },
         job.data.runId,

@@ -36,7 +36,11 @@ def mock_ch(monkeypatch):
 
     def query(sql, parameters=None, settings=None):
         result = MagicMock()
-        if "FROM spans" in sql and "span_kind = 'LLM'" in sql and "model_name IS NOT NULL" in sql:
+        if (
+            "spans_public_v1" in sql
+            and "span_kind = 'LLM'" in sql
+            and "model_name IS NOT NULL" in sql
+        ):
             if "toDate(" in sql:
                 result.result_rows = [("gpt-4o", "2026-10-27", 100, Decimal("0.5"))]
             else:
@@ -89,9 +93,11 @@ def test_every_read_is_scoped_and_limited_to_customer_traffic(secret, mock_ch):
     assert mock_ch.query.call_count == 7
     for call in mock_ch.query.call_args_list:
         sql = call.args[0]
-        assert "project_id = {project_id:String}" in sql
-        assert "source = 'user' AND is_evaluation = 0" in sql
-        assert "span_start_time >= {start:DateTime64(3)}" in sql
+        # The curated views: latest version of each row, customer traffic only, scoped
+        # and bounded by project and time.
+        assert "_public_v1(project_id = {project_id:String}" in sql
+        assert "start_time = {start:DateTime64(3)}" in sql
+        assert "FROM spans " not in sql and "FROM traces " not in sql
         assert call.kwargs["parameters"]["project_id"] == "p1"
         assert call.kwargs["settings"]["max_execution_time"] > 0
 

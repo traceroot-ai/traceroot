@@ -27,7 +27,7 @@ const RECOVER_LIMIT = 100;
 /** A run still pending this long after it was recorded probably lost its job. */
 const RECOVER_AFTER_MS = 60_000;
 
-type TickDb = RunDb & Pick<PrismaClient, "projectUpdateSchedule">;
+type TickDb = RunDb & Pick<PrismaClient, "projectUpdateSchedule" | "$transaction">;
 
 const log = (message: string) => console.log(`[Updates] ${message}`);
 
@@ -64,24 +64,28 @@ export async function runUpdateTick(
     }
     const schedule = parsed.value;
 
-    const claim = await db.projectUpdateSchedule.updateMany({
-      where: { id: row.id, nextSlotAt: row.nextSlotAt },
-      data: { nextSlotAt: nextSlotAfter(schedule, now) },
-    });
-    if (claim.count === 0) continue; // another worker took this slot
-    result.claimed += 1;
-
+    // Claiming the slot and recording its run are one transaction: a crash between
+    // them cannot lose the slot.
     const windows = windowsForSlot(schedule, latestSlotAtOrBefore(schedule, now));
-    const { run, created } = await insertRun(db, {
-      projectId: row.projectId,
-      trigger: "scheduled",
-      windows,
-      schedule,
+    const recorded = await db.$transaction(async (tx) => {
+      const claim = await tx.projectUpdateSchedule.updateMany({
+        where: { id: row.id, nextSlotAt: row.nextSlotAt },
+        data: { nextSlotAt: nextSlotAfter(schedule, now) },
+      });
+      if (claim.count === 0) return null; // another worker took this slot
+      return insertRun(tx, {
+        projectId: row.projectId,
+        trigger: "scheduled",
+        windows,
+        schedule,
+      });
     });
-    if (created) result.created += 1;
-    await enqueueUpdateRun(queue, run);
+    if (recorded === null) continue;
+    result.claimed += 1;
+    if (recorded.created) result.created += 1;
+    await enqueueUpdateRun(queue, recorded.run);
     log(
-      `slot project=${row.projectId} slot=${windows.slotAt.toISOString()} run=${run.id} created=${created}`,
+      `slot project=${row.projectId} slot=${windows.slotAt.toISOString()} run=${recorded.run.id} created=${recorded.created}`,
     );
   }
 

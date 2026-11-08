@@ -37,6 +37,7 @@ interface AggregatesDto {
   tools: { name: string; calls: number; errors: number }[];
   workflows: GroupDto[];
   refs: GroupDto[];
+  truncated: string[];
 }
 
 export type FetchLike = (
@@ -101,6 +102,7 @@ export function fromDto(dto: AggregatesDto): WindowAggregates {
     tools: dto.tools,
     workflows: dto.workflows.map(toGroup),
     refs: dto.refs.map(toGroup),
+    truncated: dto.truncated ?? [],
   };
 }
 
@@ -109,11 +111,13 @@ export async function readWindowAggregates(
   projectId: string,
   start: Date,
   end: Date,
+  timezone = "UTC",
 ): Promise<WindowAggregates> {
   const url = new URL("/api/v1/internal/update-aggregates", config.baseUrl);
   url.searchParams.set("project_id", projectId);
   url.searchParams.set("start", start.toISOString());
   url.searchParams.set("end", end.toISOString());
+  url.searchParams.set("tz", timezone);
   const doFetch: FetchLike = config.fetchImpl ?? ((u, init) => fetch(u, init));
   const response = await doFetch(url.toString(), {
     headers: { "X-Internal-Secret": config.secret },
@@ -131,10 +135,17 @@ export async function readRunAggregates(
   config: AggregatesClientConfig,
   projectId: string,
   windows: Pick<UpdateWindows, "windowStart" | "windowEnd" | "prevWindowStart" | "prevWindowEnd">,
+  timezone = "UTC",
 ): Promise<{ current: WindowAggregates; previous: WindowAggregates }> {
   const [current, previous] = await Promise.all([
-    readWindowAggregates(config, projectId, windows.windowStart, windows.windowEnd),
-    readWindowAggregates(config, projectId, windows.prevWindowStart, windows.prevWindowEnd),
+    readWindowAggregates(config, projectId, windows.windowStart, windows.windowEnd, timezone),
+    readWindowAggregates(
+      config,
+      projectId,
+      windows.prevWindowStart,
+      windows.prevWindowEnd,
+      timezone,
+    ),
   ]);
   return { current, previous };
 }

@@ -44,4 +44,6 @@ export interface WindowAggregates {
   tools: ToolAggregate[];
   workflows: GroupAggregate[];
   refs: GroupAggregate[];
+  /** Lists that hit the entity cap ("models", "tools", "workflows", "refs"). */
+  truncated: string[];
 }

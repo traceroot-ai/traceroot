@@ -26,6 +26,7 @@ function aggregates(overrides: Partial<WindowAggregates> = {}): WindowAggregates
     tools: [{ name: "search", calls: 500, errors: 10 }],
     workflows: [{ name: "wf", traces: 1000, errorTraces: 30, p50Ms: 1000, p95Ms: 2500 }],
     refs: [],
+    truncated: [],
     ...overrides,
   };
 }
@@ -174,6 +175,50 @@ describe("computeUpdateFacts", () => {
       after: 1900,
     });
     expect(facts.findings.filter((f) => f.entity === "control")).toEqual([]);
+  });
+
+  it("shows a jump from a tiny base as numbers only, never a percentage", () => {
+    const now = aggregates({
+      totals: {
+        traces: 25,
+        errorTraces: 0,
+        p50Ms: 1000,
+        p95Ms: 2500,
+        p99Ms: 3000,
+        gitContextTraces: 0,
+      },
+      llm: { calls: 25, inputTokens: 0, outputTokens: 0, totalTokens: 1_000_000, cost: "0.30" },
+      byModel: [],
+    });
+    const before = aggregates({
+      totals: {
+        traces: 1,
+        errorTraces: 0,
+        p50Ms: 1000,
+        p95Ms: 2500,
+        p99Ms: 3000,
+        gitContextTraces: 0,
+      },
+      llm: { calls: 1, inputTokens: 0, outputTokens: 0, totalTokens: 1_000, cost: "0.01" },
+      byModel: [],
+    });
+    const facts = computeUpdateFacts(now, before);
+    for (const id of [
+      "project:all traffic:trace_volume",
+      "project:all models:cost",
+      "project:all models:tokens",
+    ]) {
+      expect(find(facts, id)).toMatchObject({ kind: "absolute_only", relativeChange: null });
+    }
+  });
+
+  it("does not call an item new or vanished when its list was cut at the cap", () => {
+    const now = aggregates({
+      truncated: ["tools"],
+      tools: [{ name: "beyond-the-cap", calls: 40, errors: 0 }],
+    });
+    const facts = computeUpdateFacts(now, aggregates());
+    expect(facts.findings.filter((f) => f.scope === "tool" && f.metric === "presence")).toEqual([]);
   });
 
   it("is deterministic: same input, same ordered output", () => {

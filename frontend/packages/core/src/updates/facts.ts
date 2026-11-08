@@ -17,21 +17,22 @@ export interface NoiseRules {
   /** Fewest traces (or calls) each window needs before a rate or latency change is compared. */
   minSample: number;
   errorRate: { minAbs: number; minRel: number };
-  volume: { minAbs: number; minRel: number };
+  /** `minBase` is the smallest earlier value a percentage may be shown against. */
+  volume: { minAbs: number; minRel: number; minBase: number };
   latencyMs: { minAbs: number; minRel: number };
-  costUsd: { minAbs: number; minRel: number };
-  tokens: { minAbs: number; minRel: number };
-  toolCalls: { minAbs: number; minRel: number };
+  costUsd: { minAbs: number; minRel: number; minBase: number };
+  tokens: { minAbs: number; minRel: number; minBase: number };
+  toolCalls: { minAbs: number; minRel: number; minBase: number };
 }
 
 export const DEFAULT_NOISE_RULES: NoiseRules = {
   minSample: 30,
   errorRate: { minAbs: 0.02, minRel: 0.25 },
-  volume: { minAbs: 20, minRel: 0.25 },
+  volume: { minAbs: 20, minRel: 0.25, minBase: 30 },
   latencyMs: { minAbs: 200, minRel: 0.25 },
-  costUsd: { minAbs: 0.25, minRel: 0.3 },
-  tokens: { minAbs: 50_000, minRel: 0.3 },
-  toolCalls: { minAbs: 20, minRel: 0.3 },
+  costUsd: { minAbs: 0.25, minRel: 0.3, minBase: 0.1 },
+  tokens: { minAbs: 50_000, minRel: 0.3, minBase: 5_000 },
+  toolCalls: { minAbs: 20, minRel: 0.3, minBase: 30 },
 };
 
 export type FindingScope = "project" | "workflow" | "model" | "tool";
@@ -143,6 +144,31 @@ function change(
   };
 }
 
+/**
+ * A scalar movement (volume, cost, tokens, calls). Big enough to matter, and
+ * measured against a base large enough for a percentage; otherwise the numbers
+ * are shown as they are, without one.
+ */
+function scalar(
+  scope: FindingScope,
+  entity: string,
+  m: FindingMetric,
+  before: number,
+  after: number,
+  rule: { minAbs: number; minRel: number; minBase: number },
+): Finding[] {
+  if (!passes(before, after, rule)) return [];
+  if (before >= rule.minBase) return [change(scope, entity, m, before, after)];
+  return [
+    {
+      ...change(scope, entity, m, before, after),
+      kind: "absolute_only",
+      relativeChange: null,
+      note: "the earlier value is too small to show as a percentage",
+    },
+  ];
+}
+
 function categorical(
   scope: FindingScope,
   entity: string,
@@ -231,9 +257,7 @@ function volumeFinding(
   after: number,
   rules: NoiseRules,
 ): Finding[] {
-  return passes(before, after, rules.volume)
-    ? [change(scope, entity, "trace_volume", before, after)]
-    : [];
+  return scalar(scope, entity, "trace_volume", before, after, rules.volume);
 }
 
 /** Compare a window with the one before it. Pure: the same inputs give the same findings. */
@@ -243,6 +267,8 @@ export function computeUpdateFacts(
   rules: NoiseRules = DEFAULT_NOISE_RULES,
 ): UpdateFacts {
   const findings: Finding[] = [];
+  // A list cut at the entity cap cannot tell new from merely beyond the cap.
+  const cut = new Set([...current.truncated, ...previous.truncated]);
   const c = current.totals;
   const p = previous.totals;
 
@@ -259,14 +285,17 @@ export function computeUpdateFacts(
   findings.push(...latencyFindings("project", "all traffic", p, c, rules));
   const costNow = Number(current.llm.cost);
   const costBefore = Number(previous.llm.cost);
-  if (passes(costBefore, costNow, rules.costUsd)) {
-    findings.push(change("project", "all models", "cost", costBefore, costNow));
-  }
-  if (passes(previous.llm.totalTokens, current.llm.totalTokens, rules.tokens)) {
-    findings.push(
-      change("project", "all models", "tokens", previous.llm.totalTokens, current.llm.totalTokens),
-    );
-  }
+  findings.push(...scalar("project", "all models", "cost", costBefore, costNow, rules.costUsd));
+  findings.push(
+    ...scalar(
+      "project",
+      "all models",
+      "tokens",
+      previous.llm.totalTokens,
+      current.llm.totalTokens,
+      rules.tokens,
+    ),
+  );
 
   // Workflows: volume, errors and latency, and the ones that appeared or went.
   const prevWorkflows = new Map(previous.workflows.map((w) => [w.name, w]));
@@ -274,7 +303,7 @@ export function computeUpdateFacts(
   for (const [name, now] of curWorkflows) {
     const before = prevWorkflows.get(name);
     if (!before) {
-      findings.push(categorical("workflow", name, "new", now.traces));
+      if (!cut.has("workflows")) findings.push(categorical("workflow", name, "new", now.traces));
       continue;
     }
     findings.push(...volumeFinding("workflow", name, before.traces, now.traces, rules));
@@ -291,7 +320,8 @@ export function computeUpdateFacts(
   }
   for (const [name, before] of prevWorkflows) {
     if (!curWorkflows.has(name))
-      findings.push(categorical("workflow", name, "vanished", before.traces));
+      if (!cut.has("workflows"))
+        findings.push(categorical("workflow", name, "vanished", before.traces));
   }
 
   // Models: cost and tokens, and the ones that appeared or went.
@@ -300,18 +330,19 @@ export function computeUpdateFacts(
   for (const [name, now] of curModels) {
     const before = prevModels.get(name);
     if (!before) {
-      findings.push(categorical("model", name, "new", now.calls));
+      if (!cut.has("models")) findings.push(categorical("model", name, "new", now.calls));
       continue;
     }
-    if (passes(Number(before.cost), Number(now.cost), rules.costUsd)) {
-      findings.push(change("model", name, "cost", Number(before.cost), Number(now.cost)));
-    }
-    if (passes(before.totalTokens, now.totalTokens, rules.tokens)) {
-      findings.push(change("model", name, "tokens", before.totalTokens, now.totalTokens));
-    }
+    findings.push(
+      ...scalar("model", name, "cost", Number(before.cost), Number(now.cost), rules.costUsd),
+    );
+    findings.push(
+      ...scalar("model", name, "tokens", before.totalTokens, now.totalTokens, rules.tokens),
+    );
   }
   for (const [name, before] of prevModels) {
-    if (!curModels.has(name)) findings.push(categorical("model", name, "vanished", before.calls));
+    if (!curModels.has(name))
+      if (!cut.has("models")) findings.push(categorical("model", name, "vanished", before.calls));
   }
 
   // Tools.
@@ -320,15 +351,10 @@ export function computeUpdateFacts(
   for (const [name, now] of curTools) {
     const before = prevTools.get(name);
     if (!before) {
-      findings.push(categorical("tool", name, "new", now.calls));
+      if (!cut.has("tools")) findings.push(categorical("tool", name, "new", now.calls));
       continue;
     }
-    if (
-      passes(before.calls, now.calls, rules.toolCalls) &&
-      Math.max(before.calls, now.calls) >= rules.minSample
-    ) {
-      findings.push(change("tool", name, "tool_calls", before.calls, now.calls));
-    }
+    findings.push(...scalar("tool", name, "tool_calls", before.calls, now.calls, rules.toolCalls));
     findings.push(
       ...rateFindings(
         "tool",
@@ -340,7 +366,8 @@ export function computeUpdateFacts(
     );
   }
   for (const [name, before] of prevTools) {
-    if (!curTools.has(name)) findings.push(categorical("tool", name, "vanished", before.calls));
+    if (!curTools.has(name))
+      if (!cut.has("tools")) findings.push(categorical("tool", name, "vanished", before.calls));
   }
 
   findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

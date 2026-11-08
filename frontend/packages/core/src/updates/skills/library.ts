@@ -47,7 +47,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
 - Use only the numbers in get_update_facts, including the changes already worked out there. Never compute a difference or a percentage yourself.
 - If a finding carries a relative change, you may state it. If it does not, state the absolute numbers only. Never convert them into a percentage.
 - Report the metrics that moved first. A metric that did not move belongs in one short clause, or nowhere.
-- Each number you state needs a link to where the reader can see it: the dashboard for the project, or a trace for a single example.`,
+- Each number you state needs a link to where the reader can see it. get_update_facts returns the links for the project (its dashboard, traces and signals pages); use those, or a trace link from sample_traces for a single example.`,
   }),
   skill({
     name: "update-trace-sweep",
@@ -128,7 +128,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
 - Total cost and tokens, with the computed change, come from get_update_facts. The by-model and by-day figures come from the same place.
 - Name the top one or two cost drivers by model. Say which day was highest when it stands out.
 - A cost finding for a model is about that model's spend, not about quality. Do not suggest the model is worse or better.
-- Mention plan-quota use only when the facts carry it.`,
+- Mention plan-quota use only when the facts carry it; the facts may not, in which case leave it out.`,
   }),
   skill({
     name: "update-suggest-detector",
@@ -189,7 +189,7 @@ Output schema. Return the result through submit_update, with these fields exactl
 - nothingToReport: true or false.
 - headline: one sentence, written first. It is the Slack message and the email subject.
 - summary: a short paragraph that states the window and the compared window.
-- sections: a list of { id, title, items }. id is one of overview, shifts, signals, code_changes, alerts, evals, cost, other. Each item has text, optionally findingId, and evidence: a list of { kind, label, url }.
+- sections: a list of { id, title, items }. id is one of overview, shifts, signals, code_changes, alerts, evals, cost, other. Each item has text (at most 600 characters), optionally findingId, and evidence: one to six links { kind, label, url }, where kind is one of trace, signal, dashboard, pull_request, release, page.
 - suggestedDetectors: a list of { name, checks }, at most three.
 - notesForNextRun: short text for the next run: baselines, and items that are known to be noisy.
 

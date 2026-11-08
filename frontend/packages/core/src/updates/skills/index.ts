@@ -2,7 +2,9 @@ import { SKILL_LIBRARY, type UpdateSkill } from "./library.ts";
 
 export type { SkillCondition, UpdateSkill } from "./library.ts";
 
-const BY_NAME: ReadonlyMap<string, UpdateSkill> = new Map(SKILL_LIBRARY.map((s) => [s.name, s]));
+const BY_NAME: ReadonlyMap<string, UpdateSkill> = new Map(
+  SKILL_LIBRARY.map((s) => [s.name, Object.freeze({ ...s })]),
+);
 
 export const UPDATE_SKILL_NAMES: readonly string[] = SKILL_LIBRARY.map((s) => s.name);
 

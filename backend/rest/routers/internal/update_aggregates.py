@@ -12,6 +12,7 @@ capped in execution time, so a call cannot scan beyond its window.
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -26,9 +27,18 @@ router = APIRouter(prefix="/update-aggregates")
 MAX_WINDOW_DAYS = 9
 QUERY_TIMEOUT_SECONDS = 20
 # Distinct models, tools, workflows and refs returned; the rest are not reported.
-MAX_ENTITIES = 50
+MAX_ENTITIES = 200
 
-_TRAFFIC = "source = 'user' AND is_evaluation = 0"
+# The curated views keep the latest version of each row, only customer traffic and
+# no evaluations, and bound the scan by time: the same surface the SQL tool reads.
+_SPANS = (
+    "spans_public_v1(project_id = {project_id:String}, "
+    "start_time = {start:DateTime64(3)}, end_time = {end:DateTime64(3)})"
+)
+_TRACES = (
+    "traces_public_v1(project_id = {project_id:String}, "
+    "start_time = {start:DateTime64(3)}, end_time = {end:DateTime64(3)})"
+)
 
 # One row per trace in the window: whether any span failed, how long the root
 # span ran, and the trace's name and ref. Everything below aggregates this.
@@ -38,27 +48,13 @@ _PER_TRACE = f"""
     FROM (
         SELECT trace_id,
                max(status = 'ERROR') AS failed,
-               maxIf(dateDiff('millisecond', span_start_time, span_end_time),
-                     parent_span_id IS NULL) AS duration_ms
-        FROM spans
-        WHERE project_id = {{project_id:String}}
-          AND span_start_time >= {{start:DateTime64(3)}} AND span_start_time < {{end:DateTime64(3)}}
-          AND {_TRAFFIC}
+               maxIf(duration_ms, parent_span_id IS NULL) AS duration_ms
+        FROM {_SPANS}
         GROUP BY trace_id
     ) AS s
     INNER JOIN (
-        SELECT trace_id, name, git_ref
-        FROM traces
-        WHERE project_id = {{project_id:String}}
-          AND trace_start_time >= {{start:DateTime64(3)}} AND trace_start_time < {{end:DateTime64(3)}}
-          AND {_TRAFFIC}
+        SELECT trace_id, name, git_ref FROM {_TRACES}
     ) AS t ON s.trace_id = t.trace_id
-"""
-
-_SPANS_IN_WINDOW = f"""
-    project_id = {{project_id:String}}
-    AND span_start_time >= {{start:DateTime64(3)}} AND span_start_time < {{end:DateTime64(3)}}
-    AND {_TRAFFIC}
 """
 
 
@@ -117,6 +113,8 @@ class UpdateAggregates(BaseModel):
     tools: list[ToolRow]
     workflows: list[GroupRow]
     refs: list[GroupRow]
+    # Lists that hit the entity cap: their new/vanished items cannot be trusted.
+    truncated: list[str]
 
 
 def _ms(value: Any) -> int:
@@ -146,6 +144,7 @@ def get_update_aggregates(
     project_id: str,
     start: datetime = Query(..., description="Window start (inclusive)"),
     end: datetime = Query(..., description="Window end (exclusive)"),
+    tz: str = Query("UTC", description="Timezone the by-day buckets follow"),
 ) -> UpdateAggregates:
     """Counts, rates, latency percentiles, tokens and cost for one window."""
     start_utc, end_utc = to_utc_naive(start), to_utc_naive(end)
@@ -154,8 +153,13 @@ def get_update_aggregates(
     if (end_utc - start_utc).days > MAX_WINDOW_DAYS:
         raise HTTPException(status_code=422, detail=f"window longer than {MAX_WINDOW_DAYS} days")
 
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="unknown timezone") from exc
+
     ch = get_clickhouse_client()
-    params = {"project_id": project_id, "start": start_utc, "end": end_utc}
+    params = {"project_id": project_id, "start": start_utc, "end": end_utc, "tz": tz}
 
     ((traces, failed, p50, p95, p99, with_ref),) = _rows(
         ch,
@@ -172,7 +176,7 @@ def get_update_aggregates(
         ch,
         f"""
         SELECT count(), sum(input_tokens), sum(output_tokens), sum(total_tokens), sum(cost)
-        FROM spans WHERE {_SPANS_IN_WINDOW} AND span_kind = 'LLM'
+        FROM {_SPANS} WHERE span_kind = 'LLM'
         """,
         params,
     )
@@ -181,8 +185,8 @@ def get_update_aggregates(
         ch,
         f"""
         SELECT model_name, count(), sum(total_tokens), sum(cost)
-        FROM spans WHERE {_SPANS_IN_WINDOW} AND span_kind = 'LLM' AND model_name IS NOT NULL
-        GROUP BY model_name ORDER BY sum(cost) DESC, model_name LIMIT {MAX_ENTITIES}
+        FROM {_SPANS} WHERE span_kind = 'LLM' AND model_name IS NOT NULL
+        GROUP BY model_name ORDER BY sum(cost) DESC, model_name LIMIT {MAX_ENTITIES + 1}
         """,
         params,
     )
@@ -190,8 +194,8 @@ def get_update_aggregates(
     by_model_day = _rows(
         ch,
         f"""
-        SELECT model_name, toString(toDate(span_start_time)) AS day, sum(total_tokens), sum(cost)
-        FROM spans WHERE {_SPANS_IN_WINDOW} AND span_kind = 'LLM' AND model_name IS NOT NULL
+        SELECT model_name, toString(toDate(span_start_time, {{tz:String}})) AS day, sum(total_tokens), sum(cost)
+        FROM {_SPANS} WHERE span_kind = 'LLM' AND model_name IS NOT NULL
         GROUP BY model_name, day ORDER BY model_name, day LIMIT {MAX_ENTITIES * 10}
         """,
         params,
@@ -201,8 +205,8 @@ def get_update_aggregates(
         ch,
         f"""
         SELECT name, count(), countIf(status = 'ERROR')
-        FROM spans WHERE {_SPANS_IN_WINDOW} AND span_kind = 'TOOL'
-        GROUP BY name ORDER BY count() DESC, name LIMIT {MAX_ENTITIES}
+        FROM {_SPANS} WHERE span_kind = 'TOOL'
+        GROUP BY name ORDER BY count() DESC, name LIMIT {MAX_ENTITIES + 1}
         """,
         params,
     )
@@ -212,7 +216,7 @@ def get_update_aggregates(
         f"""
         SELECT name, count(), countIf(failed), quantileExact(0.5)(duration_ms),
                quantileExact(0.95)(duration_ms)
-        FROM ({_PER_TRACE}) GROUP BY name ORDER BY count() DESC, name LIMIT {MAX_ENTITIES}
+        FROM ({_PER_TRACE}) GROUP BY name ORDER BY count() DESC, name LIMIT {MAX_ENTITIES + 1}
         """,
         params,
     )
@@ -223,9 +227,26 @@ def get_update_aggregates(
         SELECT git_ref, count(), countIf(failed), quantileExact(0.5)(duration_ms),
                quantileExact(0.95)(duration_ms)
         FROM ({_PER_TRACE}) WHERE git_ref IS NOT NULL AND git_ref != ''
-        GROUP BY git_ref ORDER BY count() DESC, git_ref LIMIT {MAX_ENTITIES}
+        GROUP BY git_ref ORDER BY count() DESC, git_ref LIMIT {MAX_ENTITIES + 1}
         """,
         params,
+    )
+
+    truncated = [
+        name
+        for name, rows in (
+            ("models", by_model),
+            ("tools", tools),
+            ("workflows", workflows),
+            ("refs", refs),
+        )
+        if len(rows) > MAX_ENTITIES
+    ]
+    by_model, tools, workflows, refs = (
+        by_model[:MAX_ENTITIES],
+        tools[:MAX_ENTITIES],
+        workflows[:MAX_ENTITIES],
+        refs[:MAX_ENTITIES],
     )
 
     return UpdateAggregates(
@@ -263,6 +284,7 @@ def get_update_aggregates(
             GroupRow(name=n, traces=c, error_traces=e, p50_ms=_ms(a), p95_ms=_ms(b))
             for n, c, e, a, b in refs
         ],
+        truncated=truncated,
     )
 
 
@@ -295,10 +317,10 @@ class UpdateSample(BaseModel):
 _SAMPLE_BASE = f"""
     SELECT per.trace_id AS trace_id, per.name AS name, per.failed AS failed,
            per.duration_ms AS duration_ms, per.git_ref AS git_ref, ifNull(c.cost, 0) AS cost
-    FROM ({_PER_TRACE.replace("s.trace_id AS trace_id", "s.trace_id AS trace_id")}) AS per
+    FROM ({_PER_TRACE}) AS per
     LEFT JOIN (
         SELECT trace_id, sum(cost) AS cost
-        FROM spans WHERE {_SPANS_IN_WINDOW} AND span_kind = 'LLM'
+        FROM {_SPANS} WHERE span_kind = 'LLM'
         GROUP BY trace_id
     ) AS c ON per.trace_id = c.trace_id
 """
@@ -324,7 +346,7 @@ def get_update_sample(
     parts = [
         ("failure", "failed = 1", "trace_id DESC", SAMPLE_FAILURES),
         ("slowest", "1", "duration_ms DESC, trace_id", SAMPLE_SLOWEST),
-        ("costliest", "1", "cost DESC, trace_id", SAMPLE_COSTLIEST),
+        ("costliest", "cost > 0", "cost DESC, trace_id", SAMPLE_COSTLIEST),
         ("random", "1", "cityHash64(trace_id, {seed:UInt32}), trace_id", SAMPLE_RANDOM),
     ]
     chosen: dict[str, SampleTrace] = {}

@@ -19,6 +19,7 @@ const agg = (traces: number, errors: number): WindowAggregates => ({
   tools: [],
   workflows: [],
   refs: [],
+  truncated: [],
 });
 
 function setup(status = "pending") {
@@ -26,6 +27,8 @@ function setup(status = "pending") {
     id: "r1",
     projectId: "p1",
     status,
+    timezone: "UTC",
+    startedAt: null as Date | null,
     windowStart: new Date("2026-10-26T09:00:00Z"),
     windowEnd: new Date("2026-11-02T09:00:00Z"),
     prevWindowStart: new Date("2026-10-19T09:00:00Z"),
@@ -34,11 +37,25 @@ function setup(status = "pending") {
   const updates: Array<Record<string, unknown>> = [];
   const db = {
     projectUpdateRun: {
-      updateMany: vi.fn(async ({ where }: { where: { status: { in: string[] } } }) => {
-        if (!where.status.in.includes(run.status)) return { count: 0 };
-        run.status = "running";
-        return { count: 1 };
-      }),
+      updateMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { OR: Array<{ status: string | { in: string[] }; startedAt?: { lt: Date } }> };
+        }) => {
+          const claimable = where.OR.some((clause) => {
+            const statuses = typeof clause.status === "string" ? [clause.status] : clause.status.in;
+            if (!statuses.includes(run.status)) return false;
+            return (
+              clause.startedAt === undefined || (run.startedAt ?? new Date(0)) < clause.startedAt.lt
+            );
+          });
+          if (!claimable) return { count: 0 };
+          run.status = "running";
+          run.startedAt = new Date();
+          return { count: 1 };
+        },
+      ),
       findUniqueOrThrow: vi.fn(async () => run),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         updates.push(data);
@@ -99,5 +116,33 @@ describe("executeRun", () => {
     );
     expect(retry.status).toBe("succeeded");
     expect(retry.facts?.nothingNotableReason).toBe("no_traffic");
+  });
+
+  it("takes over a run left running by a worker that died, but not a fresh one", async () => {
+    const { db, run } = setup("running");
+    const deps = {
+      db: db as never,
+      readAggregates: async () => ({ current: agg(0, 0), previous: agg(0, 0) }),
+      appBaseUrl: "http://app",
+    };
+    run.startedAt = new Date(); // started just now: someone is on it
+    expect((await executeRun(deps, "r1")).status).toBe("skipped");
+    run.startedAt = new Date(Date.now() - 30 * 60_000);
+    expect((await executeRun(deps, "r1")).status).toBe("succeeded");
+  });
+
+  it("stops, without retrying, a run whose project is gone", async () => {
+    const { db, run } = setup();
+    db.project.findFirst.mockResolvedValue(null as never);
+    const outcome = await executeRun(
+      {
+        db: db as never,
+        readAggregates: async () => ({ current: agg(0, 0), previous: agg(0, 0) }),
+        appBaseUrl: "http://app",
+      },
+      "r1",
+    );
+    expect(outcome.status).toBe("stopped");
+    expect(run.status).toBe("stopped");
   });
 });

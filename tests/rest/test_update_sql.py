@@ -85,3 +85,41 @@ def test_refuses_writes_and_unknown_tables(secret, service):
 def test_caps_the_rows_however_many_are_asked_for(secret, service):
     post(secret, DAY, max_rows=100000)
     assert service.run.call_args.kwargs["max_rows"] == 200
+
+
+def _spans(day):
+    return (
+        f"SELECT count() FROM spans WHERE span_start_time >= '2026-10-{day} 00:00:00' "
+        f"AND span_start_time < '2026-10-{day} 12:00:00'"
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # a bounded table next to an unbounded-by-constant subquery on another
+        "SELECT (SELECT count() FROM traces WHERE trace_start_time >= toDateTime('2026-09-01') "
+        "AND trace_start_time < toDateTime('2026-12-01')), count() FROM spans WHERE "
+        "span_start_time >= '2026-10-26 00:00:00' AND span_start_time < '2026-10-26 12:00:00'",
+        # several short reads add up
+        f"{_spans(20)} UNION ALL {_spans(21)} UNION ALL {_spans(22)}",
+        # one table bounded, a join partner not
+        "SELECT count() FROM spans s JOIN traces t ON s.trace_id = t.trace_id WHERE "
+        "s.span_start_time >= '2026-10-26 00:00:00' AND s.span_start_time < '2026-10-26 12:00:00'",
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-10-26 00:00:00' "
+        "AND span_start_time < now()",
+    ],
+)
+def test_refuses_ways_around_the_time_bound(secret, service, query):
+    assert post(secret, query).status_code == 422
+    service.run.assert_not_called()
+
+
+def test_allows_two_short_reads_within_the_total(secret, service):
+    query = (
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-10-26 00:00:00' "
+        "AND span_start_time < '2026-10-26 06:00:00' UNION ALL "
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-10-27 00:00:00' "
+        "AND span_start_time < '2026-10-27 06:00:00'"
+    )
+    assert post(secret, query).status_code == 200

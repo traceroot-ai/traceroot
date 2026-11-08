@@ -58,6 +58,40 @@ describe("update skills", () => {
 });
 
 describe("result schema", () => {
+  const item = {
+    text: "x",
+    evidence: [{ kind: "trace", label: "t", url: "https://example.com/t" }],
+  };
+  const report = {
+    nothingToReport: false,
+    headline: "h",
+    summary: "",
+    sections: [{ id: "shifts", title: "Shifts", items: [item] }],
+    suggestedDetectors: [],
+    notesForNextRun: "",
+  };
+
+  it("requires evidence on every item", () => {
+    const bare = {
+      ...report,
+      sections: [{ id: "shifts", title: "S", items: [{ text: "x", evidence: [] }] }],
+    };
+    expect(updateResultSchema.safeParse(bare).success).toBe(false);
+    expect(updateResultSchema.safeParse(report).success).toBe(true);
+  });
+
+  it("ties nothingToReport to having no sections", () => {
+    expect(updateResultSchema.safeParse({ ...report, nothingToReport: true }).success).toBe(false);
+    expect(updateResultSchema.safeParse({ ...report, sections: [] }).success).toBe(false);
+  });
+
+  it("returns skills that cannot be edited in place", () => {
+    const skill = loadSkill("update-self-check");
+    expect(() => {
+      (skill as { body: string }).body = "changed";
+    }).toThrow();
+  });
+
   it("accepts a nothing-to-report result and rejects an unlinked url", () => {
     const base = {
       nothingToReport: true,

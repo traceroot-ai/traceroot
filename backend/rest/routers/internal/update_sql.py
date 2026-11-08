@@ -13,12 +13,14 @@ SQL endpoint, so the tenant scope and the curated schema are unchanged.
 import re
 from datetime import datetime
 
+import sqlglot
+import sqlglot.expressions as exp
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from rest.routers.internal.auth import verify_internal_secret
 from rest.services.sql.errors import SqlExecutionError, SqlValidationError
-from rest.services.sql.rewriter import _OPEN_END, _OPEN_START, scope_and_render
+from rest.services.sql.rewriter import _OPEN_END, _OPEN_START, _VIEW_NAMES, scope_and_render
 from rest.services.sql.service import SqlQueryService
 
 router = APIRouter(prefix="/update-sql")
@@ -47,23 +49,43 @@ class UpdateSqlResponse(BaseModel):
 
 
 def check_bounded(rendered: str) -> None:
-    """Refuse a rendered query that leaves any table unbounded or wider than the limit."""
-    if _OPEN_START in rendered or _OPEN_END in rendered:
-        raise HTTPException(
-            status_code=422,
-            detail="Every table needs a time range: filter span_start_time or trace_start_time "
-            f"to at most {MAX_RANGE_SECONDS // 3600} hours.",
-        )
-    found = _BOUNDS.findall(rendered)
-    if not found:
-        raise HTTPException(status_code=422, detail="Query has no time range.")
-    for start, end in found:
-        seconds = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()
-        if seconds > MAX_RANGE_SECONDS:
+    """Refuse a rendered query unless every table read is bounded and the total range is small.
+
+    Each table in the rewritten query is a call to a curated view carrying its own
+    start and end. Every call is checked, not just the first match, and the ranges
+    of all calls add up: a UNION of one-day reads, or a subquery over three months,
+    is as much a scan as one wide read.
+    """
+    tree = sqlglot.parse_one(rendered, dialect="clickhouse")
+    total = 0.0
+    calls = 0
+    for node in tree.find_all(exp.Anonymous):
+        if str(node.this).lower() not in _VIEW_NAMES:
+            continue
+        calls += 1
+        text = node.sql(dialect="clickhouse")
+        if _OPEN_START in text or _OPEN_END in text:
             raise HTTPException(
                 status_code=422,
-                detail=f"Time range is wider than the limit of {MAX_RANGE_SECONDS // 3600} hours.",
+                detail="Every table needs a time range: filter span_start_time or "
+                f"trace_start_time to at most {MAX_RANGE_SECONDS // 3600} hours in total.",
             )
+        match = _BOUNDS.search(text)
+        if match is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Every time range must be written as constant timestamps.",
+            )
+        start, end = match.groups()
+        total += (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()
+    if calls == 0:
+        raise HTTPException(status_code=422, detail="Query reads no table.")
+    if total > MAX_RANGE_SECONDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Time range is wider than the limit of {MAX_RANGE_SECONDS // 3600} hours "
+            "in total across the query.",
+        )
 
 
 @router.post("", response_model=UpdateSqlResponse, dependencies=[Depends(verify_internal_secret)])

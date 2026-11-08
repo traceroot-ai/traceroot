@@ -15,7 +15,8 @@ export const resultItemSchema = z.object({
   /** Id of the computed finding this item narrates, when it narrates one. */
   findingId: z.string().max(200).optional(),
   text: z.string().min(1).max(600),
-  evidence: z.array(evidenceLinkSchema).max(6),
+  /** An item with nothing to open is left out, so at least one link is required. */
+  evidence: z.array(evidenceLinkSchema).min(1).max(6),
 });
 
 export const resultSectionSchema = z.object({
@@ -24,7 +25,7 @@ export const resultSectionSchema = z.object({
   items: z.array(resultItemSchema).max(12),
 });
 
-export const updateResultSchema = z.object({
+const resultObject = z.object({
   nothingToReport: z.boolean(),
   /** One sentence, written first; it is the Slack message and the email subject. */
   headline: z.string().min(1).max(200),
@@ -35,6 +36,25 @@ export const updateResultSchema = z.object({
     .max(3),
   /** Short text kept for the next run: baselines and known-noisy items. */
   notesForNextRun: z.string().max(1500),
+});
+
+/** A result with nothing to report has no sections; one with something has at least one. */
+export const updateResultSchema = resultObject.superRefine((result, ctx) => {
+  const hasItems = result.sections.some((section) => section.items.length > 0);
+  if (result.nothingToReport && result.sections.length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["sections"],
+      message: "nothingToReport means no sections",
+    });
+  }
+  if (!result.nothingToReport && !hasItems) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["sections"],
+      message: "a report needs at least one item",
+    });
+  }
 });
 
 export type EvidenceLink = z.infer<typeof evidenceLinkSchema>;

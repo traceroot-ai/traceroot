@@ -17,62 +17,54 @@ interface ScheduleRow {
 function fakeDb(schedules: ScheduleRow[]) {
   const runs: Array<Record<string, unknown> & { dedupeKey: string; id: string; status: string }> =
     [];
-  return {
-    runs,
-    schedules,
-    db: {
-      projectUpdateSchedule: {
-        findMany: vi.fn(async ({ where }: { where: { nextSlotAt: { lte: Date } } }) =>
-          schedules
-            .filter(
-              (s) => s.enabled && s.nextSlotAt !== null && s.nextSlotAt <= where.nextSlotAt.lte,
-            )
-            .map((s) => ({ ...s })),
-        ),
-        updateMany: vi.fn(
-          async ({
-            where,
-            data,
-          }: {
-            where: { id: string; nextSlotAt: Date | null };
-            data: { nextSlotAt: Date };
-          }) => {
-            const row = schedules.find((s) => s.id === where.id);
-            if (!row || row.nextSlotAt?.getTime() !== where.nextSlotAt?.getTime())
-              return { count: 0 };
-            row.nextSlotAt = data.nextSlotAt;
-            return { count: 1 };
-          },
-        ),
-      },
-      projectUpdateRun: {
-        create: vi.fn(
-          async ({ data }: { data: Record<string, unknown> & { dedupeKey: string } }) => {
-            if (runs.some((r) => r.dedupeKey === data.dedupeKey)) {
-              throw Object.assign(new Error("unique"), { code: "P2002" });
-            }
-            const row = {
-              id: `run${runs.length + 1}`,
-              status: "pending",
-              createTime: new Date(0),
-              ...data,
-            };
-            runs.push(row);
-            return row;
-          },
-        ),
-        findUnique: vi.fn(
-          async ({ where }: { where: { dedupeKey: string } }) =>
-            runs.find((r) => r.dedupeKey === where.dedupeKey) ?? null,
-        ),
-        findMany: vi.fn(async ({ where }: { where: { createTime: { lt: Date } } }) =>
-          runs.filter(
-            (r) => r.status === "pending" && (r.createTime as Date) < where.createTime.lt,
-          ),
-        ),
-      },
+  const db = {
+    projectUpdateSchedule: {
+      findMany: vi.fn(async ({ where }: { where: { nextSlotAt: { lte: Date } } }) =>
+        schedules
+          .filter((s) => s.enabled && s.nextSlotAt !== null && s.nextSlotAt <= where.nextSlotAt.lte)
+          .map((s) => ({ ...s })),
+      ),
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string; nextSlotAt: Date | null };
+          data: { nextSlotAt: Date };
+        }) => {
+          const row = schedules.find((s) => s.id === where.id);
+          if (!row || row.nextSlotAt?.getTime() !== where.nextSlotAt?.getTime())
+            return { count: 0 };
+          row.nextSlotAt = data.nextSlotAt;
+          return { count: 1 };
+        },
+      ),
     },
+    projectUpdateRun: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> & { dedupeKey: string } }) => {
+        if (runs.some((r) => r.dedupeKey === data.dedupeKey)) {
+          throw Object.assign(new Error("unique"), { code: "P2002" });
+        }
+        const row = {
+          id: `run${runs.length + 1}`,
+          status: "pending",
+          createTime: new Date(0),
+          ...data,
+        };
+        runs.push(row);
+        return row;
+      }),
+      findUnique: vi.fn(
+        async ({ where }: { where: { dedupeKey: string } }) =>
+          runs.find((r) => r.dedupeKey === where.dedupeKey) ?? null,
+      ),
+      findMany: vi.fn(async ({ where }: { where: { createTime: { lt: Date } } }) =>
+        runs.filter((r) => r.status === "pending" && (r.createTime as Date) < where.createTime.lt),
+      ),
+    },
+    $transaction: async (fn: (tx: unknown) => unknown) => fn(db),
   };
+  return { runs, schedules, db };
 }
 
 const weeklyUtc = (overrides: Partial<ScheduleRow> = {}): ScheduleRow => ({
