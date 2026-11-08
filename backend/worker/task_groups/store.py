@@ -84,7 +84,11 @@ def load_window(project_id: str, now: datetime) -> Window:
         trace_ids=[r[0] for r in rows],
         trace_times=[r[1] for r in rows],
         summaries=[r[2] for r in rows],
-        vectors=np.array([r[3] for r in rows], dtype=np.float32).reshape(len(rows), -1),
+        vectors=(
+            np.array([r[3] for r in rows], dtype=np.float32)
+            if rows
+            else np.zeros((0, 0), dtype=np.float32)
+        ),
     )
 
 

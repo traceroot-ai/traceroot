@@ -91,3 +91,46 @@ def test_a_loose_cluster_has_its_reach_capped():
     result = fit_groups(np.concatenate([tight, loose]).astype(np.float32))
     assert result is not None and len(result.reaches) >= 1
     assert result.reaches.max() <= FitParams().reach_cap + 1e-6
+
+
+def test_structureless_rows_are_not_forced_into_groups_that_do_not_exist(monkeypatch):
+    """When the density step finds nothing, the fit returns no groups and every row is unplaced."""
+    import numpy as np
+
+    from worker.task_groups import fit as fit_module
+
+    monkeypatch.setattr(
+        fit_module, "_reduce", lambda x, params: np.random.default_rng(0).normal(size=(len(x), 3))
+    )
+
+    class NoClusters:
+        def __init__(self, **kwargs):
+            pass
+
+        def fit_predict(self, x):
+            return np.full(len(x), -1)
+
+    monkeypatch.setattr("sklearn.cluster.HDBSCAN", NoClusters)
+    x = np.random.default_rng(1).normal(size=(120, 8)).astype(np.float32)
+    result = fit_groups(x)
+    assert result.centers.shape[0] == 0 and (result.labels == -1).all()
+    assert result.sizes.shape == (0,)
+
+
+def test_a_row_left_out_by_the_density_step_is_placed_when_it_lies_inside_a_reach(monkeypatch):
+    from sklearn.cluster import HDBSCAN
+
+    x, _ = blobs(per=60, k=2, seed=2)
+
+    class LeaveOneOut:
+        def __init__(self, **kwargs):
+            self._inner = HDBSCAN(**kwargs)
+
+        def fit_predict(self, reduced):
+            labels = self._inner.fit_predict(reduced)
+            labels[0] = -1  # the first row is "noise" although it sits inside its cluster
+            return labels
+
+    monkeypatch.setattr("sklearn.cluster.HDBSCAN", LeaveOneOut)
+    result = fit_groups(x)
+    assert result.labels[0] >= 0

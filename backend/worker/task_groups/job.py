@@ -56,14 +56,14 @@ def _name_new_groups(
         for label, result in pool.map(work, pending):
             names[label] = (result.name, result.description)
             cost += result.cost_usd
-    used = {n.lower() for n in taken}
+    used = list(taken)
     for label, summaries in pending:
         name, _ = names[label]
-        if name.lower() in used:
-            retry = name_group(summaries, sorted(used), api_key=api_key)
+        if name.lower() in {u.lower() for u in used}:
+            retry = name_group(summaries, used, api_key=api_key)
             names[label] = (retry.name, retry.description)
             cost += retry.cost_usd
-        used.add(names[label][0].lower())
+        used.append(names[label][0])
     return names, cost
 
 

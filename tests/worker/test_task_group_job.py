@@ -164,3 +164,34 @@ def test_a_failure_is_recorded_on_the_run(wired, monkeypatch):
     out = job.fit_project("p", "daily", FitParams())
     assert out.status == "failed"
     assert store.finished[0][1]["status"] == "failed" and "boom" in store.finished[0][1]["error"]
+
+
+def test_a_name_already_in_use_is_asked_for_again_with_the_used_names(monkeypatch):
+    seen = []
+
+    def fake_name(summaries, taken, *, api_key, client=None):
+        seen.append(list(taken))
+        # The first answer repeats a name in use; the retry gives a different one.
+        return GroupName("Refunds" if len(seen) <= 2 else "Order Changes", "d", 0.001)
+
+    monkeypatch.setattr(job, "name_group", fake_name)
+    names, cost = job._name_new_groups([(0, ["a"]), (1, ["b"])], ["Refunds"], "k")
+    assert names[0][0] != "Refunds" or names[1][0] != "Refunds"
+    assert cost > 0 and any("Refunds" in taken for taken in seen[2:])
+
+
+def test_due_fits_prefers_a_pending_refresh_over_the_daily_run(monkeypatch):
+    monkeypatch.setattr(job.store, "utc_now", lambda: datetime(2026, 11, 8, 12, tzinfo=UTC))
+    monkeypatch.setattr(job.store, "enabled_projects", lambda: ["a", "b", "c"])
+    monkeypatch.setattr(job.store, "refresh_pending", lambda p: p == "a")
+    monkeypatch.setattr(job.store, "daily_due", lambda p, day: p in ("a", "b"))
+    assert job.due_fits() == [("a", "refresh"), ("b", "daily")]
+
+
+def test_a_window_that_turns_out_too_small_is_skipped_without_a_fit(wired, monkeypatch):
+    store = FakeStore(blob_window())
+    wired(store)
+    monkeypatch.setattr(job, "fit_groups", lambda *a, **k: None)
+    out = job.fit_project("p", "daily")
+    assert out.status == "skipped" and out.reason == "too_few_summaries"
+    assert not store.written
