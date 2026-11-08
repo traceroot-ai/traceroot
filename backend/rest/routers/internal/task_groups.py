@@ -295,3 +295,155 @@ def write_members(body: MembersPayload):
         ],
     )
     return {"ok": True, "written": len(body.rows)}
+
+
+# --- Reads for the web app -----------------------------------------------------------
+
+# Trace ids per by-trace call: one list page holds at most this many.
+MAX_BY_TRACE_IDS = 200
+# Days of trend returned at most, however wide the range.
+MAX_TREND_DAYS = 120
+
+
+@router.get("/overview", dependencies=[Depends(verify_internal_secret)])
+def overview(
+    project_id: str,
+    since_ms: int = Query(..., ge=0),
+    until_ms: int = Query(..., ge=0),
+    window_since_ms: int = Query(..., ge=0),
+    lens: str = DEFAULT_LENS,
+):
+    """The current groups with how many sampled traces each holds in a time range.
+
+    Only sampled traces have a summary and so a group: ``sampled`` counts them, and a
+    group's share is its count over ``sampled``, an estimate for all traces. A trace
+    counts for the group of its latest membership row.
+
+    Args:
+        project_id (str): Project to read.
+        since_ms (int): Start of the range, epoch ms (inclusive), by trace start time.
+        until_ms (int): End of the range, epoch ms (exclusive).
+        window_since_ms (int): Start of the fit window, for the number of summaries that
+            decide whether groups can exist yet.
+
+    Returns:
+        dict: ``fit`` (``fit_id``, ``fitted_at_ms``, or None before the first fit),
+            ``sampled`` and ``ungrouped`` counts in the range, ``digests_in_window``,
+            and ``groups`` each with ``group_id``, ``name``, ``description``, ``count``
+            and a per-day ``trend`` of ``[{"day", "count"}]``.
+    """
+    ch = get_clickhouse_client()
+    params = {
+        "p": project_id,
+        "lens": lens,
+        "since": _ms_to_utc(since_ms),
+        "until": _ms_to_utc(until_ms),
+        "window_since": _ms_to_utc(window_since_ms),
+    }
+    groups = ch.query(
+        """
+        SELECT fit_id, toUnixTimestamp64Milli(fitted_at) AS fitted_at_ms,
+               group_id, name, description
+        FROM task_groups
+        WHERE project_id = {p:String} AND lens = {lens:String}
+          AND fit_id = (SELECT argMax(fit_id, fitted_at) FROM task_groups
+                        WHERE project_id = {p:String} AND lens = {lens:String})
+        ORDER BY group_id
+        """,
+        parameters=params,
+    ).result_rows
+    sampled = ch.query(
+        """
+        SELECT count() FROM (
+            SELECT trace_id FROM trace_task_digests
+            WHERE project_id = {p:String} AND lens = {lens:String}
+              AND trace_time >= {since:DateTime64(3)} AND trace_time < {until:DateTime64(3)}
+            GROUP BY trace_id
+        )
+        """,
+        parameters=params,
+    ).result_rows[0][0]
+    in_window = ch.query(
+        """
+        SELECT count() FROM (
+            SELECT trace_id FROM trace_task_digests
+            WHERE project_id = {p:String} AND lens = {lens:String}
+              AND trace_time >= {window_since:DateTime64(3)}
+            GROUP BY trace_id
+        )
+        """,
+        parameters=params,
+    ).result_rows[0][0]
+    per_day = ch.query(
+        """
+        SELECT member_group_id, toString(toDate(member_time)) AS day, count() AS n
+        FROM (
+            SELECT trace_id, argMax(group_id, assigned_at) AS member_group_id,
+                   min(trace_time) AS member_time
+            FROM trace_group_members
+            WHERE project_id = {p:String} AND lens = {lens:String}
+              AND trace_time >= {since:DateTime64(3)} AND trace_time < {until:DateTime64(3)}
+            GROUP BY trace_id
+        )
+        GROUP BY member_group_id, day
+        ORDER BY day
+        """,
+        parameters=params,
+    ).result_rows
+
+    trends: dict[str, list[dict]] = {}
+    totals: dict[str, int] = {}
+    for gid, day, n in per_day:
+        trends.setdefault(gid, []).append({"day": day, "count": int(n)})
+        totals[gid] = totals.get(gid, 0) + int(n)
+    current = {g[2] for g in groups}
+    placed_in_current = sum(n for gid, n in totals.items() if gid in current)
+    return {
+        "fit": ({"fit_id": groups[0][0], "fitted_at_ms": int(groups[0][1])} if groups else None),
+        "sampled": int(sampled),
+        "ungrouped": max(int(sampled) - placed_in_current, 0),
+        "digests_in_window": int(in_window),
+        "groups": [
+            {
+                "group_id": gid,
+                "name": name,
+                "description": description,
+                "count": totals.get(gid, 0),
+                "trend": trends.get(gid, [])[-MAX_TREND_DAYS:],
+            }
+            for _fit, _at, gid, name, description in groups
+        ],
+    }
+
+
+@router.get("/by-trace", dependencies=[Depends(verify_internal_secret)])
+def by_trace(
+    project_id: str,
+    trace_id: list[str] = Query(..., max_length=MAX_BY_TRACE_IDS),
+    lens: str = DEFAULT_LENS,
+):
+    """The group of each listed trace, for the trace list's Topic column.
+
+    A trace with no group (not sampled, or outside every reach) is absent from ``data``.
+    A group id that is not in the current fit (an older one) is absent too.
+    """
+    result = get_clickhouse_client().query(
+        """
+        SELECT m.trace_id, m.group_id, g.name
+        FROM (
+            SELECT trace_id, argMax(group_id, assigned_at) AS group_id
+            FROM trace_group_members
+            WHERE project_id = {p:String} AND lens = {lens:String}
+              AND trace_id IN {ids:Array(String)}
+            GROUP BY trace_id
+        ) AS m
+        INNER JOIN (
+            SELECT group_id, name FROM task_groups
+            WHERE project_id = {p:String} AND lens = {lens:String}
+              AND fit_id = (SELECT argMax(fit_id, fitted_at) FROM task_groups
+                            WHERE project_id = {p:String} AND lens = {lens:String})
+        ) AS g ON g.group_id = m.group_id
+        """,
+        parameters={"p": project_id, "lens": lens, "ids": trace_id},
+    )
+    return {"data": {tid: {"group_id": gid, "name": name} for tid, gid, name in result.result_rows}}

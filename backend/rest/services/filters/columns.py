@@ -23,6 +23,7 @@ class FilterLevel(StrEnum):
     SPAN_AGGREGATE = "SPAN_AGGREGATE"  # trace_id IN (SELECT … GROUP BY trace_id HAVING …)
     KEYED_MAP = "KEYED_MAP"  # inline traces-row Map match OR the span semi-join, by key
     SIGNAL = "SIGNAL"  # trace_id IN (SELECT … FROM signal_assignments WHERE …)
+    TASK_GROUP = "TASK_GROUP"  # trace_id IN (SELECT … FROM trace_group_members WHERE …)
 
 
 class FilterType(StrEnum):
@@ -115,6 +116,10 @@ class FilterColumn:
     # columns (backend/worker/detector_tasks.py), so a field the trace list
     # can filter on is only a trigger once the evaluator fetches it too.
     detector_trigger: bool = True
+    # Whether the public API offers the field. A field the app's own list uses but the
+    # public contract does not (yet) is declared False: the public schema omits it and
+    # the public trace list rejects it.
+    public: bool = True
 
     @property
     def is_integer(self) -> bool:
@@ -167,6 +172,22 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         value_source=ValueSource.FREE_TEXT,
         # A signal exists only after detectors ran on the trace.
         detector_trigger=False,
+    ),
+    # Task-group tier — the traces placed in one group (shown as a "Topic"), so a group can
+    # link to its traces in the list. Exact match only: the id is picked from the group
+    # list, never typed in part. Only sampled traces have a group.
+    FilterColumn(
+        name="group_id",
+        label="Topic",
+        ch_type="String",
+        level=FilterLevel.TASK_GROUP,
+        type=FilterType.TEXT,
+        operators=(FilterOperator.EQ,),
+        value_source=ValueSource.FREE_TEXT,
+        # Groups are fitted over days; a trace has none when it is evaluated live.
+        detector_trigger=False,
+        # Topics have no public API in the first version.
+        public=False,
     ),
     # Membership tier — "trace has ≥1 span where …" (span semi-join).
     FilterColumn(

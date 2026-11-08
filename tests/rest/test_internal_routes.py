@@ -65,6 +65,9 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/task-groups/current-groups"),
     ("GET", "/api/v1/internal/task-groups/unplaced"),
     ("POST", "/api/v1/internal/task-groups/members"),
+    # ...and the web app reads the groups, their counts and each trace's group.
+    ("GET", "/api/v1/internal/task-groups/overview"),
+    ("GET", "/api/v1/internal/task-groups/by-trace"),
 }
 
 

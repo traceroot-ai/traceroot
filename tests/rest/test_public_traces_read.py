@@ -256,6 +256,13 @@ class TestPublicListTracesFilters:
         assert "nope" in resp.json()["detail"]
         mock_reader.list_traces.assert_not_called()
 
+    def test_a_field_the_public_api_does_not_offer_is_400(self, client, mock_reader):
+        filters = '[{"field":"group_id","op":"eq","value":"g_1"}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        assert "group_id" in resp.json()["detail"]
+        mock_reader.list_traces.assert_not_called()
+
     def test_bad_operator_is_400(self, client, mock_reader):
         filters = '[{"field":"model_name","op":"contains","value":["x"]}]'
         resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)

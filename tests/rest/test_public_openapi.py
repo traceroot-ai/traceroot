@@ -714,8 +714,10 @@ def _filters_param(schema):
 
 def test_filters_param_is_json_content_with_registry_variants():
     """The filters param schema is generated from the filter-field registry."""
-    from rest.services.filters.columns import FILTER_COLUMNS
+    from rest.services.filters.columns import FILTER_COLUMNS as ALL_FILTER_COLUMNS
 
+    # Fields the public API does not offer (public=False) are left out of the contract.
+    FILTER_COLUMNS = tuple(c for c in ALL_FILTER_COLUMNS if c.public)
     param = _filters_param(_schema())
     assert param["in"] == "query"
     assert param.get("required") is not True
@@ -1374,3 +1376,12 @@ def test_each_resource_has_one_tag():
         "Whoami",
         "Widgets",
     }
+
+
+def test_the_public_filter_schema_omits_fields_the_public_api_does_not_offer():
+    from rest.services.filters.columns import FILTER_COLUMNS
+
+    inner = _filters_param(_schema())["content"]["application/json"]["schema"]
+    offered = {v["properties"]["field"]["const"] for v in inner["items"]["anyOf"]}
+    assert "group_id" not in offered
+    assert {c.name for c in FILTER_COLUMNS if c.public} == offered

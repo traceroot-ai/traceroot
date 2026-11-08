@@ -700,6 +700,38 @@ def test_signal_id_takes_only_an_exact_match():
         )
 
 
+# --- task group (group_id) lowering ------------------------------------------
+
+
+def test_group_id_lowers_to_a_semijoin_over_trace_group_members():
+    params = {"project_id": "p1"}
+    cond = build_conditions([Predicate(field="group_id", op="eq", value="g_1")], params)[0]
+    assert cond.startswith("t.trace_id IN (SELECT member_trace_id FROM (")
+    assert "FROM trace_group_members" in cond
+    assert "WHERE project_id = {project_id:String}" in cond
+    assert cond.endswith("WHERE member_group_id = {f_group_id_0:String})")
+    assert params["f_group_id_0"] == "g_1"
+    assert "g_1" not in cond
+
+
+def test_group_id_reads_each_traces_latest_row_without_final():
+    # A trace re-placed by a later fit has a newer row: the latest per trace decides its
+    # group before the predicate applies.
+    params = {"project_id": "p1"}
+    cond = build_conditions([Predicate(field="group_id", op="eq", value="g_1")], params)[0]
+    assert "argMax(group_id, assigned_at)" in cond
+    assert "GROUP BY trace_id" in cond
+    assert cond.index("GROUP BY trace_id") < cond.index("WHERE member_group_id")
+    assert "FINAL" not in cond
+
+
+def test_group_id_takes_only_an_exact_match():
+    with pytest.raises(ValueError):
+        build_conditions(
+            [Predicate(field="group_id", op="contains", value="g")], {"project_id": "p1"}
+        )
+
+
 # --- time-window bounding --------------------------------------------------
 
 
