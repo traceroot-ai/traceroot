@@ -12,15 +12,15 @@ import {
 import { RESULT_STATUS_VARIANT, REVIEW_STATUS_VARIANT } from "../utils";
 
 /**
- * Evaluation-result variants. "Errored" is amber rather than red so a broken
- * run reads differently from a judged-and-failed one, and "Not scored" is a
+ * Evaluation-result variants. "Errored" shares the danger tone with "Failed" (the
+ * label tells them apart), and "Not scored" is a
  * plain outline so it can never be mistaken for a score of zero.
  */
 const EVAL_RESULT_VARIANT: Record<EvalResultStatus, "success" | "danger" | "warning" | "outline"> =
   {
     passed: "success",
     failed: "danger",
-    errored: "warning",
+    errored: "danger",
     not_scored: "outline",
   };
 
