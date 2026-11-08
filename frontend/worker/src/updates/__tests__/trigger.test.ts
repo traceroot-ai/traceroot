@@ -35,8 +35,16 @@ describe("triggerManualRun", () => {
   it("gives identical window boundaries for the same frozen now, on repeated triggers", async () => {
     const { db } = fakeDb();
     const clock = frozenClock(NOW);
-    const first = await triggerManualRun(db as never, { projectId: "p1", clock, env: {} });
-    const second = await triggerManualRun(db as never, { projectId: "p1", clock, env: {} });
+    const first = await triggerManualRun(db as never, {
+      projectId: "p1",
+      clock,
+      env: { NODE_ENV: "test" },
+    });
+    const second = await triggerManualRun(db as never, {
+      projectId: "p1",
+      clock,
+      env: { NODE_ENV: "test" },
+    });
     expect(second.run.id).not.toBe(first.run.id);
     for (const key of ["slotAt", "windowStart", "windowEnd", "prevWindowStart", "prevWindowEnd"]) {
       expect((second.run as never)[key]).toEqual((first.run as never)[key]);
@@ -56,7 +64,7 @@ describe("triggerManualRun", () => {
     const { run } = await triggerManualRun(db as never, {
       projectId: "p1",
       clock: frozenClock(NOW),
-      env: {},
+      env: { NODE_ENV: "test" },
     });
     expect((run.windowEnd as Date).toISOString()).toBe("2026-11-01T13:00:00.000Z"); // 08:00 EST
     expect((run.windowStart as Date).toISOString()).toBe("2026-10-31T12:00:00.000Z"); // 08:00 EDT: a 25 hour day
@@ -68,6 +76,7 @@ describe("triggerManualRun", () => {
       assertManualTriggerAllowed({ NODE_ENV: "production", TRACEROOT_UPDATES_ALLOW_MANUAL: "1" }),
     ).not.toThrow();
     expect(() => assertManualTriggerAllowed({ NODE_ENV: "development" })).not.toThrow();
+    expect(() => assertManualTriggerAllowed({})).toThrow(/development/);
   });
 });
 

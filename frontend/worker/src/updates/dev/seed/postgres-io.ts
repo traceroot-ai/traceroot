@@ -10,13 +10,18 @@ export interface PostgresOptions {
   slack?: { botToken: string; channelId: string };
 }
 
+const WORKSPACE_NAME = "Seeded updates workspace";
+
 export function seededWorkspaceIds(prefix: string): string[] {
   return [workspaceIdOf(prefix, "a"), workspaceIdOf(prefix, "b")];
 }
 
 /** Remove the seeded workspaces; projects, schedules, runs, signals and hits go with them. */
 export async function cleanPostgres(prefix: string): Promise<void> {
-  await prisma.workspace.deleteMany({ where: { id: { in: seededWorkspaceIds(prefix) } } });
+  // The name is an ownership marker: a real workspace whose id happens to match is left alone.
+  await prisma.workspace.deleteMany({
+    where: { id: { in: seededWorkspaceIds(prefix) }, name: { startsWith: WORKSPACE_NAME } },
+  });
 }
 
 export async function countPostgres(prefix: string) {
@@ -47,7 +52,7 @@ export async function writePostgres(
 
   for (const which of ["a", "b"] as const) {
     await prisma.workspace.create({
-      data: { id: workspaceIdOf(params.prefix, which), name: `Seeded updates workspace ${which}` },
+      data: { id: workspaceIdOf(params.prefix, which), name: `${WORKSPACE_NAME} ${which}` },
     });
   }
 

@@ -68,14 +68,23 @@ be obeyed.
 - `seed-app.git`: a real bare repository with commits at known times and tags.
   It allows partial and shallow clones, so `git clone --filter=blob:none
 --shallow-since=... file://<out>/seed-app.git` works as it does against a host.
-- `seed-big.git`: an oversize repository (incompressible payload).
+- `seed-big.git`: an oversize repository: a small base commit before the windows and
+  a commit inside the previous window that adds an incompressible payload, so a
+  clone limited to that history and the changed paths has to fetch it.
 - Slow case: `serve-slow` serves `<out>` over git's HTTP protocol and holds every
-  response back by `--delay-ms` (default 45 s; a blobless shallow clone makes about
-  five requests, so the default clone takes ~225 s, past the 180 s clone ceiling;
+  response back by `--delay-ms` (default 70 s; the blobless shallow-since no-checkout clone makes three
+  requests, so the default clone takes ~210 s, past the 180 s clone ceiling;
   the manifest records `approxCloneMs`). Clone `http://127.0.0.1:<port>/seed-app.git`.
 - Unreachable case: `http://127.0.0.1:9/seed-org/seed-unreachable.git` (nothing listens).
 
 ### Properties
+
+- Window lengths follow the local calendar, so across a daylight-saving change the
+  current window can be 25 h while the previous one is 24 h; planted counts are
+  fixed per window, not normalised by length.
+- Refuses to run against a ClickHouse or Postgres host that is not local unless
+  `TRACEROOT_UPDATES_SEED_ALLOW_REMOTE=1`, and only deletes workspaces whose name
+  carries the seeded marker.
 
 - Deterministic: no clock or random source outside the seeded generator.
   `contentDigest` in the manifest is a hash of every row written.
@@ -96,5 +105,5 @@ pnpm update:trigger --project seedupd-main --now 2026-11-02T09:30:00Z
 Creates a run for the project as of `--now` (or `TRACEROOT_UPDATES_FROZEN_NOW`,
 or the real clock) and prints its window boundaries. The windows depend only on
 the project's schedule and the instant, so triggering twice gives identical
-boundaries. Refused when `NODE_ENV=production` unless
-`TRACEROOT_UPDATES_ALLOW_MANUAL=1`.
+boundaries. Refused unless `NODE_ENV` is `development` or
+`test` (the CLI defaults to `development`) or `TRACEROOT_UPDATES_ALLOW_MANUAL=1`.

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +13,7 @@ import {
 } from "../commits.js";
 import { defaultParams, scheduleOf } from "../scenario.js";
 import { startSlowRemote } from "../slow-remote.js";
+import { DEFAULT_SLOW_DELAY_MS, SLOW_CLONE_REQUESTS } from "../run.js";
 
 const run = promisify(execFile);
 const git = (cwd: string, ...args: string[]) =>
@@ -86,24 +87,59 @@ describe("seeded repository", () => {
 describe("oversize repository", () => {
   it("has a payload of the requested size that does not compress away", async () => {
     await run("mkdir", ["-p", path.join(dir, "e")]);
-    const big = await buildOversizeRepo(path.join(dir, "e"), 2 * 1024 * 1024, windows.windowStart);
+    const big = await buildOversizeRepo(
+      path.join(dir, "e"),
+      2 * 1024 * 1024,
+      new Date(windows.prevWindowStart.getTime() + 3_600_000),
+      planCommits(windows)[0].at,
+    );
     const counts = await git(big.barePath, "count-objects", "-v");
     const kib = (name: string) =>
       Number(counts.match(new RegExp(`^${name}: (\\d+)`, "m"))?.[1] ?? 0);
     expect((kib("size") + kib("size-pack")) / 1024).toBeGreaterThan(1.9);
+
+    // The history a clone limited to the previous window reads contains the payload commit.
+    const target = path.join(dir, "e-clone");
+    const since = windows.prevWindowStart.toISOString();
+    await run("git", [
+      "clone",
+      "-q",
+      "--filter=blob:none",
+      "--no-checkout",
+      `--shallow-since=${since}`,
+      `file://${big.barePath}`,
+      target,
+    ]);
+    expect(await git(target, "rev-list", "--count", "HEAD")).toBe("1");
+    expect(await git(target, "ls-tree", "-r", "-l", "HEAD")).toContain("payload.bin");
   });
 });
 
 describe("slow remote", () => {
-  it("serves a real clone, but only after the delay", async () => {
+  it("is slow enough by default to pass the 180 s clone ceiling", () => {
+    expect(DEFAULT_SLOW_DELAY_MS * SLOW_CLONE_REQUESTS).toBeGreaterThan(180_000);
+  });
+
+  it("makes the design's clone take one delay per request, three requests in all", async () => {
     await run("mkdir", ["-p", path.join(dir, "f")]);
     await buildSeededRepo(path.join(dir, "f"), planCommits(windows));
-    const remote = await startSlowRemote({ root: path.join(dir, "f"), delayMs: 600, port: 18599 });
+    const delayMs = 400;
+    const remote = await startSlowRemote({ root: path.join(dir, "f"), delayMs, port: 18599 });
     try {
       const started = Date.now();
-      await run("git", ["clone", "-q", `${remote.url}/seed-app.git`, path.join(dir, "f-clone")]);
-      expect(Date.now() - started).toBeGreaterThanOrEqual(600);
-      expect(await readFile(path.join(dir, "f-clone", "VERSION"), "utf8")).toBe("1.4.0\n");
+      await run("git", [
+        "clone",
+        "-q",
+        "--filter=blob:none",
+        "--no-checkout",
+        `--shallow-since=${windows.prevWindowStart.toISOString()}`,
+        `${remote.url}/seed-app.git`,
+        path.join(dir, "f-clone"),
+      ]);
+      const elapsed = Date.now() - started;
+      // SLOW_CLONE_REQUESTS (3) is what the manifest's approxCloneMs assumes.
+      expect(elapsed).toBeGreaterThanOrEqual(SLOW_CLONE_REQUESTS * delayMs);
+      expect(elapsed).toBeLessThan((SLOW_CLONE_REQUESTS + 1.5) * delayMs + 3000);
     } finally {
       await remote.close();
     }

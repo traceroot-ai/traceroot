@@ -21,12 +21,12 @@ export class ManualTriggerDisabledError extends Error {
 
 /**
  * The manual trigger starts an update on demand and, with a frozen clock, at a
- * chosen instant. It is refused in production unless explicitly allowed, so a
+ * chosen instant. It is refused unless NODE_ENV is development or test (or it is explicitly allowed), so a
  * stray call cannot produce an off-schedule message for a customer.
  */
 export function assertManualTriggerAllowed(env: NodeJS.ProcessEnv = process.env): void {
-  const isProduction = env.NODE_ENV === "production";
-  if (isProduction && env.TRACEROOT_UPDATES_ALLOW_MANUAL !== "1") {
+  const isDevOrTest = env.NODE_ENV === "development" || env.NODE_ENV === "test";
+  if (!isDevOrTest && env.TRACEROOT_UPDATES_ALLOW_MANUAL !== "1") {
     throw new ManualTriggerDisabledError();
   }
 }
@@ -58,6 +58,8 @@ export async function triggerManualRun(
   if (!project) throw new Error(`Project ${input.projectId} not found.`);
 
   const row = await db.projectUpdateSchedule.findUnique({ where: { projectId: project.id } });
+  // A project with no schedule row gets no scheduled updates; a developer may
+  // still trigger one by hand, and then the defaults apply.
   let schedule: UpdateScheduleSettings = DEFAULT_UPDATE_SCHEDULE;
   if (row) {
     const parsed = parseScheduleInput({

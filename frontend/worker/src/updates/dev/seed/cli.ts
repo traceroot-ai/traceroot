@@ -5,7 +5,7 @@
  *   pnpm --filter traceroot-worker update:seed clean [--prefix seedupd]
  *   pnpm --filter traceroot-worker update:seed counts
  *   pnpm --filter traceroot-worker update:seed verify  [--out dir]   (ClickHouse vs the manifest)
- *   pnpm --filter traceroot-worker update:seed serve-slow [--port 18581] [--delay-ms 45000]
+ *   pnpm --filter traceroot-worker update:seed serve-slow [--port 18581] [--delay-ms 70000]
  *
  * See README.md next to this file.
  */

@@ -11,6 +11,8 @@ import { frozenClock, systemClock } from "@traceroot/core/updates";
 import { triggerManualRun } from "../trigger.js";
 
 async function main(): Promise<void> {
+  // This CLI exists for development; the guard still refuses a production value.
+  process.env.NODE_ENV ??= "development";
   const { values } = parseArgs({
     options: { project: { type: "string" }, now: { type: "string" } },
   });

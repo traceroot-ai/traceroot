@@ -25,11 +25,11 @@ export const DEFAULT_OUT_DIR = path.join(os.tmpdir(), "traceroot-update-seed");
 export const DEFAULT_BIG_BYTES = 30 * 1024 * 1024;
 export const DEFAULT_SLOW_PORT = 18581;
 /**
- * A blobless shallow clone makes about five requests, each held back by this
- * long, so the default clone takes ~225 s: past the 180 s clone ceiling.
+ * A blobless, shallow-since, no-checkout clone makes three requests, each held
+ * back by this long, so the default clone takes ~210 s: past the 180 s clone ceiling.
  */
-export const DEFAULT_SLOW_DELAY_MS = 45_000;
-export const SLOW_CLONE_REQUESTS = 5;
+export const DEFAULT_SLOW_DELAY_MS = 70_000;
+export const SLOW_CLONE_REQUESTS = 3;
 
 export interface SeedOptions {
   params: SeedParams;
@@ -44,7 +44,27 @@ const PROJECT_KEYS = ["main", "nogit", "tiny", "empty", "other"] as const;
 const projectIds = (prefix: string) => PROJECT_KEYS.map((k) => projectIdOf(prefix, k));
 
 /** Remove only what this prefix created: its rows, workspaces and output directory. */
+/** Hosts the seeder will touch. Anything else needs an explicit opt-in. */
+const LOCAL_HOSTS =
+  /^(localhost|127\.0\.0\.1|\[?::1\]?|postgres|clickhouse|host\.docker\.internal)$/;
+
+export function assertLocalStack(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.TRACEROOT_UPDATES_SEED_ALLOW_REMOTE === "1") return;
+  const hosts = [
+    env.CLICKHOUSE_URL ? new URL(env.CLICKHOUSE_URL).hostname : env.CLICKHOUSE_HOST || "localhost",
+    env.DATABASE_URL ? new URL(env.DATABASE_URL).hostname : "localhost",
+  ];
+  const remote = hosts.filter((h) => !LOCAL_HOSTS.test(h));
+  if (remote.length > 0) {
+    throw new Error(
+      `Refusing to seed or clean a stack at ${remote.join(", ")}. The seeder deletes data by prefix; ` +
+        "set TRACEROOT_UPDATES_SEED_ALLOW_REMOTE=1 only for a throwaway stack.",
+    );
+  }
+}
+
 export async function cleanSeed(params: SeedParams, outDir = DEFAULT_OUT_DIR): Promise<void> {
+  assertLocalStack();
   await deleteProjectRows(clickHouseTargetFromEnv(), projectIds(params.prefix));
   await cleanPostgres(params.prefix);
   // Only the entries this script writes, never the directory itself: --out may
@@ -89,7 +109,12 @@ export async function runSeed(options: SeedOptions) {
   const windows = windowsAt(scheduleOf(params), params.now);
   const plannedCommits = planCommits(windows);
   const seeded = await buildSeededRepo(outDir, plannedCommits);
-  const big = await buildOversizeRepo(outDir, bigBytes, plannedCommits[0].at);
+  const big = await buildOversizeRepo(
+    outDir,
+    bigBytes,
+    new Date(windows.prevWindowStart.getTime() + 3_600_000),
+    plannedCommits[0].at,
+  );
 
   const scenario = buildScenario(params, seeded.shas);
   const target = clickHouseTargetFromEnv();

@@ -158,14 +158,18 @@ export async function buildSeededRepo(
 }
 
 /**
- * A repository too large to clone within a size limit. The payload is a
+ * A repository too large to clone within a size limit: a small base commit before the
+ * windows, then a commit inside the previous window that adds the payload, so a
+ * clone limited to that history and to the paths changed in it must fetch it. The payload is a
  * seeded byte stream that does not compress, so its size on the wire is its
  * size on disk.
  */
 export async function buildOversizeRepo(
   workDir: string,
   bytes: number,
-  at: Date,
+  /** The payload lands here; put it inside the history window a shallow clone reads. */
+  payloadAt: Date,
+  baseAt: Date,
 ): Promise<{ barePath: string; bytes: number }> {
   const work = path.join(workDir, "seed-big-work");
   const barePath = path.join(workDir, "seed-big.git");
@@ -179,10 +183,12 @@ export async function buildOversizeRepo(
     chunks.push(block);
     block = createHash("sha256").update(block).digest();
   }
-  await fs.writeFile(path.join(work, "payload.bin"), Buffer.concat(chunks).subarray(0, bytes));
   await fs.writeFile(path.join(work, "README.md"), "# Big seeded repository\n");
   await git(work, ["add", "-A"]);
-  await git(work, ["commit", "-q", "-m", "Add payload"], at);
+  await git(work, ["commit", "-q", "-m", "Initial import"], baseAt);
+  await fs.writeFile(path.join(work, "payload.bin"), Buffer.concat(chunks).subarray(0, bytes));
+  await git(work, ["add", "-A"]);
+  await git(work, ["commit", "-q", "-m", "Add payload"], payloadAt);
   await git(workDir, ["clone", "-q", "--bare", work, barePath]);
   await fs.rm(work, { recursive: true, force: true });
   await allowFilteredClones(barePath);
