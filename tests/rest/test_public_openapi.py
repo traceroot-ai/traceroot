@@ -717,7 +717,7 @@ def test_filters_param_is_json_content_with_registry_variants():
     from rest.services.filters.columns import FILTER_COLUMNS as ALL_FILTER_COLUMNS
 
     # Fields the public API does not offer (public=False) are left out of the contract.
-    FILTER_COLUMNS = tuple(c for c in ALL_FILTER_COLUMNS if c.public)
+    public_columns = tuple(c for c in ALL_FILTER_COLUMNS if c.public)
     param = _filters_param(_schema())
     assert param["in"] == "query"
     assert param.get("required") is not True
@@ -728,12 +728,12 @@ def test_filters_param_is_json_content_with_registry_variants():
     # The runtime bounds the predicate count; the contract declares the same cap.
     assert inner["maxItems"] == MAX_FILTERS
     variants = inner["items"]["anyOf"]
-    assert len(variants) == len(FILTER_COLUMNS)
+    assert len(variants) == len(public_columns)
     by_field = {v["properties"]["field"]["const"]: v for v in variants}
-    assert set(by_field) == {c.name for c in FILTER_COLUMNS}
+    assert set(by_field) == {c.name for c in public_columns}
     from rest.services.filters.translate import MAX_KEY_LENGTH
 
-    for col in FILTER_COLUMNS:
+    for col in public_columns:
         v = by_field[col.name]
         assert v["properties"]["op"]["enum"] == [str(o) for o in col.operators]
         assert v["additionalProperties"] is False

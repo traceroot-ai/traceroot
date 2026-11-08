@@ -5,6 +5,7 @@ shape of what is written. The queries themselves were run against a live
 ClickHouse (see the evidence in the pull request).
 """
 
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -188,7 +189,12 @@ class TestGroupsAndMembers:
 
 
 class TestOverview:
-    PARAMS = {"project_id": "p", "since_ms": 0, "until_ms": 5000, "window_since_ms": 0}
+    PARAMS: ClassVar[dict] = {
+        "project_id": "p",
+        "since_ms": 0,
+        "until_ms": 5000,
+        "window_since_ms": 0,
+    }
 
     def test_before_any_fit_there_are_no_groups_but_the_summary_count_is_known(
         self, client, mock_ch
