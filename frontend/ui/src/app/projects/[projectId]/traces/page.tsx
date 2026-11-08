@@ -177,6 +177,16 @@ export default function TracesPage() {
     traceIds,
     visibleColumns.includes("topic"),
   );
+  // The open trace's topic when the Topic column is not shown (the column's read has it otherwise).
+  const topicColumnShown = visibleColumns.includes("topic");
+  const { data: openTraceTopic } = useTraceTaskGroups(
+    projectId,
+    selectedTraceId ? [selectedTraceId] : [],
+    !topicColumnShown && !!selectedTraceId,
+  );
+  const selectedTopic = selectedTraceId
+    ? (topics?.groups[selectedTraceId] ?? openTraceTopic?.groups[selectedTraceId])
+    : undefined;
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
   // Hide AI button during loading AND when GettingStarted is shown
@@ -384,12 +394,12 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
-          // The trace's topic, when the list has read it (the Topic column is shown).
+          // The trace's topic, once read (by the list's Topic column or for the open trace alone).
           headerStatus={
-            topics?.groups[selectedTraceId] ? (
+            selectedTopic ? (
               <TopicBadge
-                name={topics.groups[selectedTraceId].name}
-                groupId={topics.groups[selectedTraceId].groupId}
+                name={selectedTopic.name}
+                groupId={selectedTopic.groupId}
                 projectId={projectId}
                 className="mr-1"
               />

@@ -123,7 +123,7 @@ interface TraceViewerPanelProps {
   /**
    * A badge rendered in the main header, immediately left of the navigation
    * buttons. offline-eval puts the test case's outcome (Passed / Did not pass / Errored) here;
-   * the Tracing list puts the trace's topic here when it has read it.
+   * the Tracing list puts the trace's topic here once it has read it.
    */
   headerStatus?: ReactNode;
   /**

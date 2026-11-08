@@ -55,7 +55,12 @@ export function TopicsTrendChart({
           Sampled traces per day, by topic (UTC days)
         </span>
       </div>
-      <div className="h-[170px] w-full" data-testid="topics-trend-chart">
+      <div
+        className="h-[170px] w-full"
+        data-testid="topics-trend-chart"
+        role="img"
+        aria-label={`Sampled traces per day for ${keys.join(", ")}`}
+      >
         <ResponsiveContainer
           width="100%"
           height="100%"
