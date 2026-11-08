@@ -1,0 +1,152 @@
+import { encryptKey, prisma } from "@traceroot/core";
+import { nextSlotAfter } from "@traceroot/core/updates";
+import { hexId } from "./prng.js";
+import { scheduleOf, workspaceIdOf, type Scenario } from "./scenario.js";
+
+export interface PostgresOptions {
+  /** Address that receives the update email. */
+  inbox?: string;
+  /** When given, the seeded workspace gets a Slack connection with this bot. */
+  slack?: { botToken: string; channelId: string };
+}
+
+export function seededWorkspaceIds(prefix: string): string[] {
+  return [workspaceIdOf(prefix, "a"), workspaceIdOf(prefix, "b")];
+}
+
+/** Remove the seeded workspaces; projects, schedules, runs, signals and hits go with them. */
+export async function cleanPostgres(prefix: string): Promise<void> {
+  await prisma.workspace.deleteMany({ where: { id: { in: seededWorkspaceIds(prefix) } } });
+}
+
+export async function countPostgres(prefix: string) {
+  const projectIds = (
+    await prisma.project.findMany({
+      where: { workspaceId: { in: seededWorkspaceIds(prefix) } },
+      select: { id: true },
+    })
+  ).map((p) => p.id);
+  const inProjects = { projectId: { in: projectIds } };
+  return {
+    workspaces: await prisma.workspace.count({ where: { id: { in: seededWorkspaceIds(prefix) } } }),
+    projects: projectIds.length,
+    schedules: await prisma.projectUpdateSchedule.count({ where: inProjects }),
+    runs: await prisma.projectUpdateRun.count({ where: inProjects }),
+    detectors: await prisma.detector.count({ where: inProjects }),
+    signals: await prisma.signal.count({ where: inProjects }),
+    signalHits: await prisma.signalHit.count({ where: inProjects }),
+  };
+}
+
+export async function writePostgres(
+  scenario: Scenario,
+  options: PostgresOptions = {},
+): Promise<void> {
+  const { params } = scenario;
+  const schedule = scheduleOf(params);
+
+  for (const which of ["a", "b"] as const) {
+    await prisma.workspace.create({
+      data: { id: workspaceIdOf(params.prefix, which), name: `Seeded updates workspace ${which}` },
+    });
+  }
+
+  if (options.slack) {
+    await prisma.slackIntegration.create({
+      data: {
+        workspaceId: workspaceIdOf(params.prefix, "a"),
+        teamId: "seed-team",
+        teamName: "Seeded team",
+        botUserId: "seed-bot",
+        botToken: encryptKey(options.slack.botToken),
+        channelId: options.slack.channelId,
+        channelName: "seeded-updates",
+      },
+    });
+  }
+
+  for (const project of scenario.projects) {
+    await prisma.project.create({
+      data: {
+        id: project.id,
+        workspaceId: workspaceIdOf(params.prefix, project.plan.workspace),
+        name: project.plan.name,
+      },
+    });
+    await prisma.projectUpdateSchedule.create({
+      data: {
+        projectId: project.id,
+        enabled: true,
+        frequency: schedule.frequency,
+        weekday: schedule.weekday,
+        hour: schedule.hour,
+        timezone: schedule.timezone,
+        nextSlotAt: nextSlotAfter(schedule, params.now),
+      },
+    });
+    if (project.plan.workspace === "a" && options.inbox) {
+      await prisma.detectorAlertConfig.create({
+        data: { projectId: project.id, emailAddresses: [options.inbox] },
+      });
+    }
+
+    if (project.signals.length === 0) continue;
+    const detectorId = `${params.prefix}-det-${project.key}`;
+    await prisma.detector.create({
+      data: {
+        id: detectorId,
+        projectId: project.id,
+        name: `Seeded detector ${project.key}`,
+        template: "blank",
+        prompt: "Seeded detector used only to own the seeded signals.",
+        outputSchema: {},
+        enabled: false,
+      },
+    });
+    for (const signal of project.signals) {
+      await prisma.signal.create({
+        data: {
+          id: signal.id,
+          projectId: project.id,
+          detectorId,
+          title: signal.title,
+          criteriaCovers: signal.title,
+          criteriaExcludes: "",
+          anchorText: signal.title,
+          anchorEmbedding: [],
+          status: signal.status,
+          resolvedAt: signal.resolvedAt,
+          hitCount: signal.hitTimes.length,
+          firstSeenAt: signal.firstSeenAt,
+          lastSeenAt: signal.lastSeenAt,
+        },
+      });
+      await prisma.signalHit.createMany({
+        data: signal.hitTimes.map((seenAt, index) => ({
+          runId: hexId(`${signal.id}|run|${index}`, 32),
+          signalId: signal.id,
+          projectId: project.id,
+          detectorId,
+          traceId: signal.hitTraceIds[index],
+          findingId: hexId(`${signal.id}|finding|${index}`, 32),
+          seenAt,
+          traceStartTime: seenAt,
+          embedding: [],
+          copyPending: false,
+        })),
+      });
+      if (signal.status === "resolved" && signal.resolvedAt) {
+        await prisma.signalStatusEvent.create({
+          data: {
+            signalId: signal.id,
+            actorUserId: "seed",
+            fromStatus: "open",
+            toStatus: "resolved",
+            reason: "fixed",
+            createTime: signal.resolvedAt,
+          },
+        });
+      }
+    }
+  }
+}

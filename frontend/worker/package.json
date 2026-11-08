@@ -20,7 +20,9 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "update:trigger": "dotenv -e ../../.env -- tsx src/updates/dev/trigger-cli.ts",
+    "update:seed": "dotenv -e ../../.env -- tsx src/updates/dev/seed/cli.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.3",

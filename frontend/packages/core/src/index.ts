@@ -18,6 +18,8 @@ export type {
   Workspace,
   WorkspaceMember,
   Project,
+  ProjectUpdateSchedule,
+  ProjectUpdateRun,
   AccessKey,
   Invite,
   Account,
