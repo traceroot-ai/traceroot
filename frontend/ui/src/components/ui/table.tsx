@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { PixelMark } from "@/components/ui/pixel-mark";
 
 /**
  * Thin wrappers over the raw <table> convention already used across
@@ -103,6 +104,7 @@ export function TableEmpty({ colSpan, children }: { colSpan: number; children: R
   return (
     <tr>
       <td colSpan={colSpan} className="px-3 py-10 text-center text-[12px] text-muted-foreground">
+        <PixelMark size={5} className="mx-auto mb-3" />
         {children}
       </td>
     </tr>

@@ -79,13 +79,13 @@ export function ListPagination({
   const hasRange = from <= total;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2.5">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-background px-4 py-2">
       <div className="text-[12px] text-muted-foreground">
         {hasRange && `Showing ${from}–${to} of ${total}`}
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-[12px] text-muted-foreground">Items per page</span>
+          <span className="hidden text-[12px] text-muted-foreground sm:inline">Items per page</span>
           <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -117,7 +117,7 @@ export function ListPagination({
           </Popover>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] text-muted-foreground">Page</span>
+          <span className="hidden text-[12px] text-muted-foreground sm:inline">Page</span>
           <input
             type="number"
             min={1}

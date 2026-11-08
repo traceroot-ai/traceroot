@@ -2,12 +2,12 @@
 
 import { AddButton } from "@/components/ui/add-button";
 import { IdCell } from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -220,19 +220,15 @@ export default function DetectorsPage() {
               <p className="text-[13px] text-destructive">Error loading detectors</p>
             </div>
           ) : isEmptyProject ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No detectors yet</p>
-              <p className="text-[12px] text-muted-foreground">
-                Create a detector to automatically analyze your traces.
-              </p>
-              <AddButton
-                className="mt-1"
-                onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-              >
-                New detector
-              </AddButton>
-            </div>
+            <EmptyState
+              title="No detectors yet"
+              description="Create a detector to automatically analyze your traces."
+              action={
+                <AddButton onClick={() => router.push(`/projects/${projectId}/detectors/new`)}>
+                  New detector
+                </AddButton>
+              }
+            />
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">
