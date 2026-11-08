@@ -13,6 +13,10 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -46,6 +50,31 @@ const config: Config = {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          soft: "hsl(var(--brand-soft))",
+          border: "hsl(var(--brand-border))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          soft: "hsl(var(--success-soft))",
+          border: "hsl(var(--success-border))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          soft: "hsl(var(--warning-soft))",
+          border: "hsl(var(--warning-border))",
+        },
+        danger: {
+          DEFAULT: "hsl(var(--danger))",
+          soft: "hsl(var(--danger-soft))",
+          border: "hsl(var(--danger-border))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          soft: "hsl(var(--info-soft))",
+          border: "hsl(var(--info-border))",
         },
       },
       borderRadius: {

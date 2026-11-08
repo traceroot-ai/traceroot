@@ -112,7 +112,7 @@ export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean
         collapsed ? `${ended ? "Support session ended" : "Impersonating"}: ${target}` : undefined
       }
       className={cn(
-        "flex shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30",
+        "flex shrink-0 items-center gap-2 border-b border-warning-border bg-warning-soft",
         collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
       )}
     >
@@ -123,21 +123,21 @@ export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean
           disabled={busy}
           onClick={handleAction}
         >
-          <UserRoundSearch className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+          <UserRoundSearch className="h-3.5 w-3.5 text-warning" />
         </button>
       ) : (
         <>
-          <UserRoundSearch className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <UserRoundSearch className="h-3.5 w-3.5 shrink-0 text-warning" />
           <span
             role={notice ? "alert" : undefined}
-            className="min-w-0 flex-1 truncate text-[13px] text-amber-800 dark:text-amber-300"
+            className="min-w-0 flex-1 truncate text-[13px] text-warning"
             title={label}
           >
             {label}
           </span>
           <button
             type="button"
-            className="shrink-0 rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/50"
+            className="shrink-0 rounded-md border border-warning-border bg-background px-1.5 py-0.5 text-[11px] font-medium text-warning transition-colors hover:bg-warning-soft disabled:opacity-50"
             disabled={busy}
             onClick={handleAction}
           >

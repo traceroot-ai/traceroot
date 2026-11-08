@@ -13,17 +13,12 @@ const badgeVariants = cva(
         default: "border-border bg-muted/60 text-muted-foreground",
         outline: "border-border bg-transparent text-muted-foreground",
         foreground: "border-border bg-muted text-foreground",
-        // Semantic — used sparingly, tuned to the same -100/-300 tint scale
-        // as SPAN_KIND_COLORS in features/traces.
-        success:
-          "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
-        warning:
-          "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
-        danger:
-          "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300",
-        info: "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
-        accent:
-          "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
+        // Semantic: tokens from globals.css, each pair checked for AA contrast.
+        success: "border-success-border bg-success-soft text-success",
+        warning: "border-warning-border bg-warning-soft text-warning",
+        danger: "border-danger-border bg-danger-soft text-danger",
+        info: "border-info-border bg-info-soft text-info",
+        accent: "border-brand-border bg-brand-soft text-brand",
       },
     },
     defaultVariants: { variant: "default" },

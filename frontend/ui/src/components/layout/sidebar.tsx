@@ -96,12 +96,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             collapsed ? "justify-center px-2" : "px-3",
           )}
         >
-          <Link href="/" className="flex items-center gap-2">
-            <Logo />
-            {!collapsed && (
+          <Link href="/" className="flex items-center gap-2" aria-label="TraceRoot home">
+            {collapsed ? (
+              <Logo variant="mark" />
+            ) : (
               <>
-                <span className="font-semibold">TraceRoot</span>
-                <span className="text-xs font-normal text-muted-foreground">
+                <Logo />
+                <span className="font-mono text-[11px] font-normal text-muted-foreground">
                   {process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
                 </span>
               </>
