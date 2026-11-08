@@ -102,7 +102,7 @@ def _spans(day):
         "AND trace_start_time < toDateTime('2026-12-01')), count() FROM spans WHERE "
         "span_start_time >= '2026-10-26 00:00:00' AND span_start_time < '2026-10-26 12:00:00'",
         # several short reads add up
-        f"{_spans(20)} UNION ALL {_spans(21)} UNION ALL {_spans(22)}",
+        " UNION ALL ".join(_spans(day) for day in (20, 21, 22, 23, 24)),  # 5 x 12h = 60h
         # one table bounded, a join partner not
         "SELECT count() FROM spans s JOIN traces t ON s.trace_id = t.trace_id WHERE "
         "s.span_start_time >= '2026-10-26 00:00:00' AND s.span_start_time < '2026-10-26 12:00:00'",
@@ -153,3 +153,20 @@ def test_a_timestamp_that_cannot_be_read_is_a_client_error(secret, service):
 )
 def test_accepts_the_other_ways_to_write_a_range(secret, service, condition):
     assert post(secret, f"SELECT count() FROM spans WHERE {condition}").status_code == 200
+
+
+def test_allows_a_join_of_two_day_long_reads(secret, service):
+    query = (
+        "SELECT count() FROM spans s JOIN traces t ON s.trace_id = t.trace_id WHERE "
+        "s.span_start_time >= '2026-10-26 00:00:00' AND s.span_start_time < '2026-10-27 00:00:00' AND "
+        "t.trace_start_time >= '2026-10-26 00:00:00' AND t.trace_start_time < '2026-10-27 00:00:00'"
+    )
+    assert post(secret, query).status_code == 200
+
+
+def test_mixed_offsets_are_a_client_error(secret, service):
+    query = (
+        "SELECT count() FROM spans WHERE span_start_time >= '2026-10-26 00:00:00+02:00' "
+        "AND span_start_time < '2026-10-26 12:00:00'"
+    )
+    assert post(secret, query).status_code in (422,)

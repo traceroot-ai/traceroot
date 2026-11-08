@@ -267,6 +267,20 @@ describe("computeUpdateFacts", () => {
     expect(big.overview.traces.relativeChange).toBe(0.5);
   });
 
+  it("shows no overview percentage for a movement that is not a finding", () => {
+    const base = aggregates();
+    const now = aggregates({
+      totals: { ...base.totals, errorTraces: 36, p50Ms: 1100 },
+      llm: { ...base.llm, cost: "10.6" },
+    });
+    const facts = computeUpdateFacts(now, base);
+    expect(facts.findings).toEqual([]);
+    expect(facts.overview.errorRate.relativeChange).toBeNull();
+    expect(facts.overview.latencyP50Ms.relativeChange).toBeNull();
+    expect(facts.overview.llmCostUsd.relativeChange).toBeNull();
+    expect(facts.overview.errorRate.absoluteChange).toBeCloseTo(0.006);
+  });
+
   it("lists the top models by spend with shares worked out in code", () => {
     const models = [
       { model: "a", calls: 1, totalTokens: 10, cost: "6.0" },

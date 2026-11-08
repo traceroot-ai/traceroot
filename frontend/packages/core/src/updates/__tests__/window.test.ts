@@ -133,3 +133,56 @@ describe("daylight saving", () => {
     expect(iso(slot)).toBe("2026-11-09T06:00:00.000Z"); // Sunday 2026-11-08 22:00 PST
   });
 });
+
+describe("windows are never empty, in any zone", () => {
+  const zones = [
+    "America/New_York",
+    "Europe/Berlin",
+    "America/Nuuk",
+    "America/Scoresbysund",
+    "Australia/Lord_Howe",
+    "Pacific/Apia",
+    "Asia/Kolkata",
+    "America/Sao_Paulo",
+    "Africa/Casablanca",
+  ];
+
+  it("keeps every window positive and contiguous across a year of slots", () => {
+    for (const timezone of zones) {
+      for (const hour of [0, 2, 3, 23]) {
+        for (const frequency of ["daily", "weekly"] as const) {
+          const schedule = {
+            ...(frequency === "daily" ? daily(timezone, hour) : weekly(timezone, 1, hour)),
+          };
+          let slot = latestSlotAtOrBefore(schedule, new Date("2026-01-01T00:00:00Z"));
+          for (let i = 0; i < (frequency === "daily" ? 370 : 56); i += 1) {
+            const w = windowsForSlot(schedule, slot);
+            const label = `${timezone} ${frequency} ${hour}h ${slot.toISOString()}`;
+            expect(w.windowEnd.getTime() - w.windowStart.getTime(), label).toBeGreaterThan(0);
+            expect(w.prevWindowEnd.getTime() - w.prevWindowStart.getTime(), label).toBeGreaterThan(
+              0,
+            );
+            expect(w.prevWindowEnd.getTime(), label).toBeLessThanOrEqual(w.windowStart.getTime());
+            slot = nextSlotAfter(schedule, slot);
+          }
+        }
+      }
+    }
+  }, 120_000);
+
+  it("gives the day after a skipped 23:00 a full day, not an empty one", () => {
+    // Nuuk skipped 23:00 local on 2026-03-28 when its clocks went forward.
+    const schedule = daily("America/Nuuk", 23);
+    const slots = [] as Date[];
+    let slot = latestSlotAtOrBefore(schedule, new Date("2026-03-27T00:00:00Z"));
+    for (let i = 0; i < 5; i += 1) {
+      slots.push(slot);
+      slot = nextSlotAfter(schedule, slot);
+    }
+    for (const s of slots) {
+      const w = windowsForSlot(schedule, s);
+      expect(hours(w.windowStart, w.windowEnd)).toBeGreaterThanOrEqual(23);
+      expect(hours(w.windowStart, w.windowEnd)).toBeLessThanOrEqual(25);
+    }
+  });
+});

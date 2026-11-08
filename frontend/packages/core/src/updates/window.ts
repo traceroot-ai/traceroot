@@ -142,14 +142,20 @@ export function nextSlotAfter(schedule: UpdateScheduleSettings, at: Date): Date 
   throw new Error("No slot found within eight days; the schedule is not valid.");
 }
 
-function localDateOf(slot: Date, timezone: string): LocalDate {
-  const { y, m, d } = zonedParts(slot, timezone);
-  return { y, m, d };
+/**
+ * The local date a slot was scheduled for. A slot whose hour fell in a skipped
+ * stretch of local time was moved to just after the gap, which can be the next
+ * date; the instant just before it is still on the scheduled date.
+ */
+function localDateOf(slot: Date, timezone: string, hour: number): LocalDate {
+  const shown = zonedParts(slot, timezone);
+  const parts = shown.hour === hour ? shown : zonedParts(new Date(slot.getTime() - 1), timezone);
+  return { y: parts.y, m: parts.m, d: parts.d };
 }
 
 /** The slot one cadence step before `slot`, on the local calendar. */
 export function previousSlot(schedule: UpdateScheduleSettings, slot: Date): Date {
-  const date = addDays(localDateOf(slot, schedule.timezone), -stepDays(schedule));
+  const date = addDays(localDateOf(slot, schedule.timezone, schedule.hour), -stepDays(schedule));
   return localToUtc(date, schedule.hour, schedule.timezone);
 }
 
@@ -166,8 +172,8 @@ export function windowsForSlot(schedule: UpdateScheduleSettings, slotAt: Date): 
       prevWindowEnd: windowStart,
     };
   }
-  const endDate = addDays(localDateOf(slotAt, schedule.timezone), -7);
-  const startDate = addDays(localDateOf(windowStart, schedule.timezone), -7);
+  const endDate = addDays(localDateOf(slotAt, schedule.timezone, schedule.hour), -7);
+  const startDate = addDays(localDateOf(windowStart, schedule.timezone, schedule.hour), -7);
   return {
     slotAt,
     windowStart,

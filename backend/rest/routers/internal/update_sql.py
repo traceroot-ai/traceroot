@@ -27,6 +27,8 @@ router = APIRouter(prefix="/update-sql")
 
 # The widest time range one query may cover, and the most rows it may return.
 MAX_RANGE_SECONDS = 24 * 3600
+# All the tables of one query together: a join of two day-long reads is allowed.
+MAX_TOTAL_SECONDS = 2 * MAX_RANGE_SECONDS
 MAX_ROWS = 200
 
 _BOUNDS = re.compile(
@@ -68,7 +70,7 @@ def check_bounded(rendered: str) -> None:
             raise HTTPException(
                 status_code=422,
                 detail="Every table needs a time range: filter span_start_time or "
-                f"trace_start_time to at most {MAX_RANGE_SECONDS // 3600} hours in total.",
+                f"trace_start_time to at most {MAX_RANGE_SECONDS // 3600} hours per table.",
             )
         match = _BOUNDS.search(text)
         if match is None:
@@ -82,7 +84,13 @@ def check_bounded(rendered: str) -> None:
             raise HTTPException(
                 status_code=422, detail="A time range holds a timestamp that cannot be read."
             ) from exc
-        seconds = (end - start).total_seconds()
+        try:
+            seconds = (end - start).total_seconds()
+        except TypeError as exc:  # one bound has a UTC offset and the other does not
+            raise HTTPException(
+                status_code=422,
+                detail="Time ranges must not mix timestamps with and without an offset.",
+            ) from exc
         # Each read must be a real, bounded range by itself. An inverted one would
         # otherwise cancel a wide read in the sum below.
         if seconds <= 0 or seconds > MAX_RANGE_SECONDS:
@@ -94,11 +102,10 @@ def check_bounded(rendered: str) -> None:
         total += seconds
     if calls == 0:
         raise HTTPException(status_code=422, detail="Query reads no table.")
-    if total > MAX_RANGE_SECONDS:
+    if total > MAX_TOTAL_SECONDS:
         raise HTTPException(
             status_code=422,
-            detail=f"Time range is wider than the limit of {MAX_RANGE_SECONDS // 3600} hours "
-            "in total across the query.",
+            detail=f"The time ranges of all the tables add up to more than {MAX_TOTAL_SECONDS // 3600} hours.",
         )
 
 

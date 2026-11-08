@@ -20,7 +20,8 @@ export interface NoiseRules {
   errorRate: { minAbs: number; minRel: number; minFailures: number; minZ: number };
   /** `minBase` is the smallest earlier value a percentage may be shown against. */
   volume: { minAbs: number; minRel: number; minBase: number };
-  latencyMs: { minAbs: number; minRel: number };
+  /** `minSample` is the fewest traces each window needs for a percentile comparison. */
+  latencyMs: { minAbs: number; minRel: number; minSample: number };
   costUsd: { minAbs: number; minRel: number; minBase: number };
   tokens: { minAbs: number; minRel: number; minBase: number };
   toolCalls: { minAbs: number; minRel: number; minBase: number };
@@ -30,7 +31,7 @@ export const DEFAULT_NOISE_RULES: NoiseRules = {
   minSample: 30,
   errorRate: { minAbs: 0.02, minRel: 0.25, minFailures: 3, minZ: 2.5 },
   volume: { minAbs: 20, minRel: 0.25, minBase: 30 },
-  latencyMs: { minAbs: 200, minRel: 0.25 },
+  latencyMs: { minAbs: 200, minRel: 0.25, minSample: 100 },
   costUsd: { minAbs: 0.25, minRel: 0.3, minBase: 0.1 },
   tokens: { minAbs: 50_000, minRel: 0.3, minBase: 5_000 },
   toolCalls: { minAbs: 20, minRel: 0.3, minBase: 30 },
@@ -97,6 +98,8 @@ export interface UpdateFacts {
   truncatedLists: string[];
   /** Cost and tokens by model and day for the current window, for the weekly view. */
   modelDays: { model: string; day: string; totalTokens: number; costUsd: number }[];
+  /** The project's timezone, set by the run; `window` is in UTC. */
+  timezone?: string;
   hasGitContext: boolean;
   /** No traffic in either window, or traffic with nothing past the thresholds. */
   nothingNotable: boolean;
@@ -111,6 +114,14 @@ const round = (value: number, places = 6) => {
 
 function relative(before: number, after: number): number | null {
   return before === 0 ? null : round((after - before) / before);
+}
+
+/**
+ * A percentage in the overview appears only when the same movement is a finding:
+ * it passed the minimum sample, size and significance rules.
+ */
+function shows(findings: Finding[], id: string): boolean {
+  return findings.some((f) => f.id === id && f.kind === "change");
 }
 
 /** `showPercent` is false when the base or the sample is too small for a percentage. */
@@ -239,7 +250,7 @@ function rateFindings(
       : [];
   }
   // Too little traffic for a rate. Show the counts, and only when they differ.
-  if (before.failures === after.failures || before.total + after.total === 0) return [];
+  if (Math.abs(after.failures - before.failures) < 2 || before.total + after.total === 0) return [];
   return [
     {
       id: `${scope}:${entity}:error_rate`,
@@ -265,7 +276,8 @@ function latencyFindings(
   after: { traces: number; p50Ms: number; p95Ms: number },
   rules: NoiseRules,
 ): Finding[] {
-  if (before.traces < rules.minSample || after.traces < rules.minSample) return [];
+  if (before.traces < rules.latencyMs.minSample || after.traces < rules.latencyMs.minSample)
+    return [];
   const samples: [number, number] = [before.traces, after.traces];
   const out: Finding[] = [];
   if (passes(before.p50Ms, after.p50Ms, rules.latencyMs)) {
@@ -284,6 +296,8 @@ function volumeFinding(
   after: number,
   rules: NoiseRules,
 ): Finding[] {
+  // Counts vary by chance: the difference must also stand out against sqrt(before + after).
+  if (before + after > 0 && Math.abs(after - before) / Math.sqrt(before + after) < 3) return [];
   return scalar(scope, entity, "trace_volume", before, after, rules.volume);
 }
 
@@ -400,7 +414,6 @@ export function computeUpdateFacts(
   findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const empty = c.traces === 0 && p.traces === 0;
-  const enoughTraffic = c.traces >= rules.minSample && p.traces >= rules.minSample;
   const totalCost = costNow;
   const previousCosts = new Map(previous.byModel.map((m) => [m.model, Number(m.cost)]));
   const topModels = [...current.byModel]
@@ -418,19 +431,19 @@ export function computeUpdateFacts(
     window: { start: current.start, end: current.end },
     previousWindow: { start: previous.start, end: previous.end },
     overview: {
-      traces: metric(c.traces, p.traces, p.traces >= rules.volume.minBase),
+      traces: metric(c.traces, p.traces, shows(findings, "project:all traffic:trace_volume")),
       errorRate: metric(
         c.traces === 0 ? 0 : c.errorTraces / c.traces,
         p.traces === 0 ? 0 : p.errorTraces / p.traces,
-        enoughTraffic,
+        shows(findings, "project:all traffic:error_rate"),
       ),
-      latencyP50Ms: metric(c.p50Ms, p.p50Ms, enoughTraffic),
-      latencyP95Ms: metric(c.p95Ms, p.p95Ms, enoughTraffic),
-      llmCostUsd: metric(costNow, costBefore, costBefore >= rules.costUsd.minBase),
+      latencyP50Ms: metric(c.p50Ms, p.p50Ms, shows(findings, "project:all traffic:latency_p50")),
+      latencyP95Ms: metric(c.p95Ms, p.p95Ms, shows(findings, "project:all traffic:latency_p95")),
+      llmCostUsd: metric(costNow, costBefore, shows(findings, "project:all models:cost")),
       totalTokens: metric(
         current.llm.totalTokens,
         previous.llm.totalTokens,
-        previous.llm.totalTokens >= rules.tokens.minBase,
+        shows(findings, "project:all models:tokens"),
       ),
     },
     topModels,

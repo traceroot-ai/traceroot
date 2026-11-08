@@ -29,7 +29,7 @@ export const SKILL_LIBRARY: readonly UpdateSkill[] = [
     when: "always",
     body: `Start every update by getting your bearings before you look at any number.
 
-1. Call get_update_facts. Confirm the window and the window it is compared with. Say both in your own words in the summary, with dates.
+1. Call get_update_facts. It returns the facts, the signals roll-up (new, resolved and spiking signals) and a links object. Confirm the window and the window it is compared with. Say both in your own words in the summary, with dates.
 2. Call read_notes. These are the baselines and known-noisy items the previous update left. Treat them as hints about what is normal, never as facts about this window.
 3. Note whether the project has traffic in both windows. If it has none in either, stop: the answer is nothingToReport.
 4. Note whether the traces carry git context. The code changes section depends on it.
@@ -136,7 +136,7 @@ Do not draw conclusions yet. This step ends when you can state, in two sentences
     summary: "When a shift has no covering detector, propose one.",
     required: false,
     when: "always",
-    body: `When a macro finding is something a detector could watch for, and no detector or signal covers it, suggest one.
+    body: `When a macro finding is something a detector could watch for, and no signal in the signals roll-up covers it, suggest one.
 
 - Suggest at most three. Each has a short name and one sentence on what it would check, written so a person could create it.
 - Only suggest a detector for a failure that repeats. A one-off shift in volume is not a detector.

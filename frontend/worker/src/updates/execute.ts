@@ -73,7 +73,7 @@ export async function executeRun(deps: ExecuteDeps, runId: string): Promise<Exec
     }
 
     const { current, previous } = await deps.readAggregates(run.projectId, run, run.timezone);
-    const facts = computeUpdateFacts(current, previous);
+    const facts = { ...computeUpdateFacts(current, previous), timezone: run.timezone };
     const signalsRollup = await buildSignalsRollup(db, run.projectId, run, deps.appBaseUrl);
 
     await db.projectUpdateRun.update({
