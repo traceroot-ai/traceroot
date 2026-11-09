@@ -200,7 +200,8 @@ export interface DaytonaLike {
     },
     options: { timeout: number },
   ): Promise<DaytonaSandboxLike>;
-  list(labels?: Record<string, string>): Promise<{ items?: { id: string }[] }>;
+  /** Pages through every sandbox matching the labels (SDK 0.2xx: an async iterator, not a page). */
+  list(query?: { labels?: Record<string, string> }): AsyncIterable<{ id: string }>;
 }
 
 export interface DaytonaSandboxLike {
@@ -266,7 +267,8 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   async listLive(): Promise<string[]> {
-    const page = await this.daytona.list(DAYTONA_LABELS);
-    return (page.items ?? []).map((s) => s.id);
+    const ids: string[] = [];
+    for await (const sandbox of this.daytona.list({ labels: DAYTONA_LABELS })) ids.push(sandbox.id);
+    return ids;
   }
 }

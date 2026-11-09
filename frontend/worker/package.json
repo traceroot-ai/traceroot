@@ -26,7 +26,7 @@
     "update:tick": "dotenv -e ../../.env -- tsx src/updates/dev/tick-cli.ts"
   },
   "dependencies": {
-    "@daytonaio/sdk": "0.148.0",
+    "@daytonaio/sdk": "0.226.1",
     "@earendil-works/pi-ai": "0.80.3",
     "@opentelemetry/api": "^1.9.1",
     "@traceroot-ai/traceroot": "^0.2.0",

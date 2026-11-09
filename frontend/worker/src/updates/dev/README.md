@@ -171,3 +171,12 @@ The clone sandbox has network and the installation token and is destroyed after 
 tarball out; the analysis sandbox is created with no network and no token, and the update
 refuses to read code unless that is verified first. Per project, code changes are off until
 the Updates tab switches them on and lists the repositories that may be read.
+
+## Real services in development
+
+- `pnpm update:seed connect-slack` attaches the dev Slack app to the seeded workspace through the
+  app's own installation store (the bot token is encrypted as in the product; team and bot are read
+  from Slack). Needs `TRACEROOT_E2E_SLACK_BOT_TOKEN` and `TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID`.
+- `code/__tests__/daytona.live.test.ts` runs against the live Daytona service when `DAYTONA_API_KEY`
+  is set: network-blocked sandbox, file round trip, leak sweep, networked `git ls-remote`. It
+  destroys only what it creates.

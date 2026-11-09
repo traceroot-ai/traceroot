@@ -60,7 +60,10 @@ describe("DaytonaSandboxProvider (against a fake SDK; the real service is not re
         };
         return s;
       }),
-      list: vi.fn(async () => ({ items: [...live].map((id) => ({ id })) })),
+      list: vi.fn(async function* (query?: { labels?: Record<string, string> }) {
+        expect(query?.labels).toEqual({ "traceroot.update-sandbox": "true" });
+        for (const id of [...live]) yield { id };
+      }),
     };
     return { daytona, created, deleted };
   }

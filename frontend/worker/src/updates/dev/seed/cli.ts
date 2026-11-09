@@ -36,7 +36,8 @@ import {
   disconnect,
   runSeed,
 } from "./run.js";
-import { defaultParams } from "./scenario.js";
+import { connectSlack } from "./postgres-io.js";
+import { defaultParams, workspaceIdOf } from "./scenario.js";
 
 const options = {
   seed: { type: "string" },
@@ -209,9 +210,20 @@ async function main(): Promise<void> {
         2,
       ),
     );
+  } else if (command === "connect-slack") {
+    // Attach the dev Slack app to the already-seeded workspace, without re-seeding.
+    const botToken = process.env.TRACEROOT_E2E_SLACK_BOT_TOKEN;
+    const channelId = process.env.TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID;
+    if (!botToken || !channelId) {
+      throw new Error(
+        "connect-slack needs TRACEROOT_E2E_SLACK_BOT_TOKEN and TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID.",
+      );
+    }
+    await connectSlack(workspaceIdOf(params.prefix, "a"), { botToken, channelId });
+    console.log(JSON.stringify({ connected: workspaceIdOf(params.prefix, "a"), channelId }));
   } else {
     throw new Error(
-      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts, check-digest, serve-slow, serve-git or serve-github.`,
+      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts, check-digest, connect-slack, serve-slow, serve-git or serve-github.`,
     );
   }
 }
