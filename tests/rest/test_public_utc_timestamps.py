@@ -17,10 +17,13 @@ from rest.schemas.detectors import RunItem
 from rest.schemas.public import (
     AlertSummary,
     DashboardSummary,
+    DashboardWidgetItem,
     DetectorDetail,
     DetectorItem,
     FindingSummary,
+    SignalDetail,
     SignalSummary,
+    WidgetDetail,
 )
 
 NAIVE = datetime(2026, 11, 9, 14, 0, 28, 414000)
@@ -95,7 +98,18 @@ class TestResponseModelsEmitUtcOffset:
 
     @pytest.mark.parametrize(
         "model",
-        [FindingSummary, DetectorItem, DashboardSummary, AlertSummary, SignalSummary, RunItem],
+        [
+            FindingSummary,
+            DetectorItem,
+            DetectorDetail,
+            DashboardSummary,
+            DashboardWidgetItem,
+            WidgetDetail,
+            AlertSummary,
+            SignalSummary,
+            SignalDetail,
+            RunItem,
+        ],
     )
     def test_every_datetime_field_is_utc_typed(self, model):
         """No response model may declare a bare ``datetime`` (it would drift back to naive)."""
