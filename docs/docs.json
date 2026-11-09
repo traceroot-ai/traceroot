@@ -268,7 +268,7 @@
         "header": "Product",
         "items": [
           { "label": "Docs", "href": "https://traceroot.ai/docs/getting-started/introduction" },
-          { "label": "Pricing", "href": "https://traceroot.ai/#pricing" },
+          { "label": "Pricing", "href": "https://traceroot.ai/pricing" },
           { "label": "Changelog", "href": "https://traceroot.ai/changelog" },
           { "label": "App", "href": "https://app.traceroot.ai/" },
           { "label": "Security", "href": "https://traceroot.ai/security" },

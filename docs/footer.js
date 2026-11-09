@@ -26,8 +26,7 @@
     const sdk = window.posthog;
     try {
       return sdk &&
-        typeof sdk.get_config === "function" &&
-        sdk.get_config("token") === visitorToken &&
+        sdk.config?.token === visitorToken &&
         typeof sdk.has_opted_out_capturing === "function" &&
         typeof sdk.opt_out_capturing === "function" &&
         typeof sdk.opt_in_capturing === "function"
@@ -41,10 +40,9 @@
   function applyChoice(sdk, choice) {
     if (!sdk || !choice) return;
     const optedOut = sdk.has_opted_out_capturing();
-    // Reapplying an allowed preference on every navigation can emit another
-    // PostHog opt-in event. Only transition when the SDK's state differs.
+    // Only transition when the state differs, without emitting an opt-in event.
     if (choice === "denied" && !optedOut) sdk.opt_out_capturing();
-    else if (choice === "allowed" && optedOut) sdk.opt_in_capturing();
+    else if (choice === "allowed" && optedOut) sdk.opt_in_capturing({ captureEventName: false });
   }
 
   function syncStoredChoice() {
@@ -268,12 +266,6 @@
       link.setAttribute("aria-label", label.textContent);
       link.append(label);
       additions.push(label);
-    }
-    for (const link of columns.querySelectorAll("a")) {
-      const url = new URL(link.href);
-      if (["https://traceroot.ai", "https://app.traceroot.ai"].includes(url.origin)) link.removeAttribute("target");
-      // Mintlify's absolute-link resolver drops the homepage pricing fragment.
-      if (link.textContent.trim() === "Pricing") link.hash = "pricing";
     }
     const classes = [
       [host, "tr-docs-footer"], [wrapper, "tr-docs-footer__inner"],

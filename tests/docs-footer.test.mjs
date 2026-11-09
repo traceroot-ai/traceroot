@@ -46,14 +46,14 @@ function harness(t, choice = "denied") {
 }
 
 function visitor({ token = config.integrations.posthog.apiKey, optedOut = false } = {}) {
-  const calls = { reads: 0, in: 0, out: 0 };
+  const calls = { reads: 0, in: 0, out: 0, inOptions: [] };
   return {
     calls,
     sdk: {
-      get_config(name) { calls.reads++; return name === "token" ? token : undefined; },
+      get config() { calls.reads++; return { token }; },
       has_opted_out_capturing: () => optedOut,
       opt_out_capturing() { optedOut = true; calls.out++; },
-      opt_in_capturing() { optedOut = false; calls.in++; },
+      opt_in_capturing(options) { optedOut = false; calls.in++; calls.inOptions.push(options); },
     },
   };
 }
@@ -123,6 +123,22 @@ test("each retry uses the latest preference and explicit allowance is applied on
   env.changed();
   assert.equal(sdk.calls.in, 1);
   assert.equal(sdk.calls.out, 0);
+  assert.equal(sdk.calls.inOptions[0]?.captureEventName, false);
+});
+
+test("another tab's saved preference updates an already loaded SDK without navigation", t => {
+  const env = harness(t, null);
+  const sdk = visitor();
+  env.window.posthog = sdk.sdk;
+  env.load();
+  assert.equal(sdk.calls.reads, 0, "no choice leaves the native default untouched");
+  env.storage.set(key, "denied");
+  env.changed();
+  assert.equal(sdk.calls.out, 1);
+  env.storage.set(key, "allowed");
+  env.changed();
+  assert.equal(sdk.calls.in, 1);
+  assert.equal(sdk.calls.inOptions[0]?.captureEventName, false);
 });
 
 test("clearing a saved choice stops retries without changing SDK consent", t => {

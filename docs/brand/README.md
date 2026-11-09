@@ -67,11 +67,14 @@ upgrades and on generated API pages.
 ## Analytics preference boundary
 
 The adapter does not initialize or replace analytics. It only calls documented
-PostHog consent methods if `window.posthog.get_config("token")` matches the
+PostHog consent methods if `window.posthog.config.token` matches the
 visitor-project public token configured in `docs.json`. If that token changes,
 update the verification constant in `footer.js` together with the integration.
 It uses the website's `traceroot-analytics-consent` key and `allowed` / `denied`
 values on the same origin. A local preview can save only its own local choice.
+An absent choice leaves Mintlify's initialization default untouched. Restoring
+an explicit allowance passes `captureEventName: false`, matching the website
+without generating an extra `$opt_in` event.
 
 Mintlify's local preview currently does not expose a visitor SDK. On a deployed
 site without a verified SDK, the dialog explains that documentation preferences
@@ -85,3 +88,11 @@ each time. It stops on success, a missing choice, disposal or the retry limit.
 No stored choice means no probes. This is best-effort synchronization of a late
 SDK, not a guarantee of consent before its first event; that belongs to the
 SDK initialization policy. No extra SDK is loaded.
+
+The retry window covers a matching SDK exposed after window load. The storage
+listener applies the application's preference when another same-origin tab
+changes it without navigating this tab. PostHog's own consent persistence may
+already carry the choice; the adapter also handles the application key without
+that SDK state. These are compatibility paths, not a Mintlify SDK-readiness
+contract. If no matching SDK is exposed, the retries expire and the dialog uses
+the website-preferences fallback described above.
