@@ -1201,7 +1201,7 @@
   {
     "id": "tr-deepseek-v4-flash",
     "modelName": "deepseek-v4-flash",
-    "matchPattern": "(?i)^(deepseek\\/)?(deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(deepseek\\/)?(deepseek-flash|deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
     "provider": "deepseek",
     "prices": {
       "input": 0.00000014,
