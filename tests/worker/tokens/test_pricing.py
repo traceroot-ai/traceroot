@@ -701,11 +701,9 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-fable-5-1", "claude-fable-5-1"),
     ("claude-fable-5-1[1m]", "claude-fable-5-1"),
     ("anthropic/claude-fable-5-1", "claude-fable-5-1"),
-    ("us.anthropic.claude-fable-5-1-20261001-v1:0", "claude-fable-5-1"),
     ("claude-fable-5-2", "claude-fable-5-2"),
     ("claude-fable-5-2[1m]", "claude-fable-5-2"),
     ("anthropic/claude-fable-5-2", "claude-fable-5-2"),
-    ("us.anthropic.claude-fable-5-2-20261109-v1:0", "claude-fable-5-2"),
     # Opus 5 — plain, [1m] variant, anthropic/ prefix, Bedrock, Vertex
     ("claude-opus-5", "claude-opus-5"),
     ("claude-opus-5[1m]", "claude-opus-5"),

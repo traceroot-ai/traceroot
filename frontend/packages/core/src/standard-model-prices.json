@@ -2,7 +2,7 @@
   {
     "id": "tr-claude-fable-5-2",
     "modelName": "claude-fable-5-2",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5-2(\\[1m\\])?(-\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-fable-5-2(-\\d{8})?(-v\\d+:\\d+)?)$",
+    "matchPattern": "(?i)^(anthropic[/.])?claude-fable-5-2(\\[1m\\])?$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000008,
@@ -15,7 +15,7 @@
   {
     "id": "tr-claude-fable-5-1",
     "modelName": "claude-fable-5-1",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5-1(\\[1m\\])?(-\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-fable-5-1(-\\d{8})?(-v\\d+:\\d+)?)$",
+    "matchPattern": "(?i)^(anthropic[/.])?claude-fable-5-1(\\[1m\\])?$",
     "provider": "anthropic",
     "prices": {
       "input": 0.00001,
