@@ -16,10 +16,12 @@ provider's pricing page, listed with each flag, before changing the price file.
   python3 scripts/check_model_prices.py                      # print the report
   python3 scripts/check_model_prices.py --json report.json   # also write it as JSON
   python3 scripts/check_model_prices.py --post               # post it to Slack
+  python3 scripts/check_model_prices.py --payload msg.json   # write the Slack message
 
---post sends the report to the Slack incoming webhook in SLACK_WEBHOOK_URL. It posts
-on every run, even when nothing is flagged, so a missing message means the check did
-not run. --litellm and --modelsdev take a URL or a local file, so a saved catalog
+--post sends the report to the Slack incoming webhook in SLACK_WEBHOOK_URL as a Block
+Kit message, problems first. It posts on every run, even when nothing is flagged, so a
+missing message means the check did not run. --payload writes that message as JSON,
+so it can be previewed or extended before it is posted. --litellm and --modelsdev take a URL or a local file, so a saved catalog
 snapshot can be replayed.
 
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
@@ -115,6 +117,16 @@ PRICING_PAGES = {
 # Rows in the Slack price table; the JSON report has every flag.
 MAX_FLAGGED_LINES = 20
 FIELD_LABELS = {"input": "input", "output": "output", "cacheRead": "cache read"}
+# Missing models shown in small type under the main list: -latest aliases, dated
+# snapshots, and realtime, live and search models, which follow a base model's price.
+MINOR_MODELS = re.compile(
+    r"-latest$|-\d{4}(-\d{2}-\d{2})?$|-\d{2}-\d{4}$|-\d{4}-\d+k$|realtime|-live|search",
+    re.IGNORECASE,
+)
+# Slack Block Kit text limits.
+HEADER_LIMIT = 150
+SECTION_LIMIT = 3000
+CONTEXT_LIMIT = 2000
 
 
 class CheckError(Exception):
@@ -393,18 +405,58 @@ def _price_table(flagged: list[dict]) -> list[str]:
     return ["```", *(_escape(line) for line in rows), "```"]
 
 
-def format_report(report: dict) -> str:
-    """The Slack message (mrkdwn) for a completed run: what to fix first, then context."""
-    flagged, missing = report["flagged"], report["missing"]
-    flagged_models = list(dict.fromkeys(item["model"] for item in flagged))
+def _status(report: dict) -> str:
+    """One line on what needs attention, e.g. "3 models with prices to check"."""
+    flagged_models = dict.fromkeys(item["model"] for item in report["flagged"])
     status = (
         f"{_plural(len(flagged_models), 'model')} with prices to check"
-        if flagged
+        if flagged_models
         else "prices match the catalogs"
     )
-    if missing:
-        status += f", {_plural(len(missing), 'model')} not priced"
-    lines = [f"*Model pricing audit, {report['date']}*: {status}"]
+    if report["missing"]:
+        status += f", {_plural(len(report['missing']), 'model')} not priced"
+    return status
+
+
+def _split_missing(missing: list[dict]) -> tuple[dict, dict]:
+    """Missing model names by provider: (main list, aliases/snapshots/realtime/search)."""
+    main: dict[str, list[str]] = {}
+    minor: dict[str, list[str]] = {}
+    for item in missing:
+        target = minor if MINOR_MODELS.search(item["model"]) else main
+        target.setdefault(item["provider"], []).append(item["model"])
+    return main, minor
+
+
+def _footer(report: dict) -> str:
+    footer = f"Compared {report['compared']} of {report['total']} rows with LiteLLM and models.dev"
+    if report["no_match"]:
+        footer += f" · {len(report['no_match'])} are in neither catalog under the same ID"
+    if report["unmapped_providers"]:
+        footer += f" · no catalog for {', '.join(report['unmapped_providers'])}"
+    return footer
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _count(by_provider: dict[str, list[str]]) -> int:
+    return sum(len(models) for models in by_provider.values())
+
+
+def _names(by_provider: dict[str, list[str]], *, bullet: str, separator: str) -> str:
+    """Model names grouped by provider, e.g. "• *openai* (2): gpt-a, gpt-b"."""
+    return separator.join(
+        f"{bullet}*{_escape(provider)}* ({len(models)}): {', '.join(_escape(m) for m in models)}"
+        for provider, models in sorted(by_provider.items())
+    )
+
+
+def format_report(report: dict) -> str:
+    """The report as text for the terminal: what to fix first, then context."""
+    flagged = report["flagged"]
+    lines = [f"*Model pricing audit, {report['date']}*: {_status(report)}"]
 
     if flagged:
         lines += ["", "*Prices to check* (USD per 1M tokens, ours → catalogs)"]
@@ -422,23 +474,106 @@ def format_report(report: dict) -> str:
         bad = ", ".join(_escape(p) for p in report["bad_patterns"])
         lines += ["", f"*matchPattern does not compile*: {bad}"]
 
-    if missing:
-        # Every name, one line per provider, so no unpriced model is cut from the message.
-        lines += ["", f"*Not priced* ({len(missing)})"]
-        by_provider: dict[str, list[str]] = {}
-        for item in missing:
-            by_provider.setdefault(item["provider"], []).append(_escape(item["model"]))
-        for provider, models in sorted(by_provider.items()):
-            lines.append(f"• *{_escape(provider)}* ({len(models)}): {', '.join(models)}")
+    # Every missing name appears, one line per provider, so none is cut from the report.
+    main, minor = _split_missing(report["missing"])
+    if main:
+        lines += ["", f"*Not priced* ({_count(main)})", _names(main, bullet="• ", separator="\n")]
+    if minor:
+        heading = f"*Also not priced: aliases, snapshots, realtime and search* ({_count(minor)})"
+        lines += ["", heading, _names(minor, bullet="• ", separator="\n")]
 
-    footer = f"Compared {report['compared']} of {report['total']} rows with LiteLLM and models.dev"
-    if report["no_match"]:
-        footer += f"; {len(report['no_match'])} are in neither catalog under the same ID"
-    if report["unmapped_providers"]:
-        unmapped = ", ".join(_escape(p) for p in report["unmapped_providers"])
-        footer += f"; no catalog for {unmapped}"
-    lines += ["", f"_{footer}._"]
+    lines += ["", f"_{_escape(_footer(report))}._"]
     return "\n".join(lines)
+
+
+def _mrkdwn(text: str) -> dict:
+    return {"type": "mrkdwn", "text": text}
+
+
+def _cell(text: str, *, url: str | None = None, bold: bool = False) -> dict:
+    """A table cell: rich text, so it can be bold or a link, with no mrkdwn parsing."""
+    element = {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
+    if bold:
+        element["style"] = {"bold": True}
+    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [element]}]}
+
+
+def _price_table_block(flagged: list[dict]) -> dict:
+    """Flagged rates as a table, one row per rate; the model name links to its pricing page."""
+    rows = [[_cell(title, bold=True) for title in ("Model", "Rate", "Ours", "Catalogs")]]
+    previous = None
+    for item in flagged[:MAX_FLAGGED_LINES]:
+        first = item["model"] != previous
+        previous = item["model"]
+        model = _cell(item["model"], url=item["pricing_page"]) if first else _cell(" ")
+        rows.append(
+            [
+                model,
+                _cell(FIELD_LABELS[item["field"]]),
+                _cell(_amount(item["ours"])),
+                _cell(_catalog_amount(item)),
+            ]
+        )
+    return {
+        "type": "table",
+        "block_id": "prices",
+        "column_settings": [
+            {"is_wrapped": True},
+            {"align": "left"},
+            {"align": "right"},
+            {"align": "right"},
+        ],
+        "rows": rows,
+    }
+
+
+def build_payload(report: dict) -> dict:
+    """The Slack message (Block Kit) for a completed run: what to fix first, then context."""
+    flagged = report["flagged"]
+    main, minor = _split_missing(report["missing"])
+    flagged_models = dict.fromkeys(item["model"] for item in flagged)
+    status = [
+        f":red_circle: *{_plural(len(flagged_models), 'model')} with prices to check*"
+        if flagged
+        else ":large_green_circle: *Prices match the catalogs*"
+    ]
+    if report["missing"]:
+        status.append(
+            f":large_yellow_circle: *{_plural(len(report['missing']), 'model')} not priced*"
+        )
+    title = f"Model pricing audit · {report['date']}"
+    blocks: list[dict] = [
+        {"type": "header", "text": {"type": "plain_text", "text": _clip(title, HEADER_LIMIT)}},
+        {"type": "section", "text": _mrkdwn("     ".join(status))},
+    ]
+    if flagged:
+        heading = "*Prices to check* · USD per 1M tokens, ours vs. the catalogs"
+        blocks += [{"type": "section", "text": _mrkdwn(heading)}, _price_table_block(flagged)]
+        if len(flagged) > MAX_FLAGGED_LINES:
+            more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates in the JSON report"
+            blocks.append(
+                {"type": "context", "block_id": "prices_more", "elements": [_mrkdwn(more)]}
+            )
+    if report["bad_patterns"]:
+        bad = ", ".join(_escape(p) for p in report["bad_patterns"])
+        text = f"*matchPattern does not compile*, so these rows match by exact name only: {bad}"
+        blocks.append({"type": "section", "text": _mrkdwn(_clip(text, SECTION_LIMIT))})
+    if main or minor:
+        blocks.append({"type": "divider"})
+    if main:
+        heading = f"*Not priced* · {_count(main)} models a catalog prices that no row matches"
+        body = _names(main, bullet="• ", separator="\n")
+        blocks.append(
+            {"type": "section", "text": _mrkdwn(_clip(f"{heading}\n{body}", SECTION_LIMIT))}
+        )
+    if minor:
+        heading = f"*Also not priced* ({_count(minor)}): aliases, snapshots, realtime and search"
+        body = _names(minor, bullet="", separator=" · ")
+        text = _clip(f"{heading} · {body}", CONTEXT_LIMIT)
+        blocks.append({"type": "context", "elements": [_mrkdwn(text)]})
+    footer = _clip(_escape(_footer(report)), CONTEXT_LIMIT)
+    blocks.append({"type": "context", "elements": [_mrkdwn(footer)]})
+    return {"text": f"Model pricing audit, {report['date']}: {_status(report)}", "blocks": blocks}
 
 
 def format_failure(date: str, reason: str) -> str:
@@ -446,6 +581,18 @@ def format_failure(date: str, reason: str) -> str:
         f"*Model pricing audit FAILED, {date}*: {_escape(reason)}. "
         "Nothing was compared, so this is not an all-clear."
     )
+
+
+def failure_payload(date: str, reason: str) -> dict:
+    text = f":warning: {_escape(reason)}. Nothing was compared, so this is not an all-clear."
+    title = f"Model pricing audit FAILED · {date}"
+    return {
+        "text": f"Model pricing audit FAILED, {date}: {reason}",
+        "blocks": [
+            {"type": "header", "text": {"type": "plain_text", "text": _clip(title, HEADER_LIMIT)}},
+            {"type": "section", "text": _mrkdwn(_clip(text, SECTION_LIMIT))},
+        ],
+    }
 
 
 def fetch_json(url: str):
@@ -464,8 +611,8 @@ def load_source(source: str, label: str):
         raise CheckError(f"could not load the {label} catalog ({type(exc).__name__})") from exc
 
 
-def post_to_slack(webhook: str, text: str) -> None:
-    body = json.dumps({"text": text}).encode()
+def post_to_slack(webhook: str, payload: dict) -> None:
+    body = json.dumps(payload).encode()
     request = Request(
         webhook,
         data=body,
@@ -484,6 +631,9 @@ def main(argv: list[str]) -> int:
         "--post", action="store_true", help="post the report to the webhook in SLACK_WEBHOOK_URL"
     )
     parser.add_argument("--json", type=Path, metavar="PATH", help="also write the report as JSON")
+    parser.add_argument(
+        "--payload", type=Path, metavar="PATH", help="also write the Slack message as JSON"
+    )
     parser.add_argument("--prices", type=Path, default=PRICE_FILE, help="our price file")
     parser.add_argument("--litellm", default=LITELLM_URL, metavar="URL_OR_PATH")
     parser.add_argument("--modelsdev", default=MODELSDEV_URL, metavar="URL_OR_PATH")
@@ -506,18 +656,20 @@ def main(argv: list[str]) -> int:
         litellm = index_litellm(load_source(args.litellm, "LiteLLM"))
         modelsdev = index_modelsdev(load_source(args.modelsdev, "models.dev"))
         report = build_report(rows, litellm, modelsdev, date=date, min_compared=args.min_compared)
-        text, status = format_report(report), 0
+        text, payload, status = format_report(report), build_payload(report), 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}
-        text, status = format_failure(date, reason), 1
+        text, payload, status = format_failure(date, reason), failure_payload(date, reason), 1
 
     if args.json:
         args.json.write_text(json.dumps(report, indent=2) + "\n")
+    if args.payload:
+        args.payload.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     print(text)
     if args.post:
         try:
-            post_to_slack(webhook, text)
+            post_to_slack(webhook, payload)
         except (URLError, OSError) as exc:
             # Never echo the webhook URL: report only the error type and status.
             detail = getattr(exc, "code", None) or type(exc).__name__

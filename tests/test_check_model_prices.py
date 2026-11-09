@@ -17,6 +17,7 @@ import pytest
 import scripts.check_model_prices as check
 from scripts.check_model_prices import (
     CheckError,
+    build_payload,
     build_report,
     differs,
     format_report,
@@ -299,15 +300,82 @@ def test_price_table_groups_rates_by_model_and_shows_catalog_ranges():
     assert text.index("*Prices to check*") < text.index("_Compared 1 of 1 rows")
 
 
+def _block_text(block):
+    if block["type"] == "context":
+        return " ".join(element["text"] for element in block["elements"])
+    return block.get("text", {}).get("text", "")
+
+
+def test_slack_message_leads_with_a_price_table_then_unpriced_models():
+    rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6)]
+    litellm = {
+        "deepseek/deepseek-d": ll_entry("deepseek", input_=1.32e-6, output=4e-6),
+        "gpt-new": ll_entry("openai"),
+        "gpt-new-latest": ll_entry("openai"),
+        "gpt-realtime-new": ll_entry("openai", mode="realtime"),
+        "<!channel>&co": ll_entry("openai"),
+    }
+    modelsdev = md_catalog(deepseek={"deepseek-d": md_model(input_=6.6e-7, output=4e-6)})
+    payload = build_payload(report_for(rows, litellm, modelsdev))
+    blocks = payload["blocks"]
+
+    assert [b["type"] for b in blocks] == [
+        "header", "section", "section", "table", "divider", "section", "context", "context",
+    ]  # fmt: skip
+    assert payload["text"] == (
+        f"Model pricing audit, {DATE}: 1 model with prices to check, 4 models not priced"
+    )
+    assert blocks[0]["text"] == {"type": "plain_text", "text": f"Model pricing audit · {DATE}"}
+    assert ":red_circle: *1 model with prices to check*" in _block_text(blocks[1])
+    assert ":large_yellow_circle: *4 models not priced*" in _block_text(blocks[1])
+
+    table = blocks[3]
+    assert table["block_id"] == "prices"
+    cells = [[cell["elements"][0]["elements"][0] for cell in r] for r in table["rows"]]
+    assert [c["text"] for c in cells[0]] == ["Model", "Rate", "Ours", "Catalogs"]
+    assert all(c["style"] == {"bold": True} for c in cells[0])
+    assert cells[1][0] == {
+        "type": "link",
+        "url": check.PRICING_PAGES["deepseek"],
+        "text": "deepseek-d",
+    }
+    assert [c["text"] for c in cells[1][1:]] == ["input", "0.50", "0.66-1.32"]
+    assert [c["text"] for c in cells[2]] == [" ", "output", "1.00", "4.00"]
+
+    main, minor = _block_text(blocks[5]), _block_text(blocks[6])
+    assert "• *openai* (2): &lt;!channel&gt;&amp;co, gpt-new" in main
+    assert "gpt-new-latest" in minor and "gpt-realtime-new" in minor
+    assert "<!channel>" not in json.dumps(payload)
+
+
+def test_slack_message_stays_within_block_kit_limits():
+    rows = [row(f"gpt-{n}", "openai", input_=5e-7) for n in range(30)]
+    litellm = {f"gpt-{n}": ll_entry("openai") for n in range(30)}
+    litellm.update({f"gpt-unpriced-model-{n:03d}": ll_entry("openai") for n in range(300)})
+    litellm.update({f"gpt-unpriced-model-{n:03d}-latest": ll_entry("openai") for n in range(300)})
+    blocks = build_payload(report_for(rows, litellm, md_catalog()))["blocks"]
+
+    assert len(blocks) <= 50
+    table = next(b for b in blocks if b["type"] == "table")
+    assert len(table["rows"]) == check.MAX_FLAGGED_LINES + 1
+    assert "…and 10 more rates" in _block_text(
+        next(b for b in blocks if b.get("block_id") == "prices_more")
+    )
+    for block in blocks:
+        limit = {"header": 150, "section": 3000, "context": 2000}.get(block["type"])
+        if limit:
+            assert len(_block_text(block)) <= limit, block["type"]
+
+
 # --- the command line: main() with the network and Slack replaced ---------------
 
 
 @pytest.fixture
 def run(tmp_path, monkeypatch):
-    """Run main() against sample data; returns (exit code, posted texts, report)."""
+    """Run main() against sample data; returns (exit code, posted payloads, report)."""
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
     posted = []
-    monkeypatch.setattr(check, "post_to_slack", lambda _url, text: posted.append(text))
+    monkeypatch.setattr(check, "post_to_slack", lambda _url, payload: posted.append(payload))
 
     def _run(rows, litellm, modelsdev, *extra):
         def fake_fetch(url):
@@ -326,16 +394,27 @@ def run(tmp_path, monkeypatch):
     return _run
 
 
-def test_quiet_day_posts_a_heartbeat(run):
+def test_quiet_day_posts_a_heartbeat(run, tmp_path):
     rows = [row("gpt-a", "openai")]
+    saved = tmp_path / "payload.json"
     code, posted, report = run(
-        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1"
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--payload",
+        str(saved),
     )
 
     assert code == 0
     assert report["status"] == "ok"
-    [text] = posted
-    assert text.startswith(f"*Model pricing audit, {report['date']}*: prices match the catalogs")
+    [payload] = posted
+    assert payload["text"] == f"Model pricing audit, {report['date']}: prices match the catalogs"
+    assert (
+        payload["blocks"][1]["text"]["text"] == ":large_green_circle: *Prices match the catalogs*"
+    )
+    assert json.loads(saved.read_text()) == payload
 
 
 def test_format_change_exits_nonzero_and_posts_a_failure(run):
@@ -345,10 +424,11 @@ def test_format_change_exits_nonzero_and_posts_a_failure(run):
 
     assert code == 1
     assert report["status"] == "failed"
-    [text] = posted
-    assert text.startswith(f"*Model pricing audit FAILED, {report['date']}*")
-    assert "input_cost_per_token" in text
-    assert "not an all-clear" in text
+    [payload] = posted
+    assert payload["text"].startswith(f"Model pricing audit FAILED, {report['date']}: ")
+    assert "input_cost_per_token" in payload["text"]
+    assert payload["blocks"][0]["text"]["text"] == f"Model pricing audit FAILED · {report['date']}"
+    assert "not an all-clear" in payload["blocks"][1]["text"]["text"]
 
 
 def test_too_few_rows_compared_exits_nonzero(run):
@@ -356,14 +436,14 @@ def test_too_few_rows_compared_exits_nonzero(run):
     code, posted, _ = run(rows, {"gpt-a": ll_entry("openai")}, md_catalog())
 
     assert code == 1
-    assert "below the floor of 80" in posted[0]
+    assert "below the floor of 80" in posted[0]["text"]
 
 
 def test_unreachable_catalog_exits_nonzero(run):
     code, posted, _ = run([row("gpt-a", "openai")], URLError("offline"), md_catalog())
 
     assert code == 1
-    assert "could not load the LiteLLM catalog" in posted[0]
+    assert "could not load the LiteLLM catalog" in posted[0]["text"]
 
 
 def test_post_without_webhook_fails_before_fetching(tmp_path, monkeypatch, capsys):
@@ -374,7 +454,7 @@ def test_post_without_webhook_fails_before_fetching(tmp_path, monkeypatch, capsy
     assert "SLACK_WEBHOOK_URL" in capsys.readouterr().err
 
 
-def test_slack_payload_is_a_json_text_message(monkeypatch):
+def test_slack_post_sends_the_payload_as_json(monkeypatch):
     sent = []
 
     class FakeResponse:
@@ -392,12 +472,13 @@ def test_slack_payload_is_a_json_text_message(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(check, "urlopen", fake_urlopen)
-    check.post_to_slack("https://hooks.example.test/T/B/x", "hello")
+    payload = {"text": "hello", "blocks": [{"type": "divider"}]}
+    check.post_to_slack("https://hooks.example.test/T/B/x", payload)
 
     [request] = sent
     assert request.get_method() == "POST"
     assert request.get_header("Content-type") == "application/json"
-    assert json.loads(request.data) == {"text": "hello"}
+    assert json.loads(request.data) == payload
 
 
 def test_runs_as_a_plain_script():
