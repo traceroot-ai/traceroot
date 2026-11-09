@@ -263,9 +263,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     if (curatedModels) {
       const used = new Set(customModels);
       const ids = curatedModels.map((m) => m.id);
-      const next = [defaultAdapterModel(adapter as LLMAdapter, ids), ...ids].find(
-        (id) => id && !used.has(id),
-      );
+      const first = defaultAdapterModel(adapter as LLMAdapter, ids);
+      const next = first && !used.has(first) ? first : ids.find((id) => !used.has(id));
       if (!next) return;
       setCustomModels([...customModels, next]);
     } else {
