@@ -9,6 +9,7 @@ from shlex import quote
 from subprocess import CompletedProcess
 
 from tmux_tools import tmux
+from tmux_tools.banner import render_banner
 
 
 @dataclass
@@ -68,23 +69,7 @@ class WelcomeScreen:
 
     def render_text(self) -> str:
         parts: list[str] = []
-        raw_logo = (
-            "████████╗██████╗  █████╗  ██████╗███████╗██████╗  ██████╗  ██████╗ ████████╗\n"
-            "╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗██╔═══██╗██╔═══██╗╚══██╔══╝\n"
-            "   ██║   ██████╔╝███████║██║     █████╗  ██████╔╝██║   ██║██║   ██║   ██║   \n"
-            "   ██║   ██╔══██╗██╔══██║██║     ██╔══╝  ██╔══██╗██║   ██║██║   ██║   ██║   \n"
-            "   ██║   ██║  ██║██║  ██║╚██████╗███████╗██║  ██║╚██████╔╝╚██████╔╝   ██║   \n"
-            "   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   "
-        )
-        logo = "".join(
-            "\033[1m" + ch + "\033[0m"
-            if ch == "█"
-            else "\033[2m" + ch + "\033[0m"
-            if ch in "╔╗╚╝║═╠╣╦╩╬╟╙╘╒╓╫╪"
-            else ch
-            for ch in raw_logo
-        )
-        parts.append("\n" + logo + "\n")
+        parts.append("\n" + render_banner() + "\n")
 
         parts.append(f"""
 Welcome to the TraceRoot {self.title}.
