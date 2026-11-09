@@ -36,6 +36,16 @@ def _error_response(description: str) -> dict[str, Any]:
     return {"description": description, "content": {"application/json": {"schema": _ERROR_SCHEMA}}}
 
 
+def _drop_unreferenced_schemas(schema: dict[str, Any], names: tuple[str, ...]) -> None:
+    """Remove the named component schemas when nothing in the document refers to them."""
+    components = schema.get("components", {}).get("schemas", {})
+    for name in names:
+        ref = f"#/components/schemas/{name}"
+        others = {k: v for k, v in components.items() if k not in names}
+        if name in components and ref not in json.dumps([schema["paths"], others]):
+            del components[name]
+
+
 def _apply_public_contract(schema: dict[str, Any]) -> None:
     """Document contract details FastAPI can't infer from the raw-Request /
     manual-HTTPException public routes: bearer auth (required), the protobuf
@@ -68,6 +78,13 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             responses = op.setdefault("responses", {})
             responses.setdefault("401", _error_response("Authentication failed"))
             responses.setdefault("503", _error_response("Authentication service unavailable"))
+            # FastAPI documents a 422 as its own array-of-errors model, but main.py's
+            # validation handler gives public routes the same ``{"detail": "<string>"}``
+            # envelope as every other error here. Document what is actually returned.
+            if "422" in responses:
+                responses["422"] = _error_response("Validation error")
+
+    _drop_unreferenced_schemas(schema, ("HTTPValidationError", "ValidationError"))
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)
     # and documents its runtime error contract: 400 (empty body, invalid gzip, or a

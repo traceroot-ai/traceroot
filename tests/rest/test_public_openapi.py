@@ -1374,3 +1374,28 @@ def test_each_resource_has_one_tag():
         "Whoami",
         "Widgets",
     }
+
+
+def test_public_422_documents_the_string_envelope_the_api_returns():
+    """Public routes return ``{"detail": "<string>"}`` for a 422 (see
+    ``validation_exception_handler`` in main.py), not FastAPI's array of error
+    objects. The spec must say so, or a generated client mis-parses every 422."""
+    schema = _schema()
+    checked = 0
+    for path, item in schema["paths"].items():
+        for method, op in item.items():
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            response = op["responses"].get("422")
+            if response is None:
+                continue
+            checked += 1
+            ref = response["content"]["application/json"]["schema"]["$ref"]
+            assert ref == "#/components/schemas/ErrorResponse", f"{method.upper()} {path}: {ref}"
+    assert checked > 20  # guard against the loop silently matching nothing
+
+
+def test_public_schema_drops_unused_fastapi_validation_models():
+    schemas = _schema()["components"]["schemas"]
+    assert "HTTPValidationError" not in schemas
+    assert "ValidationError" not in schemas
