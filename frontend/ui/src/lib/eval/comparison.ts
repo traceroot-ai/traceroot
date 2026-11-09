@@ -259,16 +259,27 @@ export function readScore(score: ComparisonScore | undefined | null): TypedValue
  * A result can legitimately carry more than one row for the same scorer name (a scorer
  * version bump, or a delayed re-score) — pick a winner that doesn't depend on the order
  * the caller's rows arrived in (that order is undefined for a bare Prisma `include`, and
- * differs between callers), so the same data classifies the same way everywhere. Highest
- * scorerVersion wins.
+ * differs between callers), so the same data classifies the same way everywhere. The
+ * version the run DECLARED wins, since that is the one it ran with. Only when no row
+ * carries it does the highest scorerVersion win, compared bytewise to match the
+ * `COLLATE "C"` tie-break in the run read's SQL.
  */
 export function latestScoreByName(
   scores: readonly ComparisonScore[] | undefined,
+  declared?: ReadonlyMap<string, ComparisonScorerMeta>,
 ): Map<string, ComparisonScore> {
   const m = new Map<string, ComparisonScore>();
   for (const s of scores ?? []) {
     const existing = m.get(s.scorerName);
-    if (!existing || s.scorerVersion > existing.scorerVersion) m.set(s.scorerName, s);
+    const want = declared?.get(s.scorerName)?.version;
+    const isDeclared = (x: ComparisonScore) => !!want && x.scorerVersion === want;
+    if (
+      !existing ||
+      (isDeclared(s) && !isDeclared(existing)) ||
+      (isDeclared(s) === isDeclared(existing) && s.scorerVersion > existing.scorerVersion)
+    ) {
+      m.set(s.scorerName, s);
+    }
   }
   return m;
 }
@@ -330,6 +341,10 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
   for (const s of [...(baseline?.scorers ?? []), ...candidate.scorers]) {
     metaByName.set(s.name, s); // candidate last → candidate wins
   }
+  // Each side's rows are read at the version ITS run declared, so a scorer bump between the
+  // runs still surfaces as `version_mismatch` instead of being silently aligned.
+  const candDeclared = new Map(candidate.scorers.map((s) => [s.name, s]));
+  const baseDeclared = new Map((baseline?.scorers ?? []).map((s) => [s.name, s]));
 
   // Index baseline results + scores by test-case and scorer name.
   const baselineByCase = new Map<string, ComparisonResult>();
@@ -372,8 +387,8 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
         : "candidate_only"
       : "baseline_only";
 
-    const candScores = latestScoreByName(cand?.scores);
-    const baseScores = latestScoreByName(base?.scores);
+    const candScores = latestScoreByName(cand?.scores, candDeclared);
+    const baseScores = latestScoreByName(base?.scores, baseDeclared);
     const scorerNames = new Set<string>([...candScores.keys(), ...baseScores.keys()]);
 
     const scorerCells: ScorerCellComparison[] = [];

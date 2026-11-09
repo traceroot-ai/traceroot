@@ -73,23 +73,6 @@ export interface RunSummary {
   metrics: SummaryItem[];
 }
 
-/**
- * The one row a result counts for a scorer. When a result carries several rows under one
- * name (a scorer version bump, a delayed re-score), the version the run DECLARED is the one
- * it ran with. Only when no row carries that version does the engine's own tie-break apply.
- */
-function pickRows(
-  scores: readonly ComparisonScore[],
-  metaByName: Map<string, ComparisonScorerMeta>,
-): Map<string, ComparisonScore> {
-  const picked = latestScoreByName(scores);
-  for (const s of scores) {
-    const declared = metaByName.get(s.scorerName)?.version;
-    if (declared && s.scorerVersion === declared) picked.set(s.scorerName, s);
-  }
-  return picked;
-}
-
 /** A scorer's running totals: the sum of its usable values, and how many of each kind. */
 export type ScorerTotals = { sum: number; numeric: number; booleans: number; labels: number };
 
@@ -111,7 +94,7 @@ export class ScoreSummarizer {
 
   /** Add one result's score rows. */
   add(scores: readonly ComparisonScore[]): void {
-    for (const [name, score] of pickRows(scores, this.metaByName)) {
+    for (const [name, score] of latestScoreByName(scores, this.metaByName)) {
       const a = this.acc.get(name) ?? { sum: 0, numeric: 0, booleans: 0, labels: 0 };
       this.acc.set(name, a);
       const v = readScore(score);
