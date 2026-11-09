@@ -112,8 +112,9 @@ PRICING_PAGES = {
     "moonshot": "https://platform.kimi.ai/docs/pricing/chat",
 }
 
-# Flagged lines in one Slack message; the JSON report has every flag.
+# Rows in the Slack price table; the JSON report has every flag.
 MAX_FLAGGED_LINES = 20
+FIELD_LABELS = {"input": "input", "output": "output", "cacheRead": "cache read"}
 
 
 class CheckError(Exception):
@@ -357,57 +358,86 @@ def _plural(count: int, word: str) -> str:
     return f"{count} {word}" if count == 1 else f"{count} {word}s"
 
 
-def _rate(value: float | None) -> str:
-    """A per-token rate as USD per million tokens, for reading."""
-    return "n/a" if value is None else f"${value * 1e6:.4g}"
+def _amount(per_token: float) -> str:
+    """A per-token rate as USD per million tokens, with at least two decimals."""
+    text = f"{per_token * 1e6:.4g}"
+    if "e" in text:
+        text = f"{per_token * 1e6:.8f}".rstrip("0")
+    whole, _, fraction = text.partition(".")
+    return f"{whole}.{fraction.ljust(2, '0')}"
+
+
+def _catalog_amount(item: dict) -> str:
+    """The catalogs' rate, or the range they span when they disagree with each other."""
+    values = sorted(item[name] for name in ("litellm", "modelsdev") if item[name] is not None)
+    low, high = _amount(values[0]), _amount(values[-1])
+    return low if low == high else f"{low}-{high}"
+
+
+def _price_table(flagged: list[dict]) -> list[str]:
+    """Flagged rates as an aligned code block, one row per rate, grouped by model."""
+    cells = []
+    previous = None
+    for item in flagged[:MAX_FLAGGED_LINES]:
+        model = item["model"] if item["model"] != previous else ""
+        previous = item["model"]
+        cells.append(
+            (model, FIELD_LABELS[item["field"]], _amount(item["ours"]), _catalog_amount(item))
+        )
+    widths = [max(len(cell[column]) for cell in cells) for column in range(3)]
+    rows = [
+        f"{model:<{widths[0]}}  {field:<{widths[1]}}  {ours:<{widths[2]}}  → {theirs}"
+        for model, field, ours, theirs in cells
+    ]
+    # Pad first, then escape: Slack shows the escaped text unescaped, so columns stay aligned.
+    return ["```", *(_escape(line) for line in rows), "```"]
 
 
 def format_report(report: dict) -> str:
-    """The Slack message (mrkdwn) for a completed run."""
+    """The Slack message (mrkdwn) for a completed run: what to fix first, then context."""
     flagged, missing = report["flagged"], report["missing"]
-    scope = f"compared {report['compared']} of {report['total']} rows with LiteLLM and models.dev"
-    head = f"*Model pricing audit, {report['date']}*"
-    lines = []
+    flagged_models = list(dict.fromkeys(item["model"] for item in flagged))
+    status = (
+        f"{_plural(len(flagged_models), 'model')} with prices to check"
+        if flagged
+        else "prices match the catalogs"
+    )
+    if missing:
+        status += f", {_plural(len(missing), 'model')} not priced"
+    lines = [f"*Model pricing audit, {report['date']}*: {status}"]
+
     if flagged:
-        models = len({item["model"] for item in flagged})
-        lines.append(
-            f"{head}: {_plural(len(flagged), 'price')} to check on "
-            f"{_plural(models, 'model')} ({scope})."
-        )
-        lines.append(
-            "*Every catalog that lists these disagrees with us* "
-            "(ours / LiteLLM / models.dev, USD per 1M tokens):"
-        )
-        for item in flagged[:MAX_FLAGGED_LINES]:
-            # Our own link markup: only the model ID and field are escaped.
-            page = f" <{item['pricing_page']}|pricing page>" if item["pricing_page"] else ""
-            lines.append(
-                f"• `{_escape(item['model'])}` {item['field']}: {_rate(item['ours'])} / "
-                f"{_rate(item['litellm'])} / {_rate(item['modelsdev'])}{page}"
-            )
+        lines += ["", "*Prices to check* (USD per 1M tokens, ours → catalogs)"]
+        lines += _price_table(flagged)
         if len(flagged) > MAX_FLAGGED_LINES:
-            lines.append(f"• and {len(flagged) - MAX_FLAGGED_LINES} more in the JSON report")
-    else:
-        lines.append(f"{head}: no price disagreements ({scope}).")
+            lines.append(f"…and {len(flagged) - MAX_FLAGGED_LINES} more in the JSON report")
+        pages = dict.fromkeys(
+            (item["provider"], item["pricing_page"]) for item in flagged if item["pricing_page"]
+        )
+        if pages:
+            links = " · ".join(f"<{url}|{_escape(provider)}>" for provider, url in pages)
+            lines.append(f"Pricing pages: {links}")
+
+    if report["bad_patterns"]:
+        bad = ", ".join(_escape(p) for p in report["bad_patterns"])
+        lines += ["", f"*matchPattern does not compile*: {bad}"]
+
     if missing:
         # Every name, one line per provider, so no unpriced model is cut from the message.
-        lines.append(f"*Priced by a catalog but not by us* ({len(missing)}):")
+        lines += ["", f"*Not priced* ({len(missing)})"]
         by_provider: dict[str, list[str]] = {}
         for item in missing:
             by_provider.setdefault(item["provider"], []).append(_escape(item["model"]))
         for provider, models in sorted(by_provider.items()):
-            lines.append(f"• {_escape(provider)} ({len(models)}): {', '.join(models)}")
+            lines.append(f"• *{_escape(provider)}* ({len(models)}): {', '.join(models)}")
+
+    footer = f"Compared {report['compared']} of {report['total']} rows with LiteLLM and models.dev"
     if report["no_match"]:
-        lines.append(
-            f"_{_plural(len(report['no_match']), 'row')} had no exact-ID match in either "
-            "catalog and were not compared._"
-        )
+        footer += f"; {len(report['no_match'])} are in neither catalog under the same ID"
     if report["unmapped_providers"]:
         unmapped = ", ".join(_escape(p) for p in report["unmapped_providers"])
-        lines.append(f"_No catalog mapping for: {unmapped}._")
-    if report["bad_patterns"]:
-        bad = ", ".join(_escape(p) for p in report["bad_patterns"])
-        lines.append(f"_matchPattern does not compile: {bad}._")
+        footer += f"; no catalog for {unmapped}"
+    lines += ["", f"_{footer}._"]
     return "\n".join(lines)
 
 
