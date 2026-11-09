@@ -801,6 +801,8 @@ class TestClaudeBedrockAndVertexIds:
             "anthropic.",
             "global.anthropic.",
             "us.anthropic.",
+            "eu.anthropic.",
+            "apac.anthropic.",
             "jp.anthropic.",
             "au.anthropic.",
         ],
@@ -808,6 +810,25 @@ class TestClaudeBedrockAndVertexIds:
     def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
         # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
         model_id = prefix + family
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [family], f"{model_id} matched {matching}"
+
+    @pytest.mark.parametrize(
+        "model_id,family",
+        [
+            ("claude-opus-5.5", "claude-opus-5-5"),
+            ("anthropic/claude-opus-5.5", "claude-opus-5-5"),
+            ("claude-sonnet-5.5", "claude-sonnet-5-5"),
+            ("anthropic/claude-sonnet-5.5", "claude-sonnet-5-5"),
+        ],
+    )
+    def test_5_5_dotted_ids_match_only_their_entry(self, real_cache, model_id, family):
+        # Sonnet 5 and Sonnet 5.5 share an input rate, so a price comparison alone
+        # cannot tell which entry a dotted id landed on; check the matching entries.
         matching = [
             e["model_name"]
             for e in real_cache
