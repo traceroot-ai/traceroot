@@ -61,8 +61,9 @@ describe.each([
     expect(ratio(tokens[fg], tokens[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("primary is the brand teal", () => {
-    expect(tokens.primary).toBe("177 80% 40%");
+  it("uses the website's teal and warm white for solid primary surfaces", () => {
+    expect(tokens.primary).toBe("177.07 80.39% 40%");
+    expect(tokens["primary-foreground"]).toBe("36 100% 98.04%");
   });
 
   // Non-text UI (focus ring) needs 3:1 against the page (WCAG 1.4.11).
