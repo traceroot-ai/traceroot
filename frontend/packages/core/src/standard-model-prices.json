@@ -41,7 +41,7 @@
   {
     "id": "tr-claude-opus-5-5",
     "modelName": "claude-opus-5-5",
-    "matchPattern": "(?i)^(anthropic[/.])?claude-opus-5-5$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5[.-]5|(eu\\.|us\\.|apac\\.|jp\\.|au\\.|global\\.)?anthropic\\.claude-opus-5-5(-v\\d+:\\d+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 4e-6,
@@ -132,7 +132,7 @@
   {
     "id": "tr-claude-sonnet-5-5",
     "modelName": "claude-sonnet-5-5",
-    "matchPattern": "(?i)^(anthropic[/.])?claude-sonnet-5-5$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-5[.-]5|(eu\\.|us\\.|apac\\.|jp\\.|au\\.|global\\.)?anthropic\\.claude-sonnet-5-5(-v\\d+:\\d+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 2e-6,
