@@ -66,33 +66,13 @@ upgrades and on generated API pages.
 
 ## Analytics preference boundary
 
-The adapter does not initialize or replace analytics. It only calls documented
-PostHog consent methods if `window.posthog.config.token` matches the
-visitor-project public token configured in `docs.json`. If that token changes,
-update the verification constant in `footer.js` together with the integration.
-It uses the website's `traceroot-analytics-consent` key and `allowed` / `denied`
-values on the same origin. A local preview can save only its own local choice.
-An absent choice leaves Mintlify's initialization default untouched. Restoring
-an explicit allowance passes `captureEventName: false`, matching the website
-without generating an extra `$opt_in` event.
+Mintlify owns the PostHog integration configured in `docs.json`, including its
+initialization and existing persistence behavior. The footer only presents the
+website-preferences fallback: its Cookie settings dialog links to the existing
+preferences in the traceroot.ai footer. It neither accesses a visitor SDK nor
+reads or writes analytics consent storage.
 
-Mintlify's local preview currently does not expose a visitor SDK. On a deployed
-site without a verified SDK, the dialog explains that documentation preferences
-cannot be applied and links to the working website preferences; it does not
-pretend that saving a local key stopped an unknown collector. Production SDK
-exposure and consent before its first event still need deployment verification.
-Stored choices are applied at script initialization, window load, navigation,
-storage changes and explicit saves. When a verified SDK is not ready, a single
-bounded backoff chain retries for up to 9.5 seconds, reading the latest choice
-each time. It stops on success, a missing choice, disposal or the retry limit.
-No stored choice means no probes. This is best-effort synchronization of a late
-SDK, not a guarantee of consent before its first event; that belongs to the
-SDK initialization policy. No extra SDK is loaded.
-
-The retry window covers a matching SDK exposed after window load. The storage
-listener applies the application's preference when another same-origin tab
-changes it without navigating this tab. PostHog's own consent persistence may
-already carry the choice; the adapter also handles the application key without
-that SDK state. These are compatibility paths, not a Mintlify SDK-readiness
-contract. If no matching SDK is exposed, the retries expire and the dialog uses
-the website-preferences fallback described above.
+Website preferences may not apply to this documentation, as the dialog states.
+Managing consent directly in Docs requires a supported Mintlify integration;
+a module-private SDK or a hypothetical global instance is not such a contract.
+The integration configuration and its default collection policy stay unchanged.

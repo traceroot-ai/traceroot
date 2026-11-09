@@ -7,199 +7,61 @@ const source = readFileSync(new URL("../docs/footer.js", import.meta.url), "utf8
 const config = JSON.parse(readFileSync(new URL("../docs/docs.json", import.meta.url), "utf8"));
 const key = "traceroot-analytics-consent";
 
-function harness(t, choice = "denied") {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const storage = new Map(choice == null ? [] : [[key, choice]]);
+function harness(t, { choice, token = config.integrations.posthog.apiKey, hostname = "localhost" } = {}) {
+  const storage = new Map(choice ? [[key, choice]] : []);
+  const activity = { storageReads: 0, storageWrites: 0, sdkReads: 0, sdkCalls: 0, timers: 0 };
+  const sdk = {
+    config: { token },
+    has_opted_out_capturing() { activity.sdkCalls++; return false; },
+    opt_out_capturing() { activity.sdkCalls++; },
+    opt_in_capturing() { activity.sdkCalls++; },
+  };
   const window = new EventTarget();
+  Object.defineProperty(window, "posthog", { get() { activity.sdkReads++; return sdk; } });
+  Object.assign(window, {
+    setTimeout() { activity.timers++; return 1; },
+    clearTimeout() {},
+  });
   const document = Object.assign(new EventTarget(), {
     readyState: "loading",
-    documentElement: { classList: { contains: () => false } },
     querySelector: () => null,
   });
-  let scheduled = 0;
-  const schedule = (callback, delay) => { scheduled++; return setTimeout(callback, delay); };
-  Object.assign(window, { setTimeout: schedule, clearTimeout });
   vm.runInNewContext(source, {
     window, document, AbortController,
-    location: { hostname: "localhost" },
-    localStorage: { getItem: name => storage.get(name) ?? null },
+    location: { hostname },
+    localStorage: {
+      getItem(name) { activity.storageReads++; return storage.get(name) ?? null; },
+      setItem(name, value) { activity.storageWrites++; storage.set(name, value); },
+    },
     getComputedStyle: () => ({ display: "block" }),
-    setTimeout: schedule,
-    clearTimeout,
   });
   t.after(() => window.__trDocsFooterAdapter.dispose());
-  return {
-    window,
-    document,
-    storage,
-    get scheduled() { return scheduled; },
-    load() { window.dispatchEvent(new Event("load")); },
-    changed() {
-      const event = new Event("storage");
-      Object.defineProperty(event, "key", { value: key });
-      window.dispatchEvent(event);
-    },
-    advance(milliseconds) {
-      for (let left = milliseconds; left > 0; left -= 50) t.mock.timers.tick(Math.min(50, left));
-    },
-  };
+  return { window, document, storage, activity };
 }
 
-function visitor({ token = config.integrations.posthog.apiKey, optedOut = false } = {}) {
-  const calls = { reads: 0, in: 0, out: 0, inOptions: [] };
-  return {
-    calls,
-    sdk: {
-      get config() { calls.reads++; return { token }; },
-      has_opted_out_capturing: () => optedOut,
-      opt_out_capturing() { optedOut = true; calls.out++; },
-      opt_in_capturing(options) { optedOut = false; calls.in++; calls.inOptions.push(options); },
-    },
-  };
-}
-
-test("a matching SDK appearing after load receives the saved denial without navigation", t => {
-  const env = harness(t);
-  env.load();
-  env.advance(1500);
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.advance(10000);
-  assert.equal(sdk.calls.out, 1);
-  env.advance(60000);
-  assert.equal(sdk.calls.reads, 1, "a successful synchronization stops retrying");
-  assert.equal(sdk.calls.in, 0);
-});
-
-test("consent synchronization does not depend on mounting the footer", t => {
-  const env = harness(t);
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.advance(1000);
-  assert.equal(sdk.calls.out, 1);
-});
-
-test("unknown projects are untouched and retries stop when no matching SDK appears", t => {
-  const env = harness(t);
-  const other = visitor({ token: "another-project" });
-  env.window.posthog = other.sdk;
-  env.load();
-  env.advance(60000);
-  assert.ok(other.calls.reads > 1);
-  assert.equal(other.calls.out, 0);
-  assert.equal(other.calls.in, 0);
-  const reads = other.calls.reads;
-  env.advance(60000);
-  assert.equal(other.calls.reads, reads);
-  const matching = visitor();
-  env.window.posthog = matching.sdk;
-  env.changed();
-  assert.equal(matching.calls.out, 1, "a later lifecycle event can synchronize again");
-});
-
-test("load, navigation and storage share one retry chain", t => {
-  const env = harness(t);
-  const other = visitor({ token: "another-project" });
-  env.window.posthog = other.sdk;
-  env.load();
-  env.window.dispatchEvent(new Event("mintlify:navigate"));
-  env.changed();
-  env.changed();
-  const matching = visitor();
-  env.window.posthog = matching.sdk;
-  env.advance(1000);
-  assert.equal(matching.calls.reads, 1);
-  assert.equal(matching.calls.out, 1);
-});
-
-test("each retry uses the latest preference and explicit allowance is applied once", t => {
-  const env = harness(t);
-  env.load();
-  env.advance(1000);
-  env.storage.set(key, "allowed");
-  const sdk = visitor({ optedOut: true });
-  env.window.posthog = sdk.sdk;
-  env.advance(1000);
-  env.changed();
-  assert.equal(sdk.calls.in, 1);
-  assert.equal(sdk.calls.out, 0);
-  assert.equal(sdk.calls.inOptions[0]?.captureEventName, false);
-});
-
-test("another tab's saved preference updates an already loaded SDK without navigation", t => {
-  const env = harness(t, null);
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.load();
-  assert.equal(sdk.calls.reads, 0, "no choice leaves the native default untouched");
-  env.storage.set(key, "denied");
-  env.changed();
-  assert.equal(sdk.calls.out, 1);
-  env.storage.set(key, "allowed");
-  env.changed();
-  assert.equal(sdk.calls.in, 1);
-  assert.equal(sdk.calls.inOptions[0]?.captureEventName, false);
-});
-
-test("clearing a saved choice stops retries without changing SDK consent", t => {
-  const env = harness(t);
-  env.load();
-  env.storage.delete(key);
-  env.changed();
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.advance(60000);
-  assert.equal(sdk.calls.reads, 0);
-});
-
-test("no valid preference means no consent timer or SDK calls", t => {
-  const env = harness(t, "invalid");
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.load();
-  env.changed();
-  env.advance(60000);
-  assert.equal(env.scheduled, 0);
-  assert.equal(sdk.calls.reads, 0);
-});
-
-test("an absent preference starts no consent probes", t => {
-  const env = harness(t, null);
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.load();
-  env.advance(60000);
-  assert.equal(env.scheduled, 0);
-  assert.equal(sdk.calls.reads, 0);
-});
-
-test("an SDK that is not fully initialized can recover within the retry window", t => {
-  const env = harness(t);
-  const sdk = visitor();
-  let ready = false;
-  env.window.posthog = { ...sdk.sdk, has_opted_out_capturing() {
-    if (!ready) throw new Error("SDK is initializing");
-    return sdk.sdk.has_opted_out_capturing();
-  } };
-  env.load();
-  ready = true;
-  env.advance(1000);
-  assert.equal(sdk.calls.out, 1);
-});
-
-test("disposal cancels retry work and removes lifecycle listeners", t => {
-  const env = harness(t);
-  env.load();
-  env.window.__trDocsFooterAdapter.dispose();
-  const sdk = visitor();
-  env.window.posthog = sdk.sdk;
-  env.changed();
-  env.advance(60000);
-  assert.equal(sdk.calls.reads, 0);
+test("footer leaves analytics and saved preferences to Mintlify and the website", t => {
+  for (const hostname of ["localhost", "traceroot.ai"]) {
+    for (const choice of [undefined, "allowed", "denied"]) {
+      for (const token of [config.integrations.posthog.apiKey, "another-project"]) {
+        const env = harness(t, { choice, token, hostname });
+        env.document.dispatchEvent(new Event("DOMContentLoaded"));
+        env.window.dispatchEvent(new Event("load"));
+        env.window.dispatchEvent(new Event("mintlify:navigate"));
+        env.storage.set(key, "denied");
+        const changed = new Event("storage");
+        Object.defineProperty(changed, "key", { value: key });
+        env.window.dispatchEvent(changed);
+        assert.deepEqual(env.activity, {
+          storageReads: 0, storageWrites: 0, sdkReads: 0, sdkCalls: 0, timers: 0,
+        }, `${hostname}: ${choice ?? "no choice"}, ${token}`);
+        assert.equal(env.storage.get(key), "denied");
+      }
+    }
+  }
 });
 
 test("missing footer styles leave native content intact without injecting enhancement markup", t => {
-  const env = harness(t, null);
+  const env = harness(t);
   const additions = [];
   const brand = { querySelector: () => ({}) };
   const columns = { style: { gridTemplateColumns: "repeat(2, 1fr)" } };
@@ -215,7 +77,7 @@ test("missing footer styles leave native content intact without injecting enhanc
   env.window.__trDocsFooterAdapter.refresh();
   assert.equal(additions.length, 0);
   assert.deepEqual(row.children, [brand, columns, socials]);
-  assert.equal(env.scheduled, 0, "native fallback needs no readiness polling");
+  assert.equal(env.activity.timers, 0, "native fallback needs no readiness polling");
 });
 
 test("the functional primary contrasts with white and the API response surface", () => {

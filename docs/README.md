@@ -35,7 +35,7 @@ npx --yes mint@4.2.1204 broken-links
 ```
 
 From the repository root, run `node --test tests/docs-*.test.mjs` for
-consent lifecycle, functional color and embedded font checks. These also run in CI.
+analytics isolation, functional color and embedded font checks. These also run in CI.
 
 ## Brand styling
 
@@ -57,15 +57,14 @@ state, so it does not leave an empty block before the footer. When Mintlify make
 the bar available, its native sticky layout remains active.
 
 `docs.json` owns the native footer links, logo and social icons. `footer.js`
-adds the brand description, existing legal and preference controls, and animated
+adds the brand description, legal links, website-preferences entry, and animated
 wordmark. A bounded layout adapter aligns the advanced footer to the article
 and pagination without moving Mintlify-owned nodes or changing sidebar
 scrolling. It refreshes on `mintlify:navigate` and observes article resizing;
 it does not poll for the footer. Without the script, native links remain visible.
 It adds no framework or analytics SDK.
-Its verified visitor-SDK consent boundary is documented in `brand/README.md`.
-Check that boundary on a connected deployment before treating it as a complete
-production consent manager.
+The analytics ownership and website-preferences fallback are documented in
+`brand/README.md`. Mintlify retains its existing integration behavior.
 
 Brand assets and fonts are snapshots of the website, with sources listed in
 `brand/README.md`. `brand/fonts.css` embeds both website WOFF2 snapshots so the

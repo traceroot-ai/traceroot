@@ -46,7 +46,7 @@
   color: var(--tr-text);
 }
 
-.tr-docs-footer :is(a, button, input):focus-visible {
+.tr-docs-footer :is(a, button):focus-visible {
   outline: 2px solid var(--tr-link);
   outline-offset: 4px;
 }
@@ -234,22 +234,6 @@
   line-height: 1.6;
 }
 
-.tr-docs-footer__choice {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 24px;
-  font-size: 14px;
-}
-
-.tr-docs-footer__choice input {
-  accent-color: var(--tr-brand);
-}
-
-.tr-docs-footer__dialog [hidden] {
-  display: none;
-}
-
 .tr-docs-footer__actions {
   display: flex;
   justify-content: flex-end;
@@ -263,11 +247,6 @@
   border: 1px solid var(--tr-border);
   font-size: 13px;
   line-height: 18px;
-}
-
-.tr-docs-footer .tr-docs-footer__actions [data-tr-action="save"] {
-  background: var(--tr-brand);
-  color: #0b1015;
 }
 
 @media (min-width: 1024px) {
