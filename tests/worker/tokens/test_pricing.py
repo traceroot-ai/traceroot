@@ -697,6 +697,15 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-fable-5[1m]", "claude-fable-5"),
     ("anthropic/claude-fable-5", "claude-fable-5"),
     ("us.anthropic.claude-fable-5-20260701-v1:0", "claude-fable-5"),
+    # Fable 5.1 / 5.2 — priced on their own entries, not the Fable 5 one
+    ("claude-fable-5-1", "claude-fable-5-1"),
+    ("claude-fable-5-1[1m]", "claude-fable-5-1"),
+    ("anthropic/claude-fable-5-1", "claude-fable-5-1"),
+    ("us.anthropic.claude-fable-5-1-20261001-v1:0", "claude-fable-5-1"),
+    ("claude-fable-5-2", "claude-fable-5-2"),
+    ("claude-fable-5-2[1m]", "claude-fable-5-2"),
+    ("anthropic/claude-fable-5-2", "claude-fable-5-2"),
+    ("us.anthropic.claude-fable-5-2-20261109-v1:0", "claude-fable-5-2"),
     # Opus 5 — plain, [1m] variant, anthropic/ prefix, Bedrock, Vertex
     ("claude-opus-5", "claude-opus-5"),
     ("claude-opus-5[1m]", "claude-opus-5"),
@@ -792,10 +801,29 @@ class TestClaudeBedrockAndVertexIds:
         ]
         assert matching == [family], f"{model_id} matched {matching}"
 
+    @pytest.mark.parametrize("family", ["claude-fable-5", "claude-fable-5-1", "claude-fable-5-2"])
+    @pytest.mark.parametrize("suffix", ["", "[1m]"])
+    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
+    def test_fable_ids_match_only_their_entry(self, real_cache, family, suffix, prefix):
+        # The Fable 5 pattern once swallowed the -1 / -2 version as a date suffix.
+        if prefix == "anthropic." and suffix:
+            pytest.skip("[1m] is not a Bedrock form")
+        model_id = prefix + family + suffix
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [family], f"{model_id} matched {matching}"
+
     @pytest.mark.parametrize(
         "model_name,rates",
         [
             # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            ("claude-fable-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
+            # Fable 5.1 / 5.2 read cache at 0.025x input.
+            ("claude-fable-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
+            ("claude-fable-5-2", (8e-6, 4e-5, 2e-7, 1e-5, 1.6e-5)),
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
             ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.

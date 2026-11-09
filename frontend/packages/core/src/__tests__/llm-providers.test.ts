@@ -87,6 +87,16 @@ describe("ADAPTER_MODELS", () => {
     expect(anthropic?.models.map((model) => model.id)).toContain(DIGEST_SUMMARY_SYSTEM_MODEL_ID);
   });
 
+  it("offers the Fable models via BYOK only, never as system models", () => {
+    const byokIds = ADAPTER_MODELS.anthropic.map((model) => model.id);
+    const systemIds = SYSTEM_MODELS.flatMap((system) => system.models.map((model) => model.id));
+
+    for (const id of ["claude-fable-5-2", "claude-fable-5-1", "claude-fable-5"]) {
+      expect(byokIds).toContain(id);
+      expect(systemIds).not.toContain(id);
+    }
+  });
+
   describe("apiProtocol consistency with SYSTEM_MODELS", () => {
     const systemModelMap = new Map<string, { apiProtocol: string; provider: string }>();
     for (const system of SYSTEM_MODELS) {
