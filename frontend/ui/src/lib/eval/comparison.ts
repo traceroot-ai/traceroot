@@ -261,8 +261,10 @@ export function readScore(score: ComparisonScore | undefined | null): TypedValue
  * the caller's rows arrived in (that order is undefined for a bare Prisma `include`, and
  * differs between callers), so the same data classifies the same way everywhere. The
  * version the run DECLARED wins, since that is the one it ran with. Only when no row
- * carries it does the highest scorerVersion win, compared bytewise to match the
+ * carries it does the highest scorerVersion win, by JS string order, which matches the
  * `COLLATE "C"` tie-break in the run read's SQL.
+ * shortcut: JS compares UTF-16 code units and "C" compares UTF-8 bytes; they only disagree
+ * for versions holding characters above U+FFFF. Compare code points if such versions appear.
  */
 export function latestScoreByName(
   scores: readonly ComparisonScore[] | undefined,
