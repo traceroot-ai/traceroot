@@ -88,7 +88,7 @@ describe("ADAPTER_MODELS", () => {
   });
 
   it("offers the Fable models via BYOK only, never as system models", () => {
-    const byokIds = ADAPTER_MODELS.anthropic.map((model) => model.id);
+    const byokIds = ADAPTER_MODELS.anthropic?.map((model) => model.id);
     const systemIds = SYSTEM_MODELS.flatMap((system) => system.models.map((model) => model.id));
 
     for (const id of ["claude-fable-5-2", "claude-fable-5-1", "claude-fable-5"]) {
