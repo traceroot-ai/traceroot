@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ADAPTER_CONFIG, ADAPTER_MODELS } from "@traceroot/core";
+import { ADAPTER_CONFIG, ADAPTER_MODELS, defaultAdapterModel } from "@traceroot/core";
 
 const mocks = vi.hoisted(() => ({
   getModelProviders: vi.fn(),
@@ -269,7 +269,8 @@ describe("the models a saved key starts with", () => {
     // The first seeded id is the default every picker opens on. Seeding the
     // newest model of each tier first made OpenAI's the $10 / $50 tier, where
     // the catalogue's order gives the $2 / $10 one.
-    expect(seedFor(adapter)[0]).toBe(ADAPTER_MODELS[adapter]?.[0]?.id);
+    const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
+    expect(seedFor(adapter)[0]).toBe(defaultAdapterModel(adapter, catalogue));
   });
 
   it("follows the catalogue when a refresh moves a provider's default", () => {

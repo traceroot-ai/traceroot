@@ -7,6 +7,7 @@ import {
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DIGEST_SUMMARY_SYSTEM_MODEL_ID,
+  defaultAdapterModel,
   defaultApiProtocol,
   isDecisionModelId,
   ADAPTER_CONFIG,
@@ -39,8 +40,10 @@ describe("isDecisionModelId", () => {
 });
 
 describe("ADAPTER_MODELS", () => {
-  it("lists claude-opus-5-5 first, so it is the default Anthropic model", () => {
-    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-opus-5-5");
+  it("lists the Fable family first but defaults Anthropic to claude-opus-5-5", () => {
+    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-fable-5-2");
+    const ids = ADAPTER_MODELS["anthropic"]?.map((model) => model.id) ?? [];
+    expect(defaultAdapterModel(LLMAdapter.ANTHROPIC, ids)).toBe("claude-opus-5-5");
   });
 
   it("contains no duplicate model IDs within a single adapter", () => {

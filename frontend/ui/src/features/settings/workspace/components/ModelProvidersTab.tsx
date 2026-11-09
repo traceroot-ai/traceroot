@@ -29,6 +29,7 @@ import {
   ADAPTER_AVAILABLE_PROTOCOLS,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  defaultAdapterModel,
   defaultApiProtocol,
 } from "@traceroot/core";
 import type { LLMAdapter } from "@traceroot/core";
@@ -261,9 +262,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
     if (curatedModels) {
       const used = new Set(customModels);
-      const next = curatedModels.find((m) => !used.has(m.id));
+      const ids = curatedModels.map((m) => m.id);
+      const next = [defaultAdapterModel(adapter as LLMAdapter, ids), ...ids].find(
+        (id) => id && !used.has(id),
+      );
       if (!next) return;
-      setCustomModels([...customModels, next.id]);
+      setCustomModels([...customModels, next]);
     } else {
       setCustomModels([...customModels, ""]);
     }
