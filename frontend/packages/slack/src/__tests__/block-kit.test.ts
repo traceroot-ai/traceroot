@@ -39,6 +39,38 @@ describe("buildDigestAlertBlocks", () => {
     );
   });
 
+  it("labels each detector's count as what it flagged, so it is not read as part of the header total", () => {
+    // Three detectors flag the same finding: the header says 1, and every line says
+    // what that detector flagged. Without the verb the lines would read as 3 findings.
+    const shared = (id: string, name: string) => ({
+      detectorId: id,
+      detectorName: name,
+      findingCount: 1,
+      latestTraceId: "abc12345",
+    });
+    const blocks = buildDigestAlertBlocks({
+      ...digestBase,
+      total: 1,
+      entries: [shared("d1", "Failure v1"), shared("d2", "Failure v2"), shared("d3", "Logic v1")],
+    }) as any[];
+
+    const header = blocks.find((b) => b.type === "header");
+    expect(header.text.text).toContain("1 finding in checkout-svc");
+
+    const lines = blocks
+      .filter((b) => b.type === "section")
+      .map((b) => b.text.text as string)
+      .filter((t) => t.includes("Failure") || t.includes("Logic"));
+    expect(lines).toHaveLength(3);
+    for (const line of lines) expect(line).toContain("— flagged 1 finding ·");
+  });
+
+  it("pluralises the flagged count", () => {
+    const text = JSON.stringify(buildDigestAlertBlocks(digestBase));
+    expect(text).toContain("— flagged 4 findings");
+    expect(text).toContain("— flagged 1 finding");
+  });
+
   it("groups content with dividers and a window/detector-count context footer", () => {
     const blocks = buildDigestAlertBlocks(digestBase);
     expect(blocks.filter((b: any) => b.type === "divider")).toHaveLength(2);

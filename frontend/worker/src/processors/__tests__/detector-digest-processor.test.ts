@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { DetectorWindowSummary } from "../../detection/findings-reader.js";
 
-const readDetectorWindowSummary = vi.fn();
+const readDetectorWindowCounts = vi.fn();
 const detectorFindMany = vi.fn();
 const projectFindFirst = vi.fn();
 const sendDigestAlertSlack = vi.fn();
@@ -9,7 +10,7 @@ const generateDigestSummary = vi.fn();
 const aiMessageCreate = vi.fn();
 
 vi.mock("../../detection/findings-reader.js", () => ({
-  readDetectorWindowSummary: (...a: any[]) => readDetectorWindowSummary(...a),
+  readDetectorWindowCounts: (...a: any[]) => readDetectorWindowCounts(...a),
 }));
 
 vi.mock("@traceroot/core", () => ({
@@ -39,6 +40,20 @@ vi.mock("../../queues/digest-queue.js", () => ({
   createRedisConnection: vi.fn(),
 }));
 
+// What the backend returns: the per-detector map plus the distinct finding total.
+// With no shared findings the distinct total is just the sum of the per-detector
+// counts, which is the default here; pass `distinct` to model co-triggering.
+// The endpoint also returns run_count, which the reader's type leaves out.
+type Counts = Record<string, DetectorWindowSummary[string] & { run_count: number }>;
+const counts = (
+  data: Counts,
+  distinct: number = Object.values(data).reduce((n, d) => n + d.finding_count, 0),
+) => ({ data, distinctFindingCount: distinct });
+
+// A backend that predates the field: no distinct total at all. (Not `counts(data,
+// undefined)`: an explicit `undefined` would trigger the default parameter above.)
+const withoutTotal = (data: Counts) => ({ data, distinctFindingCount: undefined });
+
 const PROJECT = {
   name: "Acme Corp",
   rcaModel: null,
@@ -55,10 +70,12 @@ const PROJECT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  readDetectorWindowSummary.mockResolvedValue({
-    d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] },
-    d2: { finding_count: 1, run_count: 3, sample_trace_ids: ["trace-d2"] },
-  });
+  readDetectorWindowCounts.mockResolvedValue(
+    counts({
+      d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] },
+      d2: { finding_count: 1, run_count: 3, sample_trace_ids: ["trace-d2"] },
+    }),
+  );
   detectorFindMany.mockResolvedValue([
     { id: "d1", name: "Latency", enableRca: true },
     { id: "d2", name: "Errors", enableRca: true },
@@ -105,6 +122,19 @@ describe("flushDigest", () => {
       { id: "d1", name: "Latency", enableRca: true },
       { id: "d2", name: "Errors", enableRca: false },
     ]);
+    // Second read: the distinct total over the reported detector (d1) alone.
+    readDetectorWindowCounts.mockResolvedValueOnce(
+      counts(
+        {
+          d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] },
+          d2: { finding_count: 1, run_count: 3, sample_trace_ids: ["trace-d2"] },
+        },
+        5,
+      ),
+    );
+    readDetectorWindowCounts.mockResolvedValueOnce(
+      counts({ d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] } }, 4),
+    );
 
     await run();
 
@@ -136,10 +166,12 @@ describe("flushDigest", () => {
   });
 
   it("sends nothing when no detector has findings in the window", async () => {
-    readDetectorWindowSummary.mockResolvedValue({
-      d1: { finding_count: 0, run_count: 9, sample_trace_ids: [] },
-      d2: { finding_count: 0, run_count: 3, sample_trace_ids: [] },
-    });
+    readDetectorWindowCounts.mockResolvedValue(
+      counts({
+        d1: { finding_count: 0, run_count: 9, sample_trace_ids: [] },
+        d2: { finding_count: 0, run_count: 3, sample_trace_ids: [] },
+      }),
+    );
 
     await run();
 
@@ -185,7 +217,7 @@ describe("flushDigest", () => {
       expect.objectContaining({ where: { id: expect.any(String), deleteTime: null } }),
     );
 
-    expect(readDetectorWindowSummary).not.toHaveBeenCalled(); // resolved first, bailed before the summary read
+    expect(readDetectorWindowCounts).not.toHaveBeenCalled(); // resolved first, bailed before the summary read
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
@@ -199,21 +231,23 @@ describe("flushDigest", () => {
 
     await run();
 
-    expect(readDetectorWindowSummary).not.toHaveBeenCalled();
+    expect(readDetectorWindowCounts).not.toHaveBeenCalled();
     expect(detectorFindMany).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
 
   it("passes the generated summary to both channels and writes an AIMessage", async () => {
-    readDetectorWindowSummary.mockResolvedValue({
-      d1: {
-        finding_count: 4,
-        run_count: 9,
-        sample_trace_ids: ["trace-d1"],
-        sample_summaries: ["s1", "s2"],
-      },
-    });
+    readDetectorWindowCounts.mockResolvedValue(
+      counts({
+        d1: {
+          finding_count: 4,
+          run_count: 9,
+          sample_trace_ids: ["trace-d1"],
+          sample_summaries: ["s1", "s2"],
+        },
+      }),
+    );
     detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
     generateDigestSummary.mockResolvedValue({
       summary: "Payments API is down.",
@@ -227,7 +261,7 @@ describe("flushDigest", () => {
       },
     });
     await run();
-    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
+    expect(readDetectorWindowCounts.mock.calls[0][3]).toEqual({ includeSummaries: true });
     expect(generateDigestSummary.mock.calls[0][0].detectors).toEqual([
       { name: "Latency", findingCount: 4, sampleSummaries: ["s1", "s2"] },
     ]);
@@ -332,7 +366,7 @@ describe("flushDigest", () => {
     await run();
     expect(generateDigestSummary).not.toHaveBeenCalled();
     // Blocked workspaces also skip the extra ClickHouse summaries join.
-    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+    expect(readDetectorWindowCounts.mock.calls[0][3]).toEqual({ includeSummaries: false });
     expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
   });
 
@@ -344,7 +378,7 @@ describe("flushDigest", () => {
       try {
         await run();
         expect(generateDigestSummary).not.toHaveBeenCalled();
-        expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+        expect(readDetectorWindowCounts.mock.calls[0][3]).toEqual({ includeSummaries: false });
         expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
       } finally {
         vi.unstubAllEnvs();
@@ -356,9 +390,176 @@ describe("flushDigest", () => {
     vi.stubEnv("DIGEST_SUMMARY_ENABLED", "0");
     try {
       await run();
-      expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
+      expect(readDetectorWindowCounts.mock.calls[0][3]).toEqual({ includeSummaries: true });
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("flushDigest distinct finding total", () => {
+  const trace = (id: string) => ({ finding_count: 1, run_count: 1, sample_trace_ids: [id] });
+
+  it("counts a finding shared by co-triggering detectors once, not once per detector", async () => {
+    // Three detectors fire on the same trace and carry the same finding_id.
+    readDetectorWindowCounts.mockResolvedValue(
+      counts({ d1: trace("t-1"), d2: trace("t-1"), d3: trace("t-1") }, 1),
+    );
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "Failure v1", enableRca: true },
+      { id: "d2", name: "Failure v2", enableRca: true },
+      { id: "d3", name: "Logic v1", enableRca: true },
+    ]);
+
+    await run();
+
+    const slackArg = sendDigestAlertSlack.mock.calls[0][0];
+    expect(slackArg.total).toBe(1);
+    expect(sendDigestAlertEmail.mock.calls[0][0].total).toBe(1);
+    // The per-detector counts are untouched: each detector did flag that finding.
+    expect(slackArg.entries.map((e: { findingCount: number }) => e.findingCount)).toEqual([
+      1, 1, 1,
+    ]);
+  });
+
+  it("reads once when every detector that fired is reported", async () => {
+    readDetectorWindowCounts.mockResolvedValue(counts({ d1: trace("t-1"), d2: trace("t-1") }, 1));
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: true },
+    ]);
+
+    await run();
+
+    expect(readDetectorWindowCounts).toHaveBeenCalledTimes(1);
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(1);
+  });
+
+  it("ignores detectors that ran without a finding when deciding whether to re-read", async () => {
+    readDetectorWindowCounts.mockResolvedValue(
+      counts(
+        {
+          d1: trace("t-1"),
+          d2: { finding_count: 0, run_count: 5, sample_trace_ids: [] },
+        },
+        1,
+      ),
+    );
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "A", enableRca: true }]);
+
+    await run();
+
+    // d2 produced no finding, so the unscoped distinct total already equals d1's.
+    expect(readDetectorWindowCounts).toHaveBeenCalledTimes(1);
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(1);
+  });
+
+  it("re-reads the total scoped to the reported detectors when others fired and are dropped", async () => {
+    // d1 (reported) and d2 (RCA off) both flagged f-1; d2 alone flagged f-2 and f-3.
+    readDetectorWindowCounts
+      .mockResolvedValueOnce(
+        counts(
+          {
+            d1: { finding_count: 1, run_count: 2, sample_trace_ids: ["t-1"] },
+            d2: { finding_count: 3, run_count: 3, sample_trace_ids: ["t-3"] },
+          },
+          3,
+        ),
+      )
+      .mockResolvedValueOnce(
+        counts({ d1: { finding_count: 1, run_count: 2, sample_trace_ids: ["t-1"] } }, 1),
+      );
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: false },
+    ]);
+
+    await run();
+
+    expect(readDetectorWindowCounts).toHaveBeenCalledTimes(2);
+    const [, , , scopedOpts] = readDetectorWindowCounts.mock.calls[1];
+    expect(scopedOpts).toEqual({ detectorIds: ["d1"] });
+    // Not 3 (everything that fired) and not 4 (1 + 3 summed): the one reported finding.
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(1);
+  });
+
+  it("does not request the LLM summaries again on the scoped re-read", async () => {
+    readDetectorWindowCounts
+      .mockResolvedValueOnce(counts({ d1: trace("t-1"), d2: trace("t-2") }, 2))
+      .mockResolvedValueOnce(counts({ d1: trace("t-1") }, 1));
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: false },
+    ]);
+
+    await run();
+
+    expect(readDetectorWindowCounts.mock.calls[0][3]).toEqual({ includeSummaries: true });
+    expect(readDetectorWindowCounts.mock.calls[1][3]).toEqual({ detectorIds: ["d1"] });
+  });
+
+  it("falls back to the per-detector sum, with a warning, when the backend omits the total", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    readDetectorWindowCounts.mockResolvedValue(
+      withoutTotal({ d1: trace("t-1"), d2: trace("t-2") }),
+    );
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: true },
+    ]);
+
+    await run();
+
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("distinct finding count"));
+    // No scoped re-read can help a backend that does not report the field.
+    expect(readDetectorWindowCounts).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("falls back to the sum of the reported detectors when the scoped re-read omits the total", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    readDetectorWindowCounts
+      .mockResolvedValueOnce(counts({ d1: trace("t-1"), d2: trace("t-2") }, 2))
+      .mockResolvedValueOnce(withoutTotal({ d1: trace("t-1") }));
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: false },
+    ]);
+
+    await run();
+
+    // Sum over the REPORTED detectors only (d1), not over everything that fired.
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("sends nothing, rather than a wrong count, when the scoped re-read fails", async () => {
+    readDetectorWindowCounts
+      .mockResolvedValueOnce(counts({ d1: trace("t-1"), d2: trace("t-2") }, 2))
+      .mockRejectedValueOnce(new Error("Backend API error: 503"));
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: false },
+    ]);
+
+    await expect(run()).rejects.toThrow("Backend API error: 503");
+    expect(sendDigestAlertSlack).not.toHaveBeenCalled();
+    expect(sendDigestAlertEmail).not.toHaveBeenCalled();
+  });
+
+  it("logs the distinct total", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    readDetectorWindowCounts.mockResolvedValue(counts({ d1: trace("t-1"), d2: trace("t-1") }, 1));
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "A", enableRca: true },
+      { id: "d2", name: "B", enableRca: true },
+    ]);
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("findings=1 detectors=2"));
+    log.mockRestore();
   });
 });
