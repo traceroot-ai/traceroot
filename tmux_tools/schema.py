@@ -72,7 +72,7 @@ class WelcomeScreen:
         parts.append("\n" + render_banner() + "\n")
 
         parts.append(f"""
-Welcome to the TraceRoot {self.title}.
+Welcome to the traceroot {self.title}.
 
     * To quit, press Ctrl-Q
     * To switch windows, press Shift+Left or Shift+Right

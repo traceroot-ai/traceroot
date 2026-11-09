@@ -53,4 +53,4 @@ def test_welcome_screen_leads_with_the_banner():
     text = screen.render_text()
 
     assert "continuously improves your ai agents" in text
-    assert "Welcome to the TraceRoot development environment." in text
+    assert "Welcome to the traceroot development environment." in text
