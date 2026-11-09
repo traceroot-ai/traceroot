@@ -76,7 +76,7 @@ Run this from the root of the repository you want to trace:
 npx -y traceroot-cli@latest setup
 ```
 
-Works with Claude Code, Codex, Cursor, OpenCode, Pi, and Antigravity.
+Works with Claude Code, Codex, Cursor, OpenCode, Pi, Antigravity, and more.
 
 The [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in through your browser (where you can create a free account), writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
 
