@@ -203,52 +203,6 @@
   display: none;
 }
 
-.tr-docs-footer__dialog {
-  width: min(440px, calc(100% - 40px));
-  max-height: calc(100dvh - 48px);
-  margin: auto;
-  padding: 28px;
-  border: 1px solid var(--tr-border);
-  border-radius: 0;
-  background: #fff;
-  color: var(--tr-text);
-  overflow: auto;
-}
-
-.tr-docs-footer__dialog::backdrop {
-  background: rgb(0 0 0 / 35%);
-}
-
-.tr-docs-footer__dialog h2 {
-  margin: 0 0 12px;
-  color: var(--tr-text);
-  font-size: 22px;
-  font-weight: 500;
-  line-height: 1.3;
-}
-
-.tr-docs-footer__dialog p {
-  margin: 0 0 20px;
-  color: var(--tr-muted);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.tr-docs-footer__actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.tr-docs-footer__actions :is(a, button) {
-  min-height: 36px;
-  padding: 8px 12px;
-  border: 1px solid var(--tr-border);
-  font-size: 13px;
-  line-height: 18px;
-}
-
 @media (min-width: 1024px) {
   #footer.tr-docs-footer::before {
     position: absolute;

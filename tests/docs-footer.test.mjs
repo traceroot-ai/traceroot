@@ -5,21 +5,15 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../docs/footer.js", import.meta.url), "utf8");
 const config = JSON.parse(readFileSync(new URL("../docs/docs.json", import.meta.url), "utf8"));
-const key = "traceroot-analytics-consent";
-
-function harness(t, { choice, token = config.integrations.posthog.apiKey, hostname = "localhost" } = {}) {
-  const storage = new Map(choice ? [[key, choice]] : []);
-  const activity = { storageReads: 0, storageWrites: 0, sdkReads: 0, sdkCalls: 0, timers: 0 };
-  const sdk = {
-    config: { token },
-    has_opted_out_capturing() { activity.sdkCalls++; return false; },
-    opt_out_capturing() { activity.sdkCalls++; },
-    opt_in_capturing() { activity.sdkCalls++; },
-  };
+function harness(t) {
+  const accesses = [];
   const window = new EventTarget();
-  Object.defineProperty(window, "posthog", { get() { activity.sdkReads++; return sdk; } });
+  Object.defineProperty(window, "posthog", {
+    get() { accesses.push("SDK read"); },
+    set() { accesses.push("SDK replacement"); },
+  });
   Object.assign(window, {
-    setTimeout() { activity.timers++; return 1; },
+    setTimeout() { accesses.push("timer"); return 1; },
     clearTimeout() {},
   });
   const document = Object.assign(new EventTarget(), {
@@ -28,36 +22,27 @@ function harness(t, { choice, token = config.integrations.posthog.apiKey, hostna
   });
   vm.runInNewContext(source, {
     window, document, AbortController,
-    location: { hostname },
+    location: { hostname: "traceroot.ai", pathname: "/docs/getting-started/introduction" },
     localStorage: {
-      getItem(name) { activity.storageReads++; return storage.get(name) ?? null; },
-      setItem(name, value) { activity.storageWrites++; storage.set(name, value); },
+      getItem() { accesses.push("storage read"); return "denied"; },
+      setItem() { accesses.push("storage write"); },
+      removeItem() { accesses.push("storage removal"); },
     },
     getComputedStyle: () => ({ display: "block" }),
   });
   t.after(() => window.__trDocsFooterAdapter.dispose());
-  return { window, document, storage, activity };
+  return { window, document, accesses };
 }
 
-test("footer leaves analytics and saved preferences to Mintlify and the website", t => {
-  for (const hostname of ["localhost", "traceroot.ai"]) {
-    for (const choice of [undefined, "allowed", "denied"]) {
-      for (const token of [config.integrations.posthog.apiKey, "another-project"]) {
-        const env = harness(t, { choice, token, hostname });
-        env.document.dispatchEvent(new Event("DOMContentLoaded"));
-        env.window.dispatchEvent(new Event("load"));
-        env.window.dispatchEvent(new Event("mintlify:navigate"));
-        env.storage.set(key, "denied");
-        const changed = new Event("storage");
-        Object.defineProperty(changed, "key", { value: key });
-        env.window.dispatchEvent(changed);
-        assert.deepEqual(env.activity, {
-          storageReads: 0, storageWrites: 0, sdkReads: 0, sdkCalls: 0, timers: 0,
-        }, `${hostname}: ${choice ?? "no choice"}, ${token}`);
-        assert.equal(env.storage.get(key), "denied");
-      }
-    }
-  }
+test("footer does not access analytics or consent storage", t => {
+  const env = harness(t);
+  env.document.dispatchEvent(new Event("DOMContentLoaded"));
+  env.window.dispatchEvent(new Event("load"));
+  env.window.dispatchEvent(new Event("mintlify:navigate"));
+  const changed = new Event("storage");
+  Object.defineProperty(changed, "key", { value: "traceroot-analytics-consent" });
+  env.window.dispatchEvent(changed);
+  assert.deepEqual(env.accesses, []);
 });
 
 test("missing footer styles leave native content intact without injecting enhancement markup", t => {
@@ -77,7 +62,7 @@ test("missing footer styles leave native content intact without injecting enhanc
   env.window.__trDocsFooterAdapter.refresh();
   assert.equal(additions.length, 0);
   assert.deepEqual(row.children, [brand, columns, socials]);
-  assert.equal(env.activity.timers, 0, "native fallback needs no readiness polling");
+  assert.deepEqual(env.accesses, [], "native fallback needs no analytics or readiness polling");
 });
 
 test("the functional primary contrasts with white and the API response surface", () => {

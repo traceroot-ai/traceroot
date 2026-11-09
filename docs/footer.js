@@ -9,7 +9,6 @@
     mounted.wordmarkDispose?.();
     mounted.resize.disconnect();
     mounted.events.abort();
-    if (mounted.dialog.open) mounted.dialog.close();
     mounted.additions.forEach(node => node.remove());
     mounted.classes.forEach(([node, name]) => node.classList.remove(name));
     mounted.host.style.removeProperty("margin-top");
@@ -23,27 +22,16 @@
     return `
       <div class="tr-docs-footer__legal">
         <span>© ${new Date().getFullYear()} traceroot</span>
-        <nav class="tr-docs-footer__policies" aria-label="Legal and preferences">
+        <nav class="tr-docs-footer__policies" aria-label="Legal">
           <a href="https://traceroot.ai/privacy">Privacy</a>
           <a href="https://traceroot.ai/terms">Terms</a>
-          <button type="button" data-tr-action="cookies">Cookie settings</button>
         </nav>
         <button type="button" data-tr-action="top">Back to top ↑</button>
       </div>
       <div class="tr-docs-footer__wordmark" aria-hidden="true">
         <img src="${assets}footer-wordmark.svg" width="800" height="128" alt="">
         <canvas width="800" height="128" hidden></canvas>
-      </div>
-      <dialog class="tr-docs-footer__dialog" aria-labelledby="tr-docs-cookie-title" aria-describedby="tr-docs-cookie-description">
-        <h2 id="tr-docs-cookie-title">Cookie preferences</h2>
-        <p id="tr-docs-cookie-description">Analytics preferences are unavailable on this documentation. You can manage website analytics using Cookie settings in the traceroot.ai footer; those settings may not apply to this page.</p>
-        <form method="dialog">
-          <div class="tr-docs-footer__actions">
-            <button type="submit">Cancel</button>
-            <a href="https://traceroot.ai/">Open website preferences</a>
-          </div>
-        </form>
-      </dialog>`;
+      </div>`;
   }
 
   function mountWordmark() {
@@ -64,24 +52,17 @@
     }
   }
 
-  function attachInteractions(node, events) {
-    const dialog = node.querySelector("dialog");
-    node.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-tr-action]");
-      if (!button || !node.contains(button)) return;
-      if (button.dataset.trAction === "top") {
-        const title = document.getElementById("page-title");
-        if (title) {
-          const hadTabIndex = title.hasAttribute("tabindex");
-          if (!hadTabIndex) title.setAttribute("tabindex", "-1");
-          title.focus({ preventScroll: true });
-          if (!hadTabIndex) title.addEventListener("blur", () => title.removeAttribute("tabindex"), { once: true, signal: events.signal });
-        }
-        window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-      } else if (button.dataset.trAction === "cookies") dialog.showModal();
+  function attachBackToTop(node, events) {
+    node.querySelector('[data-tr-action="top"]').addEventListener("click", () => {
+      const title = document.getElementById("page-title");
+      if (title) {
+        const hadTabIndex = title.hasAttribute("tabindex");
+        if (!hadTabIndex) title.setAttribute("tabindex", "-1");
+        title.focus({ preventScroll: true });
+        if (!hadTabIndex) title.addEventListener("blur", () => title.removeAttribute("tabindex"), { once: true, signal: events.signal });
+      }
+      window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
     }, { signal: events.signal });
-
-    return dialog;
   }
 
   // Advanced footers sit below the sidebar. Align with the article without
@@ -119,7 +100,6 @@
   function mount() {
     const host = document.querySelector("footer#footer.advanced-footer[data-layout-item='footer']");
     if (mounted?.host === host && mounted.node.isConnected) {
-      if (mounted.dialog.open) mounted.dialog.close();
       observeArticle();
       return;
     }
@@ -166,8 +146,8 @@
       [columns, "tr-docs-footer__columns"], [socials, "tr-docs-footer__connect"],
     ];
     classes.forEach(([element, name]) => element.classList.add(name));
-    mounted = { host, wrapper, node, events, additions, classes,
-      dialog: attachInteractions(node, events), resize: new ResizeObserver(alignFooter) };
+    mounted = { host, wrapper, node, events, additions, classes, resize: new ResizeObserver(alignFooter) };
+    attachBackToTop(node, events);
     window.addEventListener("resize", alignFooter, { signal: events.signal });
     observeArticle();
     mountWordmark();

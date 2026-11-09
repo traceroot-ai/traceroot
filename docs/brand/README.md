@@ -64,15 +64,9 @@ and article alignment in one adapter. Removing or failing to load the script
 leaves the native links visible. Check this boundary after Mintlify client
 upgrades and on generated API pages.
 
-## Analytics preference boundary
+## Analytics ownership
 
 Mintlify owns the PostHog integration configured in `docs.json`, including its
-initialization and existing persistence behavior. The footer only presents the
-website-preferences fallback: its Cookie settings dialog links to the existing
-preferences in the traceroot.ai footer. It neither accesses a visitor SDK nor
-reads or writes analytics consent storage.
-
-Website preferences may not apply to this documentation, as the dialog states.
-Managing consent directly in Docs requires a supported Mintlify integration;
-a module-private SDK or a hypothetical global instance is not such a contract.
-The integration configuration and its default collection policy stay unchanged.
+initialization, persistence and default collection policy. The footer only
+handles presentation and Back to top; it has no cookie-preferences UI and
+neither accesses a visitor SDK nor reads or writes analytics consent storage.
