@@ -221,6 +221,14 @@ export interface DaytonaSandboxLike {
   delete(): Promise<void>;
 }
 
+/** Fails to compile if the installed SDK drifts from what the provider relies on. */
+export type SdkMatchesDaytonaLike = import("@daytonaio/sdk").Daytona extends {
+  list(query?: { labels?: Record<string, string> }): AsyncIterable<{ id: string }>;
+}
+  ? true
+  : never;
+export const sdkMatchesDaytonaLike: SdkMatchesDaytonaLike = true;
+
 const DAYTONA_LABELS = { "traceroot.update-sandbox": "true" };
 
 /**

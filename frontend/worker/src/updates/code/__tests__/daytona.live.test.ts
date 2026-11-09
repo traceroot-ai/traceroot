@@ -23,12 +23,13 @@ describe.skipIf(!apiKey)("Daytona provider against the live service", () => {
     const provider = new DaytonaSandboxProvider(
       new Daytona({ apiKey, apiUrl: "https://app.daytona.io/api", target: "us" }) as never,
     );
-    const before = new Set(await provider.listLive());
+    const created: string[] = [];
     const mine: SandboxHandle[] = [];
     try {
       // A sandbox with the network blocked at creation.
       const blocked = await provider.create({ networkAccess: false });
       mine.push(blocked);
+      created.push(blocked.id);
       expect(blocked.networkAccess).toBe(false);
       const echo = await blocked.exec("echo ok");
       expect(echo.code).toBe(0);
@@ -64,6 +65,7 @@ describe.skipIf(!apiKey)("Daytona provider against the live service", () => {
       // A sandbox with network reaches a git host (the same command that failed above).
       const open = await provider.create({ networkAccess: true });
       mine.push(open);
+      created.push(open.id);
       expect(open.networkAccess).toBe(true);
       const ls = await open.exec("git ls-remote https://github.com/octocat/Hello-World.git HEAD", {
         timeoutSec: 60,
@@ -73,10 +75,10 @@ describe.skipIf(!apiKey)("Daytona provider against the live service", () => {
     } finally {
       for (const box of mine) await box.destroy().catch(() => undefined);
     }
-    // None of ours are left.
+    // None of the ones this test created are left (other processes' sandboxes are not ours to judge).
     const gone = await eventually(async () => {
-      const left = (await provider.listLive()).filter((id) => !before.has(id));
-      return left.length === 0;
+      const live = await provider.listLive();
+      return created.every((id) => !live.includes(id));
     });
     expect(gone).toBe(true);
   }, 300_000);

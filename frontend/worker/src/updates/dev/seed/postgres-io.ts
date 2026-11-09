@@ -28,6 +28,7 @@ export async function connectSlack(
   const who = await client.auth.test();
   if (!who.ok || !who.team_id || !who.user_id)
     throw new Error("Slack did not accept the bot token.");
+  const channel = await client.conversations.info({ channel: slack.channelId });
   await installationStore.storeInstallation({
     team: { id: who.team_id, name: who.team },
     enterprise: undefined,
@@ -36,7 +37,6 @@ export async function connectSlack(
     isEnterpriseInstall: false,
     metadata: JSON.stringify({ workspaceId }),
   } as never);
-  const channel = await client.conversations.info({ channel: slack.channelId });
   await prisma.slackIntegration.update({
     where: { workspaceId },
     data: { channelId: slack.channelId, channelName: channel.channel?.name ?? null },
