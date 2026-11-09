@@ -76,7 +76,7 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 npx -y traceroot-cli@latest setup
 ```
 
-支持 Claude Code、Codex、Cursor、OpenCode、Pi 和 Antigravity。
+支持 Claude Code、Codex、Cursor、OpenCode、Pi、Antigravity 等。
 
 [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 会通过浏览器引导你登录（也可在此创建免费账号），将项目 API 密钥写入应用的 env 文件，让 Claude Code 或 Codex 添加 SDK，并等待第一条追踪。需要 Node.js 20.12 或更高版本。
 

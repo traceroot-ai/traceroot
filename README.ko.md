@@ -76,7 +76,7 @@ traceroot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 �
 npx -y traceroot-cli@latest setup
 ```
 
-Claude Code, Codex, Cursor, OpenCode, Pi, Antigravity와 함께 사용할 수 있습니다.
+Claude Code, Codex, Cursor, OpenCode, Pi, Antigravity 등과 함께 사용할 수 있습니다.
 
 [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)는 브라우저로 로그인하고(무료 계정도 여기서 만들 수 있습니다), 프로젝트 API 키를 애플리케이션의 env 파일에 기록한 뒤, Claude Code 또는 Codex가 SDK를 추가하도록 하고 첫 트레이스가 도착할 때까지 기다립니다. Node.js 20.12 이상이 필요합니다.
 
