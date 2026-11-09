@@ -755,6 +755,8 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
+    ("claude-sonnet-4-0", "claude-sonnet-4"),
+    ("anthropic/claude-sonnet-4-0", "claude-sonnet-4"),
     ("us.anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
     ("anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
     ("us.anthropic.claude-3-5-haiku-20241022-v1:0", "claude-3-5-haiku"),
@@ -805,6 +807,9 @@ class TestClaudeBedrockAndVertexIds:
             if e["model_name"] != own and re.search(e["match_pattern"], model_id, re.IGNORECASE)
         ]
         assert others == [], f"{model_id} also matched {others}"
+        if model_id == own:
+            pattern = next(e["match_pattern"] for e in real_cache if e["model_name"] == own)
+            assert re.search(pattern, own, re.IGNORECASE), f"{own} misses its own pattern"
 
     @pytest.mark.parametrize(
         "model_name,rates",
