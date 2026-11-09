@@ -10,8 +10,9 @@
   --card-foreground: 210 25% 6%;
   --popover: 0 0% 100%;
   --popover-foreground: 210 25% 6%;
-  --primary: 177 80% 40%;
-  --primary-foreground: 210 25% 6%;
+  /* Website CTA: #14b8b0 with warm white #fffbf5. */
+  --primary: 177.07 80.39% 40%;
+  --primary-foreground: 36 100% 98.04%;
   --secondary: 240 9% 96%;
   --secondary-foreground: 210 25% 6%;
   --muted: 240 9% 96%;
@@ -52,8 +53,8 @@
   --card-foreground: 0 0% 95%;
   --popover: 210 22% 8%;
   --popover-foreground: 0 0% 95%;
-  --primary: 177 80% 40%;
-  --primary-foreground: 210 25% 6%;
+  --primary: 177.07 80.39% 40%;
+  --primary-foreground: 36 100% 98.04%;
   --secondary: 210 14% 14%;
   --secondary-foreground: 0 0% 95%;
   --muted: 210 14% 14%;
