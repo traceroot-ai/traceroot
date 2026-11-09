@@ -789,32 +789,24 @@ class TestClaudeBedrockAndVertexIds:
             f"{model_id} matched a different family than {expected_name}"
         )
 
-    @pytest.mark.parametrize("family", ["claude-opus-5-5", "claude-sonnet-5-5"])
-    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
-    def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
-        # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
-        model_id = prefix + family
-        matching = [
+    @pytest.mark.parametrize(
+        "model_id,own",
+        [
+            (prefix + e["modelName"], e["modelName"])
+            for e in _standard_price_entries()
+            for prefix in (
+                ["", "anthropic/", "anthropic."] if e["provider"] == "anthropic" else [""]
+            )
+        ],
+    )
+    def test_no_other_pattern_matches_a_models_own_id(self, real_cache, model_id, own):
+        # Lookup is first-match, so a broad suffix silently prices the next point release.
+        others = [
             e["model_name"]
             for e in real_cache
-            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+            if e["model_name"] != own and re.search(e["match_pattern"], model_id, re.IGNORECASE)
         ]
-        assert matching == [family], f"{model_id} matched {matching}"
-
-    @pytest.mark.parametrize("family", ["claude-fable-5", "claude-fable-5-1", "claude-fable-5-2"])
-    @pytest.mark.parametrize("suffix", ["", "[1m]"])
-    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
-    def test_fable_ids_match_only_their_entry(self, real_cache, family, suffix, prefix):
-        # The Fable 5 pattern once swallowed the -1 / -2 version as a date suffix.
-        if prefix == "anthropic." and suffix:
-            pytest.skip("[1m] is not a Bedrock form")
-        model_id = prefix + family + suffix
-        matching = [
-            e["model_name"]
-            for e in real_cache
-            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
-        ]
-        assert matching == [family], f"{model_id} matched {matching}"
+        assert others == [], f"{model_id} also matched {others}"
 
     @pytest.mark.parametrize(
         "model_name,rates",
