@@ -483,6 +483,39 @@ describe("flushDigest distinct finding total", () => {
     expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(1);
   });
 
+  it("re-reads the total scoped to the reported detectors when others are left to the signal digest", async () => {
+    // Signal grouping is the other way a detector that fired is dropped. d1 groups into
+    // signals (reported by the signal digest instead); d2 and d3 stay in this digest and
+    // share f-1. d1 alone flagged f-9.
+    vi.stubEnv("OPENAI_API_KEY", "sk");
+    try {
+      readDetectorWindowCounts
+        .mockResolvedValueOnce(counts({ d1: trace("t-9"), d2: trace("t-1"), d3: trace("t-1") }, 2))
+        .mockResolvedValueOnce(counts({ d2: trace("t-1"), d3: trace("t-1") }, 1));
+      detectorFindMany.mockResolvedValue([
+        { id: "d1", name: "Grouped", enableRca: true, enableSignals: true },
+        { id: "d2", name: "B", enableRca: true, enableSignals: false },
+        { id: "d3", name: "C", enableRca: true, enableSignals: false },
+      ]);
+
+      await run();
+
+      const slackArg = sendDigestAlertSlack.mock.calls[0][0];
+      expect(slackArg.entries.map((e: { detectorId: string }) => e.detectorId)).toEqual([
+        "d2",
+        "d3",
+      ]);
+      expect(readDetectorWindowCounts).toHaveBeenCalledTimes(2);
+      expect(readDetectorWindowCounts.mock.calls[1][3]).toEqual({ detectorIds: ["d2", "d3"] });
+      // Not 2 (d1's f-9 plus the shared f-1) and not 2 as the sum of d2 and d3: the one
+      // finding the reported detectors share.
+      expect(slackArg.total).toBe(1);
+      expect(sendDigestAlertEmail.mock.calls[0][0].total).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("does not request the LLM summaries again on the scoped re-read", async () => {
     readDetectorWindowCounts
       .mockResolvedValueOnce(counts({ d1: trace("t-1"), d2: trace("t-2") }, 2))
