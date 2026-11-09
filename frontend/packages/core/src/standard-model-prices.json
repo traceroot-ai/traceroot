@@ -158,7 +158,7 @@
   {
     "id": "tr-claude-sonnet-4-6",
     "modelName": "claude-sonnet-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4[.-]6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4[.-]6(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
