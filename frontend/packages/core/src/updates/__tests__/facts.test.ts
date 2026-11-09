@@ -26,6 +26,8 @@ function aggregates(overrides: Partial<WindowAggregates> = {}): WindowAggregates
     tools: [{ name: "search", calls: 500, errors: 10 }],
     workflows: [{ name: "wf", traces: 1000, errorTraces: 30, p50Ms: 1000, p95Ms: 2500 }],
     refs: [],
+    repos: [],
+    sourceFiles: [],
     truncated: [],
     ...overrides,
   };

@@ -13,7 +13,7 @@ import { prisma } from "@traceroot/core";
 import { frozenClock, systemClock } from "@traceroot/core/updates";
 import { aggregatesConfigFromEnv, readRunAggregates } from "../aggregates-client.js";
 import { executeRun } from "../execute.js";
-import { buildAgentStageDeps } from "../runtime.js";
+import { buildAgentStageDeps, sandboxProviderFromEnv } from "../runtime.js";
 import { triggerManualRun } from "../trigger.js";
 import { assertLocalStack } from "./seed/run.js";
 
@@ -43,7 +43,9 @@ async function main(): Promise<void> {
         readAggregates: (projectId, windows, timezone) =>
           readRunAggregates(config, projectId, windows, timezone),
         appBaseUrl: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-        ...(values["facts-only"] ? {} : { agent: buildAgentStageDeps(config) }),
+        ...(values["facts-only"]
+          ? {}
+          : { agent: buildAgentStageDeps(config, await sandboxProviderFromEnv()) }),
       },
       run.id,
     ).then((o) => ({ status: o.status, error: o.error }));

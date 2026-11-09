@@ -1,4 +1,5 @@
-import { encryptKey, prisma } from "@traceroot/core";
+import { prisma } from "@traceroot/core";
+import { createSlackClient, installationStore } from "@traceroot/slack";
 import { latestSlotAtOrBefore } from "@traceroot/core/updates";
 import { hexId } from "./prng.js";
 import { scheduleOf, workspaceIdOf, type Scenario } from "./scenario.js";
@@ -13,6 +14,34 @@ export interface PostgresOptions {
 }
 
 const WORKSPACE_NAME = "Seeded updates workspace";
+
+/**
+ * An already-connected Slack installation for a seeded workspace, stored through the app's own
+ * installation store (the bot token is encrypted the way the product does it). The team and bot
+ * identity are read from Slack itself, and the channel is set the way the channel route sets it.
+ */
+export async function connectSlack(
+  workspaceId: string,
+  slack: { botToken: string; channelId: string },
+): Promise<void> {
+  const client = createSlackClient(slack.botToken);
+  const who = await client.auth.test();
+  if (!who.ok || !who.team_id || !who.user_id)
+    throw new Error("Slack did not accept the bot token.");
+  const channel = await client.conversations.info({ channel: slack.channelId });
+  await installationStore.storeInstallation({
+    team: { id: who.team_id, name: who.team },
+    enterprise: undefined,
+    user: { id: "", token: undefined, scopes: undefined },
+    bot: { token: slack.botToken, userId: who.user_id, id: who.bot_id ?? "", scopes: [] },
+    isEnterpriseInstall: false,
+    metadata: JSON.stringify({ workspaceId }),
+  } as never);
+  await prisma.slackIntegration.update({
+    where: { workspaceId },
+    data: { channelId: slack.channelId, channelName: channel.channel?.name ?? null },
+  });
+}
 
 export function seededWorkspaceIds(prefix: string): string[] {
   return [workspaceIdOf(prefix, "a"), workspaceIdOf(prefix, "b")];
@@ -72,19 +101,7 @@ export async function writePostgres(
     });
   }
 
-  if (options.slack) {
-    await prisma.slackIntegration.create({
-      data: {
-        workspaceId: workspaceIdOf(params.prefix, "a"),
-        teamId: "seed-team",
-        teamName: "Seeded team",
-        botUserId: "seed-bot",
-        botToken: encryptKey(options.slack.botToken),
-        channelId: options.slack.channelId,
-        channelName: "seeded-updates",
-      },
-    });
-  }
+  if (options.slack) await connectSlack(workspaceIdOf(params.prefix, "a"), options.slack);
 
   for (const project of scenario.projects) {
     await prisma.project.create({
@@ -104,6 +121,8 @@ export async function writePostgres(
         timezone: schedule.timezone,
         // The slot that has just passed and not yet run: a tick at the seed's "now" starts the seeded window.
         nextSlotAt: latestSlotAtOrBefore(schedule, params.now),
+        codeChangesEnabled: project.plan.code?.enabled ?? false,
+        codeRepos: project.plan.code?.repos ?? [],
       },
     });
     if (project.plan.workspace === "a" && options.inbox) {

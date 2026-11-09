@@ -44,6 +44,10 @@ export interface WindowAggregates {
   tools: ToolAggregate[];
   workflows: GroupAggregate[];
   refs: GroupAggregate[];
+  /** Repositories named by the traces' git context, with their trace counts. */
+  repos: { name: string; traces: number }[];
+  /** Source files the spans point at (git context), with span and error counts. */
+  sourceFiles: { file: string; spans: number; errors: number }[];
   /** Lists that hit the entity cap ("models", "tools", "workflows", "refs"). */
   truncated: string[];
 }

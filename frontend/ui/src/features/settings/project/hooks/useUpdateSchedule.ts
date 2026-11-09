@@ -10,6 +10,8 @@ export interface UpdateScheduleResponse {
   next_slot_at: string | null;
   run_token_cap: number;
   monthly_spend_cap_usd: number;
+  code_changes_enabled: boolean;
+  code_repos: string[];
   last_run: {
     id: string;
     status: "pending" | "running" | "succeeded" | "failed" | "stopped";
@@ -35,6 +37,8 @@ export interface UpdateScheduleInput {
   timezone: string;
   runTokenCap: number;
   monthlySpendCapUsd: number;
+  codeChangesEnabled: boolean;
+  codeRepos: string[];
 }
 
 const key = (projectId: string) => ["update-schedule", projectId];

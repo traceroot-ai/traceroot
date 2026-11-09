@@ -481,6 +481,8 @@ services:
       TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-noreply@traceroot.ai}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
+      # --- Code changes in updates (a sandbox is required to read code; without a key the section uses host metadata only) ---
+      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

@@ -7,6 +7,8 @@
  *   pnpm --filter traceroot-worker update:seed verify  [--out dir]   (ClickHouse vs the manifest)
  *   pnpm --filter traceroot-worker update:seed check-facts [--out dir] (computed facts vs the planted changes; needs the backend)
  *   pnpm --filter traceroot-worker update:seed serve-slow [--port 18581] [--delay-ms 70000]
+ *   pnpm --filter traceroot-worker update:seed serve-git [--port 18580]      (seeded repositories, no delay)
+ *   pnpm --filter traceroot-worker update:seed serve-github [--port 18582]   (the GitHub API stand-in)
  *
  * See README.md next to this file.
  */
@@ -22,8 +24,10 @@ import { checkDigest } from "./check-digest.js";
 import { prisma } from "@traceroot/core";
 import type { UpdateResult } from "@traceroot/core/updates";
 import { startSlowRemote } from "./slow-remote.js";
+import { startGithubStub } from "../github-stub.js";
 import {
   DEFAULT_BIG_BYTES,
+  DEFAULT_GIT_PORT,
   DEFAULT_OUT_DIR,
   DEFAULT_SLOW_DELAY_MS,
   DEFAULT_SLOW_PORT,
@@ -32,7 +36,8 @@ import {
   disconnect,
   runSeed,
 } from "./run.js";
-import { defaultParams } from "./scenario.js";
+import { connectSlack } from "./postgres-io.js";
+import { defaultParams, workspaceIdOf } from "./scenario.js";
 
 const options = {
   seed: { type: "string" },
@@ -74,6 +79,25 @@ async function main(): Promise<void> {
   const command = positionals[0] ?? "seed";
   const outDir = path.resolve(values.out ?? DEFAULT_OUT_DIR);
 
+  if (command === "serve-git") {
+    const remote = await startSlowRemote({
+      root: outDir,
+      delayMs: 0,
+      port: Number(values.port ?? DEFAULT_GIT_PORT),
+    });
+    console.log(`seeded repositories served from ${outDir} at ${remote.url} (Ctrl+C to stop)`);
+    await new Promise(() => {});
+    return;
+  }
+  if (command === "serve-github") {
+    const stub = await startGithubStub({
+      fixturesPath: path.join(outDir, "github-fixtures.json"),
+      port: Number(values.port ?? 18582),
+    });
+    console.log(`GitHub stand-in at ${stub.url} (Ctrl+C to stop)`);
+    await new Promise(() => {});
+    return;
+  }
   if (command === "serve-slow") {
     const remote = await startSlowRemote({
       root: outDir,
@@ -186,9 +210,20 @@ async function main(): Promise<void> {
         2,
       ),
     );
+  } else if (command === "connect-slack") {
+    // Attach the dev Slack app to the already-seeded workspace, without re-seeding.
+    const botToken = process.env.TRACEROOT_E2E_SLACK_BOT_TOKEN;
+    const channelId = process.env.TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID;
+    if (!botToken || !channelId) {
+      throw new Error(
+        "connect-slack needs TRACEROOT_E2E_SLACK_BOT_TOKEN and TRACEROOT_E2E_SLACK_TEST_CHANNEL_ID.",
+      );
+    }
+    await connectSlack(workspaceIdOf(params.prefix, "a"), { botToken, channelId });
+    console.log(JSON.stringify({ connected: workspaceIdOf(params.prefix, "a"), channelId }));
   } else {
     throw new Error(
-      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts, check-digest or serve-slow.`,
+      `Unknown command "${command}". Use seed, clean, counts, verify, check-facts, check-digest, connect-slack, serve-slow, serve-git or serve-github.`,
     );
   }
 }

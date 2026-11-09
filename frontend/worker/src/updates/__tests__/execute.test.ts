@@ -19,6 +19,8 @@ const agg = (traces: number, errors: number): WindowAggregates => ({
   tools: [],
   workflows: [],
   refs: [],
+  repos: [],
+  sourceFiles: [],
   truncated: [],
 });
 

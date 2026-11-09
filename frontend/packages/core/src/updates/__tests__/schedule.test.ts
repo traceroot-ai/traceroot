@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_UPDATE_LIMITS,
   DEFAULT_UPDATE_SCHEDULE,
+  parseCodeSettingsInput,
   parseLimitsInput,
+  repoAllowed,
   parseScheduleInput,
 } from "../schedule.ts";
 import { frozenClock } from "../clock.ts";
@@ -135,5 +137,51 @@ describe("limits", () => {
 
   it("lets the schedule parser pass the limit keys through", () => {
     expect(parseScheduleInput({ frequency: "daily", runTokenCap: 5000 }).ok).toBe(true);
+  });
+});
+
+describe("code changes settings", () => {
+  it("are off by default with no repositories", () => {
+    expect(parseCodeSettingsInput({})).toEqual({
+      ok: true,
+      value: { codeChangesEnabled: false, codeRepos: [] },
+    });
+  });
+
+  it("accept owner/name, drop duplicates ignoring case, and keep values left out", () => {
+    const out = parseCodeSettingsInput({
+      codeChangesEnabled: true,
+      codeRepos: ["Acme/App", "acme/app", "acme/api"],
+    });
+    expect(out).toEqual({
+      ok: true,
+      value: { codeChangesEnabled: true, codeRepos: ["Acme/App", "acme/api"] },
+    });
+    expect(
+      parseCodeSettingsInput(
+        { codeChangesEnabled: false },
+        { codeChangesEnabled: true, codeRepos: ["a/b"] },
+      ),
+    ).toEqual({ ok: true, value: { codeChangesEnabled: false, codeRepos: ["a/b"] } });
+  });
+
+  it.each([["not a repo"], ["a/b/c"], ["../x"], ["a/.."], [""], [42]])(
+    "rejects the repository %j",
+    (bad) => {
+      expect(parseCodeSettingsInput({ codeRepos: [bad] }).ok).toBe(false);
+    },
+  );
+
+  it("rejects too many repositories and a non-boolean switch", () => {
+    expect(
+      parseCodeSettingsInput({ codeRepos: Array.from({ length: 21 }, (_, i) => `a/r${i}`) }).ok,
+    ).toBe(false);
+    expect(parseCodeSettingsInput({ codeChangesEnabled: "yes" }).ok).toBe(false);
+  });
+
+  it("compares the allowlist without regard to case", () => {
+    expect(repoAllowed(["Acme/App"], "acme/app")).toBe(true);
+    expect(repoAllowed(["Acme/App"], "acme/other")).toBe(false);
+    expect(repoAllowed([], "acme/app")).toBe(false);
   });
 });

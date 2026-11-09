@@ -51,6 +51,10 @@ def mock_ch(monkeypatch):
             result.result_rows = [("search_docs", 3, 1)]
         elif "GROUP BY name" in sql:
             result.result_rows = [("support_agent", 4, 1, 1200.0, 3000.0)]
+        elif "GROUP BY git_repo" in sql:
+            result.result_rows = [("acme/app", 4)]
+        elif "GROUP BY git_source_file" in sql:
+            result.result_rows = [("src/a.py", 10, 2)]
         elif "GROUP BY git_ref" in sql:
             result.result_rows = [("abc123", 4, 1, 1200.0, 3000.0)]
         else:
@@ -85,12 +89,14 @@ def test_returns_the_window_shape(secret, mock_ch):
     assert body["tools"] == [{"name": "search_docs", "calls": 3, "errors": 1}]
     assert body["workflows"][0]["name"] == "support_agent"
     assert body["refs"][0]["name"] == "abc123"
+    assert body["repos"] == [{"name": "acme/app", "traces": 4}]
+    assert body["source_files"] == [{"file": "src/a.py", "spans": 10, "errors": 2}]
     assert datetime.fromisoformat(body["start"]).hour == 9
 
 
 def test_every_read_is_scoped_and_limited_to_customer_traffic(secret, mock_ch):
     TestClient(app).get(URL, params=WINDOW, headers=secret)
-    assert mock_ch.query.call_count == 7
+    assert mock_ch.query.call_count == 9
     for call in mock_ch.query.call_args_list:
         sql = call.args[0]
         # The curated views: latest version of each row, customer traffic only, scoped

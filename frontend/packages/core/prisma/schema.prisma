@@ -564,6 +564,9 @@ model ProjectUpdateSchedule {
   // Limits: most tokens one run may use, and most the project's runs may cost in a calendar month (USD).
   runTokenCap        Int   @default(200000) @map("run_token_cap")
   monthlySpendCapUsd Float @default(20) @map("monthly_spend_cap_usd")
+  // The code changes section: off until a person turns it on, and only for repositories on the list.
+  codeChangesEnabled Boolean  @default(false) @map("code_changes_enabled")
+  codeRepos          String[] @default([]) @map("code_repos")
   createTime DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 

@@ -44,6 +44,8 @@ function aggregatesOf(
     tools: Object.entries(m.byTool).map(([name, v]) => ({ name, ...v })),
     workflows: Object.entries(m.byWorkflow).map(([name, g]) => group(name, g)),
     refs: [],
+    repos: [],
+    sourceFiles: [],
     truncated: [],
   };
 }

@@ -44,7 +44,7 @@ _TRACES = (
 # span ran, and the trace's name and ref. Everything below aggregates this.
 _PER_TRACE = f"""
     SELECT s.trace_id AS trace_id, s.failed AS failed, s.duration_ms AS duration_ms,
-           t.name AS name, t.git_ref AS git_ref
+           t.name AS name, t.git_ref AS git_ref, t.git_repo AS git_repo
     FROM (
         SELECT trace_id,
                max(status = 'ERROR') AS failed,
@@ -53,7 +53,7 @@ _PER_TRACE = f"""
         GROUP BY trace_id
     ) AS s
     INNER JOIN (
-        SELECT trace_id, name, git_ref FROM {_TRACES}
+        SELECT trace_id, name, git_ref, git_repo FROM {_TRACES}
     ) AS t ON s.trace_id = t.trace_id
 """
 
@@ -103,6 +103,17 @@ class GroupRow(BaseModel):
     p95_ms: int
 
 
+class RepoRow(BaseModel):
+    name: str
+    traces: int
+
+
+class SourceFileRow(BaseModel):
+    file: str
+    spans: int
+    errors: int
+
+
 class UpdateAggregates(BaseModel):
     start: datetime
     end: datetime
@@ -113,6 +124,8 @@ class UpdateAggregates(BaseModel):
     tools: list[ToolRow]
     workflows: list[GroupRow]
     refs: list[GroupRow]
+    repos: list[RepoRow]
+    source_files: list[SourceFileRow]
     # Lists that hit the entity cap: their new/vanished items cannot be trusted.
     truncated: list[str]
 
@@ -264,6 +277,26 @@ def get_update_aggregates(
         refs[:MAX_ENTITIES],
     )
 
+    repos = _rows(
+        ch,
+        f"""
+        SELECT git_repo, count() FROM ({_PER_TRACE})
+        WHERE git_repo IS NOT NULL AND git_repo != ''
+        GROUP BY git_repo ORDER BY count() DESC, git_repo LIMIT {MAX_ENTITIES}
+        """,
+        params,
+    )
+
+    source_files = _rows(
+        ch,
+        f"""
+        SELECT git_source_file, count(), countIf(status = 'ERROR')
+        FROM {_SPANS} WHERE git_source_file IS NOT NULL AND git_source_file != ''
+        GROUP BY git_source_file ORDER BY count() DESC, git_source_file LIMIT {MAX_ENTITIES}
+        """,
+        params,
+    )
+
     return UpdateAggregates(
         start=start_utc,
         end=end_utc,
@@ -299,6 +332,8 @@ def get_update_aggregates(
             GroupRow(name=n, traces=c, error_traces=e, p50_ms=_ms(a), p95_ms=_ms(b))
             for n, c, e, a, b in refs
         ],
+        repos=[RepoRow(name=n, traces=c) for n, c in repos],
+        source_files=[SourceFileRow(file=f, spans=c, errors=e) for f, c, e in source_files],
         truncated=truncated,
     )
 

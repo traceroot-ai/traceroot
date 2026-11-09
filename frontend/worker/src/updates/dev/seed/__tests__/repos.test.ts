@@ -144,7 +144,7 @@ describe("slow remote", () => {
         "--filter=blob:none",
         "--no-checkout",
         `--shallow-since=${windows.prevWindowStart.toISOString()}`,
-        `${remote.url}/seed-app.git`,
+        `${remote.url}/seed-org/seed-app.git`,
         path.join(dir, "f-clone"),
       ]);
       const elapsed = Date.now() - started;
