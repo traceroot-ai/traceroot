@@ -795,9 +795,9 @@ class TestClaudeBedrockAndVertexIds:
     @pytest.mark.parametrize(
         "model_name,rates",
         [
-            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            # input, output, cacheRead, cacheWrite, cacheWrite1h; the 5.5 models read cache at 0.05x.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
-            ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
         ],
