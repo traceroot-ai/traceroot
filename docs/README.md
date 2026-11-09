@@ -1,6 +1,6 @@
-# TraceRoot Documentation Guidelines
+# traceroot Documentation Guidelines
 
-This directory contains the Mintlify documentation source for TraceRoot.
+This directory contains the Mintlify documentation source for traceroot.
 
 ## Local preview
 
@@ -103,7 +103,7 @@ All framework/provider integration pages under `docs/integrations/` follow a sta
 
 4. **Verify (`## Verify`)**:
    Tell the reader how to confirm their trace arrived:
-   - In the TraceRoot UI under **Tracing > Traces** (specifying the root span name).
+   - In the traceroot UI under **Tracing > Traces** (specifying the root span name).
    - Via the CLI with `traceroot traces list`.
 
 5. **What gets captured (`## What gets captured`)**:
