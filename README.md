@@ -35,7 +35,7 @@ traceroot: the open-source platform that continuously improves your ai agents.
 
 ## traceroot
 
-Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
+Open source Braintrust alternative. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -75,6 +75,8 @@ Run this from the root of the repository you want to trace:
 ```bash
 npx -y traceroot-cli@latest setup
 ```
+
+Works with Claude Code, Codex, Cursor, OpenCode, Pi, and Antigravity.
 
 The [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in through your browser (where you can create a free account), writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
 

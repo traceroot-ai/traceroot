@@ -35,7 +35,7 @@ traceroot：持续改进你的 AI Agent 的开源平台。
 
 ## traceroot
 
-找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
+开源 Braintrust 替代方案。找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -64,24 +64,26 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
 ## 配置 traceroot
 
-准备好 [traceroot 实例](#开始使用-traceroot)（云端或自托管）后，在仪表盘中创建项目，并选择发送第一条追踪的方式：让编程 Agent 通过 CLI 配置埋点，或手动配置 SDK。
+将第一条追踪发送到 [traceroot Cloud](https://app.traceroot.ai) 或你自己的 [traceroot 实例](#开始使用-traceroot)：运行一条命令，让编程 Agent 添加埋点，或手动配置 SDK。
 
 ### 使用编程 Agent
 
 <a id="cli-quickstart"></a>
 
-安装 [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 并登录：
+在你想要追踪的仓库根目录运行：
 
 ```bash
-npm install -g traceroot-cli
-traceroot login
+npx -y traceroot-cli@latest setup
 ```
 
-然后向你的编程 Agent 提出请求：
+支持 Claude Code、Codex、Cursor、OpenCode、Pi 和 Antigravity。
 
-```text
-使用 traceroot CLI 为此应用配置追踪。
-```
+[traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 会通过浏览器引导你登录（也可在此创建免费账号），将项目 API 密钥写入应用的 env 文件，让 Claude Code 或 Codex 添加 SDK，并等待第一条追踪。需要 Node.js 20.12 或更高版本。
+
+- 使用其他编程 Agent？setup 可以将改动导出为任务，交给它执行。
+- 自托管？通过 `--host`（API 源地址）和 `--auth-host`（Web 应用源地址）将 setup 指向你的实例。
+
+各步骤、自托管与故障排查请参阅[配置指南](https://traceroot.ai/docs/tracing/get-started)。
 
 ### 手动配置 SDK
 
@@ -90,7 +92,7 @@ traceroot login
 <details>
 <summary>运行最小 TypeScript 示例</summary>
 
-你需要 Node.js、npm、traceroot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例地址。
+你需要 Node.js、npm、traceroot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例的 API 源地址（例如 `http://localhost:8000`）。
 
 **1. 安装 SDK**，在 TypeScript 项目中运行：
 
