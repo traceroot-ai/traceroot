@@ -709,6 +709,12 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-opus-5-5", "claude-opus-5-5"),
     ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
     ("anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("global.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("us.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("jp.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("au.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("anthropic/claude-opus-5.5", "claude-opus-5-5"),
+    ("claude-opus-5.5", "claude-opus-5-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),
@@ -745,6 +751,12 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("global.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("us.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("jp.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("au.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("anthropic/claude-sonnet-5.5", "claude-sonnet-5-5"),
+    ("claude-sonnet-5.5", "claude-sonnet-5-5"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
@@ -781,7 +793,18 @@ class TestClaudeBedrockAndVertexIds:
         )
 
     @pytest.mark.parametrize("family", ["claude-opus-5-5", "claude-sonnet-5-5"])
-    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            "",
+            "anthropic/",
+            "anthropic.",
+            "global.anthropic.",
+            "us.anthropic.",
+            "jp.anthropic.",
+            "au.anthropic.",
+        ],
+    )
     def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
         # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
         model_id = prefix + family
