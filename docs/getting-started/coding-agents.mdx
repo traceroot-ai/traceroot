@@ -1,18 +1,9 @@
 ---
 title: Coding agents
-description: Set up traceroot with your coding agent, give it skills and docs search over MCP, let it read your traces with the CLI, and trace its own sessions
+description: Let your coding agent set up traceroot, search these docs, and work with your project
 ---
 
-Your coding agent can set up traceroot, read your traces from the CLI, and look up these docs while it works.
-
-| You want your agent to | Use |
-| :- | :- |
-| Set up tracing in a repository | [The setup prompt](#set-up-tracing) |
-| Learn how to use traceroot | [Skills](#skills) |
-| Search these docs | [Docs MCP](#docs-mcp) or [Markdown docs](#markdown-docs) |
-| Read traces, findings, and evaluations | [The CLI](#the-cli) |
-
-To send your coding agent's own sessions to traceroot, see [Trace your coding agent](#trace-your-coding-agent).
+Your coding agent can set up traceroot, look up these docs, work with your project from the CLI, and send its own sessions to traceroot.
 
 ## Set up tracing
 
@@ -60,7 +51,7 @@ npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
 
 ## Docs MCP
 
-`https://traceroot.ai/docs/mcp` lets your agent search and read these docs. It needs no API key. It can't read your traces, so use [the CLI](#the-cli) for that.
+`https://traceroot.ai/docs/mcp` lets your agent search and read these docs, with no API key. For your traces, use [the CLI](#the-cli).
 
 <Tabs>
   <Tab title="Claude Code">
@@ -98,7 +89,7 @@ For any page as Markdown, add `.md` to its URL. Requests that send `Accept: text
 
 ## The CLI
 
-Agents read your project through the traceroot CLI. Run these from the directory you ran setup in. Anywhere else, sign in with `traceroot login` and [scope to a project](/cli/get-started#scope-to-a-project) first. Without a global install, replace `traceroot` with `npx -y traceroot-cli@latest`.
+Your agent works with your project through the traceroot CLI: traces, detector findings, alerts, dashboards, evaluations, and SQL. Run these from the directory you ran setup in. Anywhere else, sign in with `traceroot login` and [scope to a project](/cli/get-started#scope-to-a-project) first. Without a global install, replace `traceroot` with `npx -y traceroot-cli@latest`.
 
 ```bash
 # Recent traces
@@ -130,7 +121,7 @@ These plugins send your coding agent's own sessions to traceroot, which is separ
     export TRACEROOT_API_KEY="tr-..."
     ```
 
-    Nothing is sent until the key is set, so restart Claude Code after setting it. Needs `uv`, or Python 3.11 or later with the `traceroot` package. See the [plugin README](https://github.com/traceroot-ai/traceroot-claude-code-plugin).
+    Restart Claude Code after setting the key. Nothing is sent without one. Needs `uv`, or Python 3.11 or later with the `traceroot` package. See the [plugin README](https://github.com/traceroot-ai/traceroot-claude-code-plugin).
   </Tab>
   <Tab title="Codex">
     ```bash
@@ -148,7 +139,7 @@ These plugins send your coding agent's own sessions to traceroot, which is separ
     export TRACEROOT_API_KEY="tr-..."
     ```
 
-    Restart pi after setting these. This is separate from the [pi SDK integration](/integrations/pi), which traces pi sessions embedded in your own application.
+    Restart pi after setting these. This is separate from the [pi SDK integration](/integrations/pi), which traces pi sessions embedded in your own application. See the [extension README](https://github.com/traceroot-ai/traceroot-pi-extension).
   </Tab>
 </Tabs>
 
@@ -159,6 +150,6 @@ These plugins send your coding agent's own sessions to traceroot, which is separ
     Run setup yourself, add the SDK by hand, and troubleshoot.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/get-started">
-    Authenticate, inspect traces, and read evaluations from the terminal.
+    Work with traces, findings, alerts, and evaluations from the terminal.
   </Card>
 </CardGroup>

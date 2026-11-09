@@ -14,9 +14,9 @@ traceroot is an open-source platform for tracing AI agents and improving them fr
 
 Follow the setup prompt in https://traceroot.ai/docs/getting-started/coding-agents.md. Use `npx -y traceroot-cli@latest setup --no-input` rather than adding the SDK by hand: it gets the API key and writes the instrumentation task, and `setup --no-input --resume` confirms the first trace. With no credential it exits 3, and that page covers signing in.
 
-## Easy mistakes
+## Common mistakes
 
-- **Where to initialize:** call `initialize()` where the application starts, not at module scope, so a test that imports the module doesn't send traces. In Python that's the `if __name__ == "__main__":` block. Under a server such as uvicorn, initialize where the framework starts up. Most integration pages show `initialize()` at the top of the file to keep the example short, so copy what they call, not where. Follow a page's placement only when its text asks for one, such as initializing before an import. Run your tests with `TRACEROOT_ENABLED=false`.
+- **Where to initialize:** call `initialize()` where the application starts, such as the `if __name__ == "__main__":` block in Python or the framework's startup under a server like uvicorn, not at module scope, so a test that imports the module doesn't send traces. Most integration pages put `initialize()` at the top of the file for brevity: copy what they call, not where, unless the text asks for a placement such as before an import. Run tests with `TRACEROOT_ENABLED=false`.
 - **`.env` files:** neither SDK loads them. Load the file in your code or export the variables.
 - **`setup` finishing:** exit 0 doesn't mean setup is done. It's done when it prints a link to the first trace. Its messages go to stderr.
 - **Span input and output:** `traceroot traces get <id> --json` leaves them `null`. Add `--fields full`.
