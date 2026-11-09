@@ -128,6 +128,42 @@ describe("buildJevState projection", () => {
   });
 });
 
+describe("buildJevState redactCredentialKeys", () => {
+  const secretRow = (input: string) =>
+    row({ input, output: '{"token":"tok-1","ok":true}', metadata: '{"password":"pw"}' });
+
+  it("is off by default, so the projection is unchanged", () => {
+    const span = traceOf(buildJevState(jsonl([secretRow('{"apiKey":"k-1"}')])).state).spans[0];
+    expect(span.input).toEqual({ apiKey: "k-1" });
+  });
+
+  it("blanks credential-shaped keys at any depth in every parsed column", () => {
+    const { state } = buildJevState(
+      jsonl([secretRow('{"config":{"apiKey":"k-1"},"city":"Paris"}')]),
+      {
+        redactCredentialKeys: true,
+      },
+    );
+    const span = traceOf(state).spans[0];
+    expect(span.input).toEqual({ config: { apiKey: "[REDACTED]" }, city: "Paris" });
+    expect(span.output).toEqual({ token: "[REDACTED]", ok: true });
+    expect(span.metadata).toEqual({ password: "[REDACTED]" });
+  });
+
+  it("redacts before reduction stringifies a large input", () => {
+    const input = JSON.stringify({ apiKey: "k-1", notes: "x".repeat(5_000) });
+    const { state, stats } = buildJevState(jsonl([secretRow(input)]), {
+      budgetChars: 3_000,
+      redactCredentialKeys: true,
+    });
+    const span = traceOf(state).spans[0];
+    expect(stats.truncated_inputs).toBe(1);
+    expect(typeof span.input).toBe("string");
+    expect(span.input).toContain("[REDACTED]");
+    expect(span.input).not.toContain("k-1");
+  });
+});
+
 describe("buildJevState reduction", () => {
   it("truncates inputs first, at the loosest cap that fits", () => {
     const bigInput = "x".repeat(20_000);

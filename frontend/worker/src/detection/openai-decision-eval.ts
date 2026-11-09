@@ -16,7 +16,11 @@ import type { ProviderModelConfig } from "@traceroot/core/model-resolver";
 import type { DetectorConfig, EvalResult } from "./sandbox-eval.js";
 import { buildJevState } from "./jev-state.js";
 import { decisionFinding } from "./decision-result.js";
-import { compileDecisionsInput, compileDecisionsQuestions } from "./openai-decisions-compile.js";
+import {
+  compileDecisionsInput,
+  compileDecisionsQuestions,
+  fitDecisionsState,
+} from "./openai-decisions-compile.js";
 import {
   callDecisions,
   decisionsUsageFromError,
@@ -86,7 +90,20 @@ export async function runOpenAIDecisionDetection(params: {
 
   const questions = compileDecisionsQuestions({ template: detector.template ?? null });
   const jevState = buildJevState(spansJsonl);
-  const input = compileDecisionsInput({ prompt: detector.prompt, state: jevState.state });
+  const fitted = fitDecisionsState(jevState.state);
+  const input = compileDecisionsInput({ prompt: detector.prompt, state: fitted.state });
+  // The recorded preview is its own projection, redacted while each span is
+  // still parsed: reduction stringifies large payloads, and a credential-shaped
+  // key inside a string is just text to the span's own redaction. The request
+  // above keeps the full trace, as Jev's does. Redaction can lengthen a value,
+  // so a trace right at the budget may not fit twice; the preview is then left
+  // out rather than failing the run.
+  let preview: unknown = null;
+  try {
+    preview = buildJevState(spansJsonl, { redactCredentialKeys: true }).state;
+  } catch {
+    /* no preview */
+  }
 
   const result = await tracedDecision(
     {
@@ -94,10 +111,8 @@ export async function runOpenAIDecisionDetection(params: {
       model,
       input: {
         questions,
-        // Redacted while still structured: once serialized, a credential-shaped
-        // key inside the trace is just text to the span's own redaction.
-        state_preview: boundedJson(jevState.state),
-        state_stats: jevState.stats,
+        state_preview: boundedJson(preview),
+        state_stats: { ...jevState.stats, json_collapsed_containers: fitted.collapsedContainers },
       },
       attributes: {
         "decision.system": "openai",

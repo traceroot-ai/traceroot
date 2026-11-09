@@ -10,6 +10,7 @@
  * the run.
  */
 
+import { CREDENTIAL_KEY, REDACTED } from "@traceroot/core/capture-policy";
 import type { JsonValue } from "./typesafe-client.js";
 
 /** A 60k-char state measured ~14k input tokens against the live API. */
@@ -83,16 +84,32 @@ export function parseJsonString(text: string): JsonValue {
   }
 }
 
-function projectSpan(row: Record<string, unknown>): SpanState {
+/** Blank the value under every credential-shaped key, at any depth (boundedJson's key rule). */
+function redactCredentialKeys(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(redactCredentialKeys);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [
+        k,
+        CREDENTIAL_KEY.test(k) ? REDACTED : redactCredentialKeys(v),
+      ]),
+    );
+  }
+  return value;
+}
+
+function projectSpan(row: Record<string, unknown>, redact: boolean): SpanState {
   const span: SpanState = {};
   for (const column of KEPT_COLUMNS) {
     const value = row[column];
     if (value === null || value === undefined || value === "") continue;
-    if (typeof value === "string") {
-      span[column] = JSON_STRING_COLUMNS.has(column) ? parseJsonString(value) : value;
-    } else {
-      span[column] = value as JsonValue;
-    }
+    const projected =
+      typeof value === "string"
+        ? JSON_STRING_COLUMNS.has(column)
+          ? parseJsonString(value)
+          : value
+        : (value as JsonValue);
+    span[column] = redact ? redactCredentialKeys(projected) : projected;
   }
   return span;
 }
@@ -140,9 +157,17 @@ function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): { 
   return { trace: { trace_id: traceId, span_count: spanCount, spans } };
 }
 
-/** Throws when the state cannot fit the budget. */
-export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number }): JevState {
+/**
+ * Throws when the state cannot fit the budget. `redactCredentialKeys` blanks
+ * credential-shaped keys while each span is still parsed, before reduction
+ * can stringify (and so hide) them; for a recorded preview, not for a request.
+ */
+export function buildJevState(
+  spansJsonl: string,
+  opts?: { budgetChars?: number; redactCredentialKeys?: boolean },
+): JevState {
   const budget = opts?.budgetChars ?? JEV_STATE_BUDGET_CHARS;
+  const redact = opts?.redactCredentialKeys ?? false;
 
   let traceId: string | null = null;
   let skippedLines = 0;
@@ -162,7 +187,7 @@ export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number 
     }
     const record = row as Record<string, unknown>;
     if (traceId === null && typeof record.trace_id === "string") traceId = record.trace_id;
-    spans.push(projectSpan(record));
+    spans.push(projectSpan(record, redact));
   }
 
   const spanCount = spans.length;

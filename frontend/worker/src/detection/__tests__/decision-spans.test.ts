@@ -81,7 +81,7 @@ function decisionAttributes(name: string) {
 }
 
 describe("Jev span", () => {
-  it("adds decision.system and otherwise records what it always has", async () => {
+  it("adds decision.system and the OpenInference span kind, otherwise recording what it always has", async () => {
     mockCallSystemOne.mockResolvedValueOnce({
       model: "jev-1.13.0",
       answers: {
@@ -119,6 +119,7 @@ describe("Jev span", () => {
     expect(attributes).toEqual({
       "traceroot.project_id": "proj-1",
       "traceroot.span.type": "DECISION",
+      "openinference.span.kind": "DECISION",
       "traceroot.llm.model": "jev-1.13.0",
       "decision.system": "typesafe",
       "gen_ai.usage.input_tokens": 810,
@@ -171,6 +172,7 @@ describe("OpenAI Decisions span", () => {
     expect(attributes).toEqual({
       "traceroot.project_id": "proj-1",
       "traceroot.span.type": "DECISION",
+      "openinference.span.kind": "DECISION",
       "traceroot.llm.model": "gpt-6-luna",
       "decision.system": "openai",
       "decision.provider": "openai",
@@ -230,6 +232,57 @@ describe("OpenAI Decisions span", () => {
     // The model still received the trace as it was.
     const sent = mockCallDecisions.mock.calls[0][0].input[0].content[0].data;
     expect(JSON.stringify(sent)).toContain("sk-live-123");
+  });
+
+  it("redacts a credential-shaped key inside an input large enough to be truncated", async () => {
+    mockCallDecisions.mockResolvedValueOnce({
+      model: null,
+      answers: {
+        gate: { type: "predicate", probability: 0.1 },
+        label: {
+          type: "choice",
+          choice: "none",
+          confidence: 0.9,
+          probabilities: { problem: 0.1, none: 0.9 },
+        },
+      },
+      usage: { inputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    });
+    // Over the 60k state budget, so reduction stringifies the input before it is recorded.
+    const input = JSON.stringify({ apiKey: "synthetic-cred-77", notes: "x".repeat(70_000) });
+    const spansJsonl = JSON.stringify({
+      trace_id: "t-1",
+      span_id: "s1",
+      name: "tool.fetch",
+      input,
+    });
+
+    await withSelfTrace(META, () =>
+      runOpenAIDecisionDetection({
+        spansJsonl,
+        detector: {
+          id: "det-1",
+          name: "Failure",
+          prompt: "Flag tool failures.",
+          outputSchema: [],
+          detectionModel: "gpt-6-luna-decisions",
+          detectionProvider: "my-openai",
+          detectionSource: "byok",
+          template: "blank",
+        },
+        providerConfig: { adapter: "openai", key: "sk-key", baseUrl: null, config: null },
+        timeoutMs: 5_000,
+      }),
+    );
+
+    const span = exporter.getFinishedSpans().find((s) => s.name === "decisions gpt-6-luna")!;
+    const recorded = String(span.attributes["traceroot.span.input"]);
+    expect(recorded).not.toContain("synthetic-cred-77");
+    expect(recorded).toContain("[REDACTED]");
+    expect(recorded).toContain("truncated");
+    // The request still carries the (truncated) input as it was.
+    const sent = mockCallDecisions.mock.calls[0][0].input[0].content[0].data;
+    expect(JSON.stringify(sent)).toContain("synthetic-cred-77");
   });
 
   it("records the run's zero cost on the span when pricing fails", async () => {

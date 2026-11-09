@@ -195,6 +195,32 @@ describe("runOpenAIDecisionDetection", () => {
     );
   });
 
+  it("fits a deep or value-heavy trace to the API's JSON limits and records how", async () => {
+    mockCallDecisions.mockResolvedValueOnce(result(0.2, FAILURE_PROBS));
+    let deep: unknown = "leaf";
+    for (let i = 0; i < 40; i++) deep = { next: deep };
+    const spansJsonl =
+      JSON.stringify({ trace_id: "t-1", span_id: "s1", name: "a", input: JSON.stringify(deep) }) +
+      "\n" +
+      JSON.stringify({
+        trace_id: "t-1",
+        span_id: "s2",
+        name: "b",
+        input: JSON.stringify(Array.from({ length: 12_000 }, () => 0)),
+      });
+
+    await run({ spansJsonl });
+
+    const data = sentOptions().input[0].content[0].data;
+    const spans = data.trace.spans as { input: unknown }[];
+    expect(typeof spans[1].input).toBe("string");
+    expect(JSON.stringify(data)).toContain("leaf");
+    const meta = mockTracedDecision.mock.calls[0][0] as unknown as {
+      input: { state_stats: Record<string, number> };
+    };
+    expect(meta.input.state_stats.json_collapsed_containers).toBe(2);
+  });
+
   it.each([
     [0.5, true],
     [0.49, false],

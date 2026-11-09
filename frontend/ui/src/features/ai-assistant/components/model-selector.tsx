@@ -6,9 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { isDecisionAdapter, isDecisionModelId } from "@traceroot/core";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
+import { flattenAvailableModels, isChatModel, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
@@ -56,7 +55,7 @@ export function ModelSelector({
   // compiled-in fallback list while the query is still pending — once settled,
   // an empty response means the workspace genuinely has no models.
   const models = flattenAvailableModels(data, isPending).filter(
-    (m) => allowDecisionModels || (!isDecisionAdapter(m.adapter) && !isDecisionModelId(m.id)),
+    (m) => allowDecisionModels || isChatModel(m),
   );
 
   // Reconcile the incoming selection against the catalog:

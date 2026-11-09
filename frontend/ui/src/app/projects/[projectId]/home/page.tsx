@@ -9,6 +9,7 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useAiChatContext } from "@/features/ai-assistant/components/ai-chat-context";
 import {
+  chatModels,
   flattenAvailableModels,
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
@@ -77,7 +78,8 @@ export default function HomePage() {
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId && !readOnly && !accessLoading,
   });
-  const defaultModel = pickDefaultModel(flattenAvailableModels(llmModels, false));
+  // Chat models only: a detector-only decision model would be rejected.
+  const defaultModel = pickDefaultModel(chatModels(flattenAvailableModels(llmModels, false)));
 
   // Rendered by the panel, vertically centered in the empty message region
   // (between the toolbar and the input). Suppressed during a session handoff

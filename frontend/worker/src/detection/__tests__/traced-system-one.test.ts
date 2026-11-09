@@ -112,6 +112,7 @@ describe("tracedSystemOne inside a self-trace scope", () => {
     expect(span.attributes["traceroot.source"]).toBeUndefined();
     expect(span.attributes["traceroot.project_id"]).toBe("proj-1");
     expect(span.attributes["traceroot.span.type"]).toBe("DECISION");
+    expect(span.attributes["openinference.span.kind"]).toBe("DECISION");
     expect(span.attributes["traceroot.llm.model"]).toBe("jev-1.13.0");
     expect(span.attributes["decision.system"]).toBe("typesafe");
     expect(span.attributes["gen_ai.usage.input_tokens"]).toBe(810);
@@ -201,6 +202,7 @@ describe("tracedDecision inside a self-trace scope", () => {
 
     const span = decisionSpan()!;
     expect(span.attributes["traceroot.span.type"]).toBe("DECISION");
+    expect(span.attributes["openinference.span.kind"]).toBe("DECISION");
     expect(span.attributes["traceroot.llm.model"]).toBe("gpt-6-luna");
     expect(span.attributes["decision.system"]).toBe("openai");
     expect(span.attributes["decision.model_name"]).toBe("gpt-6-luna");

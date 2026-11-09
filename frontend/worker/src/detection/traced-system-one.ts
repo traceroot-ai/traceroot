@@ -90,6 +90,8 @@ export async function tracedDecision<R>(
         // No source marker: the secret-gated ingest route classifies these rows.
         "traceroot.project_id": scope.projectId,
         "traceroot.span.type": "DECISION",
+        // Required by the OpenInference Decision Spans spec; ingest maps both.
+        "openinference.span.kind": "DECISION",
         "traceroot.llm.model": meta.model,
         "traceroot.span.input": boundedJson(meta.input),
         ...meta.attributes,
