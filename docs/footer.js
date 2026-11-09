@@ -1,12 +1,6 @@
-/**
- * Small adapter for Mintlify's documented #footer and mintlify:navigate hooks.
- * Native children remain in place and visible until enhancement succeeds.
- * No framework runtime, body observer, analytics SDK, or remote HTML is loaded.
- */
+/** Native Mintlify owns footer links, logo and social icons; this adds brand controls. */
 (() => {
-  const previous = window.__trDocsFooterAdapter;
-  if (previous && typeof previous.dispose === "function") previous.dispose();
-
+  window.__trDocsFooterAdapter?.dispose();
   const consentKey = "traceroot-analytics-consent";
   const consentRetryDelaysMs = [100, 200, 400, 800, 1600, 3200, 3200];
   // Public visitor-project token from docs.json. Verify it before controlling
@@ -15,9 +9,7 @@
   const localPreview = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
   const globalEvents = new AbortController();
   let mounted = null;
-  let timer = 0;
   let consentTimer = 0;
-  let generation = 0;
   let visitChoice;
 
   function storedChoice() {
@@ -80,56 +72,20 @@
   function cleanMount() {
     if (!mounted) return;
     mounted.wordmarkDispose?.();
+    mounted.resize.disconnect();
     mounted.events.abort();
     if (mounted.dialog.open) mounted.dialog.close();
-    mounted.node.remove();
-    mounted.host.removeAttribute("data-tr-footer-ready");
+    mounted.additions.forEach(node => node.remove());
+    mounted.classes.forEach(([node, name]) => node.classList.remove(name));
+    mounted.host.style.removeProperty("margin-top");
+    mounted.wrapper.style.removeProperty("width");
+    mounted.wrapper.style.removeProperty("margin-left");
+    mounted.host.style.removeProperty("--tr-footer-divider-left");
     mounted = null;
   }
 
-  const externalIcon = '<svg class="tr-docs-footer__external" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><path d="M2.5 7.5l5-5M3.5 2.5h4v4"/></svg>';
-  const xIcon = '<svg class="tr-docs-footer__social" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
-
-  function footerMarkup(assets) {
-    // The supported production subpath is /docs; local Mint previews have no
-    // prefix. Keep cross-site links absolute so Mintlify cannot prefix them.
+  function extraMarkup(assets) {
     return `
-      <div class="tr-docs-footer__columns">
-        <div class="tr-docs-footer__brand">
-          <a class="tr-docs-footer__logo" href="https://traceroot.ai/" aria-label="TraceRoot home">
-            <img src="${assets}mark.svg" width="21" height="21" alt=""><span>traceroot</span>
-          </a>
-          <p class="tr-docs-footer__description">Open source AI agent improvement platform.</p>
-          <p class="tr-docs-footer__eyebrow tr-docs-footer__location">San Francisco</p>
-        </div>
-        <nav aria-label="Product">
-          <h2 class="tr-docs-footer__eyebrow">Product</h2>
-          <div class="tr-docs-footer__links">
-            <a href="https://traceroot.ai/docs">Docs ${externalIcon}</a>
-            <a href="https://traceroot.ai/#pricing">Pricing</a>
-            <a href="https://traceroot.ai/changelog">Changelog</a>
-            <a href="https://app.traceroot.ai/">App</a>
-            <a href="https://traceroot.ai/security">Security</a>
-          </div>
-        </nav>
-        <nav aria-label="Company">
-          <h2 class="tr-docs-footer__eyebrow">Company</h2>
-          <div class="tr-docs-footer__links">
-            <a href="https://traceroot.ai/blog">Blog</a>
-            <a href="https://traceroot.ai/service">Service description</a>
-            <a href="https://cal.com/traceroot/30min" target="_blank" rel="noopener noreferrer">Talk to sales ${externalIcon}</a>
-          </div>
-        </nav>
-        <nav aria-label="Connect">
-          <h2 class="tr-docs-footer__eyebrow">Connect</h2>
-          <div class="tr-docs-footer__links">
-            <a href="https://x.com/TracerootAI" target="_blank" rel="noopener noreferrer">${xIcon}X</a>
-            <a href="https://github.com/traceroot-ai/traceroot" target="_blank" rel="noopener noreferrer"><img class="tr-docs-footer__social" src="${assets}github.svg" width="13" height="13" alt="">GitHub</a>
-            <a href="https://www.linkedin.com/company/traceroot-ai" target="_blank" rel="noopener noreferrer"><img class="tr-docs-footer__social" src="${assets}linkedin.svg" width="13" height="13" alt="">LinkedIn</a>
-            <a href="https://discord.gg/TM2m3CtKuC" target="_blank" rel="noopener noreferrer"><img class="tr-docs-footer__social" src="${assets}discord.svg" width="13" height="13" alt="">Discord</a>
-          </div>
-        </nav>
-      </div>
       <div class="tr-docs-footer__legal">
         <span>© ${new Date().getFullYear()} traceroot</span>
         <nav class="tr-docs-footer__policies" aria-label="Legal and preferences">
@@ -167,9 +123,6 @@
     try {
       if (!canvas.getContext("2d")) return;
       for (const [property, value] of Object.entries(runtime.defaults)) canvas.style.setProperty(property, value);
-      // Home is light-only. Retain its exact light palette and adapt the ink
-      // to Mintlify's dark theme; the original factory reads colors at mount.
-      if (document.documentElement.classList.contains("dark")) canvas.style.setProperty("--wm-ink", "var(--tr-text)");
       canvas.hidden = false;
       record.wordmarkDispose = runtime.mountFooterWordmark(canvas);
       fallback.hidden = true;
@@ -240,83 +193,119 @@
     return dialog;
   }
 
-  async function mount(attempt = 0, expected = generation) {
-    if (expected !== generation) return;
-    const host = document.querySelector('footer#footer[data-layout-item="footer"]');
-    if (!host) {
-      if (attempt < 12) timer = window.setTimeout(() => mount(attempt + 1, expected), 150);
-      return;
+  // Advanced footers sit below the sidebar. Align with the article without
+  // moving React-owned nodes or changing the sidebar's scrolling behavior.
+  function alignFooter() {
+    if (!mounted) return;
+    const pagination = document.getElementById("pagination");
+    if (!pagination) return;
+    const bounds = pagination.getBoundingClientRect();
+    const footer = mounted.host.getBoundingClientRect();
+    const bar = document.querySelector("#content-area > [data-assistant-bar]");
+    const barStyle = bar && getComputedStyle(bar);
+    const barHeight = bar ? bar.offsetHeight + parseFloat(barStyle.marginTop) + parseFloat(barStyle.marginBottom) : 0;
+    const end = bounds.bottom + barHeight;
+    const flowTop = footer.top - parseFloat(getComputedStyle(mounted.host).marginTop);
+    const column = document.getElementById("content-container");
+    const dividerLeft = column && column.getBoundingClientRect().left - footer.left - 1;
+    mounted.wrapper.style.width = `${bounds.width}px`;
+    mounted.wrapper.style.marginLeft = `${bounds.left - footer.left}px`;
+    mounted.host.style.marginTop = `${Math.min(0, end - flowTop)}px`;
+    if (column) mounted.host.style.setProperty("--tr-footer-divider-left", `${dividerLeft}px`);
+  }
+
+  function observeArticle() {
+    mounted.resize.disconnect();
+    const article = document.getElementById("content") ?? document.getElementById("content-area");
+    if (article) mounted.resize.observe(article);
+    for (const selector of ["#pagination", "#content-area > [data-assistant-bar]"]) {
+      const node = document.querySelector(selector);
+      if (node) mounted.resize.observe(node);
     }
-    if (mounted?.host === host && mounted.node.isConnected && !mounted.node.hidden) {
+    alignFooter();
+  }
+
+  function mount() {
+    const host = document.querySelector("footer#footer.advanced-footer[data-layout-item='footer']");
+    if (mounted?.host === host && mounted.node.isConnected) {
       if (mounted.dialog.open) mounted.dialog.close();
+      observeArticle();
       return;
     }
     cleanMount();
-    const node = document.createElement("section");
-    node.className = "tr-docs-footer";
-    node.setAttribute("aria-label", "TraceRoot");
-    node.hidden = true;
-    const prefix = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
-    node.innerHTML = footerMarkup(`${prefix}/brand/`);
+    if (!host) return;
+    const wrapper = host.firstElementChild;
+    const row = wrapper?.firstElementChild;
+    const [brand, columns, socials] = row?.children ?? [];
+    const logo = brand?.querySelector("a");
+    if (!logo || !columns?.style.gridTemplateColumns || !socials?.querySelector("a svg")) return;
+
     const events = new AbortController();
-    const dialog = attachInteractions(node, events);
-    host.append(node);
-    const record = { host, node, events, dialog };
-    mounted = record;
-    try {
-      const logo = node.querySelector(".tr-docs-footer__logo img");
-      await logo.decode();
-      if (expected !== generation || mounted !== record || !host.isConnected) return;
-      if (getComputedStyle(node).getPropertyValue("--tr-footer-css-ready").trim() !== "1") {
-        cleanMount();
-        if (attempt < 12) timer = window.setTimeout(() => mount(attempt + 1, expected), 150);
-        return;
-      }
-      node.hidden = false;
-      host.setAttribute("data-tr-footer-ready", "");
-      mountWordmark();
-    } catch {
-      if (mounted === record) cleanMount();
+    const node = document.createElement("div");
+    node.className = "tr-docs-footer__extras";
+    wrapper.append(node);
+    // Without the enhancement layout, leave the native footer intact.
+    if (getComputedStyle(node).display !== "contents") {
+      node.remove();
+      return;
     }
+    const prefix = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
+    node.innerHTML = extraMarkup(`${prefix}/brand/`);
+    const copy = document.createElement("div");
+    copy.className = "tr-docs-footer__brand-copy";
+    copy.innerHTML = '<p class="tr-docs-footer__description">Open source AI agent improvement platform.</p><p class="tr-docs-footer__eyebrow tr-docs-footer__location">San Francisco</p>';
+    brand.append(copy);
+    const heading = document.createElement("p");
+    heading.className = "tr-docs-footer__eyebrow";
+    heading.textContent = "Connect";
+    socials.prepend(heading);
+    const additions = [node, copy, heading];
+    const labels = { x: "X", github: "GitHub", linkedin: "LinkedIn", discord: "Discord" };
+    for (const link of socials.querySelectorAll("a")) {
+      const label = document.createElement("span");
+      label.textContent = labels[link.textContent.trim()] ?? link.textContent.trim();
+      label.setAttribute("aria-hidden", "true");
+      link.setAttribute("aria-label", label.textContent);
+      link.append(label);
+      additions.push(label);
+    }
+    for (const link of columns.querySelectorAll("a")) {
+      const url = new URL(link.href);
+      if (["https://traceroot.ai", "https://app.traceroot.ai"].includes(url.origin)) link.removeAttribute("target");
+      // Mintlify's absolute-link resolver drops the homepage pricing fragment.
+      if (link.textContent.trim() === "Pricing") link.hash = "pricing";
+    }
+    const classes = [
+      [host, "tr-docs-footer"], [wrapper, "tr-docs-footer__inner"],
+      [row, "tr-docs-footer__row"], [brand, "tr-docs-footer__brand"],
+      [columns, "tr-docs-footer__columns"], [socials, "tr-docs-footer__connect"],
+    ];
+    classes.forEach(([element, name]) => element.classList.add(name));
+    mounted = { host, wrapper, node, events, additions, classes,
+      dialog: attachInteractions(node, events), resize: new ResizeObserver(alignFooter) };
+    window.addEventListener("resize", alignFooter, { signal: events.signal });
+    observeArticle();
+    mountWordmark();
   }
 
   function refresh() {
-    window.clearTimeout(timer);
-    generation += 1;
     syncStoredChoice();
-    // A retained footer needs no remount; a replaced footer is cleaned up.
-    void mount(0, generation);
+    mount();
   }
 
   window.addEventListener("mintlify:navigate", refresh, { signal: globalEvents.signal });
   window.addEventListener("traceroot:wordmark-ready", mountWordmark, { signal: globalEvents.signal });
-  // Mintlify changes the html class when switching theme; no body observer.
-  let dark = document.documentElement.classList.contains("dark");
-  const themeObserver = new MutationObserver(() => {
-    const next = document.documentElement.classList.contains("dark");
-    if (next === dark) return;
-    dark = next;
-    if (!mounted) return;
-    mounted.wordmarkDispose?.();
-    mounted.wordmarkDispose = null;
-    mountWordmark();
-  });
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
   window.addEventListener("load", syncStoredChoice, { once: true, signal: globalEvents.signal });
-  window.addEventListener("storage", (event) => {
+  window.addEventListener("storage", event => {
     if (event.key !== consentKey) return;
     visitChoice = undefined;
     syncStoredChoice();
   }, { signal: globalEvents.signal });
-
   window.__trDocsFooterAdapter = {
     refresh,
     dispose() {
-      generation += 1;
-      window.clearTimeout(timer);
       window.clearTimeout(consentTimer);
       globalEvents.abort();
-      themeObserver.disconnect();
       cleanMount();
     },
   };

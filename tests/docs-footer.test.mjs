@@ -23,13 +23,14 @@ function harness(t, choice = "denied") {
     window, document, AbortController,
     location: { hostname: "localhost" },
     localStorage: { getItem: name => storage.get(name) ?? null },
-    MutationObserver: class { observe() {} disconnect() {} },
+    getComputedStyle: () => ({ display: "block" }),
     setTimeout: schedule,
     clearTimeout,
   });
   t.after(() => window.__trDocsFooterAdapter.dispose());
   return {
     window,
+    document,
     storage,
     get scheduled() { return scheduled; },
     load() { window.dispatchEvent(new Event("load")); },
@@ -179,6 +180,26 @@ test("disposal cancels retry work and removes lifecycle listeners", t => {
   env.changed();
   env.advance(60000);
   assert.equal(sdk.calls.reads, 0);
+});
+
+test("missing footer styles leave native content intact without injecting enhancement markup", t => {
+  const env = harness(t, null);
+  const additions = [];
+  const brand = { querySelector: () => ({}) };
+  const columns = { style: { gridTemplateColumns: "repeat(2, 1fr)" } };
+  const socials = { querySelector: () => ({}) };
+  const row = { children: [brand, columns, socials] };
+  const wrapper = { firstElementChild: row, append: node => additions.push(node) };
+  const footer = { firstElementChild: wrapper };
+  env.document.querySelector = () => footer;
+  env.document.createElement = () => ({
+    set innerHTML(_) { assert.fail("unstyled enhancement markup must not be injected"); },
+    remove() { additions.splice(additions.indexOf(this), 1); },
+  });
+  env.window.__trDocsFooterAdapter.refresh();
+  assert.equal(additions.length, 0);
+  assert.deepEqual(row.children, [brand, columns, socials]);
+  assert.equal(env.scheduled, 0, "native fallback needs no readiness polling");
 });
 
 test("the functional primary contrasts with white and the API response surface", () => {

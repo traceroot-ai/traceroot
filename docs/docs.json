@@ -22,7 +22,7 @@
   "favicon": "/logo/favicon.png",
   "logo": {
     "light": "/brand/logo-light.svg",
-    "dark": "/brand/logo-dark.svg",
+    "dark": "/brand/logo-light.svg",
     "href": "https://traceroot.ai",
     "size": 36
   },
@@ -258,11 +258,32 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/traceroot-ai",
       "x": "https://x.com/TraceRootAI",
+      "github": "https://github.com/traceroot-ai/traceroot",
       "linkedin": "https://www.linkedin.com/company/traceroot-ai",
       "discord": "https://discord.gg/TM2m3CtKuC"
-    }
+    },
+    "links": [
+      {
+        "header": "Product",
+        "items": [
+          { "label": "Docs", "href": "https://traceroot.ai/docs/getting-started/introduction" },
+          { "label": "Pricing", "href": "https://traceroot.ai/#pricing" },
+          { "label": "Changelog", "href": "https://traceroot.ai/changelog" },
+          { "label": "App", "href": "https://app.traceroot.ai/" },
+          { "label": "Security", "href": "https://traceroot.ai/security" },
+          { "label": "Trust Center", "href": "https://trust.traceroot.ai" }
+        ]
+      },
+      {
+        "header": "Company",
+        "items": [
+          { "label": "Blog", "href": "https://traceroot.ai/blog" },
+          { "label": "Service description", "href": "https://traceroot.ai/service" },
+          { "label": "Talk to sales", "href": "https://cal.com/traceroot/30min" }
+        ]
+      }
+    ]
   },
   "integrations": {
     "posthog": {

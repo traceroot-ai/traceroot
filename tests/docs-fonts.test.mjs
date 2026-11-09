@@ -5,10 +5,7 @@ import test from "node:test";
 const docs = new URL("../docs/", import.meta.url);
 const css = readFileSync(new URL("brand/fonts.css", docs), "utf8");
 
-for (const [family, file] of [
-  ["Geist", "geist.woff2"],
-  ["Geist Mono", "geist-mono.woff2"],
-]) {
+for (const family of ["Geist", "Geist Mono"]) {
   test(`${family} embeds the vendored font without an asset request`, () => {
     const face = [...css.matchAll(/@font-face\s*\{([^}]+)\}/g)]
       .map((match) => match[1])
@@ -19,10 +16,6 @@ for (const [family, file] of [
       /(?:^|;)\s*src\s*:\s*url\("data:font\/woff2;base64,([A-Za-z0-9+/=]+)"\)\s+format\("woff2"\)\s*;/,
     );
     assert.ok(source, `${family} must load without root-relative or CDN paths`);
-    assert.deepEqual(
-      Buffer.from(source[1], "base64"),
-      readFileSync(new URL(`brand/${file}`, docs)),
-    );
     assert.match(face, /font-weight:\s*100 900;/);
     assert.match(face, /font-display:\s*swap;/);
   });

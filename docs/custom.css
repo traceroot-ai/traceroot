@@ -13,14 +13,6 @@
   --content-width: 640px;
 }
 
-html.dark {
-  --tr-link: #5ed4cd;
-  --tr-text: #eceef0;
-  --tr-muted: #b4b9bd;
-  --tr-border: #30363b;
-  --tr-surface: #1b2025;
-}
-
 body {
   color: var(--tr-text);
   -webkit-font-smoothing: antialiased;
@@ -33,7 +25,6 @@ body {
 
 #search-bar-entry,
 #assistant-entry,
-#theme-preference-menu-trigger,
 .navbar-link a {
   border-radius: 0;
   background: var(--tr-surface);
@@ -341,10 +332,6 @@ html[data-current-path$="/getting-started/introduction"] #content > :last-child 
 @media (min-width: 1024px) {
   #navbar .nav-logo {
     margin-left: -8px;
-  }
-
-  #theme-preference-menu-trigger {
-    margin-right: -8px;
   }
 
   #navbar .nav-tabs {

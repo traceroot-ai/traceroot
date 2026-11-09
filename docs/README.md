@@ -19,13 +19,13 @@ To enter this local preview through the website, run the following in the siblin
 `traceroot-website` checkout:
 
 ```bash
-DOCS_DEV_URL=http://localhost:3000 npm run dev -- --host 127.0.0.1 --port 5175 --strictPort
+VITE_DOCS_DEV_URL=http://localhost:3000 npm run dev -- --host 127.0.0.1 --port 5175 --strictPort
 ```
 
-Visit `http://127.0.0.1:5175` and select **Docs**, or open
-`http://127.0.0.1:5175/docs`. This opt-in development entry redirects to the local
-Mintlify port. Published URLs and the website's production Vercel rewrites are
-unchanged. Both development processes must remain running.
+Visit `http://127.0.0.1:5175` and select **Docs**. In the development browser,
+the link opens the configured Mintlify origin directly. Both development
+processes must remain running. Production builds and server rendering always
+use the published documentation URL; no local `/docs` redirect is added.
 
 Validate changes with the same CLI version:
 
@@ -48,23 +48,27 @@ The current release is light-only. `appearance.default: "light"` and
 `appearance.strict: true` in `docs.json` use Mintlify's native policy to force
 light mode and hide the theme switch, including for visitors with a dark system
 theme or a saved dark preference. Do not override the theme with CSS or rewrite
-visitors' stored preferences. Dark styles and assets are dormant reference work,
-not approved for production. After dark-mode design approval, review those styles
-and assets, then change this one configuration policy and recheck both themes.
+visitors' stored preferences. Only the approved light styles and assets ship.
+After dark-mode design approval, implement and validate that theme before
+changing the configuration policy.
 
 The mint theme's hidden, inert Assistant bar is collapsed only in that semantic
 state, so it does not leave an empty block before the footer. When Mintlify makes
 the bar available, its native sticky layout remains active.
 
-`footer.js` is a small progressive enhancement of the native footer: it mounts
-only when its styles and logo have loaded, handles `mintlify:navigate`, and
-restores the native footer on disposal. It adds no framework or analytics SDK.
+`docs.json` owns the native footer links, logo and social icons. `footer.js`
+adds the brand description, existing legal and preference controls, and animated
+wordmark. A bounded layout adapter aligns the advanced footer to the article
+and pagination without moving Mintlify-owned nodes or changing sidebar
+scrolling. It refreshes on `mintlify:navigate` and observes article resizing;
+it does not poll for the footer. Without the script, native links remain visible.
+It adds no framework or analytics SDK.
 Its verified visitor-SDK consent boundary is documented in `brand/README.md`.
 Check that boundary on a connected deployment before treating it as a complete
 production consent manager.
 
 Brand assets and fonts are snapshots of the website, with sources listed in
-`brand/README.md`. `brand/fonts.css` embeds both adjacent WOFF2 fonts so the
+`brand/README.md`. `brand/fonts.css` embeds both website WOFF2 snapshots so the
 same CSS works at the local root and the production `/docs` subpath without a
 root-level `/brand` proxy. `custom.css` sets Mintlify's heading and body font
 variables. No `fonts` setting is needed in `docs.json`, which avoids Mintlify's
