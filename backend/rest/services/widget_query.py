@@ -343,11 +343,14 @@ def compile_widget_query(
         # collapse (a p95 latency line dipping to nothing). Nullable makes the
         # WITH FILL rows below carry NULL, which the chart draws as a gap.
         metric_sql = f"toNullable({metric_sql})"
-    elif is_timeseries:
-        # The zero has to be made explicit: a sum over a Nullable column (cost,
-        # tokens) is itself Nullable, so its WITH FILL rows would carry NULL
-        # too, and the chart would see one real bucket among gaps and draw
-        # nothing for a series that has data.
+    elif is_timeseries or (
+        spec.display.type == "number" and spec.metric.agg not in _NON_ADDITIVE_AGGS
+    ):
+        # A sum over a Nullable column is itself Nullable. A timeseries fills
+        # empty buckets with that NULL, and a number tile over zero rows is
+        # NULL too. Alert evaluation reads the number tile, so a sum of nothing
+        # has to be 0 or a dropped-to-zero rule sits at NO_DATA. Count of
+        # nothing is already 0. An average or percentile of nothing stays NULL.
         metric_sql = f"ifNull({metric_sql}, 0)"
     # Bound unconditionally: both the bucketing branch and the row-cap branch
     # below key off is_timeseries, and an implicit binding would let them drift.
