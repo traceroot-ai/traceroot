@@ -610,7 +610,7 @@ function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: numb
 
 function UserBubble({ msg }: { msg: AIMessage }) {
   return (
-    <div className="whitespace-pre-wrap break-words rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground">
+    <div className="whitespace-pre-wrap break-words rounded-md bg-primary px-3 py-1.5 text-xs text-primary-ink">
       {msg.content}
     </div>
   );
