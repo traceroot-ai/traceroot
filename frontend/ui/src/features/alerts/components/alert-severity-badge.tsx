@@ -24,14 +24,15 @@ const BADGE =
 export interface AlertSeverityBadgeProps extends AlertDisplayInput {
   /** Omitted by callers with no workspace in hand: the reason still shows, the link does not. */
   workspaceId?: string;
+  className?: string;
 }
 
-export function AlertSeverityBadge({ workspaceId, ...alert }: AlertSeverityBadgeProps) {
+export function AlertSeverityBadge({ workspaceId, className, ...alert }: AlertSeverityBadgeProps) {
   const { label, tone, detail } = resolveAlertDisplayState(alert);
-  const className = cn(BADGE, TONE_STYLES[tone]);
+  const badgeClassName = cn(BADGE, TONE_STYLES[tone], className);
 
   if (detail === undefined) {
-    return <span className={className}>{label}</span>;
+    return <span className={badgeClassName}>{label}</span>;
   }
 
   const fix = resolveAlertDeliveryFix(alert);
@@ -44,7 +45,7 @@ export function AlertSeverityBadge({ workspaceId, ...alert }: AlertSeverityBadge
         <button
           type="button"
           className={cn(
-            className,
+            badgeClassName,
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           )}
         >

@@ -14,6 +14,7 @@ import {
   formatExactTokens,
   cn,
 } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatContentPreview } from "../utils";
 import { traceMetadataEntries } from "../utils/metadata";
 import { TraceMetadataCell } from "./TraceMetadataCell";
@@ -248,22 +249,34 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
   signal_ids: ({ projectId, signalIds, signalIdsFailed, borderClassName }) =>
     signalIds?.length ? (
       <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
-        {/* One line per row, always: the first signal id, then a count for the rest
-            (all of them in the tooltip), so a row never grows with its signal list. */}
+        {/* One line per row, always: the first signal id, then a count that opens the rest. */}
         <span className="flex items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
-          <Link
-            href={signalDeepLinkPath(projectId, signalIds[0])}
-            // The row opens the trace; a signal id opens the signal instead.
-            onClick={(e) => e.stopPropagation()}
-            title={`${signalIds[0]} — open the signal`}
-            className="block min-w-0 truncate transition-colors hover:text-foreground hover:underline"
-          >
-            {signalIds[0]}
-          </Link>
+          <SignalLink projectId={projectId} signalId={signalIds[0]} />
           {signalIds.length > 1 && (
-            <span className="shrink-0" title={signalIds.join("\n")}>
-              +{signalIds.length - 1}
-            </span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  // The row opens the trace; the count opens the other signals instead.
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Show ${signalIds.length - 1} more signals`}
+                  className="shrink-0 rounded-[2px] px-0.5 transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  +{signalIds.length - 1}
+                </button>
+              </PopoverTrigger>
+              {/* Portaled, but React events still bubble to the row, so stop them here. */}
+              <PopoverContent
+                align="start"
+                aria-label="More signals"
+                onClick={(e) => e.stopPropagation()}
+                className="flex w-auto max-w-[20rem] flex-col gap-1 p-2 font-mono text-[12px] text-muted-foreground"
+              >
+                {signalIds.slice(1).map((signalId) => (
+                  <SignalLink key={signalId} projectId={projectId} signalId={signalId} />
+                ))}
+              </PopoverContent>
+            </Popover>
           )}
         </span>
       </td>
@@ -332,6 +345,20 @@ function traceTotalTokens(trace: TraceListItem): number | null {
   const { total_input_tokens: input, total_output_tokens: output } = trace;
   if (input == null && output == null) return null;
   return (input ?? 0) + (output ?? 0);
+}
+
+function SignalLink({ projectId, signalId }: { projectId: string; signalId: string }) {
+  return (
+    <Link
+      href={signalDeepLinkPath(projectId, signalId)}
+      // The row opens the trace; a signal id opens the signal instead.
+      onClick={(e) => e.stopPropagation()}
+      title={`${signalId} — open the signal`}
+      className="block min-w-0 truncate transition-colors hover:text-foreground hover:underline"
+    >
+      {signalId}
+    </Link>
+  );
 }
 
 /**
