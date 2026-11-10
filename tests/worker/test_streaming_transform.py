@@ -7,11 +7,9 @@ accumulates and finalizes trace-level metadata across spans.
 
 import json
 import types
+from collections.abc import Generator
 from datetime import UTC, datetime
-from typing import Generator
 from unittest.mock import MagicMock
-
-import pytest
 
 from tests.fixtures.otel_payloads import (
     make_attr,
@@ -25,7 +23,6 @@ from worker.otel_transform import (
     iter_transform_spans,
     transform_otel_to_clickhouse,
 )
-
 
 # ── Reusable IDs ────────────────────────────────────────────────────────
 
@@ -131,7 +128,7 @@ class TestIterTransformSpans:
         ctx = TransformContext(project_id="proj-1")
         payload = make_otel_payload([])
         result = iter_transform_spans(payload, "proj-1", ctx)
-        assert isinstance(result, Generator) or isinstance(result, types.GeneratorType)
+        assert isinstance(result, (Generator, types.GeneratorType))
 
     def test_empty_payload(self):
         """Empty resourceSpans yields nothing."""
@@ -165,29 +162,35 @@ class TestIterTransformSpans:
 
     def test_root_bearing_trace_ids_tracked(self):
         """Root spans are tracked in ctx.root_bearing_trace_ids."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, name="root"),
-            make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_A, ROOT_SPAN, name="root"),
+                make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         list(iter_transform_spans(payload, "proj-1", ctx))
         assert TRACE_A in ctx.root_bearing_trace_ids
 
     def test_child_only_trace_not_root_bearing(self):
         """A trace with only child spans (no root) is not root-bearing."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         list(iter_transform_spans(payload, "proj-1", ctx))
         assert TRACE_A not in ctx.root_bearing_trace_ids
 
     def test_parent_child_spans(self):
         """Both parent and child spans are yielded and trace is resolved."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, name="root"),
-            make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_A, ROOT_SPAN, name="root"),
+                make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         spans = list(iter_transform_spans(payload, "proj-1", ctx))
 
@@ -202,22 +205,34 @@ class TestIterTransformSpans:
 
     def test_span_kind_explicit_llm(self):
         """Explicit traceroot.span.type=LLM is preserved."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, attributes=[
-                make_attr("traceroot.span.type", "LLM"),
-            ]),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    ROOT_SPAN,
+                    attributes=[
+                        make_attr("traceroot.span.type", "LLM"),
+                    ],
+                ),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         spans = list(iter_transform_spans(payload, "proj-1", ctx))
         assert spans[0]["span_kind"] == "LLM"
 
     def test_span_kind_openinference_tool(self):
         """OpenInference TOOL kind is recognized."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, attributes=[
-                make_attr("openinference.span.kind", "TOOL"),
-            ]),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    ROOT_SPAN,
+                    attributes=[
+                        make_attr("openinference.span.kind", "TOOL"),
+                    ],
+                ),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         spans = list(iter_transform_spans(payload, "proj-1", ctx))
         assert spans[0]["span_kind"] == "TOOL"
@@ -231,12 +246,18 @@ class TestIterTransformSpans:
 
     def test_input_output_extraction(self):
         """span input/output from traceroot attributes."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, attributes=[
-                make_attr("traceroot.span.input", "hello world"),
-                make_attr("traceroot.span.output", "goodbye world"),
-            ]),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    ROOT_SPAN,
+                    attributes=[
+                        make_attr("traceroot.span.input", "hello world"),
+                        make_attr("traceroot.span.output", "goodbye world"),
+                    ],
+                ),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         spans = list(iter_transform_spans(payload, "proj-1", ctx))
         assert spans[0]["input"] == "hello world"
@@ -245,20 +266,26 @@ class TestIterTransformSpans:
     def test_skips_spans_without_trace_id(self):
         """Spans with missing traceId are skipped."""
         payload = {
-            "resourceSpans": [{
-                "resource": {"attributes": []},
-                "scopeSpans": [{
-                    "scope": {"name": "test"},
-                    "spans": [{
-                        "spanId": "AQAAAAAAAAAA",  # valid base64
-                        "name": "orphan",
-                        "startTimeUnixNano": "1705320000000000000",
-                        "endTimeUnixNano": "1705320001000000000",
-                        "attributes": [],
-                        "status": {"code": 0},
-                    }],
-                }],
-            }],
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": []},
+                    "scopeSpans": [
+                        {
+                            "scope": {"name": "test"},
+                            "spans": [
+                                {
+                                    "spanId": "AQAAAAAAAAAA",  # valid base64
+                                    "name": "orphan",
+                                    "startTimeUnixNano": "1705320000000000000",
+                                    "endTimeUnixNano": "1705320001000000000",
+                                    "attributes": [],
+                                    "status": {"code": 0},
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
         }
         ctx = TransformContext(project_id="proj-1")
         spans = list(iter_transform_spans(payload, "proj-1", ctx))
@@ -266,10 +293,12 @@ class TestIterTransformSpans:
 
     def test_multiple_traces(self):
         """Spans from different traces yield correctly and create separate trace records."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, name="trace-a"),
-            make_span(TRACE_B, CHILD_SPAN, name="trace-b"),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_A, ROOT_SPAN, name="trace-a"),
+                make_span(TRACE_B, CHILD_SPAN, name="trace-b"),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         spans = list(iter_transform_spans(payload, "proj-1", ctx))
         assert len(spans) == 2
@@ -294,11 +323,17 @@ class TestIterTransformSpans:
 
     def test_environment_from_span(self):
         """Environment attribute on spans propagates to trace."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, attributes=[
-                make_attr("traceroot.environment", "production"),
-            ]),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    ROOT_SPAN,
+                    attributes=[
+                        make_attr("traceroot.environment", "production"),
+                    ],
+                ),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         list(iter_transform_spans(payload, "proj-1", ctx))
         traces = ctx.finalize_traces()
@@ -306,12 +341,18 @@ class TestIterTransformSpans:
 
     def test_user_id_session_id_from_root(self):
         """user_id and session_id from root span land on the trace."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, attributes=[
-                make_attr("traceroot.trace.user_id", "alice"),
-                make_attr("traceroot.trace.session_id", "sess-1"),
-            ]),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    ROOT_SPAN,
+                    attributes=[
+                        make_attr("traceroot.trace.user_id", "alice"),
+                        make_attr("traceroot.trace.session_id", "sess-1"),
+                    ],
+                ),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         list(iter_transform_spans(payload, "proj-1", ctx))
         traces = ctx.finalize_traces()
@@ -320,11 +361,18 @@ class TestIterTransformSpans:
 
     def test_user_id_from_child_when_root_missing(self):
         """Child span's user_id fills in when root has none."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, CHILD_SPAN, parent_span_id_hex=ROOT_SPAN, attributes=[
-                make_attr("traceroot.trace.user_id", "bob"),
-            ]),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    CHILD_SPAN,
+                    parent_span_id_hex=ROOT_SPAN,
+                    attributes=[
+                        make_attr("traceroot.trace.user_id", "bob"),
+                    ],
+                ),
+            ]
+        )
         ctx = TransformContext(project_id="proj-1")
         list(iter_transform_spans(payload, "proj-1", ctx))
         traces = ctx.finalize_traces()
@@ -365,14 +413,18 @@ class TestStreamingBackwardCompatibility:
 
     def test_multi_span_trace_matches(self):
         """Parent + child + grandchild: counts and IDs match."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, name="root"),
-            make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
-            make_span(
-                TRACE_A, GRANDCHILD_SPAN, name="grandchild",
-                parent_span_id_hex=CHILD_SPAN,
-            ),
-        ])
+        payload = make_otel_payload(
+            [
+                make_span(TRACE_A, ROOT_SPAN, name="root"),
+                make_span(TRACE_A, CHILD_SPAN, name="child", parent_span_id_hex=ROOT_SPAN),
+                make_span(
+                    TRACE_A,
+                    GRANDCHILD_SPAN,
+                    name="grandchild",
+                    parent_span_id_hex=CHILD_SPAN,
+                ),
+            ]
+        )
         wrapper_traces, wrapper_spans = transform_otel_to_clickhouse(payload, "proj-1")
         stream_traces, stream_spans = self._streaming_result(payload)
 
@@ -400,17 +452,24 @@ class TestStreamingBackwardCompatibility:
 
     def test_all_span_fields_present(self):
         """Every field from the wrapper API is present in streaming output."""
-        payload = make_otel_payload([
-            make_span(TRACE_A, ROOT_SPAN, name="root", attributes=[
-                make_attr("traceroot.span.type", "LLM"),
-                make_attr("traceroot.span.input", "hello"),
-                make_attr("traceroot.span.output", "world"),
-                make_attr("traceroot.environment", "prod"),
-                make_attr("gen_ai.request.model", "gpt-4"),
-            ]),
-        ])
-        wrapper_traces, wrapper_spans = transform_otel_to_clickhouse(payload, "proj-1")
-        stream_traces, stream_spans = self._streaming_result(payload)
+        payload = make_otel_payload(
+            [
+                make_span(
+                    TRACE_A,
+                    ROOT_SPAN,
+                    name="root",
+                    attributes=[
+                        make_attr("traceroot.span.type", "LLM"),
+                        make_attr("traceroot.span.input", "hello"),
+                        make_attr("traceroot.span.output", "world"),
+                        make_attr("traceroot.environment", "prod"),
+                        make_attr("gen_ai.request.model", "gpt-4"),
+                    ],
+                ),
+            ]
+        )
+        _wrapper_traces, wrapper_spans = transform_otel_to_clickhouse(payload, "proj-1")
+        _stream_traces, stream_spans = self._streaming_result(payload)
 
         # Every key in the wrapper span must also exist in the streaming span
         for key in wrapper_spans[0]:
@@ -442,10 +501,14 @@ class TestChunkedConsumer:
         spans = [make_span(TRACE_A, ROOT_SPAN, name="root")]
         for i in range(n_spans - 1):
             span_id = f"{i + 2:016x}"
-            spans.append(make_span(
-                TRACE_A, span_id, name=f"child-{i}",
-                parent_span_id_hex=ROOT_SPAN,
-            ))
+            spans.append(
+                make_span(
+                    TRACE_A,
+                    span_id,
+                    name=f"child-{i}",
+                    parent_span_id_hex=ROOT_SPAN,
+                )
+            )
         return make_otel_payload(spans)
 
     def _setup_redis_context(self, mock_redis):
@@ -475,12 +538,20 @@ class TestChunkedConsumer:
                 chunk.append(span)
                 if len(chunk) >= chunk_size:
                     _flush_span_chunk(
-                        chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                        chunk,
+                        fake_ch,
+                        None,
+                        "proj-1",
+                        attachments_enabled=False,
                     )
                     chunk = []
             if chunk:
                 _flush_span_chunk(
-                    chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                    chunk,
+                    fake_ch,
+                    None,
+                    "proj-1",
+                    attachments_enabled=False,
                 )
                 chunk = []
         finally:
@@ -507,12 +578,20 @@ class TestChunkedConsumer:
                 chunk.append(span)
                 if len(chunk) >= chunk_size:
                     _flush_span_chunk(
-                        chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                        chunk,
+                        fake_ch,
+                        None,
+                        "proj-1",
+                        attachments_enabled=False,
                     )
                     chunk = []
             if chunk:
                 _flush_span_chunk(
-                    chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                    chunk,
+                    fake_ch,
+                    None,
+                    "proj-1",
+                    attachments_enabled=False,
                 )
                 chunk = []
         finally:
@@ -537,12 +616,20 @@ class TestChunkedConsumer:
                 chunk.append(span)
                 if len(chunk) >= chunk_size:
                     _flush_span_chunk(
-                        chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                        chunk,
+                        fake_ch,
+                        None,
+                        "proj-1",
+                        attachments_enabled=False,
                     )
                     chunk = []
             if chunk:
                 _flush_span_chunk(
-                    chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                    chunk,
+                    fake_ch,
+                    None,
+                    "proj-1",
+                    attachments_enabled=False,
                 )
                 chunk = []
         finally:
@@ -558,7 +645,7 @@ class TestChunkedConsumer:
         payload = self._make_large_payload(15)
         ctx = TransformContext(project_id="proj-1")
 
-        for span in iter_transform_spans(payload, "proj-1", ctx):
+        for _span in iter_transform_spans(payload, "proj-1", ctx):
             pass  # consume all
 
         assert ctx.root_bearing_trace_ids == {TRACE_A}
@@ -574,7 +661,11 @@ class TestChunkedConsumer:
         try:
             for span in iter_transform_spans(payload, "proj-1", ctx):
                 _flush_span_chunk(
-                    [span], fake_ch, None, "proj-1", attachments_enabled=False,
+                    [span],
+                    fake_ch,
+                    None,
+                    "proj-1",
+                    attachments_enabled=False,
                 )
         finally:
             self._teardown_redis_context()
@@ -714,4 +805,3 @@ class TestLiveSpanPublishing:
 
         # Trace must NOT be in completed since the publish failed.
         assert TRACE_A not in completed
-

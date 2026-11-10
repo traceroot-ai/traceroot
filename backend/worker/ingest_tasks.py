@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 #: merges and FINAL then keep the row inserted last.
 PLACEHOLDER_TRACE_VERSION = datetime(1970, 1, 1, tzinfo=UTC)
 
+#: Maximum number of spans to accumulate and process per chunk to bound worker memory.
+SPAN_CHUNK_SIZE = 500
+
 
 def _json_serializer(obj: object) -> str:
     """JSON serializer for datetime objects in span dicts."""
@@ -432,7 +435,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         # SPAN_CHUNK_SIZE: each chunk is attachment-extracted, inserted into
         # ClickHouse, published to the live view, and then freed — so peak memory
         # is O(chunk_size) instead of O(batch_size).
-        SPAN_CHUNK_SIZE = 500
+        span_chunk_size = SPAN_CHUNK_SIZE
         ctx = TransformContext(project_id=project_id)
         ch_client = None  # Lazy — avoids connecting when the batch is empty.
         total_spans = 0
@@ -455,20 +458,25 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
 
                 chunk.append(span_record)
 
-                if len(chunk) >= SPAN_CHUNK_SIZE:
+                if len(chunk) >= span_chunk_size:
                     if ch_client is None:
                         ch_client = get_clickhouse_client()
                         try:
                             import redis as redis_lib
 
                             redis_client = redis_lib.from_url(
-                                settings.redis.url, decode_responses=True,
+                                settings.redis.url,
+                                decode_responses=True,
                             )
                             _REDIS_CONTEXT.client = redis_client
                         except Exception:
                             pass
                     _flush_span_chunk(
-                        chunk, ch_client, s3_service, project_id, attachments_enabled,
+                        chunk,
+                        ch_client,
+                        s3_service,
+                        project_id,
+                        attachments_enabled,
                     )
                     total_spans += len(chunk)
                     chunk = []
@@ -481,13 +489,18 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                         import redis as redis_lib
 
                         redis_client = redis_lib.from_url(
-                            settings.redis.url, decode_responses=True,
+                            settings.redis.url,
+                            decode_responses=True,
                         )
                         _REDIS_CONTEXT.client = redis_client
                     except Exception:
                         pass
                 _flush_span_chunk(
-                    chunk, ch_client, s3_service, project_id, attachments_enabled,
+                    chunk,
+                    ch_client,
+                    s3_service,
+                    project_id,
+                    attachments_enabled,
                 )
                 total_spans += len(chunk)
                 chunk = []
@@ -499,11 +512,13 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                     try:
                         channel = f"trace:live:{project_id}:{trace_id}"
                         redis_client.publish(
-                            channel, json.dumps({"type": "trace_complete"}),
+                            channel,
+                            json.dumps({"type": "trace_complete"}),
                         )
                     except Exception:
                         logger.warning(
-                            "Failed to publish trace_complete for %s", trace_id,
+                            "Failed to publish trace_complete for %s",
+                            trace_id,
                             exc_info=True,
                         )
         finally:
@@ -554,8 +569,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                 traces = [
                     t
                     for t in traces
-                    if t["trace_id"] in root_bearing_trace_ids
-                    or t["trace_id"] not in existing_ids
+                    if t["trace_id"] in root_bearing_trace_ids or t["trace_id"] not in existing_ids
                 ]
 
             if traces:

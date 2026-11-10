@@ -35,9 +35,10 @@ import base64
 import json
 import logging
 import math
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Generator
+from typing import Any
 
 from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
 from shared.span_attributes import (
@@ -1447,6 +1448,7 @@ def iter_transform_spans(
                             if not isinstance(span_output, str)
                             else span_output
                         )
+
 
 def transform_otel_to_clickhouse(
     otel_data: dict,
