@@ -30,8 +30,8 @@ describe("resolveAlertDisplayState", () => {
 
     expect(badge("OK")).toEqual({ label: "OK", tone: "ok" });
     expect(badge("ALERT")).toEqual({ label: "Alert", tone: "alert" });
-    expect(badge("NO_DATA")).toEqual({ label: "No data", tone: "neutral" });
-    expect(badge("UNKNOWN")).toEqual({ label: "No data", tone: "neutral" });
+    expect(badge("NO_DATA")).toEqual({ label: "No data", tone: "warning" });
+    expect(badge("UNKNOWN")).toEqual({ label: "No data", tone: "warning" });
   });
 
   it("waits for a first check only when the row says the rule has never run", () => {

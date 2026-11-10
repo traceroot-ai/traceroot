@@ -442,14 +442,8 @@ function CasePanel({
   canNavigateDown: boolean;
 }) {
   const router = useRouter();
-  const {
-    sidebarCollapsed,
-    aiPanelOpen,
-    setAiPanelOpen,
-    setAiContext,
-    setAiInitialSessionId,
-    registerAiHost,
-  } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
+    useLayout();
   const caseRuns = useTestCaseRuns(projectId, datasetId, testCase.testCaseId);
   // Every run that measured this row (matched by its stable testCaseId), newest first, across
   // all dataset versions — the row's full experiment history. Scoping this to the viewed version
@@ -519,9 +513,7 @@ function CasePanel({
       className={cn(
         "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200 focus:outline-none",
         fullscreen
-          ? sidebarCollapsed
-            ? "top-11 w-[calc(100%-3.5rem)] border-l-0 shadow-none"
-            : "top-11 w-[calc(100%-14rem)] border-l-0 shadow-none"
+          ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))] border-l-0 shadow-none"
           : "top-0 w-[70%]",
       )}
     >
