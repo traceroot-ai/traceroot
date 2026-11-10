@@ -285,6 +285,55 @@ describe("OpenAI Decisions span", () => {
     expect(JSON.stringify(sent)).toContain("synthetic-cred-77");
   });
 
+  it("redacts a credential inside a trace field that holds JSON as a string", async () => {
+    mockCallDecisions.mockResolvedValueOnce({
+      model: null,
+      answers: {
+        gate: { type: "predicate", probability: 0.1 },
+        label: {
+          type: "choice",
+          choice: "none",
+          confidence: 0.9,
+          probabilities: { problem: 0.1, none: 0.9 },
+        },
+      },
+      usage: { inputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    });
+    const input = JSON.stringify({ toolResponse: JSON.stringify({ apiKey: "dummy-secret" }) });
+    const spansJsonl = JSON.stringify({
+      trace_id: "t-1",
+      span_id: "s1",
+      name: "tool.fetch",
+      input,
+    });
+
+    await withSelfTrace(META, () =>
+      runOpenAIDecisionDetection({
+        spansJsonl,
+        detector: {
+          id: "det-1",
+          name: "Failure",
+          prompt: "Flag tool failures.",
+          outputSchema: [],
+          detectionModel: "gpt-6-luna-decisions",
+          detectionProvider: "my-openai",
+          detectionSource: "byok",
+          template: "blank",
+        },
+        providerConfig: { adapter: "openai", key: "sk-key", baseUrl: null, config: null },
+        timeoutMs: 5_000,
+      }),
+    );
+
+    const span = exporter.getFinishedSpans().find((s) => s.name === "decisions gpt-6-luna")!;
+    const recorded = String(span.attributes["traceroot.span.input"]);
+    expect(recorded).not.toContain("dummy-secret");
+    expect(recorded).toContain("[REDACTED]");
+    // The request still carries the trace as it was.
+    const sent = mockCallDecisions.mock.calls[0][0].input[0].content[0].data;
+    expect(JSON.stringify(sent)).toContain("dummy-secret");
+  });
+
   it("records the run's zero cost on the span when pricing fails", async () => {
     mockCalculateCost.mockRejectedValueOnce(new Error("db down"));
     mockCallDecisions.mockResolvedValueOnce({

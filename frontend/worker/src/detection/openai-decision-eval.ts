@@ -92,15 +92,15 @@ export async function runOpenAIDecisionDetection(params: {
   const jevState = buildJevState(spansJsonl);
   const fitted = fitDecisionsState(jevState.state);
   const input = compileDecisionsInput({ prompt: detector.prompt, state: fitted.state });
-  // The recorded preview is its own projection, redacted while each span is
-  // still parsed: reduction stringifies large payloads, and a credential-shaped
-  // key inside a string is just text to the span's own redaction. The request
-  // above keeps the full trace, as Jev's does. Redaction can lengthen a value,
-  // so a trace right at the budget may not fit twice; the preview is then left
-  // out rather than failing the run.
+  // The recorded preview is its own projection, redacted with the shared
+  // capture policy while each span is still parsed: reduction stringifies
+  // large payloads, and a credential-shaped key inside a string is just text
+  // to the span's own redaction. The request above keeps the full trace, as
+  // Jev's does. Redaction can lengthen a value, so a trace right at the budget
+  // may not fit twice; the preview is then left out rather than failing the run.
   let preview: unknown = null;
   try {
-    preview = buildJevState(spansJsonl, { redactCredentialKeys: true }).state;
+    preview = buildJevState(spansJsonl, { redact: true }).state;
   } catch {
     /* no preview */
   }

@@ -128,7 +128,7 @@ describe("buildJevState projection", () => {
   });
 });
 
-describe("buildJevState redactCredentialKeys", () => {
+describe("buildJevState redact", () => {
   const secretRow = (input: string) =>
     row({ input, output: '{"token":"tok-1","ok":true}', metadata: '{"password":"pw"}' });
 
@@ -140,9 +140,7 @@ describe("buildJevState redactCredentialKeys", () => {
   it("blanks credential-shaped keys at any depth in every parsed column", () => {
     const { state } = buildJevState(
       jsonl([secretRow('{"config":{"apiKey":"k-1"},"city":"Paris"}')]),
-      {
-        redactCredentialKeys: true,
-      },
+      { redact: true },
     );
     const span = traceOf(state).spans[0];
     expect(span.input).toEqual({ config: { apiKey: "[REDACTED]" }, city: "Paris" });
@@ -154,13 +152,51 @@ describe("buildJevState redactCredentialKeys", () => {
     const input = JSON.stringify({ apiKey: "k-1", notes: "x".repeat(5_000) });
     const { state, stats } = buildJevState(jsonl([secretRow(input)]), {
       budgetChars: 3_000,
-      redactCredentialKeys: true,
+      redact: true,
     });
     const span = traceOf(state).spans[0];
     expect(stats.truncated_inputs).toBe(1);
     expect(typeof span.input).toBe("string");
     expect(span.input).toContain("[REDACTED]");
     expect(span.input).not.toContain("k-1");
+  });
+
+  // A field holding JSON as a string: the key walk alone sees only text.
+  const stringified = JSON.stringify({ toolResponse: JSON.stringify({ apiKey: "dummy-secret" }) });
+
+  it("redacts a credential inside a field that holds JSON as a string", () => {
+    const { state } = buildJevState(jsonl([secretRow(stringified)]), { redact: true });
+    const span = traceOf(state).spans[0] as { input: { toolResponse: string } };
+    expect(JSON.stringify(span)).not.toContain("dummy-secret");
+    expect(JSON.parse(span.input.toolResponse)).toEqual({ apiKey: "[REDACTED]" });
+  });
+
+  it("redacts a stringified-JSON credential inside an input big enough to be truncated", () => {
+    const input = JSON.stringify({
+      toolResponse: JSON.stringify({ apiKey: "dummy-secret" }),
+      notes: "x".repeat(5_000),
+    });
+    const { state, stats } = buildJevState(jsonl([secretRow(input)]), {
+      budgetChars: 3_000,
+      redact: true,
+    });
+    expect(stats.truncated_inputs).toBe(1);
+    expect(JSON.stringify(traceOf(state))).not.toContain("dummy-secret");
+  });
+
+  it("runs the text patterns on plain string leaves", () => {
+    const { state } = buildJevState(
+      jsonl([row({ status_message: "401 with Authorization: Bearer abcdefgh12345678" })]),
+      { redact: true },
+    );
+    const span = traceOf(state).spans[0];
+    expect(span.status_message).not.toContain("abcdefgh12345678");
+    expect(span.status_message).toContain("[REDACTED]");
+  });
+
+  it("leaves a stringified-JSON field as it was when redaction is off", () => {
+    const span = traceOf(buildJevState(jsonl([secretRow(stringified)])).state).spans[0];
+    expect(JSON.stringify(span)).toContain("dummy-secret");
   });
 });
 

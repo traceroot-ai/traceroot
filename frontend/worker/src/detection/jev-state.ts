@@ -10,7 +10,7 @@
  * the run.
  */
 
-import { CREDENTIAL_KEY, REDACTED } from "@traceroot/core/capture-policy";
+import { redactValue } from "@traceroot/core/capture-policy";
 import type { JsonValue } from "./typesafe-client.js";
 
 /** A 60k-char state measured ~14k input tokens against the live API. */
@@ -84,20 +84,6 @@ export function parseJsonString(text: string): JsonValue {
   }
 }
 
-/** Blank the value under every credential-shaped key, at any depth (boundedJson's key rule). */
-function redactCredentialKeys(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(redactCredentialKeys);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [
-        k,
-        CREDENTIAL_KEY.test(k) ? REDACTED : redactCredentialKeys(v),
-      ]),
-    );
-  }
-  return value;
-}
-
 function projectSpan(row: Record<string, unknown>, redact: boolean): SpanState {
   const span: SpanState = {};
   for (const column of KEPT_COLUMNS) {
@@ -109,7 +95,9 @@ function projectSpan(row: Record<string, unknown>, redact: boolean): SpanState {
           ? parseJsonString(value)
           : value
         : (value as JsonValue);
-    span[column] = redact ? redactCredentialKeys(projected) : projected;
+    // The shared capture policy: credential-shaped keys, string leaves that
+    // are JSON documents, and the text patterns on every leaf.
+    span[column] = redact ? (redactValue(projected) as JsonValue) : projected;
   }
   return span;
 }
@@ -158,16 +146,16 @@ function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): { 
 }
 
 /**
- * Throws when the state cannot fit the budget. `redactCredentialKeys` blanks
- * credential-shaped keys while each span is still parsed, before reduction
- * can stringify (and so hide) them; for a recorded preview, not for a request.
+ * Throws when the state cannot fit the budget. `redact` applies the shared
+ * redaction while each span is still parsed, before reduction can stringify
+ * a payload and hide its keys; for a recorded preview, not for a request.
  */
 export function buildJevState(
   spansJsonl: string,
-  opts?: { budgetChars?: number; redactCredentialKeys?: boolean },
+  opts?: { budgetChars?: number; redact?: boolean },
 ): JevState {
   const budget = opts?.budgetChars ?? JEV_STATE_BUDGET_CHARS;
-  const redact = opts?.redactCredentialKeys ?? false;
+  const redact = opts?.redact ?? false;
 
   let traceId: string | null = null;
   let skippedLines = 0;
