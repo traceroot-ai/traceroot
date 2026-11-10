@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, Plus, Settings, Slash } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Settings } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -55,21 +55,28 @@ interface BreadcrumbProps {
  */
 export function Breadcrumb({ items }: BreadcrumbProps) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-[13px]">
+    <div className="flex min-w-0 items-center gap-0.5 text-[13px]">
       {items.map((item, index) => (
-        <span key={index} className="flex min-w-0 items-center gap-1.5">
-          {index > 0 && <Slash className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
+        <span key={index} className="flex min-w-0 items-center gap-0.5">
+          {index > 0 && (
+            <span
+              aria-hidden="true"
+              className="shrink-0 select-none text-[13px] text-muted-foreground/40"
+            >
+              /
+            </span>
+          )}
           {item.options && item.options.length > 0 ? (
             <BreadcrumbDropdown item={item} />
           ) : item.href ? (
             <Link
               href={item.href}
-              className="text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-[2px] px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               {item.label}
             </Link>
           ) : (
-            <span className="truncate font-medium">{item.label}</span>
+            <span className="truncate px-2 py-1 font-medium">{item.label}</span>
           )}
         </span>
       ))}
@@ -102,16 +109,15 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className="-mx-1 -my-0.5 flex min-w-0 items-center gap-1 rounded px-1 py-0.5 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex min-w-0 items-center gap-1 rounded-[2px] px-2 py-1 font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring"
         onKeyDownCapture={trackKeyboard}
         onPointerDownCapture={trackPointer}
       >
         <span className="truncate">{item.label}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="rounded-none"
         onKeyDownCapture={trackKeyboard}
         onPointerDownCapture={trackPointer}
         onPointerDownOutside={trackPointer}
@@ -121,7 +127,7 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
       >
         {item.menuHeader && (
           <>
-            <DropdownMenuItem asChild className="rounded-none text-[13px] font-semibold">
+            <DropdownMenuItem asChild className="text-[13px] font-medium">
               <Link href={item.menuHeader.href}>{item.menuHeader.label}</Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -132,13 +138,13 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
             option.isCurrent ? (
               <DropdownMenuItem
                 key={option.id}
-                className="rounded-none text-[13px] font-medium text-foreground"
+                className="bg-accent text-[13px] text-foreground"
                 onSelect={(event) => event.preventDefault()}
               >
                 <BreadcrumbOptionContent option={option} onOpenSettings={openSettings} />
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem key={option.id} asChild className="rounded-none text-[13px]">
+              <DropdownMenuItem key={option.id} asChild className="text-[13px]">
                 <Link href={option.href}>
                   <BreadcrumbOptionContent option={option} onOpenSettings={openSettings} />
                 </Link>
@@ -149,10 +155,7 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
         {item.createNew && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={item.createNew.onSelect}
-              className="rounded-none text-[13px]"
-            >
+            <DropdownMenuItem onSelect={item.createNew.onSelect} className="text-[13px]">
               <Plus className="h-3.5 w-3.5 shrink-0" />
               {item.createNew.label}
             </DropdownMenuItem>

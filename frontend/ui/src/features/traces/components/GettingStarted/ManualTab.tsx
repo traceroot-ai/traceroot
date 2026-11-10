@@ -31,7 +31,7 @@ const OWN_PICKER_GROUPS: {
   label: string;
   includes: (category: IntegrationCategory) => boolean;
 }[] = [
-  { key: "provider", label: "Model Providers", includes: (category) => category === "provider" },
+  { key: "provider", label: "Model providers", includes: (category) => category === "provider" },
   { key: "framework", label: "Frameworks", includes: (category) => category !== "provider" },
 ];
 
@@ -45,7 +45,7 @@ function LangTabs({
   availableLangs?: Lang[];
 }) {
   return (
-    <div className="flex border-b border-border">
+    <div className="flex gap-1">
       {ALL_LANGS.map((candidate) => {
         const isAvailable = availableLangs.includes(candidate);
 
@@ -56,11 +56,11 @@ function LangTabs({
             onClick={() => isAvailable && onChange(candidate)}
             disabled={!isAvailable}
             className={cn(
-              "-mb-px border-b-2 px-3 py-1.5 text-[12px] font-medium transition-colors",
-              lang === candidate
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground",
-              isAvailable ? "hover:text-foreground" : "cursor-not-allowed opacity-50",
+              "rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+              lang === candidate ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+              isAvailable
+                ? "hover:bg-muted hover:text-foreground"
+                : "cursor-not-allowed opacity-50",
             )}
           >
             {candidate === "python" ? "Python" : "TypeScript"}
@@ -161,21 +161,21 @@ function EnvironmentStep({ lang }: { lang: Lang }) {
           <code className="font-mono">{host.variable}</code> is set to{" "}
           <code className="font-mono">{host.value}</code>. Set{" "}
           <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself,
-          or your traces go to TraceRoot Cloud. Once{" "}
+          or your traces go to traceroot Cloud. Once{" "}
           <code className="font-mono">{host.variable}</code> is corrected and the web app rebuilt,
           the address appears here: the value is built into the app rather than read at startup.
         </p>
       ) : hostUrl !== null ? (
         <p className="text-[12px] text-muted-foreground">
           <code className="font-mono">TRACEROOT_HOST_URL</code> points the SDK at this deployment;
-          without it, your traces go to TraceRoot Cloud.
+          without it, your traces go to traceroot Cloud.
         </p>
       ) : null}
       <p className="text-[12px] text-muted-foreground">
         Use the key from step 1. Neither SDK loads a <code className="font-mono">.env</code> file by
         itself, so export {lines.length > 1 ? "these" : "it"} in the shell that runs your
         application, or put {lines.length > 1 ? "them" : "it"} in{" "}
-        <code className="font-mono">.env</code> and load that before TraceRoot is initialized:{" "}
+        <code className="font-mono">.env</code> and load that before traceroot is initialized:{" "}
         {lang === "python" ? (
           <>
             <code className="font-mono">from dotenv import load_dotenv; load_dotenv()</code>, from
@@ -266,12 +266,12 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
       <div className="space-y-2">
         {ownsStack ? (
           <p className="text-[13px] font-medium text-foreground">
-            5. Initialize TraceRoot for {selectedIntegration.name}
+            5. Initialize traceroot for {selectedIntegration.name}
           </p>
         ) : (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[13px] font-medium text-foreground">
-              4. Initialize TraceRoot for {selectedIntegration.name}
+              4. Initialize traceroot for {selectedIntegration.name}
             </p>
             {/* Kept beside the snippet it explains, and it moves with the
                 selection: the page the reader needs is the one for the stack

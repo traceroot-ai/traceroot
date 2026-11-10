@@ -64,7 +64,7 @@ export const ALERT_NO_DATA_MODE_LABELS: Readonly<Record<AlertNoDataMode, string>
  * someone.
  */
 export const ALERT_NO_DATA_MODE_HINTS: Readonly<Record<AlertNoDataMode, string>> = {
-  HOLD: "The rule reads NO_DATA. Nothing pages and nothing clears; an alert already open keeps its renotify clock.",
+  HOLD: "The rule shows no data. Nothing pages and nothing clears; an alert already open keeps its renotify clock.",
   ZERO: "An empty window counts as 0, so the threshold still decides and NO_DATA never arises.",
   NOTIFY:
     "Pages when the gap has lasted the shorter of the rule's window or 10 minutes, and pages again when data returns.",

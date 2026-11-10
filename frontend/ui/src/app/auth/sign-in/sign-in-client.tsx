@@ -91,7 +91,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
-            <div className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
               {error}
             </div>
           )}
@@ -106,7 +106,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.email.message}</p>
+                <p className="mt-1 text-[11px] text-danger">{errors.email.message}</p>
               )}
             </div>
 
@@ -128,7 +128,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.password.message}</p>
+                <p className="mt-1 text-[11px] text-danger">{errors.password.message}</p>
               )}
             </div>
 
@@ -162,7 +162,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href={signUpHref} className="font-medium text-primary hover:underline">
+            <Link href={signUpHref} className="font-medium text-brand hover:underline">
               Sign up
             </Link>
           </p>

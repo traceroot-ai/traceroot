@@ -70,7 +70,7 @@ export function StackAndModelKey({ projectId, selected, onSelect }: StackAndMode
             as a step in instrumenting the application. It is neither required
             nor read by the application. */}
         <p className="text-[12px] text-muted-foreground">
-          Optional. This key is for TraceRoot&apos;s AI assistant and detectors, not for your
+          Optional. This key is for traceroot&apos;s AI assistant and detectors, not for your
           application, which keeps using its own key.
         </p>
         {projectLoading ? (

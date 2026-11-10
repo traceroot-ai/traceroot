@@ -84,7 +84,7 @@ function CollapsibleNode({
         className="cursor-pointer text-left align-baseline"
       >
         <span className="text-muted-foreground">{open}</span>
-        <span className="mx-0.5 text-[10px] text-muted-foreground">
+        <span className="mx-0.5 text-[12px] text-muted-foreground">
           {count} {count === 1 ? "item" : "items"}
         </span>
         <span className="text-muted-foreground">{close}</span>

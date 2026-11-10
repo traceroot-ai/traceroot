@@ -97,7 +97,7 @@ export function AITab({ projectId }: AITabProps) {
           <p className="text-[12px] text-muted-foreground">
             <code className="font-mono">{setup.variable}</code> is set to{" "}
             <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
-            the command would sign you in and send traces to TraceRoot Cloud instead. Correct that
+            the command would sign you in and send traces to traceroot Cloud instead. Correct that
             value and rebuild the web app. Meanwhile, the manual tab works once you set{" "}
             <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
             address.
