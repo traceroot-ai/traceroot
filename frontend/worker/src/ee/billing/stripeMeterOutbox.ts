@@ -79,7 +79,7 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
         workspaceId: context.workspaceId,
         meter: context.meter,
         periodStart,
-        confirmedUnits: 0,
+        confirmedUnits: 0n,
       },
       update: {},
     });
