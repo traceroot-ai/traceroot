@@ -615,7 +615,7 @@ function OnboardingContent() {
 
         {/* Error message */}
         {error && (
-          <div className="mb-4 border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+          <div className="mb-4 border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
             {error}
           </div>
         )}
@@ -672,9 +672,9 @@ function OnboardingContent() {
                     <div className="flex flex-col items-center">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
                         {isProjectOnlyMode ? (
-                          <Check className="h-4 w-4 text-primary" />
+                          <Check className="h-4 w-4 text-brand" />
                         ) : (
-                          <DOMAIN_ICONS.workspace className="h-4 w-4 text-primary" />
+                          <DOMAIN_ICONS.workspace className="h-4 w-4 text-brand" />
                         )}
                       </div>
                       {/* Vertical connector line */}
@@ -688,7 +688,7 @@ function OnboardingContent() {
                       {isProjectOnlyMode ? (
                         <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
                           <span>{existingWorkspaceName || "Selected workspace"}</span>
-                          <Check className="ml-auto h-3.5 w-3.5 text-green-600" />
+                          <Check className="ml-auto h-3.5 w-3.5 text-success" />
                         </div>
                       ) : (
                         <Input
@@ -698,7 +698,7 @@ function OnboardingContent() {
                         />
                       )}
                       {errors.workspaceName && (
-                        <p className="mt-1 text-[11px] text-red-500">
+                        <p className="mt-1 text-[11px] text-danger">
                           {errors.workspaceName.message}
                         </p>
                       )}
@@ -723,9 +723,7 @@ function OnboardingContent() {
                         className="h-8 text-[13px]"
                       />
                       {errors.projectName && (
-                        <p className="mt-1 text-[11px] text-red-500">
-                          {errors.projectName.message}
-                        </p>
+                        <p className="mt-1 text-[11px] text-danger">{errors.projectName.message}</p>
                       )}
                     </div>
                   </div>

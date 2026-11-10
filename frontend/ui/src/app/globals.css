@@ -3,48 +3,89 @@
 @tailwind utilities;
 
 :root {
+  /* Brand tokens mirror the website: teal accent #14b8b0, ink #0b1015, paper #f4f4f6. */
   --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
+  --foreground: 210 25% 6%;
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 9%;
+  --card-foreground: 210 25% 6%;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 9%;
-  --primary: 0 0% 9%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 96%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
-  --accent: 0 0% 96%;
-  --accent-foreground: 0 0% 9%;
-  --destructive: 0 84.2% 60.2%;
+  --popover-foreground: 210 25% 6%;
+  /* Website CTA: #14b8b0 with warm white #fffbf5. */
+  --primary: 177.07 80.39% 40%;
+  --primary-foreground: 36 100% 98.04%;
+  /* Non-control text on a primary surface (chat bubble, badge): AA ink. */
+  --primary-ink: 210 25% 6%;
+  --secondary: 240 9% 96%;
+  --secondary-foreground: 210 25% 6%;
+  --muted: 240 9% 96%;
+  --muted-foreground: 204 5% 36%;
+  --accent: 177 53% 94%;
+  --accent-foreground: 210 25% 6%;
+  --destructive: 357 70% 42%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 90%;
-  --input: 0 0% 90%;
-  --ring: 0 0% 9%;
-  --radius: 0.375rem;
+  --border: 0 0% 87%;
+  --input: 0 0% 87%;
+  --ring: 178 87% 26%;
+  --radius: 0.25rem;
+
+  /* Teal as text: the darker shade keeps AA on white. */
+  --brand: 178 87% 26%;
+  --brand-soft: 177 53% 94%;
+  --brand-border: 177 45% 72%;
+
+  /* Status: text color on its own soft background, plus a border tone. */
+  --success: 145 75% 22%;
+  --success-soft: 145 55% 93%;
+  --success-border: 145 40% 70%;
+  --warning: 30 90% 26%;
+  --warning-soft: 40 90% 92%;
+  --warning-border: 38 75% 65%;
+  --danger: 357 70% 38%;
+  --danger-soft: 357 80% 96%;
+  --danger-border: 357 65% 78%;
+  --info: 215 80% 36%;
+  --info-soft: 215 90% 95%;
+  --info-border: 215 70% 78%;
 }
 
 .dark {
-  --background: 0 0% 7%;
+  --background: 210 25% 6%;
   --foreground: 0 0% 95%;
-  --card: 0 0% 10%;
+  --card: 210 22% 8%;
   --card-foreground: 0 0% 95%;
-  --popover: 0 0% 10%;
+  --popover: 210 22% 8%;
   --popover-foreground: 0 0% 95%;
-  --primary: 0 0% 95%;
-  --primary-foreground: 0 0% 9%;
-  --secondary: 0 0% 15%;
+  --primary: 177.07 80.39% 40%;
+  --primary-foreground: 36 100% 98.04%;
+  --primary-ink: 210 25% 6%;
+  --secondary: 210 14% 14%;
   --secondary-foreground: 0 0% 95%;
-  --muted: 0 0% 15%;
-  --muted-foreground: 0 0% 60%;
-  --accent: 0 0% 15%;
+  --muted: 210 14% 14%;
+  --muted-foreground: 210 8% 66%;
+  --accent: 177 30% 16%;
   --accent-foreground: 0 0% 95%;
-  --destructive: 0 62.8% 50.6%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 20%;
-  --input: 0 0% 20%;
-  --ring: 0 0% 80%;
+  --destructive: 357 85% 70%;
+  --destructive-foreground: 210 25% 6%;
+  --border: 210 12% 20%;
+  --input: 210 12% 20%;
+  --ring: 177 80% 40%;
+
+  --brand: 177 70% 48%;
+  --brand-soft: 177 45% 13%;
+  --brand-border: 177 45% 28%;
+
+  --success: 145 60% 60%;
+  --success-soft: 145 40% 12%;
+  --success-border: 145 35% 28%;
+  --warning: 38 85% 62%;
+  --warning-soft: 38 50% 12%;
+  --warning-border: 38 45% 30%;
+  --danger: 357 85% 70%;
+  --danger-soft: 357 45% 14%;
+  --danger-border: 357 40% 32%;
+  --info: 215 90% 72%;
+  --info-soft: 215 50% 14%;
+  --info-border: 215 40% 32%;
 }
 
 @layer base {
