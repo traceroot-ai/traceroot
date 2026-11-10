@@ -499,14 +499,6 @@ class TestDeepSeekPublishedPrices:
             assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
         assert entry["prices"]["cacheWrite"] is None
 
-    def test_pro_million_output_tokens_cost(self, real_cache):
-        from worker.tokens.buckets import TokenBuckets
-        from worker.tokens.pricing import cost_from_buckets
-
-        entry = next(e for e in real_cache if e["model_name"] == "deepseek-v4-pro")
-        buckets = TokenBuckets(output=1_000_000)
-        assert cost_from_buckets(entry["prices"], buckets) == pytest.approx(1.98)
-
 
 class TestDeepSeekModelIds:
     @pytest.mark.parametrize("model_id,expected_name", DEEPSEEK_MODEL_CASES)

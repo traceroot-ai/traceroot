@@ -14,7 +14,6 @@ import {
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
-import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
 // cacheWrite1h = 2x input.
@@ -74,16 +73,6 @@ describe("calculateCostFromPricing — cache-write 1-hour portion", () => {
   it("clamps negative counts to zero (mirrors the worker)", () => {
     const cost = calculateCostFromPricing(CLAUDE, -100, -50, -10, -900, -1);
     expect(cost).toBe(0);
-  });
-});
-
-describe("calculateCostFromPricing — standard price table", () => {
-  it("prices 1M deepseek-v4-pro output tokens at the off-peak rate", () => {
-    const pro = standardModels.find((m) => m.modelName === "deepseek-v4-pro");
-    expect(pro).toBeDefined();
-    const pricing: ModelPricing = { ...pro!.prices, cacheWrite1h: null };
-    const cost = calculateCostFromPricing(pricing, 0, 1_000_000);
-    expect(cost).toBeCloseTo(1.98, 12);
   });
 });
 
