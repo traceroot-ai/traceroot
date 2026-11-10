@@ -148,6 +148,31 @@ describe("AppLayout responsive navigation", () => {
     );
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("closes the mobile drawer when the window widens past md", () => {
+    const listeners = new Map<string, () => void>();
+    const desktop = { matches: false };
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        get matches() {
+          return query === "(min-width: 768px)" && desktop.matches;
+        },
+        addEventListener: (_event: string, listener: () => void) => listeners.set(query, listener),
+        removeEventListener: vi.fn(),
+      })),
+    );
+
+    renderAt("/projects/p1/traces");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(screen.getByRole("dialog", { name: "Navigation" })).toBeDefined();
+
+    act(() => {
+      desktop.matches = true;
+      listeners.get("(min-width: 768px)")?.();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
 
 describe("AppLayout chrome-less surfaces", () => {
