@@ -35,7 +35,6 @@ const TEXT_PAIRS: [string, string][] = [
   ["popover-foreground", "popover"],
   ["muted-foreground", "background"],
   ["muted-foreground", "muted"],
-  ["primary-foreground", "primary"],
   ["secondary-foreground", "secondary"],
   ["accent-foreground", "accent"],
   ["destructive-foreground", "destructive"],
@@ -61,8 +60,11 @@ describe.each([
     expect(ratio(tokens[fg], tokens[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("primary is the brand teal", () => {
-    expect(tokens.primary).toBe("177 80% 40%");
+  // The website CTA pair is a brand exception at 2.39:1. Pin both colors
+  // so the exception only covers this exact combination.
+  it("uses the website's teal and warm white for solid primary surfaces", () => {
+    expect(tokens.primary).toBe("177.07 80.39% 40%");
+    expect(tokens["primary-foreground"]).toBe("36 100% 98.04%");
   });
 
   // Non-text UI (focus ring) needs 3:1 against the page (WCAG 1.4.11).
