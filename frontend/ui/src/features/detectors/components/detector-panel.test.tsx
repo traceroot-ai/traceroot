@@ -168,18 +168,13 @@ describe("DetectorPanel", () => {
     expect(mocks.mutate.mock.calls[0][0]).toEqual({ enableRca: false });
   });
 
-  it("hides the RCA and agent model rows while Generate signals is off", () => {
+  it("cannot pick how RCA runs while Generate signals is off", () => {
     mocks.detector = { ...baseDetector, enableSignals: false };
     renderPanel();
-    expect(screen.queryByText("Root cause analysis")).toBeNull();
-    expect(screen.queryByText("Agent model")).toBeNull();
-  });
-
-  it("shows the RCA and agent model rows while Generate signals is on", () => {
-    mocks.detector = { ...baseDetector, enableSignals: true };
-    renderPanel();
-    expect(screen.queryByText("Root cause analysis")).not.toBeNull();
-    expect(screen.queryByText("Agent model")).not.toBeNull();
+    expect(rcaMode().disabled).toBe(true);
+    expect(
+      screen.getByText("The agent runs from signals, so it needs Generate signals."),
+    ).toBeTruthy();
   });
 
   it("closes without a network call when nothing changed", () => {
