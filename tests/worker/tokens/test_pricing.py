@@ -247,6 +247,10 @@ DEEPSEEK_MODEL_CASES = [
     ("deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),
+    # DeepSeek renamed the V4.1 Flash model to deepseek-flash on 2026-09-10.
+    ("deepseek-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-flash", "deepseek-v4-flash"),
+    ("deepseek-flash-20260424", "deepseek-v4-flash"),
     ("deepseek-chat", "deepseek-v4-flash"),
     ("deepseek-reasoner", "deepseek-v4-flash"),
     ("deepseek-v4-pro", "deepseek-v4-pro"),

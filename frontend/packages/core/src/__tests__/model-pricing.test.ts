@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // lookup.ts imports prisma at module load (registerCacheClear); mock it so the
@@ -169,6 +170,44 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
   });
+});
+
+const STANDARD_MODEL_PRICES = new URL("../standard-model-prices.json", import.meta.url);
+
+interface StandardModelRow {
+  modelName: string;
+  matchPattern: string;
+  prices: Record<string, number | null>;
+}
+
+// DeepSeek renamed its V4.1 Flash model to deepseek-flash on 2026-09-10 but kept
+// billing the older deepseek-v4-flash name at the same price, so both aliases must
+// resolve to the one Flash row (#2904). Read the real catalogue so the shipped
+// matchPattern — not a duplicated fixture — is what gets exercised.
+describe("getModelPricing — DeepSeek Flash aliases in the real catalogue", () => {
+  it.each(["deepseek-flash", "deepseek/deepseek-flash", "deepseek-v4-flash"])(
+    "resolves %s to the DeepSeek Flash row",
+    async (modelId) => {
+      const catalogue = JSON.parse(
+        readFileSync(STANDARD_MODEL_PRICES, "utf8"),
+      ) as StandardModelRow[];
+      const flash = catalogue.find((row) => row.modelName === "deepseek-v4-flash");
+      expect(flash, "deepseek-v4-flash missing from standard-model-prices.json").toBeDefined();
+
+      const prices = Object.entries(flash!.prices)
+        .filter(([, price]) => price !== null)
+        .map(([usageType, price]) => ({ usageType, price }));
+
+      const { getModelPricing: lookup } = await loadWithCatalogue([
+        { modelName: flash!.modelName, matchPattern: flash!.matchPattern, prices },
+      ]);
+
+      const canonical = await lookup("deepseek-v4-flash");
+      const pricing = await lookup(modelId);
+      expect(pricing).not.toBeNull();
+      expect(pricing).toEqual(canonical);
+    },
+  );
 });
 
 describe("getModelPricing — uncompilable pattern", () => {
