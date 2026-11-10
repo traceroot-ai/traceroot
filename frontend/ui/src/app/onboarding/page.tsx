@@ -574,7 +574,7 @@ function OnboardingContent() {
                 under it is what says which of the two routes you are on, and
                 it carries more now that the step below says what the command
                 does. */}
-            <h1 className="text-lg font-semibold">Let&apos;s get started</h1>
+            <h1 className="text-[15px] font-medium">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
               {/* "The rest happens in your terminal" stops being true the
                   moment the user says they would rather it did not. */}
@@ -682,11 +682,11 @@ function OnboardingContent() {
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
                       <label className="text-[13px] font-medium">Workspace</label>
-                      <p className="mb-2 text-[11px] text-muted-foreground">
+                      <p className="mb-2 text-[12px] text-muted-foreground">
                         Your team's home for billing and members
                       </p>
                       {isProjectOnlyMode ? (
-                        <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
+                        <div className="flex items-center gap-2 border bg-muted px-2.5 py-1.5 text-[13px]">
                           <span>{existingWorkspaceName || "Selected workspace"}</span>
                           <Check className="ml-auto h-3.5 w-3.5 text-success" />
                         </div>
@@ -698,7 +698,7 @@ function OnboardingContent() {
                         />
                       )}
                       {errors.workspaceName && (
-                        <p className="mt-1 text-[11px] text-danger">
+                        <p className="mt-1 text-[12px] text-danger">
                           {errors.workspaceName.message}
                         </p>
                       )}
@@ -714,7 +714,7 @@ function OnboardingContent() {
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
                       <label className="text-[13px] font-medium">Project</label>
-                      <p className="mb-2 text-[11px] text-muted-foreground">
+                      <p className="mb-2 text-[12px] text-muted-foreground">
                         Where your traces and experiments live
                       </p>
                       <Input
@@ -723,7 +723,7 @@ function OnboardingContent() {
                         className="h-8 text-[13px]"
                       />
                       {errors.projectName && (
-                        <p className="mt-1 text-[11px] text-danger">{errors.projectName.message}</p>
+                        <p className="mt-1 text-[12px] text-danger">{errors.projectName.message}</p>
                       )}
                     </div>
                   </div>

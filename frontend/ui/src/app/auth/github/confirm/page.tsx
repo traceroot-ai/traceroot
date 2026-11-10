@@ -21,7 +21,7 @@ function ConfirmContent() {
       <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-lg font-semibold text-danger">Invalid Link</CardTitle>
+            <CardTitle className="text-[15px] font-medium text-danger">Invalid Link</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 text-center">
             <p className="text-[13px] text-muted-foreground">
@@ -85,17 +85,17 @@ function ConfirmContent() {
         <CardHeader className="text-center">
           <Image
             src="/images/traceroot_icon.png"
-            alt="TraceRoot"
+            alt="traceroot"
             width={48}
             height={48}
             className="mx-auto mb-4"
           />
-          <CardTitle className="text-lg font-semibold">Confirm Account Link</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Confirm Account Link</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           <p className="text-center text-[13px] text-muted-foreground">
             You are about to link a GitHub account provided by a direct installation to your
-            TraceRoot account. Do you want to proceed?
+            traceroot account. Do you want to proceed?
           </p>
 
           {error && (

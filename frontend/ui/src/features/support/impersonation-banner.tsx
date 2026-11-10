@@ -137,7 +137,7 @@ export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean
           </span>
           <button
             type="button"
-            className="shrink-0 rounded-md border border-warning-border bg-background px-1.5 py-0.5 text-[11px] font-medium text-warning transition-colors hover:bg-warning-soft disabled:opacity-50"
+            className="shrink-0 rounded-md border border-warning-border bg-background px-1.5 py-0.5 text-[12px] font-medium text-warning transition-colors hover:bg-warning-soft disabled:opacity-50"
             disabled={busy}
             onClick={handleAction}
           >
