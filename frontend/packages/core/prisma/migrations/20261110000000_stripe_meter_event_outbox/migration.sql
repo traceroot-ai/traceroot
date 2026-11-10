@@ -58,9 +58,9 @@ ALTER TABLE "billing_meter_reports"
   FOREIGN KEY ("cursor_id") REFERENCES "billing_meter_cursors"("id")
   ON DELETE CASCADE ON UPDATE NO ACTION;
 
--- Preserve every legacy confirmed watermark before switching the worker to the
--- durable cursor. NULL billing-period anchors use the same epoch sentinel as
--- the worker; no already-reported usage is replayed during rollout.
+-- Preserve the existing confirmed watermark only when its stored period still
+-- matches the workspace's current billing-period anchor. NULL uses epoch as
+-- the sentinel, matching the worker's cursor key after deployment.
 INSERT INTO "billing_meter_cursors"
   ("id", "workspace_id", "meter", "period_start", "confirmed_units", "create_time", "update_time")
 SELECT
@@ -68,7 +68,19 @@ SELECT
   w."id",
   m."meter",
   p."period_start",
-  CASE WHEN m."raw_units" ~ '^[0-9]+,
+  CASE
+    WHEN m."raw_units" ~ '^[0-9]+$'
+      AND (
+        (w."billing_period_start" IS NULL AND m."raw_period_start" IS NULL)
+        OR (
+          w."billing_period_start" IS NOT NULL
+          AND m."raw_period_start" IS NOT NULL
+          AND m."raw_period_start"::timestamptz = w."billing_period_start"
+        )
+      )
+    THEN LEAST(m."raw_units"::numeric, 2147483647)::integer
+    ELSE 0
+  END,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 FROM "workspaces" w
@@ -78,24 +90,6 @@ CROSS JOIN LATERAL (
     ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
     ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
 ) AS m("meter", "raw_units", "raw_period_start")
-CROSS JOIN LATERAL (
-  SELECT COALESCE(w."billing_period_start", TIMESTAMP '1970-01-01 00:00:00') AS "period_start"
-) AS p
-WHERE m."raw_units" ~ '^[0-9]+$'
-  AND m."raw_units"::numeric > 0
-ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
-
-COMMIT;
- THEN LEAST(m."raw_units"::numeric, 2147483647)::integer ELSE 0 END,
-  CURRENT_TIMESTAMP,
-  CURRENT_TIMESTAMP
-FROM "workspaces" w
-CROSS JOIN LATERAL (
-  VALUES
-    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0')),
-    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0')),
-    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'))
-) AS m("meter", "raw_units")
 CROSS JOIN LATERAL (
   SELECT COALESCE(w."billing_period_start", TIMESTAMP '1970-01-01 00:00:00') AS "period_start"
 ) AS p
