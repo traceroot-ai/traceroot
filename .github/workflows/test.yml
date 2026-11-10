@@ -162,7 +162,7 @@ jobs:
           cd frontend
 
           FAIL=0
-          for pkg in ui worker packages/core ee/agent packages/slack packages/github packages/tools; do
+          for pkg in ui worker packages/core ee/agent packages/slack packages/github packages/tools mcp; do
             echo "::group::test:coverage — $pkg"
             cd "$pkg"
             pnpm test:coverage || FAIL=1
@@ -192,6 +192,7 @@ jobs:
             "frontend/packages/slack"
             "frontend/packages/github"
             "frontend/packages/tools"
+            "frontend/mcp"
           )
 
           > coverage-frontend.lcov  # truncate / create

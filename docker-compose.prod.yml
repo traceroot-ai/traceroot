@@ -548,6 +548,30 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # MCP server: serves the read-only tool set to MCP clients. It forwards the
+  # caller's API key to rest, which validates it, so it holds no secret and
+  # needs no database: deliberately no INTERNAL_API_SECRET and no DATABASE_URL.
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    ports:
+      - "8200:8200"
+    environment:
+      TZ: UTC
+      MCP_SERVICE_URL: http://mcp:8200
+      BACKEND_INTERNAL_URL: http://rest:8000
+      # Hostnames the endpoint answers to (comma-separated); empty answers any.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      rest:
+        condition: service_started
+
 volumes:
   postgres_data:
     driver: local

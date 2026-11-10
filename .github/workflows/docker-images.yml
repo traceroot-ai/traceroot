@@ -48,6 +48,8 @@ jobs:
             dockerfile: docker/Dockerfile.billing
           - service: agent
             dockerfile: docker/Dockerfile.agent
+          - service: mcp
+            dockerfile: docker/Dockerfile.mcp
           - service: detector
             dockerfile: docker/Dockerfile.detector
           - service: migrate-clickhouse
