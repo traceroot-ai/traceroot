@@ -218,14 +218,8 @@ export function TraceViewerPanel({
   // intentionally persists while navigating between traces, since the panel
   // instance stays mounted across ↑/↓ navigation.
   const [isFullscreen, setIsFullscreen] = useState(initialFullscreen ?? false);
-  const {
-    aiPanelOpen,
-    setAiPanelOpen,
-    setAiContext,
-    setAiInitialSessionId,
-    registerAiHost,
-    sidebarCollapsed,
-  } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
+    useLayout();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -417,14 +411,9 @@ export function TraceViewerPanel({
           ? "flex h-full w-full flex-col border-l border-border bg-background"
           : cn(
               "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200",
-              // Fullscreen stays clear of the chrome it would otherwise cover: it
-              // starts below the top breadcrumb/header bar (h-11) and to the right of
-              // the left navbar. Width = 100% minus the sidebar's width, which differs
-              // when the sidebar is collapsed.
+              // Fullscreen stays clear of the header and sidebar; AppLayout sets their sizes.
               isFullscreen
-                ? sidebarCollapsed
-                  ? "top-11 w-[calc(100%-3.5rem)] border-l-0 shadow-none max-md:w-full"
-                  : "top-11 w-[calc(100%-14rem)] border-l-0 shadow-none max-md:w-full"
+                ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))] border-l-0 shadow-none max-md:w-full"
                 : cn("top-0", overlayWidthClassName ?? "w-[70%]"),
             ),
       )}

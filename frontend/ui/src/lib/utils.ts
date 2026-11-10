@@ -184,12 +184,15 @@ export function formatDate(date: string | Date | null | undefined): string {
 
 /**
  * Format cost to human readable string with appropriate precision.
- * e.g., 0.000123 -> "$0.0001" (4 decimals under $1), 0.00001 -> "<$0.0001",
- * 0.0523 -> "$0.0523", 1.50 -> "$1.50" (2 decimals from $1)
+ * e.g., 0.0000123 -> "$0.000012" (2 significant digits under $0.01),
+ * 0.0523 -> "$0.0523" (4 decimals under $1), 1.50 -> "$1.50" (2 decimals from $1)
  */
 export function formatCost(cost: number | null | undefined): string {
   if (cost === null || cost === undefined || cost === 0) return "-";
-  if (cost < 0.0001) return "<$0.0001";
+  if (cost < 0.01) {
+    // Sub-cent: real digits, so cheap spans and small deltas stay readable.
+    return `$${Intl.NumberFormat("en", { maximumSignificantDigits: 2 }).format(cost)}`;
+  }
   if (cost < 1) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, render, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useLayoutEffect } from "react";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
@@ -89,8 +89,10 @@ describe("AppLayout responsive navigation", () => {
 
     const { unmount } = renderAt("/projects/p1/traces");
     const sidebar = within(screen.getByTestId("desktop-nav")).getByTestId("sidebar");
+    const shell = screen.getByTestId("desktop-nav").parentElement!;
     expect(matchMedia).toHaveBeenCalledWith("(max-width: 1099px)");
     expect(sidebar.getAttribute("data-collapsed")).toBe("true");
+    expect(shell.className).toContain("md:[--app-nav-w:3.5rem]");
 
     act(() => {
       media.matches = false;
@@ -105,6 +107,7 @@ describe("AppLayout responsive navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    expect(shell.className).toContain("md:[--app-nav-w:14rem]");
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeDefined();
 
     act(() => {
@@ -118,23 +121,23 @@ describe("AppLayout responsive navigation", () => {
     expect(media.removeEventListener).toHaveBeenCalledWith("change", onChange);
   });
 
-  it("opens the mobile drawer and closes it with escape, the backdrop, or navigation", () => {
+  it("opens the mobile drawer and closes it with escape, the backdrop, or navigation", async () => {
     const { rerender } = renderAt("/projects/p1/traces");
-    const open = () => fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    const trigger = () => screen.getByRole("button", { name: "Open navigation" });
+    const open = () => fireEvent.click(trigger());
 
     open();
-    expect(screen.getByTestId("mobile-nav")).toBeDefined();
-    expect(
-      within(screen.getByTestId("mobile-nav"))
-        .getByTestId("sidebar")
-        .getAttribute("data-collapsed"),
-    ).toBe("false");
+    const drawer = screen.getByRole("dialog", { name: "Navigation" });
+    // Modal: the page behind is hidden from assistive tech.
+    expect(screen.queryByRole("button", { name: "Open navigation" })).toBeNull();
+    expect(within(drawer).getByTestId("sidebar").getAttribute("data-collapsed")).toBe("false");
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(trigger()));
 
     open();
-    fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
-    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+    fireEvent.click(screen.getByTestId("mobile-nav-backdrop"));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     open();
     mocks.pathname = "/projects/p1/sessions";
@@ -143,7 +146,7 @@ describe("AppLayout responsive navigation", () => {
         <div data-testid="page">page</div>
       </AppLayout>,
     );
-    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
