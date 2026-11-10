@@ -263,55 +263,63 @@ export function BillingTab({
                 ? "Events used this billing period. Unlimited events included."
                 : `Events used this billing period. ${eventQuota.included.toLocaleString()} included, then ${eventQuota.overageLabel}.`}
           </p>
-          <div className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Traces</span>
-              <span>{(currentUsage?.traces ?? 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Spans</span>
-              <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
-            </div>
-            <div className="-mx-4 flex justify-between border-t px-4 pt-2">
-              <span className="font-medium">Total events</span>
-              <span className="font-medium">
-                {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
-                {eventQuota.included === Infinity
-                  ? ""
-                  : ` / ${eventQuota.included.toLocaleString()}`}
-              </span>
-            </div>
-            {currentUsage?.bySource && (
-              <>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Your events</span>
-                  <span>
-                    {(
-                      currentUsage.bySource.user.traces + currentUsage.bySource.user.spans
-                    ).toLocaleString()}
+          {currentUsage ? (
+            <>
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Traces</span>
+                  <span>{(currentUsage?.traces ?? 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Spans</span>
+                  <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
+                </div>
+                <div className="-mx-4 flex justify-between border-t px-4 pt-2">
+                  <span className="font-medium">Total events</span>
+                  <span className="font-medium">
+                    {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
+                    {eventQuota.included === Infinity
+                      ? ""
+                      : ` / ${eventQuota.included.toLocaleString()}`}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span title="Traces and spans written by detector scans and agent analyses TraceRoot ran in this project">
-                    Platform events
-                  </span>
-                  <span>
-                    {/* Everything that is not the customer's: total − user, so a
+                {currentUsage?.bySource && (
+                  <>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Your events</span>
+                      <span>
+                        {(
+                          currentUsage.bySource.user.traces + currentUsage.bySource.user.spans
+                        ).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span title="Traces and spans written by detector scans and agent analyses TraceRoot ran in this project">
+                        Platform events
+                      </span>
+                      <span>
+                        {/* Everything that is not the customer's: total − user, so a
                         new platform writer is counted without a change here. */}
-                    {(
-                      currentUsage.traces +
-                      currentUsage.spans -
-                      currentUsage.bySource.user.traces -
-                      currentUsage.bySource.user.spans
-                    ).toLocaleString()}
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-          {currentUsage?.updatedAt && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+                        {(
+                          currentUsage.traces +
+                          currentUsage.spans -
+                          currentUsage.bySource.user.traces -
+                          currentUsage.bySource.user.spans
+                        ).toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+              {currentUsage?.updatedAt && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Usage has not been computed yet. Counts appear after the first metering run.
             </p>
           )}
         </div>

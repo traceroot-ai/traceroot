@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type Stripe from "stripe";
-import { reportRcaRunOverageToStripe } from "../usageMetering.js";
+import { reportRcaRunOverageToStripe, runStartupBillingPass } from "../usageMetering.js";
 
 function makeStripeStub(): {
   client: Stripe;
@@ -142,5 +142,18 @@ describe("RCA unit math", () => {
     expect(rcaUnitsForOverage(0, 2.0)).toBe(0); // no overage runs => no markup either (gated by caller)
     // Combined: 5 overage runs ($10 fee = 1000 units) + $2 token markup (210 units) = 1210
     expect(rcaUnitsForOverage(5, 2.0)).toBe(1210);
+  });
+});
+
+describe("runStartupBillingPass", () => {
+  it("runs the injected job", async () => {
+    const job = vi.fn().mockResolvedValue(undefined);
+    await runStartupBillingPass(job);
+    expect(job).toHaveBeenCalledTimes(1);
+  });
+
+  it("swallows a rejected job instead of throwing", async () => {
+    const job = vi.fn().mockRejectedValue(new Error("clickhouse down"));
+    await expect(runStartupBillingPass(job)).resolves.toBeUndefined();
   });
 });
