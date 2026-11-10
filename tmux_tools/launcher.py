@@ -28,6 +28,7 @@ from tmux_tools import schema
 REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
+MCP_PORT = 8200
 ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE_PATH = ROOT / ".env.example"
@@ -238,7 +239,7 @@ def run_prod_setup():
     # services here causes Compose to run migrate/migrate-clickhouse first and
     # only bring up each app container after its migration dependency exits 0.
     print("Starting application services (migrations run automatically before app services)...")
-    _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent")
+    _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent mcp")
 
     print("\nAll containers started. Launching log viewer...\n")
 
@@ -472,11 +473,23 @@ def make_driver(autoreload=False):
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
                 ],
             ),
+            schema.Service(
+                title="MCP",
+                command="cd frontend/mcp && pnpm dev",
+                web_urls=[
+                    ("MCP endpoint", f"http://localhost:{MCP_PORT}/mcp"),
+                ],
+            ),
         ]
         + infra_services(),
         prerequisites=(
             tool_prerequisites()
-            + [port_available(REST_PORT), port_available(FRONTEND_PORT), port_available(AGENT_PORT)]
+            + [
+                port_available(REST_PORT),
+                port_available(FRONTEND_PORT),
+                port_available(AGENT_PORT),
+                port_available(MCP_PORT),
+            ]
         ),
     )
 
@@ -550,6 +563,13 @@ def make_prod_driver():
                 command=f"{PROD_COMPOSE} logs -f --tail=50 agent",
                 web_urls=[
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
+                ],
+            ),
+            schema.Service(
+                title="MCP",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 mcp",
+                web_urls=[
+                    ("MCP endpoint", f"http://localhost:{MCP_PORT}/mcp"),
                 ],
             ),
         ]
