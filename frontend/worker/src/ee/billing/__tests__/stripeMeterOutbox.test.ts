@@ -13,10 +13,11 @@ vi.mock("@traceroot/core", () => {
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     billingMeterCursor: {
       upsert: async ({ where, create }: any) => {
-        let cursor = store.cursors.find((row) =>
-          row.workspaceId === where.workspaceId_meter_periodStart.workspaceId &&
-          row.meter === where.workspaceId_meter_periodStart.meter &&
-          row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
+        let cursor = store.cursors.find(
+          (row) =>
+            row.workspaceId === where.workspaceId_meter_periodStart.workspaceId &&
+            row.meter === where.workspaceId_meter_periodStart.meter &&
+            row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
         );
         if (!cursor) {
           cursor = { id: `cursor-${store.cursors.length + 1}`, ...create, confirmedUnits: 0n };
@@ -25,11 +26,13 @@ vi.mock("@traceroot/core", () => {
         return cursor;
       },
       findUniqueOrThrow: async ({ where }: any) => store.cursors.find((row) => row.id === where.id),
-      findUnique: async ({ where }: any) => store.cursors.find((row) =>
-        row.workspaceId === where.workspaceId_meter_periodStart.workspaceId &&
-        row.meter === where.workspaceId_meter_periodStart.meter &&
-        row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
-      ) ?? null,
+      findUnique: async ({ where }: any) =>
+        store.cursors.find(
+          (row) =>
+            row.workspaceId === where.workspaceId_meter_periodStart.workspaceId &&
+            row.meter === where.workspaceId_meter_periodStart.meter &&
+            row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
+        ) ?? null,
       update: async ({ where, data }: any) => {
         const row = store.cursors.find((cursor) => cursor.id === where.id);
         Object.assign(row, data);
@@ -63,10 +66,11 @@ vi.mock("@traceroot/core", () => {
       findUnique: async ({ where }: any) =>
         store.reports.find((row) => row.id === where.id) ?? null,
       updateMany: async ({ where, data }: any) => {
-        const row = store.reports.find((report) =>
-          report.id === where.id &&
-          report.status === where.status &&
-          (where.attemptToken === undefined || report.attemptToken === where.attemptToken),
+        const row = store.reports.find(
+          (report) =>
+            report.id === where.id &&
+            report.status === where.status &&
+            (where.attemptToken === undefined || report.attemptToken === where.attemptToken),
         );
         if (!row) return { count: 0 };
         Object.assign(row, data);
@@ -288,9 +292,7 @@ describe("Stripe meter outbox", () => {
     }
   });
 
-  it(
-    "moves an ambiguous report to manual review before the Stripe identifier window expires",
-    async () => {
+  it("moves an ambiguous report to manual review before the Stripe identifier window expires", async () => {
     const { client, create } = stripeStub();
     store.failNext = new Error("connection reset");
     await reportMeterUsageToStripe(context(client, 300));
@@ -300,13 +302,10 @@ describe("Stripe meter outbox", () => {
 
     expect(await reportMeterUsageToStripe(context(client, 300))).toBe(0);
     expect(report.status).toBe("needs_attention");
-      expect(create).toHaveBeenCalledTimes(1);
-    },
-  );
+    expect(create).toHaveBeenCalledTimes(1);
+  });
 
-  it(
-    "backs off transient errors and stops retrying before the identifier window expires",
-    async () => {
+  it("backs off transient errors and stops retrying before the identifier window expires", async () => {
     const { client } = stripeStub();
     store.failNext = Object.assign(new Error("rate limited"), {
       statusCode: 429,
@@ -319,7 +318,6 @@ describe("Stripe meter outbox", () => {
     expect(getRetryDelayMs(1)).toBe(60_000);
     expect(getRetryDelayMs(20)).toBe(30 * 60_000);
     expect(isDefinitiveStripeError({ statusCode: 429 })).toBe(false);
-      expect(isDefinitiveStripeError({ statusCode: 400 })).toBe(true);
-    },
-  );
+    expect(isDefinitiveStripeError({ statusCode: 400 })).toBe(true);
+  });
 });

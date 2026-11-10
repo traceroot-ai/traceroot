@@ -505,9 +505,7 @@ async function processWorkspace(
       usage.detectorRuns - DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
     );
     const detectorBillableCost =
-      usage.detectorRuns > 0
-        ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns)
-        : 0;
+      usage.detectorRuns > 0 ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns) : 0;
     const detectorTotalUnits = Math.round(detectorBillableCost * 1.05 * 100);
 
     const confirmedDetectorUnits = await reportMeterUsageToStripe({
@@ -700,4 +698,3 @@ async function updateStripeQuantity(
     console.error(`[Billing] Failed to update Stripe for subscription ${subscriptionId}:`, error);
   }
 }
-

@@ -219,8 +219,7 @@ async function markDelivered(report: MeterReport, stripeRequestId?: string | nul
         data: {
           status: "needs_attention",
           leaseExpiresAt: null,
-          lastError:
-            `Cursor advanced unexpectedly: expected ${report.fromUnits}, found ${cursor.confirmedUnits}.`,
+          lastError: `Cursor advanced unexpectedly: expected ${report.fromUnits}, found ${cursor.confirmedUnits}.`,
         },
       });
       return;
