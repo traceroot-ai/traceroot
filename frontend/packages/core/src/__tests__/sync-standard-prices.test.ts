@@ -46,7 +46,7 @@ describe("syncStandardPrices", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     await syncStandardPrices();
 
-    const calls = upsert.mock.calls.map((call) => call[0] as UpsertArgs);
+    const calls = upsert.mock.calls.map((call) => call[0] as unknown as UpsertArgs);
     const haiku = calls.find((args) => args.create.modelName === "claude-haiku-5-5");
     expect(haiku).toBeDefined();
     expect(haiku?.create.longContextThreshold).toBe(100_000);
