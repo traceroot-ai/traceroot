@@ -26,7 +26,7 @@ interface TraceFeedWidgetProps {
 function ErrorCount({ errorCount }: { errorCount: number }) {
   if (errorCount > 0) {
     return (
-      <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+      <span className="inline-flex min-w-5 justify-center rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger">
         {errorCount}
       </span>
     );
@@ -81,7 +81,7 @@ export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceF
     return <p className="text-[11.5px] text-muted-foreground">Loading…</p>;
   }
   if (isError) {
-    return <p className="text-[11.5px] text-red-500">Failed to load traces</p>;
+    return <p className="text-[11.5px] text-danger">Failed to load traces</p>;
   }
 
   const traces = data?.data ?? [];
@@ -94,7 +94,7 @@ export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceF
     <div className="h-full overflow-auto">
       <table className="w-full text-[11.5px]">
         <thead>
-          <tr className="text-left text-[11px] text-muted-foreground">
+          <tr className="text-left text-[12px] text-muted-foreground">
             <th className="pb-1.5 pr-3 font-medium">Timestamp</th>
             <th className="pb-1.5 pr-3 font-medium">Name</th>
             <th className="pb-1.5 pr-3 font-medium">Errors</th>
@@ -112,7 +112,7 @@ export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceF
                 // hover prefetch stands in for the removed links' viewport prefetch.
                 onClick={() => router.push(href)}
                 onMouseEnter={() => router.prefetch(href)}
-                className="cursor-pointer border-t border-border/60 transition-colors hover:bg-muted/50"
+                className="cursor-pointer border-t border-border transition-colors hover:bg-muted"
               >
                 <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
                   {fmtTime(trace.trace_start_time)}

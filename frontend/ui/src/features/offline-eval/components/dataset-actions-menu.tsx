@@ -25,7 +25,7 @@ export function DatasetActionsMenu({
         <Button
           variant="ghost"
           size="sm"
-          className="h-5 w-6 p-0 text-muted-foreground hover:text-foreground"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
           onClick={(e) => e.stopPropagation()}
           // Keyboard users: Enter/Space must open THIS menu, not bubble to the row's
           // own key handler (which would open the case instead).
@@ -38,7 +38,7 @@ export function DatasetActionsMenu({
       <PopoverContent align="end" className="w-36 p-1">
         {onEdit && (
           <button
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-muted/60"
+            className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] hover:bg-muted"
             onClick={(e) => {
               e.stopPropagation();
               onEdit();
@@ -50,7 +50,7 @@ export function DatasetActionsMenu({
           </button>
         )}
         <button
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
+          className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive hover:bg-destructive/10"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();

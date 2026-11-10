@@ -1,5 +1,6 @@
 "use client";
 
+import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +11,6 @@ import {
   Expand,
   FileText,
   History,
-  Plus,
   Shrink,
   SquareArrowOutUpRight,
   X,
@@ -59,7 +59,7 @@ function metadataPreview(metadata: unknown): React.ReactNode {
   const entries = Object.entries(asRecord(metadata));
   if (entries.length === 0) return <span className="text-muted-foreground">-</span>;
   return (
-    <span className="font-mono text-[11px] text-muted-foreground">
+    <span className="font-mono text-[12px] text-muted-foreground">
       {truncate(entries.map(([k, v]) => `${k}: ${String(v)}`).join(", "), 48)}
     </span>
   );
@@ -230,12 +230,9 @@ export function DatasetDetailView({
       {/* The dataset name rides in the top breadcrumb bar (Workspace / Project /
           Datasets / <name>) rather than a separate title row, so the page starts
           straight at the toolbar. */}
-      <ProjectBreadcrumb
-        projectId={projectId}
-        trail={[{ label: "Datasets", href: datasetsListHref }]}
-        current={dataset.name}
-      />
-      <div className="flex h-full flex-col text-[13px]">
+      <ProjectBreadcrumb projectId={projectId} />
+      <PageBackHeader backHref={datasetsListHref} backLabel="Datasets" title={dataset.name} />
+      <div className="flex min-h-0 flex-1 flex-col text-[13px]">
         <div className="flex min-h-0 flex-1 flex-col">
           {/* Single toolbar row: search on the left; the Row action and the
                 version selector pushed to the right (version farthest). The version
@@ -248,14 +245,10 @@ export function DatasetDetailView({
           >
             <div className="ml-auto flex items-center gap-2">
               <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 text-[12px]"
                 onClick={() => setEditorMode({ kind: "create" })}
                 disabled={!isCurrentVersion}
               >
-                <Plus className="h-3.5 w-3.5" aria-hidden />
-                Row
+                Add row
               </Button>
               {hasVersions && (
                 <div className="flex items-center gap-1.5">
@@ -269,14 +262,14 @@ export function DatasetDetailView({
                           ordering and the exact id are visible. w-auto hugs the id (no
                           dead gap before the chevron); the dropdown grows to fit its
                           wider "<n>  <snowflake>" rows on its own. */}
-                    <SelectTrigger className="h-7 w-auto gap-2 text-[12px]" title="Dataset version">
+                    <SelectTrigger className="h-8 w-auto gap-2 text-[13px]" title="Dataset version">
                       <span className="whitespace-nowrap font-mono text-[12px]">
                         {selectedVersion ? selectedVersion.id : "Current version"}
                       </span>
                     </SelectTrigger>
                     <SelectContent align="end">
                       {versions.map((v) => (
-                        <SelectItem key={v.id} value={v.id} className="text-[12px]">
+                        <SelectItem key={v.id} value={v.id}>
                           <span className="flex items-center gap-2">
                             <span className="tabular-nums text-muted-foreground">
                               {v.versionNumber}
@@ -308,7 +301,11 @@ export function DatasetDetailView({
                     <Th>Input</Th>
                     <Th>Expected</Th>
                     <Th>Metadata</Th>
-                    {isCurrentVersion && <Th className="w-[70px] text-right">Actions</Th>}
+                    {isCurrentVersion && (
+                      <Th className="w-[70px] text-right">
+                        <span className="sr-only">Actions</span>
+                      </Th>
+                    )}
                   </TRHead>
                 </THead>
                 <TBody>
@@ -514,15 +511,17 @@ function CasePanel({
       aria-label={`Test case ${testCase.testCaseId}`}
       tabIndex={-1}
       className={cn(
-        "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200 focus:outline-none",
-        fullscreen ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))]" : "top-0 w-[70%]",
+        "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200 focus:outline-none",
+        fullscreen
+          ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))] border-l-0 shadow-none"
+          : "top-0 w-[70%]",
       )}
     >
-      {/* Header — same h-12 chrome as the trace/span detail panel. */}
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
+      {/* Header — same h-11 chrome as the trace/span detail panel. */}
+      <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm font-medium">Row</span>
+          <span className="text-[13px] font-medium">Row</span>
           {/* The real, content-addressed testCaseId — byte-identical to the SDK's
               stable_case_id and pull_dataset output. CSS truncates for overflow;
               the title carries the full id and the copy button copies it verbatim. */}
@@ -540,7 +539,7 @@ function CasePanel({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => onNavigate("up")}
             disabled={!canNavigateUp}
@@ -550,7 +549,7 @@ function CasePanel({
             <ArrowUp className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => onNavigate("down")}
             disabled={!canNavigateDown}
@@ -560,7 +559,7 @@ function CasePanel({
             <ArrowDown className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => setFullscreen((v) => !v)}
             className="h-7 w-7 p-0"
@@ -569,7 +568,7 @@ function CasePanel({
             {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => window.open(`/projects/${projectId}/datasets/${datasetId}`, "_blank")}
             className="h-7 w-7 p-0"
@@ -581,7 +580,7 @@ function CasePanel({
           {/* AI Assistant — mirrors the trace-detail panel. Seeds the case's source
                 trace as context when it has one; otherwise a plain project-scoped chat. */}
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => {
               setAiContext(testCase.sourceTraceId ? { traceId: testCase.sourceTraceId } : null);
@@ -607,14 +606,14 @@ function CasePanel({
 
       {/* View toggle — Row / Experiments, where a trace shows Tree / Timeline. The
           `details`/`runs` state keys stay internal. */}
-      <div className="flex h-10 shrink-0 items-center border-b border-border px-2">
+      <div className="flex h-11 shrink-0 items-center border-b border-border px-2">
         <button
           type="button"
           onClick={() => setView("details")}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
             view === "details"
-              ? "bg-muted text-foreground shadow-sm"
+              ? "bg-muted text-foreground"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -626,13 +625,13 @@ function CasePanel({
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
             view === "runs"
-              ? "bg-muted text-foreground shadow-sm"
+              ? "bg-muted text-foreground"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
           <History className="h-3.5 w-3.5" /> Evaluations
           {runs.length > 0 && (
-            <span className="rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground">
+            <span className="rounded bg-muted px-1 text-[12px] tabular-nums text-muted-foreground">
               {runs.length}
             </span>
           )}
@@ -680,12 +679,12 @@ function CasePanel({
                   <THead>
                     <TRHead>
                       <Th className="w-[150px]">Timestamp</Th>
-                      <Th>Evaluation Name</Th>
-                      <Th>Run Name</Th>
+                      <Th>Evaluation name</Th>
+                      <Th>Run name</Th>
                       <Th className="w-[90px] text-right">Cost</Th>
-                      <Th className="w-[90px] text-right">Avg Cost</Th>
+                      <Th className="w-[90px] text-right">Avg cost</Th>
                       <Th className="w-[90px] text-right">Duration</Th>
-                      <Th className="w-[100px] text-right">Avg Duration</Th>
+                      <Th className="w-[100px] text-right">Avg duration</Th>
                     </TRHead>
                   </THead>
                   <TBody>
