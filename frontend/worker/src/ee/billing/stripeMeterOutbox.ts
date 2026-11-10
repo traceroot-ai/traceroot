@@ -87,7 +87,9 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
     });
 
     let report = unresolved;
-    if (report?.status === "needs_attention") return null;
+    if (report?.status === "needs_attention") {
+      return null;
+    }
 
     if (!report) {
       if (!Number.isSafeInteger(context.totalUnits) || context.totalUnits < 0) {
@@ -133,6 +135,9 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
           lastError: "Automatic retry stopped before Stripe's meter-event identifier deduplication window expires. Reconcile manually.",
         },
       });
+      console.error(
+        `[Billing] Meter report ${report.identifier} for workspace ${context.workspaceId} needs manual reconciliation; automatic retries stopped before the 24-hour identifier window.`,
+      );
       return null;
     }
 

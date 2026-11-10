@@ -165,6 +165,7 @@ model BillingMeterReport {
 
   @@unique([cursorId, fromUnits, toUnits], map: "uq_billing_meter_report_range")
   @@index([status, nextAttemptAt, leaseExpiresAt], map: "ix_billing_meter_report_dispatch")
+  @@index([cursorId, status, createTime], map: "ix_billing_meter_report_cursor_status")
   @@map("billing_meter_reports")
 }
 

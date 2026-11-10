@@ -46,6 +46,8 @@ CREATE UNIQUE INDEX "uq_billing_meter_report_range"
   ON "billing_meter_reports"("cursor_id", "from_units", "to_units");
 CREATE INDEX "ix_billing_meter_report_dispatch"
   ON "billing_meter_reports"("status", "next_attempt_at", "lease_expires_at");
+CREATE INDEX "ix_billing_meter_report_cursor_status"
+  ON "billing_meter_reports"("cursor_id", "status", "create_time");
 
 ALTER TABLE "billing_meter_cursors"
   ADD CONSTRAINT "billing_meter_cursors_workspace_id_fkey"
@@ -72,10 +74,10 @@ SELECT
 FROM "workspaces" w
 CROSS JOIN LATERAL (
   VALUES
-    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0')),
-    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0')),
-    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'))
-) AS m("meter", "raw_units")
+    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0'), w."current_usage" #>> '{ai,lastReportedPeriodStart}'),
+    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
+    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
+) AS m("meter", "raw_units", "raw_period_start")
 CROSS JOIN LATERAL (
   SELECT COALESCE(w."billing_period_start", TIMESTAMP '1970-01-01 00:00:00') AS "period_start"
 ) AS p
