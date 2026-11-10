@@ -1,6 +1,14 @@
 // Renders the welcome as text and HTML. Deliberately not the card template: the
-// welcome reads as a short note, so the HTML is a few paragraphs, one list and links.
-import { escapeHtml } from "@traceroot/core";
+// welcome reads as a short note, so the HTML is a few paragraphs, one list and links,
+// headed by the website footer's pixel wordmark and signed with the wordmark
+// under the sign-off.
+import {
+  EMAIL_COLORS,
+  EMAIL_FONT_STACK,
+  EMAIL_LOGO_URL,
+  EMAIL_PIXEL_WORDMARK_URL,
+  escapeHtml,
+} from "@traceroot/core";
 import { clientEnv } from "@/env.client";
 import {
   WELCOME_SUBJECT,
@@ -61,17 +69,21 @@ export function renderWelcome(input: RenderWelcomeInput): {
   };
 
   const htmlParts = [
+    `<p style="margin:0 0 28px"><img src="${EMAIL_PIXEL_WORDMARK_URL}" alt="" width="480" height="77" style="display:block;border:0;width:100%;max-width:480px;height:auto"></p>`,
     `<p>${escapeHtml(greeting(input.firstName))}</p>`,
     ...body.map(toHtml),
     `<p>${WELCOME_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    `<p>${optOutLineHtml(escapeHtml(input.unsubscribeUrl))}</p>`,
+    `<p style="margin:20px 0 0"><img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="106" height="20" style="display:block;border:0;width:106px;height:20px"></p>`,
+    `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}">${optOutLineHtml(escapeHtml(input.unsubscribeUrl))}</p>`,
   ];
 
   const html = [
     "<!doctype html>",
     '<html><head><meta charset="utf-8"></head>',
-    '<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#222">',
+    `<body style="margin:0;padding:24px 16px;font-family:${EMAIL_FONT_STACK};font-size:15px;line-height:1.6;color:${EMAIL_COLORS.ink}">`,
+    '<div style="max-width:560px;margin:0 auto">',
     ...htmlParts,
+    "</div>",
     "</body></html>",
   ].join("\n");
 
