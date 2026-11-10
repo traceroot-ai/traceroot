@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { act, render, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { useEffect, useLayoutEffect } from "react";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
@@ -12,7 +12,11 @@ vi.mock("next/navigation", () => ({
 }));
 // A stand-in rather than `null`: whether the rail is rendered at all is the
 // thing the chrome-less tests below assert on.
-vi.mock("./sidebar", () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
+vi.mock("./sidebar", () => ({
+  Sidebar: ({ collapsed }: { collapsed: boolean }) => (
+    <div data-testid="sidebar" data-collapsed={String(collapsed)} />
+  ),
+}));
 vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
   AiAssistantPanel: () => null,
 }));
@@ -66,7 +70,81 @@ function renderAt(pathname: string) {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   mocks.pathname = "/projects/p1/traces";
+});
+
+describe("AppLayout responsive navigation", () => {
+  it("uses the compact sidebar on smaller screens and preserves a manual choice", () => {
+    let onChange: (() => void) | undefined;
+    const media = {
+      matches: true,
+      addEventListener: vi.fn((_event: string, listener: () => void) => {
+        onChange = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    const matchMedia = vi.fn(() => media);
+    vi.stubGlobal("matchMedia", matchMedia);
+
+    const { unmount } = renderAt("/projects/p1/traces");
+    const sidebar = within(screen.getByTestId("desktop-nav")).getByTestId("sidebar");
+    expect(matchMedia).toHaveBeenCalledWith("(max-width: 1099px)");
+    expect(sidebar.getAttribute("data-collapsed")).toBe("true");
+
+    act(() => {
+      media.matches = false;
+      onChange?.();
+    });
+    expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    act(() => {
+      media.matches = true;
+      onChange?.();
+    });
+    expect(sidebar.getAttribute("data-collapsed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeDefined();
+
+    act(() => {
+      media.matches = false;
+      onChange?.();
+      media.matches = true;
+      onChange?.();
+    });
+    expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    unmount();
+    expect(media.removeEventListener).toHaveBeenCalledWith("change", onChange);
+  });
+
+  it("opens the mobile drawer and closes it with escape, the backdrop, or navigation", () => {
+    const { rerender } = renderAt("/projects/p1/traces");
+    const open = () => fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+
+    open();
+    expect(screen.getByTestId("mobile-nav")).toBeDefined();
+    expect(
+      within(screen.getByTestId("mobile-nav"))
+        .getByTestId("sidebar")
+        .getAttribute("data-collapsed"),
+    ).toBe("false");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+
+    open();
+    mocks.pathname = "/projects/p1/sessions";
+    rerender(
+      <AppLayout>
+        <div data-testid="page">page</div>
+      </AppLayout>,
+    );
+    expect(screen.queryByTestId("mobile-nav")).toBeNull();
+  });
 });
 
 describe("AppLayout chrome-less surfaces", () => {
