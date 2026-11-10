@@ -1,5 +1,5 @@
 name: "Bug Report"
-description: "Report a bug to help us improve TraceRoot."
+description: "Report a bug to help us improve traceroot."
 labels: [bug]
 body:
   - type: markdown
@@ -51,7 +51,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: TraceRoot Version
+      label: traceroot Version
       description: "What version/commit are you running? (if known)"
       placeholder: "e.g. v2.1.0, commit abc1234"
   - type: textarea
