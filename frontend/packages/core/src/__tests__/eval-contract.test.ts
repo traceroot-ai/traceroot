@@ -27,6 +27,29 @@ const publish = (change: Record<string, unknown>) => ({
   changes: [change],
 });
 
+describe("evaluation numbers stay finite across validation layers", () => {
+  const parses = (value: unknown) => [
+    ScorerRefSchema.safeParse({ name: "grade", version: "1", threshold: value }),
+    ScorerRefSchema.safeParse({
+      name: "grade",
+      version: "1",
+      emitted_metrics: [{ name: "grade", threshold: value }],
+    }),
+    UpsertResultRequestSchema.safeParse(result({ cost: value })),
+    UpsertResultRequestSchema.safeParse(
+      result({ scores: [{ scorer_name: "grade", scorer_version: "1", numeric_value: value }] }),
+    ),
+  ];
+
+  it.each([NaN, Infinity, -Infinity, JSON.parse("1e400")])("rejects %s", (value) => {
+    for (const parsed of parses(value)) expect(parsed.success).toBe(false);
+  });
+
+  it.each([0, 0.5, 1e308, null])("accepts %s", (value) => {
+    for (const parsed of parses(value)) expect(parsed.success).toBe(true);
+  });
+});
+
 describe("UpsertResultRequestSchema.scores", () => {
   it("leaves an omitted scores key undefined so a handler can tell it from []", () => {
     const parsed = UpsertResultRequestSchema.parse(result({ trace_id: "t1" }));

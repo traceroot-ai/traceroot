@@ -85,8 +85,8 @@ def _json_bool(v: Any) -> Any:
     return v
 
 
-#: ``z.number()`` — a JSON number, never a coerced string/boolean.
-JsonFloat = Annotated[float, BeforeValidator(_json_number)]
+#: ``z.number()``: a finite JSON number, never a coerced string/boolean.
+JsonFloat = Annotated[float, Field(allow_inf_nan=False), BeforeValidator(_json_number)]
 #: ``z.boolean()`` — a JSON boolean, never a coerced string/number.
 JsonBool = Annotated[bool, BeforeValidator(_json_bool)]
 #: ``Number.MAX_SAFE_INTEGER``. Zod's ``z.number().int()`` is ``Number.isSafeInteger``,
@@ -102,7 +102,9 @@ JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeVal
 #: the validator rather than with ``Field`` bounds, so the published schema stays as it is.
 JsonInt = Annotated[int, BeforeValidator(_json_safe_int)]
 #: ``z.number().nonnegative()``.
-JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
+JsonNonNegativeFloat = Annotated[
+    float, Field(ge=0, allow_inf_nan=False), BeforeValidator(_json_number)
+]
 
 # --- Payload caps (mirror the shared caps at the top of the Zod contract) ----
 
