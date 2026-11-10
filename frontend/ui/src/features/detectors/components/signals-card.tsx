@@ -67,33 +67,34 @@ export function SignalsCard({
             onCheckedChange={onEnableSignalsChange}
           />
         </div>
-        {/* Root cause analysis and the agent model only exist once signals are on. */}
-        {enableSignals && (
-          <>
-            <div className="p-4">
-              <p className="mb-1.5 text-[13px] font-medium text-foreground">Root cause analysis</p>
-              <div className="w-40">
-                <Select value={mode} onValueChange={(v) => onEnableRcaChange(v === "automatic")}>
-                  <SelectTrigger id={`${idPrefix}-rca`} aria-label="Root cause analysis">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="manual">Manual</SelectItem>
-                    <SelectItem value="automatic">Automatic</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <p className="mt-1.5 text-[12px] text-muted-foreground">{RCA_MODE_HINT[mode]}</p>
-            </div>
-            <div className="p-4">
-              <p className="mb-1.5 text-[13px] font-medium text-foreground">Agent model</p>
-              <AgentModelLink projectId={projectId} rcaModel={rcaModel} workspaceId={workspaceId} />
-              <p className="mt-1.5 text-[12px] text-muted-foreground">
-                Shared across this project.
-              </p>
-            </div>
-          </>
-        )}
+        <div className="p-4">
+          <p className="mb-1.5 text-[13px] font-medium text-foreground">Root cause analysis</p>
+          <div className="w-40">
+            <Select
+              value={mode}
+              onValueChange={(v) => onEnableRcaChange(v === "automatic")}
+              disabled={!enableSignals}
+            >
+              <SelectTrigger id={`${idPrefix}-rca`} aria-label="Root cause analysis">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="automatic">Automatic</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="mt-1.5 text-[12px] text-muted-foreground">
+            {enableSignals
+              ? RCA_MODE_HINT[mode]
+              : "The agent runs from signals, so it needs Generate signals."}
+          </p>
+        </div>
+        <div className="p-4">
+          <p className="mb-1.5 text-[13px] font-medium text-foreground">Agent model</p>
+          <AgentModelLink projectId={projectId} rcaModel={rcaModel} workspaceId={workspaceId} />
+          <p className="mt-1.5 text-[12px] text-muted-foreground">Shared across this project.</p>
+        </div>
       </div>
     </div>
   );

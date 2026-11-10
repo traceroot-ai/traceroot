@@ -229,7 +229,7 @@ export function SpanInfoPanel({
             <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
           )}
           {!isTrace && selection.span.model_name && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-ink">
               <DOMAIN_ICONS.model className="h-3 w-3" />
               {selection.span.model_name}
             </div>

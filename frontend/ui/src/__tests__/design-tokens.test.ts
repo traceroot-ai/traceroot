@@ -38,6 +38,7 @@ const TEXT_PAIRS: [string, string][] = [
   ["secondary-foreground", "secondary"],
   ["accent-foreground", "accent"],
   ["destructive-foreground", "destructive"],
+  ["primary-ink", "primary"],
   ["destructive", "background"],
   ["destructive", "card"],
   ["brand", "background"],
@@ -60,8 +61,8 @@ describe.each([
     expect(ratio(tokens[fg], tokens[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
-  // The website CTA pair is a brand exception at 2.39:1. Pin both colors
-  // so the exception only covers this exact combination.
+  // primary-foreground on primary (2.39:1) is a brand exception for solid
+  // controls only; non-control text on primary uses primary-ink (AA above).
   it("uses the website's teal and warm white for solid primary surfaces", () => {
     expect(tokens.primary).toBe("177.07 80.39% 40%");
     expect(tokens["primary-foreground"]).toBe("36 100% 98.04%");

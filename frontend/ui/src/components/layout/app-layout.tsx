@@ -4,10 +4,19 @@ import { useState, useEffect, useCallback, createContext, useContext, ReactNode 
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
+import { DialogOverlay } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerPortal,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { Menu, PanelLeft } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { isChromelessRoute } from "@/lib/chromeless-routes";
+import { cn } from "@/lib/utils";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { AiChatProvider } from "@/features/ai-assistant/components/ai-chat-context";
 import type { AiTraceContext } from "@/features/ai-assistant/types";
@@ -95,13 +104,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  // The drawer is md:hidden; left open past md it would be an invisible modal locking the page.
   useEffect(() => {
-    if (!mobileNavOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileNavOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    if (!mobileNavOpen || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const close = () => mq.matches && setMobileNavOpen(false);
+    mq.addEventListener("change", close);
+    return () => mq.removeEventListener("change", close);
   }, [mobileNavOpen]);
 
   const registerAiHost = useCallback(() => {
@@ -153,99 +162,116 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         initialContext={aiContext}
         initialSessionId={aiInitialSessionId}
       >
-        <div className="flex h-dvh overflow-hidden">
-          <div data-testid="desktop-nav" className="hidden md:block">
-            <Sidebar collapsed={sidebarCollapsed} />
-          </div>
-          {mobileNavOpen && (
-            <div data-testid="mobile-nav" className="fixed inset-0 z-50 md:hidden">
-              <button
-                type="button"
-                aria-label="Close navigation"
-                className="absolute inset-0 bg-foreground/40"
+        {/* Modal so the mobile nav traps focus and returns it to the trigger. */}
+        <Drawer modal open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          {/* Shell sizes for fullscreen overlays; nav width mirrors Sidebar's w-14 / w-56, 0 below md. */}
+          <div
+            className={cn(
+              "flex h-dvh overflow-hidden [--app-header-h:2.75rem] [--app-nav-w:0px]",
+              sidebarCollapsed ? "md:[--app-nav-w:3.5rem]" : "md:[--app-nav-w:14rem]",
+            )}
+          >
+            <div data-testid="desktop-nav" className="hidden md:block">
+              <Sidebar collapsed={sidebarCollapsed} />
+            </div>
+            <DrawerPortal>
+              <DialogOverlay
+                data-testid="mobile-nav-backdrop"
+                className="bg-foreground/40 md:hidden"
                 onClick={() => setMobileNavOpen(false)}
               />
-              <div className="animate-slide-in-left absolute inset-y-0 left-0 shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
-                <Sidebar collapsed={false} />
-              </div>
-            </div>
-          )}
-
-          <ResizablePanelGroup orientation="horizontal" className="min-w-0 flex-1 overflow-hidden">
-            <ResizablePanel
-              id="main-content"
-              minSize="0px"
-              className="flex min-w-0 flex-col overflow-hidden"
+            </DrawerPortal>
+            <DrawerContent
+              side="left"
+              width="w-auto"
+              hideClose
+              aria-describedby={undefined}
+              className="border-r-0 md:hidden"
             >
-              {/* Top header bar */}
-              <header className="flex h-11 shrink-0 items-center gap-1 border-b bg-background px-3">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 md:hidden"
-                  aria-label="Open navigation"
-                  onClick={() => setMobileNavOpen(true)}
-                >
-                  <Menu className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="mr-1 hidden h-7 w-7 shrink-0 md:inline-flex"
-                  aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                >
-                  <PanelLeft className="h-4 w-4" />
-                </Button>
+              <DrawerTitle className="sr-only">Navigation</DrawerTitle>
+              <Sidebar collapsed={false} />
+            </DrawerContent>
 
-                {headerContent}
-
-                {showAiButton && (
-                  <div className="ml-auto">
+            <ResizablePanelGroup
+              orientation="horizontal"
+              className="min-w-0 flex-1 overflow-hidden"
+            >
+              <ResizablePanel
+                id="main-content"
+                minSize="0px"
+                className="flex min-w-0 flex-col overflow-hidden"
+              >
+                {/* Top header bar */}
+                <header className="flex h-[var(--app-header-h)] shrink-0 items-center gap-1 border-b bg-background px-3">
+                  <DrawerTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 shrink-0"
-                      onClick={() => {
-                        if (aiPanelOpen) setAiContext(null);
-                        setAiInitialSessionId(undefined);
-                        setAiPanelOpen(!aiPanelOpen);
-                      }}
-                      title="AI Assistant"
+                      className="h-7 w-7 shrink-0 md:hidden"
+                      aria-label="Open navigation"
                     >
-                      <DOMAIN_ICONS.assistant className="h-4 w-4" />
+                      <Menu className="h-4 w-4" />
                     </Button>
-                  </div>
-                )}
-              </header>
+                  </DrawerTrigger>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="mr-1 hidden h-7 w-7 shrink-0 md:inline-flex"
+                    aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                  >
+                    <PanelLeft className="h-4 w-4" />
+                  </Button>
 
-              <main className="min-h-0 flex-1 overflow-auto">{children}</main>
-            </ResizablePanel>
+                  {headerContent}
 
-            {showAppRailAi && (
-              <>
-                <ResizableHandle />
-                <ResizablePanel
-                  id="app-ai-panel"
-                  defaultSize="400px"
-                  minSize="280px"
-                  maxSize="520px"
-                  groupResizeBehavior="preserve-pixel-size"
-                  className="min-w-0 border-border"
-                >
-                  <AiAssistantPanel
-                    projectId={projectId}
-                    onClose={() => {
-                      setAiPanelOpen(false);
-                      setAiContext(null);
-                      setAiInitialSessionId(undefined);
-                    }}
-                  />
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
-        </div>
+                  {showAiButton && (
+                    <div className="ml-auto">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => {
+                          if (aiPanelOpen) setAiContext(null);
+                          setAiInitialSessionId(undefined);
+                          setAiPanelOpen(!aiPanelOpen);
+                        }}
+                        title="AI Assistant"
+                      >
+                        <DOMAIN_ICONS.assistant className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </header>
+
+                <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+              </ResizablePanel>
+
+              {showAppRailAi && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="app-ai-panel"
+                    defaultSize="400px"
+                    minSize="280px"
+                    maxSize="520px"
+                    groupResizeBehavior="preserve-pixel-size"
+                    className="min-w-0 border-border"
+                  >
+                    <AiAssistantPanel
+                      projectId={projectId}
+                      onClose={() => {
+                        setAiPanelOpen(false);
+                        setAiContext(null);
+                        setAiInitialSessionId(undefined);
+                      }}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </div>
+        </Drawer>
       </AiChatProvider>
     </LayoutContext.Provider>
   );
