@@ -13,6 +13,8 @@
   /* Website CTA: #14b8b0 with warm white #fffbf5. */
   --primary: 177.07 80.39% 40%;
   --primary-foreground: 36 100% 98.04%;
+  /* Non-control text on a primary surface (chat bubble, badge): AA ink. */
+  --primary-ink: 210 25% 6%;
   --secondary: 240 9% 96%;
   --secondary-foreground: 210 25% 6%;
   --muted: 240 9% 96%;
@@ -54,6 +56,7 @@
   --popover-foreground: 0 0% 95%;
   --primary: 177.07 80.39% 40%;
   --primary-foreground: 36 100% 98.04%;
+  --primary-ink: 210 25% 6%;
   --secondary: 210 14% 14%;
   --secondary-foreground: 0 0% 95%;
   --muted: 210 14% 14%;
