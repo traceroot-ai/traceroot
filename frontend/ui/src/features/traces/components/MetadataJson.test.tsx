@@ -55,26 +55,26 @@ describe("MetadataJson", () => {
 
   describe("truncation", () => {
     it("leaves a value that fits exactly as JSON.stringify would write it", () => {
-      const fits = "a".repeat(42);
+      const fits = "a".repeat(38);
       expect(renderText([entry("k", fits)])).toBe(`{\n"k": "${fits}"\n}`);
     });
 
     it("puts the ellipsis inside the closing quote so the value still reads as a string", () => {
       const long = "a".repeat(60);
-      expect(renderText([entry("k", long)])).toBe(`{\n"k": "${"a".repeat(42)}…"\n}`);
+      expect(renderText([entry("k", long)])).toBe(`{\n"k": "${"a".repeat(38)}…"\n}`);
     });
 
     it("does not split a surrogate pair when the cut lands on one", () => {
       // Slicing the serialized text by UTF-16 unit would keep half the emoji and render U+FFFD.
-      const text = renderText([entry("k", `${"a".repeat(41)}😀tail`)]);
+      const text = renderText([entry("k", `${"a".repeat(37)}😀tail`)]);
       expect(text).not.toContain("�");
-      expect(text).toBe(`{\n"k": "${"a".repeat(41)}😀…"\n}`);
+      expect(text).toBe(`{\n"k": "${"a".repeat(37)}😀…"\n}`);
     });
 
     it("does not leave a half-written escape sequence at the cut", () => {
       // Serializing first would put a lone backslash before the ellipsis.
-      const text = renderText([entry("k", `${"a".repeat(41)}"tail`)]);
-      expect(text).toBe(`{\n"k": "${"a".repeat(41)}\\"…"\n}`);
+      const text = renderText([entry("k", `${"a".repeat(37)}"tail`)]);
+      expect(text).toBe(`{\n"k": "${"a".repeat(37)}\\"…"\n}`);
     });
 
     it("shortens a structured value without pretending it is a string", () => {

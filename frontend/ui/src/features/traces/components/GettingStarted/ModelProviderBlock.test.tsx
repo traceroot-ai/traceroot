@@ -956,7 +956,7 @@ describe("the key the selected stack asks for", () => {
     // settings tab to send the reader to for it either.
     renderBlock("ws-1", { kind: "none", provider: "Mistral" });
     expect(
-      await screen.findByText(/TraceRoot has no Mistral adapter, so there is no key to paste/),
+      await screen.findByText(/traceroot has no Mistral adapter, so there is no key to paste/),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByLabelText("Model provider")).toBeNull();
@@ -1002,7 +1002,7 @@ describe("the key the selected stack asks for", () => {
 describe("the only words left around the key field", () => {
   it("sends a provider with no adapter nowhere, and an excluded one to settings", () => {
     expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
-      state: "TraceRoot has no Mistral adapter, so there is no key to paste here.",
+      state: "traceroot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
     expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" })).toEqual({
@@ -1018,7 +1018,7 @@ describe("the only words left around the key field", () => {
     // one, and each is what a customer sees the moment they pick it. Neither
     // line names the stack now, which is how this stays true.
     expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
-      state: "TraceRoot has no Mistral adapter, so there is no key to paste here.",
+      state: "traceroot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
     expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" })).toEqual({

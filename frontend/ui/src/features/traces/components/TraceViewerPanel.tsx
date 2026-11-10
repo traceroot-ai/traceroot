@@ -410,21 +410,23 @@ export function TraceViewerPanel({
         embedded
           ? "flex h-full w-full flex-col border-l border-border bg-background"
           : cn(
-              "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+              "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200",
               // Fullscreen stays clear of the header and sidebar; AppLayout sets their sizes.
               isFullscreen
-                ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))]"
+                ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))] border-l-0 shadow-none max-md:w-full"
                 : cn("top-0", overlayWidthClassName ?? "w-[70%]"),
             ),
       )}
     >
       <div className="flex h-full flex-col bg-background">
         {/* ── MAIN HEADER ── */}
-        <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
+        <div className="flex h-11 items-center justify-between border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-1.5">
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
+            <span className="shrink-0 text-[13px] font-medium">
+              {headerIdentity?.label ?? "Trace"}
+            </span>
+            <span className="truncate text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}
             </span>
             {/* Copy affordance for the header id. Only offered when an identity is
@@ -441,7 +443,7 @@ export function TraceViewerPanel({
           <div className="flex items-center gap-1">
             {headerStatus}
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => onNavigate("up")}
               disabled={!canNavigateUp}
@@ -451,7 +453,7 @@ export function TraceViewerPanel({
               <ArrowUp className="h-4 w-4" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => onNavigate("down")}
               disabled={!canNavigateDown}
@@ -461,7 +463,7 @@ export function TraceViewerPanel({
               <ArrowDown className="h-4 w-4" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => setIsFullscreen((v) => !v)}
               className="h-7 w-7 p-0"
@@ -473,7 +475,7 @@ export function TraceViewerPanel({
                 which nothing downstream can resolve from a URL. */}
             {!traceOverride && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() =>
                   window.open(
@@ -505,7 +507,7 @@ export function TraceViewerPanel({
                 container. */}
             {!embedded && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() => {
                   // The customer trace: the assistant's tools read customer
@@ -530,15 +532,15 @@ export function TraceViewerPanel({
         </div>
 
         {/* ── VIEW TOGGLE SUB-HEADER ── */}
-        <div className="flex h-10 items-center border-b border-border">
-          <div className="flex items-center rounded-lg px-2 py-1">
+        <div className="flex h-11 items-center border-b border-border">
+          <div className="flex items-center gap-1 px-4">
             <button
               onClick={() => setViewMode("tree")}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                 viewMode === "tree"
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
               <ListTree className="h-3.5 w-3.5" /> Trace
@@ -546,10 +548,10 @@ export function TraceViewerPanel({
             <button
               onClick={() => setViewMode("timeline")}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                 viewMode === "timeline"
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
               <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
@@ -558,10 +560,10 @@ export function TraceViewerPanel({
               <button
                 onClick={() => setViewMode("detectors")}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                  "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                   viewMode === "detectors"
-                    ? "bg-muted text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
@@ -584,13 +586,13 @@ export function TraceViewerPanel({
                   defaultSize="32%"
                   minSize="260px"
                   maxSize="50%"
-                  className="flex min-w-0 flex-col bg-muted/30"
+                  className="flex min-w-0 flex-col"
                 >
                   <div
-                    className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
-                    style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+                    className="flex flex-shrink-0 items-center border-b border-border px-3"
+                    style={{ height: TREE_LAYOUT.HEADER_HEIGHT }}
                   >
-                    <span className="text-[11px] font-medium text-muted-foreground">
+                    <span className="text-[12px] font-medium text-muted-foreground">
                       Trace Tree
                     </span>
                   </div>

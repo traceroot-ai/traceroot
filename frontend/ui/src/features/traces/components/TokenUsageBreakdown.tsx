@@ -51,9 +51,9 @@ function Row({
     <div
       className={
         emphasis === "total"
-          ? "mt-2 flex justify-between gap-8 border-t border-border/60 pt-1 font-semibold"
+          ? "mt-2 flex justify-between gap-8 border-t border-border pt-1 font-semibold"
           : emphasis === "section"
-            ? "flex justify-between gap-8 border-b border-border/60 pb-1 font-medium"
+            ? "flex justify-between gap-8 border-b border-border pb-1 font-medium"
             : "flex justify-between gap-8 text-muted-foreground"
       }
     >
