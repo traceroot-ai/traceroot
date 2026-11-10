@@ -13,6 +13,10 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -22,6 +26,7 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          ink: "hsl(var(--primary-ink))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -47,11 +52,48 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          soft: "hsl(var(--brand-soft))",
+          border: "hsl(var(--brand-border))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          soft: "hsl(var(--success-soft))",
+          border: "hsl(var(--success-border))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          soft: "hsl(var(--warning-soft))",
+          border: "hsl(var(--warning-border))",
+        },
+        danger: {
+          DEFAULT: "hsl(var(--danger))",
+          soft: "hsl(var(--danger-soft))",
+          border: "hsl(var(--danger-border))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          soft: "hsl(var(--info-soft))",
+          border: "hsl(var(--info-border))",
+        },
       },
+      // One corner radius for every control, card and popover.
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "2px",
+        md: "2px",
+        sm: "2px",
+        DEFAULT: "2px",
+      },
+      // One type scale: 12 / 13 / 15 px. text-xs and text-sm land on the app's two
+      // working sizes instead of 12 / 14, and nothing in the UI is heavier than 500.
+      fontSize: {
+        xs: ["12px", "16px"],
+        sm: ["13px", "20px"],
+      },
+      fontWeight: {
+        semibold: "500",
+        bold: "500",
       },
     },
   },

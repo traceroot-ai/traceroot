@@ -7,7 +7,6 @@ import { PlanType } from "@traceroot/core";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
-import { useLayout } from "@/components/layout/app-layout";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -135,7 +134,6 @@ export default function SignalsPage() {
         ...(traceId ? { traceId } : {}),
       },
     });
-  const { sidebarCollapsed } = useLayout();
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     if (!selectedSignalId) setFullscreen(false);
@@ -328,9 +326,7 @@ export default function SignalsPage() {
           className={cn(
             "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
             fullscreen
-              ? sidebarCollapsed
-                ? "top-14 w-[calc(100%-3.5rem)]"
-                : "top-14 w-[calc(100%-12rem)]"
+              ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))]"
               : "top-0 w-[70%]",
           )}
         >

@@ -122,9 +122,10 @@ export const SYSTEM_MODELS: {
     envVar: "ANTHROPIC_API_KEY",
     piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
-    // claude-fable-5 is deliberately excluded from SYSTEM_MODELS: it runs at $10 / $50
-    // and requires 30-day data retention (not available under zero-data-retention
-    // configurations). It is available exclusively via BYOK (ADAPTER_MODELS.anthropic).
+    // claude-fable-5 and its successors (5-1, 5-2) are deliberately excluded from
+    // SYSTEM_MODELS: they require 30-day data retention (not available under
+    // zero-data-retention configurations). They are available exclusively via BYOK
+    // (ADAPTER_MODELS.anthropic).
     models: [
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
@@ -201,6 +202,9 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o3", label: "o3", apiProtocol: "openai-completions" },
   ],
   anthropic: [
+    { id: "claude-fable-5-2", label: "claude-fable-5-2" },
+    { id: "claude-fable-5-1", label: "claude-fable-5-1" },
+    { id: "claude-fable-5", label: "claude-fable-5" },
     { id: "claude-opus-5-5", label: "claude-opus-5-5" },
     { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
@@ -212,8 +216,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
-    { id: "claude-fable-5-1", label: "claude-fable-5-1" },
-    { id: "claude-fable-5", label: "claude-fable-5" },
   ],
   google: [
     { id: "gemini-3.8-flash", label: "gemini-3.8-flash" },
@@ -272,6 +274,21 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "jev-1.14.0", label: "jev-1.14.0" },
   ],
 };
+
+// Only where the default is not the first listed model.
+const ADAPTER_DEFAULT_MODELS: Partial<Record<LLMAdapter, string>> = {
+  // Fable leads the list as the most capable, but costs more and needs 30-day retention.
+  anthropic: "claude-opus-5-5",
+};
+
+/** The model a new BYOK key and "Add Model" start with, picked from `modelIds`. */
+export function defaultAdapterModel(
+  adapter: LLMAdapter,
+  modelIds: readonly string[],
+): string | undefined {
+  const preferred = ADAPTER_DEFAULT_MODELS[adapter];
+  return preferred && modelIds.includes(preferred) ? preferred : modelIds[0];
+}
 
 /**
  * The protocol a model runs on under an adapter when the workspace has not
