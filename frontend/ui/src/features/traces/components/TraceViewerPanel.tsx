@@ -416,7 +416,7 @@ export function TraceViewerPanel({
         embedded
           ? "flex h-full w-full flex-col border-l border-border bg-background"
           : cn(
-              "fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]",
+              "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200",
               // Fullscreen stays clear of the chrome it would otherwise cover: it
               // starts below the top breadcrumb/header bar (h-11) and to the right of
               // the left navbar. Width = 100% minus the sidebar's width, which differs
