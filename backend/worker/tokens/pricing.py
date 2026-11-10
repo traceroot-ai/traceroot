@@ -21,6 +21,10 @@ from .usage import count_tokens
 
 logger = logging.getLogger(__name__)
 
+# Bedrock regional and country inference profiles. global. is the base rate.
+# India sits with Japan and Australia: same kind of profile, same 10% premium.
+_REGIONAL_PROFILE = re.compile(r"^(?:us|eu|apac|jp|au|in)\.", re.IGNORECASE)
+
 # ---------------------------------------------------------------------------
 # In-memory cache (populated on first call)
 # ---------------------------------------------------------------------------
@@ -40,7 +44,8 @@ def _load_cache() -> list[dict]:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT m.model_name, m.match_pattern, p.usage_type, p.price
+                    SELECT m.model_name, m.match_pattern, m.regional_premium,
+                           p.usage_type, p.price
                     FROM standard_models m
                     JOIN standard_model_prices p ON p.model_id = m.id
                     ORDER BY m.model_name, p.usage_type
@@ -60,11 +65,14 @@ def _load_cache() -> list[dict]:
 
     # Group rows by model_name
     by_model: dict[str, dict] = {}
-    for model_name, match_pattern, usage_type, price in rows:
+    for model_name, match_pattern, regional_premium, usage_type, price in rows:
         if model_name not in by_model:
             by_model[model_name] = {
                 "model_name": model_name,
                 "match_pattern": match_pattern,
+                "regional_premium": (
+                    float(regional_premium) if regional_premium is not None else None
+                ),
                 "prices": {},
             }
         by_model[model_name]["prices"][usage_type] = (
@@ -81,6 +89,28 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _rates_for(entry: dict, model: str) -> dict:
+    """Card for ``model``, with the regional premium applied when it is due.
+
+    The catalogue stores one card per model. A Bedrock regional profile of a
+    model marked ``regional_premium`` is that card times the premium. ``global.``
+    and a bare id are not regional, so they keep the card. The returned dict is
+    a copy when scaled, so the cached card stays at the base rate.
+    """
+    prices = entry["prices"]
+    premium = entry.get("regional_premium")
+    if not premium or _REGIONAL_PROFILE.match(model) is None:
+        return prices
+    factor = Decimal(str(premium))
+    scaled: dict = {}
+    for key, value in prices.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            scaled[key] = value
+            continue
+        scaled[key] = float(Decimal(str(value)) * factor)
+    return scaled
+
+
 def get_model_price(model: str) -> dict[str, float] | None:
     """Lookup price for model. Tries exact match, then regex fallback.
 
@@ -92,13 +122,13 @@ def get_model_price(model: str) -> dict[str, float] | None:
     # Exact match on model_name
     for entry in cache:
         if entry["model_name"] == model:
-            return entry["prices"]
+            return _rates_for(entry, model)
 
     # Regex fallback using match_pattern
     for entry in cache:
         try:
             if re.search(entry["match_pattern"], model, re.IGNORECASE):
-                return entry["prices"]
+                return _rates_for(entry, model)
         except re.error:
             continue
 

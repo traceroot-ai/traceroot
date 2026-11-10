@@ -439,13 +439,15 @@ model AIMessage {
 
 // Standard Model Pricing - Single source of truth for model costs
 model StandardModel {
-  id           String               @id @db.VarChar
-  modelName    String               @map("model_name") @db.VarChar
-  matchPattern String               @map("match_pattern") @db.VarChar
-  provider     String               @db.VarChar
-  createTime   DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime   DateTime             @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
-  prices       StandardModelPrice[]
+  id              String               @id @db.VarChar
+  modelName       String               @map("model_name") @db.VarChar
+  matchPattern    String               @map("match_pattern") @db.VarChar
+  provider        String               @db.VarChar
+  // 1.1 for Claude 4.5+ Bedrock regional profiles. Null keeps the card's rates.
+  regionalPremium Decimal?             @map("regional_premium") @db.Decimal(4, 3)
+  createTime      DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime             @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
+  prices          StandardModelPrice[]
 
   @@unique([modelName])
   @@map("standard_models")

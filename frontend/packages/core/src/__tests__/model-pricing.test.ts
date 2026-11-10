@@ -171,6 +171,36 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   });
 });
 
+describe("getModelPricing — Bedrock regional premium", () => {
+  const row = {
+    modelName: "claude-sonnet-4-6",
+    matchPattern:
+      "(?i)^(claude-sonnet-4-6|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)anthropic\\.claude-sonnet-4-6)$",
+    regionalPremium: 1.1,
+    prices: [
+      { usageType: "input", price: 0.000003 },
+      { usageType: "output", price: 0.000015 },
+      { usageType: "cacheRead", price: 0.0000003 },
+      { usageType: "cacheWrite", price: 0.00000375 },
+      { usageType: "cacheWrite1h", price: 0.000006 },
+    ],
+  };
+
+  it("prices a regional profile at 1.1x and leaves global and the bare id on the card", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([row]);
+    const global = await lookup("global.anthropic.claude-sonnet-4-6");
+    const bare = await lookup("claude-sonnet-4-6");
+    const regional = await lookup("jp.anthropic.claude-sonnet-4-6");
+    expect(global?.input).toBeCloseTo(0.000003);
+    expect(bare?.input).toBeCloseTo(0.000003);
+    expect(regional?.input).toBeCloseTo(0.0000033);
+    expect(regional?.output).toBeCloseTo(0.0000165);
+    expect(regional?.cacheRead).toBeCloseTo(0.00000033);
+    expect(regional?.cacheWrite).toBeCloseTo(0.000004125);
+    expect(regional?.cacheWrite1h).toBeCloseTo(0.0000066);
+  });
+});
+
 describe("getModelPricing — uncompilable pattern", () => {
   it("reports the catalogue defect instead of failing silently", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
