@@ -446,7 +446,7 @@ async function processWorkspace(
     const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
     const confirmedAiUnits = await reportMeterUsageToStripe({
       workspaceId: workspace.id,
-      customerId: workspace.billingCustomerId,
+      customerId: workspace.billingCustomerId!,
       meter: "ai",
       eventName: "ai_usage",
       periodStart: workspace.billingPeriodStart,
@@ -478,7 +478,7 @@ async function processWorkspace(
 
     const confirmedRcaUnits = await reportMeterUsageToStripe({
       workspaceId: workspace.id,
-      customerId: workspace.billingCustomerId,
+      customerId: workspace.billingCustomerId!,
       meter: "rca",
       eventName: "rca_usage",
       periodStart: workspace.billingPeriodStart,
@@ -510,7 +510,7 @@ async function processWorkspace(
 
     const confirmedDetectorUnits = await reportMeterUsageToStripe({
       workspaceId: workspace.id,
-      customerId: workspace.billingCustomerId,
+      customerId: workspace.billingCustomerId!,
       meter: "detector",
       eventName: "detector_usage",
       periodStart: workspace.billingPeriodStart,

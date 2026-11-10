@@ -138,6 +138,38 @@ describe("Stripe meter outbox", () => {
     expect(create.mock.calls[2][0].payload.value).toBe("100");
   });
 
+  it("does not dispatch a report while another worker holds its unexpired lease", async () => {
+    const { client, create } = stripeStub();
+    store.cursors.push({
+      id: "cursor-1",
+      workspaceId: "ws-1",
+      meter: "ai",
+      periodStart,
+      confirmedUnits: 0,
+    });
+    store.reports.push({
+      id: "report-in-flight",
+      cursorId: "cursor-1",
+      status: "sending",
+      attempts: 1,
+      fromUnits: 0,
+      toUnits: 200,
+      units: 200,
+      stripeCustomerId: "cus_1",
+      eventName: "ai_usage",
+      identifier: "tr_meter_existing",
+      eventTimestamp: Math.floor(Date.now() / 1000),
+      firstAttemptAt: new Date(),
+      nextAttemptAt: null,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      createTime: new Date(),
+    });
+
+    expect(await reportMeterUsageToStripe(context(client, 250))).toBe(0);
+    expect(create).not.toHaveBeenCalled();
+    expect(store.reports).toHaveLength(1);
+  });
+
   it("never advances the cursor when Stripe rejects the request", async () => {
     const { client } = stripeStub();
     store.failNext = Object.assign(new Error("invalid request"), { statusCode: 400 });

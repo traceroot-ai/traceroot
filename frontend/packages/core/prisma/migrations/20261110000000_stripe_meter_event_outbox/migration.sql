@@ -75,7 +75,7 @@ SELECT
         OR (
           w."billing_period_start" IS NOT NULL
           AND m."raw_period_start" IS NOT NULL
-          AND m."raw_period_start"::timestamptz = w."billing_period_start"
+          AND (m."raw_period_start"::timestamptz AT TIME ZONE 'UTC') = w."billing_period_start"
         )
       )
     THEN LEAST(m."raw_units"::numeric, 2147483647)::integer
@@ -93,8 +93,14 @@ CROSS JOIN LATERAL (
 CROSS JOIN LATERAL (
   SELECT COALESCE(w."billing_period_start", TIMESTAMP '1970-01-01 00:00:00') AS "period_start"
 ) AS p
-WHERE m."raw_units" ~ '^[0-9]+$'
-  AND m."raw_units"::numeric > 0
+WHERE CASE
+  WHEN m."raw_units" ~ '^[0-9]+
+ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
+
+COMMIT;
+ THEN m."raw_units"::numeric
+  ELSE 0
+END > 0
 ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
 
 COMMIT;
