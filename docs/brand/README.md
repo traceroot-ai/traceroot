@@ -6,6 +6,7 @@ without loading the marketing site's JavaScript or depending on its asset URLs.
 
 | Asset | Source in `traceroot-website` |
 | --- | --- |
+| `../logo/favicon.png` | `client/public/favicon.png`, copied byte for byte so the docs tab icon matches the website and app |
 | `fonts.css` | `client/public/redesign/9b6f5ff45b278c74.woff2` (Geist) and `client/public/redesign/5f3d6ad60f29d6cb.woff2` (Geist Mono), embedded as data URLs in variable-weight `@font-face` rules |
 | `footer-wordmark.svg` | Static export of `PIX` glyphs and Bayer dithering in `client/src/components/redesign/footer-wordmark.ts` |
 | `footer-wordmark.runtime.js` | Generated standalone IIFE of Home's `footer-wordmark.ts`, `animation-scope.ts`, `motion-loop.ts` and CSS defaults; no React or external requests |
