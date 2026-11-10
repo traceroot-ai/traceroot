@@ -97,6 +97,16 @@ async function rowAction(name: "Edit" | "Delete") {
   fireEvent.click(await screen.findByText(name));
 }
 
+describe("Datasets list table", () => {
+  it("copies the dataset id without navigating the row", async () => {
+    mount();
+    const copyBtn = await screen.findByTitle("Copy dataset ID");
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ds1");
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+
 describe("New dataset panel", () => {
   it("stays disabled until a name is typed, then POSTs name + description", async () => {
     mount();
