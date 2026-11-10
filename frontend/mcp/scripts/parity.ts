@@ -34,6 +34,10 @@ if (!url || !key || !host) {
     "--url, --key (or TRACEROOT_API_KEY) and --host (or TRACEROOT_HOST_URL) are required",
   );
 }
+const known = [...new Set(CASES.map((c) => c.tool))];
+if (only && !known.includes(only)) {
+  throw new Error(`--only ${only} matches no tool; known tools: ${known.join(", ")}`);
+}
 const cliBin = new URL("../node_modules/.bin/traceroot", import.meta.url).pathname;
 // A clean HOME so no stored login outranks the key.
 const home = mkdtempSync(join(tmpdir(), "parity-home-"));
