@@ -8,7 +8,6 @@ const RETRY_WINDOW_MS = 20 * 60 * 60 * 1000;
 const LEASE_MS = 5 * 60 * 1000;
 const INITIAL_RETRY_MS = 60 * 1000;
 const MAX_RETRY_MS = 30 * 60 * 1000;
-const NULL_PERIOD_START = new Date(0);
 
 export function getRetryDelayMs(attempt: number): number {
   const exponent = Math.max(0, Math.min(attempt - 1, 20));
@@ -43,15 +42,16 @@ function errorMessage(error: unknown): string {
 type MeterReport = {
   id: string;
   cursorId: string;
-  fromUnits: number;
-  toUnits: number;
-  units: number;
+  fromUnits: bigint;
+  toUnits: bigint;
+  units: bigint;
   stripeCustomerId: string;
   eventName: string;
   identifier: string;
   eventTimestamp: number;
   attempts: number;
   firstAttemptAt: Date;
+  attemptToken: string;
 };
 
 type MeterContext = {
@@ -59,14 +59,14 @@ type MeterContext = {
   customerId: string;
   meter: BillingMeterName;
   eventName: "ai_usage" | "rca_usage" | "detector_usage";
-  periodStart: Date | null;
+  periodStart: Date;
   totalUnits: number;
   stripeClient: Stripe;
 };
 
 async function claimReport(context: MeterContext, now: Date): Promise<MeterReport | null> {
   return prisma.$transaction(async (tx) => {
-    const periodStart = context.periodStart ?? NULL_PERIOD_START;
+    const periodStart = context.periodStart;
     const cursor = await tx.billingMeterCursor.upsert({
       where: {
         workspaceId_meter_periodStart: {
@@ -109,14 +109,15 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
       if (!Number.isSafeInteger(context.totalUnits) || context.totalUnits < 0) {
         throw new Error(`Invalid billable units: ${context.totalUnits}`);
       }
-      if (context.totalUnits <= lockedCursor.confirmedUnits) return null;
+      const totalUnits = BigInt(context.totalUnits);
+      if (totalUnits <= lockedCursor.confirmedUnits) return null;
 
-      const units = context.totalUnits - lockedCursor.confirmedUnits;
+      const units = totalUnits - lockedCursor.confirmedUnits;
       report = await tx.billingMeterReport.create({
         data: {
           cursorId: cursor.id,
           fromUnits: lockedCursor.confirmedUnits,
-          toUnits: context.totalUnits,
+          toUnits: totalUnits,
           units,
           stripeCustomerId: context.customerId,
           eventName: context.eventName,
@@ -155,12 +156,14 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
       return null;
     }
 
+    const attemptToken = randomUUID();
     const claimed = await tx.billingMeterReport.update({
       where: { id: report.id },
       data: {
         status: "sending",
         attempts: { increment: 1 },
         firstAttemptAt,
+        attemptToken,
         leaseExpiresAt: new Date(now.getTime() + LEASE_MS),
         nextAttemptAt: null,
       },
@@ -178,6 +181,7 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
       eventTimestamp: claimed.eventTimestamp,
       attempts: claimed.attempts,
       firstAttemptAt,
+      attemptToken,
     };
   });
 }
@@ -191,7 +195,13 @@ async function markDelivered(report: MeterReport, stripeRequestId?: string | nul
     const currentReport = await tx.billingMeterReport.findUnique({
       where: { id: report.id },
     });
-    if (!currentReport || currentReport.status !== "sending") return;
+    if (
+      !currentReport ||
+      currentReport.status !== "sending" ||
+      currentReport.attemptToken !== report.attemptToken
+    ) {
+      return;
+    }
 
     const cursor = await tx.billingMeterCursor.findUniqueOrThrow({
       where: { id: report.cursorId },
@@ -231,7 +241,7 @@ async function markFailed(report: MeterReport, error: unknown, now: Date): Promi
   const definitive = isDefinitiveStripeError(error);
   const needsAttention = expired || definitive;
   await prisma.billingMeterReport.updateMany({
-    where: { id: report.id, status: "sending" },
+    where: { id: report.id, status: "sending", attemptToken: report.attemptToken },
     data: {
       status: needsAttention ? "needs_attention" : "retryable",
       leaseExpiresAt: null,
@@ -275,7 +285,7 @@ export async function reportMeterUsageToStripe(context: MeterContext): Promise<n
     }
   }
 
-  const periodStart = context.periodStart ?? NULL_PERIOD_START;
+  const periodStart = context.periodStart;
   const cursor = await prisma.billingMeterCursor.findUnique({
     where: {
       workspaceId_meter_periodStart: {
@@ -286,5 +296,10 @@ export async function reportMeterUsageToStripe(context: MeterContext): Promise<n
     },
     select: { confirmedUnits: true },
   });
-  return cursor?.confirmedUnits ?? 0;
+  const confirmedUnits = cursor?.confirmedUnits ?? 0n;
+  const numericConfirmedUnits = Number(confirmedUnits);
+  if (!Number.isSafeInteger(numericConfirmedUnits)) {
+    throw new Error(`Confirmed meter units exceed JavaScript's safe integer range: ${confirmedUnits}`);
+  }
+  return numericConfirmedUnits;
 }
