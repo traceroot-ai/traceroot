@@ -89,8 +89,10 @@ describe("AppLayout responsive navigation", () => {
 
     const { unmount } = renderAt("/projects/p1/traces");
     const sidebar = within(screen.getByTestId("desktop-nav")).getByTestId("sidebar");
+    const shell = screen.getByTestId("desktop-nav").parentElement!;
     expect(matchMedia).toHaveBeenCalledWith("(max-width: 1099px)");
     expect(sidebar.getAttribute("data-collapsed")).toBe("true");
+    expect(shell.className).toContain("md:[--app-nav-w:3.5rem]");
 
     act(() => {
       media.matches = false;
@@ -105,6 +107,7 @@ describe("AppLayout responsive navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    expect(shell.className).toContain("md:[--app-nav-w:14rem]");
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeDefined();
 
     act(() => {

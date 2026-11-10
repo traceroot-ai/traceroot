@@ -8,6 +8,7 @@ import { Menu, PanelLeft } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { isChromelessRoute } from "@/lib/chromeless-routes";
+import { cn } from "@/lib/utils";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { AiChatProvider } from "@/features/ai-assistant/components/ai-chat-context";
 import type { AiTraceContext } from "@/features/ai-assistant/types";
@@ -153,7 +154,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         initialContext={aiContext}
         initialSessionId={aiInitialSessionId}
       >
-        <div className="flex h-dvh overflow-hidden">
+        {/* Shell sizes for fullscreen overlays; nav width mirrors Sidebar's w-14 / w-56, 0 below md. */}
+        <div
+          className={cn(
+            "flex h-dvh overflow-hidden [--app-header-h:2.75rem] [--app-nav-w:0px]",
+            sidebarCollapsed ? "md:[--app-nav-w:3.5rem]" : "md:[--app-nav-w:14rem]",
+          )}
+        >
           <div data-testid="desktop-nav" className="hidden md:block">
             <Sidebar collapsed={sidebarCollapsed} />
           </div>
@@ -178,7 +185,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               className="flex min-w-0 flex-col overflow-hidden"
             >
               {/* Top header bar */}
-              <header className="flex h-11 shrink-0 items-center gap-1 border-b bg-background px-3">
+              <header className="flex h-[var(--app-header-h)] shrink-0 items-center gap-1 border-b bg-background px-3">
                 <Button
                   variant="ghost"
                   size="icon"
