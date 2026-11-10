@@ -1,21 +1,5 @@
 import { describe, it, expect } from "vitest";
 
-// Mirror the delta-tracking math used in processWorkspace for RCA reporting.
-// This isolates the idempotency invariant from the prisma-bound flow:
-//  - lastReportedUnits resets on billing-period change.
-//  - Only the positive delta is reported per hourly run.
-function computeRcaDelta(args: {
-  totalRcaBillableUnits: number;
-  prevRcaPeriodStart: string | null;
-  currentPeriodStart: string | null;
-  prevLastReportedRcaUnits: number;
-}): { deltaUnits: number; lastReportedUnits: number } {
-  const lastReportedUnits =
-    args.prevRcaPeriodStart === args.currentPeriodStart ? args.prevLastReportedRcaUnits : 0;
-  const deltaUnits = args.totalRcaBillableUnits - lastReportedUnits;
-  return { deltaUnits, lastReportedUnits };
-}
-
 function rcaUnitsForOverage(overageRuns: number, systemTokenCost: number): number {
   if (overageRuns <= 0) return 0;
   const blocks = Math.ceil(overageRuns / 100);
