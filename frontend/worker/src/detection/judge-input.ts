@@ -387,9 +387,13 @@ export function sampleLines(text: string, budget: number): string {
   if (body.length === 0) return numbered.join("\n").slice(0, budget);
 
   const sample = (target: number) => {
-    const step = body.length / target;
+    // Spread the picks from the first body line to the last, so the sample
+    // reaches the end of the trace.
+    const last = body.length - 1;
     const kept: string[] = [];
-    for (let i = 0; i < target; i++) kept.push(body[Math.floor(i * step)]);
+    for (let i = 0; i < target; i++) {
+      kept.push(body[target === 1 ? last : Math.round((i * last) / (target - 1))]);
+    }
     return [...head, note((kept.length / body.length) * 100), ...kept].join("\n");
   };
   const fixed = head.join("\n").length + note(100).length + 2;
