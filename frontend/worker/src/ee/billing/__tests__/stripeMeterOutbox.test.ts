@@ -38,7 +38,9 @@ vi.mock("@traceroot/core", () => {
     },
     billingMeterReport: {
       findFirst: async ({ where }: any) =>
-        store.reports.find((row) => row.cursorId === where.cursorId && where.status.in.includes(row.status)) ?? null,
+        store.reports.find(
+          (row) => row.cursorId === where.cursorId && where.status.in.includes(row.status),
+        ) ?? null,
       create: async ({ data }: any) => {
         const row = {
           id: `report-${store.reports.length + 1}`,
@@ -58,7 +60,8 @@ vi.mock("@traceroot/core", () => {
         Object.assign(row, { ...data, attempts: row.attempts });
         return row;
       },
-      findUnique: async ({ where }: any) => store.reports.find((row) => row.id === where.id) ?? null,
+      findUnique: async ({ where }: any) =>
+        store.reports.find((row) => row.id === where.id) ?? null,
       updateMany: async ({ where, data }: any) => {
         const row = store.reports.find((report) =>
           report.id === where.id &&
@@ -71,7 +74,12 @@ vi.mock("@traceroot/core", () => {
       },
     },
   };
-  return { prisma: { ...tx, $transaction: async (callback: (client: any) => Promise<any>) => callback(tx) } };
+  return {
+    prisma: {
+      ...tx,
+      $transaction: async (callback: (client: any) => Promise<any>) => callback(tx),
+    },
+  };
 });
 
 import {
@@ -280,7 +288,9 @@ describe("Stripe meter outbox", () => {
     }
   });
 
-  it("moves an ambiguous report to manual review before the Stripe identifier window expires", async () => {
+  it(
+    "moves an ambiguous report to manual review before the Stripe identifier window expires",
+    async () => {
     const { client, create } = stripeStub();
     store.failNext = new Error("connection reset");
     await reportMeterUsageToStripe(context(client, 300));
@@ -290,10 +300,13 @@ describe("Stripe meter outbox", () => {
 
     expect(await reportMeterUsageToStripe(context(client, 300))).toBe(0);
     expect(report.status).toBe("needs_attention");
-    expect(create).toHaveBeenCalledTimes(1);
-  });
+      expect(create).toHaveBeenCalledTimes(1);
+    },
+  );
 
-  it("backs off transient errors and stops retrying before the identifier window expires", async () => {
+  it(
+    "backs off transient errors and stops retrying before the identifier window expires",
+    async () => {
     const { client } = stripeStub();
     store.failNext = Object.assign(new Error("rate limited"), {
       statusCode: 429,
@@ -306,6 +319,7 @@ describe("Stripe meter outbox", () => {
     expect(getRetryDelayMs(1)).toBe(60_000);
     expect(getRetryDelayMs(20)).toBe(30 * 60_000);
     expect(isDefinitiveStripeError({ statusCode: 429 })).toBe(false);
-    expect(isDefinitiveStripeError({ statusCode: 400 })).toBe(true);
-  });
+      expect(isDefinitiveStripeError({ statusCode: 400 })).toBe(true);
+    },
+  );
 });
