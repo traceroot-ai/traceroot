@@ -59,7 +59,10 @@ def _flush_span_chunk(
         extract_attachments(s3_service, project_id, [], chunk)
 
     ch_client.insert_spans_batch(list(chunk))
-    _publish_live_spans(chunk, project_id)
+    # Strip internal versioning before publishing — callers that monkeypatch
+    # _publish_live_spans (tests) receive clean payloads without ch_update_time.
+    clean_spans = [{k: v for k, v in s.items() if k != "ch_update_time"} for s in chunk]
+    _publish_live_spans(clean_spans, project_id)
 
 
 def _publish_live_spans(spans: list[dict], project_id: str) -> None:
@@ -92,10 +95,6 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
             clean_span = {k: v for k, v in span.items() if k != "ch_update_time"}
             by_trace[span["trace_id"]].append(clean_span)
 
-            if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
-                if completed_traces is not None:
-                    completed_traces.add(span["trace_id"])
-
         for trace_id, trace_spans in by_trace.items():
             channel = f"trace:live:{project_id}:{trace_id}"
 
@@ -106,15 +105,17 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
             )
             client.publish(channel, payload)
 
-            # Check if trace is complete (root span with end time)
-            if not defer_completions:
-                for span in trace_spans:
-                    if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
-                        client.publish(
-                            channel,
-                            json.dumps({"type": "trace_complete"}),
-                        )
-                        break
+            # Detect root span completion only AFTER spans are successfully
+            # published, so a later trace_complete never arrives without its data.
+            has_root = any(
+                s.get("parent_span_id") is None and s.get("span_end_time") is not None
+                for s in trace_spans
+            )
+            if has_root:
+                if completed_traces is not None:
+                    completed_traces.add(trace_id)
+                if not defer_completions:
+                    client.publish(channel, json.dumps({"type": "trace_complete"}))
 
         if close_client:
             client.close()
@@ -433,21 +434,14 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         # is O(chunk_size) instead of O(batch_size).
         SPAN_CHUNK_SIZE = 500
         ctx = TransformContext(project_id=project_id)
-        ch_client = get_clickhouse_client()
+        ch_client = None  # Lazy — avoids connecting when the batch is empty.
         total_spans = 0
         eval_trace_ids: set[str] = set()
         chunk: list[dict] = []
 
         # Set up task-scoped Redis publisher context for connection reuse and deferred completion
         redis_client = None
-        try:
-            import redis as redis_lib
-
-            redis_client = redis_lib.from_url(settings.redis.url, decode_responses=True)
-        except Exception:
-            redis_client = None
-
-        _REDIS_CONTEXT.client = redis_client
+        _REDIS_CONTEXT.client = None
         _REDIS_CONTEXT.defer_completions = True
         _REDIS_CONTEXT.completed_traces = set()
 
@@ -462,6 +456,17 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                 chunk.append(span_record)
 
                 if len(chunk) >= SPAN_CHUNK_SIZE:
+                    if ch_client is None:
+                        ch_client = get_clickhouse_client()
+                        try:
+                            import redis as redis_lib
+
+                            redis_client = redis_lib.from_url(
+                                settings.redis.url, decode_responses=True,
+                            )
+                            _REDIS_CONTEXT.client = redis_client
+                        except Exception:
+                            pass
                     _flush_span_chunk(
                         chunk, ch_client, s3_service, project_id, attachments_enabled,
                     )
@@ -470,20 +475,37 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
 
             # Flush remaining spans in the last (partial) chunk.
             if chunk:
+                if ch_client is None:
+                    ch_client = get_clickhouse_client()
+                    try:
+                        import redis as redis_lib
+
+                        redis_client = redis_lib.from_url(
+                            settings.redis.url, decode_responses=True,
+                        )
+                        _REDIS_CONTEXT.client = redis_client
+                    except Exception:
+                        pass
                 _flush_span_chunk(
                     chunk, ch_client, s3_service, project_id, attachments_enabled,
                 )
                 total_spans += len(chunk)
                 chunk = []
 
-            # Signal completion on completed traces only AFTER all chunks are flushed
+            # Signal completion on completed traces only AFTER all chunks are flushed.
+            # Per-trace error handling ensures one failure doesn't skip remaining traces.
             if _REDIS_CONTEXT.completed_traces and redis_client is not None:
-                try:
-                    for trace_id in _REDIS_CONTEXT.completed_traces:
+                for trace_id in _REDIS_CONTEXT.completed_traces:
+                    try:
                         channel = f"trace:live:{project_id}:{trace_id}"
-                        redis_client.publish(channel, json.dumps({"type": "trace_complete"}))
-                except Exception:
-                    pass
+                        redis_client.publish(
+                            channel, json.dumps({"type": "trace_complete"}),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to publish trace_complete for %s", trace_id,
+                            exc_info=True,
+                        )
         finally:
             _REDIS_CONTEXT.client = None
             _REDIS_CONTEXT.defer_completions = False
@@ -501,6 +523,8 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         root_bearing_trace_ids = ctx.root_bearing_trace_ids
 
         if traces:
+            if ch_client is None:
+                ch_client = get_clickhouse_client()
             if attachments_enabled:
                 from worker.attachment_extraction import extract_attachments
 

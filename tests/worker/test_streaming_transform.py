@@ -9,7 +9,7 @@ import json
 import types
 from datetime import UTC, datetime
 from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,7 +19,7 @@ from tests.fixtures.otel_payloads import (
     make_otel_payload,
     make_span,
 )
-from worker.ingest_tasks import _flush_span_chunk, _publish_live_spans
+from worker.ingest_tasks import _REDIS_CONTEXT, _flush_span_chunk, _publish_live_spans
 from worker.otel_transform import (
     TransformContext,
     iter_transform_spans,
@@ -448,27 +448,43 @@ class TestChunkedConsumer:
             ))
         return make_otel_payload(spans)
 
+    def _setup_redis_context(self, mock_redis):
+        """Set up thread-local Redis context as the production code does."""
+        _REDIS_CONTEXT.client = mock_redis
+        _REDIS_CONTEXT.defer_completions = True
+        _REDIS_CONTEXT.completed_traces = set()
+
+    def _teardown_redis_context(self):
+        """Clean up thread-local Redis context."""
+        _REDIS_CONTEXT.client = None
+        _REDIS_CONTEXT.defer_completions = False
+        _REDIS_CONTEXT.completed_traces = None
+
     def test_chunked_processes_all_spans(self):
         """All spans are processed and inserted via _flush_span_chunk."""
         payload = self._make_large_payload(50)
         ctx = TransformContext(project_id="proj-1")
         fake_ch = FakeClickHouseClient()
         mock_redis = MagicMock()
+        self._setup_redis_context(mock_redis)
 
-        chunk_size = 10
-        chunk = []
-        for span in iter_transform_spans(payload, "proj-1", ctx):
-            chunk.append(span)
-            if len(chunk) >= chunk_size:
+        try:
+            chunk_size = 10
+            chunk = []
+            for span in iter_transform_spans(payload, "proj-1", ctx):
+                chunk.append(span)
+                if len(chunk) >= chunk_size:
+                    _flush_span_chunk(
+                        chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                    )
+                    chunk = []
+            if chunk:
                 _flush_span_chunk(
-                    chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+                    chunk, fake_ch, None, "proj-1", attachments_enabled=False,
                 )
                 chunk = []
-        if chunk:
-            _flush_span_chunk(
-                chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
-            )
-            chunk = []
+        finally:
+            self._teardown_redis_context()
 
         # 50 spans flushed in chunks of 10 = 5 ClickHouse insert calls of 10 spans each
         assert len(fake_ch.inserted_batches) == 5
@@ -482,21 +498,25 @@ class TestChunkedConsumer:
         ctx = TransformContext(project_id="proj-1")
         fake_ch = FakeClickHouseClient()
         mock_redis = MagicMock()
+        self._setup_redis_context(mock_redis)
 
-        chunk_size = 10
-        chunk = []
-        for span in iter_transform_spans(payload, "proj-1", ctx):
-            chunk.append(span)
-            if len(chunk) >= chunk_size:
+        try:
+            chunk_size = 10
+            chunk = []
+            for span in iter_transform_spans(payload, "proj-1", ctx):
+                chunk.append(span)
+                if len(chunk) >= chunk_size:
+                    _flush_span_chunk(
+                        chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                    )
+                    chunk = []
+            if chunk:
                 _flush_span_chunk(
-                    chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+                    chunk, fake_ch, None, "proj-1", attachments_enabled=False,
                 )
                 chunk = []
-        if chunk:
-            _flush_span_chunk(
-                chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
-            )
-            chunk = []
+        finally:
+            self._teardown_redis_context()
 
         # 27 spans / 10 per chunk = batches of [10, 10, 7]
         batch_sizes = [len(batch) for batch in fake_ch.inserted_batches]
@@ -508,21 +528,25 @@ class TestChunkedConsumer:
         ctx = TransformContext(project_id="proj-1")
         fake_ch = FakeClickHouseClient()
         mock_redis = MagicMock()
+        self._setup_redis_context(mock_redis)
 
-        chunk_size = 5
-        chunk = []
-        for span in iter_transform_spans(payload, "proj-1", ctx):
-            chunk.append(span)
-            if len(chunk) >= chunk_size:
+        try:
+            chunk_size = 5
+            chunk = []
+            for span in iter_transform_spans(payload, "proj-1", ctx):
+                chunk.append(span)
+                if len(chunk) >= chunk_size:
+                    _flush_span_chunk(
+                        chunk, fake_ch, None, "proj-1", attachments_enabled=False,
+                    )
+                    chunk = []
+            if chunk:
                 _flush_span_chunk(
-                    chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+                    chunk, fake_ch, None, "proj-1", attachments_enabled=False,
                 )
                 chunk = []
-        if chunk:
-            _flush_span_chunk(
-                chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
-            )
-            chunk = []
+        finally:
+            self._teardown_redis_context()
 
         traces = ctx.finalize_traces()
         assert len(traces) == 1
@@ -545,11 +569,15 @@ class TestChunkedConsumer:
         ctx = TransformContext(project_id="proj-1")
         fake_ch = FakeClickHouseClient()
         mock_redis = MagicMock()
+        self._setup_redis_context(mock_redis)
 
-        for span in iter_transform_spans(payload, "proj-1", ctx):
-            _flush_span_chunk(
-                [span], fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
-            )
+        try:
+            for span in iter_transform_spans(payload, "proj-1", ctx):
+                _flush_span_chunk(
+                    [span], fake_ch, None, "proj-1", attachments_enabled=False,
+                )
+        finally:
+            self._teardown_redis_context()
 
         assert len(fake_ch.inserted_batches) == 5
         assert all(len(batch) == 1 for batch in fake_ch.inserted_batches)
@@ -561,23 +589,32 @@ class TestChunkedConsumer:
 
 
 class TestLiveSpanPublishing:
-    """Tests for live publishing connection reuse, field filtering, and completion deferral."""
+    """Tests for live publishing connection reuse, field filtering, and completion deferral.
 
-    @patch("redis.from_url")
-    def test_publish_excludes_ch_update_time(self, mock_from_url):
+    The production code uses thread-local ``_REDIS_CONTEXT`` to pass the Redis
+    client and defer_completions flag.  These tests exercise that path directly.
+    """
+
+    def test_publish_excludes_ch_update_time(self):
+        """Published payloads must not contain the internal ch_update_time field."""
         mock_redis = MagicMock()
-        mock_from_url.return_value = mock_redis
+        _REDIS_CONTEXT.client = mock_redis
+        _REDIS_CONTEXT.defer_completions = False
+        _REDIS_CONTEXT.completed_traces = None
 
-        span_with_ch_time = {
-            "trace_id": TRACE_A,
-            "span_id": ROOT_SPAN,
-            "name": "my-span",
-            "ch_update_time": datetime.now(UTC),
-        }
-        _publish_live_spans([span_with_ch_time], "proj-1", redis_client=mock_redis)
+        try:
+            span_with_ch_time = {
+                "trace_id": TRACE_A,
+                "span_id": ROOT_SPAN,
+                "name": "my-span",
+                "ch_update_time": datetime.now(UTC),
+            }
+            _publish_live_spans([span_with_ch_time], "proj-1")
+        finally:
+            _REDIS_CONTEXT.client = None
 
         assert mock_redis.publish.called
-        channel, payload_str = mock_redis.publish.call_args[0]
+        channel, payload_str = mock_redis.publish.call_args_list[0][0]
         assert channel == f"trace:live:proj-1:{TRACE_A}"
 
         payload = json.loads(payload_str)
@@ -586,8 +623,20 @@ class TestLiveSpanPublishing:
         assert "ch_update_time" not in published_span
         assert published_span["span_id"] == ROOT_SPAN
 
-    def test_publish_defers_trace_complete_when_requested(self):
+    def test_publish_defers_trace_complete_via_context(self):
+        """When defer_completions is True, trace_complete is NOT published immediately.
+
+        Instead the trace_id is recorded in completed_traces for the caller to
+        signal after all chunks are flushed — matching the production path in
+        process_s3_traces.
+        """
         mock_redis = MagicMock()
+        completed = set()
+
+        # ── Deferred mode (during chunk flush) ──
+        _REDIS_CONTEXT.client = mock_redis
+        _REDIS_CONTEXT.defer_completions = True
+        _REDIS_CONTEXT.completed_traces = completed
 
         root_span = {
             "trace_id": TRACE_A,
@@ -595,19 +644,74 @@ class TestLiveSpanPublishing:
             "parent_span_id": None,
             "span_end_time": datetime.now(UTC),
         }
-        # When signal_completion=False (during chunk flush), trace_complete must NOT be sent!
-        _publish_live_spans([root_span], "proj-1", redis_client=mock_redis, signal_completion=False)
+        try:
+            _publish_live_spans([root_span], "proj-1")
+        finally:
+            _REDIS_CONTEXT.client = None
+            _REDIS_CONTEXT.defer_completions = False
+            _REDIS_CONTEXT.completed_traces = None
 
+        # Only the spans payload should be published — no trace_complete.
         publish_calls = mock_redis.publish.call_args_list
         assert len(publish_calls) == 1
         payload = json.loads(publish_calls[0][0][1])
         assert payload["type"] == "spans"
+        # The trace_id should be recorded for deferred completion.
+        assert TRACE_A in completed
 
-        # When signal_completion=True, trace_complete IS sent
-        _publish_live_spans([root_span], "proj-1", redis_client=mock_redis, signal_completion=True)
-        assert len(mock_redis.publish.call_args_list) == 3
-        completion_call = mock_redis.publish.call_args_list[2]
+    def test_publish_sends_trace_complete_when_not_deferred(self):
+        """When defer_completions is False, a root span triggers trace_complete immediately."""
+        mock_redis = MagicMock()
+
+        _REDIS_CONTEXT.client = mock_redis
+        _REDIS_CONTEXT.defer_completions = False
+        _REDIS_CONTEXT.completed_traces = None
+
+        root_span = {
+            "trace_id": TRACE_A,
+            "span_id": ROOT_SPAN,
+            "parent_span_id": None,
+            "span_end_time": datetime.now(UTC),
+        }
+        try:
+            _publish_live_spans([root_span], "proj-1")
+        finally:
+            _REDIS_CONTEXT.client = None
+
+        # spans + trace_complete = 2 publishes
+        assert len(mock_redis.publish.call_args_list) == 2
+        completion_call = mock_redis.publish.call_args_list[1]
         assert completion_call[0][0] == f"trace:live:proj-1:{TRACE_A}"
         comp_payload = json.loads(completion_call[0][1])
         assert comp_payload == {"type": "trace_complete"}
+
+    def test_completed_traces_recorded_only_after_publish(self):
+        """completed_traces.add happens after the spans publish succeeds,
+        not before — so a failed publish never marks the trace as complete."""
+        mock_redis = MagicMock()
+        completed = set()
+
+        # Make publish fail on the first call.
+        mock_redis.publish.side_effect = ConnectionError("Redis down")
+
+        _REDIS_CONTEXT.client = mock_redis
+        _REDIS_CONTEXT.defer_completions = True
+        _REDIS_CONTEXT.completed_traces = completed
+
+        root_span = {
+            "trace_id": TRACE_A,
+            "span_id": ROOT_SPAN,
+            "parent_span_id": None,
+            "span_end_time": datetime.now(UTC),
+        }
+        try:
+            # _publish_live_spans swallows exceptions — should not raise.
+            _publish_live_spans([root_span], "proj-1")
+        finally:
+            _REDIS_CONTEXT.client = None
+            _REDIS_CONTEXT.defer_completions = False
+            _REDIS_CONTEXT.completed_traces = None
+
+        # Trace must NOT be in completed since the publish failed.
+        assert TRACE_A not in completed
 

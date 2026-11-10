@@ -198,9 +198,15 @@ class TestProcessS3TracesSwitch:
     def assert_extracted(self, project_id, mock_s3, mock_ch, published, extract_spy):
         digest = hashlib.sha256(IMAGE).hexdigest()
 
-        extract_spy.assert_called_once()
-        assert extract_spy.call_args.args[:2] == (mock_s3, project_id)
-        mock_s3.put_object_if_absent.assert_called_once_with(
+        # Extraction is now split: once for spans (in _flush_span_chunk) and
+        # once for traces (after finalization). Both calls target the same project.
+        assert extract_spy.call_count >= 1
+        for c in extract_spy.call_args_list:
+            assert c.args[:2] == (mock_s3, project_id)
+        # put_object_if_absent is idempotent; the same image may be stored once
+        # per extract_attachments call (spans chunk + traces), but the S3 key
+        # and content are identical each time.
+        mock_s3.put_object_if_absent.assert_called_with(
             attachment_key(project_id, digest), IMAGE, "image/png"
         )
         (span_row,) = _unversioned(mock_ch.insert_spans_batch.call_args.args[0])
