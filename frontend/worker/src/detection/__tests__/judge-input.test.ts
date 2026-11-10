@@ -421,4 +421,10 @@ describe("sampleLines", () => {
     expect(lines[0]).toBe("L0001: line 0");
     expect(lines[3]).toMatch(/^\[SAMPLED VIEW: Showing ~\d+% of 1,000 lines\./);
   });
+
+  it("keeps the last line of the trace", () => {
+    const text = Array.from({ length: 1_000 }, (_, i) => `line ${i}`).join("\n");
+    const lines = sampleLines(text, 2_000).split("\n");
+    expect(lines.at(-1)).toBe("L1000: line 999");
+  });
 });
