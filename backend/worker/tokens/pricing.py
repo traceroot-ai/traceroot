@@ -45,7 +45,7 @@ def _load_cache() -> list[dict]:
                 cur.execute(
                     """
                     SELECT m.model_name, m.match_pattern, m.regional_premium,
-                           p.usage_type, p.price
+                           m.long_context_threshold, p.usage_type, p.price
                     FROM standard_models m
                     JOIN standard_model_prices p ON p.model_id = m.id
                     ORDER BY m.model_name, p.usage_type
@@ -65,7 +65,7 @@ def _load_cache() -> list[dict]:
 
     # Group rows by model_name
     by_model: dict[str, dict] = {}
-    for model_name, match_pattern, regional_premium, usage_type, price in rows:
+    for model_name, match_pattern, regional_premium, threshold, usage_type, price in rows:
         if model_name not in by_model:
             by_model[model_name] = {
                 "model_name": model_name,
@@ -73,6 +73,7 @@ def _load_cache() -> list[dict]:
                 "regional_premium": (
                     float(regional_premium) if regional_premium is not None else None
                 ),
+                "long_context_threshold": int(threshold) if threshold is not None else None,
                 "prices": {},
             }
         by_model[model_name]["prices"][usage_type] = (
@@ -99,15 +100,22 @@ def _rates_for(entry: dict, model: str) -> dict:
     """
     prices = entry["prices"]
     premium = entry.get("regional_premium")
-    if not premium or _REGIONAL_PROFILE.match(model) is None:
-        return prices
-    factor = Decimal(str(premium))
-    scaled: dict = {}
-    for key, value in prices.items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            scaled[key] = value
-            continue
-        scaled[key] = float(Decimal(str(value)) * factor)
+    scaled = prices
+    if premium and _REGIONAL_PROFILE.match(model) is not None:
+        factor = Decimal(str(premium))
+        scaled = {}
+        for key, value in prices.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                scaled[key] = value
+                continue
+            scaled[key] = float(Decimal(str(value)) * factor)
+    threshold = entry.get("long_context_threshold")
+    if threshold is None:
+        return scaled
+    # The threshold is a token count, not a rate, so the premium must not touch it.
+    if scaled is prices:
+        scaled = dict(prices)
+    scaled["longContextThreshold"] = int(threshold)
     return scaled
 
 
@@ -149,6 +157,35 @@ def _rate(prices: dict[str, float], key: str, *fallbacks: str) -> Decimal:
     return Decimal(0)
 
 
+_LONG_RATE_KEYS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
+
+
+def _prompt_tokens(buckets: TokenBuckets) -> int:
+    """Tokens that count toward a long-context threshold.
+
+    Uncached input, cache read, and cache write. The 1-hour write is already
+    inside ``cache_write``, so it is not added again. Output does not count.
+    """
+    return max(buckets.input_uncached, 0) + max(buckets.cache_read, 0) + max(buckets.cache_write, 0)
+
+
+def _prices_for_prompt_length(prices: dict, buckets: TokenBuckets) -> dict:
+    """Short card at or under the threshold, long card one token past it.
+
+    Entries with no threshold price exactly as before. A missing long rate
+    keeps that category on the short rate.
+    """
+    threshold = prices.get("longContextThreshold")
+    if not threshold or _prompt_tokens(buckets) <= int(threshold):
+        return prices
+    chosen = dict(prices)
+    for key in _LONG_RATE_KEYS:
+        long_rate = prices.get(f"{key}_long")
+        if long_rate:
+            chosen[key] = long_rate
+    return chosen
+
+
 def _bucket_cost_terms(
     prices: dict[str, float] | None, buckets: TokenBuckets
 ) -> dict[str, Decimal] | None:
@@ -174,6 +211,8 @@ def _bucket_cost_terms(
     """
     if not prices:
         return None
+
+    prices = _prices_for_prompt_length(prices, buckets)
 
     # Reconcile the 1-hour portion here too — this is the single source of truth for
     # the cost formula, so it must price each write token once for ANY TokenBuckets,

@@ -201,6 +201,33 @@ describe("getModelPricing — Bedrock regional premium", () => {
   });
 });
 
+describe("calculateCostFromPricing — long context", () => {
+  const haiku: ModelPricing = {
+    input: 0.0000001,
+    output: 0.0000005,
+    cacheRead: 0.00000001,
+    cacheWrite: 0.000000125,
+    cacheWrite1h: 0.0000002,
+    longContextThreshold: 100_000,
+    inputLong: 0.0000005,
+    outputLong: 0.0000025,
+    cacheReadLong: 0.00000005,
+    cacheWriteLong: 0.000000625,
+    cacheWrite1hLong: 0.000001,
+  };
+
+  it("stays on the short card at the threshold and switches one token past it", () => {
+    expect(calculateCostFromPricing(haiku, 100_000, 0)).toBeCloseTo(100_000 * 0.0000001);
+    expect(calculateCostFromPricing(haiku, 100_001, 0)).toBeCloseTo(100_001 * 0.0000005);
+  });
+
+  it("counts cache read and cache write toward the prompt length", () => {
+    expect(calculateCostFromPricing(haiku, 90_000, 0, 10_001, 0)).toBeCloseTo(
+      90_000 * 0.0000005 + 10_001 * 0.00000005,
+    );
+  });
+});
+
 describe("getModelPricing — uncompilable pattern", () => {
   it("reports the catalogue defect instead of failing silently", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

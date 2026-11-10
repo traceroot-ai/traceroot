@@ -11,6 +11,14 @@ export interface ModelPricing {
   // case the combined `cacheWrite` rate (which already equals the 5-minute rate) is
   // used. Only `cacheWrite1h` is populated in the price table today.
   cacheWrite1h: number | null;
+  // Set when a prompt over this many tokens (uncached + cache read + cache write)
+  // is billed on the long card. Absent means one rate at any length.
+  longContextThreshold?: number | null;
+  inputLong?: number | null;
+  outputLong?: number | null;
+  cacheReadLong?: number | null;
+  cacheWriteLong?: number | null;
+  cacheWrite1hLong?: number | null;
 }
 
 interface CachedModel {
@@ -82,6 +90,12 @@ async function loadCache(): Promise<CachedModel[]> {
         cacheRead: priceMap["cacheRead"] ?? null,
         cacheWrite: priceMap["cacheWrite"] ?? null,
         cacheWrite1h: priceMap["cacheWrite1h"] ?? null,
+        longContextThreshold: m.longContextThreshold ?? null,
+        inputLong: priceMap["input_long"] ?? null,
+        outputLong: priceMap["output_long"] ?? null,
+        cacheReadLong: priceMap["cacheRead_long"] ?? null,
+        cacheWriteLong: priceMap["cacheWrite_long"] ?? null,
+        cacheWrite1hLong: priceMap["cacheWrite1h_long"] ?? null,
       },
     };
   });
@@ -89,7 +103,7 @@ async function loadCache(): Promise<CachedModel[]> {
   return cache;
 }
 
-function scaleRate(rate: number | null, premium: number): number | null {
+function scaleRate(rate: number | null | undefined, premium: number): number | null {
   return rate == null ? null : rate * premium;
 }
 
@@ -102,6 +116,25 @@ function ratesFor(modelId: string, model: CachedModel): ModelPricing {
     cacheRead: scaleRate(model.prices.cacheRead, premium),
     cacheWrite: scaleRate(model.prices.cacheWrite, premium),
     cacheWrite1h: scaleRate(model.prices.cacheWrite1h, premium),
+    longContextThreshold: model.prices.longContextThreshold,
+    inputLong: scaleRate(model.prices.inputLong, premium),
+    outputLong: scaleRate(model.prices.outputLong, premium),
+    cacheReadLong: scaleRate(model.prices.cacheReadLong, premium),
+    cacheWriteLong: scaleRate(model.prices.cacheWriteLong, premium),
+    cacheWrite1hLong: scaleRate(model.prices.cacheWrite1hLong, premium),
+  };
+}
+
+function cardForPrompt(pricing: ModelPricing, promptTokens: number): ModelPricing {
+  const threshold = pricing.longContextThreshold;
+  if (threshold == null || promptTokens <= threshold) return pricing;
+  return {
+    ...pricing,
+    input: pricing.inputLong ?? pricing.input,
+    output: pricing.outputLong ?? pricing.output,
+    cacheRead: pricing.cacheReadLong ?? pricing.cacheRead,
+    cacheWrite: pricing.cacheWriteLong ?? pricing.cacheWrite,
+    cacheWrite1h: pricing.cacheWrite1hLong ?? pricing.cacheWrite1h,
   };
 }
 
@@ -152,18 +185,21 @@ export function calculateCostFromPricing(
   const cacheRead = Math.max(cacheReadTokens, 0);
   const cacheWrite = Math.max(cacheWriteTokens, 0);
   const cacheWrite1h = Math.min(Math.max(cacheWrite1hTokens, 0), cacheWrite);
+  // The 1-hour write is already inside cacheWrite, so it is not added again.
+  const promptTokens = input + cacheRead + cacheWrite;
+  const card = cardForPrompt(pricing, promptTokens);
   const remainder = cacheWrite - cacheWrite1h;
-  const cacheWriteRate = pricing.cacheWrite ?? 0;
+  const cacheWriteRate = card.cacheWrite ?? 0;
 
   // `|| cacheWriteRate` (not `??`): a 0 rate is treated as unset and falls back to the
   // base cache-write rate, matching the Python worker's truthy `_rate` fallback so the
   // two cost formulas agree for every input (incl. an explicit cacheWrite1h of 0).
   return (
-    input * pricing.input +
-    output * pricing.output +
-    cacheRead * (pricing.cacheRead ?? 0) +
+    input * card.input +
+    output * card.output +
+    cacheRead * (card.cacheRead ?? 0) +
     remainder * cacheWriteRate +
-    cacheWrite1h * (pricing.cacheWrite1h || cacheWriteRate)
+    cacheWrite1h * (card.cacheWrite1h || cacheWriteRate)
   );
 }
 

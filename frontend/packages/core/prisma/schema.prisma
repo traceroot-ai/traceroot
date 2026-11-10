@@ -445,6 +445,8 @@ model StandardModel {
   provider        String               @db.VarChar
   // 1.1 for Claude 4.5+ Bedrock regional profiles. Null keeps the card's rates.
   regionalPremium Decimal?             @map("regional_premium") @db.Decimal(4, 3)
+  // Prompt tokens (uncached + cache read + cache write) above this use the *_long rates.
+  longContextThreshold Int?            @map("long_context_threshold")
   createTime      DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime      DateTime             @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
   prices          StandardModelPrice[]

@@ -52,8 +52,14 @@ def real_cache() -> list[dict]:
             "model_name": entry["modelName"],
             "match_pattern": entry["matchPattern"],
             "regional_premium": entry.get("regionalPremium"),
+            "long_context_threshold": (entry.get("longContext") or {}).get("thresholdTokens"),
             "prices": {
                 **entry["prices"],
+                **{
+                    f"{key}_long": value
+                    for key, value in (entry.get("longContext") or {}).get("prices", {}).items()
+                    if value is not None
+                },
                 MATCHED_MODEL_NAME: entry["modelName"],
             },
         }
@@ -1280,3 +1286,70 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+def _priced(model: str, **counts: int) -> float:
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    cost = cost_from_buckets(get_model_price(model), TokenBuckets(**counts))
+    assert cost is not None
+    return cost
+
+
+class TestLongContextTiers:
+    """Issue #2940. Over the prompt threshold the whole request uses the long card.
+
+    The prompt is uncached input plus cache read plus cache write. The boundary
+    itself stays on the short card; one token past it switches.
+    """
+
+    def test_haiku_5_5_over_100k_is_the_published_long_rate(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(
+                "claude-haiku-5-5", input_uncached=150_000, output=2_000
+            ) == pytest.approx(0.08)
+
+    def test_haiku_5_5_boundary(self, real_cache):
+        short = 0.0000001
+        long = 0.0000005
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced("claude-haiku-5-5", input_uncached=100_000) == pytest.approx(
+                100_000 * short
+            )
+            assert _priced("claude-haiku-5-5", input_uncached=100_001) == pytest.approx(
+                100_001 * long
+            )
+
+    def test_gpt_5_6_sol_over_272k_is_double_input_and_one_and_a_half_output(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced("gpt-5.6-sol", input_uncached=300_000, output=10_000) == pytest.approx(
+                2.70
+            )
+
+    @pytest.mark.parametrize(
+        "model",
+        ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber"],
+    )
+    def test_gpt_5_6_family_boundary(self, real_cache, model):
+        card = next(e for e in real_cache if e["model_name"] == model)["prices"]
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(model, input_uncached=272_000) == pytest.approx(272_000 * card["input"])
+            assert _priced(model, input_uncached=272_001) == pytest.approx(
+                272_001 * card["input"] * 2
+            )
+
+    def test_prompt_counts_cache_tokens_toward_the_threshold(self, real_cache):
+        # 90k uncached + 10k cache read is the boundary. One more cache read crosses it.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            at = _priced("claude-haiku-5-5", input_uncached=90_000, cache_read=10_000)
+            over = _priced("claude-haiku-5-5", input_uncached=90_000, cache_read=10_001)
+        assert at == pytest.approx(90_000 * 0.0000001 + 10_000 * 0.00000001)
+        assert over == pytest.approx(90_000 * 0.0000005 + 10_001 * 0.00000005)
+
+    def test_a_model_without_a_tier_ignores_length(self, real_cache):
+        card = next(e for e in real_cache if e["model_name"] == "claude-haiku-4-5")["prices"]
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(
+                "claude-haiku-4-5", input_uncached=200_000, output=1_000
+            ) == pytest.approx(200_000 * card["input"] + 1_000 * card["output"])

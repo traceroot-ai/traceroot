@@ -209,6 +209,16 @@
     "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-5[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-haiku-5-5(-[\\d-]+)?(-v\\d+:\\d+)?)$",
     "provider": "anthropic",
     "regionalPremium": 1.1,
+    "longContext": {
+      "thresholdTokens": 100000,
+      "prices": {
+        "input": 0.0000005,
+        "output": 0.0000025,
+        "cacheRead": 0.00000005,
+        "cacheWrite": 0.000000625,
+        "cacheWrite1h": 0.000001
+      }
+    },
     "prices": {
       "input": 0.0000001,
       "output": 0.0000005,
@@ -272,6 +282,15 @@
     "modelName": "gpt-5.6-sol",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-sol|gpt-5\\.6)(-[\\d-]+)?$",
     "provider": "openai",
+    "longContext": {
+      "thresholdTokens": 272000,
+      "prices": {
+        "input": 0.000008,
+        "output": 0.00003,
+        "cacheRead": 0.0000008,
+        "cacheWrite": 0.00001
+      }
+    },
     "prices": {
       "input": 0.000004,
       "output": 0.00002,
@@ -284,6 +303,15 @@
     "modelName": "gpt-5.6-terra",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-terra)(-[\\d-]+)?$",
     "provider": "openai",
+    "longContext": {
+      "thresholdTokens": 272000,
+      "prices": {
+        "input": 0.000004,
+        "output": 0.000018,
+        "cacheRead": 0.0000004,
+        "cacheWrite": 0.000005
+      }
+    },
     "prices": {
       "input": 0.000002,
       "output": 0.000012,
@@ -296,6 +324,15 @@
     "modelName": "gpt-5.6-luna",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-luna)(-[\\d-]+)?$",
     "provider": "openai",
+    "longContext": {
+      "thresholdTokens": 272000,
+      "prices": {
+        "input": 0.0000004,
+        "output": 0.0000018,
+        "cacheRead": 0.00000004,
+        "cacheWrite": 0.0000005
+      }
+    },
     "prices": {
       "input": 0.0000002,
       "output": 0.0000012,
@@ -308,6 +345,15 @@
     "modelName": "gpt-5.6-cyber",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-cyber)(-[\\d-]+)?$",
     "provider": "openai",
+    "longContext": {
+      "thresholdTokens": 272000,
+      "prices": {
+        "input": 0.000025,
+        "output": 0.0001125,
+        "cacheRead": 0.0000025,
+        "cacheWrite": 0.00003125
+      }
+    },
     "prices": {
       "input": 0.0000125,
       "output": 0.000075,
