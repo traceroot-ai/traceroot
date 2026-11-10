@@ -531,7 +531,9 @@ def extract_attribute_value(attr_value: dict) -> Any:
     Returns:
         The unwrapped value
     """
-    if "stringValue" in attr_value:
+    if not isinstance(attr_value, dict):
+        return None
+    elif "stringValue" in attr_value:
         return attr_value["stringValue"]
     elif "intValue" in attr_value:
         return int(attr_value["intValue"])
@@ -543,8 +545,9 @@ def extract_attribute_value(attr_value: dict) -> Any:
         return [extract_attribute_value(v) for v in attr_value["arrayValue"].get("values", [])]
     elif "kvlistValue" in attr_value:
         return {
-            kv["key"]: extract_attribute_value(kv["value"])
+            kv.get("key", ""): extract_attribute_value(kv.get("value", {}))
             for kv in attr_value["kvlistValue"].get("values", [])
+            if isinstance(kv, dict)
         }
     else:
         return None
