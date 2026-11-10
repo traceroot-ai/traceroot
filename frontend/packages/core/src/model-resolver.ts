@@ -23,9 +23,11 @@ import {
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  defaultAdapterModel,
   defaultApiProtocol,
   isDecisionAdapter,
   isDecisionModelId,
+  type LLMAdapter,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -138,13 +140,18 @@ export function resolvePiModel(
         | Record<string, string>
         | undefined;
 
-      // BYOK with no model id: use the adapter's first curated model so we
+      // BYOK with no model id: use the adapter's default curated model so we
       // don't accidentally fall back to an Anthropic default for an OpenAI-
       // compatible BYOK row. For free-text adapters (azure, amazon-bedrock,
       // openrouter) the catalog is empty — caller MUST provide modelId, else
       // we'd silently send a wrong model name to that provider.
       const catalog = ADAPTER_MODELS[providerConfig.adapter as keyof typeof ADAPTER_MODELS];
-      const fallbackModelId = modelId || catalog?.[0]?.id;
+      const fallbackModelId =
+        modelId ||
+        defaultAdapterModel(
+          providerConfig.adapter as LLMAdapter,
+          (catalog ?? []).map((m) => m.id),
+        );
       if (!fallbackModelId) {
         throw new Error(
           `BYOK adapter "${providerConfig.adapter}" has no curated model catalog ` +
