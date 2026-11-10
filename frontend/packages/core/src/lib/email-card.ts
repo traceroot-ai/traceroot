@@ -11,7 +11,11 @@
  * CSS stripping.
  */
 
-/** Hosted PNG of the wordmark (mark + "traceroot"); mail clients drop SVG. */
+/**
+ * Hosted PNG of the wordmark (mark + "traceroot"); mail clients drop SVG.
+ * NEXT_PUBLIC_LOGO_URL overrides it and is rendered at 127x24, so an override
+ * must be wordmark-shaped (about 5.3:1), not the square icon.
+ */
 export const EMAIL_LOGO_URL =
   process.env.NEXT_PUBLIC_LOGO_URL ||
   "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_wordmark.png";
