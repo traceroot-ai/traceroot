@@ -7,6 +7,7 @@ names the project via ``project_id``. Kept separate from the ingestion route so
 read and write concerns stay decoupled.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -40,7 +41,7 @@ from rest.schemas.public import (
 from rest.schemas.traces import FilterValuesResponse
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
-from rest.services.trace_reader import get_trace_reader_service
+from rest.services.trace_reader import TraceReaderService, get_trace_reader_service
 from rest.url_utils import build_trace_url
 from shared.config import settings
 
@@ -235,7 +236,12 @@ async def get_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=SKELETON)
-    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
+    # The singleton is built on the loop because its lazy init isn't thread-safe; the
+    # synchronous ClickHouse reads in _require_trace then run off it.
+    service = get_trace_reader_service()
+    trace = await asyncio.to_thread(
+        _require_trace, service, auth.project_id, trace_id, groups, auth.billing_plan
+    )
     return public_trace_detail(trace, auth.project_id)
 
 
@@ -278,7 +284,10 @@ async def export_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=FULL)
-    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
+    service = get_trace_reader_service()
+    trace = await asyncio.to_thread(
+        _require_trace, service, auth.project_id, trace_id, groups, auth.billing_plan
+    )
     return export_bundle(trace, auth.project_id)
 
 
@@ -303,7 +312,11 @@ def _resolve_fields(fields: str | None, *, default: frozenset[str]) -> frozenset
 
 
 def _require_trace(
-    project_id: str, trace_id: str, groups: frozenset[str], billing_plan: str
+    service: TraceReaderService,
+    project_id: str,
+    trace_id: str,
+    groups: frozenset[str],
+    billing_plan: str,
 ) -> dict:
     """Fetch a trace scoped to the project at the requested projection.
 
@@ -314,6 +327,7 @@ def _require_trace(
     so the default skeleton read keeps the #1040 lightweight behavior.
 
     Args:
+        service (TraceReaderService): Reader acquired by the caller on the event loop.
         project_id (str): Project that owns the trace; scopes the read.
         trace_id (str): Trace to fetch.
         groups (frozenset[str]): Resolved projection groups; per-span I/O is
@@ -327,7 +341,6 @@ def _require_trace(
             on a reader failure.
     """
     try:
-        service = get_trace_reader_service()
         trace = service.get_trace(project_id=project_id, trace_id=trace_id)
         if trace:
             # The skeleton's span-path metadata subset exists for the dashboard's
