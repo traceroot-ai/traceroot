@@ -92,7 +92,7 @@ CROSS JOIN LATERAL (
     ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
 ) AS m("meter", "raw_units", "raw_period_start")
 CROSS JOIN LATERAL (
-  SELECT COALESCE(w."billing_period_start", TIMESTAMP '1970-01-01 00:00:00') AS "period_start"
+  SELECT COALESCE(w."billing_period_start", date_trunc('month', CURRENT_TIMESTAMP)::timestamp) AS "period_start"
 ) AS p
 WHERE CASE
   WHEN m."raw_units" ~ '^[0-9]+$' THEN m."raw_units"::numeric > 0
