@@ -897,6 +897,49 @@ def test_get_entry_carrying_policy_fails_build(monkeypatch):
         build_public_schema(app)
 
 
+# --- Read-only POSTs ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("op_id", ["run_sql", "run_widget_query"])
+def test_query_posts_are_marked_read_only(op_id):
+    ops = [
+        op
+        for item in _schema()["paths"].values()
+        for op in item.values()
+        if op.get("operationId") == op_id
+    ]
+    assert [op["x-tool"]["readOnly"] for op in ops] == [True]
+
+
+def test_read_only_is_set_on_nothing_else():
+    flagged = {
+        op["operationId"]
+        for item in _schema()["paths"].values()
+        for op in item.values()
+        if "readOnly" in op.get("x-tool", {})
+    }
+    assert flagged == {"run_sql", "run_widget_query"}
+
+
+@pytest.mark.parametrize(
+    ("op_id", "extra"),
+    [
+        ("whoami", {"readOnly": True}),  # a GET
+        (
+            "create_project",
+            {"policy": {**_VALID_WRITE_POLICY, "approvalClass": "confirm"}, "readOnly": True},
+        ),
+        ("run_sql", {"readOnly": False}),
+        ("run_sql", {"policy": {**_VALID_WRITE_POLICY, "approvalClass": "confirm"}}),
+    ],
+)
+def test_misplaced_read_only_fails_build(monkeypatch, op_id, extra):
+    entry = {**openapi_public._TOOL_CURATION[op_id], **extra}
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, op_id, entry)
+    with pytest.raises(ValueError, match=rf"{op_id}.*readOnly"):
+        build_public_schema(app)
+
+
 # --- Agent-hidden write params ------------------------------------------------
 
 
