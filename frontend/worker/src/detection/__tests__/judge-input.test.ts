@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildJudgeInput, sampleLines } from "../judge-input.js";
+import { buildJudgeInput, JUDGE_INPUT_BUDGET_CHARS, sampleLines } from "../judge-input.js";
 
 const row = (fields: Record<string, unknown>) =>
   JSON.stringify({
@@ -171,6 +171,28 @@ describe("buildJudgeInput", () => {
     expect(text.length).toBeLessThanOrEqual(20_000);
     expect(text).toContain("[SAMPLED VIEW: Showing ~");
     expect(text.split("\n")[0]).toMatch(/^L\d+: TRACE t1 · 200 spans/);
+  });
+
+  it("samples a span with more messages than a spread can pass as arguments", () => {
+    // One field per message: spreading this many into push() or Math.max() overflows the stack.
+    const messages = Array.from({ length: 200_000 }, (_, i) => ({
+      role: i % 2 ? "assistant" : "user",
+      content: `turn ${i}`,
+    }));
+    const jsonl = row({
+      span_id: "l1",
+      name: "chat",
+      span_kind: "LLM",
+      input: JSON.stringify(messages),
+      output: '"done"',
+    });
+
+    const { text, stats } = buildJudgeInput("t1", jsonl);
+
+    expect(stats.pass).toBe(4);
+    expect(text.length).toBeLessThanOrEqual(JUDGE_INPUT_BUDGET_CHARS);
+    expect(text).toMatch(/\[SAMPLED VIEW: Showing ~\d+% of 200,004 lines\./);
+    expect(text).toContain("input user: turn 0");
   });
 
   describe("SDK copies", () => {
