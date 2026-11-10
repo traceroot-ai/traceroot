@@ -4,7 +4,13 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import { ADAPTER_CONFIG, ADAPTER_MODELS, LLMAdapter, PROVIDER_PRIORITY } from "@traceroot/core";
+import {
+  ADAPTER_CONFIG,
+  ADAPTER_MODELS,
+  defaultAdapterModel,
+  LLMAdapter,
+  PROVIDER_PRIORITY,
+} from "@traceroot/core";
 import { ProviderIcon } from "@/components/icons/provider-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +93,7 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
 };
 
 /**
- * The models a key saved for the adapter starts with: the catalogue's default,
+ * The models a key saved for the adapter starts with: the adapter's default,
  * then the seeded models still in the catalogue. A model the catalogue no
  * longer lists is one the pickers cannot resolve, so it is not stored even
  * while the list above still names it. An adapter the list has no entry for
@@ -96,8 +102,8 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
 export function seedFor(adapter: LLMAdapter): string[] {
   const seeded = SEEDED_MODELS[adapter];
   const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((model) => model.id);
-  if (seeded === undefined || catalogue.length === 0) return [];
-  const [first] = catalogue;
+  const first = defaultAdapterModel(adapter, catalogue);
+  if (seeded === undefined || first === undefined) return [];
   return [first, ...seeded.filter((id) => id !== first && catalogue.includes(id))];
 }
 
