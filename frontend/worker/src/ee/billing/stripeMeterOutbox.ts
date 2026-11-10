@@ -18,7 +18,12 @@ export function isDefinitiveStripeError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const value = error as { statusCode?: number; status?: number; raw?: { statusCode?: number } };
   const status = value.statusCode ?? value.raw?.statusCode ?? value.status;
-  return typeof status === "number" && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status);
+  return (
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500 &&
+    ![408, 409, 425, 429].includes(status)
+  );
 }
 
 export function getRetryAfterMs(error: unknown, now = new Date()): number | null {
@@ -147,11 +152,13 @@ async function claimReport(context: MeterContext, now: Date): Promise<MeterRepor
           status: "needs_attention",
           leaseExpiresAt: null,
           nextAttemptAt: null,
-          lastError: "Automatic retry stopped before Stripe's meter-event identifier deduplication window expires. Reconcile manually.",
+          lastError:
+            "Automatic retry stopped before Stripe's meter-event identifier deduplication window expires. Reconcile manually.",
         },
       });
       console.error(
-        `[Billing] Meter report ${report.identifier} for workspace ${context.workspaceId} needs manual reconciliation; automatic retries stopped before the 24-hour identifier window.`,
+        `[Billing] Meter report ${report.identifier} for workspace ${context.workspaceId} ` +
+          "needs manual reconciliation; automatic retries stopped before the 24-hour identifier window.",
       );
       return null;
     }
@@ -212,7 +219,8 @@ async function markDelivered(report: MeterReport, stripeRequestId?: string | nul
         data: {
           status: "needs_attention",
           leaseExpiresAt: null,
-          lastError: `Cursor advanced unexpectedly: expected ${report.fromUnits}, found ${cursor.confirmedUnits}.`,
+          lastError:
+            `Cursor advanced unexpectedly: expected ${report.fromUnits}, found ${cursor.confirmedUnits}.`,
         },
       });
       return;
@@ -247,7 +255,9 @@ async function markFailed(report: MeterReport, error: unknown, now: Date): Promi
       leaseExpiresAt: null,
       nextAttemptAt: needsAttention
         ? null
-        : new Date(now.getTime() + (getRetryAfterMs(error, now) ?? getRetryDelayMs(report.attempts))),
+        : new Date(
+            now.getTime() + (getRetryAfterMs(error, now) ?? getRetryDelayMs(report.attempts)),
+          ),
       lastError: errorMessage(error),
     },
   });
@@ -299,7 +309,9 @@ export async function reportMeterUsageToStripe(context: MeterContext): Promise<n
   const confirmedUnits = cursor?.confirmedUnits ?? 0n;
   const numericConfirmedUnits = Number(confirmedUnits);
   if (!Number.isSafeInteger(numericConfirmedUnits)) {
-    throw new Error(`Confirmed meter units exceed JavaScript's safe integer range: ${confirmedUnits}`);
+    throw new Error(
+      `Confirmed meter units exceed JavaScript's safe integer range: ${confirmedUnits}`,
+    );
   }
   return numericConfirmedUnits;
 }
