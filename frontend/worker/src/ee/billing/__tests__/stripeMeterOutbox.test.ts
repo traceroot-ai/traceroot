@@ -19,7 +19,7 @@ vi.mock("@traceroot/core", () => {
           row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
         );
         if (!cursor) {
-          cursor = { id: `cursor-${store.cursors.length + 1}`, ...create, confirmedUnits: 0 };
+          cursor = { id: `cursor-${store.cursors.length + 1}`, ...create, confirmedUnits: 0n };
           store.cursors.push(cursor);
         }
         return cursor;
@@ -60,7 +60,11 @@ vi.mock("@traceroot/core", () => {
       },
       findUnique: async ({ where }: any) => store.reports.find((row) => row.id === where.id) ?? null,
       updateMany: async ({ where, data }: any) => {
-        const row = store.reports.find((report) => report.id === where.id && report.status === where.status);
+        const row = store.reports.find((report) =>
+          report.id === where.id &&
+          report.status === where.status &&
+          (where.attemptToken === undefined || report.attemptToken === where.attemptToken),
+        );
         if (!row) return { count: 0 };
         Object.assign(row, data);
         return { count: 1 };
@@ -85,9 +89,25 @@ function stripeStub() {
       store.failNext = null;
       throw error;
     }
-    return { request: { id: "req_123" } } as any;
+    return { lastResponse: { requestId: "req_123" } } as any;
   });
   return { client: { billing: { meterEvents: { create } } } as unknown as Stripe, create };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 const periodStart = new Date("2026-11-01T00:00:00.000Z");
@@ -131,7 +151,8 @@ describe("Stripe meter outbox", () => {
     expect(secondCall.timestamp).toBe(firstCall.timestamp);
     expect(secondCall.payload.value).toBe("1500");
     expect(secondCall.payload.stripe_customer_id).toBe("cus_1");
-    expect(store.cursors[0].confirmedUnits).toBe(1500);
+    expect(store.cursors[0].confirmedUnits).toBe(1500n);
+    expect(store.reports[0].stripeRequestId).toBe("req_123");
 
     // The next run creates only the newly accrued 100 units.
     expect(await reportMeterUsageToStripe(context(client, 1600))).toBe(1600);
@@ -146,7 +167,7 @@ describe("Stripe meter outbox", () => {
       workspaceId: "ws-1",
       meter: "ai",
       periodStart,
-      confirmedUnits: 0,
+      confirmedUnits: 0n,
     });
     store.reports.push({
       id: "report-in-flight",
@@ -159,6 +180,7 @@ describe("Stripe meter outbox", () => {
       stripeCustomerId: "cus_1",
       eventName: "ai_usage",
       identifier: "tr_meter_existing",
+      attemptToken: "lease-1",
       eventTimestamp: Math.floor(Date.now() / 1000),
       firstAttemptAt: new Date(),
       nextAttemptAt: null,
@@ -172,11 +194,90 @@ describe("Stripe meter outbox", () => {
   });
 
   it("never advances the cursor when Stripe rejects the request", async () => {
-    const { client } = stripeStub();
+    const { client, create } = stripeStub();
     store.failNext = Object.assign(new Error("invalid request"), { statusCode: 400 });
     expect(await reportMeterUsageToStripe(context(client, 100))).toBe(0);
-    expect(store.cursors[0].confirmedUnits).toBe(0);
+    expect(store.cursors[0].confirmedUnits).toBe(0n);
     expect(store.reports[0].status).toBe("needs_attention");
+
+    // Manual reconciliation is required before this cursor can send another report.
+    expect(await reportMeterUsageToStripe(context(client, 200))).toBe(0);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(store.reports).toHaveLength(1);
+  });
+
+  it("uses the RCA meter event name and skips zero-unit reports", async () => {
+    const { client, create } = stripeStub();
+
+    expect(
+      await reportMeterUsageToStripe({
+        ...context(client, 0),
+        meter: "rca",
+        eventName: "rca_usage",
+      }),
+    ).toBe(0);
+    expect(create).not.toHaveBeenCalled();
+    expect(store.reports).toHaveLength(0);
+
+    expect(
+      await reportMeterUsageToStripe({
+        ...context(client, 1500),
+        meter: "rca",
+        eventName: "rca_usage",
+      }),
+    ).toBe(1500);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].event_name).toBe("rca_usage");
+    expect(create.mock.calls[0][0].payload.value).toBe("1500");
+  });
+
+  it("persists totals above PostgreSQL INTEGER range using BIGINT", async () => {
+    const { client, create } = stripeStub();
+
+    expect(await reportMeterUsageToStripe(context(client, 3_000_000_000))).toBe(3_000_000_000);
+    expect(store.cursors[0].confirmedUnits).toBe(3_000_000_000n);
+    expect(store.reports[0].toUnits).toBe(3_000_000_000n);
+    expect(create.mock.calls[0][0].payload.value).toBe("3000000000");
+  });
+
+  it("ignores a stale failure after another worker reclaims the expired lease", async () => {
+    const firstAttempt = createDeferred<any>();
+    const secondAttempt = createDeferred<any>();
+    const create = vi
+      .fn()
+      .mockImplementationOnce(() => firstAttempt.promise)
+      .mockImplementationOnce(() => secondAttempt.promise);
+    const client = {
+      billing: { meterEvents: { create } },
+    } as unknown as Stripe;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-10T12:00:00.000Z"));
+    try {
+      const firstRun = reportMeterUsageToStripe(context(client, 200));
+      await flushMicrotasks();
+      expect(create).toHaveBeenCalledTimes(1);
+      const firstToken = store.reports[0].attemptToken;
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
+      const secondRun = reportMeterUsageToStripe(context(client, 200));
+      await flushMicrotasks();
+      expect(create).toHaveBeenCalledTimes(2);
+      const secondToken = store.reports[0].attemptToken;
+      expect(secondToken).not.toBe(firstToken);
+
+      firstAttempt.reject(new Error("late timeout from first worker"));
+      await firstRun;
+      expect(store.reports[0].status).toBe("sending");
+      expect(store.reports[0].attemptToken).toBe(secondToken);
+
+      secondAttempt.resolve({ lastResponse: { requestId: "req_second" } });
+      await secondRun;
+      expect(store.reports[0].status).toBe("delivered");
+      expect(store.cursors[0].confirmedUnits).toBe(200n);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("moves an ambiguous report to manual review before the Stripe identifier window expires", async () => {
