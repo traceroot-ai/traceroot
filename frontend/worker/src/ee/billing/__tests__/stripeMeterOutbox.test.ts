@@ -71,6 +71,7 @@ vi.mock("@traceroot/core", () => {
 });
 
 import {
+  getRetryAfterMs,
   getRetryDelayMs,
   isDefinitiveStripeError,
   reportMeterUsageToStripe,
@@ -193,10 +194,14 @@ describe("Stripe meter outbox", () => {
 
   it("backs off transient errors and stops retrying before the identifier window expires", async () => {
     const { client } = stripeStub();
-    store.failNext = Object.assign(new Error("rate limited"), { statusCode: 429 });
+    store.failNext = Object.assign(new Error("rate limited"), {
+      statusCode: 429,
+      raw: { headers: { "retry-after": "120" } },
+    });
     expect(await reportMeterUsageToStripe(context(client, 250))).toBe(0);
     expect(store.reports[0].status).toBe("retryable");
-    expect(store.reports[0].nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+    expect(store.reports[0].nextAttemptAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 119_000);
+    expect(getRetryAfterMs({ raw: { headers: { "retry-after": "120" } } })).toBe(120_000);
     expect(getRetryDelayMs(1)).toBe(60_000);
     expect(getRetryDelayMs(20)).toBe(30 * 60_000);
     expect(isDefinitiveStripeError({ statusCode: 429 })).toBe(false);

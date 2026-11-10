@@ -22,6 +22,20 @@ export function isDefinitiveStripeError(error: unknown): boolean {
   return typeof status === "number" && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status);
 }
 
+export function getRetryAfterMs(error: unknown, now = new Date()): number | null {
+  if (!error || typeof error !== "object") return null;
+  const value = error as {
+    headers?: Record<string, string | undefined>;
+    raw?: { headers?: Record<string, string | undefined> };
+  };
+  const header = value.headers?.["retry-after"] ?? value.raw?.headers?.["retry-after"];
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(0, date - now.getTime()) : null;
+}
+
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 4000);
 }
@@ -223,7 +237,7 @@ async function markFailed(report: MeterReport, error: unknown, now: Date): Promi
       leaseExpiresAt: null,
       nextAttemptAt: needsAttention
         ? null
-        : new Date(now.getTime() + getRetryDelayMs(report.attempts)),
+        : new Date(now.getTime() + (getRetryAfterMs(error, now) ?? getRetryDelayMs(report.attempts))),
       lastError: errorMessage(error),
     },
   });
