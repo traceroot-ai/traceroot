@@ -412,128 +412,113 @@ async function processWorkspace(
       );
     }
 
-    if (!workspace.billingPeriodStart) {
-      const previousAi = (workspace.currentUsage as any)?.ai ?? {};
-      const previousRca = (workspace.currentUsage as any)?.rca ?? {};
-
-      console.warn(
-        `[Billing] Skipping Stripe usage meter reports for workspace ${workspace.id}: billing period start is not available.`,
-      );
-      (updateData.currentUsage as any).ai.lastReportedUnits = previousAi.lastReportedUnits ?? 0;
-      (updateData.currentUsage as any).ai.lastReportedPeriodStart =
-        previousAi.lastReportedPeriodStart ?? null;
-      (updateData.currentUsage as any).rca.lastReportedUnits = previousRca.lastReportedUnits ?? 0;
-      (updateData.currentUsage as any).rca.lastReportedPeriodStart =
-        previousRca.lastReportedPeriodStart ?? null;
-    } else {
-      // 5b. Report AI run overage to Stripe
-      const includedRuns = AI_RUN_QUOTAS[plan].included;
-      const overageRuns = Math.max(0, runsUsed - includedRuns);
-
-      // Calculate total billable units:
-      // - Run overage: $10 per 100 runs, charged in blocks of 100 (rounded up)
-      //   e.g. 5 overage runs = 1 block = $10; 105 overage runs = 2 blocks = $20
-      //   1 block = $10 = 1000 units @ $0.01/unit
-      // - System model token cost on overage runs: 1.05x markup, converted to $0.01 units (granular)
-      let totalBillableUnits = 0;
-      let overageSystemCost = 0;
-
-      if (overageRuns > 0) {
-        const overageBlocks = Math.ceil(overageRuns / 100);
-        const runOverageUnits = overageBlocks * 1000;
-
-        // Get system model token cost for runs beyond the included quota
-        overageSystemCost = await getOverageSystemModelCost(
-          workspace.id,
-          includedRuns,
-          aiPeriodStart,
-          aiPeriodEnd,
+        // 5b. Report AI run overage to Stripe
+        const includedRuns = AI_RUN_QUOTAS[plan].included;
+        const overageRuns = Math.max(0, runsUsed - includedRuns);
+    
+        // Calculate total billable units:
+        // - Run overage: $10 per 100 runs, charged in blocks of 100 (rounded up)
+        //   e.g. 5 overage runs = 1 block = $10; 105 overage runs = 2 blocks = $20
+        //   1 block = $10 = 1000 units @ $0.01/unit
+        // - System model token cost on overage runs: 1.05x markup, converted to $0.01 units (granular)
+        let totalBillableUnits = 0;
+        let overageSystemCost = 0;
+    
+        if (overageRuns > 0) {
+          const overageBlocks = Math.ceil(overageRuns / 100);
+          const runOverageUnits = overageBlocks * 1000;
+    
+          // Get system model token cost for runs beyond the included quota
+          overageSystemCost = await getOverageSystemModelCost(
+            workspace.id,
+            includedRuns,
+            aiPeriodStart,
+            aiPeriodEnd,
+          );
+          const tokenMarkupUnits = Math.round(overageSystemCost * 1.05 * 100);
+    
+          totalBillableUnits = runOverageUnits + tokenMarkupUnits;
+        }
+    
+        // The outbox owns the confirmed watermark. It persists the immutable
+        // report before contacting Stripe and will retry that exact report if the
+        // previous worker lost the response.
+        const currentPeriodStart = aiPeriodStart.toISOString();
+        const confirmedAiUnits = await reportMeterUsageToStripe({
+          workspaceId: workspace.id,
+          customerId: workspace.billingCustomerId!,
+          meter: "ai",
+          eventName: "ai_usage",
+          periodStart: aiPeriodStart,
+          totalUnits: totalBillableUnits,
+          stripeClient: ctx.stripeClient,
+        });
+        (updateData.currentUsage as any).ai.lastReportedUnits = confirmedAiUnits;
+        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
+    
+        // 5c. Report RCA run overage to Stripe (separate meter / Stripe product)
+        const includedRcaRuns = RCA_RUN_QUOTAS[plan].included;
+        const overageRcaRuns = Math.max(0, rcaRunsUsed - includedRcaRuns);
+    
+        let totalRcaBillableUnits = 0;
+        if (overageRcaRuns > 0) {
+          const rcaOverageBlocks = Math.ceil(overageRcaRuns / 100);
+          const rcaRunOverageUnits = rcaOverageBlocks * 1000;
+          // 1.05x markup applied ONLY to the overage portion of token cost.
+          // Proportional allocation by run count: same shape as detector's
+          // (overageScans / scansRun), and matches chat's getOverageSystemModelCost()
+          // behavior. Avoids overbilling customers whose included runs already
+          // accrued most of the period's inference cost.
+          // BYOK turns are excluded upstream by the kind="rca" isByok=false filter.
+          const rcaOverageTokenCost =
+            rcaRunsUsed > 0 ? rcaSystemTokenCost * (overageRcaRuns / rcaRunsUsed) : 0;
+          const rcaTokenMarkupUnits = Math.round(rcaOverageTokenCost * 1.05 * 100);
+          totalRcaBillableUnits = rcaRunOverageUnits + rcaTokenMarkupUnits;
+        }
+    
+        const confirmedRcaUnits = await reportMeterUsageToStripe({
+          workspaceId: workspace.id,
+          customerId: workspace.billingCustomerId!,
+          meter: "rca",
+          eventName: "rca_usage",
+          periodStart: aiPeriodStart,
+          totalUnits: totalRcaBillableUnits,
+          stripeClient: ctx.stripeClient,
+        });
+        (updateData.currentUsage as any).rca.lastReportedUnits = confirmedRcaUnits;
+        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
+    
+        // 5d. Report managed detector inference token usage (1.05× pass-through).
+        //
+        // Paid plans inherit Free's "first 100 detector scans/month at $0" — we
+        // absorb that hosted-LLM cost so upgrading from Free never *removes* the
+        // 100-free benefit. Beyond the threshold, the OVERAGE portion of the
+        // hosted-LLM cost is billed at 1.05× passthrough.
+        //
+        // Proportional split: we don't have per-scan cost in ClickHouse today, so
+        // we apportion the period's total cost by scan count (overage / total).
+        // Approximation is fine — scans within a single detector have similar cost.
+        // BYOK detectors contribute 0 to systemTokenCost (we filter by isByok=false above).
+        const detectorSystemCost = detectorSystemTokenCost;
+        const detectorOverageScans = Math.max(
+          0,
+          usage.detectorRuns - DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
         );
-        const tokenMarkupUnits = Math.round(overageSystemCost * 1.05 * 100);
-
-        totalBillableUnits = runOverageUnits + tokenMarkupUnits;
-      }
-
-      // The outbox owns the confirmed watermark. It persists the immutable
-      // report before contacting Stripe and will retry that exact report if the
-      // previous worker lost the response.
-      const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
-      const confirmedAiUnits = await reportMeterUsageToStripe({
-        workspaceId: workspace.id,
-        customerId: workspace.billingCustomerId!,
-        meter: "ai",
-        eventName: "ai_usage",
-        periodStart: workspace.billingPeriodStart!,
-        totalUnits: totalBillableUnits,
-        stripeClient: ctx.stripeClient,
-      });
-      (updateData.currentUsage as any).ai.lastReportedUnits = confirmedAiUnits;
-      (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
-
-      // 5c. Report RCA run overage to Stripe (separate meter / Stripe product)
-      const includedRcaRuns = RCA_RUN_QUOTAS[plan].included;
-      const overageRcaRuns = Math.max(0, rcaRunsUsed - includedRcaRuns);
-
-      let totalRcaBillableUnits = 0;
-      if (overageRcaRuns > 0) {
-        const rcaOverageBlocks = Math.ceil(overageRcaRuns / 100);
-        const rcaRunOverageUnits = rcaOverageBlocks * 1000;
-        // 1.05x markup applied ONLY to the overage portion of token cost.
-        // Proportional allocation by run count: same shape as detector's
-        // (overageScans / scansRun), and matches chat's getOverageSystemModelCost()
-        // behavior. Avoids overbilling customers whose included runs already
-        // accrued most of the period's inference cost.
-        // BYOK turns are excluded upstream by the kind="rca" isByok=false filter.
-        const rcaOverageTokenCost =
-          rcaRunsUsed > 0 ? rcaSystemTokenCost * (overageRcaRuns / rcaRunsUsed) : 0;
-        const rcaTokenMarkupUnits = Math.round(rcaOverageTokenCost * 1.05 * 100);
-        totalRcaBillableUnits = rcaRunOverageUnits + rcaTokenMarkupUnits;
-      }
-
-      const confirmedRcaUnits = await reportMeterUsageToStripe({
-        workspaceId: workspace.id,
-        customerId: workspace.billingCustomerId!,
-        meter: "rca",
-        eventName: "rca_usage",
-        periodStart: workspace.billingPeriodStart!,
-        totalUnits: totalRcaBillableUnits,
-        stripeClient: ctx.stripeClient,
-      });
-      (updateData.currentUsage as any).rca.lastReportedUnits = confirmedRcaUnits;
-      (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-
-      // 5d. Report managed detector inference token usage (1.05× pass-through).
-      //
-      // Paid plans inherit Free's "first 100 detector scans/month at $0" — we
-      // absorb that hosted-LLM cost so upgrading from Free never *removes* the
-      // 100-free benefit. Beyond the threshold, the OVERAGE portion of the
-      // hosted-LLM cost is billed at 1.05× passthrough.
-      //
-      // Proportional split: we don't have per-scan cost in ClickHouse today, so
-      // we apportion the period's total cost by scan count (overage / total).
-      // Approximation is fine — scans within a single detector have similar cost.
-      // BYOK detectors contribute 0 to systemTokenCost (we filter by isByok=false above).
-      const detectorSystemCost = detectorSystemTokenCost;
-      const detectorOverageScans = Math.max(
-        0,
-        usage.detectorRuns - DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
-      );
-      const detectorBillableCost =
-        usage.detectorRuns > 0 ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns) : 0;
-      const detectorTotalUnits = Math.round(detectorBillableCost * 1.05 * 100);
-
-      const confirmedDetectorUnits = await reportMeterUsageToStripe({
-        workspaceId: workspace.id,
-        customerId: workspace.billingCustomerId!,
-        meter: "detector",
-        eventName: "detector_usage",
-        periodStart: workspace.billingPeriodStart!,
-        totalUnits: detectorTotalUnits,
-        stripeClient: ctx.stripeClient,
-      });
-      (updateData.currentUsage as any).detector.lastReportedUnits = confirmedDetectorUnits;
-      (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-    }
+        const detectorBillableCost =
+          usage.detectorRuns > 0 ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns) : 0;
+        const detectorTotalUnits = Math.round(detectorBillableCost * 1.05 * 100);
+    
+        const confirmedDetectorUnits = await reportMeterUsageToStripe({
+          workspaceId: workspace.id,
+          customerId: workspace.billingCustomerId!,
+          meter: "detector",
+          eventName: "detector_usage",
+          periodStart: aiPeriodStart,
+          totalUnits: detectorTotalUnits,
+          stripeClient: ctx.stripeClient,
+        });
+        (updateData.currentUsage as any).detector.lastReportedUnits = confirmedDetectorUnits;
+        (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
   }
 
   // =========================================================================
