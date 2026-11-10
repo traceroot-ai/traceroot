@@ -1,0 +1,22 @@
+{
+  "list": {
+    "data": [
+      {
+        "detector_id": "detector-001",
+        "name": "Tool misuse",
+        "template": "failure",
+        "enabled": true,
+        "created_at": "2026-05-20T08:00:00Z"
+      }
+    ],
+    "meta": { "limit": 50, "total": 1 }
+  },
+  "detail": {
+    "detector_id": "detector-001",
+    "name": "Tool misuse",
+    "template": "failure",
+    "enabled": true,
+    "created_at": "2026-05-20T08:00:00Z",
+    "prompt": "Flag calls that pass invalid arguments to a tool."
+  }
+}

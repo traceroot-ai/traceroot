@@ -13,7 +13,9 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "parity": "vite-node scripts/parity.ts",
+    "parity:mock": "vite-node scripts/parity-mock.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.13",
@@ -27,6 +29,7 @@
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.12",
     "dotenv-cli": "^11.0.0",
+    "traceroot-cli": "0.6.1",
     "typescript": "^5.7.0",
     "vite-node": "^6.0.0",
     "vitest": "^4.1.12"

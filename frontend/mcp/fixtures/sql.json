@@ -1,0 +1,20 @@
+{
+  "schema": {
+    "tables": [
+      {
+        "name": "traces",
+        "columns": [
+          { "name": "trace_id", "type": "String" },
+          { "name": "name", "type": "String" }
+        ]
+      },
+      { "name": "spans", "columns": [{ "name": "span_id", "type": "String" }] }
+    ]
+  },
+  "result": {
+    "columns": [{ "name": "n", "type": "UInt64" }],
+    "rows": [[2]],
+    "row_count": 1,
+    "truncated": false
+  }
+}
