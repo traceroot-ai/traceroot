@@ -60,8 +60,8 @@ ALTER TABLE "billing_meter_reports"
   ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- Preserve the existing confirmed watermark only when its stored period still
--- matches the workspace's current billing-period anchor. NULL uses epoch as
--- the sentinel, matching the worker's cursor key after deployment.
+-- matches the workspace's current billing-period anchor. When the Stripe
+-- anchor is missing, use the same current-calendar-month fallback as the worker.
 INSERT INTO "billing_meter_cursors"
   ("id", "workspace_id", "meter", "period_start", "confirmed_units", "create_time", "update_time")
 SELECT
