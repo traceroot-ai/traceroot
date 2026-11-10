@@ -50,6 +50,7 @@ function renderPreview(overrides: PreviewOverrides = {}) {
       operator=">"
       threshold=""
       window="10m"
+      noDataMode="HOLD"
       {...overrides}
     />,
   );
@@ -185,6 +186,7 @@ describe("AlertPreview", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Alert > 100 ms");
     expect(text).not.toContain("$");
+    expect(screen.queryByText(/Zeros in this chart may represent missing data/)).toBeNull();
   });
 
   it("shows the unavailable state for a combination the engine cannot run", () => {
@@ -194,6 +196,14 @@ describe("AlertPreview", () => {
 
     expect(screen.getByText("No preview available for this metric yet.")).toBeTruthy();
     expect(mocks.useWidgetPreview.mock.calls[0][1]).toBeNull();
+  });
+
+  it("omits the sum hint when there is no chart to show", () => {
+    stubPreview("sum", { ...GAPPY_RESULT, rows: [] });
+    renderPreview({ aggregation: "sum" });
+
+    expect(screen.getByText("No data in range")).toBeTruthy();
+    expect(screen.queryByText(/Zeros in this chart may represent missing data/)).toBeNull();
   });
 
   it("shows loading and error states honestly", () => {

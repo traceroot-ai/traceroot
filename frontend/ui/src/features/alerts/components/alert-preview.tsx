@@ -37,10 +37,12 @@ import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
 import {
+  ALERT_NO_DATA_MODE_LABELS,
   getAlertUnitForSource,
   withAlertUnit,
   type AlertAggregation,
   type AlertFilter,
+  type AlertNoDataMode,
   type AlertOperator,
   type AlertView,
 } from "../rule-model";
@@ -58,6 +60,7 @@ interface AlertPreviewProps {
   // The rule's window is the chart's bucket. Required rather than defaulted: a
   // default here is a chart drawn on a grain the rule does not evaluate.
   window: AlertWindow;
+  noDataMode: AlertNoDataMode;
 }
 
 // Red is reserved for the threshold and the breach; the series takes palette entry 1.
@@ -116,11 +119,13 @@ export function AlertPreviewChart({
   thresholdValue,
   operator,
   bucketMs,
+  noDataMode,
 }: {
   data: WidgetPreviewData;
   thresholdValue: number | null;
   operator: AlertOperator;
   bucketMs: number;
+  noDataMode?: AlertNoDataMode;
 }) {
   const { spec, result } = data;
   const additive = isAdditiveAgg(spec.metric.agg);
@@ -161,10 +166,13 @@ export function AlertPreviewChart({
     return <PreviewMessage>No data in range</PreviewMessage>;
   }
 
+  const showNoDataHint =
+    spec.metric.agg === "sum" && (noDataMode === "HOLD" || noDataMode === "NOTIFY");
+
   return (
     // The axes inherit currentColor; the threshold elements override it below.
-    <div className="h-full text-muted-foreground">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="flex h-full flex-col text-muted-foreground">
+      <ResponsiveContainer className="min-h-0 flex-1" width="100%" height="100%">
         <LineChart data={rows} margin={CHART_MARGIN}>
           <CartesianGrid strokeOpacity={0.15} vertical={false} />
           <XAxis
@@ -247,6 +255,13 @@ export function AlertPreviewChart({
           />
         </LineChart>
       </ResponsiveContainer>
+      {showNoDataHint && (
+        <p className="mt-2 text-xs">
+          Zeros in this chart may represent missing data, which the rule treats as no data. Choose
+          {` “${ALERT_NO_DATA_MODE_LABELS.ZERO}”`} to compare missing measurements as zero against
+          the threshold.
+        </p>
+      )}
     </div>
   );
 }
@@ -264,6 +279,7 @@ export function AlertPreview({
   operator,
   threshold,
   window,
+  noDataMode,
 }: AlertPreviewProps) {
   const spec = buildPreviewSpec(view, measureId, aggregation, filters);
   const bucketMs = ALERT_WINDOWS[window];
@@ -286,7 +302,7 @@ export function AlertPreview({
   const thresholdValue = parseThreshold(threshold);
 
   return (
-    <div className="flex min-h-[320px] min-w-0 flex-1 flex-col border border-border">
+    <div className="flex h-[320px] min-w-0 flex-col border border-border lg:h-auto lg:flex-1">
       <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
         <span className="text-[12px] font-medium text-muted-foreground">Live preview</span>
         <DateFilterSelect
@@ -314,6 +330,7 @@ export function AlertPreview({
             thresholdValue={thresholdValue}
             operator={operator}
             bucketMs={bucketMs}
+            noDataMode={noDataMode}
           />
         ) : null}
       </div>
