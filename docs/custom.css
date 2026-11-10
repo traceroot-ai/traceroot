@@ -80,16 +80,6 @@ body {
   color: var(--tr-text);
 }
 
-.sidebar-group li[data-active] > a::before {
-  content: "";
-  position: absolute;
-  top: 16px;
-  left: -11px;
-  width: 6px;
-  height: 6px;
-  background: var(--tr-brand);
-}
-
 #navigation-items > div {
   margin-bottom: 24px;
 }
