@@ -67,6 +67,9 @@ It adds no framework or analytics SDK.
 The analytics ownership is documented in `brand/README.md`. Mintlify retains
 its existing integration behavior.
 
+`favicon.js` swaps Mintlify's generated tab icons for the website's 192px
+`logo/favicon.png`, so the tab icon matches the website's size.
+
 Brand assets and fonts are snapshots of the website, with sources listed in
 `brand/README.md`. `brand/fonts.css` embeds both website WOFF2 snapshots so the
 same CSS works at the local root and the production `/docs` subpath without a
