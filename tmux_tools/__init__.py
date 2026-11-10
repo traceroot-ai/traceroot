@@ -1,4 +1,4 @@
-"""TraceRoot Development Environment TMUX Tools.
+"""traceroot Development Environment TMUX Tools.
 
 This package provides a tmux-based development environment orchestrator.
 It launches multiple tmux windows running different services in parallel,

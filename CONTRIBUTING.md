@@ -1,4 +1,4 @@
-# Contributing to TraceRoot
+# Contributing to traceroot
 
 Thanks for your interest in contributing! This guide will help you get started.
 
@@ -91,4 +91,4 @@ Integration pages under `docs/integrations/` follow a fixed eight-section struct
 
 This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
 
-When contributing to the TraceRoot codebase, you need to agree to the [Contributor License Agreement](https://cla-assistant.io/traceroot-ai/traceroot). You only need to do this once.
+When contributing to the traceroot codebase, you need to agree to the [Contributor License Agreement](https://cla-assistant.io/traceroot-ai/traceroot). You only need to do this once.
