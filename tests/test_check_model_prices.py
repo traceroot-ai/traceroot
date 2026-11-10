@@ -193,6 +193,41 @@ def test_missing_models_follow_production_lookup_and_skip_non_text():
     ]
 
 
+def test_models_priced_through_another_rows_pattern_are_compared_with_that_row():
+    # The older row's pattern, meant for dated snapshots, also matches newer versions.
+    rows = [
+        row(
+            "claude-f",
+            "anthropic",
+            input_=1e-5,
+            cache_read=1e-6,
+            pattern=r"(?i)^claude-f(-[\d-]+)?$",
+        )
+    ]
+    litellm = {
+        "claude-f": ll_entry("anthropic", input_=1e-5, cache_read=1e-6),
+        "claude-f-20260101": ll_entry("anthropic", input_=1e-5, cache_read=1e-6),
+        "claude-f-2": ll_entry("anthropic", input_=8e-6, cache_read=2e-7),
+        "claude-f-1": ll_entry("anthropic", cache_read=2.5e-7, deprecation_date="2026-01-31"),
+    }
+    modelsdev = md_catalog(anthropic={"claude-f-2": md_model(input_=8e-6, cache_read=2e-7)})
+    report = report_for(rows, litellm, modelsdev)
+
+    # The dated snapshot costs the same, and the retired version is skipped.
+    assert report["missing"] == []
+    assert [(f["model"], f["field"], f["ours"], f["priced_as"]) for f in report["flagged"]] == [
+        ("claude-f-2", "input", 1e-5, "claude-f"),
+        ("claude-f-2", "cacheRead", 1e-6, "claude-f"),
+    ]
+    assert report["flagged"][0]["pricing_page"] == check.PRICING_PAGES["anthropic"]
+    assert "claude-f-2 (priced as claude-f)  input" in format_report(report)
+    table = next(b for b in build_payload(report)["blocks"] if b["type"] == "table")
+    assert table["rows"][1][0]["elements"][0]["elements"] == [
+        {"type": "link", "url": check.PRICING_PAGES["anthropic"], "text": "claude-f-2"},
+        {"type": "text", "text": " (priced as claude-f)", "style": {"italic": True}},
+    ]
+
+
 def test_retired_models_are_not_missing():
     rows = [row("gpt-a", "openai")]
     litellm = {

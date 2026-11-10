@@ -4,7 +4,9 @@ Compares each row of frontend/packages/core/src/standard-model-prices.json with
 LiteLLM's model_prices_and_context_window.json and models.dev's api.json, and reports:
 
 - flagged prices: an input, output or cacheRead rate that differs from ours by more
-  than 3% in every catalog that lists the model under the same ID;
+  than 3% in every catalog that lists the model under the same ID. A catalog model
+  that a row prices through its matchPattern, such as a newer version an older row's
+  pattern also matches, is compared with that row's rates;
 - missing models: text models a catalog prices for one of our providers that no row
   matches (exact model name first, then matchPattern, the order production uses),
   leaving out models either catalog marks as retired;
@@ -273,29 +275,73 @@ def differs(ours: float, theirs: float, tolerance: float = TOLERANCE) -> bool:
     return abs(ours - theirs) > tolerance * max(abs(ours), abs(theirs))
 
 
-def find_missing(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
-    """Text models a catalog prices for one of our providers that no row matches.
+def _flag_rates(
+    row: dict, provider: str, model: str, found: dict[str, dict], *, priced_as: str | None
+) -> list[dict]:
+    """A flag for each of the row's rates that every catalog listing model disagrees with."""
+    flags = []
+    for field in FIELDS:
+        ours = _number(row["prices"][field])
+        if ours is None:
+            continue
+        theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}
+        if theirs and all(differs(ours, value) for value in theirs.values()):
+            flags.append(
+                {
+                    "model": model,
+                    "provider": provider,
+                    "field": field,
+                    "ours": ours,
+                    "litellm": theirs.get("litellm"),
+                    "modelsdev": theirs.get("modelsdev"),
+                    "pricing_page": PRICING_PAGES.get(provider),
+                    "priced_as": priced_as,
+                }
+            )
+    return flags
 
-    A model either catalog marks as retired is left out: LiteLLM's deprecation_date on
-    or before today, or models.dev's status "deprecated".
-    """
-    seen: dict[tuple[str, str], list[str]] = {}
+
+def _live_text_models(
+    catalogs: dict[str, dict], today: datetime
+) -> dict[tuple[str, str], dict[str, dict]]:
+    """Each live text model's rates by catalog. A model either catalog marks as retired
+    is left out: LiteLLM's deprecation_date on or before today, or models.dev's status
+    "deprecated". So are fine-tuned, embedding, image, audio and music models."""
+    found: dict[tuple[str, str], dict[str, dict]] = {}
     retired: set[tuple[str, str]] = set()
     for name, index in catalogs.items():
         for key, entry in index.items():
             if entry["retired_from"] is not None and entry["retired_from"] <= today:
                 retired.add(key)
-                continue
-            if not entry["text"] or IGNORED_MODELS.search(key[1]):
-                continue
-            if entry["rates"]["input"] is None and entry["rates"]["output"] is None:
-                continue
-            seen.setdefault(key, []).append(name)
-    return [
-        {"model": model_id, "provider": provider, "in": sorted(names)}
-        for (provider, model_id), names in sorted(seen.items())
-        if (provider, model_id) not in retired and lookup(rows, model_id) is None
-    ]
+            elif entry["text"] and not IGNORED_MODELS.search(key[1]):
+                found.setdefault(key, {})[name] = entry["rates"]
+    return {key: rates for key, rates in sorted(found.items()) if key not in retired}
+
+
+def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
+    """Flags for catalog models that production prices through another row's
+    matchPattern, compared with that row's rates. An older row's pattern can also match
+    a newer version at a different price, which a by-name comparison never sees."""
+    flags = []
+    for (provider, model), found in _live_text_models(catalogs, today).items():
+        row = lookup(rows, model)
+        if row is not None and row["modelName"].lower() != model.lower():
+            flags += _flag_rates(row, provider, model, found, priced_as=row["modelName"])
+    return flags
+
+
+def find_missing(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
+    """Live text models a catalog prices for one of our providers that no row matches."""
+    missing = []
+    for (provider, model_id), found in _live_text_models(catalogs, today).items():
+        names = sorted(
+            name
+            for name, rates in found.items()
+            if rates["input"] is not None or rates["output"] is not None
+        )
+        if names and lookup(rows, model_id) is None:
+            missing.append({"model": model_id, "provider": provider, "in": names})
+    return missing
 
 
 def build_report(
@@ -306,9 +352,11 @@ def build_report(
     date: str,
     min_compared: int = MIN_COMPARED,
 ) -> dict:
-    """Compare every row by exact model ID. A rate is flagged only when every catalog
-    that lists the model and has that rate disagrees with ours."""
+    """Compare every row by exact model ID, then every catalog model a row prices through
+    its matchPattern. A rate is flagged only when every catalog that lists the model and
+    has that rate disagrees with ours."""
     catalogs = {"litellm": litellm, "modelsdev": modelsdev}
+    today = datetime.fromisoformat(date)
     flagged: list[dict] = []
     no_match: list[str] = []
     unmapped: set[str] = set()
@@ -328,25 +376,7 @@ def build_report(
             no_match.append(model)
             continue
         compared += 1
-        for field in FIELDS:
-            ours = _number(row["prices"][field])
-            if ours is None:
-                continue
-            theirs = {
-                name: rates[field] for name, rates in found.items() if rates[field] is not None
-            }
-            if theirs and all(differs(ours, value) for value in theirs.values()):
-                flagged.append(
-                    {
-                        "model": model,
-                        "provider": provider,
-                        "field": field,
-                        "ours": ours,
-                        "litellm": theirs.get("litellm"),
-                        "modelsdev": theirs.get("modelsdev"),
-                        "pricing_page": PRICING_PAGES.get(provider),
-                    }
-                )
+        flagged += _flag_rates(row, provider, model, found, priced_as=None)
     if compared < min_compared:
         raise CheckError(
             f"only {compared} of {len(rows)} rows matched a catalog, below the floor of "
@@ -358,8 +388,8 @@ def build_report(
         "status": "ok",
         "total": len(rows),
         "compared": compared,
-        "flagged": flagged,
-        "missing": find_missing(rows, catalogs, datetime.fromisoformat(date)),
+        "flagged": flagged + find_shadowed(rows, catalogs, today),
+        "missing": find_missing(rows, catalogs, today),
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
         "bad_patterns": bad_patterns,
@@ -386,12 +416,17 @@ def _catalog_amount(item: dict) -> str:
     return low if low == high else f"{low}-{high}"
 
 
+def _priced_as(item: dict) -> str:
+    """For a model priced through another row's pattern, which row prices it."""
+    return f" (priced as {item['priced_as']})" if item.get("priced_as") else ""
+
+
 def _price_table(flagged: list[dict]) -> list[str]:
     """Flagged rates as an aligned code block, one row per rate, grouped by model."""
     cells = []
     previous = None
     for item in flagged[:MAX_FLAGGED_LINES]:
-        model = item["model"] if item["model"] != previous else ""
+        model = item["model"] + _priced_as(item) if item["model"] != previous else ""
         previous = item["model"]
         cells.append(
             (model, FIELD_LABELS[item["field"]], _amount(item["ours"]), _catalog_amount(item))
@@ -490,12 +525,16 @@ def _mrkdwn(text: str) -> dict:
     return {"type": "mrkdwn", "text": text}
 
 
-def _cell(text: str, *, url: str | None = None, bold: bool = False) -> dict:
-    """A table cell: rich text, so it can be bold or a link, with no mrkdwn parsing."""
+def _cell(text: str, *, url: str | None = None, bold: bool = False, note: str = "") -> dict:
+    """A table cell: rich text, so it can be bold, a link or carry an italic note, with
+    no mrkdwn parsing."""
     element = {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
     if bold:
         element["style"] = {"bold": True}
-    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [element]}]}
+    elements = [element]
+    if note:
+        elements.append({"type": "text", "text": note, "style": {"italic": True}})
+    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": elements}]}
 
 
 def _price_table_block(flagged: list[dict]) -> dict:
@@ -505,7 +544,11 @@ def _price_table_block(flagged: list[dict]) -> dict:
     for item in flagged[:MAX_FLAGGED_LINES]:
         first = item["model"] != previous
         previous = item["model"]
-        model = _cell(item["model"], url=item["pricing_page"]) if first else _cell(" ")
+        model = (
+            _cell(item["model"], url=item["pricing_page"], note=_priced_as(item))
+            if first
+            else _cell(" ")
+        )
         rows.append(
             [
                 model,
