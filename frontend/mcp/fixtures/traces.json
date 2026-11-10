@@ -1,0 +1,73 @@
+{
+  "list": {
+    "data": [
+      {
+        "trace_id": "trace-001",
+        "name": "support-agent",
+        "trace_start_time": "2026-06-01T10:00:00Z",
+        "duration_ms": 4200,
+        "span_count": 6,
+        "error_count": 0,
+        "session_id": "session-001",
+        "user_id": "user-1",
+        "total_cost": 0.0031,
+        "total_input_tokens": 410,
+        "total_output_tokens": 120,
+        "project_id": "project-fixture",
+        "trace_url": "http://fixture.invalid/traces/trace-001",
+        "input": "hello",
+        "output": "hi",
+        "metadata_map": {}
+      },
+      {
+        "trace_id": "trace-002",
+        "name": "support-agent",
+        "trace_start_time": "2026-06-01T09:00:00Z",
+        "duration_ms": 9100,
+        "span_count": 9,
+        "error_count": 1,
+        "session_id": "session-001",
+        "user_id": "user-1",
+        "total_cost": 0.0102,
+        "total_input_tokens": 980,
+        "total_output_tokens": 260,
+        "project_id": "project-fixture",
+        "trace_url": "http://fixture.invalid/traces/trace-002",
+        "input": "refund?",
+        "output": "error",
+        "metadata_map": {}
+      }
+    ],
+    "meta": { "limit": 50, "total": 2 }
+  },
+  "detail": {
+    "trace_id": "trace-001",
+    "name": "support-agent",
+    "trace_start_time": "2026-06-01T10:00:00Z",
+    "trace_url": "http://fixture.invalid/traces/trace-001",
+    "input": "fixture prompt",
+    "output": "fixture answer",
+    "metadata": { "env": "fixture" },
+    "git_repo": "org/repo",
+    "spans": [
+      {
+        "span_id": "span-1",
+        "parent_span_id": null,
+        "name": "agent",
+        "span_kind": "AGENT",
+        "span_start_time": "2026-06-01T10:00:00Z",
+        "span_end_time": "2026-06-01T10:00:04Z",
+        "status": "OK"
+      },
+      {
+        "span_id": "span-2",
+        "parent_span_id": "span-1",
+        "name": "llm",
+        "span_kind": "LLM",
+        "span_start_time": "2026-06-01T10:00:01Z",
+        "span_end_time": "2026-06-01T10:00:03Z",
+        "status": "OK"
+      }
+    ]
+  }
+}

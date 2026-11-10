@@ -1,0 +1,38 @@
+{
+  "list": {
+    "data": [
+      {
+        "id": "alert-001",
+        "name": "Slow traces",
+        "view": "traces",
+        "measure": "duration",
+        "aggregation": "p95",
+        "threshold": 8000,
+        "threshold_operator": "gt",
+        "window": "1h",
+        "severity": "warning",
+        "status": "ok",
+        "creator": "fixture",
+        "create_time": "2026-05-21T08:00:00Z",
+        "update_time": "2026-05-21T08:00:00Z"
+      }
+    ],
+    "meta": { "limit": 50, "total": 1 }
+  },
+  "detail": {
+    "id": "alert-001",
+    "name": "Slow traces",
+    "view": "traces",
+    "measure": "duration",
+    "aggregation": "p95",
+    "threshold": 8000,
+    "threshold_operator": "gt",
+    "window": "1h",
+    "severity": "warning",
+    "status": "ok",
+    "creator": "fixture",
+    "create_time": "2026-05-21T08:00:00Z",
+    "update_time": "2026-05-21T08:00:00Z",
+    "filters": []
+  }
+}
