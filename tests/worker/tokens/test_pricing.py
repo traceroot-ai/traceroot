@@ -704,6 +704,13 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-fable-5[1m]", "claude-fable-5"),
     ("anthropic/claude-fable-5", "claude-fable-5"),
     ("us.anthropic.claude-fable-5-20260701-v1:0", "claude-fable-5"),
+    # Fable 5.1 / 5.2 — priced on their own entries, not the Fable 5 one
+    ("claude-fable-5-1", "claude-fable-5-1"),
+    ("claude-fable-5-1[1m]", "claude-fable-5-1"),
+    ("anthropic/claude-fable-5-1", "claude-fable-5-1"),
+    ("claude-fable-5-2", "claude-fable-5-2"),
+    ("claude-fable-5-2[1m]", "claude-fable-5-2"),
+    ("anthropic/claude-fable-5-2", "claude-fable-5-2"),
     # Opus 5 — plain, [1m] variant, anthropic/ prefix, Bedrock, Vertex
     ("claude-opus-5", "claude-opus-5"),
     ("claude-opus-5[1m]", "claude-opus-5"),
@@ -764,6 +771,8 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
+    ("claude-sonnet-4-0", "claude-sonnet-4"),
+    ("anthropic/claude-sonnet-4-0", "claude-sonnet-4"),
     ("us.anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
     ("anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
     ("us.anthropic.claude-3-5-haiku-20241022-v1:0", "claude-3-5-haiku"),
@@ -802,22 +811,36 @@ class TestClaudeBedrockAndVertexIds:
             f"{model_id} matched a different family than {expected_name}"
         )
 
-    @pytest.mark.parametrize("family", ["claude-opus-5-5", "claude-sonnet-5-5"])
-    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
-    def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
-        # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
-        model_id = prefix + family
-        matching = [
+    @pytest.mark.parametrize(
+        "model_id,own",
+        [
+            (prefix + e["modelName"], e["modelName"])
+            for e in _standard_price_entries()
+            for prefix in (
+                ["", "anthropic/", "anthropic."] if e["provider"] == "anthropic" else [""]
+            )
+        ],
+    )
+    def test_no_other_pattern_matches_a_models_own_id(self, real_cache, model_id, own):
+        # Lookup is first-match, so a broad suffix silently prices the next point release.
+        others = [
             e["model_name"]
             for e in real_cache
-            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+            if e["model_name"] != own and re.search(e["match_pattern"], model_id, re.IGNORECASE)
         ]
-        assert matching == [family], f"{model_id} matched {matching}"
+        assert others == [], f"{model_id} also matched {others}"
+        if model_id == own:
+            pattern = next(e["match_pattern"] for e in real_cache if e["model_name"] == own)
+            assert re.search(pattern, own, re.IGNORECASE), f"{own} misses its own pattern"
 
     @pytest.mark.parametrize(
         "model_name,rates",
         [
             # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            ("claude-fable-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
+            # Fable 5.1 / 5.2 read cache at 0.025x input.
+            ("claude-fable-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
+            ("claude-fable-5-2", (8e-6, 4e-5, 2e-7, 1e-5, 1.6e-5)),
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
             ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.

@@ -119,7 +119,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
             <PopoverContent align="end" className="w-40 p-1">
               <a
                 href={buildHref("/api/github/install")}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors hover:bg-accent"
+                className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] transition-colors hover:bg-muted"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Configure
@@ -127,7 +127,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
               <button
                 onClick={handleDisconnect}
                 disabled={isDisconnecting}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-[12px] text-destructive transition-colors hover:bg-accent disabled:opacity-50"
+                className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive transition-colors hover:bg-muted disabled:opacity-50"
               >
                 <Unlink className="h-3.5 w-3.5" />
                 {isDisconnecting ? "Disconnecting..." : "Disconnect"}
@@ -156,7 +156,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
       {canManage && (
         <a
           href={buildHref("/api/github/login")}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="inline-flex h-7 items-center gap-2 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-foreground hover:text-background"
         >
           Connect
           <ExternalLink className="h-3 w-3" />
