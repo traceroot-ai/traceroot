@@ -111,6 +111,7 @@ model Workspace {
   aiMessages          AIMessage[]
   slackIntegration    SlackIntegration?
   usageNotifications  WorkspaceUsageNotification[]
+  billingMeterCursors BillingMeterCursor[]
 
   // Backs the idempotent create: two concurrent create_workspace calls by the
   // same user with the same name cannot both insert.
@@ -118,6 +119,53 @@ model Workspace {
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
   @@map("workspaces")
+}
+
+// Durable cursor and immutable outbox records for Stripe usage meter events.
+// The cursor advances only after Stripe confirms the corresponding report.
+model BillingMeterCursor {
+  id            String               @id @default(cuid()) @db.VarChar
+  workspaceId   String               @map("workspace_id") @db.VarChar
+  meter         String               @db.VarChar // "ai" | "rca" | "detector"
+  periodStart   DateTime             @map("period_start") @db.Timestamp(6)
+  confirmedUnits Int                 @default(0) @map("confirmed_units")
+  createTime    DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime    DateTime             @updatedAt @map("update_time") @db.Timestamp(6)
+  workspace     Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reports       BillingMeterReport[]
+
+  @@unique([workspaceId, meter, periodStart], map: "uq_billing_meter_cursor")
+  @@index([workspaceId], map: "ix_billing_meter_cursor_workspace")
+  @@map("billing_meter_cursors")
+}
+
+// A report's Stripe payload is immutable once this row exists. In particular,
+// units, identifier and timestamp are reused after ambiguous network failures.
+model BillingMeterReport {
+  id                String             @id @default(cuid()) @db.VarChar
+  cursorId          String             @map("cursor_id") @db.VarChar
+  fromUnits         Int                @map("from_units")
+  toUnits           Int                @map("to_units")
+  units             Int
+  stripeCustomerId  String             @map("stripe_customer_id") @db.VarChar
+  eventName         String             @map("event_name") @db.VarChar
+  identifier        String             @unique @db.VarChar(100)
+  eventTimestamp    Int                @map("event_timestamp")
+  status            String             @default("pending") @db.VarChar // pending | sending | retryable | delivered | needs_attention
+  attempts          Int                @default(0)
+  firstAttemptAt    DateTime?          @map("first_attempt_at") @db.Timestamp(6)
+  nextAttemptAt     DateTime?          @map("next_attempt_at") @db.Timestamp(6)
+  leaseExpiresAt    DateTime?          @map("lease_expires_at") @db.Timestamp(6)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamp(6)
+  stripeRequestId   String?            @map("stripe_request_id") @db.VarChar
+  lastError         String?            @map("last_error") @db.Text
+  createTime        DateTime           @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime           @updatedAt @map("update_time") @db.Timestamp(6)
+  cursor            BillingMeterCursor @relation(fields: [cursorId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([cursorId, fromUnits, toUnits], map: "uq_billing_meter_report_range")
+  @@index([status, nextAttemptAt, leaseExpiresAt], map: "ix_billing_meter_report_dispatch")
+  @@map("billing_meter_reports")
 }
 
 // Per-(workspace, meter) state for free-plan usage-quota emails (80% warn,
