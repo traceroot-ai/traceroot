@@ -186,6 +186,18 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
     // Session-bound so confirm-class writes can park against this session's
     // live run channel and wait for the user's decision.
     beforeToolCall: createWritePolicyHook(REGISTRY, { sessionId: config.sessionId }),
+    onPayload: (payload, requestModel) => {
+      // pi-ai maps thinking off to MINIMAL, which Gemini 3.8 rejects.
+      // Use its lowest supported level without enabling thought summaries.
+      if (requestModel.api === "google-generative-ai" && requestModel.id === "gemini-3.8-flash") {
+        const params = payload as {
+          config?: { thinkingConfig?: { thinkingLevel?: string } };
+        };
+        if (params.config?.thinkingConfig?.thinkingLevel === "MINIMAL") {
+          params.config.thinkingConfig.thinkingLevel = "LOW";
+        }
+      }
+    },
     getApiKey: async (provider: string) => {
       // If we have BYOK config with a decrypted key, use it directly
       if (providerConfig && providerConfig.key !== BEDROCK_USE_DEFAULT_CREDENTIALS) {
