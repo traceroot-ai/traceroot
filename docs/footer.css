@@ -1,5 +1,6 @@
 /* Mintlify owns the footer content; these classes only enhance its layout. */
 #footer.tr-docs-footer {
+  --tr-footer-gap: 56px;
   position: relative;
   display: block;
   width: 100%;
@@ -21,11 +22,11 @@
 .tr-docs-footer__inner {
   max-width: none;
   gap: 0;
-  padding: 32px 0 0;
+  padding: calc(var(--tr-footer-gap) - 1px) 0 0;
   border-top: 1px solid var(--tr-border);
 }
 
-/* Replace only Mintlify's separator and attribution with the existing legal bar. */
+/* The link box and wordmark replace Mintlify's separator and attribution. */
 .tr-docs-footer__inner > :not(.tr-docs-footer__row):not(.tr-docs-footer__extras) {
   display: none;
 }
@@ -35,18 +36,16 @@
   display: contents;
 }
 
-.tr-docs-footer a,
-.tr-docs-footer button {
+.tr-docs-footer a {
   color: inherit;
   text-decoration: none;
 }
 
-.tr-docs-footer a:hover,
-.tr-docs-footer button:hover {
+.tr-docs-footer a:hover {
   color: var(--tr-text);
 }
 
-.tr-docs-footer :is(a, button):focus-visible {
+.tr-docs-footer a:focus-visible {
   outline: 2px solid var(--tr-link);
   outline-offset: 4px;
 }
@@ -54,43 +53,20 @@
 .tr-docs-footer__row {
   display: grid;
   width: 100%;
-  grid-template-columns: 1.4fr 1fr 1fr 1fr;
-  gap: 24px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 16px;
   align-items: start;
+  padding: 24px 20px 26px;
+  border: 1px solid var(--tr-border);
 }
 
-.tr-docs-footer__brand {
-  min-width: 0;
-  flex-direction: column;
-  gap: 0;
-  align-items: flex-start;
-}
-
-.tr-docs-footer__brand > a {
-  display: inline-flex;
-  padding: 0;
-}
-
-.tr-docs-footer__brand .nav-logo {
-  width: auto;
-  height: 26px;
-  margin: 0;
-}
-
-.tr-docs-footer__brand > div:not(.tr-docs-footer__brand-copy) {
+/* Native Mintlify may place its duplicate socials beside or inside the logo. */
+.tr-docs-footer__row > :not(.tr-docs-footer__columns) {
   display: none;
 }
 
-.tr-docs-footer__description {
-  max-width: 175px;
-  margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.tr-docs-footer__eyebrow,
 .tr-docs-footer__columns > div > div > p {
-  margin: 0 0 9px;
+  margin: 0 0 12px;
   color: var(--tr-text);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 10px;
@@ -100,13 +76,7 @@
   text-transform: uppercase;
 }
 
-.tr-docs-footer__location {
-  margin: 12px 0 0;
-  color: var(--tr-muted);
-}
-
-.tr-docs-footer__columns > div,
-.tr-docs-footer__connect {
+.tr-docs-footer__columns > div {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -121,8 +91,7 @@
   gap: 6px;
 }
 
-.tr-docs-footer__columns a,
-.tr-docs-footer__connect a {
+.tr-docs-footer__columns a {
   display: inline-flex;
   max-width: none;
   min-height: 22px;
@@ -136,58 +105,21 @@
   white-space: normal;
 }
 
-.tr-docs-footer__columns a:is([href^="https://traceroot.ai/docs"], [href^="https://cal.com/"])::after {
-  content: "↗";
+.tr-docs-footer__columns a:is([href^="https://traceroot.ai/docs"], [href^="https://cal.com/"], [href^="https://trust.traceroot.ai"], [href^="https://github.com/"], [href^="https://discord.gg/"], [href^="https://x.com/"], [href^="https://www.linkedin.com/"])::after {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' fill='none' stroke='black' stroke-width='1.1'%3E%3Cpath d='M2.5 7.5l5-5M3.5 2.5h4v4'/%3E%3C/svg%3E") center / contain no-repeat;
+  content: "";
   opacity: 0.7;
-  font-size: 12px;
-}
-
-.tr-docs-footer__connect a + a {
-  margin-top: 6px;
-}
-
-.tr-docs-footer__connect svg {
-  flex: 0 0 13px;
-  width: 13px;
-  height: 13px;
-  opacity: 0.6;
-}
-
-.tr-docs-footer__legal {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 56px;
-  padding: 18px 0;
-  border-top: 1px solid var(--tr-border);
-  border-bottom: 1px solid var(--tr-border);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.tr-docs-footer__policies {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.tr-docs-footer button {
-  appearance: none;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
 .tr-docs-footer__wordmark {
   display: block;
   width: 100%;
-  margin: 16px 0 0;
+  /* Home's canvas has 6px of empty space above the first pixel. */
+  margin: calc(var(--tr-footer-gap) - 6px) 0 0;
   aspect-ratio: 800 / 128;
 }
 
@@ -215,35 +147,15 @@
   }
 }
 
-@media (max-width: 640px) {
-  .tr-docs-footer__row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 28px 20px;
-  }
-
-  .tr-docs-footer__brand {
-    grid-column: 1 / -1;
-  }
-
-  .tr-docs-footer__description {
-    max-width: 260px;
-  }
-
-  .tr-docs-footer__legal {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    margin-top: 32px;
-    gap: 18px 24px;
-  }
-
-  .tr-docs-footer__policies {
-    order: 3;
-    width: 100%;
-  }
-}
-
-@media (max-width: 359px) {
+@media (max-width: 679px) {
   .tr-docs-footer__row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    grid-auto-flow: column;
+    gap: 32px 24px;
+  }
+
+  .tr-docs-footer__wordmark {
+    margin-top: calc(var(--tr-footer-gap) - 4px);
   }
 }

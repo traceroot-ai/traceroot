@@ -56,8 +56,9 @@ The mint theme's hidden, inert Assistant bar is collapsed only in that semantic
 state, so it does not leave an empty block before the footer. When Mintlify makes
 the bar available, its native sticky layout remains active.
 
-`docs.json` owns the native footer links, logo and social icons. `footer.js`
-adds the brand description, legal links, and animated wordmark. A bounded layout
+`docs.json` owns the native footer links in Product, Company, Trust and Community
+groups. `footer.css` styles the groups in one outlined box, with two columns on
+narrow screens. `footer.js` adds the animated wordmark. A bounded layout
 adapter aligns the advanced footer to the article
 and pagination without moving Mintlify-owned nodes or changing sidebar
 scrolling. It refreshes on `mintlify:navigate` and observes article resizing;
