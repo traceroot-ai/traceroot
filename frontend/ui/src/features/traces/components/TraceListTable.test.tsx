@@ -45,6 +45,7 @@ interface TableProps {
   onSelectTrace?: (traceId: string) => void;
   signalIdsByTrace?: Record<string, string[]>;
   signalIdsFailed?: boolean;
+  viewedTraceIds?: ReadonlySet<string>;
 }
 
 function renderTable(props: TableProps) {
@@ -55,6 +56,7 @@ function renderTable(props: TableProps) {
       traces={props.traces}
       signalIdsByTrace={props.signalIdsByTrace}
       signalIdsFailed={props.signalIdsFailed}
+      viewedTraceIds={props.viewedTraceIds}
       selectedTraceId={null}
       onSelectTrace={onSelectTrace}
       // The resolved default-on set, never an empty list: empty is the "no columns selected"
@@ -273,6 +275,65 @@ describe("TraceListTable row-ending divider", () => {
     expect(hasRowDivider(headerCell("Total usage"))).toBe(false);
     // The body row walks the same column list, so its last cell has to agree with the header.
     expect(hasRowDivider(cellAt("t-1", "Total usage"))).toBe(false);
+  });
+});
+
+describe("TraceListTable read/unread status column", () => {
+  it("draws no status column when the caller tracks no read state", () => {
+    // The column is opt-in: a caller that passes no `viewedTraceIds` gets the table it had
+    // before, with no leading sliver and no dot.
+    renderTable({ traces: [makeTrace({ trace_id: "t-1" })] });
+    expect(headerNames()).toEqual(DEFAULT_COLUMNS);
+    expect(screen.queryByRole("columnheader", { name: "Read status" })).toBeNull();
+    expect(screen.queryByText("Unviewed")).toBeNull();
+  });
+
+  it("marks an unviewed trace with a dot and leaves a viewed one bare", () => {
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1" }), makeTrace({ trace_id: "t-2" })],
+      viewedTraceIds: new Set(["t-2"]),
+    });
+    const unviewed = screen.getByText("t-1").closest("tr") as HTMLElement;
+    const viewed = screen.getByText("t-2").closest("tr") as HTMLElement;
+    expect(within(unviewed).getByText("Unviewed")).toBeTruthy();
+    expect(within(viewed).queryByText("Unviewed")).toBeNull();
+    // The dot itself, not just its label: dropping the visible mark while keeping the label would
+    // still read as "marked" to a screen reader but draw nothing.
+    expect(unviewed.querySelector("span.rounded-full")).not.toBeNull();
+    expect(viewed.querySelector("span.rounded-full")).toBeNull();
+  });
+
+  it("keeps the status cell first, ahead of every data column", () => {
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1" })],
+      viewedTraceIds: new Set(),
+    });
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers[0].getAttribute("aria-label")).toBe("Read status");
+    // The status header carries no text, so it reads as the empty first name.
+    expect(headerNames()).toEqual(["", ...DEFAULT_COLUMNS]);
+  });
+
+  it("does not shift which cell a data column reads", () => {
+    // The status cell is prepended to the header and the body alike, so a column's index still
+    // lines up with its cell rather than off by one.
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1", user_id: "u-1" })],
+      visibleColumns: visibleFixedColumns(["user_id"]),
+      viewedTraceIds: new Set(["t-1"]),
+    });
+    expect(cellAt("t-1", "Trace ID").textContent).toBe("t-1");
+    expect(cellAt("t-1", "User ID").textContent).toBe("u-1");
+  });
+
+  it("still opens the trace when the status cell is clicked", () => {
+    const { onSelectTrace } = renderTable({
+      traces: [makeTrace({ trace_id: "t-1" })],
+      viewedTraceIds: new Set(),
+    });
+    const row = screen.getByText("t-1").closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByText("Unviewed"));
+    expect(onSelectTrace).toHaveBeenCalledWith("t-1");
   });
 });
 

@@ -31,6 +31,10 @@ const HEADER_CELL = "px-3 py-1.5 text-left text-[12px] font-medium text-muted-fo
 
 const ADDED_COLUMN_WIDTH = "w-[140px] max-w-[180px]";
 
+// The leading read/unread status column: a dot, not a value, so it is a fixed sliver rather than
+// a sized data column. Present only when the caller tracks viewed traces (see the prop).
+const STATUS_COLUMN_WIDTH = "w-[18px]";
+
 // Default-on columns only. An opted-in column always sizes with ADDED_COLUMN_WIDTH, so an
 // entry here for one would never be read. Absent means unconstrained: the column takes what
 // is left.
@@ -54,6 +58,12 @@ interface TraceListTableProps {
   signalIdsByTrace?: Record<string, string[]>;
   /** Reading the signal ids failed: the column says so rather than staying blank. */
   signalIdsFailed?: boolean;
+  /**
+   * The trace ids this browser has opened. When provided, a leading status column marks the rows
+   * that are NOT in it with a dot; when omitted, no status column is drawn at all, so a caller
+   * that does not track read state gets exactly the table it had before.
+   */
+  viewedTraceIds?: ReadonlySet<string>;
 }
 
 export function TraceListTable({
@@ -64,9 +74,13 @@ export function TraceListTable({
   visibleColumns,
   signalIdsByTrace,
   signalIdsFailed = false,
+  viewedTraceIds,
 }: TraceListTableProps) {
   const hasAddedColumns = visibleColumns.some((id) => !isDefaultOnColumn(id));
   const hasColumns = visibleColumns.length > 0;
+  // The status column is optional, but when it is on it is on for BOTH rows, so the header and
+  // the body still walk the same cells and cannot disagree about column order.
+  const showStatusColumn = viewedTraceIds !== undefined;
 
   return (
     <table className={cn("w-full", hasAddedColumns && ADDED_COLUMN_TABLE_MIN_WIDTH)}>
@@ -74,6 +88,7 @@ export function TraceListTable({
       {hasColumns && (
         <thead className="sticky top-0 bg-background">
           <tr className="border-b border-border bg-muted/50">
+            {showStatusColumn && <StatusHeaderCell />}
             {visibleColumns.map((id, position) => (
               <ColumnHeader key={id} id={id} isLast={position === visibleColumns.length - 1} />
             ))}
@@ -90,6 +105,8 @@ export function TraceListTable({
               signalIds={signalIdsByTrace && (signalIdsByTrace[trace.trace_id] ?? [])}
               signalIdsFailed={signalIdsFailed}
               isSelected={selectedTraceId === trace.trace_id}
+              isUnviewed={showStatusColumn && !viewedTraceIds?.has(trace.trace_id)}
+              showStatusColumn={showStatusColumn}
               onSelect={onSelectTrace}
               columns={visibleColumns}
             />
@@ -103,6 +120,18 @@ export function TraceListTable({
         )}
       </tbody>
     </table>
+  );
+}
+
+// The header of the leading status column. Its cells carry no text — a dot has no header — so
+// the column is named for assistive tech rather than left as an unlabelled header.
+function StatusHeaderCell() {
+  return (
+    <th
+      scope="col"
+      aria-label="Read status"
+      className={cn(STATUS_COLUMN_WIDTH, CELL_BORDER, "px-0 py-1.5")}
+    />
   );
 }
 
@@ -130,6 +159,8 @@ function TraceRow({
   signalIds,
   signalIdsFailed,
   isSelected,
+  isUnviewed,
+  showStatusColumn,
   onSelect,
   columns,
 }: {
@@ -138,6 +169,10 @@ function TraceRow({
   signalIds: readonly string[] | undefined;
   signalIdsFailed: boolean;
   isSelected: boolean;
+  /** The trace is not among the ids this browser has opened; draws the status dot. */
+  isUnviewed: boolean;
+  /** Whether the leading status cell exists at all — off for a caller that tracks no read state. */
+  showStatusColumn: boolean;
   onSelect: (traceId: string) => void;
   /** The same column list the header row walked, so the two cannot fall out of step. */
   columns: readonly FixedColumnId[];
@@ -150,6 +185,7 @@ function TraceRow({
         isSelected ? "bg-muted" : "hover:bg-muted/50",
       )}
     >
+      {showStatusColumn && <StatusCell isUnviewed={isUnviewed} />}
       {columns.map((id, position) => {
         const Cell = FIXED_CELLS[id];
         return (
@@ -164,6 +200,27 @@ function TraceRow({
         );
       })}
     </tr>
+  );
+}
+
+/**
+ * The read/unread dot. The dot is decorative — the word beside it is what a screen reader reads —
+ * so it is aria-hidden and the cell carries a visually-hidden label instead of leaning on color
+ * alone. A viewed trace draws nothing, leaving the cell as the empty gutter the header promises.
+ */
+function StatusCell({ isUnviewed }: { isUnviewed: boolean }) {
+  return (
+    <td className={cn(STATUS_COLUMN_WIDTH, CELL_BORDER, "px-0 py-1.5 text-center")}>
+      {isUnviewed ? (
+        <>
+          <span className="sr-only">Unviewed</span>
+          <span
+            className="mx-auto block h-1.5 w-1.5 rounded-full bg-violet-500 dark:bg-violet-400"
+            aria-hidden
+          />
+        </>
+      ) : null}
+    </td>
   );
 }
 
