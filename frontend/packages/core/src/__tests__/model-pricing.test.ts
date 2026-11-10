@@ -226,6 +226,21 @@ describe("calculateCostFromPricing — long context", () => {
       90_000 * 0.0000005 + 10_001 * 0.00000005,
     );
   });
+
+  it("keeps the short rate for a category the long card does not set", () => {
+    const partial: ModelPricing = {
+      input: 0.0000001,
+      output: 0.0000005,
+      cacheRead: null,
+      cacheWrite: 0.000000125,
+      cacheWrite1h: null,
+      longContextThreshold: 10,
+    };
+    // Over the threshold, with no long rates at all. Every category stays short,
+    // and a missing cache-read rate contributes nothing.
+    const cost = calculateCostFromPricing(partial, 11, 1, 4, 2);
+    expect(cost).toBeCloseTo(11 * 0.0000001 + 1 * 0.0000005 + 2 * 0.000000125);
+  });
 });
 
 describe("getModelPricing — uncompilable pattern", () => {
