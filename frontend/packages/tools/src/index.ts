@@ -22,3 +22,10 @@ export {
   type ToPiAgentToolOptions,
 } from "./pi.js";
 export { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "./internal.js";
+export {
+  toMcpTool,
+  type McpTool,
+  type McpToolResult,
+  type McpToolResultContent,
+  type ToMcpToolOptions,
+} from "./mcp.js";
