@@ -33,6 +33,7 @@ import {
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
+import { reportMeterUsageToStripe } from "./stripeMeterOutbox.js";
 
 const FAR_FUTURE_END = new Date("2100-01-01T00:00:00Z");
 
@@ -439,37 +440,21 @@ async function processWorkspace(
       totalBillableUnits = runOverageUnits + tokenMarkupUnits;
     }
 
-    // Delta calculation: only report the increase since last worker run
-    // Reset tracking when billing period changes (prevents negative delta after period rollover)
-    const previousUsage = workspace.currentUsage as any;
-    const prevPeriodStart = previousUsage?.ai?.lastReportedPeriodStart ?? null;
+    // The outbox owns the confirmed watermark. It persists the immutable
+    // report before contacting Stripe and will retry that exact report if the
+    // previous worker lost the response.
     const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
-    const lastReportedUnits =
-      prevPeriodStart === currentPeriodStart ? (previousUsage?.ai?.lastReportedUnits ?? 0) : 0;
-    const deltaUnits = totalBillableUnits - lastReportedUnits;
-
-    console.log(
-      `[Billing] AI run metering: runsUsed=${runsUsed}, included=${includedRuns}, overage=${overageRuns}, ` +
-        `overageSystemCost=$${overageSystemCost.toFixed(4)}, totalUnits=${totalBillableUnits}, ` +
-        `lastReported=${lastReportedUnits}, delta=${deltaUnits}`,
-    );
-
-    if (deltaUnits > 0) {
-      const reported = await reportAiRunOverageToStripe(
-        workspace.id,
-        workspace.billingCustomerId!,
-        deltaUnits,
-        ctx.stripeClient,
-      );
-      if (reported) {
-        (updateData.currentUsage as any).ai.lastReportedUnits = totalBillableUnits;
-        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      // Preserve last reported values
-      (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
-      (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
-    }
+    const confirmedAiUnits = await reportMeterUsageToStripe({
+      workspaceId: workspace.id,
+      customerId: workspace.billingCustomerId,
+      meter: "ai",
+      eventName: "ai_usage",
+      periodStart: workspace.billingPeriodStart,
+      totalUnits: totalBillableUnits,
+      stripeClient: ctx.stripeClient,
+    });
+    (updateData.currentUsage as any).ai.lastReportedUnits = confirmedAiUnits;
+    (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
 
     // 5c. Report RCA run overage to Stripe (separate meter / Stripe product)
     const includedRcaRuns = RCA_RUN_QUOTAS[plan].included;
@@ -491,35 +476,17 @@ async function processWorkspace(
       totalRcaBillableUnits = rcaRunOverageUnits + rcaTokenMarkupUnits;
     }
 
-    const prevRcaPeriodStart = previousUsage?.rca?.lastReportedPeriodStart ?? null;
-    const lastReportedRcaUnits =
-      prevRcaPeriodStart === currentPeriodStart ? (previousUsage?.rca?.lastReportedUnits ?? 0) : 0;
-    const deltaRcaUnits = totalRcaBillableUnits - lastReportedRcaUnits;
-
-    console.log(
-      `[Billing] RCA run metering: runsUsed=${rcaRunsUsed}, included=${includedRcaRuns}, overage=${overageRcaRuns}, ` +
-        `systemTokenCost=$${rcaSystemTokenCost.toFixed(4)}, totalUnits=${totalRcaBillableUnits}, ` +
-        `lastReported=${lastReportedRcaUnits}, delta=${deltaRcaUnits}`,
-    );
-
-    if (deltaRcaUnits > 0) {
-      const reported = await reportRcaRunOverageToStripe(
-        workspace.id,
-        workspace.billingCustomerId!,
-        deltaRcaUnits,
-        ctx.stripeClient,
-      );
-      if (reported) {
-        (updateData.currentUsage as any).rca.lastReportedUnits = totalRcaBillableUnits;
-        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-      } else {
-        (updateData.currentUsage as any).rca.lastReportedUnits = lastReportedRcaUnits;
-        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      (updateData.currentUsage as any).rca.lastReportedUnits = lastReportedRcaUnits;
-      (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-    }
+    const confirmedRcaUnits = await reportMeterUsageToStripe({
+      workspaceId: workspace.id,
+      customerId: workspace.billingCustomerId,
+      meter: "rca",
+      eventName: "rca_usage",
+      periodStart: workspace.billingPeriodStart,
+      totalUnits: totalRcaBillableUnits,
+      stripeClient: ctx.stripeClient,
+    });
+    (updateData.currentUsage as any).rca.lastReportedUnits = confirmedRcaUnits;
+    (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
 
     // 5d. Report managed detector inference token usage (1.05× pass-through).
     //
@@ -541,35 +508,17 @@ async function processWorkspace(
       usage.detectorRuns > 0 ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns) : 0;
     const detectorTotalUnits = Math.round(detectorBillableCost * 1.05 * 100);
 
-    const prevDetectorPeriodStart = previousDetector.lastReportedPeriodStart ?? null;
-    const detectorLastReportedUnits =
-      prevDetectorPeriodStart === currentPeriodStart
-        ? (previousDetector.lastReportedUnits ?? 0)
-        : 0;
-    const detectorDeltaUnits = detectorTotalUnits - detectorLastReportedUnits;
-
-    console.log(
-      `[Billing] Detector token metering: scansRun=${usage.detectorRuns}, ` +
-        `included=${DETECTOR_HOSTED_LLM_FREE_THRESHOLD}, overageScans=${detectorOverageScans}, ` +
-        `totalCost=$${detectorSystemCost.toFixed(4)}, billableCost=$${detectorBillableCost.toFixed(4)}, ` +
-        `totalUnits=${detectorTotalUnits}, lastReported=${detectorLastReportedUnits}, delta=${detectorDeltaUnits}`,
-    );
-
-    if (detectorDeltaUnits > 0) {
-      const reported = await reportDetectorOverageToStripe(
-        workspace.id,
-        workspace.billingCustomerId!,
-        detectorDeltaUnits,
-        ctx.stripeClient,
-      );
-      if (reported) {
-        (updateData.currentUsage as any).detector.lastReportedUnits = detectorTotalUnits;
-        (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      (updateData.currentUsage as any).detector.lastReportedUnits = detectorLastReportedUnits;
-      (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-    }
+    const confirmedDetectorUnits = await reportMeterUsageToStripe({
+      workspaceId: workspace.id,
+      customerId: workspace.billingCustomerId,
+      meter: "detector",
+      eventName: "detector_usage",
+      periodStart: workspace.billingPeriodStart,
+      totalUnits: detectorTotalUnits,
+      stripeClient: ctx.stripeClient,
+    });
+    (updateData.currentUsage as any).detector.lastReportedUnits = confirmedDetectorUnits;
+    (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
   }
 
   // =========================================================================

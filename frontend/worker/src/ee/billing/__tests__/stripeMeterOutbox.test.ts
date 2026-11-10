@@ -8,17 +8,15 @@ const store = vi.hoisted(() => ({
   failNext: null as any,
 }));
 
-vi.mock("@traceroot/core", () => ({
-  prisma: {
-    $transaction: async (callback: (tx: any) => Promise<any>) => callback((globalThis as any).__fakePrisma),
-    $queryRawUnsafe: vi.fn(),
+vi.mock("@traceroot/core", () => {
+  const tx: any = {
+    $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     billingMeterCursor: {
       upsert: async ({ where, create }: any) => {
-        let cursor = store.cursors.find(
-          (row) =>
-            row.workspaceId === where.workspaceId_meter_periodStart.workspaceId &&
-            row.meter === where.workspaceId_meter_periodStart.meter &&
-            row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
+        let cursor = store.cursors.find((row) =>
+          row.workspaceId === where.workspaceId_meter_periodStart.workspaceId &&
+          row.meter === where.workspaceId_meter_periodStart.meter &&
+          row.periodStart.getTime() === where.workspaceId_meter_periodStart.periodStart.getTime(),
         );
         if (!cursor) {
           cursor = { id: `cursor-${store.cursors.length + 1}`, ...create, confirmedUnits: 0 };
@@ -40,8 +38,7 @@ vi.mock("@traceroot/core", () => ({
     },
     billingMeterReport: {
       findFirst: async ({ where }: any) =>
-        store.reports.find((row) => row.cursorId === where.cursorId &&
-          where.status.in.includes(row.status)) ?? null,
+        store.reports.find((row) => row.cursorId === where.cursorId && where.status.in.includes(row.status)) ?? null,
       create: async ({ data }: any) => {
         const row = {
           id: `report-${store.reports.length + 1}`,
@@ -69,18 +66,15 @@ vi.mock("@traceroot/core", () => ({
         return { count: 1 };
       },
     },
-  },
-}));
+  };
+  return { prisma: { ...tx, $transaction: async (callback: (client: any) => Promise<any>) => callback(tx) } };
+});
 
 import {
   getRetryDelayMs,
   isDefinitiveStripeError,
   reportMeterUsageToStripe,
 } from "../stripeMeterOutbox.js";
-
-const fakePrisma = {
-  $queryRawUnsafe: vi.fn().mockResolvedValue([]),
-};
 
 function stripeStub() {
   const create = vi.fn(async (params: any) => {
@@ -113,7 +107,6 @@ beforeEach(() => {
   store.reports = [];
   store.reportCalls = [];
   store.failNext = null;
-  (globalThis as any).__fakePrisma = fakePrisma;
 });
 
 describe("Stripe meter outbox", () => {
@@ -151,6 +144,19 @@ describe("Stripe meter outbox", () => {
     expect(await reportMeterUsageToStripe(context(client, 100))).toBe(0);
     expect(store.cursors[0].confirmedUnits).toBe(0);
     expect(store.reports[0].status).toBe("needs_attention");
+  });
+
+  it("moves an ambiguous report to manual review before the Stripe identifier window expires", async () => {
+    const { client, create } = stripeStub();
+    store.failNext = new Error("connection reset");
+    await reportMeterUsageToStripe(context(client, 300));
+    const report = store.reports[0];
+    report.firstAttemptAt = new Date(Date.now() - 21 * 60 * 60 * 1000);
+    report.nextAttemptAt = new Date(0);
+
+    expect(await reportMeterUsageToStripe(context(client, 300))).toBe(0);
+    expect(report.status).toBe("needs_attention");
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("backs off transient errors and stops retrying before the identifier window expires", async () => {

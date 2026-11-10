@@ -66,7 +66,25 @@ SELECT
   w."id",
   m."meter",
   p."period_start",
-  CASE WHEN m."raw_units" ~ '^[0-9]+$' THEN m."raw_units"::integer ELSE 0 END,
+  CASE WHEN m."raw_units" ~ '^[0-9]+,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+FROM "workspaces" w
+CROSS JOIN LATERAL (
+  VALUES
+    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0')),
+    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0')),
+    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'))
+) AS m("meter", "raw_units")
+CROSS JOIN LATERAL (
+  SELECT COALESCE(w."billing_period_start", TIMESTAMP '1970-01-01 00:00:00') AS "period_start"
+) AS p
+WHERE m."raw_units" ~ '^[0-9]+$'
+  AND m."raw_units"::numeric > 0
+ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
+
+COMMIT;
+ THEN LEAST(m."raw_units"::numeric, 2147483647)::integer ELSE 0 END,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 FROM "workspaces" w

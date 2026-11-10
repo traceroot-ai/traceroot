@@ -246,7 +246,7 @@ export async function reportMeterUsageToStripe(context: MeterContext): Promise<n
         timestamp: report.eventTimestamp,
         identifier: report.identifier,
       });
-      await markDelivered(report, response.request?.id ?? null);
+      await markDelivered(report, (response as any).lastResponse?.requestId ?? null);
     } catch (error) {
       await markFailed(report, error, new Date());
       console.error(
