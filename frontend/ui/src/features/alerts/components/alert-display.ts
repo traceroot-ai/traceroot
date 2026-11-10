@@ -33,8 +33,8 @@ const COMPENSATED = "COMPENSATED";
 const SEVERITY_DISPLAY: Record<AlertSeverity, { label: string; tone: AlertTone }> = {
   OK: { label: "OK", tone: "ok" },
   ALERT: { label: "Alert", tone: "alert" },
-  NO_DATA: { label: "No data", tone: "neutral" },
-  UNKNOWN: { label: "No data", tone: "neutral" },
+  NO_DATA: { label: "No data", tone: "warning" },
+  UNKNOWN: { label: "No data", tone: "warning" },
 };
 
 const UNSENT = "The last notification could not be sent.";
