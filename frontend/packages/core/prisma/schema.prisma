@@ -128,7 +128,7 @@ model BillingMeterCursor {
   workspaceId   String               @map("workspace_id") @db.VarChar
   meter         String               @db.VarChar // "ai" | "rca" | "detector"
   periodStart   DateTime             @map("period_start") @db.Timestamp(6)
-  confirmedUnits Int                 @default(0) @map("confirmed_units")
+  confirmedUnits BigInt              @default(0) @map("confirmed_units") @db.BigInt
   createTime    DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime             @updatedAt @map("update_time") @db.Timestamp(6)
   workspace     Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -144,15 +144,16 @@ model BillingMeterCursor {
 model BillingMeterReport {
   id                String             @id @default(cuid()) @db.VarChar
   cursorId          String             @map("cursor_id") @db.VarChar
-  fromUnits         Int                @map("from_units")
-  toUnits           Int                @map("to_units")
-  units             Int
+  fromUnits         BigInt             @map("from_units") @db.BigInt
+  toUnits           BigInt             @map("to_units") @db.BigInt
+  units             BigInt             @db.BigInt
   stripeCustomerId  String             @map("stripe_customer_id") @db.VarChar
   eventName         String             @map("event_name") @db.VarChar
   identifier        String             @unique @db.VarChar(100)
   eventTimestamp    Int                @map("event_timestamp")
   status            String             @default("pending") @db.VarChar // pending | sending | retryable | delivered | needs_attention
   attempts          Int                @default(0)
+  attemptToken      String?            @map("attempt_token") @db.VarChar
   firstAttemptAt    DateTime?          @map("first_attempt_at") @db.Timestamp(6)
   nextAttemptAt     DateTime?          @map("next_attempt_at") @db.Timestamp(6)
   leaseExpiresAt    DateTime?          @map("lease_expires_at") @db.Timestamp(6)
