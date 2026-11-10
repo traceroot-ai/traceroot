@@ -1,4 +1,4 @@
-/** Native Mintlify owns footer links, logo and social icons; this adds brand controls. */
+/** Native Mintlify owns footer links; this adds the brand wordmark and layout. */
 (() => {
   window.__trDocsFooterAdapter?.dispose();
   const globalEvents = new AbortController();
@@ -20,14 +20,6 @@
 
   function extraMarkup(assets) {
     return `
-      <div class="tr-docs-footer__legal">
-        <span>© ${new Date().getFullYear()} traceroot</span>
-        <nav class="tr-docs-footer__policies" aria-label="Legal">
-          <a href="https://traceroot.ai/privacy">Privacy</a>
-          <a href="https://traceroot.ai/terms">Terms</a>
-        </nav>
-        <button type="button" data-tr-action="top">Back to top ↑</button>
-      </div>
       <div class="tr-docs-footer__wordmark" aria-hidden="true">
         <img src="${assets}footer-wordmark.svg" width="800" height="128" alt="">
         <canvas width="800" height="128" hidden></canvas>
@@ -50,19 +42,6 @@
       canvas.hidden = true;
       fallback.hidden = false;
     }
-  }
-
-  function attachBackToTop(node, events) {
-    node.querySelector('[data-tr-action="top"]').addEventListener("click", () => {
-      const title = document.getElementById("page-title");
-      if (title) {
-        const hadTabIndex = title.hasAttribute("tabindex");
-        if (!hadTabIndex) title.setAttribute("tabindex", "-1");
-        title.focus({ preventScroll: true });
-        if (!hadTabIndex) title.addEventListener("blur", () => title.removeAttribute("tabindex"), { once: true, signal: events.signal });
-      }
-      window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-    }, { signal: events.signal });
   }
 
   // Advanced footers sit below the sidebar. Align with the article without
@@ -107,9 +86,8 @@
     if (!host) return;
     const wrapper = host.firstElementChild;
     const row = wrapper?.firstElementChild;
-    const [brand, columns, socials] = row?.children ?? [];
-    const logo = brand?.querySelector("a");
-    if (!logo || !columns?.style.gridTemplateColumns || !socials?.querySelector("a svg")) return;
+    const [, columns] = row?.children ?? [];
+    if (!columns?.style.gridTemplateColumns) return;
 
     const events = new AbortController();
     const node = document.createElement("div");
@@ -122,32 +100,13 @@
     }
     const prefix = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
     node.innerHTML = extraMarkup(`${prefix}/brand/`);
-    const copy = document.createElement("div");
-    copy.className = "tr-docs-footer__brand-copy";
-    copy.innerHTML = '<p class="tr-docs-footer__description">Open source AI agent improvement platform.</p><p class="tr-docs-footer__eyebrow tr-docs-footer__location">San Francisco</p>';
-    brand.append(copy);
-    const heading = document.createElement("p");
-    heading.className = "tr-docs-footer__eyebrow";
-    heading.textContent = "Connect";
-    socials.prepend(heading);
-    const additions = [node, copy, heading];
-    const labels = { x: "X", github: "GitHub", linkedin: "LinkedIn", discord: "Discord" };
-    for (const link of socials.querySelectorAll("a")) {
-      const label = document.createElement("span");
-      label.textContent = labels[link.textContent.trim()] ?? link.textContent.trim();
-      label.setAttribute("aria-hidden", "true");
-      link.setAttribute("aria-label", label.textContent);
-      link.append(label);
-      additions.push(label);
-    }
+    const additions = [node];
     const classes = [
       [host, "tr-docs-footer"], [wrapper, "tr-docs-footer__inner"],
-      [row, "tr-docs-footer__row"], [brand, "tr-docs-footer__brand"],
-      [columns, "tr-docs-footer__columns"], [socials, "tr-docs-footer__connect"],
+      [row, "tr-docs-footer__row"], [columns, "tr-docs-footer__columns"],
     ];
     classes.forEach(([element, name]) => element.classList.add(name));
     mounted = { host, wrapper, node, events, additions, classes, resize: new ResizeObserver(alignFooter) };
-    attachBackToTop(node, events);
     window.addEventListener("resize", alignFooter, { signal: events.signal });
     observeArticle();
     mountWordmark();

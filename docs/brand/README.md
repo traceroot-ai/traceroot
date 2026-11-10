@@ -29,7 +29,7 @@ speed and still-mode setting. Still mode disables assembly/scattering while
 retaining the turquoise sweep, exactly as configured on Home. Its original
 motion helpers pause offscreen and in hidden tabs, and settle for reduced motion.
 The adapter disposes the animation on removal. The SVG is a decorative fallback;
-the footer's HTML logo supplies the accessible brand name. Docs use only the
+the navigation's HTML logo supplies the accessible brand name. Docs use only the
 light theme.
 
 The website TS implementation is the only handwritten animation source. After
@@ -58,8 +58,8 @@ and test light mode plus narrow screens. Do not copy website components
 or framework dependencies into these files; regenerate the standalone animation.
 
 `docs.json` declares native footer links and social destinations. `footer.js`
-enhances the advanced `#footer` with the existing legal controls and brand
-wordmark. It keeps native nodes in place and isolates their structure checks
+enhances the advanced `#footer` with the brand wordmark and four-group layout.
+It keeps native nodes in place and isolates their structure checks
 and article alignment in one adapter. Removing or failing to load the script
 leaves the native links visible. Check this boundary after Mintlify client
 upgrades and on generated API pages.
@@ -68,5 +68,5 @@ upgrades and on generated API pages.
 
 Mintlify owns the PostHog integration configured in `docs.json`, including its
 initialization, persistence and default collection policy. The footer only
-handles presentation and Back to top; it has no cookie-preferences UI and
+handles presentation; it has no cookie-preferences UI and
 neither accesses a visitor SDK nor reads or writes analytics consent storage.
