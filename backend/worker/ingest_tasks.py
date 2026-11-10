@@ -29,6 +29,9 @@ def _json_serializer(obj: object) -> str:
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
+_REDIS_CONTEXT = threading.local()
+
+
 def _flush_span_chunk(
     chunk: list[dict],
     ch_client,
@@ -40,7 +43,7 @@ def _flush_span_chunk(
 
     Attachment extraction (if enabled) mutates the span dicts in-place before they
     are inserted. After inserting, the chunk is published to Redis for live trace
-    streaming. The caller clears the chunk after this returns to free memory.
+    streaming.
 
     Args:
         chunk: Span record dicts to insert. Modified in-place by attachment
@@ -55,7 +58,7 @@ def _flush_span_chunk(
 
         extract_attachments(s3_service, project_id, [], chunk)
 
-    ch_client.insert_spans_batch(chunk)
+    ch_client.insert_spans_batch(list(chunk))
     _publish_live_spans(chunk, project_id)
 
 
@@ -63,6 +66,9 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
     """Publish spans to Redis for live trace streaming.
 
     Groups spans by trace_id and publishes to per-trace channels.
+    Excludes internal ClickHouse fields like ``ch_update_time`` from the payload.
+    Reuses a task-scoped Redis client when available in thread-local storage;
+    otherwise opens and closes a fresh connection.
     Never raises — Redis failures must not break the ingest pipeline.
     """
     try:
@@ -70,15 +76,25 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
 
         from shared.config import settings
 
-        # Create a fresh Redis connection per call — do NOT use the singleton
-        # get_redis_client() here because Celery uses prefork and module-level
-        # singletons created before/across fork() crash on macOS (SIGABRT).
-        redis_client = redis_lib.from_url(settings.redis.url, decode_responses=True)
+        client = getattr(_REDIS_CONTEXT, "client", None)
+        close_client = False
+        if client is None:
+            # Create a fresh Redis connection when not in a task context.
+            client = redis_lib.from_url(settings.redis.url, decode_responses=True)
+            close_client = True
 
-        # Group spans by trace_id
+        defer_completions = getattr(_REDIS_CONTEXT, "defer_completions", False)
+        completed_traces = getattr(_REDIS_CONTEXT, "completed_traces", None)
+
+        # Group spans by trace_id, stripping internal ClickHouse versioning
         by_trace: dict[str, list[dict]] = defaultdict(list)
         for span in spans:
-            by_trace[span["trace_id"]].append(span)
+            clean_span = {k: v for k, v in span.items() if k != "ch_update_time"}
+            by_trace[span["trace_id"]].append(clean_span)
+
+            if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
+                if completed_traces is not None:
+                    completed_traces.add(span["trace_id"])
 
         for trace_id, trace_spans in by_trace.items():
             channel = f"trace:live:{project_id}:{trace_id}"
@@ -88,18 +104,20 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
                 {"type": "spans", "spans": trace_spans},
                 default=_json_serializer,
             )
-            redis_client.publish(channel, payload)
+            client.publish(channel, payload)
 
             # Check if trace is complete (root span with end time)
-            for span in trace_spans:
-                if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
-                    redis_client.publish(
-                        channel,
-                        json.dumps({"type": "trace_complete"}),
-                    )
-                    break
+            if not defer_completions:
+                for span in trace_spans:
+                    if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
+                        client.publish(
+                            channel,
+                            json.dumps({"type": "trace_complete"}),
+                        )
+                        break
 
-        redis_client.close()
+        if close_client:
+            client.close()
 
     except Exception:
         logger.warning("Failed to publish live spans to Redis", exc_info=True)
@@ -420,29 +438,61 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         eval_trace_ids: set[str] = set()
         chunk: list[dict] = []
 
-        for span_record in iter_transform_spans(otel_data, project_id, ctx):
-            # Stamp version in-place — zero copy, no {**s, ...} needed.
-            span_record["ch_update_time"] = version
-            # Track evaluation traces for cost derivation below.
-            if span_record.get("is_evaluation"):
-                eval_trace_ids.add(span_record["trace_id"])
+        # Set up task-scoped Redis publisher context for connection reuse and deferred completion
+        redis_client = None
+        try:
+            import redis as redis_lib
 
-            chunk.append(span_record)
+            redis_client = redis_lib.from_url(settings.redis.url, decode_responses=True)
+        except Exception:
+            redis_client = None
 
-            if len(chunk) >= SPAN_CHUNK_SIZE:
+        _REDIS_CONTEXT.client = redis_client
+        _REDIS_CONTEXT.defer_completions = True
+        _REDIS_CONTEXT.completed_traces = set()
+
+        try:
+            for span_record in iter_transform_spans(otel_data, project_id, ctx):
+                # Stamp version in-place — zero copy, no {**s, ...} needed.
+                span_record["ch_update_time"] = version
+                # Track evaluation traces for cost derivation below.
+                if span_record.get("is_evaluation"):
+                    eval_trace_ids.add(span_record["trace_id"])
+
+                chunk.append(span_record)
+
+                if len(chunk) >= SPAN_CHUNK_SIZE:
+                    _flush_span_chunk(
+                        chunk, ch_client, s3_service, project_id, attachments_enabled,
+                    )
+                    total_spans += len(chunk)
+                    chunk = []
+
+            # Flush remaining spans in the last (partial) chunk.
+            if chunk:
                 _flush_span_chunk(
                     chunk, ch_client, s3_service, project_id, attachments_enabled,
                 )
                 total_spans += len(chunk)
-                chunk.clear()
+                chunk = []
 
-        # Flush remaining spans in the last (partial) chunk.
-        if chunk:
-            _flush_span_chunk(
-                chunk, ch_client, s3_service, project_id, attachments_enabled,
-            )
-            total_spans += len(chunk)
-            chunk.clear()
+            # Signal completion on completed traces only AFTER all chunks are flushed
+            if _REDIS_CONTEXT.completed_traces and redis_client is not None:
+                try:
+                    for trace_id in _REDIS_CONTEXT.completed_traces:
+                        channel = f"trace:live:{project_id}:{trace_id}"
+                        redis_client.publish(channel, json.dumps({"type": "trace_complete"}))
+                except Exception:
+                    pass
+        finally:
+            _REDIS_CONTEXT.client = None
+            _REDIS_CONTEXT.defer_completions = False
+            _REDIS_CONTEXT.completed_traces = None
+            if redis_client is not None:
+                try:
+                    redis_client.close()
+                except Exception:
+                    pass
 
         logger.info(f"Inserted {total_spans} spans from {s3_key}")
 

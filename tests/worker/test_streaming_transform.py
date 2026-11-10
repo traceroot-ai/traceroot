@@ -5,8 +5,11 @@ monolithic ``transform_otel_to_clickhouse``, and that TransformContext correctly
 accumulates and finalizes trace-level metadata across spans.
 """
 
+import json
 import types
+from datetime import UTC, datetime
 from typing import Generator
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,6 +19,7 @@ from tests.fixtures.otel_payloads import (
     make_otel_payload,
     make_span,
 )
+from worker.ingest_tasks import _flush_span_chunk, _publish_live_spans
 from worker.otel_transform import (
     TransformContext,
     iter_transform_spans,
@@ -420,8 +424,18 @@ class TestStreamingBackwardCompatibility:
 # ── Chunked Consumer Pattern ────────────────────────────────────────────
 
 
+class FakeClickHouseClient:
+    """Fake ClickHouse client recording batch inserts."""
+
+    def __init__(self):
+        self.inserted_batches = []
+
+    def insert_spans_batch(self, spans: list[dict]):
+        self.inserted_batches.append(list(spans))
+
+
 class TestChunkedConsumer:
-    """Tests for consuming iter_transform_spans in bounded-memory chunks."""
+    """Tests for consuming iter_transform_spans in bounded-memory chunks via the flush path."""
 
     def _make_large_payload(self, n_spans: int) -> dict:
         """Build a payload with n_spans child spans under one root."""
@@ -435,57 +449,81 @@ class TestChunkedConsumer:
         return make_otel_payload(spans)
 
     def test_chunked_processes_all_spans(self):
-        """All spans are processed regardless of chunk size."""
+        """All spans are processed and inserted via _flush_span_chunk."""
         payload = self._make_large_payload(50)
         ctx = TransformContext(project_id="proj-1")
+        fake_ch = FakeClickHouseClient()
+        mock_redis = MagicMock()
 
-        total = 0
         chunk_size = 10
         chunk = []
         for span in iter_transform_spans(payload, "proj-1", ctx):
             chunk.append(span)
             if len(chunk) >= chunk_size:
-                total += len(chunk)
-                chunk.clear()
+                _flush_span_chunk(
+                    chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+                )
+                chunk = []
         if chunk:
-            total += len(chunk)
-            chunk.clear()
+            _flush_span_chunk(
+                chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+            )
+            chunk = []
 
-        assert total == 50
+        # 50 spans flushed in chunks of 10 = 5 ClickHouse insert calls of 10 spans each
+        assert len(fake_ch.inserted_batches) == 5
+        assert all(len(batch) == 10 for batch in fake_ch.inserted_batches)
+        assert sum(len(batch) for batch in fake_ch.inserted_batches) == 50
+        assert mock_redis.publish.called
 
     def test_chunk_sizes_bounded(self):
-        """Each chunk is at most chunk_size spans."""
+        """Each chunk flushed to ClickHouse is at most chunk_size spans."""
         payload = self._make_large_payload(27)
         ctx = TransformContext(project_id="proj-1")
+        fake_ch = FakeClickHouseClient()
+        mock_redis = MagicMock()
 
         chunk_size = 10
-        chunk_sizes = []
         chunk = []
         for span in iter_transform_spans(payload, "proj-1", ctx):
             chunk.append(span)
             if len(chunk) >= chunk_size:
-                chunk_sizes.append(len(chunk))
-                chunk.clear()
+                _flush_span_chunk(
+                    chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+                )
+                chunk = []
         if chunk:
-            chunk_sizes.append(len(chunk))
+            _flush_span_chunk(
+                chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+            )
+            chunk = []
 
-        # 27 spans / 10 per chunk = [10, 10, 7]
-        assert chunk_sizes == [10, 10, 7]
+        # 27 spans / 10 per chunk = batches of [10, 10, 7]
+        batch_sizes = [len(batch) for batch in fake_ch.inserted_batches]
+        assert batch_sizes == [10, 10, 7]
 
     def test_trace_finalization_after_exhaustion(self):
         """Traces are finalized correctly after all chunks are consumed."""
         payload = self._make_large_payload(20)
         ctx = TransformContext(project_id="proj-1")
+        fake_ch = FakeClickHouseClient()
+        mock_redis = MagicMock()
 
         chunk_size = 5
         chunk = []
         for span in iter_transform_spans(payload, "proj-1", ctx):
             chunk.append(span)
             if len(chunk) >= chunk_size:
-                chunk.clear()
-        chunk.clear()
+                _flush_span_chunk(
+                    chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+                )
+                chunk = []
+        if chunk:
+            _flush_span_chunk(
+                chunk, fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+            )
+            chunk = []
 
-        # Despite chunked consumption, traces are correct
         traces = ctx.finalize_traces()
         assert len(traces) == 1
         assert traces[0]["trace_id"] == TRACE_A
@@ -501,28 +539,75 @@ class TestChunkedConsumer:
 
         assert ctx.root_bearing_trace_ids == {TRACE_A}
 
-    def test_single_span_chunk(self):
-        """Chunk size of 1 still works correctly."""
+    def test_single_span_flush_path(self):
+        """Flushing single-span chunks drives the real insert and publish path."""
         payload = self._make_large_payload(5)
         ctx = TransformContext(project_id="proj-1")
+        fake_ch = FakeClickHouseClient()
+        mock_redis = MagicMock()
 
-        chunks_processed = 0
         for span in iter_transform_spans(payload, "proj-1", ctx):
-            chunks_processed += 1
+            _flush_span_chunk(
+                [span], fake_ch, None, "proj-1", attachments_enabled=False, redis_client=mock_redis,
+            )
 
-        assert chunks_processed == 5
+        assert len(fake_ch.inserted_batches) == 5
+        assert all(len(batch) == 1 for batch in fake_ch.inserted_batches)
         traces = ctx.finalize_traces()
         assert len(traces) == 1
 
 
-# ── Flush Span Chunk (ingest_tasks helper) ──────────────────────────────
+# ── Live Span Publishing ────────────────────────────────────────────────
 
 
-class TestFlushSpanChunkImport:
-    """Verify the _flush_span_chunk helper is importable and callable."""
+class TestLiveSpanPublishing:
+    """Tests for live publishing connection reuse, field filtering, and completion deferral."""
 
-    def test_importable(self):
-        from worker.ingest_tasks import _flush_span_chunk
+    @patch("redis.from_url")
+    def test_publish_excludes_ch_update_time(self, mock_from_url):
+        mock_redis = MagicMock()
+        mock_from_url.return_value = mock_redis
 
-        assert callable(_flush_span_chunk)
+        span_with_ch_time = {
+            "trace_id": TRACE_A,
+            "span_id": ROOT_SPAN,
+            "name": "my-span",
+            "ch_update_time": datetime.now(UTC),
+        }
+        _publish_live_spans([span_with_ch_time], "proj-1", redis_client=mock_redis)
+
+        assert mock_redis.publish.called
+        channel, payload_str = mock_redis.publish.call_args[0]
+        assert channel == f"trace:live:proj-1:{TRACE_A}"
+
+        payload = json.loads(payload_str)
+        assert payload["type"] == "spans"
+        published_span = payload["spans"][0]
+        assert "ch_update_time" not in published_span
+        assert published_span["span_id"] == ROOT_SPAN
+
+    def test_publish_defers_trace_complete_when_requested(self):
+        mock_redis = MagicMock()
+
+        root_span = {
+            "trace_id": TRACE_A,
+            "span_id": ROOT_SPAN,
+            "parent_span_id": None,
+            "span_end_time": datetime.now(UTC),
+        }
+        # When signal_completion=False (during chunk flush), trace_complete must NOT be sent!
+        _publish_live_spans([root_span], "proj-1", redis_client=mock_redis, signal_completion=False)
+
+        publish_calls = mock_redis.publish.call_args_list
+        assert len(publish_calls) == 1
+        payload = json.loads(publish_calls[0][0][1])
+        assert payload["type"] == "spans"
+
+        # When signal_completion=True, trace_complete IS sent
+        _publish_live_spans([root_span], "proj-1", redis_client=mock_redis, signal_completion=True)
+        assert len(mock_redis.publish.call_args_list) == 3
+        completion_call = mock_redis.publish.call_args_list[2]
+        assert completion_call[0][0] == f"trace:live:proj-1:{TRACE_A}"
+        comp_payload = json.loads(completion_call[0][1])
+        assert comp_payload == {"type": "trace_complete"}
 
