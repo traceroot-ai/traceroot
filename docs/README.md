@@ -67,12 +67,8 @@ It adds no framework or analytics SDK.
 The analytics ownership is documented in `brand/README.md`. Mintlify retains
 its existing integration behavior.
 
-`favicon.js` keeps the browser tab icon the same size as the website's. Mintlify
-generates 16px and 32px icons from `docs.json` `favicon`, and browsers draw the
-16px one, so the mark looks smaller and thinner. The script removes the generated
-icon links and declares the 192px `logo/favicon.png`, the same file the website
-uses, at the local root or under `/docs`. It keeps `apple-touch-icon` and
-re-applies when Mintlify re-renders its head tags.
+`favicon.js` swaps Mintlify's generated tab icons for the website's 192px
+`logo/favicon.png`, so the tab icon matches the website's size.
 
 Brand assets and fonts are snapshots of the website, with sources listed in
 `brand/README.md`. `brand/fonts.css` embeds both website WOFF2 snapshots so the
