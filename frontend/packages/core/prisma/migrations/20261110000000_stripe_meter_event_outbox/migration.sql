@@ -59,9 +59,9 @@ ALTER TABLE "billing_meter_reports"
   FOREIGN KEY ("cursor_id") REFERENCES "billing_meter_cursors"("id")
   ON DELETE CASCADE ON UPDATE NO ACTION;
 
--- Preserve the existing confirmed watermark only when its stored period still
--- matches the workspace's current billing-period anchor. When the Stripe
--- anchor is missing, use the same current-calendar-month fallback as the worker.
+-- Preserve each legacy watermark only when its saved period matches the
+-- effective cursor period. This also preserves the calendar-month fallback
+-- for workspaces without a Stripe billing-period anchor.
 INSERT INTO "billing_meter_cursors"
   ("id", "workspace_id", "meter", "period_start", "confirmed_units", "create_time", "update_time")
 SELECT
@@ -70,27 +70,7 @@ SELECT
   m."meter",
   p."period_start",
   CASE
-    WHEN m."raw_units" ~ '^[0-9]+
-  CURRENT_TIMESTAMP,
-  CURRENT_TIMESTAMP
-FROM "workspaces" w
-CROSS JOIN LATERAL (
-  VALUES
-    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0'), w."current_usage" #>> '{ai,lastReportedPeriodStart}'),
-    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
-    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
-) AS m("meter", "raw_units", "raw_period_start")
-CROSS JOIN LATERAL (
-  SELECT COALESCE(w."billing_period_start", date_trunc('month', CURRENT_TIMESTAMP)::timestamp) AS "period_start"
-) AS p
-WHERE CASE
-  WHEN m."raw_units" ~ '^[0-9]+$' THEN m."raw_units"::numeric > 0
-  ELSE FALSE
-END
-ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
-
-COMMIT;
-
+    WHEN m."raw_units" ~ '^[0-9]+$'
       AND m."raw_period_start" IS NOT NULL
       AND (m."raw_period_start"::timestamptz AT TIME ZONE 'UTC') = p."period_start"
     THEN LEAST(m."raw_units"::numeric, 9007199254740991)::bigint
@@ -106,7 +86,10 @@ CROSS JOIN LATERAL (
     ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
 ) AS m("meter", "raw_units", "raw_period_start")
 CROSS JOIN LATERAL (
-  SELECT COALESCE(w."billing_period_start", date_trunc('month', CURRENT_TIMESTAMP)::timestamp) AS "period_start"
+  SELECT COALESCE(
+    w."billing_period_start",
+    date_trunc('month', CURRENT_TIMESTAMP)::timestamp
+  ) AS "period_start"
 ) AS p
 WHERE CASE
   WHEN m."raw_units" ~ '^[0-9]+$' THEN m."raw_units"::numeric > 0
