@@ -224,6 +224,7 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
         operator={draft.operator}
         threshold={draft.threshold}
         window={draft.window}
+        noDataMode={draft.noDataMode}
       />
     </div>
   );

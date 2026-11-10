@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cloneElement, isValidElement, type ReactNode } from "react";
+import type { WidgetPreviewData } from "@/features/dashboards/hooks/use-widget-data";
 import type { AlertCapacity } from "../capacity";
 
 // Radix Select opens on pointerdown and relies on pointer-capture APIs jsdom
@@ -129,6 +130,7 @@ describe("AlertForm", () => {
       alertId?: string;
       initialDraft?: AlertDraft;
       hasOpenPage?: boolean;
+      previewResult?: WidgetPreviewData["result"];
       schemaPending?: boolean;
       schemaError?: boolean;
       /** A background refetch failed but the cached schema is still there. */
@@ -139,7 +141,12 @@ describe("AlertForm", () => {
   ) => {
     mocks.useProject.mockReturnValue({ data: { workspace_id: "ws-1" } });
     mocks.useSlackStatus.mockReturnValue({ data: { connected: false } });
-    mocks.useWidgetPreview.mockReturnValue({ isPending: true, error: null, data: undefined });
+    const { previewResult } = props;
+    mocks.useWidgetPreview.mockImplementation((_projectId, spec) =>
+      previewResult
+        ? { isPending: false, error: null, data: { spec, result: previewResult } }
+        : { isPending: true, error: null, data: undefined },
+    );
     mocks.useWidgetSchema.mockReturnValue(
       props.schemaPending
         ? { data: undefined, isPending: true, isError: false }
@@ -159,6 +166,7 @@ describe("AlertForm", () => {
       schemaPending: _schemaPending,
       schemaError: _schemaError,
       schemaStaleError: _schemaStaleError,
+      previewResult: _previewResult,
       ...formProps
     } = props;
     return render(<AlertForm projectId="proj-1" {...formProps} />, { wrapper });
@@ -254,6 +262,34 @@ describe("AlertForm", () => {
 
     await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
     expect(postedRule(fetchMock).noDataMode).toBe("NOTIFY");
+  });
+
+  it("updates the sum preview hint as the selected no-data mode and aggregation change", async () => {
+    renderForm({
+      initialDraft: { ...SAVED_DRAFT, aggregation: "sum", noDataMode: "HOLD" },
+      previewResult: {
+        columns: ["bucket", "value"],
+        rows: [
+          ["2026-08-10T10:00:00", 120],
+          ["2026-08-10T11:00:00", 0],
+        ],
+        meta: { granularity: "hour" },
+      },
+    });
+    const hint = /Zeros in this chart may represent missing data/;
+    expect(screen.getByText(hint)).toBeTruthy();
+
+    openSelect("no data mode");
+    fireEvent.click(await screen.findByRole("option", { name: "Treat as zero" }));
+    expect(screen.queryByText(hint)).toBeNull();
+
+    openSelect("no data mode");
+    fireEvent.click(await screen.findByRole("option", { name: "Notify when data stops" }));
+    expect(screen.getByText(hint)).toBeTruthy();
+
+    openSelect("aggregation");
+    fireEvent.click(await screen.findByRole("option", { name: "avg" }));
+    expect(screen.queryByText(hint)).toBeNull();
   });
 
   it("offers a numeric measure the engine-runnable aggregations, count excluded", async () => {
