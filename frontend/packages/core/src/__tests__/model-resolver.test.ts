@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { complete, Type } from "@earendil-works/pi-ai/compat";
 
 // Mock prisma BEFORE importing the resolver so fetchProviderConfig hits the mock.
 vi.mock("../lib/prisma", () => ({
@@ -27,6 +28,80 @@ import { prisma } from "../lib/prisma.ts";
 import { decryptKey } from "../lib/encryption.ts";
 
 describe("resolvePiModel", () => {
+  it("resolves hosted Terra with its Responses capabilities and rates", () => {
+    expect(resolvePiModel("gpt-5.6-terra", null)).toMatchObject({
+      id: "gpt-5.6-terra",
+      provider: "openai",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      reasoning: true,
+      contextWindow: 1_050_000,
+      maxTokens: 128_000,
+      cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+    });
+  });
+
+  it("sends hosted Terra tool definitions to the Responses API with reasoning disabled", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _options: RequestInit) =>
+      Response.json({ error: { message: "fixture stops the request" } }, { status: 400 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await complete(
+        resolvePiModel("gpt-5.6-terra", null),
+        {
+          messages: [{ role: "user", content: "Return a verdict.", timestamp: 0 }],
+          tools: [
+            {
+              name: "submit_result",
+              description: "Return the verdict",
+              parameters: Type.Object({ identified: Type.Boolean() }),
+            },
+          ],
+        },
+        { apiKey: "sk-test" },
+      );
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(String(url)).toBe("https://api.openai.com/v1/responses");
+      expect(JSON.parse(String(options.body))).toMatchObject({
+        model: "gpt-5.6-terra",
+        reasoning: { effort: "none" },
+        tools: [{ type: "function", name: "submit_result" }],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(["o4-mini", "unknown-hosted-model"])("rejects explicit system model %s", (id) => {
+    expect(() => resolvePiModel(id, null)).toThrow(`Unknown system model "${id}"`);
+  });
+
+  it("preserves a custom BYOK model even when its id has left the hosted catalog", () => {
+    const baseUrl = "https://proxy.example.com/v1";
+    expect(
+      resolvePiModel("o4-mini", {
+        adapter: "openai",
+        key: "sk-test",
+        baseUrl,
+        config: { modelProtocols: { "o4-mini": "openai-completions" } },
+      }),
+    ).toMatchObject({ id: "o4-mini", baseUrl, api: "openai-completions" });
+  });
+
+  it("preserves the hosted defaults when no model is specified", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    try {
+      expect(resolvePiModel(undefined, null).id).toBe("claude-opus-4-8");
+      vi.stubEnv("ANTHROPIC_API_KEY", "");
+      expect(resolvePiModel(undefined, null).id).toBe("gpt-5.5");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("uses anthropic-messages for system Claude", () => {
     const m = resolvePiModel("claude-sonnet-4-5", null);
     expect(m.api).toBe("anthropic-messages");
@@ -121,6 +196,16 @@ describe("resolvePiModel", () => {
       config: null,
     };
     expect(() => resolvePiModel(undefined, cfg)).toThrow(/decision model/i);
+  });
+
+  it("rejects an unsupported BYOK adapter instead of resolving the system model", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "unknown-adapter",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(() => resolvePiModel("gpt-5.5", cfg)).toThrow(/Unsupported BYOK adapter/);
   });
 
   it("throws (instead of substituting a system model) for a decision model id with no BYOK row", () => {

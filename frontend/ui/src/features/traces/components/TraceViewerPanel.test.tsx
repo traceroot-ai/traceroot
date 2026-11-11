@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  rca: undefined as { status: string; result: string } | undefined,
   lastQuery: undefined as { queryKey: unknown[]; queryFn: () => unknown } | undefined,
 }));
 
@@ -38,7 +39,7 @@ vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: undefined }),
-  useRca: () => ({ data: undefined }),
+  useRca: () => ({ data: { rca: mocks.rca } }),
   useTraceDetectorRuns: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
@@ -94,6 +95,15 @@ afterEach(() => {
   mocks.traceError = null;
   mocks.traceLoading = false;
   mocks.aiPanelOpen = false;
+  mocks.rca = undefined;
+});
+
+it("shows the reason when RCA fails before opening an agent session", () => {
+  const result =
+    'RCA failed: Unknown RCA model "removed-model". Select a model in project settings.';
+  mocks.rca = { status: "failed", result };
+  renderPanel();
+  expect(screen.getByRole("alert").textContent).toBe(result);
 });
 
 describe("TraceViewerPanel layout", () => {

@@ -131,8 +131,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   agent: Agent;
   sessionManager: SessionManager;
 }> {
-  const requestedModel = config.model || "claude-sonnet-4-5";
-  const cacheKeyModel = `${requestedModel}:${config.providerName || ""}:${config.source || ""}`;
+  const cacheKeyModel = `${config.model || ""}:${config.providerName || ""}:${config.source || ""}`;
   const cachedModel = sessionModels.get(config.sessionId);
   const existingAgent = sessionAgents.get(config.sessionId);
   const existingManager = sessionManagers.get(config.sessionId);
@@ -158,7 +157,8 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   // Fetch BYOK provider config if this is a BYOK model
   let providerConfig: ProviderModelConfig | null = null;
-  if (config.source === ModelSource.BYOK && config.providerName) {
+  if (config.source === ModelSource.BYOK) {
+    if (!config.providerName) throw new Error("A BYOK model requires a provider.");
     providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
     if (!providerConfig) {
       throw new Error(
@@ -170,7 +170,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   const model = resolvePiModel(config.model, providerConfig);
   console.log(
-    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
+    `[Agent] Using model="${model.id}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
     JSON.stringify(model),
   );
 

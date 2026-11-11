@@ -15,6 +15,7 @@ import {
   DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
   isDecisionAdapter,
   LLMAdapter,
+  retiredSystemModelReplacement,
 } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
 import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE, type JudgeInput } from "./judge-input.js";
@@ -200,11 +201,13 @@ export async function runDetectionForTrace(params: {
   const modelId =
     detector.detectionModel ?? (source === "system" ? DETECTOR_SYSTEM_DEFAULT_MODEL_ID : undefined);
 
-  // A retired or invented id resolves to an unrelated fallback rather than
-  // failing, which would screen on a model nobody chose while every surface
-  // shows the pinned one. A failed run is visible; a substitution is not.
+  // Keep invalid pinned configurations on the normal detector error path.
   if (!providerConfig && modelId && !isSystemModelId(modelId)) {
-    return errorResult(`Detection model "${modelId}" is not a known system model`, source);
+    const replacement = retiredSystemModelReplacement(modelId);
+    const message = replacement
+      ? `Hosted detection model "${modelId}" is retired. Select "${replacement}" in detector settings.`
+      : `Detection model "${modelId}" is not a known system model`;
+    return errorResult(message, source);
   }
 
   let model = resolvePiModel(modelId, providerConfig);

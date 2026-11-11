@@ -20,7 +20,8 @@ const markFindingRunningIfLatestMock = vi.fn().mockResolvedValue(true);
 // runRcaSession calls below supply the same.
 const EXEC = { executionId: "exec-1", attempt: 1, executionTraceId: "f".repeat(32) };
 
-vi.mock("@traceroot/core/model-resolver", async () => ({
+vi.mock("@traceroot/core/model-resolver", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@traceroot/core/model-resolver")>()),
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
   resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
 }));
@@ -71,6 +72,7 @@ afterEach(() => {
   // vitest 4 returns the same spy when vi.spyOn is called on an already-spied method, so
   // call history and implementations would leak between tests without this.
   vi.restoreAllMocks();
+  mockFetch.mockReset();
   fetchProviderConfigMock.mockReset();
   resolvePiModelMock.mockReset();
   modelProviderFindMany.mockReset();
@@ -107,14 +109,29 @@ describe("resolveProjectModel", () => {
     expect(res).toEqual({ model: "gpt-5.3", providerName: "my-openai", source: "byok" });
   });
 
-  it("returns null when BYOK provider is not found or disabled", async () => {
+  it("rejects a missing or disabled BYOK provider", async () => {
     fetchProviderConfigMock.mockResolvedValue(null);
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("gpt-5.3", "missing-provider", "byok", "ws-123");
-
-    expect(res).toBeNull();
+    await expect(
+      resolveProjectModel("gpt-5.3", "missing-provider", "byok", "ws-123"),
+    ).rejects.toThrow(/not found or disabled/);
     expect(resolvePiModelMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects BYOK with no provider name even if the id is a system model", async () => {
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    await expect(resolveProjectModel("gpt-5.5", null, "byok", "ws-123")).rejects.toThrow(
+      /requires a provider/,
+    );
+    expect(resolvePiModelMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a BYOK provider without a pinned RCA model", async () => {
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    await expect(resolveProjectModel(null, "my-openai", "byok", "ws-123")).rejects.toThrow(
+      /requires a model/,
+    );
   });
 
   it("resolves a system model via resolvePiModel", async () => {
@@ -151,13 +168,28 @@ describe("resolveProjectModel", () => {
     expect(res).toEqual({ model: "deepseek-chat", providerName: "my-deepseek", source: "byok" });
   });
 
-  it("returns null for unknown models not in system catalog", async () => {
+  it("rejects unknown models not in the system catalog or a legacy provider", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("unknown-model", null, null, "ws-123");
-
-    expect(res).toBeNull();
+    await expect(resolveProjectModel("unknown-model", null, null, "ws-123")).rejects.toThrow(
+      /unknown-model/,
+    );
     expect(fetchProviderConfigMock).not.toHaveBeenCalled();
   });
+
+  it.each(["system", null])(
+    "does not resolve retired hosted o4-mini through a same-name BYOK entry (%s)",
+    async (source) => {
+      modelProviderFindMany.mockResolvedValue([
+        { provider: "my-openai", customModels: ["o4-mini"] },
+      ]);
+      const { resolveProjectModel } = await import("../detector-rca-processor.js");
+      await expect(resolveProjectModel("o4-mini", null, source, "ws-123")).rejects.toThrow(
+        /o4-mini/,
+      );
+      expect(modelProviderFindMany).not.toHaveBeenCalled();
+      expect(resolvePiModelMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns null for empty or undefined models", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
@@ -165,13 +197,13 @@ describe("resolveProjectModel", () => {
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
   });
 
-  it("handles errors in legacy BYOK provider lookup gracefully", async () => {
+  it("surfaces errors in legacy BYOK provider lookup", async () => {
     modelProviderFindMany.mockRejectedValue(new Error("DB down"));
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("unknown-custom-model", null, null, "ws-123");
-
-    expect(res).toBeNull();
+    await expect(resolveProjectModel("unknown-custom-model", null, null, "ws-123")).rejects.toThrow(
+      /DB down/,
+    );
     expect(modelProviderFindMany).toHaveBeenCalled();
   });
 });
@@ -224,6 +256,25 @@ const textDeltaFrame = {
 };
 
 describe("runRcaSession", () => {
+  it("stops before requesting the agent when the stored system model is unknown", async () => {
+    mockFetch.mockClear();
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [],
+        hasGitHub: false,
+        ...EXEC,
+        rcaModel: "unknown-model",
+        rcaSource: "system",
+      }),
+    ).rejects.toThrow(/unknown-model/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("calls resolveProjectModel and builds message body", async () => {
     fetchProviderConfigMock.mockResolvedValue({
       adapter: "openai",
@@ -543,6 +594,13 @@ describe("runRcaSession", () => {
 
 describe("processRcaJob", () => {
   it("reads rcaProvider and rcaSource from project select", async () => {
+    fetchProviderConfigMock.mockResolvedValue({
+      adapter: "openai",
+      key: "sk-xxx",
+      baseUrl: null,
+      config: null,
+    });
+    resolvePiModelMock.mockReturnValue({ id: "gpt-5.3", provider: "openai" });
     const { prisma: p } = await import("@traceroot/core");
     vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
       billingPlan: "pro",

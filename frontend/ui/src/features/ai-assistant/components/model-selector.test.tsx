@@ -41,6 +41,45 @@ afterEach(() => {
 });
 
 describe("ModelSelector", () => {
+  it("keeps a retired hosted selection until the user selects a replacement", () => {
+    mocks.models = {
+      byokProviders: [
+        {
+          provider: "My OpenAI",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "o4-mini", label: "o4-mini" }],
+        },
+      ],
+      systemModels: [
+        {
+          provider: "OpenAI",
+          adapter: "openai",
+          source: "system",
+          models: [{ id: "gpt-5.6-terra", label: "gpt-5.6-terra" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "o4-mini", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(mocks.onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "o4-mini (retired)" }));
+    fireEvent.click(screen.getByRole("button", { name: "gpt-5.6-terra" }));
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "gpt-5.6-terra",
+      provider: "OpenAI",
+      source: "system",
+      adapter: "openai",
+    });
+  });
+
   it("preserves a saved but unmatched selection instead of auto-picking a default", () => {
     mocks.models = {
       byokProviders: [],

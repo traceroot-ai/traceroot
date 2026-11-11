@@ -82,6 +82,12 @@ export interface LLMModelDef {
 // ──────────────────────────────────────────────
 // System models — always available via env vars.
 // ──────────────────────────────────────────────
+const retiredSystemModels = new Map([["o4-mini", "gpt-5.6-terra"]]);
+
+export function retiredSystemModelReplacement(modelId: string): string | undefined {
+  return retiredSystemModels.get(modelId);
+}
+
 /**
  * Detector-specific hosted screening model.
  *
@@ -154,7 +160,7 @@ export const SYSTEM_MODELS: {
       // The o-series rejects reasoning effort "none", which the Responses client
       // sends when no effort is requested; chat completions sends nothing for them.
       { id: "o3", label: "o3", apiProtocol: "openai-completions" },
-      { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
+      { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
       { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
     ],
   },

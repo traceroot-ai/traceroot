@@ -50,11 +50,7 @@ for (const sys of SYSTEM_MODELS) {
   }
 }
 
-/**
- * Whether `modelId` is one of the compiled-in system models. Lets callers
- * holding a *stored* id reject one that has left the catalog, which
- * `resolvePiModel` would otherwise answer with a substitute model.
- */
+/** Whether `modelId` is in the current system catalog. */
 export function isSystemModelId(modelId: string): boolean {
   return systemModelLookup.has(modelId);
 }
@@ -64,7 +60,28 @@ export function isSystemModelId(modelId: string): boolean {
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
  */
-function buildFallbackModel(modelId: string, apiProtocol: string, provider: string): Model<Api> {
+type FallbackMetadata = Pick<
+  Model<Api>,
+  "baseUrl" | "reasoning" | "cost" | "contextWindow" | "maxTokens"
+>;
+
+// Native hosted models that are missing from the pinned pi-ai registry.
+const hostedFallbackMetadata: Partial<Record<string, FallbackMetadata>> = {
+  "gpt-5.6-terra": {
+    baseUrl: ADAPTER_DEFAULT_BASE_URL.openai,
+    reasoning: true,
+    cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+  },
+};
+
+function buildFallbackModel(
+  modelId: string,
+  apiProtocol: string,
+  provider: string,
+  metadata?: FallbackMetadata,
+): Model<Api> {
   // pi-ai's getModel is typed to known provider IDs; BYOK adapter→provider maps
   // (e.g. deepseek → openai) are valid lookups.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,23 +100,16 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
     maxTokens: 64000,
+    ...metadata,
   } as Model<Api>;
 }
 
 /** Pick the first available system model by provider priority (env-var present). */
-function getDefaultSystemModel(): {
-  modelId: string;
-  piAIProvider: string;
-  apiProtocol: string;
-} | null {
+function getDefaultSystemModel(): string | null {
   for (const adapter of PROVIDER_PRIORITY) {
     const sys = SYSTEM_MODELS.find((s) => s.piAIProvider === adapter && process.env[s.envVar]);
     if (sys && sys.models.length > 0) {
-      return {
-        modelId: sys.models[0].id,
-        piAIProvider: sys.piAIProvider,
-        apiProtocol: sys.models[0].apiProtocol || sys.apiProtocol,
-      };
+      return sys.models[0].id;
     }
   }
   return null;
@@ -108,11 +118,8 @@ function getDefaultSystemModel(): {
 /**
  * Build a pi-ai Model from a model id + optional BYOK provider config.
  *
- * Resolution order:
- *  1. BYOK: build from adapter config (don't trust pi-ai registry — it may
- *     assign a wrong API protocol for custom/BYOK models).
- *  2. System: use system model lookup with per-model protocol override.
- *  3. Unknown model: fall back to best available system model.
+ * BYOK uses the selected adapter and its protocol overrides. System models
+ * must be in the hosted catalog. An omitted system ID selects the default.
  */
 export function resolvePiModel(
   modelId: string | undefined,
@@ -122,9 +129,6 @@ export function resolvePiModel(
   if (modelId && isDecisionModelId(modelId)) {
     throw new Error(`Model "${modelId}" is a decision model and cannot run as a chat model`);
   }
-  const defaultSystemModel = !modelId ? getDefaultSystemModel() : null;
-  const effectiveModelId = modelId || defaultSystemModel?.modelId || "claude-sonnet-4-5";
-
   // 1. BYOK
   if (providerConfig) {
     // A decision adapter has no chat model; falling through would silently run
@@ -135,61 +139,58 @@ export function resolvePiModel(
       );
     }
     const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
-    if (piAIProvider) {
-      const modelProtocols = (providerConfig.config as Record<string, unknown>)?.modelProtocols as
-        | Record<string, string>
-        | undefined;
-
-      // BYOK with no model id: use the adapter's default curated model so we
-      // don't accidentally fall back to an Anthropic default for an OpenAI-
-      // compatible BYOK row. For free-text adapters (azure, amazon-bedrock,
-      // openrouter) the catalog is empty — caller MUST provide modelId, else
-      // we'd silently send a wrong model name to that provider.
-      const catalog = ADAPTER_MODELS[providerConfig.adapter as keyof typeof ADAPTER_MODELS];
-      const fallbackModelId =
-        modelId ||
-        defaultAdapterModel(
-          providerConfig.adapter as LLMAdapter,
-          (catalog ?? []).map((m) => m.id),
-        );
-      if (!fallbackModelId) {
-        throw new Error(
-          `BYOK adapter "${providerConfig.adapter}" has no curated model catalog ` +
-            `— detectionModel must be set explicitly`,
-        );
-      }
-
-      // The BYOK row's `config.modelProtocols` (user-overridable per workspace)
-      // wins over the catalog/adapter default the provider dialog displays.
-      const apiProtocol =
-        modelProtocols?.[fallbackModelId] ||
-        defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
-        "openai-completions";
-      const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
-      const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
-      if (baseUrl) {
-        (model as { baseUrl: string }).baseUrl = baseUrl;
-      }
-      return model;
+    if (!piAIProvider) {
+      throw new Error(`Unsupported BYOK adapter "${providerConfig.adapter}"`);
     }
+    const modelProtocols = (providerConfig.config as Record<string, unknown>)?.modelProtocols as
+      | Record<string, string>
+      | undefined;
+
+    // BYOK with no model id: use the adapter's default curated model so we
+    // don't accidentally fall back to an Anthropic default for an OpenAI-
+    // compatible BYOK row. For free-text adapters (azure, amazon-bedrock,
+    // openrouter) the catalog is empty — caller MUST provide modelId, else
+    // we'd silently send a wrong model name to that provider.
+    const catalog = ADAPTER_MODELS[providerConfig.adapter as keyof typeof ADAPTER_MODELS];
+    const fallbackModelId =
+      modelId ||
+      defaultAdapterModel(
+        providerConfig.adapter as LLMAdapter,
+        (catalog ?? []).map((m) => m.id),
+      );
+    if (!fallbackModelId) {
+      throw new Error(
+        `BYOK adapter "${providerConfig.adapter}" has no curated model catalog ` +
+          `— detectionModel must be set explicitly`,
+      );
+    }
+
+    // The BYOK row's `config.modelProtocols` (user-overridable per workspace)
+    // wins over the catalog/adapter default the provider dialog displays.
+    const apiProtocol =
+      modelProtocols?.[fallbackModelId] ||
+      defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
+      "openai-completions";
+    const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
+    const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
+    if (baseUrl) {
+      (model as { baseUrl: string }).baseUrl = baseUrl;
+    }
+    return model;
   }
 
   // 2. System model with per-model protocol
+  const effectiveModelId = modelId || getDefaultSystemModel() || "claude-sonnet-4-5";
   const sysInfo = systemModelLookup.get(effectiveModelId);
-  if (sysInfo) {
-    return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
+  if (!sysInfo) {
+    throw new Error(`Unknown system model "${effectiveModelId}"`);
   }
-
-  // 3. Unknown — fall back
-  if (defaultSystemModel) {
-    return buildFallbackModel(
-      defaultSystemModel.modelId,
-      defaultSystemModel.apiProtocol,
-      defaultSystemModel.piAIProvider,
-    );
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return getModel("anthropic" as any, "claude-sonnet-4-5" as any) as Model<Api>;
+  return buildFallbackModel(
+    effectiveModelId,
+    sysInfo.apiProtocol,
+    sysInfo.piAIProvider,
+    hostedFallbackMetadata[effectiveModelId],
+  );
 }
 
 const configCache = new Map<string, { config: ProviderModelConfig; expiresAt: number }>();

@@ -279,6 +279,18 @@ describe("runDetectionForTrace", () => {
     expect(mockComplete).not.toHaveBeenCalled();
   });
 
+  it("reports the replacement for a retired hosted detector without running it", async () => {
+    mockIsSystemModelId.mockReturnValue(false);
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "o4-mini" },
+      workspaceId: "ws-1",
+    });
+    expect(result.error).toMatch(/o4-mini.*retired.*gpt-5.6-terra/);
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
   // BYOK rows resolve against their own provider catalog, so the system-model
   // check must not reject them.
   it("does not apply the system-catalog check to BYOK detectors", async () => {

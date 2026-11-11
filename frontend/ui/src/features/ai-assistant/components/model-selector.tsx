@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { isDecisionAdapter } from "@traceroot/core";
+import { isDecisionAdapter, retiredSystemModelReplacement } from "@traceroot/core/llm-providers";
 import { getAvailableLLMModels } from "@/lib/api";
 import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
 
@@ -61,6 +61,8 @@ export function ModelSelector({
   const models = flattenAvailableModels(data, isPending).filter(
     (m) => allowDecisionModels || !isDecisionAdapter(m.adapter),
   );
+  const replacement =
+    value.source === "system" ? retiredSystemModelReplacement(value.model) : undefined;
 
   // Reconcile the incoming selection against the catalog:
   //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
@@ -76,7 +78,7 @@ export function ModelSelector({
   // touched. Waiting for settled state means case 2 only ever matches real
   // models, and case 3 only auto-picks from real models.
   useEffect(() => {
-    if (isPending) return;
+    if (isPending || replacement) return;
 
     const exact = models.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
@@ -122,7 +124,7 @@ export function ModelSelector({
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange, isPending, defaultModelId]);
+  }, [models, value, onChange, isPending, defaultModelId, replacement]);
 
   // Present the tracked default as the selection so an unpinned parent reads
   // like one that stored this model. A BYOK selection with no model runs its
@@ -150,10 +152,12 @@ export function ModelSelector({
                 : "h-7 gap-1 rounded-sm px-2 text-[12px] text-muted-foreground hover:text-foreground"
             }
           >
-            {selectedModel?.label ||
-              value.model ||
-              (showsDefault ? defaultModelId : "") ||
-              "Select model"}
+            {replacement
+              ? `${value.model} (retired)`
+              : selectedModel?.label ||
+                value.model ||
+                (showsDefault ? defaultModelId : "") ||
+                "Select model"}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
@@ -163,6 +167,11 @@ export function ModelSelector({
           className="z-[70] max-h-[320px] w-[280px] overflow-y-auto p-1"
           sideOffset={4}
         >
+          {replacement ? (
+            <p className="px-2 py-1.5 text-[12px] text-muted-foreground">
+              Choose {replacement} to replace {value.model}.
+            </p>
+          ) : null}
           {models.map((m) => {
             const key = modelKey(m);
             const isSelected = key === selectedKey;

@@ -572,6 +572,12 @@ export function TraceViewerPanel({
           </div>
         </div>
 
+        {rcaData?.rca?.status === "failed" && rcaData.rca.result ? (
+          <p role="alert" className="border-b border-border px-4 py-2 text-[13px] text-destructive">
+            {rcaData.rca.result}
+          </p>
+        ) : null}
+
         {/* ── CONTENT AREA ── */}
         <div className="relative flex flex-1 overflow-hidden">
           {/* Top-level split: [ main content | AI assistant (optional) ]. The AI

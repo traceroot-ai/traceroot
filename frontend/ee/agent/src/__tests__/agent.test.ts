@@ -50,6 +50,19 @@ function config(
 }
 
 describe("getOrCreateAgent", () => {
+  it("rejects a BYOK request without a provider", async () => {
+    await expect(
+      getOrCreateAgent({ ...config("missing-provider", []), model: "gpt-5.5", source: "byok" }),
+    ).rejects.toThrow(/requires a provider/);
+  });
+
+  it("keeps a fixed Sonnet selection separate from the default cached agent", async () => {
+    const input = config("default-and-fixed-model", []);
+    const initial = await getOrCreateAgent(input);
+    const fixed = await getOrCreateAgent({ ...input, model: "claude-sonnet-4-5" });
+    expect(fixed.agent).not.toBe(initial.agent);
+  });
+
   it("registers a session-bound write policy hook on the agent", async () => {
     const { agent } = await getOrCreateAgent(config("hook-session", [fakeTool("a")]));
 
