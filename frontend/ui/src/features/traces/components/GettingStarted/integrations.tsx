@@ -578,9 +578,7 @@ const openai = new OpenAI({
       installCommand: `claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
 claude plugin install traceroot-observability@traceroot-claude-code-plugin`,
       label: "bash",
-      initSnippet: `export TRACEROOT_API_KEY="your_key_here"
-# Optional: only needed for self-hosted deployments
-# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"`,
+      initSnippet: `export TRACEROOT_API_KEY="your_key_here"`,
     },
   },
   {
@@ -617,9 +615,7 @@ codex features enable hooks
       installCommand: "pi install npm:@traceroot-ai/pi-extension",
       label: "bash",
       initSnippet: `export TRACEROOT_ENABLED=true
-export TRACEROOT_API_KEY="your_key_here"
-# Optional: only needed for self-hosted deployments
-# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"`,
+export TRACEROOT_API_KEY="your_key_here"`,
     },
   },
 ];

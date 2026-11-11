@@ -255,6 +255,15 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
   );
 
   if (plugin) {
+    // Point the plugin at this deployment the same way EnvironmentStep does for the SDKs.
+    const host = sdkHostUrl();
+    const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
+    const configSnippet =
+      hostUrl === null
+        ? plugin.initSnippet
+        : plugin.label === "bash"
+          ? `${plugin.initSnippet}\nexport TRACEROOT_HOST_URL="${hostUrl}"`
+          : plugin.initSnippet.replace(/\n}$/, `,\n  "host_url": "${hostUrl}"\n}`);
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -279,7 +288,7 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
           <p className="text-[13px] font-medium text-foreground">
             {integration ? "3" : "4"}. Configure
           </p>
-          <CodeBlock label={plugin.label} value={plugin.initSnippet} />
+          <CodeBlock label={plugin.label} value={configSnippet} />
         </div>
 
         <div className="space-y-2">
