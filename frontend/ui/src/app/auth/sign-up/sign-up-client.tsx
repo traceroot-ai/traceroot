@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
-import { checkSignupEmail, EMAIL_POLICY_MESSAGES } from "@/lib/signup/email-policy";
+import { signupEmailError } from "@/lib/signup/email-policy";
 
 const signUpSchema = z
   .object({
@@ -23,9 +23,8 @@ const signUpSchema = z
       .string()
       .email("Invalid email")
       .superRefine((email, ctx) => {
-        const verdict = checkSignupEmail(email);
-        if (!verdict.ok)
-          ctx.addIssue({ code: "custom", message: EMAIL_POLICY_MESSAGES[verdict.reason] });
+        const error = signupEmailError(email);
+        if (error) ctx.addIssue({ code: "custom", message: error.message });
       }),
     password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string(),

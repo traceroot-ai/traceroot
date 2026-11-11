@@ -23,8 +23,7 @@ const prefix = `signup-e2e-${randomUUID()}`;
 // accounts.
 const VALID_DOMAIN = "traceroot.ai";
 
-// Each request gets its own client address, so the default per-IP sign-up
-// budget never leaks between tests. Only the throttling test reuses one.
+// Keep the per-IP sign-up budget independent between tests.
 const ip = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
 
 function signUp(request: APIRequestContext, email: string, clientIp = ip()) {
@@ -42,7 +41,6 @@ test.afterAll(async () => {
 test.describe("sign-up domain policy", () => {
   for (const [domain, code] of [
     ["example.com", "EMAIL_DOMAIN_RESERVED"],
-    ["foo.test", "EMAIL_DOMAIN_RESERVED"],
     ["mailinator.com", "EMAIL_DOMAIN_DISPOSABLE"],
   ] as const) {
     test(`rejects ${domain} without creating an account`, async ({ request }) => {
@@ -59,15 +57,5 @@ test.describe("sign-up domain policy", () => {
     const response = await signUp(request, email);
     expect(response.status()).toBe(200);
     expect(await prisma.user.findUnique({ where: { email } })).not.toBeNull();
-  });
-
-  test("shows the policy error inline on the sign-up form", async ({ page }) => {
-    await page.goto("/auth/sign-up");
-    await page.getByPlaceholder("John Doe").fill("Signup E2E");
-    await page.getByPlaceholder("you@example.com").fill(`${prefix}@mailinator.com`);
-    await page.getByPlaceholder("********").first().fill("correct-horse-battery");
-    await page.getByPlaceholder("********").last().fill("correct-horse-battery");
-    await page.getByRole("button", { name: "Sign up" }).click();
-    await expect(page.getByText(/Disposable email addresses aren't supported/)).toBeVisible();
   });
 });

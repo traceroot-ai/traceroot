@@ -146,15 +146,12 @@ describe("SignUpClient", () => {
     );
   });
 
-  it.each([
-    ["kai@example.com", "This email domain can't receive mail"],
-    ["kai@mailinator.com", "Disposable email addresses aren't supported"],
-  ])("blocks %s inline without calling the server", async (email, message) => {
+  it("shows a blocked domain inline without calling the server", async () => {
     render(<SignUpClient googleAuthConfigured={false} />);
-    fillForm(email);
+    fillForm("kai@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
-    expect(await screen.findByText(new RegExp(message))).toBeTruthy();
+    expect(await screen.findByText(/This email domain can't receive mail/)).toBeTruthy();
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
   });
 

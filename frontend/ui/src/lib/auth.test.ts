@@ -30,8 +30,8 @@ vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventM
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
-vi.mock("@/lib/signup/attribution", () => ({
-  isSelfSignup: (context: { path?: string } | null) => context?.path !== "/admin/create-user",
+vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
   signupAttributionProperties: signupAttributionPropertiesMock,
 }));
 vi.mock("@/env", () => ({
@@ -102,25 +102,30 @@ describe("auth options", () => {
     );
   });
 
-  it("rejects a self-service account on a reserved or disposable domain", async () => {
-    const { before } = options.databaseHooks.user.create;
+  it.each([
+    ["/sign-up/email", "a@mail.EXAMPLE.COM.", "EMAIL_DOMAIN_RESERVED"],
+    ["/sign-up/email", "a@foo.test", "EMAIL_DOMAIN_RESERVED"],
+    ["/sign-up/email", "a@localhost", "EMAIL_DOMAIN_RESERVED"],
+    ["/sign-up/email", "a@[127.0.0.1]", "EMAIL_DOMAIN_RESERVED"],
+    ["/sign-up/email", "invalid", "EMAIL_DOMAIN_RESERVED"],
+    ["/callback/:id", '"a@b"@sub.YOPMAIL.COM ', "EMAIL_DOMAIN_DISPOSABLE"],
+  ])("rejects %s with %s before creating a user", async (path, email, code) => {
     await expect(
-      before({ email: "a@example.com" }, { path: "/sign-up/email" }),
-    ).rejects.toMatchObject({ status: "BAD_REQUEST", body: { code: "EMAIL_DOMAIN_RESERVED" } });
-    await expect(
-      before({ email: "a@yopmail.com" }, { path: "/callback/:id" }),
+      options.databaseHooks.user.create.before({ email }, { path }),
     ).rejects.toMatchObject({
-      body: { code: "EMAIL_DOMAIN_DISPOSABLE" },
+      status: "BAD_REQUEST",
+      body: { code },
     });
-    await expect(
-      before({ email: "a@acme.io" }, { path: "/sign-up/email" }),
-    ).resolves.toBeUndefined();
   });
 
-  it("lets staff provision an account on any domain", async () => {
-    const { before } = options.databaseHooks.user.create;
+  it.each([
+    ["/sign-up/email", "a@example.co"],
+    ["/sign-up/email", "a@notmailinator.com"],
+    ["/sign-up/email", "a@mailinator.com.au"],
+    ["/admin/create-user", "a@example.com"],
+  ])("allows %s with %s", async (path, email) => {
     await expect(
-      before({ email: "a@example.com" }, { path: "/admin/create-user" }),
+      options.databaseHooks.user.create.before({ email }, { path }),
     ).resolves.toBeUndefined();
   });
 
