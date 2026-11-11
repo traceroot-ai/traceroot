@@ -33,8 +33,29 @@ describe("resolvePiModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
+  it("leaves thinking mode to the provider for hosted Sonnet 5.5", () => {
+    expect(resolvePiModel("claude-sonnet-5-5", null)).toMatchObject({
+      id: "claude-sonnet-5-5",
+      api: "anthropic-messages",
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      reasoning: false,
+      compat: { supportsTemperature: false },
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      cost: { input: 2, output: 10, cacheRead: expect.closeTo(0.1), cacheWrite: 2.5 },
+    });
+  });
+
   it("uses openai-responses for system OpenAI models", () => {
-    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex"]) {
+    for (const id of [
+      "gpt-5",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-6-sol",
+    ]) {
       const m = resolvePiModel(id, null);
       expect(m.api, id).toBe("openai-responses");
       expect(m.provider).toBe("openai");

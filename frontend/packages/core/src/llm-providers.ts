@@ -115,7 +115,7 @@ export const SYSTEM_MODELS: {
   piAIProvider: string;
   /** pi-ai API protocol used to construct fallback model objects */
   apiProtocol: string;
-  models: LLMModelDef[];
+  models: (LLMModelDef & { requiresExplicitSource?: boolean })[];
 }[] = [
   {
     provider: "Anthropic",
@@ -131,6 +131,7 @@ export const SYSTEM_MODELS: {
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
       { id: "claude-opus-4-6", label: "claude-opus-4-6" },
       { id: "claude-sonnet-5", label: "claude-sonnet-5" },
+      { id: "claude-sonnet-5-5", label: "claude-sonnet-5-5", requiresExplicitSource: true },
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -156,9 +157,19 @@ export const SYSTEM_MODELS: {
       { id: "o3", label: "o3", apiProtocol: "openai-completions" },
       { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
       { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
+      { id: "gpt-5.6-sol", label: "gpt-5.6-sol", requiresExplicitSource: true },
+      { id: "gpt-5.6-terra", label: "gpt-5.6-terra", requiresExplicitSource: true },
+      { id: "gpt-6-sol", label: "gpt-6-sol", requiresExplicitSource: true },
     ],
   },
 ];
+
+/** Models previously available only via BYOK need an explicit hosted RCA selection. */
+export function requiresExplicitHostedSource(modelId: string | null | undefined): boolean {
+  return SYSTEM_MODELS.some(({ models }) =>
+    models.some((m) => m.id === modelId && m.requiresExplicitSource),
+  );
+}
 
 // Provider priority for default model selection (highest first).
 // Used by both the frontend ModelSelector (matches all providers including BYOK)
