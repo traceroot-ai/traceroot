@@ -595,7 +595,8 @@ claude plugin install traceroot-observability@traceroot-claude-code-plugin`,
     plugin: {
       installCommand: `codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
 codex plugin add tracing@traceroot-codex-plugin
-codex features enable hooks`,
+codex features enable hooks
+# Then start codex and choose "Trust all and continue" when it asks to review hooks`,
       label: "~/.codex/traceroot.json",
       initSnippet: `{
   "enabled": true,
