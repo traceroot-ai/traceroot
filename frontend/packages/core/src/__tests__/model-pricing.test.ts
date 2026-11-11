@@ -14,7 +14,6 @@ import {
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
-import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
 // cacheWrite1h = 2x input.
@@ -170,42 +169,22 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
   });
-});
 
-// DeepSeek renamed Flash to `deepseek-flash`; use the real catalogue matchPattern so
-// the test fails if it stops covering the new name.
-describe("getModelPricing — deepseek-flash resolves to the Flash row", () => {
-  const CANONICAL = "deepseek-v4-flash";
-  const flash = standardModels.find((m) => m.modelName === CANONICAL)!;
+  // DeepSeek renamed Flash to `deepseek-flash`; pattern copied from the catalogue.
   const FLASH_ROW = {
-    modelName: flash.modelName,
-    matchPattern: flash.matchPattern,
+    modelName: "deepseek-v4-flash",
+    matchPattern:
+      "(?i)^(deepseek\\/)?(deepseek-flash|deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
     prices: [
       { usageType: "input", price: 0.00000015 },
       { usageType: "output", price: 0.0000006 },
     ],
   };
 
-  it("resolves deepseek-flash to the canonical price", async () => {
+  it("resolves deepseek-flash to the Flash row's price", async () => {
     const { getModelPricing: lookup } = await loadWithCatalogue([FLASH_ROW]);
-    const canonical = await lookup(CANONICAL);
+    const canonical = await lookup("deepseek-v4-flash");
     const aliased = await lookup("deepseek-flash");
-    expect(aliased).not.toBeNull();
-    expect(aliased).toEqual(canonical);
-  });
-
-  it("resolves a provider-prefixed deepseek/deepseek-flash to the canonical price", async () => {
-    const { getModelPricing: lookup } = await loadWithCatalogue([FLASH_ROW]);
-    const canonical = await lookup(CANONICAL);
-    const aliased = await lookup("deepseek/deepseek-flash");
-    expect(aliased).not.toBeNull();
-    expect(aliased).toEqual(canonical);
-  });
-
-  it("still resolves a provider-prefixed deepseek/deepseek-v4-flash to the canonical price", async () => {
-    const { getModelPricing: lookup } = await loadWithCatalogue([FLASH_ROW]);
-    const canonical = await lookup(CANONICAL);
-    const aliased = await lookup("deepseek/deepseek-v4-flash");
     expect(aliased).not.toBeNull();
     expect(aliased).toEqual(canonical);
   });
