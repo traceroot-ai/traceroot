@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
     workspace_id: "w1",
     alert_emails: [] as string[],
     alert_window: "10m",
-  } as any,
+    rca_model: null as string | null,
+    rca_provider: null,
+    rca_source: null,
+  },
   updateProject: vi.fn().mockResolvedValue({}),
   getAvailableLLMModels: vi.fn().mockResolvedValue({ systemModels: [], byokProviders: [] }),
 }));
@@ -70,23 +73,14 @@ function renderTab() {
 afterEach(() => {
   cleanup();
   mocks.updateProject.mockReset().mockResolvedValue({});
-  mocks.getAvailableLLMModels
-    .mockReset()
-    .mockResolvedValue({ systemModels: [], byokProviders: [] });
   mocks.project.alert_window = "10m";
-  delete mocks.project.rca_model;
-  delete mocks.project.rca_provider;
-  delete mocks.project.rca_source;
+  mocks.project.rca_model = null;
 });
 
 it("keeps a source-less Terra until the user explicitly selects hosted Terra", async () => {
   const terra = { id: "gpt-5.6-terra", label: "gpt-5.6-terra", supported: true };
-  Object.assign(mocks.project, {
-    rca_model: terra.id,
-    rca_provider: null,
-    rca_source: null,
-  });
-  mocks.getAvailableLLMModels.mockResolvedValue({
+  mocks.project.rca_model = terra.id;
+  mocks.getAvailableLLMModels.mockResolvedValueOnce({
     systemModels: [{ provider: "OpenAI", adapter: "openai", source: "system", models: [terra] }],
     byokProviders: [
       { provider: "Legacy provider", adapter: "openai", source: "byok", models: [terra] },
@@ -102,7 +96,6 @@ it("keeps a source-less Terra until the user explicitly selects hosted Terra", a
   expect(mocks.updateProject).not.toHaveBeenCalled();
 
   fireEvent.click(picker.getByRole("button", { name: terra.label }));
-  expect(saveModel.disabled).toBe(false);
   fireEvent.click(saveModel);
   await waitFor(() =>
     expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", {

@@ -24,6 +24,7 @@ import {
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
   HOSTED_TERRA_MODEL_ID,
+  ModelSource,
   defaultAdapterModel,
   defaultApiProtocol,
   isDecisionAdapter,
@@ -60,20 +61,6 @@ export function isSystemModelId(modelId: string): boolean {
   return systemModelLookup.has(modelId);
 }
 
-type FallbackMetadata = Pick<
-  Model<Api>,
-  "baseUrl" | "reasoning" | "cost" | "contextWindow" | "maxTokens"
->;
-
-// Terra needs explicit metadata until pi-ai's registry includes it.
-const terraFallback: FallbackMetadata = {
-  baseUrl: ADAPTER_DEFAULT_BASE_URL.openai,
-  reasoning: true,
-  cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
-  contextWindow: 1_050_000,
-  maxTokens: 128_000,
-};
-
 /**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
@@ -83,7 +70,7 @@ function buildFallbackModel(
   modelId: string,
   apiProtocol: string,
   provider: string,
-  metadata?: FallbackMetadata,
+  source?: ModelSource,
 ): Model<Api> {
   // pi-ai's getModel is typed to known provider IDs; BYOK adapter→provider maps
   // (e.g. deepseek → openai) are valid lookups.
@@ -103,7 +90,16 @@ function buildFallbackModel(
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
     maxTokens: 64000,
-    ...metadata,
+    // Terra is missing from the pinned pi-ai registry.
+    ...(source === ModelSource.SYSTEM && modelId === HOSTED_TERRA_MODEL_ID
+      ? {
+          baseUrl: ADAPTER_DEFAULT_BASE_URL.openai,
+          reasoning: true,
+          cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+          contextWindow: 1_050_000,
+          maxTokens: 128_000,
+        }
+      : {}),
   } as Model<Api>;
 }
 
@@ -202,7 +198,7 @@ export function resolvePiModel(
       effectiveModelId,
       sysInfo.apiProtocol,
       sysInfo.piAIProvider,
-      effectiveModelId === HOSTED_TERRA_MODEL_ID ? terraFallback : undefined,
+      ModelSource.SYSTEM,
     );
   }
 

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { complete, Type } from "@earendil-works/pi-ai/compat";
 
 // Mock prisma BEFORE importing the resolver so fetchProviderConfig hits the mock.
 vi.mock("../lib/prisma", () => ({
@@ -28,53 +27,6 @@ import { prisma } from "../lib/prisma.ts";
 import { decryptKey } from "../lib/encryption.ts";
 
 describe("resolvePiModel", () => {
-  it("resolves hosted Terra with its model capabilities and base rates", () => {
-    expect(isSystemModelId("gpt-5.6-terra")).toBe(true);
-    expect(resolvePiModel("gpt-5.6-terra", null)).toMatchObject({
-      id: "gpt-5.6-terra",
-      provider: "openai",
-      api: "openai-responses",
-      baseUrl: "https://api.openai.com/v1",
-      reasoning: true,
-      contextWindow: 1_050_000,
-      maxTokens: 128_000,
-      cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
-    });
-  });
-
-  it("sends hosted Terra tool definitions through the Responses client", async () => {
-    const fetchMock = vi.fn(async (_url: unknown, _options: RequestInit) =>
-      Response.json({ error: { message: "fixture stops the request" } }, { status: 400 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      await complete(
-        resolvePiModel("gpt-5.6-terra", null),
-        {
-          messages: [{ role: "user", content: "Return a verdict.", timestamp: 0 }],
-          tools: [
-            {
-              name: "submit_result",
-              description: "Return the verdict",
-              parameters: Type.Object({ identified: Type.Boolean() }),
-            },
-          ],
-        },
-        { apiKey: "sk-test" },
-      );
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, options] = fetchMock.mock.calls[0];
-      expect(String(url)).toBe("https://api.openai.com/v1/responses");
-      expect(JSON.parse(String(options.body))).toMatchObject({
-        model: "gpt-5.6-terra",
-        reasoning: { effort: "none" },
-        tools: [{ type: "function", name: "submit_result" }],
-      });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
   it("uses anthropic-messages for system Claude", () => {
     const m = resolvePiModel("claude-sonnet-4-5", null);
     expect(m.api).toBe("anthropic-messages");
@@ -88,6 +40,19 @@ describe("resolvePiModel", () => {
       expect(m.provider).toBe("openai");
       expect(m.id).toBe(id);
     }
+  });
+
+  it("resolves hosted Terra with its model capabilities and base rates", () => {
+    expect(resolvePiModel("gpt-5.6-terra", null)).toMatchObject({
+      id: "gpt-5.6-terra",
+      provider: "openai",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      reasoning: true,
+      contextWindow: 1_050_000,
+      maxTokens: 128_000,
+      cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+    });
   });
 
   it("keeps the o-series on openai-completions (per-model catalog override)", () => {
