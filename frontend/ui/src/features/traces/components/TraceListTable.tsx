@@ -183,12 +183,7 @@ interface FixedCellProps {
 // `Record` makes a new or renamed registry id a compile error rather than a missing column.
 const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement> = {
   timestamp: ({ trace, borderClassName }) => (
-    <td
-      className={cn(
-        borderClassName,
-        "table-timestamp whitespace-nowrap px-3 py-1.5 text-muted-foreground",
-      )}
-    >
+    <td className={cn("whitespace-nowrap", borderClassName, "px-3 py-1.5 text-muted-foreground")}>
       {formatDate(trace.trace_start_time)}
     </td>
   ),

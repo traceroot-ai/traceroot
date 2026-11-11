@@ -156,16 +156,12 @@
   height: 32px;
   padding-top: 0;
   padding-bottom: 0;
+  font-variant-numeric: tabular-nums;
 }
 .data-table tbody td.font-mono,
 .data-table tbody td .font-mono {
   font-family: inherit;
   font-size: 13px;
-}
-
-.table-timestamp {
-  font-variant-numeric: tabular-nums;
-  word-spacing: 0.35em;
 }
 
 /* Controls that belong together sit flush, divided by a single hairline. */

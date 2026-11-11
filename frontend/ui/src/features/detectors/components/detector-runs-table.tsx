@@ -90,9 +90,7 @@ export function DetectorRunsTable({
       <tbody>
         {rows.map((run) => (
           <tr key={run.run_id} className="border-b border-border transition-colors hover:bg-muted">
-            <td
-              className={cn(DETECTOR_TD, "table-timestamp whitespace-nowrap text-muted-foreground")}
-            >
+            <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
               {formatDate(run.timestamp)}
             </td>
             <IdCell
