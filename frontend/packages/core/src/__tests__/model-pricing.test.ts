@@ -170,7 +170,7 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
   });
 
-  // DeepSeek renamed Flash to `deepseek-flash`; pattern copied from the catalogue.
+  // DeepSeek renamed Flash to `deepseek-flash`
   const FLASH_ROW = {
     modelName: "deepseek-v4-flash",
     matchPattern:
