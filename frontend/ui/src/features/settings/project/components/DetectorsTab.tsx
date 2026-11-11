@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowUpRight, Clock, Mail } from "lucide-react";
+import { Clock, Mail } from "lucide-react";
 import { FaSlack } from "react-icons/fa";
 import { Button } from "@/components/ui/button";
 import {
@@ -148,8 +148,8 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">Detectors</h2>
+      <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
+        <h2 className="text-[15px] font-medium">Detectors</h2>
         <p className="text-[13px] text-muted-foreground">Settings shared across all detectors.</p>
         {workspace && !isAdmin && (
           <p className="mt-2 text-[13px] text-muted-foreground">
@@ -159,16 +159,19 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       </div>
 
       <div className="border">
-        <div className="border-b border-border bg-muted/30 px-4 py-2">
-          <h3 className="text-[13px] font-medium">Agent Model</h3>
+        <div className="flex h-9 items-center border-b border-border px-4">
+          <h3 className="text-[13px] font-medium">Agent model</h3>
         </div>
         <div className="px-4 py-3">
-          <ModelSelector
-            value={agentModelSelection}
-            onChange={setAgentModelSelection}
-            workspaceId={project?.workspace_id}
-            disabled={!isAdmin}
-          />
+          <div className="max-w-xs">
+            <ModelSelector
+              value={agentModelSelection}
+              onChange={setAgentModelSelection}
+              workspaceId={project?.workspace_id}
+              field
+              disabled={!isAdmin}
+            />
+          </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
             Used for deep analysis when a finding is triggered. Shared across all detectors.
           </p>
@@ -179,7 +182,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           )}
           <Button
             size="sm"
-            className="mt-3 h-7 text-[12px]"
+            className="mt-3 min-w-[5.5rem]"
             onClick={() => modelMutation.mutate(agentModelSelection)}
             disabled={!isAdmin || !canSave || modelMutation.isPending || !isModelDirty}
           >
@@ -189,7 +192,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       </div>
 
       <div className="border">
-        <div className="border-b border-border bg-muted/30 px-4 py-2">
+        <div className="flex h-9 items-center border-b border-border px-4">
           <h3 className="text-[13px] font-medium">Notifications</h3>
         </div>
 
@@ -197,7 +200,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         <fieldset disabled={!isAdmin} className="px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-            <h4 className="text-[12px] font-medium">Email</h4>
+            <h4 className="text-[13px] font-medium">Email</h4>
           </div>
           <div className="mt-2">
             <AlertChannelsEditor emailAddresses={emailAddresses} onChange={setEmailAddresses} />
@@ -212,7 +215,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           )}
           <Button
             size="sm"
-            className="mt-3 h-7 text-[12px]"
+            className="mt-3 min-w-[5.5rem]"
             onClick={() => emailsMutation.mutate(emailAddresses)}
             disabled={!canSave || emailsMutation.isPending || !isEmailsDirty}
           >
@@ -224,7 +227,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         <div className="border-t border-border px-4 py-3">
           <div className="flex items-center gap-1.5">
             <FaSlack className="h-3.5 w-3.5 text-muted-foreground" />
-            <h4 className="text-[12px] font-medium">Slack</h4>
+            <h4 className="text-[13px] font-medium">Slack</h4>
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
             {slack?.connected ? (
@@ -239,10 +242,9 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           {project?.workspace_id && (
             <Link
               href={`/workspaces/${project.workspace_id}/settings/integrations`}
-              className="mt-3 inline-flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              className="mt-3 inline-flex h-7 min-w-[5.5rem] items-center justify-center gap-1 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               {slack?.connected ? "Manage" : "Connect"}
-              <ArrowUpRight className="h-3 w-3" />
             </Link>
           )}
         </div>
@@ -251,20 +253,20 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         <div className="border-t border-border px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-            <h4 className="text-[12px] font-medium">Alert window</h4>
+            <h4 className="text-[13px] font-medium">Alert window</h4>
           </div>
-          <div className="mt-2">
+          <div className="mt-2 max-w-xs">
             <Select
               value={alertWindow}
               onValueChange={(v) => setAlertWindow(v as AlertWindow)}
               disabled={!isAdmin}
             >
-              <SelectTrigger className="h-7 w-40 text-[12px]" aria-label="window">
+              <SelectTrigger aria-label="window">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
-                  <SelectItem key={w} value={w} className="text-[12px]">
+                  <SelectItem key={w} value={w}>
                     {`Every ${w}`}
                   </SelectItem>
                 ))}
@@ -281,7 +283,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           )}
           <Button
             size="sm"
-            className="mt-3 h-7 text-[12px]"
+            className="mt-3 min-w-[5.5rem]"
             aria-label="Save alert window"
             onClick={() => windowMutation.mutate(alertWindow)}
             disabled={!isAdmin || !canSave || windowMutation.isPending || !isWindowDirty}

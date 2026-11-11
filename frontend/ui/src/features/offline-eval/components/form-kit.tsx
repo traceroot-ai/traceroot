@@ -17,9 +17,9 @@ export function FormCard({
 }) {
   return (
     <div className={cn("border border-border", className)}>
-      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
-        {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+      <div className="flex h-9 items-center justify-between border-b border-border px-4">
+        <span className="text-[13px] font-medium text-foreground">{label}</span>
+        {hint && <span className="text-[12px] text-muted-foreground">{hint}</span>}
       </div>
       <div className="p-3">{children}</div>
     </div>

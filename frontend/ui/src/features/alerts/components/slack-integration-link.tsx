@@ -29,7 +29,7 @@ export function SlackIntegrationLink({
     <Link
       href={href}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-[12px] transition-colors hover:bg-muted/50",
+        "flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-[12px] transition-colors hover:bg-muted",
         className,
       )}
     >
@@ -49,7 +49,7 @@ export function SlackIntegrationLink({
         )}
       </span>
       {isConnected ? (
-        <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+        <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
           Manage
           <ArrowUpRight className="h-3 w-3" />
         </span>

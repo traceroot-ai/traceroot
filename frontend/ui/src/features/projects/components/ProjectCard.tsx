@@ -35,7 +35,7 @@ export function ProjectCard({ project, isDemo = false }: ProjectCardProps) {
           </button>
         </div>
         {!isDemo && (
-          <div className="text-[11px] text-muted-foreground">
+          <div className="text-[12px] text-muted-foreground">
             Created {new Date(project.create_time).toLocaleDateString()}
           </div>
         )}

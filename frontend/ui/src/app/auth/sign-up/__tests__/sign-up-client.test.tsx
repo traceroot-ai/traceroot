@@ -49,6 +49,16 @@ afterEach(() => {
 });
 
 describe("SignUpClient", () => {
+  it("shows a validation error and does not submit a signup without a name", async () => {
+    render(<SignUpClient googleAuthConfigured={false} />);
+    fillForm();
+    fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(await screen.findByText("Name is required")).toBeTruthy();
+    expect(mocks.signUpEmail).not.toHaveBeenCalled();
+  });
+
   it("sends a normal signup straight to onboarding", async () => {
     mocks.signUpEmail.mockResolvedValue({ error: null });
 

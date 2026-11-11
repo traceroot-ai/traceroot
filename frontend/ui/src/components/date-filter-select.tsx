@@ -79,23 +79,23 @@ export function DateFilterSelect({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className={cn("p-0", showCustomPicker ? "w-auto" : "w-auto min-w-[130px]")}
+        className={cn("p-1", showCustomPicker ? "w-auto" : "w-auto min-w-[130px]")}
       >
         {!showCustomPicker ? (
           <TooltipProvider delayDuration={150}>
-            <div className="py-1">
+            <div>
               {DATE_FILTER_OPTIONS.map((option) => {
                 const locked = isOptionLocked(option, retentionDays);
                 const row = (
                   <button
                     key={option.id}
                     className={cn(
-                      "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[13px] transition-colors",
+                      "flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-left text-[13px] transition-colors",
                       locked
-                        ? "text-muted-foreground hover:bg-muted/50"
+                        ? "text-muted-foreground hover:bg-muted"
                         : dateFilter.id === option.id && !option.isCustom
-                          ? "bg-muted/70"
-                          : "hover:bg-muted/50",
+                          ? "bg-accent"
+                          : "hover:bg-muted",
                     )}
                     onClick={() => {
                       if (locked) {

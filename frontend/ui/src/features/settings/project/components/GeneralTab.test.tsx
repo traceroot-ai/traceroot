@@ -53,6 +53,36 @@ afterEach(() => {
 });
 
 describe("GeneralTab project delete dialog", () => {
+  it("saves a changed project name and disables saving an empty name", async () => {
+    renderTab();
+    const input = screen.getByPlaceholderText("Project name");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "  Renamed Project  " } });
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(save);
+    await waitFor(() => {
+      expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", { name: "Renamed Project" });
+    });
+  });
+
+  it("disables save and shows progress while a project rename is pending", async () => {
+    mocks.updateProject.mockReturnValue(new Promise(() => {}));
+    renderTab();
+    fireEvent.change(screen.getByPlaceholderText("Project name"), {
+      target: { value: "Renamed Project" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
+    });
+    expect(mocks.updateProject).toHaveBeenCalledTimes(1);
+  });
+
   it("pressing Enter with the exact project name triggers delete", async () => {
     renderTab();
 

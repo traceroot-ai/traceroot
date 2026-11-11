@@ -22,7 +22,7 @@ export function emptyDatasetForm(overrides: Partial<DatasetFormState> = {}): Dat
   return { name: "", description: "", ...overrides };
 }
 
-/** Bordered card matching the Create Detector form fields. */
+/** Plain label above the control: one form-field pattern for every dialog. */
 function Card({
   label,
   optional,
@@ -33,16 +33,12 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-border">
-      <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="text-[12px] font-medium text-muted-foreground">
-          {label}
-          {optional && (
-            <span className="ml-1 font-normal text-muted-foreground/70">(optional)</span>
-          )}
-        </span>
-      </div>
-      <div className="p-3">{children}</div>
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[12px] font-medium text-muted-foreground">
+        {label}
+        {optional && <span className="ml-1 font-normal">(optional)</span>}
+      </span>
+      {children}
     </div>
   );
 }
@@ -66,7 +62,7 @@ export function DatasetFormFields({
           value={state.name}
           onChange={(e) => set("name", e.target.value)}
           aria-label="Name"
-          className="h-7 text-[13px]"
+          className="text-[13px]"
           required
         />
       </Card>
@@ -76,7 +72,7 @@ export function DatasetFormFields({
           value={state.description}
           onChange={(e) => set("description", e.target.value)}
           aria-label="Description"
-          className="h-7 text-[13px]"
+          className="text-[13px]"
         />
       </Card>
     </div>

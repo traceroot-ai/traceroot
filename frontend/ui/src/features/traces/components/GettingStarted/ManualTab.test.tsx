@@ -90,7 +90,7 @@ describe("ManualTab", () => {
       "Create an API key",
       "Install SDK",
       "Set environment variables",
-      "Initialize TraceRoot for OpenAI",
+      "Initialize traceroot for OpenAI",
       "Run your application",
     ]);
   });
@@ -125,7 +125,7 @@ describe("ManualTab", () => {
     expect(container.textContent).toContain("Integration.OPENAI");
 
     rerender(<ManualTab projectId="proj_1" integration={byId("mastra")} />);
-    expect(screen.getByText(/4\. Initialize TraceRoot for Mastra/)).toBeDefined();
+    expect(screen.getByText(/4\. Initialize traceroot for Mastra/)).toBeDefined();
     expect(container.textContent).toContain("@traceroot-ai/mastra");
   });
 
@@ -196,7 +196,7 @@ describe("ManualTab with no stack chosen above it", () => {
       "Install SDK",
       "Set environment variables",
       "Select your integration",
-      "Initialize TraceRoot for OpenAI",
+      "Initialize traceroot for OpenAI",
       "Run your application",
     ]);
   });
@@ -208,13 +208,13 @@ describe("ManualTab with no stack chosen above it", () => {
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
     const picker = screen.getByRole("radiogroup", { name: "Integration" });
     expect(within(picker).getAllByRole("radio")).toHaveLength(INTEGRATIONS.length);
-    expect(within(picker).getByText("Model Providers")).toBeDefined();
+    expect(within(picker).getByText("Model providers")).toBeDefined();
     expect(within(picker).getByText("Frameworks")).toBeDefined();
   });
 
   it("groups its own picker as providers and frameworks, starting on OpenAI", () => {
     render(<ManualTab projectId="proj_1" />);
-    const providers = pickerGroup("Model Providers");
+    const providers = pickerGroup("Model providers");
     const frameworks = pickerGroup("Frameworks");
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
@@ -230,7 +230,7 @@ describe("ManualTab with no stack chosen above it", () => {
     const { container } = render(<ManualTab projectId="proj_1" />);
     fireEvent.click(screen.getByRole("radio", { name: "Mastra" }));
 
-    expect(screen.getByText("5. Initialize TraceRoot for Mastra")).toBeDefined();
+    expect(screen.getByText("5. Initialize traceroot for Mastra")).toBeDefined();
     expect(container.textContent).toContain("@traceroot-ai/mastra");
     const docs = screen.getByRole("link", { name: "View Mastra docs" });
     expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/integrations/mastra");
@@ -238,7 +238,7 @@ describe("ManualTab with no stack chosen above it", () => {
     const picker = screen.getByRole("radiogroup", { name: "Integration" });
     expect(picker.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
-      docs.compareDocumentPosition(screen.getByText("5. Initialize TraceRoot for Mastra")) &
+      docs.compareDocumentPosition(screen.getByText("5. Initialize traceroot for Mastra")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -302,7 +302,7 @@ describe("the environment step", () => {
     );
   });
 
-  it("leaves the host out on TraceRoot Cloud, which both SDKs default to", async () => {
+  it("leaves the host out on traceroot Cloud, which both SDKs default to", async () => {
     const { container } = await renderTabWith({
       apiUrl: "https://app.traceroot.ai/api/v1",
       appUrl: "https://app.traceroot.ai",
@@ -348,7 +348,7 @@ describe("the environment step", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "TypeScript" })[0]);
     expect(container.textContent).toContain(
-      "load that before TraceRoot is initialized: config(), from the dotenv package.",
+      "load that before traceroot is initialized: config(), from the dotenv package.",
     );
     expect(container.textContent).not.toContain("dotenv/config");
     expect(container.textContent).not.toContain("load_dotenv");

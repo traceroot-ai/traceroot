@@ -93,6 +93,16 @@ describe("resolvePiModel", () => {
     expect(m.id).not.toMatch(/claude/i);
   });
 
+  it("falls back to the adapter default for Anthropic BYOK with no model id", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "anthropic",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(resolvePiModel(undefined, cfg).id).toBe("claude-opus-5-5");
+  });
+
   it("throws (instead of substituting an Anthropic default) for free-text adapter with no model id", () => {
     // azure, amazon-bedrock, openrouter aren't in ADAPTER_MODELS; without explicit
     // modelId the resolver would have nothing sensible to use, so it must throw

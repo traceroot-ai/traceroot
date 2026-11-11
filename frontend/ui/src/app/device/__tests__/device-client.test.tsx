@@ -29,7 +29,7 @@ const EMPTY_WORKSPACE = { id: "ws-empty", name: "Acme", role: "ADMIN", project_c
 // Every account joins the public demo as a VIEWER at sign-up, and it has a project.
 const DEMO_WORKSPACE = {
   id: "ws-demo",
-  name: "TraceRoot Demo",
+  name: "traceroot Demo",
   role: "VIEWER",
   project_count: 1,
   is_demo: true,
@@ -162,7 +162,7 @@ describe("DeviceClient", () => {
 
     render(<DeviceClient />);
 
-    await waitFor(() => expect(screen.getByText("TraceRoot CLI")).toBeDefined());
+    await waitFor(() => expect(screen.getByText("traceroot CLI")).toBeDefined());
     expect(screen.getByText("as kai@example.com")).toBeDefined();
     expect(screen.getByText("ABCD-1234")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
@@ -179,7 +179,7 @@ describe("DeviceClient", () => {
     await waitFor(() => screen.getByRole("button", { name: "Approve" }));
     expect(
       screen.getByText(
-        "Only approve a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
+        "Only approve a code you generated yourself just now. If you didn't just run a traceroot command in your terminal, deny this.",
       ),
     ).toBeDefined();
   });
@@ -203,7 +203,7 @@ describe("DeviceClient", () => {
         (_, el) =>
           el?.tagName === "P" &&
           el.textContent ===
-            "Approving signs TraceRoot CLI in to your TraceRoot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign TraceRoot CLI out, but you can revoke it from Active Sessions in your account settings.",
+            "Approving signs traceroot CLI in to your traceroot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign traceroot CLI out, but you can revoke it from Active Sessions in your account settings.",
       ),
     ).toBeDefined();
     expect(screen.getByRole("link", { name: "Active Sessions" }).getAttribute("href")).toBe(
@@ -221,7 +221,7 @@ describe("DeviceClient", () => {
     await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
     expect(
       screen.getByText(
-        "Only continue for a code you generated yourself just now. If you didn't just run a TraceRoot command in your terminal, deny this.",
+        "Only continue for a code you generated yourself just now. If you didn't just run a traceroot command in your terminal, deny this.",
       ),
     ).toBeDefined();
   });

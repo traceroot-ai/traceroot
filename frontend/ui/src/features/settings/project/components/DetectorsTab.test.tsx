@@ -158,7 +158,11 @@ describe("DetectorsTab agent model permissions", () => {
     mocks.workspace.role = "MEMBER";
     renderTab();
     const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
-    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+    const save = within(
+      screen.getByText(
+        "Used for deep analysis when a finding is triggered. Shared across all detectors.",
+      ).parentElement!,
+    ).getByRole("button", { name: /^save$/i });
 
     expect(select.value).toBe("saved-model");
     expect(select.matches(":disabled")).toBe(true);
@@ -170,7 +174,11 @@ describe("DetectorsTab agent model permissions", () => {
   it("lets admins change and save the selection", async () => {
     renderTab();
     const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
-    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+    const save = within(
+      screen.getByText(
+        "Used for deep analysis when a finding is triggered. Shared across all detectors.",
+      ).parentElement!,
+    ).getByRole("button", { name: /^save$/i });
     expect(select.matches(":disabled")).toBe(false);
     expect(save.matches(":disabled")).toBe(true);
     expect(screen.queryByText(/only workspace admins/i)).toBeNull();
@@ -193,7 +201,11 @@ describe("DetectorsTab agent model permissions", () => {
     const { queryClient } = renderTab();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
-    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+    const save = within(
+      screen.getByText(
+        "Used for deep analysis when a finding is triggered. Shared across all detectors.",
+      ).parentElement!,
+    ).getByRole("button", { name: /^save$/i });
 
     fireEvent.change(select, { target: { value: "updated-model" } });
     fireEvent.click(save);
@@ -219,7 +231,11 @@ describe("DetectorsTab agent model permissions", () => {
     const { queryClient } = renderTab();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
-    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+    const save = within(
+      screen.getByText(
+        "Used for deep analysis when a finding is triggered. Shared across all detectors.",
+      ).parentElement!,
+    ).getByRole("button", { name: /^save$/i });
 
     fireEvent.change(select, { target: { value: "updated-model" } });
     fireEvent.click(save);
@@ -237,7 +253,11 @@ describe("DetectorsTab agent model permissions", () => {
     const { queryClient } = renderTab();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     const select = screen.getByRole("combobox", { name: "agent model" }) as HTMLSelectElement;
-    const save = within(select.parentElement!).getByRole("button", { name: /^save$/i });
+    const save = within(
+      screen.getByText(
+        "Used for deep analysis when a finding is triggered. Shared across all detectors.",
+      ).parentElement!,
+    ).getByRole("button", { name: /^save$/i });
 
     fireEvent.change(select, { target: { value: "updated-model" } });
     fireEvent.click(save);
