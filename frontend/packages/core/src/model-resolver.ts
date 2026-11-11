@@ -23,9 +23,11 @@ import {
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  defaultAdapterModel,
   defaultApiProtocol,
   isDecisionAdapter,
   isDecisionModelId,
+  type LLMAdapter,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -138,13 +140,18 @@ export function resolvePiModel(
         | Record<string, string>
         | undefined;
 
-      // BYOK with no model id: use the adapter's first curated model so we
+      // BYOK with no model id: use the adapter's default curated model so we
       // don't accidentally fall back to an Anthropic default for an OpenAI-
       // compatible BYOK row. For free-text adapters (azure, amazon-bedrock,
       // openrouter) the catalog is empty — caller MUST provide modelId, else
       // we'd silently send a wrong model name to that provider.
       const catalog = ADAPTER_MODELS[providerConfig.adapter as keyof typeof ADAPTER_MODELS];
-      const fallbackModelId = modelId || catalog?.[0]?.id;
+      const fallbackModelId =
+        modelId ||
+        defaultAdapterModel(
+          providerConfig.adapter as LLMAdapter,
+          (catalog ?? []).map((m) => m.id),
+        );
       if (!fallbackModelId) {
         throw new Error(
           `BYOK adapter "${providerConfig.adapter}" has no curated model catalog ` +
@@ -190,7 +197,7 @@ const CONFIG_CACHE_TTL_MS = 60_000;
 
 /**
  * Resolve full BYOK provider config (decrypted key + adapter + baseUrl + config).
- * Cached for 60s. Returns null when row missing, disabled, or DB error.
+ * Cached for 60s. Returns null when row missing, disabled, its key is blank, or DB error.
  */
 export async function fetchProviderConfig(
   workspaceId: string,
@@ -216,6 +223,14 @@ export async function fetchProviderConfig(
 
     if (row?.enabled && row.keyCipher) {
       const key = decryptKey(row.keyCipher);
+      // A blank key must never reach pi-ai: it fills a blank key from this
+      // process's environment, which holds the platform's own provider keys.
+      if (!key.trim()) {
+        console.warn(
+          `[model-resolver] BYOK provider "${providerName}" in workspace ${workspaceId} has a blank key; ignoring it`,
+        );
+        return null;
+      }
       const providerConfig: ProviderModelConfig = {
         adapter: row.adapter,
         key,

@@ -1,13 +1,13 @@
 <div align="center">
-  <a href="https://traceroot.ai/">
+  <a href="https://traceroot.ai/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=github-navigation&amp;utm_content=readme-logo-ko">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="frontend/ui/public/images/traceroot_logo_dark.png">
       <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo_light.png">
-      <img src="frontend/ui/public/images/traceroot_logo_light.png" alt="TraceRoot Logo" width="560">
+      <img src="frontend/ui/public/images/traceroot_logo_light.png" alt="traceroot Logo" width="560">
     </picture>
   </a>
 
-오픈 소스 AI 에이전트 개선 플랫폼
+traceroot: 여러분의 AI 에이전트를 지속적으로 개선하는 오픈 소스 플랫폼.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -17,6 +17,12 @@
   [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
   [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-5562EA)](https://deepwiki.com/traceroot-ai/traceroot)
 
+  <p>
+    <a href="https://traceroot.ai/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=github-navigation&amp;utm_content=readme-website-ko">Website</a> ·
+    <a href="https://app.traceroot.ai">Cloud</a> ·
+    <a href="https://traceroot.ai/docs/getting-started/introduction?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=github-navigation&amp;utm_content=readme-docs-ko">Documentation</a> ·
+    <a href="https://discord.gg/TM2m3CtKuC">Community</a>
+  </p>
 </div>
 
 <p align="center">
@@ -25,11 +31,11 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-<p align="center">⭐ 더 많은 개발자에게 TraceRoot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
+<p align="center">⭐ 더 많은 개발자에게 traceroot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
 
-## TraceRoot
+## traceroot
 
-에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
+오픈소스 Braintrust 대안. 에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -37,7 +43,7 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
 ### 프로덕션 실패를 검증된 개선으로 전환하세요
 
-프로덕션 실행을 추적하고, 탐지기로 동작을 평가하며, 반복되는 패턴을 개선 신호로 도출합니다. 코딩 에이전트는 TraceRoot CLI로 신호를 분석하고 로컬에서 코드를 수정한 뒤 오프라인 평가로 변경 사항을 검증합니다. 배포 후에는 새로운 프로덕션 트레이스가 다음 탐지, 신호 분석, 검증으로 이어져 지속적인 개선 루프를 이룹니다.
+프로덕션 실행을 추적하고, 탐지기로 동작을 평가하며, 반복되는 패턴을 개선 신호로 도출합니다. 코딩 에이전트는 traceroot CLI로 신호를 분석하고 로컬에서 코드를 수정한 뒤 오프라인 평가로 변경 사항을 검증합니다. 배포 후에는 새로운 프로덕션 트레이스가 다음 탐지, 신호 분석, 검증으로 이어져 지속적인 개선 루프를 이룹니다.
 
 | 단계 | 설명 |
 | ---- | ----------- |
@@ -46,70 +52,38 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 | **[신호](https://traceroot.ai/docs/signals/introduction)** | 평가 모델의 출력을 클러스터링해 신호를 만듭니다. 백그라운드 코딩 에이전트가 샌드박스에서 트레이스와 연결된 GitHub 코드를 조사해 수정안을 제안합니다. |
 | **[검증](https://traceroot.ai/docs/evals/get-started)** | 데이터셋으로 평가를 실행하고 버전을 비교해 개선 효과를 측정하고 회귀를 발견하세요. |
 
-### 코딩 에이전트를 위한 설계
-
-에이전트에 맞춰 설계된 CLI로 코딩 에이전트가 TraceRoot를 읽고 쓸 수 있게 하세요. 트레이스, 신호, 홈 작업 공간을 탐색하고 탐지기, 데이터셋, 평가, 대시보드, 알림을 생성하고 수정하는 작업을 모두 코딩 에이전트에서 수행할 수 있습니다.
-
-<p align="center">
-  <a href="https://github.com/traceroot-ai/traceroot-cli">
-    <picture>
-      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
-      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
-      <img src="docs/images/coding-agent-cli-light.gif" alt="코딩 에이전트가 TraceRoot CLI를 통해 홈, 트레이스, 대시보드, 탐지기, 평가, 데이터셋, 알림, 신호에 연결됩니다." width="100%">
-    </picture>
-  </a>
-</p>
-
 ## ⭐ 저장소에 Star를 남겨 주세요
 
-TraceRoot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 발견할 수 있도록 도와주세요.
+traceroot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 발견할 수 있도록 도와주세요.
 
 <p align="center">
   <a href="https://github.com/traceroot-ai/traceroot">
-    <img src="docs/images/github-star-demo.gif" alt="GitHub에서 TraceRoot 저장소에 Star를 남기는 방법" width="100%">
+    <img src="docs/images/github-star-demo.gif" alt="GitHub에서 traceroot 저장소에 Star를 남기는 방법" width="100%">
   </a>
 </p>
 
-## TraceRoot 시작하기
+## traceroot 설정하기
 
-### TraceRoot Cloud
-
-[계정을 만들고](https://app.traceroot.ai) 직접 플랫폼을 운영할 필요 없이 시작하세요.
-
-### 셀프 호스팅
-
-Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
-cp .env.example .env
-make prod-lite
-```
-
-[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
-
-## TraceRoot 설정하기
-
-TraceRoot 인스턴스가 준비되면 대시보드에서 프로젝트를 만들고 첫 트레이스를 전송할 방법을 선택하세요. 코딩 에이전트가 CLI로 계측을 설정하도록 하거나 SDK를 직접 설정할 수 있습니다.
+첫 트레이스를 [traceroot Cloud](https://app.traceroot.ai) 또는 직접 운영하는 [traceroot 인스턴스](#traceroot-시작하기)로 전송하세요. 명령어 하나를 실행해 코딩 에이전트가 계측을 추가하도록 하거나, SDK를 직접 설정할 수 있습니다.
 
 ### 코딩 에이전트로 설정하기
 
 <a id="cli-quickstart"></a>
 
-[TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)를 설치하고 로그인하세요:
+추적하려는 저장소의 루트에서 다음을 실행하세요:
 
 ```bash
-npm install -g traceroot-cli
-traceroot login
+npx -y traceroot-cli@latest setup
 ```
 
-그런 다음 코딩 에이전트에게 요청하세요:
+Claude Code, Codex, Cursor, OpenCode, Pi, Antigravity 등과 함께 사용할 수 있습니다.
 
-```text
-TraceRoot CLI로 이 애플리케이션에 트레이싱을 설정해 주세요.
-```
+[traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)는 브라우저로 로그인하고(무료 계정도 여기서 만들 수 있습니다), 프로젝트 API 키를 애플리케이션의 env 파일에 기록한 뒤, Claude Code 또는 Codex가 SDK를 추가하도록 하고 첫 트레이스가 도착할 때까지 기다립니다. Node.js 20.12 이상이 필요합니다.
+
+- 다른 코딩 에이전트를 쓰시나요? setup은 변경 사항을 에이전트가 실행할 작업으로 내보낼 수 있습니다.
+- 셀프 호스팅인가요? `--host`(API 오리진)와 `--auth-host`(웹 앱 오리진)로 setup이 인스턴스를 가리키게 하세요.
+
+각 단계와 셀프 호스팅, 문제 해결은 [설정 가이드](https://traceroot.ai/docs/tracing/get-started)를 참고하세요.
 
 ### SDK로 직접 설정하기
 
@@ -118,7 +92,7 @@ TraceRoot CLI로 이 애플리케이션에 트레이싱을 설정해 주세요.
 <details>
 <summary>최소 TypeScript 예제 실행하기</summary>
 
-Node.js와 npm, TraceRoot 프로젝트 API 키, OpenAI API 키가 필요합니다. 셀프 호스팅을 사용하는 경우 아래 클라우드 호스트 URL을 인스턴스 URL로 바꾸세요.
+Node.js와 npm, traceroot 프로젝트 API 키, OpenAI API 키가 필요합니다. 셀프 호스팅을 사용하는 경우 아래 클라우드 호스트 URL을 인스턴스의 API 오리진(예: `http://localhost:8000`)으로 바꾸세요.
 
 **1. SDK 설치:** TypeScript 프로젝트에서 실행하세요:
 
@@ -166,6 +140,25 @@ main().catch(console.error);
 
 </details>
 
+## traceroot 시작하기
+
+### traceroot Cloud
+
+[계정을 만들고](https://app.traceroot.ai) 직접 플랫폼을 운영할 필요 없이 시작하세요.
+
+### 셀프 호스팅
+
+Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+cp .env.example .env
+make prod-lite
+```
+
+[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
+
 ## 통합
 
 ### 네이티브 SDK
@@ -192,7 +185,7 @@ main().catch(console.error);
 | [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | callback handler를 DeepAgents 파이프라인에 전달해 instrumentation을 자동으로 수집합니다. |
 | [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | RAG 파이프라인, 문서 ingestion, retrieval, LLM synthesis에 대한 instrumentation을 자동으로 수집합니다. |
 | [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Agent Framework의 내장 OpenTelemetry를 통해 agent 실행, 모델 호출, 툴 실행에 대한 instrumentation을 자동으로 수집합니다. |
-| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | TraceRoot OTLP exporter를 통한 자동 instrumentation을 지원합니다. |
+| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | traceroot OTLP exporter를 통한 자동 instrumentation을 지원합니다. |
 | [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | 에이전트 실행, 툴 실행, handoff transition에 대한 instrumentation을 자동으로 수집합니다. |
 | [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | pydantic-ai의 네이티브 OpenTelemetry 지원을 통해 에이전트 실행, LLM 호출, 툴 호출에 대한 instrumentation을 자동으로 수집합니다. |
 | [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | 네이티브 OpenTelemetry tracing을 지원합니다. 별도의 `instrumentModules` 설정이 필요하지 않습니다. AI SDK 7은 `@ai-sdk/otel`이 필요하고, AI SDK 6(레거시)은 `experimental_telemetry`를 사용합니다. |
@@ -225,7 +218,7 @@ main().catch(console.error);
 
 ## License
 
-TraceRoot는 `ee` 디렉터리 외부의 코드에 [Apache 2.0](LICENSE) 라이선스를 적용합니다. `ee` 디렉터리에는 [Enterprise 라이선스](ee/LICENSE)가 적용됩니다.
+traceroot는 `ee` 디렉터리 외부의 코드에 [Apache 2.0](LICENSE) 라이선스를 적용합니다. `ee` 디렉터리에는 [Enterprise 라이선스](ee/LICENSE)가 적용됩니다.
 
 ## Star History
 
@@ -243,13 +236,13 @@ TraceRoot는 `ee` 디렉터리 외부의 코드에 [Apache 2.0](LICENSE) 라이�
 
 <p align="center">
 <a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 기여자" />
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="traceroot 기여자" />
 </a>
 </p>
 
 <br>
 
-<p align="center">⭐ <b>GitHub에서 Star를 눌러</b> TraceRoot를 응원해 주세요!</p>
+<p align="center">⭐ <b>GitHub에서 Star를 눌러</b> traceroot를 응원해 주세요!</p>
 
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb

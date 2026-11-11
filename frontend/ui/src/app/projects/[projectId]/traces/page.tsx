@@ -8,6 +8,7 @@ import { useLayout } from "@/components/layout/app-layout";
 import type { TraceSource } from "@/lib/api/traces";
 import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { Switch } from "@/components/ui/switch";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
@@ -194,8 +195,8 @@ export default function TracesPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
-          <div className="border-b border-border bg-background">
-            <div className="flex items-center">
+          <div className="flex h-11 items-center border-b border-border bg-background">
+            <div className="flex items-center gap-1 px-4">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = tab.id === "traces";
@@ -204,10 +205,10 @@ export default function TracesPage() {
                     key={tab.id}
                     href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                     className={cn(
-                      "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                      "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                       isActive
-                        ? "border-foreground bg-muted text-foreground"
-                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -239,42 +240,34 @@ export default function TracesPage() {
             retentionDays={retention.retentionDays}
             onUpgradeClick={retention.onUpgradeClick}
             beforeDateFilter={
-              <ColumnPicker
-                visibleColumns={visibleColumns}
-                onToggleField={toggleField}
-                onReset={resetColumns}
-              />
+              <>
+                <div
+                  className="flex h-8 items-center gap-2 bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
+                  title={
+                    autoRefresh
+                      ? "Live list refresh on (every 5s) — click to disable"
+                      : "Enable live list refresh"
+                  }
+                >
+                  <label htmlFor="traces-live-refresh" className="cursor-pointer">
+                    Live
+                  </label>
+                  <Switch
+                    id="traces-live-refresh"
+                    checked={autoRefresh}
+                    onCheckedChange={setAutoRefresh}
+                  />
+                </div>
+                <ColumnPicker
+                  visibleColumns={visibleColumns}
+                  onToggleField={toggleField}
+                  onReset={resetColumns}
+                />
+              </>
             }
           >
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoRefresh}
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              title={
-                autoRefresh
-                  ? "Live list refresh on (every 5s) — click to disable"
-                  : "Enable live list refresh"
-              }
-              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
-            >
-              Live
-              <span
-                className={cn(
-                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
-                  autoRefresh ? "bg-foreground" : "bg-input",
-                )}
-              >
-                <span
-                  className={cn(
-                    "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
-                    autoRefresh ? "translate-x-3" : "translate-x-0",
-                  )}
-                />
-              </span>
-            </button>
             {userId && (
-              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
+              <div className="flex items-center gap-1.5 rounded-[2px] border border-border bg-background py-1 pl-2.5 pr-1.5 hover:bg-muted">
                 <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[12px] text-muted-foreground">User:</span>
                 <span className="text-[12px] font-medium text-foreground">{userId}</span>

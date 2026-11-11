@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { MessagesSquare, Radar, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, MessagesSquare, Radar, TriangleAlert } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
@@ -87,12 +87,12 @@ export default function HomePage() {
   // show as runnable before we know whether the visitor is read-only.
   const greeting =
     aiInitialSessionId || accessLoading ? undefined : (
-      <div className="text-center">
+      <div className="w-full text-left">
         <h1 className="text-[15px] font-medium">How can I help?</h1>
-        <p className="mt-1 text-[12px] text-muted-foreground">
+        <p className="mt-1 text-[13px] text-muted-foreground">
           Ask about this project&apos;s traces, sessions, errors, and detector findings.
         </p>
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <div className="mt-6 divide-y divide-border border-y border-border">
           {STARTER_PROMPTS.map(({ icon: Icon, text }) => (
             <button
               key={text}
@@ -111,10 +111,11 @@ export default function HomePage() {
                   adapter: defaultModel.adapter,
                 });
               }}
-              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              className="group flex w-full items-center gap-3 px-1 py-3 text-left text-[13px] text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
-              {text}
+              <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="flex-1">{text}</span>
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           ))}
         </div>

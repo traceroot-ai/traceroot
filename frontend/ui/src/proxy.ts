@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  ATTRIBUTION_COOKIE,
+  ATTRIBUTION_MAX_AGE_SECONDS,
+  encodeAttributionCookie,
+  getUtmParams,
+} from "@/lib/marketing-attribution";
 import { buildContentSecurityPolicy, cspHeaderName, REPORTING_ENDPOINTS } from "@/lib/csp";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 
 // Every page carries a Content-Security-Policy with a fresh nonce (lib/csp.ts).
 // Next.js reads the nonce from the policy on the request and adds it to its own
@@ -41,35 +48,57 @@ export function proxy(req: NextRequest) {
     req.cookies.get("better-auth.session_token") ??
     req.cookies.get("__Secure-better-auth.session_token");
 
-  // Allow auth pages without token
-  if (req.nextUrl.pathname.startsWith("/auth/")) {
-    return nextWithCsp(req);
-  }
-
-  // The device consent page owns its own sign-in round-trip: it must preserve
-  // the ?user_code query and stash it across the redirect (this middleware would
-  // otherwise redirect with a pathname-only callbackUrl, dropping the code). The
-  // sensitive action (approve) is enforced server-side to require the claiming
-  // session, so leaving the page reachable without a token is safe.
-  if (req.nextUrl.pathname === "/device") {
-    return nextWithCsp(req);
-  }
-
-  // No token → redirect to sign-in
-  if (!token) {
+  const utm = getUtmParams(req.nextUrl.searchParams);
+  let response: NextResponse;
+  // Auth pages remain public. /device owns its sign-in round-trip, preserving
+  // the user_code; approval still requires a session in its server handler.
+  if (!token && !req.nextUrl.pathname.startsWith("/auth/") && req.nextUrl.pathname !== "/device") {
     const signInUrl = new URL("/auth/sign-in", req.url);
-    signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
-    return NextResponse.redirect(signInUrl);
+    // The query is part of the destination, not decoration: /onboarding keeps
+    // its pointer back to a waiting `traceroot setup` run in ?callbackUrl, so a
+    // pathname-only value returns the visitor to a bare page with nothing left
+    // to hand the terminal back to. Validated here as well as on the sign-in
+    // page, because the path is attacker-shaped — a request to `//host/x`
+    // arrives as a protocol-relative pathname — and the value we hand onward
+    // should already be a normalized same-origin target.
+    signInUrl.searchParams.set(
+      "callbackUrl",
+      safeCallbackUrl(`${req.nextUrl.pathname}${req.nextUrl.search}`),
+    );
+    for (const [key, value] of Object.entries(utm)) signInUrl.searchParams.set(key, value);
+    response = NextResponse.redirect(signInUrl);
+  } else {
+    response = nextWithCsp(req);
   }
 
-  return nextWithCsp(req);
+  if (
+    !token &&
+    req.method === "GET" &&
+    process.env.NEXT_PUBLIC_POSTHOG_KEY &&
+    process.env.NEXT_PUBLIC_POSTHOG_HOST &&
+    Object.keys(utm).length
+  ) {
+    // The same campaign can bring a visitor back later. Refresh every tagged
+    // visit, accepting the small timestamp shift on the forwarded sign-in hop.
+    const value = encodeAttributionCookie({ capturedAt: Date.now(), utm });
+    if (value)
+      response.cookies.set(ATTRIBUTION_COOKIE, value, {
+        path: "/",
+        maxAge: ATTRIBUTION_MAX_AGE_SECONDS,
+        sameSite: "lax",
+        secure: req.nextUrl.protocol === "https:",
+      });
+  }
+  return response;
 }
 
 export const config = {
   matcher: [
     // Protect all routes except:
     // - api/auth (auth routes)
-    // - api/public (API-key-authed SDK routes; auth via requireApiKeyProject, not a session cookie)
+    // - api/public (API-key-authed, not a cookie; each route calls its own
+    //   Bearer helper from lib/public-auth.ts or lib/eval/auth.ts, some of
+    //   which also check the key's scope)
     // - api/internal (internal API for Python backend, uses X-Internal-Secret)
     // - api/cli (CLI token exchange, authenticates by bearer session token, no cookie)
     // - api/billing/webhook (Stripe webhook, uses signature verification)

@@ -58,7 +58,7 @@ export function ChartLegend({
         <div className="h-2.5 w-2.5 shrink-0" />
         <div className="flex min-w-0 flex-1 items-center justify-between gap-x-3 leading-tight">
           <span className="truncate text-muted-foreground">Total</span>
-          <span className="shrink-0 whitespace-nowrap font-mono font-medium tabular-nums text-foreground">
+          <span className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">
             {format(total)}
           </span>
         </div>
@@ -73,7 +73,7 @@ export function ChartLegend({
       onMouseLeave={() => onHoverKey(null)}
       className={cn(
         "flex w-full items-center gap-2 rounded px-1 py-0.5",
-        hoveredKey === e.key && "bg-muted/50",
+        hoveredKey === e.key && "bg-muted",
       )}
     >
       <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: e.color }} />
@@ -81,7 +81,7 @@ export function ChartLegend({
         <span className="truncate text-muted-foreground" title={e.label}>
           {e.label}
         </span>
-        <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-foreground">
+        <span className="shrink-0 whitespace-nowrap tabular-nums text-foreground">
           {format(e.value)}
         </span>
       </div>
@@ -90,7 +90,7 @@ export function ChartLegend({
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
-      <div className="shrink-0 pt-1 text-[11px]">
+      <div className="shrink-0 pt-1 text-[12px]">
         {/* Tile rows hide from assistive tech while the popover mirrors them. */}
         <div role="list" aria-label="Chart legend" aria-hidden={open || undefined}>
           {totalRow}
@@ -103,7 +103,7 @@ export function ChartLegend({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="rounded px-1 py-0.5 text-[10.5px] text-muted-foreground hover:text-foreground"
+              className="rounded px-1 py-0.5 text-[12px] text-muted-foreground hover:text-foreground"
             >
               {open ? "show less" : `${hiddenCount} more`}
             </button>
@@ -112,7 +112,7 @@ export function ChartLegend({
       </div>
       <PopoverContent
         align="start"
-        className="max-h-64 w-56 overflow-auto p-1 text-[11px] shadow-xl"
+        className="max-h-64 w-56 overflow-auto p-1 text-[12px] shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
         <div role="list" aria-label="Chart legend (all series)">
           {totalRow}

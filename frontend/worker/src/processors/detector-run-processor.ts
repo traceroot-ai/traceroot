@@ -1,4 +1,4 @@
-import { Worker, DelayedError, UnrecoverableError, type Job } from "bullmq";
+import { Worker, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
 import { prisma, PlanType, calculateCost } from "@traceroot/core";
 import type { DetectorRunJob } from "../queues/detector-run-queue.js";
@@ -7,8 +7,10 @@ import {
   EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
-import { runDetectionForTrace } from "../detection/sandbox-eval.js";
+import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../detection/sandbox-eval.js";
+import { buildJudgeInput, type JudgeInput } from "../detection/judge-input.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
+import { downloadSpansJsonl } from "../detection/spans-download.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
 import { enqueueSignalHits } from "../ee/signals/queue.js";
@@ -76,26 +78,6 @@ function deterministicRunId(projectId: string, traceId: string, detectorId: stri
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
-}
-
-async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
-  const response = await fetch(
-    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/spans-jsonl?project_id=${projectId}`,
-    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
-  );
-  if (!response.ok) {
-    const message = `Failed to download spans for trace ${traceId}: HTTP ${response.status}`;
-    if (
-      response.status >= 400 &&
-      response.status < 500 &&
-      response.status !== 408 &&
-      response.status !== 429
-    ) {
-      throw new UnrecoverableError(message);
-    }
-    throw new Error(message);
-  }
-  return response.text();
 }
 
 interface TriggeredResult {
@@ -195,9 +177,10 @@ async function runSingleDetector(params: {
   traceId: string;
   projectId: string;
   spansJsonl: string;
+  getJudgeInput: () => JudgeInput;
   workspaceId: string;
 }): Promise<SingleDetectorOutcome> {
-  const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
+  const { detector, traceId, projectId, spansJsonl, getJudgeInput, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
   // The eval runs inside the self-trace: the detector-run root span is live
@@ -223,6 +206,7 @@ async function runSingleDetector(params: {
       runDetectionForTrace({
         traceId,
         spansJsonl,
+        getJudgeInput,
         detector: {
           id: detector.id,
           name: detector.name,
@@ -394,6 +378,11 @@ async function evaluateTrace(
     return;
   }
 
+  // Built on first use and shared by this trace's detectors.
+  let judgeInput: JudgeInput | undefined;
+  const getJudgeInput = () =>
+    (judgeInput ??= buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS }));
+
   // Run all detectors in parallel; collect triggered results
   const settled = await Promise.allSettled(
     detectors.map((detector) => {
@@ -415,6 +404,7 @@ async function evaluateTrace(
         traceId,
         projectId,
         spansJsonl,
+        getJudgeInput,
         workspaceId,
       });
     }),

@@ -49,12 +49,22 @@ async function readJson(res: { json: () => Promise<unknown> }) {
 
 beforeEach(() => {
   fakePrisma.reset();
-  // An API key resolving to PROJECT_ID (the SDK's Bearer credential).
+  // An API key resolving to PROJECT_ID (the SDK's Bearer credential), shaped as
+  // `resolveApiKeyProject` reads it: the joined project carries the name and
+  // workspace the Bearer public API reports back, and `scope` is the narrow one
+  // an SDK credential actually has.
   fakePrisma.accessKey.rows.push({
+    id: "ak_1",
     secretHash: hashApiKey(API_KEY),
     projectId: PROJECT_ID,
+    scope: "ingest",
     expireTime: null,
-    project: { deleteTime: null },
+    project: {
+      id: PROJECT_ID,
+      name: PROJECT_ID,
+      deleteTime: null,
+      workspace: { id: "ws_1" },
+    },
   });
   // A dataset pinned to version dv1 with two test cases.
   fakePrisma.dataset.rows.push({

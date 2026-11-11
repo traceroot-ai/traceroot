@@ -14,6 +14,7 @@ import {
   formatExactTokens,
   cn,
 } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatContentPreview } from "../utils";
 import { traceMetadataEntries } from "../utils/metadata";
 import { TraceMetadataCell } from "./TraceMetadataCell";
@@ -25,22 +26,22 @@ const ADDED_COLUMN_TABLE_MIN_WIDTH = "min-w-[72rem]";
 
 // The right-hand divider, carried by every cell except the one that ends the row. Positional
 // rather than pinned to Latency, so hiding the last column leaves no divider on the edge.
-const CELL_BORDER = "border-r border-border/50";
+const CELL_BORDER = "border-r border-border";
 
 const HEADER_CELL = "px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground";
 
-const ADDED_COLUMN_WIDTH = "w-[140px] max-w-[180px]";
+const ADDED_COLUMN_WIDTH = "w-[130px] max-w-[130px]";
 
 // Default-on columns only. An opted-in column always sizes with ADDED_COLUMN_WIDTH, so an
 // entry here for one would never be read. Absent means unconstrained: the column takes what
 // is left.
 const HEADER_WIDTH: Partial<Record<FixedColumnId, string>> = {
   timestamp: "w-[140px]",
-  trace_id: "min-w-[280px] max-w-[400px]",
-  errors: "w-[60px]",
-  spans: "w-[60px]",
-  tokens: "w-[100px]",
-  cost: "w-[80px]",
+  trace_id: "min-w-[200px] max-w-[220px]",
+  errors: "w-[60px] text-right",
+  spans: "w-[60px] text-right",
+  tokens: "w-[100px] text-right",
+  cost: "w-[80px] text-right",
 };
 
 interface TraceListTableProps {
@@ -69,11 +70,11 @@ export function TraceListTable({
   const hasColumns = visibleColumns.length > 0;
 
   return (
-    <table className={cn("w-full", hasAddedColumns && ADDED_COLUMN_TABLE_MIN_WIDTH)}>
+    <table className={cn("data-table w-full", hasAddedColumns && ADDED_COLUMN_TABLE_MIN_WIDTH)}>
       {/* Every column can be hidden, so the header row is omitted rather than left empty. */}
       {hasColumns && (
         <thead className="sticky top-0 bg-background">
-          <tr className="border-b border-border bg-muted/50">
+          <tr className="border-b border-border">
             {visibleColumns.map((id, position) => (
               <ColumnHeader key={id} id={id} isLast={position === visibleColumns.length - 1} />
             ))}
@@ -96,7 +97,7 @@ export function TraceListTable({
           ))
         ) : (
           <tr>
-            <td className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+            <td className="px-3 py-6 text-center text-muted-foreground">
               No columns selected. Choose one from the Columns menu.
             </td>
           </tr>
@@ -110,9 +111,9 @@ function ColumnHeader({ id, isLast }: { id: FixedColumnId; isLast: boolean }) {
   const label = fixedColumnLabel(id);
   const isDefaultOn = isDefaultOnColumn(id);
   const className = cn(
+    HEADER_CELL,
     isDefaultOn ? HEADER_WIDTH[id] : ADDED_COLUMN_WIDTH,
     !isLast && CELL_BORDER,
-    HEADER_CELL,
   );
   // An opted-in column is narrow enough for its label to outrun it, so that one truncates
   // and keeps the full text in a title; the defaults are sized to fit theirs.
@@ -146,8 +147,8 @@ function TraceRow({
     <tr
       onClick={() => onSelect(trace.trace_id)}
       className={cn(
-        "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-        isSelected ? "bg-muted" : "hover:bg-muted/50",
+        "cursor-pointer border-b border-border transition-colors",
+        isSelected ? "bg-accent" : "hover:bg-muted",
       )}
     >
       {columns.map((id, position) => {
@@ -182,25 +183,19 @@ interface FixedCellProps {
 // `Record` makes a new or renamed registry id a compile error rather than a missing column.
 const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement> = {
   timestamp: ({ trace, borderClassName }) => (
-    <td
-      className={cn(
-        "whitespace-nowrap",
-        borderClassName,
-        "px-3 py-1.5 text-[12px] text-muted-foreground",
-      )}
-    >
+    <td className={cn("whitespace-nowrap", borderClassName, "px-3 py-1.5 text-muted-foreground")}>
       {formatDate(trace.trace_start_time)}
     </td>
   ),
   name: ({ trace, borderClassName }) => (
-    <td className={cn(borderClassName, "px-3 py-1.5 text-[12px] text-foreground")}>{trace.name}</td>
+    <td className={cn(borderClassName, "px-3 py-1.5 text-foreground")}>{trace.name}</td>
   ),
   trace_id: ({ trace, borderClassName }) => (
     <td
       className={cn(
-        "min-w-[280px] max-w-[400px] whitespace-nowrap",
+        "min-w-[200px] max-w-[220px] whitespace-nowrap",
         borderClassName,
-        "px-3 py-1.5 font-mono text-[11px] text-muted-foreground",
+        "px-3 py-1.5 font-mono text-muted-foreground",
       )}
     >
       <span className="block truncate" title={trace.trace_id}>
@@ -209,9 +204,9 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
     </td>
   ),
   errors: ({ trace, borderClassName }) => (
-    <td className={cn(borderClassName, "px-3 py-1.5 text-center")}>
+    <td className={cn(borderClassName, "px-3 py-1.5 text-right tabular-nums")}>
       {trace.error_count > 0 ? (
-        <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+        <span className="inline-flex min-w-5 justify-center rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger">
           {trace.error_count}
         </span>
       ) : (
@@ -221,21 +216,21 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
   ),
   spans: ({ trace, borderClassName }) => (
     <td
-      className={cn(borderClassName, "px-3 py-1.5 text-center text-[12px] text-muted-foreground")}
+      className={cn(borderClassName, "px-3 py-1.5 text-right tabular-nums text-muted-foreground")}
     >
       {trace.span_count}
     </td>
   ),
   input: ({ trace, borderClassName }) => (
-    <td className={cn("max-w-[180px]", borderClassName, "px-3 py-1.5")}>
-      <span className="block truncate font-mono text-[11px] text-muted-foreground">
+    <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
+      <span className="block truncate font-mono text-[12px] text-muted-foreground">
         {formatContentPreview(trace.input)}
       </span>
     </td>
   ),
   output: ({ trace, borderClassName }) => (
-    <td className={cn("max-w-[180px]", borderClassName, "px-3 py-1.5")}>
-      <span className="block truncate font-mono text-[11px] text-muted-foreground">
+    <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
+      <span className="block truncate font-mono text-[12px] text-muted-foreground">
         {formatContentPreview(trace.output)}
       </span>
     </td>
@@ -253,25 +248,41 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
   ),
   signal_ids: ({ projectId, signalIds, signalIdsFailed, borderClassName }) =>
     signalIds?.length ? (
-      <td className={cn("max-w-[180px]", borderClassName, "px-3 py-1.5")}>
-        <span className="flex flex-col gap-0.5 font-mono text-[11px] text-muted-foreground">
-          {signalIds.map((signalId) => (
-            <Link
-              key={signalId}
-              href={signalDeepLinkPath(projectId, signalId)}
-              // The row opens the trace; a signal id opens the signal instead.
-              onClick={(e) => e.stopPropagation()}
-              title={`${signalId} — open the signal`}
-              className="block truncate transition-colors hover:text-foreground hover:underline"
-            >
-              {signalId}
-            </Link>
-          ))}
+      <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
+        {/* One line per row, always: the first signal id, then a count that opens the rest. */}
+        <span className="flex items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
+          <SignalLink projectId={projectId} signalId={signalIds[0]} />
+          {signalIds.length > 1 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  // The row opens the trace; the count opens the other signals instead.
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Show ${signalIds.length - 1} more signals`}
+                  className="shrink-0 rounded-[2px] px-0.5 transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  +{signalIds.length - 1}
+                </button>
+              </PopoverTrigger>
+              {/* Portaled, but React events still bubble to the row, so stop them here. */}
+              <PopoverContent
+                align="start"
+                aria-label="More signals"
+                onClick={(e) => e.stopPropagation()}
+                className="flex w-auto max-w-[20rem] flex-col gap-1 p-2 font-mono text-[12px] text-muted-foreground"
+              >
+                {signalIds.slice(1).map((signalId) => (
+                  <SignalLink key={signalId} projectId={projectId} signalId={signalId} />
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
         </span>
       </td>
     ) : (
       // A dash once read with none, blank while loading, and a mark if the read failed.
-      <td className={cn(borderClassName, "px-3 py-1.5 text-[12px] text-muted-foreground")}>
+      <td className={cn(borderClassName, "px-3 py-1.5 text-muted-foreground")}>
         {signalIds ? (
           "-"
         ) : signalIdsFailed ? (
@@ -299,7 +310,7 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
         className={cn(
           "whitespace-nowrap",
           borderClassName,
-          "px-3 py-1.5 text-[12px] text-muted-foreground",
+          "px-3 py-1.5 text-right tabular-nums text-muted-foreground",
         )}
       >
         {totalTokens > 0 ? (
@@ -315,18 +326,12 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
     );
   },
   cost: ({ trace, borderClassName }) => (
-    <td className={cn(borderClassName, "px-3 py-1.5 text-[12px] text-foreground")}>
+    <td className={cn(borderClassName, "px-3 py-1.5 text-right tabular-nums text-foreground")}>
       {trace.total_cost && trace.total_cost > 0 ? formatCost(trace.total_cost) : "-"}
     </td>
   ),
   latency: ({ trace, borderClassName }) => (
-    <td
-      className={cn(
-        "whitespace-nowrap",
-        borderClassName,
-        "px-3 py-1.5 text-[12px] text-foreground",
-      )}
-    >
+    <td className={cn("whitespace-nowrap", borderClassName, "px-3 py-1.5 text-foreground")}>
       {formatDuration(trace.duration_ms)}
     </td>
   ),
@@ -342,6 +347,20 @@ function traceTotalTokens(trace: TraceListItem): number | null {
   return (input ?? 0) + (output ?? 0);
 }
 
+function SignalLink({ projectId, signalId }: { projectId: string; signalId: string }) {
+  return (
+    <Link
+      href={signalDeepLinkPath(projectId, signalId)}
+      // The row opens the trace; a signal id opens the signal instead.
+      onClick={(e) => e.stopPropagation()}
+      title={`${signalId} — open the signal`}
+      className="block min-w-0 truncate transition-colors hover:text-foreground hover:underline"
+    >
+      {signalId}
+    </Link>
+  );
+}
+
 /**
  * One token count, exact. Absent renders "-" and a recorded zero renders "0"; the split has
  * to happen here because `formatExactTokens` folds null into "0".
@@ -354,13 +373,7 @@ function UsageCell({
   borderClassName: string | false;
 }) {
   return (
-    <td
-      className={cn(
-        "whitespace-nowrap",
-        borderClassName,
-        "px-3 py-1.5 text-[12px] text-muted-foreground",
-      )}
-    >
+    <td className={cn("whitespace-nowrap", borderClassName, "px-3 py-1.5 text-muted-foreground")}>
       {value == null ? "-" : formatExactTokens(value)}
     </td>
   );
@@ -376,13 +389,11 @@ function FixedFieldCell({
   borderClassName: string | false;
 }) {
   if (value == null || value === "") {
-    return (
-      <td className={cn(borderClassName, "px-3 py-1.5 text-[12px] text-muted-foreground")}>-</td>
-    );
+    return <td className={cn(borderClassName, "px-3 py-1.5 text-muted-foreground")}>-</td>;
   }
   return (
-    <td className={cn("max-w-[180px]", borderClassName, "px-3 py-1.5")}>
-      <span className="block truncate font-mono text-[11px] text-muted-foreground" title={value}>
+    <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
+      <span className="block truncate font-mono text-[12px] text-muted-foreground" title={value}>
         {value}
       </span>
     </td>

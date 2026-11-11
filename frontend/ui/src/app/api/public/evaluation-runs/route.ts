@@ -6,7 +6,7 @@ import {
   type RegisterRunResponse,
   type RegisterRunRequest,
 } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import { runLink } from "@/lib/eval/run-link";
 import { resolvePublicDataset } from "@/lib/eval/versions";
 
@@ -177,7 +177,7 @@ const MAX_REGISTER_ATTEMPTS = 4;
 // assigns run_number and all ids. Pins the dataset's current version when
 // dataset_version_id is omitted.
 export async function POST(request: Request) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
 

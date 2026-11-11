@@ -164,13 +164,13 @@ export function CodeBlock({ label, value, mono = true, language }: CodeBlockProp
   const body = language ? highlightCode(value, language) : mono ? highlightCommands(value) : value;
   return (
     <div className="overflow-hidden rounded-md border border-border">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <CopyButton value={value} className="h-6 w-6" />
+      <div className="flex h-8 items-center justify-between border-b border-border px-4">
+        <span className="text-[12px] text-muted-foreground">{label}</span>
+        <CopyButton value={value} className="h-7 w-7" />
       </div>
       <pre
         className={cn(
-          "overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 text-xs leading-relaxed text-foreground",
+          "overflow-x-auto whitespace-pre-wrap bg-muted px-4 py-2.5 text-[12px] leading-relaxed text-foreground",
           mono && "font-mono",
         )}
       >

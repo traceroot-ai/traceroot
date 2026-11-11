@@ -1,72 +1,39 @@
-"use client";
-
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-
-// Re-export utilities for convenience
-export { LOGO_SVG_CONTENT, getLogoSvgString } from "./logo-utils";
 
 interface LogoProps {
   className?: string;
+  /** "wordmark" is the symbol plus the name; "mark" crops to the symbol alone. */
+  variant?: "wordmark" | "mark";
   size?: "sm" | "md" | "lg";
 }
 
+const WORDMARK_HEIGHT = { sm: "h-5", md: "h-6", lg: "h-8" } as const;
+const MARK_SIZE = { sm: "h-5 w-5", md: "h-6 w-6", lg: "h-8 w-8" } as const;
+
 /**
- * TraceRoot Logo React component with theme support
+ * TraceRoot logo. Both theme images are in the DOM and CSS picks one, so the
+ * right one shows from the first paint with no theme lookup on the client.
  */
-export function Logo({ className, size = "sm" }: LogoProps) {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const isDark = mounted && resolvedTheme === "dark";
-
-  const sizeClasses = {
-    sm: "h-5 w-5",
-    md: "h-6 w-6",
-    lg: "h-8 w-8",
-  };
-
-  const paddingClasses = {
-    sm: "p-1.5",
-    md: "p-2",
-    lg: "p-2.5",
-  };
-
+export function Logo({ className, variant = "wordmark", size = "sm" }: LogoProps) {
+  const mark = variant === "mark";
+  const img = "max-w-none";
+  const fit = mark ? "h-full w-full object-cover object-left" : "h-full w-auto";
   return (
-    <div
+    <span
+      role="img"
+      aria-label="TraceRoot"
       className={cn(
-        "rounded-md",
-        paddingClasses[size],
-        isDark ? "bg-white" : "bg-black",
+        "inline-flex shrink-0 overflow-hidden",
+        mark ? MARK_SIZE[size] : WORDMARK_HEIGHT[size],
         className,
       )}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className={cn(sizeClasses[size], isDark ? "text-black" : "text-white")}
-        viewBox="0 0 23 23"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="11.5" cy="3.5" r="2.5" />
-        <circle cx="5.5" cy="11.5" r="2.5" />
-        <circle cx="17.5" cy="11.5" r="2.5" />
-        <line x1="11.5" y1="6" x2="11.5" y2="8" />
-        <line x1="11.5" y1="8" x2="7.5" y2="10" />
-        <line x1="11.5" y1="8" x2="15.5" y2="10" />
-        <line x1="5.5" y1="14" x2="5.5" y2="17" />
-        <line x1="17.5" y1="14" x2="17.5" y2="17" />
-        <circle cx="5.5" cy="19.5" r="2.5" />
-        <circle cx="17.5" cy="19.5" r="2.5" />
-      </svg>
-    </div>
+      <img src="/images/traceroot_logo_light.png" alt="" className={cn(img, fit, "dark:hidden")} />
+      <img
+        src="/images/traceroot_logo_dark.png"
+        alt=""
+        className={cn(img, fit, "hidden dark:block")}
+      />
+    </span>
   );
 }
