@@ -67,3 +67,17 @@ def test_assistant_prompt_is_filled():
     assert "retry loops in org/repo" in text and "last 14 days" in text and "t1, t2" in text
     assert "<dates>" not in text
     assert "never name or compare individual developers" in text
+
+
+def test_prompt_lists_exactly_the_public_columns():
+    """The monitor-query step names every public column, so a schema change updates the prompt."""
+    from rest.services.sql.schema import PUBLIC_TABLES
+
+    item = next(
+        line for line in runner.PROMPT_PATH.read_text().splitlines() if line.startswith("6. ")
+    )
+    for table in PUBLIC_TABLES.values():
+        listed = item.split(f"{table.name}: ", 1)[1].split(".", 1)[0]
+        assert [c.strip() for c in listed.split(",")] == [c.name for c in table.columns]
+    sample = item.split("Follow the shape of this query: ", 1)[1].rstrip(".")
+    scope_and_render(sample, PROJECT)
