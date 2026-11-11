@@ -172,7 +172,12 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                     {runName(r)}
                   </Link>
                 </td>
-                <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
+                <td
+                  className={cn(
+                    DETECTOR_TD,
+                    "whitespace-nowrap tabular-nums text-muted-foreground",
+                  )}
+                >
                   {formatDate(r.timestamp)}
                 </td>
                 <td className={DETECTOR_TD}>

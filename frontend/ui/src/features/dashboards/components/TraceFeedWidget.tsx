@@ -114,7 +114,7 @@ export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceF
                 onMouseEnter={() => router.prefetch(href)}
                 className="cursor-pointer border-t border-border transition-colors hover:bg-muted"
               >
-                <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
+                <td className="whitespace-nowrap py-1 pr-3 tabular-nums text-muted-foreground">
                   {fmtTime(trace.trace_start_time)}
                 </td>
                 <td className="max-w-[120px] truncate py-1 pr-3" title={trace.name}>

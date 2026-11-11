@@ -705,7 +705,7 @@ function CasePanel({
                           }
                         >
                           <Td className="whitespace-nowrap text-muted-foreground">
-                            <Timestamp iso={r.ranAt} />
+                            <Timestamp iso={r.ranAt} className="tabular-nums" />
                           </Td>
                           <Td className="text-foreground">{r.evaluationName}</Td>
                           <Td className="whitespace-nowrap">

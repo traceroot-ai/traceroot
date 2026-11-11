@@ -197,7 +197,7 @@ export default function SessionsPage() {
                           selectedSessionId === session.session_id ? "bg-accent" : "hover:bg-muted",
                         )}
                       >
-                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] tabular-nums text-muted-foreground">
                           {formatDate(session.first_trace_time)}
                         </td>
                         <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-foreground">

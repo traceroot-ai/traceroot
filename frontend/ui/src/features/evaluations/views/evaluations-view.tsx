@@ -130,7 +130,7 @@ function RunTableRow({
         />
       </Td>
       <Td className="whitespace-nowrap text-muted-foreground">
-        <Timestamp iso={r.startedAt} />
+        <Timestamp iso={r.startedAt} className="tabular-nums" />
       </Td>
       {/* Experiment name is the row's primary identifier — dark, plain text (the
           whole row is the single click target → the run detail). */}
