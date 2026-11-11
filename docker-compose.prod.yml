@@ -403,6 +403,8 @@ services:
       # Only the worker counts what a batch decodes into, so only it gets these.
       INGEST_MAX_SPANS: ${INGEST_MAX_SPANS:-50000}
       INGEST_MAX_OBJECTS: ${INGEST_MAX_OBJECTS:-500000}
+      # Only the worker is redelivered a batch whose process died, so only it gets this.
+      INGEST_MAX_DELIVERIES: ${INGEST_MAX_DELIVERIES:-3}
       # --- Worker config ---
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-5}

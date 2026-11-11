@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from shared.enums import SpanKind
 from worker.celery_app import app
+from worker.delivery_guard import check_redelivery, clear_delivery
 from worker.staged_batch import UndecodableBatchError, load_staged_batch
 
 logger = logging.getLogger(__name__)
@@ -364,6 +365,11 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
 
     logger.info(f"Processing S3 traces: {s3_key} for project {project_id}")
 
+    # Before any work: an attempt whose worker process keeps dying is redelivered without
+    # limit, so past INGEST_MAX_DELIVERIES this raises, failing the attempt like any other
+    # error (see worker.delivery_guard). Outside the try so a refused delivery keeps its count.
+    counted = check_redelivery(self.request, s3_key)
+
     try:
         # 1. Download from S3
         s3_service = get_s3_service()
@@ -478,3 +484,9 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
     except Exception as e:
         logger.error(f"Failed to process {s3_key}: {e}", exc_info=True)
         raise  # Re-raise to trigger Celery retry
+
+    finally:
+        # This delivery ended in its own process, so only a process that died mid-attempt
+        # leaves a count behind.
+        if counted:
+            clear_delivery(self.request)
