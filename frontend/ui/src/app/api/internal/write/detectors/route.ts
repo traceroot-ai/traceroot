@@ -26,6 +26,7 @@ const bodySchema = z.object({
   detectionModel: z.string().nullable().optional(),
   detectionProvider: z.string().nullable().optional(),
   enableRca: z.boolean().optional(),
+  enableSignals: z.boolean().optional(),
   enabled: z.boolean().optional(),
   transport: z.enum(["public-api", "agent"]),
   agentSessionId: z.string().min(1).optional(),

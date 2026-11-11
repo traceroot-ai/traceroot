@@ -109,7 +109,7 @@ describe("POST /api/internal/write/detectors", () => {
 
   it("passes the service's template rule 400 through for a promptless body", async () => {
     const error =
-      "prompt is required unless template is one of: failure, hallucination, logic, task, safety";
+      "prompt is required unless template is one of: failure, hallucination, logic, task, safety, coding-agent-task, coding-agent-failure, coding-agent-context-debt";
     createDetectorMock.mockResolvedValue({ ok: false, status: 400, error });
     const { prompt: _omitted, ...promptless } = validBody;
 

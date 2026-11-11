@@ -171,6 +171,9 @@ export async function createDetector(input: {
       const { name, template, detectionSource, enableRca, enableSignals, enabled } = parsed.data;
       let prompt = parsed.data.prompt;
       let outputSchema = parsed.data.outputSchema;
+      // A standard template carries its own sampling and grouping defaults (a
+      // labeler judges every turn and stays out of Signals); the caller's value wins.
+      const templateDefaults = getTemplate(template);
       if (prompt === undefined) {
         // The schema rule only lets prompt be absent for a standard template,
         // so the canonical lookup cannot miss. A supplied outputSchema still
@@ -180,7 +183,8 @@ export async function createDetector(input: {
         outputSchema = outputSchema ?? canonical.outputSchema;
       }
       const triggerConditions = (parsed.data.triggerConditions as unknown[] | undefined) ?? [];
-      const resolvedSampleRate = parsed.data.sampleRate ?? DEFAULT_DETECTOR_SAMPLE_RATE;
+      const resolvedSampleRate =
+        parsed.data.sampleRate ?? templateDefaults?.sampleRate ?? DEFAULT_DETECTOR_SAMPLE_RATE;
       // A detector created at 0% sampling should not show as "enabled but never
       // fires" — default enabled to sampleRate > 0 so it starts paused instead.
       const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
@@ -222,9 +226,9 @@ export async function createDetector(input: {
           outputSchema: (outputSchema ?? []) as object,
           sampleRate: resolvedSampleRate,
           enabled: resolvedEnabled,
-          enableRca: enableRca ?? true,
+          enableRca: enableRca ?? templateDefaults?.enableRca ?? true,
           // signalsEnabledAt defaults to now: a new detector groups from its first hit.
-          enableSignals: enableSignals ?? true,
+          enableSignals: enableSignals ?? templateDefaults?.enableSignals ?? true,
           detectionModel: parsed.data.detectionModel || null,
           detectionProvider: parsed.data.detectionProvider || null,
           detectionSource: detectionSource ?? null,

@@ -453,7 +453,7 @@ describe("createDetector", () => {
     // outside the standard templates. The drift guard below keeps this
     // literal honest against DETECTOR_TEMPLATES.
     const promptRequiredMessage =
-      "prompt is required unless template is one of: failure, hallucination, logic, task, safety";
+      "prompt is required unless template is one of: failure, hallucination, logic, task, safety, coding-agent-task, coding-agent-failure, coding-agent-context-debt";
 
     function runWithoutPrompt(overrides: Record<string, unknown> = {}) {
       const { prompt: _omitted, ...rest } = baseInput;
@@ -481,6 +481,40 @@ describe("createDetector", () => {
             prompt: template.prompt,
             outputSchema: template.outputSchema,
           }),
+        }),
+      );
+    });
+
+    it("takes a labeler template's sampling and grouping defaults when the caller sends none", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await runWithoutPrompt({ template: "coding-agent-task" });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            sampleRate: 100,
+            enableSignals: false,
+            enableRca: false,
+          }),
+        }),
+      );
+    });
+
+    it("lets the caller override a template's defaults, including enableSignals", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await runWithoutPrompt({
+        template: "coding-agent-failure",
+        sampleRate: 50,
+        enableSignals: false,
+      });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ sampleRate: 50, enableSignals: false }),
         }),
       );
     });

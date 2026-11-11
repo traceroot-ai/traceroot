@@ -174,6 +174,7 @@ async def create_detector(
         "detectionModel": payload.detection_model,
         "detectionProvider": payload.detection_provider,
         "enableRca": payload.enable_rca,
+        "enableSignals": payload.enable_signals,
         "enabled": payload.enabled,
     }
     body.update({key: value for key, value in optionals.items() if value is not None})

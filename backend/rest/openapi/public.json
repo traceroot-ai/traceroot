@@ -941,6 +941,18 @@
             ],
             "title": "Enable Rca"
           },
+          "enable_signals": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Group this detector's hits into Signals (default true). Set false for a labeler that fires on every trace, so its hits do not flood the Signals list.",
+            "title": "Enable Signals"
+          },
           "enabled": {
             "anyOf": [
               {
@@ -6275,6 +6287,11 @@
           },
           "enable_rca": {
             "title": "Enable Rca",
+            "type": "boolean"
+          },
+          "enable_signals": {
+            "description": "Group this detector's hits into Signals. Turning it off stops new grouping; existing signals are kept.",
+            "title": "Enable Signals",
             "type": "boolean"
           },
           "enabled": {

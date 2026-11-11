@@ -120,6 +120,7 @@ def test_create_detector_translates_all_optionals():
             "detection_model": "model-a",
             "detection_provider": "provider-a",
             "enable_rca": True,
+            "enable_signals": False,
             "enabled": True,
         },
         headers=USER_HEADER,
@@ -147,6 +148,7 @@ def test_create_detector_translates_all_optionals():
         "detectionModel": "model-a",
         "detectionProvider": "provider-a",
         "enableRca": True,
+        "enableSignals": False,
         "enabled": True,
         "transport": "public-api",
     }

@@ -175,6 +175,14 @@ class CreateDetectorRequest(BaseModel):
     detection_model: str | None = None
     detection_provider: str | None = None
     enable_rca: bool | None = None
+    enable_signals: bool | None = Field(
+        None,
+        description=(
+            "Group this detector's hits into Signals (default true). Set false "
+            "for a labeler that fires on every trace, so its hits do not flood "
+            "the Signals list."
+        ),
+    )
     enabled: bool | None = None
 
 
@@ -514,6 +522,13 @@ class UpdateDetectorRequest(_UpdateRequest):
     )
     sample_rate: int | MISSING = MISSING
     enable_rca: bool | MISSING = MISSING
+    enable_signals: bool | MISSING = Field(
+        MISSING,
+        description=(
+            "Group this detector's hits into Signals. Turning it off stops new "
+            "grouping; existing signals are kept."
+        ),
+    )
     output_schema: JsonPayloadList | MISSING = Field(
         MISSING, description="Replaces the whole output schema array"
     )

@@ -21,6 +21,7 @@ const patchSchema = z.object({
   enabled: z.boolean().optional(),
   sampleRate: z.number().optional(),
   enableRca: z.boolean().optional(),
+  enableSignals: z.boolean().optional(),
   outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
   triggerConditions: z.array(z.unknown(), "triggerConditions must be an array").optional(),
   detectionSource: z.union([z.literal("system"), z.literal("byok"), z.null()]).optional(),

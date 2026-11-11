@@ -171,6 +171,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         enable_rca: {
           type: "boolean",
         },
+        enable_signals: {
+          type: "boolean",
+          description:
+            "Group this detector's hits into Signals (default true). Set false for a labeler that fires on every trace, so its hits do not flood the Signals list.",
+        },
         enabled: {
           type: "boolean",
         },
@@ -210,6 +215,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
       "detection_provider",
       "detection_source",
       "enable_rca",
+      "enable_signals",
       "enabled",
       "name",
       "output_schema",
@@ -2497,6 +2503,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         enable_rca: {
           type: "boolean",
         },
+        enable_signals: {
+          description:
+            "Group this detector's hits into Signals. Turning it off stops new grouping; existing signals are kept.",
+          type: "boolean",
+        },
         enabled: {
           description:
             "The pause switch. Detection is ingestion-triggered, so enabling starts nothing retroactively.",
@@ -2536,6 +2547,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
       "detection_provider",
       "detection_source",
       "enable_rca",
+      "enable_signals",
       "enabled",
       "name",
       "output_schema",
