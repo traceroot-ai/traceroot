@@ -37,6 +37,7 @@ provider's pricing page, listed with each flag, before changing the price file.
   python3 scripts/check_model_prices.py --payload msg.json   # write the Slack message
   python3 scripts/check_model_prices.py --track              # name the PRs that fix each
   python3 scripts/check_model_prices.py --html report.html   # write the full report page
+  python3 scripts/check_model_prices.py --baseline before.json  # check an edit to the file
 
 --post sends a short Block Kit message to the Slack incoming webhook in
 SLACK_WEBHOOK_URL: what needs a fix and has no open PR, then what open PRs already fix.
@@ -48,10 +49,17 @@ a URL or a local file, so a saved catalog snapshot can be replayed. --track read
 GitHub, with GITHUB_TOKEN or GH_TOKEN when set; if GitHub can't be read, the report
 says so and the run still succeeds.
 
+--baseline checks an edit to the price file before it goes into a pull request. Save a
+report with --json before the edit, edit the file, then run again with --baseline
+pointing at that report: the output lists the findings the edit fixes and any it adds.
+Pass the same saved --litellm and --modelsdev files to both runs, so only the price
+file differs between them.
+
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
-compared, or the Slack post failed. A failed run posts a failure alert when it can,
-never an all-clear.
+compared, the --baseline report could not be read, or the Slack post failed. 2 with
+--baseline when the price file adds a finding the baseline report does not have. A
+failed run posts a failure alert when it can, never an all-clear.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
@@ -672,7 +680,8 @@ def finding_keys(report: dict) -> dict[tuple, dict]:
     for item in report["flagged"]:
         keys[("rate", item["model"], item["field"])] = item
     for item in report["unpriced_ids"]:
-        keys[("id", item["model"])] = item
+        # Which row prices it is part of the key: from no price to the wrong one is new.
+        keys[("id", item["model"], item["priced_as"])] = item
     for item in report["overlaps"]:
         keys[("overlap", item["model"])] = item
     for item in report["row_problems"]:
@@ -689,8 +698,10 @@ def describe(key: tuple) -> str:
     match key:
         case ("rate", model, field):
             return f"{model} {FIELD_LABELS[field]} rate"
-        case ("id", model):
+        case ("id", model, None):
             return f"{model} not priced by its row"
+        case ("id", model, priced_as):
+            return f"{model} priced as {priced_as}"
         case ("overlap", model):
             return f"{model} matched by two rows"
         case ("row", row, problem):
@@ -716,6 +727,31 @@ def describe_all(keys: list[tuple]) -> list[str]:
         f"{model} {_join(fields)} rate" + "s" * (len(fields) > 1) for model, fields in rates.items()
     ]
     return merged + others
+
+
+def load_baseline(path: Path) -> dict:
+    """A report saved by --json from a completed run. Anything else fails the run."""
+    try:
+        baseline = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise CheckError(f"could not read the baseline report ({type(exc).__name__})") from exc
+    if not isinstance(baseline, dict) or baseline.get("status") != "ok":
+        raise CheckError("the baseline report is not from a completed run")
+    try:
+        finding_keys(baseline)
+    except (KeyError, TypeError) as exc:
+        raise CheckError("the baseline report was written by a different version") from exc
+    return baseline
+
+
+def compare_reports(baseline: dict, report: dict) -> dict:
+    """The findings this run fixes and adds compared with a baseline report, such as one
+    saved before an edit to the price file."""
+    before, after = finding_keys(baseline), finding_keys(report)
+    return {
+        "fixes": describe_all([key for key in before if key not in after]),
+        "adds": describe_all([key for key in after if key not in before]),
+    }
 
 
 def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]:
@@ -1070,6 +1106,11 @@ def format_report(report: dict) -> str:
     """The report as text for the terminal: what to fix first, then context."""
     flagged = report["flagged"]
     lines = [f"*Model pricing audit, {report['date']}*: {_status(report)}"]
+    if "baseline" in report:
+        for word in ("fixes", "adds"):
+            found = report["baseline"][word]
+            listed = "\n".join(f"• {_escape(item)}" for item in found) or "• nothing"
+            lines += ["", f"*Compared with the baseline, this file {word}* ({len(found)})", listed]
 
     if flagged:
         lines += ["", "*Prices to check* (USD per 1M tokens, ours → catalogs)"]
@@ -1620,6 +1661,13 @@ def main(argv: list[str]) -> int:
         "--report-url", metavar="URL", help="link the Slack message to the full report here"
     )
     parser.add_argument(
+        "--baseline",
+        type=Path,
+        metavar="REPORT",
+        help="list what this price file fixes and adds compared with a report saved by "
+        "--json; exit 2 if it adds anything",
+    )
+    parser.add_argument(
         "--track",
         nargs="?",
         const=GITHUB_REPO,
@@ -1643,6 +1691,8 @@ def main(argv: list[str]) -> int:
         report = build_report(
             rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
         )
+        if args.baseline:
+            report["baseline"] = compare_reports(load_baseline(args.baseline), report)
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:
@@ -1658,7 +1708,9 @@ def main(argv: list[str]) -> int:
                 # The findings stand without it: say PRs weren't checked, and carry on.
                 detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
-        text, payload, status = format_report(report), build_payload(report, args.report_url), 0
+        text, payload = format_report(report), build_payload(report, args.report_url)
+        # With --baseline, a finding the edit adds fails the check.
+        status = 2 if report.get("baseline", {}).get("adds") else 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}

@@ -872,6 +872,86 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monk
     assert footer.endswith("open PRs not checked: GitHub could not be read (URLError)")
 
 
+def test_baseline_lists_what_an_edit_fixes_and_adds():
+    litellm = {
+        "deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6),
+        "claude-f": ll_entry("anthropic"),
+        "claude-f-2": ll_entry("anthropic", input_=8e-6),
+    }
+    before = [
+        row("deepseek-d", "deepseek", input_=5e-7),
+        row("claude-f", "anthropic"),
+        row("claude-f-2", "anthropic", input_=8e-6),
+    ]
+    # The edit fixes the DeepSeek rate, and widens the older Claude row's pattern to
+    # price the newer version's dated snapshot, which no row matched. That snapshot now
+    # gets the older version's rate, the mistake the check exists to catch.
+    after = [
+        row("deepseek-d", "deepseek", input_=1e-6),
+        row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
+        before[2],
+    ]
+    litellm["claude-f-2-20260101"] = ll_entry("anthropic", input_=8e-6)
+
+    compared = check.compare_reports(
+        report_for(before, litellm, md_catalog()), report_for(after, litellm, md_catalog())
+    )
+
+    assert compared == {
+        "fixes": ["deepseek-d input rate", "claude-f-2-20260101 not priced"],
+        "adds": ["claude-f-2-20260101 input rate"],
+    }
+
+
+def test_an_id_that_goes_from_no_price_to_another_rows_price_is_added():
+    litellm = {"claude-f": ll_entry("anthropic"), "us.anthropic.claude-f-2": ll_entry("bedrock")}
+    rows = [
+        row("claude-f", "anthropic", pattern=r"(?i)^claude-f$"),
+        row("claude-f-2", "anthropic", input_=8e-6),
+    ]
+    before = report_for(rows, litellm, md_catalog())
+    rows[0]["matchPattern"] = r"(?i)^(us\.anthropic\.)?claude-f(-[\d-]+)?$"
+
+    assert check.compare_reports(before, report_for(rows, litellm, md_catalog())) == {
+        "fixes": ["us.anthropic.claude-f-2 not priced by its row"],
+        "adds": ["us.anthropic.claude-f-2 priced as claude-f"],
+    }
+
+
+def test_baseline_exit_codes(run, tmp_path):
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6), "gpt-b": ll_entry("openai")}
+    baseline = tmp_path / "before.json"
+    before = [row("gpt-a", "openai"), row("gpt-b", "openai")]
+    baseline.write_text(json.dumps(report_for(before, litellm, md_catalog())))
+    args = ("--min-compared", "1", "--baseline", str(baseline))
+
+    fixed = [row("gpt-a", "openai", input_=2e-6), row("gpt-b", "openai")]
+    code, _, report = run(fixed, litellm, md_catalog(), *args)
+    assert code == 0
+    assert report["baseline"] == {"fixes": ["gpt-a input rate"], "adds": []}
+
+    broke = [row("gpt-a", "openai"), row("gpt-b", "openai", input_=9e-6)]
+    code, _, report = run(broke, litellm, md_catalog(), *args)
+    assert code == 2
+    assert report["baseline"]["adds"] == ["gpt-b input rate"]
+
+    baseline.write_text(json.dumps({"date": DATE, "status": "failed", "error": "x"}))
+    code, posted, _ = run(fixed, litellm, md_catalog(), *args)
+    assert code == 1
+    assert "the baseline report is not from a completed run" in posted[-1]["text"]
+
+
+def test_baseline_shows_first_in_the_text_report():
+    report = report_for([row("gpt-a", "openai")], {"gpt-a": ll_entry("openai")}, md_catalog())
+    report["baseline"] = {"fixes": ["gpt-z input rate"], "adds": []}
+    text = format_report(report)
+
+    assert (
+        "\n\n*Compared with the baseline, this file fixes* (1)\n• gpt-z input rate"
+        "\n\n*Compared with the baseline, this file adds* (0)\n• nothing\n"
+    ) in text
+
+
 def test_format_change_exits_nonzero_and_posts_a_failure(run):
     rows = [row("gpt-a", "openai")]
     renamed = {"gpt-a": {**ll_entry("openai"), "input_cost_per_token": None}}
