@@ -29,8 +29,6 @@ interface ModelSelectorProps {
    * leave this unset and get the auto-pick.
    */
   defaultModelId?: string;
-  /** Whether to infer a provider for a saved selection that only has a model ID. */
-  allowModelOnlyMatch?: boolean;
   /** List decision models (TypeSafe); only detector pickers set it. */
   allowDecisionModels?: boolean;
   /** Render the trigger as a full-width form field instead of the inline chip. */
@@ -46,7 +44,6 @@ export function ModelSelector({
   onChange,
   workspaceId,
   defaultModelId,
-  allowModelOnlyMatch = true,
   allowDecisionModels = false,
   field = false,
 }: ModelSelectorProps) {
@@ -88,7 +85,7 @@ export function ModelSelector({
     // deduplicated, so a bare id could bind a system selection to a BYOK
     // provider sharing that id — same name, different credentials at run time.
     const modelOnly =
-      allowModelOnlyMatch && !exact && value.model && !value.provider
+      !exact && value.model && !value.provider
         ? (models.find((m) => m.id === value.model && m.source === value.source) ??
           models.find((m) => m.id === value.model))
         : null;
@@ -125,7 +122,7 @@ export function ModelSelector({
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange, isPending, defaultModelId, allowModelOnlyMatch]);
+  }, [models, value, onChange, isPending, defaultModelId]);
 
   // Present the tracked default as the selection so an unpinned parent reads
   // like one that stored this model. A BYOK selection with no model runs its
