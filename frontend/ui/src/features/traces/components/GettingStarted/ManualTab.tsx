@@ -20,7 +20,7 @@ import {
 } from "./integrations";
 
 /**
- * The two groups this tab's own picker shows: providers, and everything else.
+ * The groups this tab's own picker shows: providers, frameworks, coding agents.
  *
  * `StackSelector` calls the second group "Frameworks & SDKs", but this picker
  * keeps the labels the traces page has always shown, so the empty traces page
@@ -32,7 +32,12 @@ const OWN_PICKER_GROUPS: {
   includes: (category: IntegrationCategory) => boolean;
 }[] = [
   { key: "provider", label: "Model providers", includes: (category) => category === "provider" },
-  { key: "framework", label: "Frameworks", includes: (category) => category !== "provider" },
+  { key: "framework", label: "Frameworks", includes: (category) => category === "framework" },
+  {
+    key: "coding-agent",
+    label: "Coding agents",
+    includes: (category) => category === "coding-agent",
+  },
 ];
 
 function LangTabs({
@@ -75,14 +80,16 @@ function LangTabs({
 function OwnStackPicker({
   selected,
   onSelect,
+  step = 4,
 }: {
   selected: IntegrationOption;
   onSelect: (id: string) => void;
+  step?: number;
 }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] font-medium text-foreground">4. Select your integration</p>
+        <p className="text-[13px] font-medium text-foreground">{step}. Select your integration</p>
         <SectionLink href="https://github.com/traceroot-ai/traceroot/issues/new">
           Don&apos;t see yours? Request one
         </SectionLink>
@@ -228,10 +235,62 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
     integration ??
     INTEGRATIONS.find((candidate) => candidate.id === selectedIntegrationId) ??
     INTEGRATIONS[0];
+  const plugin = selectedIntegration.plugin;
   const availableLangs = ALL_LANGS.filter((l) => selectedIntegration.languages[l]);
   const resolvedLang = availableLangs.includes(lang) ? lang : availableLangs[0];
   const config =
     resolvedLang !== undefined ? selectedIntegration.languages[resolvedLang] : undefined;
+
+  if (plugin) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <p className="text-[13px] font-medium text-foreground">1. Create an API key</p>
+          <ApiKeyBlock projectId={projectId} />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-medium text-foreground">2. Install the plugin</p>
+          <CodeBlock label="bash" value={plugin.installCommand} />
+        </div>
+
+        {!integration && (
+          <OwnStackPicker
+            selected={selectedIntegration}
+            onSelect={setSelectedIntegrationId}
+            step={3}
+          />
+        )}
+
+        <div className="space-y-2">
+          <p className="text-[13px] font-medium text-foreground">
+            {integration ? "3" : "4"}. Configure
+          </p>
+          <CodeBlock label={plugin.label} value={plugin.initSnippet} />
+        </div>
+
+        <div className="space-y-2">
+          {integration ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[13px] font-medium text-foreground">
+                4. Use {selectedIntegration.name} as usual
+              </p>
+              <SectionLink href={selectedIntegration.href}>
+                View {selectedIntegration.name} docs
+              </SectionLink>
+            </div>
+          ) : (
+            <p className="text-[13px] font-medium text-foreground">
+              5. Use {selectedIntegration.name} as usual
+            </p>
+          )}
+          <p className="text-[12px] text-muted-foreground">
+            Each request you send becomes a trace.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!config || !resolvedLang) {
     if (process.env.NODE_ENV !== "production") {

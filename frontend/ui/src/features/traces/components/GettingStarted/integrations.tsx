@@ -7,6 +7,11 @@ export interface IntegrationCodeExample {
   initSnippet: string;
 }
 
+/** A coding agent installs a plugin rather than an SDK; `label` heads the config block. */
+export interface PluginExample extends IntegrationCodeExample {
+  label: string;
+}
+
 /**
  * Which group of the stack picker an entry belongs to.
  *
@@ -20,7 +25,7 @@ export interface IntegrationCodeExample {
  * name, and a name in the wrong half of a two-column list is a name they cannot
  * find.
  */
-export type IntegrationCategory = "provider" | "framework";
+export type IntegrationCategory = "provider" | "framework" | "coding-agent";
 
 /**
  * Which provider key this integration needs, and how firmly.
@@ -55,6 +60,7 @@ export interface IntegrationOption {
   logo: string;
   logoDark?: string;
   languages: Partial<Record<Lang, IntegrationCodeExample>>;
+  plugin?: PluginExample;
 }
 
 export const ALL_LANGS: Lang[] = ["python", "typescript"];
@@ -69,6 +75,7 @@ export const ALL_LANGS: Lang[] = ["python", "typescript"];
 export const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
   { category: "provider", label: "Model providers" },
   { category: "framework", label: "Frameworks & SDKs" },
+  { category: "coding-agent", label: "Coding agents" },
 ];
 
 const PYTHON_INSTALL_COMMAND = "pip install traceroot";
@@ -557,6 +564,62 @@ const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
 });`,
       },
+    },
+  },
+  {
+    id: "claude-code",
+    name: "Claude Code",
+    href: "https://traceroot.ai/docs/integrations/claude-code",
+    category: "coding-agent",
+    // The plugin has no model call of its own; the key is a starting point for the picker.
+    providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
+    logo: "/logo/integrations/claude-agent-sdk.svg",
+    languages: {},
+    plugin: {
+      installCommand: `claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+claude plugin install traceroot-observability@traceroot-claude-code-plugin`,
+      label: "bash",
+      initSnippet: `export TRACEROOT_API_KEY="your_key_here"
+# Optional: only needed for self-hosted deployments
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"`,
+    },
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    href: "https://traceroot.ai/docs/integrations/codex",
+    category: "coding-agent",
+    providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
+    logo: "/logo/integrations/openai.svg",
+    logoDark: "/logo/integrations/openai-dark.svg",
+    languages: {},
+    plugin: {
+      installCommand: `codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+codex plugin add tracing@traceroot-codex-plugin
+codex features enable hooks`,
+      label: "~/.codex/traceroot.json",
+      initSnippet: `{
+  "enabled": true,
+  "api_key": "your_key_here"
+}`,
+    },
+  },
+  {
+    id: "pi-cli",
+    name: "pi CLI",
+    href: "https://traceroot.ai/docs/integrations/pi-cli",
+    category: "coding-agent",
+    providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
+    logo: "/logo/integrations/pi.svg",
+    logoDark: "/logo/integrations/pi-dark.svg",
+    languages: {},
+    plugin: {
+      installCommand: "pi install npm:@traceroot-ai/pi-extension",
+      label: "bash",
+      initSnippet: `export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="your_key_here"
+# Optional: only needed for self-hosted deployments
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"`,
     },
   },
 ];

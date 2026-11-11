@@ -28,12 +28,17 @@ describe("GettingStarted integrations", () => {
   });
 });
 
-describe("the two groups the picker offers", () => {
+describe("the groups the picker offers", () => {
   it("names them in the order the picker shows them", () => {
-    expect(INTEGRATION_GROUPS.map((group) => group.category)).toEqual(["provider", "framework"]);
+    expect(INTEGRATION_GROUPS.map((group) => group.category)).toEqual([
+      "provider",
+      "framework",
+      "coding-agent",
+    ]);
     expect(INTEGRATION_GROUPS.map((group) => group.label)).toEqual([
       "Model providers",
       "Frameworks & SDKs",
+      "Coding agents",
     ]);
   });
 
