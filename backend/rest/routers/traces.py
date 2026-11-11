@@ -75,7 +75,10 @@ async def traces_exist(
     is intentionally skipped. Used by the frontend onboarding probe.
     """
     service = get_trace_reader_service()
-    return {"exists": service.has_traces(project_id)}
+    # Off the loop with the other reader calls. The onboarding probe is small, but it
+    # is still a synchronous ClickHouse query on the only worker.
+    exists = await asyncio.to_thread(service.has_traces, project_id)
+    return {"exists": exists}
 
 
 @router.get("", response_model=TraceListResponse)
@@ -252,8 +255,12 @@ async def get_filter_values(
         )
 
     service = get_trace_discovery_service()
-    values = service.get_distinct_span_values(
-        project_id=project_id, column=column.name, start_after=start_after, end_before=end_before
+    values = await asyncio.to_thread(
+        service.get_distinct_span_values,
+        project_id=project_id,
+        column=column.name,
+        start_after=start_after,
+        end_before=end_before,
     )
     return {"field": field, "values": values}
 
@@ -401,10 +408,13 @@ async def get_span_io(
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
     try:
-        trace_start = service.get_trace_start_time(project_id, trace_id)
+        # Off the loop, same as the attachment route beside this one. Opening a span
+        # is the heavy I/O read, and both calls are synchronous ClickHouse.
+        trace_start = await asyncio.to_thread(service.get_trace_start_time, project_id, trace_id)
         enforce_retention_by_time(_access.billing_plan, trace_start)
 
-        result = service.get_span_io(
+        result = await asyncio.to_thread(
+            service.get_span_io,
             project_id=project_id,
             trace_id=trace_id,
             span_id=span_id,

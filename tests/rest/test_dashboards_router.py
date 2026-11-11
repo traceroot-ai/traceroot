@@ -1,5 +1,6 @@
 """Endpoint tests for the widget query router."""
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -216,6 +217,24 @@ class TestWidgetFieldValues:
         assert kw["project_id"] == "proj-1"
         assert kw["column"] == "model_name"
         mock_discovery.get_distinct_trace_values.assert_not_called()
+
+    def test_distinct_scan_runs_off_the_event_loop(self, client, mock_discovery):
+        """A string field can be a GROUP BY over a high-cardinality column."""
+        ran_on_loop: list[bool] = []
+
+        def read(*_args, **_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                ran_on_loop.append(False)
+            else:
+                ran_on_loop.append(True)
+            return []
+
+        mock_discovery.get_distinct_span_values.side_effect = read
+        resp = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/model_name")
+        assert resp.status_code == 200
+        assert ran_on_loop == [False]
 
     def test_error_type_values_agree_across_widget_and_trace_list(self, client, mock_discovery):
         """Both pickers resolve error_type to the same span column and return the same list."""

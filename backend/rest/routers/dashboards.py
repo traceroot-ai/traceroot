@@ -5,6 +5,7 @@ detectors). This router only executes queries against ClickHouse and exposes
 the field registry that drives the builder UI.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -100,15 +101,19 @@ async def get_widget_field_values(
     # String dims declare their expr over the view's source table columns, so it
     # feeds the distinct scan directly. An expr naming a base-relation alias
     # instead would not resolve here, which is why the registry writes them so.
+    # The scan itself is synchronous ClickHouse, and a string field can be a
+    # GROUP BY over a high-cardinality column, so it runs off the only worker.
     if view == "spans":
-        values = service.get_distinct_span_values(
+        values = await asyncio.to_thread(
+            service.get_distinct_span_values,
             project_id=project_id,
             column=field_def.expr,
             start_after=start_time,
             end_before=end_time,
         )
     else:
-        values = service.get_distinct_trace_values(
+        values = await asyncio.to_thread(
+            service.get_distinct_trace_values,
             project_id=project_id,
             column=field_def.expr,
             start_after=start_time,
