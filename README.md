@@ -169,7 +169,7 @@ Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 <details open>
-<summary>Supported frameworks and model providers</summary>
+<summary>Supported frameworks, model providers and coding agents</summary>
 
 ### Agent Frameworks
 
@@ -199,6 +199,14 @@ Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Automated instrumentation of Mistral chat completions, tool calls, and streaming responses. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
+
+### Coding Agents
+
+| Integration | Supports | Description |
+| ----------- | -------- | ----------- |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | Plugin | Trace Claude Code requests, tool calls, sub-agents, and token usage with the traceroot plugin. |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | Plugin | Trace Codex turns, tool calls, sub-agents, and token usage live with the traceroot plugin. |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | Extension | Trace interactive pi CLI sessions, turns, tool calls, and token usage with the traceroot extension. |
 
 </details>
 
