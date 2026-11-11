@@ -77,6 +77,7 @@ Prompts, tool inputs and tool outputs are sent as they are, including commands a
 ## Limitations
 
 - If no trace arrives, check that the hooks are trusted (`/hooks`) and that `enabled` is `true`. Set `debug` to `true` (`TRACEROOT_CODEX_DEBUG`) to log to stderr.
+- Codex asks you to trust the hooks again after every plugin update. Until you do, no traces are sent.
 
 ## Run the example
 
