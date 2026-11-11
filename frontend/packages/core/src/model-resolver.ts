@@ -23,6 +23,7 @@ import {
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  HOSTED_TERRA_MODEL_ID,
   defaultAdapterModel,
   defaultApiProtocol,
   isDecisionAdapter,
@@ -59,12 +60,31 @@ export function isSystemModelId(modelId: string): boolean {
   return systemModelLookup.has(modelId);
 }
 
+type FallbackMetadata = Pick<
+  Model<Api>,
+  "baseUrl" | "reasoning" | "cost" | "contextWindow" | "maxTokens"
+>;
+
+// Terra needs explicit metadata until pi-ai's registry includes it.
+const terraFallback: FallbackMetadata = {
+  baseUrl: ADAPTER_DEFAULT_BASE_URL.openai,
+  reasoning: true,
+  cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+  contextWindow: 1_050_000,
+  maxTokens: 128_000,
+};
+
 /**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
  */
-function buildFallbackModel(modelId: string, apiProtocol: string, provider: string): Model<Api> {
+function buildFallbackModel(
+  modelId: string,
+  apiProtocol: string,
+  provider: string,
+  metadata?: FallbackMetadata,
+): Model<Api> {
   // pi-ai's getModel is typed to known provider IDs; BYOK adapter→provider maps
   // (e.g. deepseek → openai) are valid lookups.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,6 +103,7 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
     maxTokens: 64000,
+    ...metadata,
   } as Model<Api>;
 }
 
@@ -177,7 +198,12 @@ export function resolvePiModel(
   // 2. System model with per-model protocol
   const sysInfo = systemModelLookup.get(effectiveModelId);
   if (sysInfo) {
-    return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
+    return buildFallbackModel(
+      effectiveModelId,
+      sysInfo.apiProtocol,
+      sysInfo.piAIProvider,
+      effectiveModelId === HOSTED_TERRA_MODEL_ID ? terraFallback : undefined,
+    );
   }
 
   // 3. Unknown — fall back

@@ -28,6 +28,21 @@ afterEach(() => {
 });
 
 describe("listWorkspaceModels", () => {
+  it("offers hosted Terra beside o4-mini and preserves the OpenAI default", async () => {
+    const models = await listWorkspaceModels("w1", {
+      db: reader(db([])),
+      env: { OPENAI_API_KEY: "sk-test" },
+    });
+    const openai = models.systemModels[0]!;
+    expect(openai).toMatchObject({ provider: "OpenAI", source: "system" });
+    const ids = openai.models.map((m) => m.id);
+    expect(ids[0]).toBe("gpt-5.5");
+    expect(ids.slice(-3)).toEqual(["o4-mini", "gpt-5.6-terra", "gpt-5.3-codex"]);
+    expect(
+      detectorModelProblem({ detectionSource: "system", detectionModel: "gpt-5.6-terra" }, models),
+    ).toBeNull();
+  });
+
   it("lists a system provider only when the process holds its API key", async () => {
     const models = await listWorkspaceModels("w1", {
       db: reader(db([])),

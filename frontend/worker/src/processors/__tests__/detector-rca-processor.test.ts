@@ -90,6 +90,31 @@ afterEach(() => {
 });
 
 describe("resolveProjectModel", () => {
+  it("forwards explicit hosted Terra to the Agent", async () => {
+    resolvePiModelMock.mockReturnValue({ id: "gpt-5.6-terra", provider: "openai" });
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    await expect(
+      resolveProjectModel("gpt-5.6-terra", "OpenAI", "system", "ws-123"),
+    ).resolves.toEqual({ model: "gpt-5.6-terra", providerName: "openai", source: "system" });
+    expect(resolvePiModelMock).toHaveBeenCalledWith("gpt-5.6-terra", null);
+  });
+
+  it("preserves a legacy BYOK Terra configuration without a source", async () => {
+    modelProviderFindMany.mockResolvedValue([
+      { provider: "my-openai", customModels: ["gpt-5.6-terra"] },
+    ]);
+    const provider = { adapter: "openai", key: "sk-test", baseUrl: null, config: null };
+    fetchProviderConfigMock.mockResolvedValue(provider);
+    resolvePiModelMock.mockReturnValue({ id: "gpt-5.6-terra", provider: "openai" });
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    await expect(resolveProjectModel("gpt-5.6-terra", null, null, "ws-123")).resolves.toEqual({
+      model: "gpt-5.6-terra",
+      providerName: "my-openai",
+      source: "byok",
+    });
+    expect(resolvePiModelMock).toHaveBeenCalledWith("gpt-5.6-terra", provider);
+  });
+
   it("resolves a BYOK model via fetchProviderConfig and resolvePiModel", async () => {
     fetchProviderConfigMock.mockResolvedValue({
       adapter: "openai",

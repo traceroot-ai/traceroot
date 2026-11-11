@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   project: {
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     alert_window: "10m",
   } as any,
   updateProject: vi.fn().mockResolvedValue({}),
+  getAvailableLLMModels: vi.fn().mockResolvedValue({ systemModels: [], byokProviders: [] }),
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -16,12 +17,10 @@ vi.mock("@/features/projects/hooks", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   updateProject: (...a: any[]) => mocks.updateProject(...a),
+  getAvailableLLMModels: (workspaceId: string) => mocks.getAvailableLLMModels(workspaceId),
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
-}));
-vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
 }));
 vi.mock("@/features/detectors/components/alert-channels-editor", () => ({
   AlertChannelsEditor: () => null,
@@ -71,7 +70,47 @@ function renderTab() {
 afterEach(() => {
   cleanup();
   mocks.updateProject.mockReset().mockResolvedValue({});
+  mocks.getAvailableLLMModels
+    .mockReset()
+    .mockResolvedValue({ systemModels: [], byokProviders: [] });
   mocks.project.alert_window = "10m";
+  delete mocks.project.rca_model;
+  delete mocks.project.rca_provider;
+  delete mocks.project.rca_source;
+});
+
+it("keeps a source-less Terra until the user explicitly selects hosted Terra", async () => {
+  const terra = { id: "gpt-5.6-terra", label: "gpt-5.6-terra", supported: true };
+  Object.assign(mocks.project, {
+    rca_model: terra.id,
+    rca_provider: null,
+    rca_source: null,
+  });
+  mocks.getAvailableLLMModels.mockResolvedValue({
+    systemModels: [{ provider: "OpenAI", adapter: "openai", source: "system", models: [terra] }],
+    byokProviders: [
+      { provider: "Legacy provider", adapter: "openai", source: "byok", models: [terra] },
+    ],
+  });
+  renderTab();
+  fireEvent.click(screen.getByRole("button", { name: terra.label }));
+  const picker = within(screen.getByRole("dialog"));
+  await picker.findByRole("button", { name: /Legacy provider/ });
+
+  const [saveModel] = screen.getAllByRole<HTMLButtonElement>("button", { name: "Save" });
+  expect(saveModel.disabled).toBe(true);
+  expect(mocks.updateProject).not.toHaveBeenCalled();
+
+  fireEvent.click(picker.getByRole("button", { name: terra.label }));
+  expect(saveModel.disabled).toBe(false);
+  fireEvent.click(saveModel);
+  await waitFor(() =>
+    expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", {
+      rca_model: terra.id,
+      rca_provider: "OpenAI",
+      rca_source: "system",
+    }),
+  );
 });
 
 describe("DetectorsTab alert window", () => {

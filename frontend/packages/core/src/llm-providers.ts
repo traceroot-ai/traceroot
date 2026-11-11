@@ -109,6 +109,8 @@ export const DETECTOR_SYSTEM_FALLBACK_MODEL_ID = "claude-haiku-5-5";
  */
 export const DIGEST_SUMMARY_SYSTEM_MODEL_ID = "claude-haiku-4-5";
 
+export const HOSTED_TERRA_MODEL_ID = "gpt-5.6-terra";
+
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
@@ -155,6 +157,7 @@ export const SYSTEM_MODELS: {
       // sends when no effort is requested; chat completions sends nothing for them.
       { id: "o3", label: "o3", apiProtocol: "openai-completions" },
       { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
+      { id: HOSTED_TERRA_MODEL_ID, label: HOSTED_TERRA_MODEL_ID },
       { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
     ],
   },

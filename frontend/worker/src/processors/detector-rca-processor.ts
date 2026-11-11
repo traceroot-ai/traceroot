@@ -1,5 +1,12 @@
 import { DelayedError, Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType, ModelSource, type TraceStatus } from "@traceroot/core";
+import {
+  prisma,
+  SYSTEM_MODELS,
+  HOSTED_TERRA_MODEL_ID,
+  PlanType,
+  ModelSource,
+  type TraceStatus,
+} from "@traceroot/core";
 import {
   allocateExecution,
   finishFindingIfLatest,
@@ -57,11 +64,13 @@ export async function resolveProjectModel(
   }
 
   // 2. System model: validate against catalog, then use shared resolver
-  for (const group of SYSTEM_MODELS) {
-    if (group.models.some((m) => m.id === rcaModel)) {
-      const model = resolvePiModel(rcaModel, null);
-      return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
-    }
+  // Older Terra choices were BYOK. Hosted Terra must be selected explicitly.
+  if (
+    (rcaModel !== HOSTED_TERRA_MODEL_ID || rcaSource === ModelSource.SYSTEM) &&
+    SYSTEM_MODELS.some((group) => group.models.some((m) => m.id === rcaModel))
+  ) {
+    const model = resolvePiModel(rcaModel, null);
+    return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
   }
 
   // 3. Legacy BYOK fallback for pre-existing configs
