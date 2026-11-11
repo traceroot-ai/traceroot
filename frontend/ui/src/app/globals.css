@@ -163,6 +163,11 @@
   font-size: 13px;
 }
 
+.table-timestamp {
+  font-variant-numeric: tabular-nums;
+  word-spacing: 0.35em;
+}
+
 /* Controls that belong together sit flush, divided by a single hairline. */
 .btn-group {
   display: inline-flex;

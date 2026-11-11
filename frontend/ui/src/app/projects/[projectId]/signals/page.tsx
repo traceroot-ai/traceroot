@@ -267,7 +267,9 @@ export default function SignalsPage() {
                       selectedSignalId === signal.id ? "bg-accent" : "hover:bg-muted",
                     )}
                   >
-                    <td className={cn(TD, "whitespace-nowrap tabular-nums text-muted-foreground")}>
+                    <td
+                      className={cn(TD, "table-timestamp whitespace-nowrap text-muted-foreground")}
+                    >
                       {formatDate(signal.createTime)}
                     </td>
                     <td

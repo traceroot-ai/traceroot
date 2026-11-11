@@ -186,7 +186,7 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
     <td
       className={cn(
         borderClassName,
-        "whitespace-nowrap px-3 py-1.5 tabular-nums text-muted-foreground",
+        "table-timestamp whitespace-nowrap px-3 py-1.5 text-muted-foreground",
       )}
     >
       {formatDate(trace.trace_start_time)}
