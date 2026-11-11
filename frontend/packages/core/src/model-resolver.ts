@@ -23,7 +23,6 @@ import {
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
-  HOSTED_TERRA_MODEL_ID,
   ModelSource,
   defaultAdapterModel,
   defaultApiProtocol,
@@ -91,7 +90,7 @@ function buildFallbackModel(
     contextWindow: 200000,
     maxTokens: 64000,
     // Terra is missing from the pinned pi-ai registry.
-    ...(source === ModelSource.SYSTEM && modelId === HOSTED_TERRA_MODEL_ID
+    ...(source === ModelSource.SYSTEM && modelId === "gpt-5.6-terra"
       ? {
           baseUrl: ADAPTER_DEFAULT_BASE_URL.openai,
           reasoning: true,

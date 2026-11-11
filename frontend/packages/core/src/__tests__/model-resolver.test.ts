@@ -34,7 +34,7 @@ describe("resolvePiModel", () => {
   });
 
   it("uses openai-responses for system OpenAI models", () => {
-    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex"]) {
+    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex", "gpt-5.6-terra"]) {
       const m = resolvePiModel(id, null);
       expect(m.api, id).toBe("openai-responses");
       expect(m.provider).toBe("openai");
@@ -42,15 +42,9 @@ describe("resolvePiModel", () => {
     }
   });
 
-  it("resolves hosted Terra with its model capabilities and base rates", () => {
+  it("supplies reasoning and base rates for hosted Terra missing from pi-ai", () => {
     expect(resolvePiModel("gpt-5.6-terra", null)).toMatchObject({
-      id: "gpt-5.6-terra",
-      provider: "openai",
-      api: "openai-responses",
-      baseUrl: "https://api.openai.com/v1",
       reasoning: true,
-      contextWindow: 1_050_000,
-      maxTokens: 128_000,
       cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
     });
   });

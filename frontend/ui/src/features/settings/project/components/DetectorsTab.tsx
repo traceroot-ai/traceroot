@@ -14,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
-import { HOSTED_TERRA_MODEL_ID } from "@traceroot/core/llm-providers";
 import { updateProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
@@ -97,7 +96,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     agentModelSelection.source !== (project?.rca_source ?? "system");
   // A source-less Terra may still resolve through a legacy BYOK provider.
   const isLegacyTerra =
-    project?.rca_model === HOSTED_TERRA_MODEL_ID && !project.rca_source && !project.rca_provider;
+    project?.rca_model === "gpt-5.6-terra" && !project.rca_source && !project.rca_provider;
   const savedEmails = project?.alert_emails ?? [];
   const isEmailsDirty =
     emailAddresses.length !== savedEmails.length ||
