@@ -63,7 +63,7 @@ describe("AITab", () => {
   it("leads with the one command that does the whole setup", () => {
     const { container } = render(<AITab projectId="proj_1" />);
     expect(screen.getByText("Run this in your project")).toBeDefined();
-    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@0.6.0 setup");
+    expect(container.textContent ?? "").toContain("npx -y traceroot-cli@0.6.1 setup");
   });
 
   it("writes the project this panel is showing into the command", () => {
@@ -82,24 +82,41 @@ describe("AITab", () => {
     expect(container.textContent ?? "").not.toContain("Create an API key");
   });
 
-  it("describes the command in two sentences, not a list of stages", () => {
-    // A bulleted account of every stage competes with the command for the
-    // attention of someone who just wants to know what to paste.
+  it("says only what decides whether to paste the command", () => {
+    // An account of what setup does competes with the command for the attention
+    // of someone who just wants to know what to paste; the docs link has it.
     const { container } = render(<AITab projectId="proj_1" />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Instruments your repository with a coding agent");
-    expect(text).toContain("writes the API key into it");
-    expect(text).toContain("waits for the first trace");
+    expect(screen.getByText(/asks before editing your code/).textContent).toBe(
+      "It asks before editing your code. Needs Node.js 20.12 or later.",
+    );
     expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 
-  it("keeps the sentence that is consent rather than description", () => {
-    // The command edits a repository and launches an agent. That is the one
-    // line that changes whether somebody pastes it.
+  it("promises neither a coding agent nor a wait for the first trace", () => {
+    // Setup asks how to instrument: run an agent, write the task for the
+    // reader's own agent, or print the steps. A hand-over changes no code, so
+    // setup looks for a trace once and ends; only the agent route waits.
     const { container } = render(<AITab projectId="proj_1" />);
     const text = container.textContent ?? "";
-    expect(text).toContain("Asks before editing");
-    expect(text).toContain("uncommitted changes");
+    expect(text).not.toContain("coding agent");
+    expect(text).not.toContain("waits for the first trace");
+  });
+
+  it("keeps the sentence that is consent rather than description", () => {
+    // The command edits a repository and can launch an agent. That is the one
+    // line that changes whether somebody pastes it. Over uncommitted changes
+    // setup asks whether to continue, defaulting to No; it does not stop.
+    const { container } = render(<AITab projectId="proj_1" />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("It asks before editing your code.");
+    expect(text).not.toContain("stops if you have uncommitted changes");
+  });
+
+  it("names the Node version setup needs", () => {
+    // `setup` refuses a Node older than 20.12, though the rest of the CLI runs
+    // on 20.3, so a working CLI is no sign this command will start.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").toContain("Needs Node.js 20.12 or later.");
   });
 
   it("gives the reader something to read before they paste it", () => {
@@ -137,8 +154,15 @@ describe("AITab", () => {
 
     expect(text).toContain("NEXT_PUBLIC_API_URL");
     expect(text).toContain("http://:8000");
-    // Says where a working route is, and promises no repair of its own.
+    // The value is inlined at build time, so a corrected one shows nothing
+    // here until the web app is rebuilt, as onboarding's fallback says too.
+    expect(text).toContain("Correct that value and rebuild the web app");
+    // Says where a working route is, and promises no repair of its own. The
+    // manual steps need the API address too, so they are not offered as
+    // independent of it.
     expect(text).toContain("manual tab");
+    expect(text).toContain("TRACEROOT_HOST_URL");
+    expect(text).not.toContain("do not depend on it");
   });
 
   it("keeps the command for a deployment the CLI's own default already serves", async () => {
@@ -147,7 +171,7 @@ describe("AITab", () => {
     const { container } = await renderTabWith("https://app.traceroot.ai/api/v1");
     const text = container.textContent ?? "";
 
-    expect(text).toContain("npx -y traceroot-cli@0.6.0 setup --project proj_1");
+    expect(text).toContain("npx -y traceroot-cli@0.6.1 setup --project proj_1");
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
     expect(container.querySelector("pre")).not.toBeNull();
   });

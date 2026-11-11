@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-TraceRoot captures token usage from instrumented LLM calls. It calculates cost when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span, or uses the cost you [report directly](#report-cost-directly).
+traceroot captures token usage from instrumented LLM calls. It calculates cost when the reported model ID matches an entry in traceroot's pricing table, regardless of which integration emitted the span, or uses the cost you [report directly](#report-cost-directly).
 
 <Tabs>
   <Tab title="Python">
@@ -41,9 +41,9 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost w
 
 ## How It Works
 
-1. **Auto-instrumentation** — TraceRoot integrations capture token usage from the provider response automatically.
-2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
-3. **Model matching** — The reported model ID is matched against TraceRoot's pricing table, including supported provider-prefixed and hosted aliases.
+1. **Auto-instrumentation** — traceroot integrations capture token usage from the provider response automatically.
+2. **Fallback estimation** — When token counts aren't in the response, traceroot estimates using tiktoken.
+3. **Model matching** — The reported model ID is matched against traceroot's pricing table, including supported provider-prefixed and hosted aliases.
 4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost unless you [report one](#report-cost-directly).
 5. **Reported cost** — If the span carries a cost you reported, it is stored in place of the calculated cost from step 4. Tokens are unchanged.
 
@@ -186,7 +186,7 @@ When you already know what a call cost (a negotiated rate, a gateway's bill, an 
   Requires the Python SDK `traceroot` 0.5.0 or later, or the TypeScript SDK `@traceroot-ai/traceroot` 0.7.0 or later.
 </Note>
 
-A reported cost replaces TraceRoot's computed price for that span. Report it as a number on the span that made the call. A cost of `0` is accepted and sets the span's cost to zero. Reporting a total on a parent span whose child spans are also priced counts the cost twice. Tokens are still recorded. The per-category cost breakdown is shown only when it matches the computed price, so a different reported cost hides it for that span and its trace. The cost is read from the OpenInference `llm.cost.total` attribute, so an OpenInference instrumentor that sets it is picked up automatically.
+A reported cost replaces traceroot's computed price for that span. Report it as a number on the span that made the call. A cost of `0` is accepted and sets the span's cost to zero. Reporting a total on a parent span whose child spans are also priced counts the cost twice. Tokens are still recorded. The per-category cost breakdown is shown only when it matches the computed price, so a different reported cost hides it for that span and its trace. The cost is read from the OpenInference `llm.cost.total` attribute, so an OpenInference instrumentor that sets it is picked up automatically.
 
 ### Tool and API calls
 
@@ -246,7 +246,7 @@ Some providers settle the price after the call returns. [Apify](https://docs.api
 
 #### Fixed price per call
 
-When every call costs the same, report your price on each call. A retry is another call and gets its own cost. TraceRoot records the cost you report, so report it for every response your provider bills. [PredictLeads](https://docs.predictleads.com/v3), for example, bills a lookup that returns no data yet but not a rejected one.
+When every call costs the same, report your price on each call. A retry is another call and gets its own cost. traceroot records the cost you report, so report it for every response your provider bills. [PredictLeads](https://docs.predictleads.com/v3), for example, bills a lookup that returns no data yet but not a rejected one.
 
 <Tabs>
   <Tab title="Python">

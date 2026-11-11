@@ -4,7 +4,13 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import { ADAPTER_CONFIG, ADAPTER_MODELS, LLMAdapter, PROVIDER_PRIORITY } from "@traceroot/core";
+import {
+  ADAPTER_CONFIG,
+  ADAPTER_MODELS,
+  defaultAdapterModel,
+  LLMAdapter,
+  PROVIDER_PRIORITY,
+} from "@traceroot/core";
 import { ProviderIcon } from "@/components/icons/provider-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,7 +94,7 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
 };
 
 /**
- * The models a key saved for the adapter starts with: the catalogue's default,
+ * The models a key saved for the adapter starts with: the adapter's default,
  * then the seeded models still in the catalogue. A model the catalogue no
  * longer lists is one the pickers cannot resolve, so it is not stored even
  * while the list above still names it. An adapter the list has no entry for
@@ -97,8 +103,8 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
 export function seedFor(adapter: LLMAdapter): string[] {
   const seeded = SEEDED_MODELS[adapter];
   const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((model) => model.id);
-  if (seeded === undefined || catalogue.length === 0) return [];
-  const [first] = catalogue;
+  const first = defaultAdapterModel(adapter, catalogue);
+  if (seeded === undefined || first === undefined) return [];
   return [first, ...seeded.filter((id) => id !== first && catalogue.includes(id))];
 }
 
@@ -155,10 +161,11 @@ export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "mo
  * separates them: set when this mount stored the key itself, and carrying the
  * provider it was stored for, so the confirmation names what the user chose.
  *
- * One sentence each, because the rows above say most of it: the provider, the
- * key preview, and a check or "Turned off" against each. What is left for the
- * text is only what the rows cannot show — that the probe passed, that nothing
- * was overwritten, or that a key being off means the models are still ours.
+ * Short, because the rows above say most of it: the provider, the key preview,
+ * and a check or "Turned off" against each. What is left for the text is only
+ * what the rows cannot show — that the probe passed and where the key's models
+ * can now be chosen, that nothing was overwritten, or that a key being off is a
+ * key nothing uses.
  *
  * None of these lines offers a second provider. This step configures one key;
  * the settings link is where that key is replaced or switched, not somewhere to
@@ -179,17 +186,19 @@ export function storedKeyCopy({
   justSavedLabel?: string | null;
   count: number;
 }): { state: string; settings: string } {
-  // Every row off means the workspace is running on TraceRoot's models, so no
-  // sentence that says otherwise is true here — including on the mount that
-  // did the storing, in the case where the stored row came back disabled. What
-  // matters then is that the key is present and inert, which this says either
-  // way, so this branch needs no notion of who stored it.
+  // Every row off means nothing can use these keys: the model pickers list
+  // enabled providers only, and every key lookup skips a disabled row. That
+  // holds on the mount that did the storing too, in the case where the stored
+  // row came back disabled. What matters then is that the key is present and
+  // inert, which this says either way, so this branch needs no notion of who
+  // stored it. It does not say what runs instead: a detector set to one of
+  // these models fails rather than moving to TraceRoot's.
   if (!usingOwnKey) {
     return {
       state:
         count > 1
-          ? "All of these are off, so the AI assistant and detectors still run on TraceRoot's models."
-          : "This key is off, so the AI assistant and detectors still run on TraceRoot's models.",
+          ? "All of these are off, so the AI assistant and detectors can't use any of them."
+          : "This key is off, so the AI assistant and detectors can't use it.",
       settings: count > 1 ? "Turn one back on in" : "Turn it back on in",
     };
   }
@@ -198,11 +207,20 @@ export function storedKeyCopy({
 
   // Confirm the paste, in the terms the form promised it in, rather than
   // describing a workspace state the user has not arrived at from anywhere.
+  //
+  // A save makes the key's models available; it does not move anything onto
+  // them. A detector keeps the model it was saved with, and the "system"
+  // source it starts on takes the server's own key first. The assistant's
+  // default is picked by provider priority across workspace and TraceRoot
+  // models together, so where the deployment has an Anthropic key of its own,
+  // an OpenAI key leaves it on a TraceRoot Anthropic model.
+  // So the line says where the models now appear, and that choosing one is the
+  // step left.
   if (justSavedLabel !== undefined) {
     return {
       state: justSavedLabel
-        ? `Verified and saved. The AI assistant and detectors now run on your own ${justSavedLabel} account.`
-        : "Verified and saved. The AI assistant and detectors now run on your own account.",
+        ? `Verified and saved. Its models are now offered in the AI assistant's model menu and as a detector's model; choose one there to run on your own ${justSavedLabel} account.`
+        : "Verified and saved. Its models are now offered in the AI assistant's model menu and as a detector's model; choose one there to run on your own account.",
       settings,
     };
   }
@@ -251,7 +269,7 @@ export function unavailableKeyCopy(binding: ProviderKeyBinding): {
 } {
   if (binding.kind === "none") {
     return {
-      state: `TraceRoot has no ${binding.provider} adapter, so there is no key to paste here.`,
+      state: `traceroot has no ${binding.provider} adapter, so there is no key to paste here.`,
       settings: null,
     };
   }
@@ -503,9 +521,9 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   // nothing here narrows that.
   //
   // What `enabled` decides is which of the stored-key states this is: a
-  // workspace whose rows are all off is running on TraceRoot's models, so the
-  // sentences that say otherwise would be false, and a green check against the
-  // row would say nothing about why nothing changed.
+  // workspace whose rows are all off has no key anything can use, so the
+  // sentences that offer its models would be false, and a green check against
+  // the row would say nothing about why nothing changed.
   if (providers.length > 0) {
     const usingOwnKey = providers.some((provider) => provider.enabled);
     // Whether the key on screen is one this mount just stored, and what it was
@@ -558,7 +576,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
     return (
       <p className="text-[12px] text-muted-foreground">
         Your own model keys are not available on this workspace&apos;s plan. Detectors and the AI
-        assistant run on TraceRoot&apos;s models in the meantime.
+        assistant run on traceroot&apos;s models in the meantime.
       </p>
     );
   }

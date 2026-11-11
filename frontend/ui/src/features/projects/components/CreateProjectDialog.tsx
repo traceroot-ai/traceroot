@@ -64,7 +64,7 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!isControlled && (
-        <DialogTrigger asChild>{trigger || <AddButton>New Project</AddButton>}</DialogTrigger>
+        <DialogTrigger asChild>{trigger || <AddButton>New project</AddButton>}</DialogTrigger>
       )}
       <DialogContent>
         <form onSubmit={handleSubmit}>

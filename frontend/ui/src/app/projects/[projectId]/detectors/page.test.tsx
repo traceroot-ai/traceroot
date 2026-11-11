@@ -235,7 +235,7 @@ describe("DetectorsPage", () => {
         .getAllByRole("columnheader")
         .slice(4, 7)
         .map((c) => c.textContent),
-    ).toEqual(["Judge Runs", "Signals", "Agent Runs"]);
+    ).toEqual(["Judge runs", "Signals", "Agent runs"]);
     const row = screen.getByText("My Detector").closest("tr")!;
     expect(
       Array.from(row.cells)

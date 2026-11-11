@@ -1,10 +1,10 @@
 # Incident Response Plan
 
-This plan defines how TraceRoot responds to security incidents.
+This plan defines how traceroot responds to security incidents.
 
 ## Purpose and Scope
 
-Applies to TraceRoot SaaS, APIs, SDKs, and operational infrastructure. Covers vulnerabilities, data exposure, integrity compromise, service degradation, and abuse.
+Applies to traceroot SaaS, APIs, SDKs, and operational infrastructure. Covers vulnerabilities, data exposure, integrity compromise, service degradation, and abuse.
 
 ## Roles
 

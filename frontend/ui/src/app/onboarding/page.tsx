@@ -206,42 +206,9 @@ function findLiveProjectByName(projects: Project[], name: string): Project | nul
 }
 
 // The project this attempt should use: a new one, or the one an earlier attempt
-// created and could not report back.
-//
-// The same lost response as the workspace above, one step later. `createdProject`
-// is set from the response, so a POST that commits without answering leaves it
-// null and the retry submits the same name into the same workspace — by then the
-// adopted or remembered one, so the collision is with the project the first
-// attempt wrote. The route answers 409 and that is the end of the account: this
-// is the last screen of sign-up and pressing Create is all it offers.
-//
-// The status identifies the collision on its own, as it does for the workspace:
-// this endpoint's only 409 is that constraint (see
-// app/api/workspaces/[workspaceId]/projects/route.ts, which maps Prisma's P2002
-// to it; everything else it refuses is a 400 or a 403). The lookup is guarded
-// regardless, so a 409 that came to mean something else could not adopt
-// anything.
-//
-// `adoptable` is what holds that reasoning to the case it was argued for. A
-// project standing under the submitted name is this attempt's own only where
-// this attempt is also what put the workspace there — a workspace it created,
-// or one it adopted by the same lost-response rule. In project-only mode
-// (`?workspaceId=`) the workspace is one that already existed and can be shared,
-// and the form defaults the project name to `my-llm-project`, so a 409 there is
-// at least as likely to be a teammate's project as anything this sign-up wrote.
-// Adopting that one would report "Project created", hand the CLI's return trip a
-// project belonging to someone else, and send this user's traces into it.
-//
-// So the 409 stands in that mode. It is not the dead end it is on the first
-// screen: the refusal says "A project with this name already exists", and the
-// project name is a field on this form, which the user can change and submit
-// again. Naming the colliding project and offering to use it would be better
-// still, and is a question for whoever designs that prompt rather than something
-// to decide by defaulting to adoption.
-//
-// What this does not recover is an edited name after a lost response — with no
-// id in hand a retry under a different name cannot collide, so it creates a
-// second project and leaves the first unmentioned.
+// created and could not report back. `adoptable` says whether a 409 may be
+// adopted at all: false when the workspace predates this page, where a project
+// under the same name may be a teammate's, so the 409 is reported instead.
 async function createOrAdoptProject(
   workspaceId: string,
   name: string,
@@ -607,7 +574,7 @@ function OnboardingContent() {
                 under it is what says which of the two routes you are on, and
                 it carries more now that the step below says what the command
                 does. */}
-            <h1 className="text-lg font-semibold">Let&apos;s get started</h1>
+            <h1 className="text-[15px] font-medium">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
               {/* "The rest happens in your terminal" stops being true the
                   moment the user says they would rather it did not. */}
@@ -648,7 +615,7 @@ function OnboardingContent() {
 
         {/* Error message */}
         {error && (
-          <div className="mb-4 border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+          <div className="mb-4 border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
             {error}
           </div>
         )}
@@ -705,9 +672,9 @@ function OnboardingContent() {
                     <div className="flex flex-col items-center">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
                         {isProjectOnlyMode ? (
-                          <Check className="h-4 w-4 text-primary" />
+                          <Check className="h-4 w-4 text-brand" />
                         ) : (
-                          <DOMAIN_ICONS.workspace className="h-4 w-4 text-primary" />
+                          <DOMAIN_ICONS.workspace className="h-4 w-4 text-brand" />
                         )}
                       </div>
                       {/* Vertical connector line */}
@@ -715,13 +682,13 @@ function OnboardingContent() {
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
                       <label className="text-[13px] font-medium">Workspace</label>
-                      <p className="mb-2 text-[11px] text-muted-foreground">
+                      <p className="mb-2 text-[12px] text-muted-foreground">
                         Your team's home for billing and members
                       </p>
                       {isProjectOnlyMode ? (
-                        <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
+                        <div className="flex items-center gap-2 border bg-muted px-2.5 py-1.5 text-[13px]">
                           <span>{existingWorkspaceName || "Selected workspace"}</span>
-                          <Check className="ml-auto h-3.5 w-3.5 text-green-600" />
+                          <Check className="ml-auto h-3.5 w-3.5 text-success" />
                         </div>
                       ) : (
                         <Input
@@ -731,7 +698,7 @@ function OnboardingContent() {
                         />
                       )}
                       {errors.workspaceName && (
-                        <p className="mt-1 text-[11px] text-red-500">
+                        <p className="mt-1 text-[12px] text-danger">
                           {errors.workspaceName.message}
                         </p>
                       )}
@@ -747,7 +714,7 @@ function OnboardingContent() {
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
                       <label className="text-[13px] font-medium">Project</label>
-                      <p className="mb-2 text-[11px] text-muted-foreground">
+                      <p className="mb-2 text-[12px] text-muted-foreground">
                         Where your traces and experiments live
                       </p>
                       <Input
@@ -756,9 +723,7 @@ function OnboardingContent() {
                         className="h-8 text-[13px]"
                       />
                       {errors.projectName && (
-                        <p className="mt-1 text-[11px] text-red-500">
-                          {errors.projectName.message}
-                        </p>
+                        <p className="mt-1 text-[12px] text-danger">{errors.projectName.message}</p>
                       )}
                     </div>
                   </div>

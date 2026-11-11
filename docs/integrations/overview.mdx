@@ -1,12 +1,12 @@
 ---
 title: Introduction
-description: Connect TraceRoot to your LLM providers, frameworks, and tools
+description: Connect traceroot to your LLM providers, frameworks, and tools
 ---
 
 export const IntegrationCard = ({ logo, logoDark, title, href }) => (
   <a
     href={href}
-    className="not-prose group flex flex-row items-center p-3 gap-2.5 border border-gray-950/10 dark:border-white/10 rounded-xl bg-white dark:bg-background-dark hover:border-primary dark:hover:border-primary-light transition-colors no-underline"
+    className="tr-integration-card not-prose group flex flex-row items-center p-3 gap-2.5 border border-gray-950/10 dark:border-white/10 rounded-xl bg-white dark:bg-background-dark hover:border-primary dark:hover:border-primary-light transition-colors no-underline"
   >
     <div className="shrink-0 flex items-center justify-center">
       <img
@@ -40,13 +40,13 @@ export const IntegrationGrid = ({ cols = 3, children }) => (
   </div>
 );
 
-TraceRoot integrates with popular LLM providers and agent frameworks via auto-instrumentation — every call is captured as a span with no code changes beyond initialization.
+traceroot integrates with popular LLM providers and agent frameworks via auto-instrumentation — every call is captured as a span with no code changes beyond initialization.
 
 Don't see your integration? [Request one on GitHub](https://github.com/traceroot-ai/traceroot/issues/new).
 
 ## Native
 
-Auto-instrument with TraceRoot's official SDKs.
+Auto-instrument with traceroot's official SDKs.
 
 <IntegrationGrid cols={2}>
   <IntegrationCard
@@ -197,7 +197,7 @@ Trace direct calls to LLM providers.
 
 ## Internal Model Providers
 
-TraceRoot provides a set of built-in models that power the TraceRoot Agent — used for trace analysis, root cause analysis, and automated fix PR generation. No API key needed to get started.
+traceroot provides a set of built-in models that power the traceroot Agent — used for trace analysis, root cause analysis, and automated fix PR generation. No API key needed to get started.
 
 <Card
   title="Supported Models"

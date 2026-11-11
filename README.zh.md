@@ -3,11 +3,11 @@
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="frontend/ui/public/images/traceroot_logo_dark.png">
       <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo_light.png">
-      <img src="frontend/ui/public/images/traceroot_logo_light.png" alt="TraceRoot Logo" width="560">
+      <img src="frontend/ui/public/images/traceroot_logo_light.png" alt="traceroot Logo" width="560">
     </picture>
   </a>
 
-开源 AI Agent 改进平台
+traceroot：持续改进你的 AI Agent 的开源平台。
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -31,11 +31,11 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-<p align="center">⭐ 为本仓库点亮 Star，让更多开发者了解 TraceRoot，一起壮大社区！</p>
+<p align="center">⭐ 为本仓库点亮 Star，让更多开发者了解 traceroot，一起壮大社区！</p>
 
-## TraceRoot
+## traceroot
 
-找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
+开源 Braintrust 替代方案。找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
 ### 将生产故障转化为经过验证的改进
 
-追踪生产运行，使用检测器评估行为，并将反复出现的模式提炼为改进信号。你的编程 Agent 通过 TraceRoot CLI 分析这些信号、在本地修改代码，再通过离线评测验证改动。发布后，新的生产追踪进入下一轮检测、信号分析与验证，形成持续改进的闭环。
+追踪生产运行，使用检测器评估行为，并将反复出现的模式提炼为改进信号。你的编程 Agent 通过 traceroot CLI 分析这些信号、在本地修改代码，再通过离线评测验证改动。发布后，新的生产追踪进入下一轮检测、信号分析与验证，形成持续改进的闭环。
 
 | 步骤 | 描述 |
 | ---- | ----------- |
@@ -54,34 +54,36 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
 ## ⭐ 为仓库点亮 Star
 
-如果你喜欢我们正在构建的产品，请为 TraceRoot 点亮 Star ⭐，帮助更多开发者发现它。
+如果你喜欢我们正在构建的产品，请为 traceroot 点亮 Star ⭐，帮助更多开发者发现它。
 
 <p align="center">
   <a href="https://github.com/traceroot-ai/traceroot">
-    <img src="docs/images/github-star-demo.gif" alt="如何在 GitHub 上为 TraceRoot 仓库点亮 Star" width="100%">
+    <img src="docs/images/github-star-demo.gif" alt="如何在 GitHub 上为 traceroot 仓库点亮 Star" width="100%">
   </a>
 </p>
 
-## 配置 TraceRoot
+## 配置 traceroot
 
-准备好 [TraceRoot 实例](#开始使用-traceroot)（云端或自托管）后，在仪表盘中创建项目，并选择发送第一条追踪的方式：让编程 Agent 通过 CLI 配置埋点，或手动配置 SDK。
+将第一条追踪发送到 [traceroot Cloud](https://app.traceroot.ai) 或你自己的 [traceroot 实例](#开始使用-traceroot)：运行一条命令，让编程 Agent 添加埋点，或手动配置 SDK。
 
 ### 使用编程 Agent
 
 <a id="cli-quickstart"></a>
 
-安装 [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 并登录：
+在你想要追踪的仓库根目录运行：
 
 ```bash
-npm install -g traceroot-cli
-traceroot login
+npx -y traceroot-cli@latest setup
 ```
 
-然后向你的编程 Agent 提出请求：
+支持 Claude Code、Codex、Cursor、OpenCode、Pi、Antigravity 等。
 
-```text
-使用 TraceRoot CLI 为此应用配置追踪。
-```
+[traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 会通过浏览器引导你登录（也可在此创建免费账号），将项目 API 密钥写入应用的 env 文件，让 Claude Code 或 Codex 添加 SDK，并等待第一条追踪。需要 Node.js 20.12 或更高版本。
+
+- 使用其他编程 Agent？setup 可以将改动导出为任务，交给它执行。
+- 自托管？通过 `--host`（API 源地址）和 `--auth-host`（Web 应用源地址）将 setup 指向你的实例。
+
+各步骤、自托管与故障排查请参阅[配置指南](https://traceroot.ai/docs/tracing/get-started)。
 
 ### 手动配置 SDK
 
@@ -90,7 +92,7 @@ traceroot login
 <details>
 <summary>运行最小 TypeScript 示例</summary>
 
-你需要 Node.js、npm、TraceRoot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例地址。
+你需要 Node.js、npm、traceroot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例的 API 源地址（例如 `http://localhost:8000`）。
 
 **1. 安装 SDK**，在 TypeScript 项目中运行：
 
@@ -138,9 +140,9 @@ main().catch(console.error);
 
 </details>
 
-## 开始使用 TraceRoot
+## 开始使用 traceroot
 
-### TraceRoot Cloud
+### traceroot Cloud
 
 [创建账号](https://app.traceroot.ai)，无需自行部署即可开始使用。
 
@@ -183,7 +185,7 @@ make prod-lite
 | [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | 将 callback handler 传入 DeepAgents 流水线即可自动埋点。 |
 | [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | 自动埋点 RAG 流水线、文档摄取、检索以及 LLM 综合生成。 |
 | [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | 通过 Agent Framework 内置的 OpenTelemetry 自动埋点 Agent 运行、模型调用以及工具执行。 |
-| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | 通过 TraceRoot OTLP exporter 自动埋点。 |
+| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | 通过 traceroot OTLP exporter 自动埋点。 |
 | [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | 自动埋点 Agent 运行、工具执行以及 handoff 流转。 |
 | [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | 通过 pydantic-ai 原生 OpenTelemetry 支持，自动埋点 Agent 运行、LLM 调用以及工具调用。 |
 | [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | 原生 OpenTelemetry 追踪，无需配置 `instrumentModules`。AI SDK 7 需要 `@ai-sdk/otel`，AI SDK 6（旧版）使用 `experimental_telemetry`。 |
@@ -216,7 +218,7 @@ make prod-lite
 
 ## 许可证
 
-TraceRoot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE) 许可证。`ee` 目录中的代码采用[企业版许可证](ee/LICENSE)。
+traceroot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE) 许可证。`ee` 目录中的代码采用[企业版许可证](ee/LICENSE)。
 
 ## Star 趋势
 
@@ -234,13 +236,13 @@ TraceRoot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE)
 
 <p align="center">
 <a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 贡献者" />
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="traceroot 贡献者" />
 </a>
 </p>
 
 <br>
 
-<p align="center">⭐ <b>在 GitHub 上给我们点个 Star</b>，支持 TraceRoot！</p>
+<p align="center">⭐ <b>在 GitHub 上给我们点个 Star</b>，支持 traceroot！</p>
 
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb

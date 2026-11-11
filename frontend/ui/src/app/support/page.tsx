@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { Github, BookOpen, MessageCircle, Calendar } from "lucide-react";
-import { useLayout } from "@/components/layout/app-layout";
+import { Github, BookOpen, MessageCircle, Calendar, ArrowUpRight } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { clientEnv } from "@/env.client";
 
 const supportChannels = [
@@ -41,44 +40,50 @@ const supportChannels = [
 ];
 
 export default function SupportPage() {
-  const { setHeaderContent } = useLayout();
-
-  // Set header breadcrumb
-  useEffect(() => {
-    setHeaderContent(<span className="text-[13px] font-medium">Support</span>);
-    return () => setHeaderContent(null);
-  }, [setHeaderContent]);
-
   return (
-    <div className="h-full overflow-auto bg-background">
-      <div className="p-4">
-        {/* Section header */}
-        <div className="mb-4">
-          <h1 className="text-lg font-semibold">Support</h1>
-          <p className="text-[13px] text-muted-foreground">Get help and connect with us</p>
-        </div>
-
-        {/* Support channels grid */}
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {supportChannels.map((channel) => {
-            const Icon = channel.icon;
-            return (
-              <a
-                key={channel.id}
-                href={channel.href}
-                target={channel.external ? "_blank" : undefined}
-                rel={channel.external ? "noopener noreferrer" : undefined}
-                className="flex items-start gap-3 rounded-lg border border-border p-4 transition-colors hover:bg-muted/50"
-              >
-                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  <h3 className="text-[13px] font-medium">{channel.title}</h3>
-                  <p className="mt-0.5 text-[12px] text-muted-foreground">{channel.description}</p>
-                </div>
-              </a>
-            );
-          })}
-        </div>
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      <PageHeader title="Support" />
+      <div className="min-w-0 flex-1 overflow-auto">
+        <table className="data-table w-full min-w-[32rem]">
+          <thead>
+            <tr>
+              <th className="w-[16rem] whitespace-nowrap px-3 text-left">Channel</th>
+              <th className="whitespace-nowrap px-3 text-left">Description</th>
+              <th className="w-[56px] px-2" aria-label="Open" />
+            </tr>
+          </thead>
+          <tbody>
+            {supportChannels.map((channel) => {
+              const Icon = channel.icon;
+              return (
+                <tr
+                  key={channel.id}
+                  onClick={() => window.open(channel.href, "_blank", "noopener,noreferrer")}
+                  className="cursor-pointer transition-colors hover:bg-muted"
+                >
+                  <td className="whitespace-nowrap px-3 text-foreground">
+                    <a
+                      href={channel.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-2"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      {channel.title}
+                    </a>
+                  </td>
+                  <td className="whitespace-nowrap px-3 text-muted-foreground">
+                    {channel.description}
+                  </td>
+                  <td className="px-2 text-right">
+                    <ArrowUpRight className="inline h-3.5 w-3.5 text-muted-foreground" />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

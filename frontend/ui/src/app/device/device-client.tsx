@@ -328,7 +328,7 @@ function DeviceContent() {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Device sign-in</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Device sign-in</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {phase.kind === "entry" && (
@@ -421,7 +421,7 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
             className="h-9 text-center text-[15px] tracking-widest"
             autoFocus
           />
-          {error && <p className="mt-1 text-[11px] text-red-500">{error}</p>}
+          {error && <p className="mt-1 text-[12px] text-danger">{error}</p>}
         </div>
         <Button type="submit" size="sm" className="h-8 w-full text-[13px]">
           Continue
@@ -433,8 +433,8 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
 
 function CodeConfirm({ code }: { code: string }) {
   return (
-    <div className="border bg-muted/50 px-3 py-2 text-center">
-      <p className="text-[11px] uppercase text-muted-foreground">Confirm this code</p>
+    <div className="border bg-muted px-3 py-2 text-center">
+      <p className="text-[12px] uppercase text-muted-foreground">Confirm this code</p>
       <p className="text-[18px] font-semibold tracking-widest">{formatUserCode(code)}</p>
     </div>
   );
@@ -471,17 +471,18 @@ function Consent({
       <CodeConfirm code={code} />
 
       <p className="text-[12px] text-muted-foreground">
-        Approving signs {clientName} in to your TraceRoot account. It stays signed in until you
-        revoke it from{" "}
+        Approving signs {clientName} in to your traceroot account. It stays signed in while you use
+        it and signs out within seven days of its last use. Signing out in this browser doesn&apos;t
+        sign {clientName} out, but you can revoke it from{" "}
         <Link href="/account/settings/sessions" className="underline hover:text-foreground">
           Active Sessions
         </Link>{" "}
         in your account settings.
       </p>
 
-      <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-        Only approve a code you generated yourself just now. If you didn&apos;t start a traceroot
-        login, deny this.
+      <p className="border border-warning-border bg-warning-soft p-2 text-[12px] text-warning">
+        Only approve a code you generated yourself just now. If you didn&apos;t just run a traceroot
+        command in your terminal, deny this.
       </p>
 
       <div className="flex gap-2">
@@ -547,9 +548,9 @@ function SetupRequired({
         the terminal is waiting on this page.
       </p>
 
-      <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-        Only continue for a code you generated yourself just now. If you didn&apos;t start a
-        traceroot login, deny this.
+      <p className="border border-warning-border bg-warning-soft p-2 text-[12px] text-warning">
+        Only continue for a code you generated yourself just now. If you didn&apos;t just run a
+        traceroot command in your terminal, deny this.
       </p>
 
       <div className="flex gap-2">
@@ -606,7 +607,7 @@ type ErrorStateProps = {
 function ErrorState({ message, recoverable, onStartOver }: ErrorStateProps) {
   return (
     <div className="space-y-3 py-2 text-center">
-      <p className="text-[13px] text-red-600 dark:text-red-400">{message}</p>
+      <p className="text-[13px] text-danger">{message}</p>
       {recoverable && (
         <Button variant="outline" size="sm" className="h-8 text-[13px]" onClick={onStartOver}>
           Try again
