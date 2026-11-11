@@ -36,11 +36,14 @@ provider's pricing page, listed with each flag, before changing the price file.
   python3 scripts/check_model_prices.py --post               # post it to Slack
   python3 scripts/check_model_prices.py --payload msg.json   # write the Slack message
   python3 scripts/check_model_prices.py --track              # name the PRs that fix each
+  python3 scripts/check_model_prices.py --html report.html   # write the full report page
 
---post sends the report to the Slack incoming webhook in SLACK_WEBHOOK_URL as a Block
-Kit message, problems first. It posts on every run, even when nothing is flagged, so a
-missing message means the check did not run. --payload writes that message as JSON,
-so it can be previewed or extended before it is posted. --litellm and --modelsdev take
+--post sends a short Block Kit message to the Slack incoming webhook in
+SLACK_WEBHOOK_URL: what needs a fix and has no open PR, then what open PRs already fix.
+It posts on every run, even when nothing is flagged, so a missing message means the
+check did not run. --payload writes that message as JSON, so it can be previewed or
+extended before it is posted. --html writes every finding as a web page, and
+--report-url links the message to where that page is published. --litellm and --modelsdev take
 a URL or a local file, so a saved catalog snapshot can be replayed. --track reads
 GitHub, with GITHUB_TOKEN or GH_TOKEN when set; if GitHub can't be read, the report
 says so and the run still succeeds.
@@ -55,6 +58,7 @@ Standard library only, so it runs on any Python 3.11+ without installing anythin
 
 import argparse
 import functools
+import html
 import json
 import os
 import re
@@ -204,6 +208,17 @@ ID_HEADING = (
     "IDs a model has on Bedrock, Vertex AI or OpenRouter, or with [1m], that its row's "
     "matchPattern misses, so their spans record no cost"
 )
+# Provider names as people write them, for counts in the Slack message.
+PROVIDER_NAMES = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "google": "Google",
+    "xai": "xAI",
+    "deepseek": "DeepSeek",
+    "zai": "Z.ai",
+    "moonshot": "Moonshot",
+    "typesafe": "TypeSafe",
+}
 # Slack Block Kit text limits.
 HEADER_LIMIT = 150
 SECTION_LIMIT = 3000
@@ -687,6 +702,22 @@ def describe(key: tuple) -> str:
     raise ValueError(f"unknown finding {key}")
 
 
+def describe_all(keys: list[tuple]) -> list[str]:
+    """Finding keys in a few words each, with one model's rates merged, e.g.
+    "claude-x input and cache read rates"."""
+    rates: dict[str, list[str]] = {}
+    others = []
+    for key in keys:
+        if key[0] == "rate":
+            rates.setdefault(key[1], []).append(FIELD_LABELS[key[2]])
+        else:
+            others.append(describe(key))
+    merged = [
+        f"{model} {_join(fields)} rate" + "s" * (len(fields) > 1) for model, fields in rates.items()
+    ]
+    return merged + others
+
+
 def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]:
     """The price file with a PR merged: the rows the PR adds, changes or removes between
     its merge base and its head, applied to the current rows by id. A branch that is
@@ -720,8 +751,8 @@ def track(report: dict, prs: list[dict], evaluate) -> None:
         fixes = [key for key in before if key not in after]
         for key in fixes:
             before[key]["tracked_by"].append(pr["number"])
-        adds = [describe(key) for key in after if key not in before]
-        checked.append({**summary, "fixes": [describe(key) for key in fixes], "adds": adds})
+        adds = describe_all([key for key in after if key not in before])
+        checked.append({**summary, "fixes": describe_all(fixes), "adds": adds})
     report["pull_requests"] = checked
     report["tracking"] = "ok"
 
@@ -1094,30 +1125,11 @@ def _cell(text: str, *, url: str | None = None, bold: bool = False, note: str = 
     return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": elements}]}
 
 
-def _pr_cell(numbers: list[int], report: dict) -> dict:
-    """A table cell linking each open PR, or a dash when there is none."""
-    urls = {pr["number"]: pr.get("url") for pr in report.get("pull_requests", [])}
-    elements: list[dict] = []
-    for number in numbers:
-        if elements:
-            elements.append({"type": "text", "text": ", "})
-        url = urls.get(number)
-        text = f"#{number}"
-        elements.append(
-            {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
-        )
-    elements = elements or [{"type": "text", "text": "—"}]
-    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": elements}]}
-
-
-def _price_table_block(report: dict) -> dict:
-    """Flagged rates as a table, one row per rate; the model name links to its pricing
-    page. With --track, a last column links the open PRs that would fix each rate."""
-    tracked = _tracked(report)
-    titles = ("Model", "Rate", "Ours", "Catalogs", "Open PR")[: 5 if tracked else 4]
-    rows = [[_cell(title, bold=True) for title in titles]]
+def _price_table_block(flagged: list[dict]) -> dict:
+    """Flagged rates as a table, one row per rate; the model name links to its pricing page."""
+    rows = [[_cell(title, bold=True) for title in ("Model", "Rate", "Ours", "Catalogs")]]
     previous = None
-    for item in report["flagged"][:MAX_FLAGGED_LINES]:
+    for item in flagged[:MAX_FLAGGED_LINES]:
         first = item["model"] != previous
         previous = item["model"]
         model = (
@@ -1125,77 +1137,413 @@ def _price_table_block(report: dict) -> dict:
             if first
             else _cell(" ")
         )
-        cells = [
-            model,
-            _cell(FIELD_LABELS[item["field"]]),
-            _cell(_amount(item["ours"])),
-            _cell(_catalog_amount(item)),
-        ]
-        rows.append([*cells, _pr_cell(item["tracked_by"], report)] if tracked else cells)
-    settings = [{"is_wrapped": True}, {"align": "left"}, {"align": "right"}, {"align": "right"}]
+        rows.append(
+            [
+                model,
+                _cell(FIELD_LABELS[item["field"]]),
+                _cell(_amount(item["ours"])),
+                _cell(_catalog_amount(item)),
+            ]
+        )
     return {
         "type": "table",
         "block_id": "prices",
-        "column_settings": [*settings, {"align": "left"}] if tracked else settings,
+        "column_settings": [
+            {"is_wrapped": True},
+            {"align": "left"},
+            {"align": "right"},
+            {"align": "right"},
+        ],
         "rows": rows,
     }
 
 
-def build_payload(report: dict) -> dict:
-    """The Slack message (Block Kit) for a completed run: what to fix first, then context."""
-    flagged = report["flagged"]
+def _open(items: list[dict]) -> list[dict]:
+    """The findings no open PR fixes; all of them when --track didn't run."""
+    return [item for item in items if not item.get("tracked_by")]
+
+
+def _join(words: list[str]) -> str:
+    """ "a", "a and b", "a, b and c"."""
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+
+
+def _by_provider(items: list[dict]) -> str:
+    """Counts by provider, largest first, e.g. "OpenAI 29, Anthropic 26"."""
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["provider"]] = counts.get(item["provider"], 0) + 1
+    ranked = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+    return ", ".join(f"{PROVIDER_NAMES.get(name, name)} {count}" for name, count in ranked)
+
+
+def _sources(items: list[dict]) -> str:
+    """Where model IDs come from, e.g. "Bedrock, OpenRouter and [1m]"."""
+    names = {"[1m]" if item["source"] == "1M context" else item["source"] for item in items}
+    order = ["Bedrock", "Vertex AI", "OpenRouter", "[1m]"]
+    return _join(sorted(names, key=lambda name: (order.index(name) if name in order else 9, name)))
+
+
+def _main_missing(items: list[dict]) -> list[dict]:
+    """Unpriced models, leaving out aliases, snapshots, realtime and search models."""
+    return [item for item in items if not MINOR_MODELS.search(item["model"])]
+
+
+def _problem_text(item: dict) -> str:
+    if "problem" in item:
+        return f"{item['row']}: {item['problem']}"
+    return f"{item['model']} is matched by {_join(item['rows'])} at different prices"
+
+
+def _needs_lines(report: dict) -> list[str]:
+    """One bullet per kind of finding no open PR fixes, rates aside (they get a table)."""
+    lines = []
+    ids = _open(report["unpriced_ids"])
+    unpriced = [item for item in ids if not item["priced_as"]]
+    if unpriced:
+        rows = {item["row"] for item in unpriced}
+        verb = "records" if len(unpriced) == 1 else "record"
+        hosted = [item["model"] for item in unpriced if item["source"] != "1M context"]
+        example = f" Example: `{_escape(_example(hosted))}`" if hosted else ""
+        lines.append(
+            f"• *{_plural(len(unpriced), 'model ID')} {verb} no cost.* These are the "
+            f"{_sources(unpriced)} IDs of {_plural(len(rows), 'model')} we already price: "
+            f"{_by_provider(unpriced)}.{example}"
+        )
+    wrong = [item for item in ids if item["priced_as"]]
+    if wrong:
+        verb = "gets" if len(wrong) == 1 else "get"
+        lines.append(
+            f"• *{_plural(len(wrong), 'model ID')} {verb} another model's price*, e.g. "
+            f"`{_escape(wrong[0]['model'])}` is priced as `{_escape(wrong[0]['priced_as'])}`"
+        )
+    problems = _open(report["row_problems"] + report["overlaps"])
+    if problems:
+        lines.append(
+            f"• *{_plural(len(problems), 'price file problem')}*, e.g. "
+            f"{_escape(_problem_text(problems[0]))}"
+        )
+    missing = _main_missing(_open(report["missing"]))
+    if missing:
+        verb = "isn't" if len(missing) == 1 else "aren't"
+        lines.append(
+            f"• *{_plural(len(missing), 'model')} {verb} priced at all:* {_by_provider(missing)}"
+        )
+    return lines
+
+
+def _progress_lines(report: dict, links) -> list[str]:
+    """Findings open PRs fix, grouped by PR, then PRs that would add a problem."""
+    lines = []
+    rates: dict[tuple[int, ...], list[dict]] = {}
+    for item in report["flagged"]:
+        if item.get("tracked_by"):
+            rates.setdefault(tuple(item["tracked_by"]), []).append(item)
+    for prs, items in rates.items():
+        models = ", ".join(
+            f"`{_escape(model)}`" for model in dict.fromkeys(i["model"] for i in items)
+        )
+        if len(items) == 1:
+            item = items[0]
+            change = f"${_amount(item['ours'])} → ${_catalog_amount(item)}"
+            lines.append(f"• {models} {FIELD_LABELS[item['field']]} {change}: {links(list(prs))}")
+        else:
+            fields = list(dict.fromkeys(FIELD_LABELS[i["field"]] for i in items))
+            lines.append(f"• {models} {_join(fields)}: {links(list(prs))}")
+    ids = [item for item in report["unpriced_ids"] if item.get("tracked_by")]
+    if ids:
+        prs = sorted({number for item in ids for number in item["tracked_by"]})
+        rows = {item["row"] for item in ids}
+        lines.append(f"• {_sources(ids)} IDs of {_plural(len(rows), 'model')}: {links(prs)}")
+    problems = [i for i in report["row_problems"] + report["overlaps"] if i.get("tracked_by")]
+    if problems:
+        prs = sorted({number for item in problems for number in item["tracked_by"]})
+        lines.append(f"• {_plural(len(problems), 'price file problem')}: {links(prs)}")
+    for item in report["missing"]:
+        if item.get("tracked_by"):
+            lines.append(f"• `{_escape(item['model'])}` not priced: {links(item['tracked_by'])}")
+    adds: dict[tuple[str, ...], list[int]] = {}
+    for pr in report.get("pull_requests", []):
+        if pr.get("error"):
+            lines.append(f"• :warning: {links([pr['number']])}: {_escape(pr['error'])}")
+        elif pr["adds"]:
+            adds.setdefault(tuple(pr["adds"]), []).append(pr["number"])
+    for added, numbers in adds.items():
+        more = f" and {len(added) - 3} more" if len(added) > 3 else ""
+        what = _escape(", ".join(added[:3])) + more
+        lines.append(f"• :warning: {links(numbers)} would add: {what}")
+    return lines
+
+
+def _summary(report: dict) -> str:
+    """The notification text: what no open PR covers, e.g. "80 model IDs with no price"."""
+    parts = []
+    flagged = _open(report["flagged"])
+    if flagged:
+        models = dict.fromkeys(item["model"] for item in flagged)
+        parts.append(f"{_plural(len(models), 'model')} with prices to check")
+    ids = _open(report["unpriced_ids"])
+    if ids:
+        parts.append(f"{_plural(len(ids), 'model ID')} with no price")
+    problems = _open(report["row_problems"] + report["overlaps"])
+    if problems:
+        parts.append(_plural(len(problems), "price file problem"))
+    missing = _main_missing(_open(report["missing"]))
+    if missing:
+        parts.append(f"{_plural(len(missing), 'model')} not priced")
+    if parts:
+        return ", ".join(parts)
+    in_prs = any(item.get("tracked_by") for item in finding_keys(report).values())
+    return "everything found is in an open PR" if in_prs else "prices match the catalogs"
+
+
+def _slack_footer(report: dict, report_url: str | None) -> str:
+    checked = f"Checked {report['compared']} of {report['total']} rows"
+    if _tracked(report):
+        checked += f" and {_plural(len(report['pull_requests']), 'open pricing PR')}"
+    elif report.get("tracking"):
+        checked += f" · open PRs not checked: {_escape(report['tracking'])}"
+    return f"<{report_url}|Full report> · {checked}" if report_url else checked
+
+
+def build_payload(report: dict, report_url: str | None = None) -> dict:
+    """The Slack message (Block Kit) for a completed run: what needs a fix and has no open
+    PR, then what open PRs already fix. The full lists are in the report page."""
     links = _pr_linker(report)
-    main, minor = _split_missing(report["missing"])
-    status = [f":{emoji}: *{text[0].upper()}{text[1:]}*" for emoji, text in _status_parts(report)]
+    flagged = _open(report["flagged"])
+    needs = _needs_lines(report)
+    progress = _progress_lines(report, links) if _tracked(report) else []
     title = f"Model pricing audit · {report['date']}"
     blocks: list[dict] = [
-        {"type": "header", "text": {"type": "plain_text", "text": _clip(title, HEADER_LIMIT)}},
-        {"type": "section", "text": _mrkdwn("     ".join(status))},
+        {"type": "header", "text": {"type": "plain_text", "text": _clip(title, HEADER_LIMIT)}}
     ]
-    if flagged:
-        heading = "*Prices to check* · USD per 1M tokens, ours vs. the catalogs"
-        blocks += [{"type": "section", "text": _mrkdwn(heading)}, _price_table_block(report)]
-        if len(flagged) > MAX_FLAGGED_LINES:
-            more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates in the JSON report"
-            blocks.append(
-                {"type": "context", "block_id": "prices_more", "elements": [_mrkdwn(more)]}
-            )
-    if report["unpriced_ids"]:
-        heading = f"*Model IDs with no price* · {len(report['unpriced_ids'])} {ID_HEADING}"
-        open_ids, covered = _id_lines(report, links)
-        if open_ids:
-            text = _fit(f"{heading}\n_No open PR:_", open_ids, SECTION_LIMIT)
-            blocks.append({"type": "section", "text": _mrkdwn(text)})
-        if covered:
-            text = _fit("" if open_ids else heading, covered, CONTEXT_LIMIT).lstrip("\n")
-            blocks.append({"type": "context", "elements": [_mrkdwn(text)]})
-    problems = _problem_lines(report, links)
-    if problems:
-        text = "*Price file problems*\n" + "\n".join(problems)
-        blocks.append({"type": "section", "text": _mrkdwn(_clip(text, SECTION_LIMIT))})
-    if main or minor:
-        blocks.append({"type": "divider"})
-    if main:
-        heading = f"*Not priced* · {_count(main)} models a catalog prices that no row matches"
-        body = _names(main, bullet="• ", separator="\n", links=links)
-        blocks.append(
-            {"type": "section", "text": _mrkdwn(_clip(f"{heading}\n{body}", SECTION_LIMIT))}
+    if flagged or needs:
+        heading = (
+            ":red_circle: *Needs a fix, no PR yet*"
+            if _tracked(report)
+            else (":red_circle: *Needs a fix*")
         )
-    if minor:
-        heading = f"*Also not priced* ({_count(minor)}): aliases, snapshots, realtime and search"
-        body = _names(minor, bullet="", separator=" · ", links=links)
-        text = _clip(f"{heading} · {body}", CONTEXT_LIMIT)
-        blocks.append({"type": "context", "elements": [_mrkdwn(text)]})
-    if report["long_context"]:
-        text = _clip(_long_context_line(report), CONTEXT_LIMIT)
-        blocks.append({"type": "context", "elements": [_mrkdwn(text)]})
-    warnings = _pr_warnings(report, links)
-    if warnings:
-        text = _clip("*Open PRs to check* · " + " · ".join(warnings), CONTEXT_LIMIT)
-        blocks.append({"type": "context", "elements": [_mrkdwn(text)]})
-    footer = _clip(_escape(_footer(report)), CONTEXT_LIMIT)
-    blocks.append({"type": "context", "elements": [_mrkdwn(footer)]})
-    return {"text": f"Model pricing audit, {report['date']}: {_status(report)}", "blocks": blocks}
+        if not flagged:
+            text = _fit(heading, needs, SECTION_LIMIT)
+            blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
+        else:
+            # The rates get a table, and the other bullets follow it.
+            models = dict.fromkeys(item["model"] for item in flagged)
+            heading += (
+                f"\n• *{_plural(len(models), 'model')} with prices to check*, USD per 1M tokens, "
+                "ours vs. the catalogs:"
+            )
+            blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(heading)})
+            blocks.append(_price_table_block(flagged))
+            if len(flagged) > MAX_FLAGGED_LINES:
+                more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates in the full report"
+                blocks.append(
+                    {"type": "context", "block_id": "prices_more", "elements": [_mrkdwn(more)]}
+                )
+            if needs:
+                text = _fit("", needs, SECTION_LIMIT).lstrip("\n")
+                blocks.append({"type": "section", "block_id": "needs_more", "text": _mrkdwn(text)})
+    else:
+        text = (
+            ":large_green_circle: *Nothing needs a fix that isn't in an open PR*"
+            if progress
+            else ":large_green_circle: *Prices match the catalogs, and every model ID is priced*"
+        )
+        blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
+    if progress:
+        text = _fit(":large_yellow_circle: *In progress (open PRs)*", progress, SECTION_LIMIT)
+        blocks.append({"type": "section", "block_id": "progress", "text": _mrkdwn(text)})
+    footer = _clip(_slack_footer(report, report_url), CONTEXT_LIMIT)
+    blocks.append({"type": "context", "block_id": "footer", "elements": [_mrkdwn(footer)]})
+    return {"text": f"Model pricing audit, {report['date']}: {_summary(report)}", "blocks": blocks}
+
+
+HTML_STYLE = """
+:root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff;
+  --line: #e5e5ea; --head: #f5f5f7; --link: #0b63ce; }
+@media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --muted: #a1a1a6;
+  --bg: #1c1c1e; --line: #3a3a3c; --head: #2c2c2e; --link: #64a8ff; } }
+body { margin: 0 auto; max-width: 1100px; padding: 24px 16px 48px; background: var(--bg);
+  color: var(--fg); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 17px; margin: 32px 0 4px; }
+p.note { color: var(--muted); margin: 0 0 10px; } a { color: var(--link); }
+.scroll { overflow-x: auto; } table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left;
+  vertical-align: top; } th { background: var(--head); font-weight: 600; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; } code { font-size: 13px; }
+"""
+
+
+def _h(text) -> str:
+    return html.escape(str(text))
+
+
+def _html_prs(numbers: list[int], urls: dict[int, str]) -> str:
+    links = [f'<a href="{_h(urls[n])}">#{n}</a>' if urls.get(n) else f"#{n}" for n in numbers or []]
+    return ", ".join(links) or "—"
+
+
+def _html_table(heading: str, note: str, columns: list[str], rows: list[list[str]]) -> str:
+    """A report section: heading, a sentence on what it lists, and a table of
+    already-escaped cells; right-aligned when a column title starts with "#"."""
+    if not rows:
+        return ""
+    numeric = [column.startswith("#") for column in columns]
+    head = "".join(f"<th>{_h(column.lstrip('#'))}</th>" for column in columns)
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f'<td class="num">{cell}</td>' if numeric[i] else f"<td>{cell}</td>"
+            for i, cell in enumerate(row)
+        )
+        + "</tr>"
+        for row in rows
+    )
+    return (
+        f"<h2>{_h(heading)} ({len(rows)})</h2><p class='note'>{_h(note)}</p>"
+        f"<div class='scroll'><table><tr>{head}</tr>{body}</table></div>"
+    )
+
+
+def build_html(report: dict) -> str:
+    """The full report as a self-contained web page: every finding, with the open PRs
+    that fix it. The Slack message summarizes it and links here."""
+    title = f"Model pricing audit · {report['date']}"
+    if report["status"] != "ok":
+        body = (
+            f"<h1>{_h(title)}</h1><p><strong>The check failed:</strong> "
+            f"{_h(report['error'])}. Nothing was compared, so this is not an all-clear.</p>"
+        )
+        return _html_page(title, body)
+    urls = {pr["number"]: pr.get("url") for pr in report.get("pull_requests", [])}
+    tracked = _tracked(report)
+
+    def prs(item: dict) -> str:
+        return _html_prs(item.get("tracked_by", []), urls) if tracked else "not checked"
+
+    sections = [
+        _html_table(
+            "Prices to check",
+            "Rates that differ by more than 3% from every catalog that lists the model, in "
+            "USD per 1M tokens. Confirm on the provider's page before changing a row.",
+            ["Model", "Priced by row", "Rate", "#Ours", "#Catalogs", "Open PRs"],
+            [
+                [
+                    f'<a href="{_h(i["pricing_page"])}">{_h(i["model"])}</a>'
+                    if i["pricing_page"]
+                    else _h(i["model"]),
+                    _h(i.get("priced_as") or i["model"]),
+                    _h(FIELD_LABELS[i["field"]]),
+                    _h(_amount(i["ours"])),
+                    _h(_catalog_amount(i)),
+                    prs(i),
+                ]
+                for i in report["flagged"]
+            ],
+        ),
+        _html_table(
+            "Model IDs with no price",
+            "The same model under another name: the ID a span carries when the model is "
+            "called through Bedrock, Vertex AI or OpenRouter, or with [1m]. The row exists, "
+            "but its matchPattern misses this ID, so these spans record no cost.",
+            ["Row", "Model ID", "From", "Priced as", "Open PRs"],
+            [
+                [
+                    _h(i["row"]),
+                    f"<code>{_h(i['model'])}</code>",
+                    _h(i["source"]),
+                    _h(i["priced_as"] or "no row"),
+                    prs(i),
+                ]
+                for i in report["unpriced_ids"]
+            ],
+        ),
+        _html_table(
+            "Price file problems",
+            "Found in the price file itself, including rows no catalog lists.",
+            ["Row or ID", "Problem", "Open PRs"],
+            [
+                [_h(i.get("row") or i["model"]), _h(_problem_text(i).split(": ", 1)[-1]), prs(i)]
+                for i in report["row_problems"] + report["overlaps"]
+            ],
+        ),
+        _html_table(
+            "Models not priced",
+            "Models a catalog prices for one of our providers that no row matches at all, so "
+            "spans that use them record no cost. Variants are -latest aliases, dated "
+            "snapshots, and realtime and search models.",
+            ["Provider", "Model", "Kind", "Listed in", "Open PRs"],
+            [
+                [
+                    _h(PROVIDER_NAMES.get(i["provider"], i["provider"])),
+                    f"<code>{_h(i['model'])}</code>",
+                    "variant" if MINOR_MODELS.search(i["model"]) else "model",
+                    _h(", ".join(i["in"])),
+                    prs(i),
+                ]
+                for i in sorted(
+                    report["missing"],
+                    key=lambda i: (bool(MINOR_MODELS.search(i["model"])), i["provider"]),
+                )
+            ],
+        ),
+        _html_table(
+            "Long-context rates",
+            "Models a catalog charges more for above a prompt size. The price file has one "
+            "rate per token type, so longer prompts are recorded at the lower rate.",
+            ["Model", "Provider", "#Higher rate above"],
+            [
+                [
+                    _h(i["model"]),
+                    _h(PROVIDER_NAMES.get(i["provider"], i["provider"])),
+                    f"{i['above'] // 1000}K tokens",
+                ]
+                for i in report["long_context"]
+            ],
+        ),
+        _html_table(
+            "Open pricing PRs",
+            "Each PR's row changes applied to the current price file and checked again.",
+            ["PR", "Title", "Fixes", "Would add"],
+            [
+                [
+                    _html_prs([pr["number"]], urls),
+                    _h(pr.get("title") or ""),
+                    _h(pr.get("error") or "; ".join(pr["fixes"]) or "—"),
+                    _h("; ".join(pr["adds"]) or "—"),
+                ]
+                for pr in report.get("pull_requests", [])
+            ],
+        ),
+    ]
+    checked = (
+        f"Checked {report['compared']} of {report['total']} rows against LiteLLM and models.dev"
+    )
+    if tracked:
+        checked += f", and {_plural(len(report['pull_requests']), 'open pricing PR')}"
+    elif report.get("tracking"):
+        checked += f". Open PRs not checked: {report['tracking']}"
+    not_compared = ", ".join(report["no_match"])
+    body = (
+        f"<h1>{_h(title)}</h1><p class='note'>{_h(checked)}.</p>"
+        + "".join(sections)
+        + (
+            f"<h2>Not compared ({len(report['no_match'])})</h2><p class='note'>Rows neither "
+            f"catalog lists under the same ID.</p><p>{_h(not_compared)}</p>"
+            if report["no_match"]
+            else ""
+        )
+    )
+    return _html_page(title, body)
+
+
+def _html_page(title: str, body: str) -> str:
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{_h(title)}</title><style>{HTML_STYLE}</style></head>"
+        f"<body>{body}</body></html>\n"
+    )
 
 
 def format_failure(date: str, reason: str) -> str:
@@ -1266,6 +1614,12 @@ def main(argv: list[str]) -> int:
         help=f"fail when fewer rows than this are compared (default {MIN_COMPARED})",
     )
     parser.add_argument(
+        "--html", type=Path, metavar="PATH", help="also write the full report as a web page"
+    )
+    parser.add_argument(
+        "--report-url", metavar="URL", help="link the Slack message to the full report here"
+    )
+    parser.add_argument(
         "--track",
         nargs="?",
         const=GITHUB_REPO,
@@ -1304,7 +1658,7 @@ def main(argv: list[str]) -> int:
                 # The findings stand without it: say PRs weren't checked, and carry on.
                 detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
-        text, payload, status = format_report(report), build_payload(report), 0
+        text, payload, status = format_report(report), build_payload(report, args.report_url), 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}
@@ -1312,6 +1666,8 @@ def main(argv: list[str]) -> int:
 
     if args.json:
         args.json.write_text(json.dumps(report, indent=2) + "\n")
+    if args.html:
+        args.html.write_text(build_html(report))
     if args.payload:
         args.payload.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     print(text)

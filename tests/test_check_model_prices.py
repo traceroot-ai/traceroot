@@ -338,11 +338,15 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         "• claude-k-5-1: 1 OpenRouter, e.g. `anthropic/claude-k-5.1`, "
         "`eu.anthropic.claude-k-5-1` is priced as claude-j"
     ) in text
-    blocks = build_payload(report)["blocks"]
-    section = next(
-        _block_text(b) for b in blocks if _block_text(b).startswith("*Model IDs with no price*")
-    )
-    assert section.startswith(f"*Model IDs with no price* · 5 {check.ID_HEADING}\n_No open PR:_\n")
+    needs = _block_text(build_payload(report)["blocks"][1])
+    assert (
+        "• *4 model IDs record no cost.* These are the Bedrock, Vertex AI and OpenRouter IDs "
+        "of 2 models we already price: Anthropic 4. Example: `us.anthropic.claude-k-5`"
+    ) in needs
+    assert (
+        "• *1 model ID gets another model's price*, e.g. `eu.anthropic.claude-k-5-1` is "
+        "priced as `claude-j`"
+    ) in needs
 
 
 def test_long_lists_are_cut_at_a_whole_line_with_a_count():
@@ -538,7 +542,7 @@ def _block_text(block):
     return block.get("text", {}).get("text", "")
 
 
-def test_slack_message_leads_with_a_price_table_then_unpriced_models():
+def test_slack_message_shows_what_needs_a_fix_in_a_few_lines():
     rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6)]
     litellm = {
         "deepseek/deepseek-d": ll_entry("deepseek", input_=1.32e-6, output=4e-6),
@@ -548,20 +552,21 @@ def test_slack_message_leads_with_a_price_table_then_unpriced_models():
         "<!channel>&co": ll_entry("openai"),
     }
     modelsdev = md_catalog(deepseek={"deepseek-d": md_model(input_=6.6e-7, output=4e-6)})
-    payload = build_payload(report_for(rows, litellm, modelsdev))
+    payload = build_payload(report_for(rows, litellm, modelsdev), "https://pages.test/r")
     blocks = payload["blocks"]
 
-    assert [b["type"] for b in blocks] == [
-        "header", "section", "section", "table", "divider", "section", "context", "context",
-    ]  # fmt: skip
+    assert [b["type"] for b in blocks] == ["header", "section", "table", "section", "context"]
     assert payload["text"] == (
-        f"Model pricing audit, {DATE}: 1 model with prices to check, 4 models not priced"
+        f"Model pricing audit, {DATE}: 1 model with prices to check, 2 models not priced"
     )
     assert blocks[0]["text"] == {"type": "plain_text", "text": f"Model pricing audit · {DATE}"}
-    assert ":red_circle: *1 model with prices to check*" in _block_text(blocks[1])
-    assert ":large_yellow_circle: *4 models not priced*" in _block_text(blocks[1])
+    # Without --track, nothing is known about open PRs.
+    assert _block_text(blocks[1]) == (
+        ":red_circle: *Needs a fix*\n• *1 model with prices to check*, USD per 1M tokens, "
+        "ours vs. the catalogs:"
+    )
 
-    table = blocks[3]
+    table = blocks[2]
     assert table["block_id"] == "prices"
     cells = [[cell["elements"][0]["elements"][0] for cell in r] for r in table["rows"]]
     assert [c["text"] for c in cells[0]] == ["Model", "Rate", "Ours", "Catalogs"]
@@ -574,9 +579,9 @@ def test_slack_message_leads_with_a_price_table_then_unpriced_models():
     assert [c["text"] for c in cells[1][1:]] == ["input", "0.50", "0.66-1.32"]
     assert [c["text"] for c in cells[2]] == [" ", "output", "1.00", "4.00"]
 
-    main, minor = _block_text(blocks[5]), _block_text(blocks[6])
-    assert "• *openai* (2): &lt;!channel&gt;&amp;co, gpt-new" in main
-    assert "gpt-new-latest" in minor and "gpt-realtime-new" in minor
+    # Counts only: aliases and realtime models are left to the full report.
+    assert _block_text(blocks[3]) == "• *2 models aren't priced at all:* OpenAI 2"
+    assert _block_text(blocks[4]) == "<https://pages.test/r|Full report> · Checked 1 of 1 rows"
     assert "<!channel>" not in json.dumps(payload)
 
 
@@ -672,16 +677,39 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
     assert "• #13: could not read it" in text
     assert "checked 3 open pricing PRs" in text
 
-    payload = build_payload(report)
-    table = next(b for b in payload["blocks"] if b["type"] == "table")
-    assert table["rows"][0][4]["elements"][0]["elements"][0]["text"] == "Open PR"
-    assert table["rows"][1][4]["elements"][0]["elements"] == [
-        {"type": "link", "url": "https://github.test/pull/11", "text": "#11"},
-        {"type": "text", "text": ", "},
-        {"type": "link", "url": "https://github.test/pull/12", "text": "#12"},
+    blocks = build_payload(report)["blocks"]
+    assert [b.get("block_id") for b in blocks] == [None, "needs", "prices", "progress", "footer"]
+    # The output rate has no PR, so it is the only row in the table.
+    table = blocks[2]
+    assert [[c["elements"][0]["elements"][0]["text"] for c in r] for r in table["rows"]] == [
+        ["Model", "Rate", "Ours", "Catalogs"],
+        ["deepseek-d", "output", "1.00", "2.00"],
     ]
-    assert table["rows"][2][4]["elements"][0]["elements"] == [{"type": "text", "text": "—"}]
-    assert "gpt-new (<https://github.test/pull/12|#12>)" in json.dumps(payload)
+    pr = "<https://github.test/pull/{0}|#{0}>".format
+    assert _block_text(blocks[3]).split("\n") == [
+        ":large_yellow_circle: *In progress (open PRs)*",
+        f"• `deepseek-d` input $0.50 → $1.00: {pr(11)}, {pr(12)}",
+        f"• `gpt-new` not priced: {pr(12)}",
+        f"• :warning: {pr(13)}: could not read it",
+        f"• :warning: {pr(12)} would add: gpt-new input rate",
+    ]
+    assert _block_text(blocks[4]) == "Checked 2 of 2 rows and 3 open pricing PRs"
+
+
+def test_the_full_report_page_lists_every_finding():
+    report = _tracked_report()
+    report["missing"].append({"model": "<b>x</b>", "provider": "openai", "in": ["litellm"]})
+    page = check.build_html(report)
+
+    assert page.startswith("<!doctype html>")
+    assert "<h2>Prices to check (2)</h2>" in page
+    assert '<a href="https://github.test/pull/11">#11</a>' in page
+    assert "<h2>Models not priced (2)</h2>" in page
+    assert "<code>&lt;b&gt;x&lt;/b&gt;</code>" in page
+    assert "<h2>Open pricing PRs (3)</h2>" in page
+
+    failed = check.build_html({"date": DATE, "status": "failed", "error": "catalog <down>"})
+    assert "catalog &lt;down&gt;" in failed and "not an all-clear" in failed
 
 
 def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
@@ -809,16 +837,22 @@ def test_quiet_day_posts_a_heartbeat(run, tmp_path):
         "1",
         "--payload",
         str(saved),
+        "--html",
+        str(tmp_path / "report.html"),
+        "--report-url",
+        "https://pages.test/r",
     )
 
     assert code == 0
     assert report["status"] == "ok"
     [payload] = posted
     assert payload["text"] == f"Model pricing audit, {report['date']}: prices match the catalogs"
-    assert (
-        payload["blocks"][1]["text"]["text"] == ":large_green_circle: *Prices match the catalogs*"
+    assert payload["blocks"][1]["text"]["text"] == (
+        ":large_green_circle: *Prices match the catalogs, and every model ID is priced*"
     )
+    assert "<https://pages.test/r|Full report>" in payload["blocks"][-1]["elements"][0]["text"]
     assert json.loads(saved.read_text()) == payload
+    assert "Checked 1 of 1 rows" in (tmp_path / "report.html").read_text()
 
 
 def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monkeypatch):
