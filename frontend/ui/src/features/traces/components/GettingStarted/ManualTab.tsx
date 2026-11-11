@@ -241,6 +241,19 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
   const config =
     resolvedLang !== undefined ? selectedIntegration.languages[resolvedLang] : undefined;
 
+  const externalIntegrations = (
+    <div className="space-y-2">
+      <p className="text-[13px] font-medium text-foreground">External integrations</p>
+      {projectLoading ? (
+        <LoadingState label="Loading integrations..." />
+      ) : workspaceId ? (
+        <ExternalIntegrations workspaceId={workspaceId} />
+      ) : (
+        <WorkspaceUnavailable />
+      )}
+    </div>
+  );
+
   if (plugin) {
     return (
       <div className="space-y-6">
@@ -285,9 +298,11 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
             </p>
           )}
           <p className="text-[12px] text-muted-foreground">
-            Each request you send becomes a trace.
+            Send a prompt in {selectedIntegration.name} to send your first trace.
           </p>
         </div>
+
+        {externalIntegrations}
       </div>
     );
   }
@@ -353,16 +368,7 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
         </p>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">External integrations</p>
-        {projectLoading ? (
-          <LoadingState label="Loading integrations..." />
-        ) : workspaceId ? (
-          <ExternalIntegrations workspaceId={workspaceId} />
-        ) : (
-          <WorkspaceUnavailable />
-        )}
-      </div>
+      {externalIntegrations}
     </div>
   );
 }

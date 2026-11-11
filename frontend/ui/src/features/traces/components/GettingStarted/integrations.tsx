@@ -571,7 +571,6 @@ const openai = new OpenAI({
     name: "Claude Code",
     href: "https://traceroot.ai/docs/integrations/claude-code",
     category: "coding-agent",
-    // The plugin has no model call of its own; the key is a starting point for the picker.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/claude-agent-sdk.svg",
     languages: {},
