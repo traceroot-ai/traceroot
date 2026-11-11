@@ -7,6 +7,8 @@ Covers ``GET /traces/filter-fields`` (registry serialization),
 dependencies — no ClickHouse needed.
 """
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -350,6 +352,38 @@ class TestGetDistinctSpanValues:
         for i in range(DISCOVERY_CACHE_MAX + 50):
             svc.get_distinct_span_values(project_id=f"p{i}", column="model_name")
         assert len(svc._discovery_cache) <= DISCOVERY_CACHE_MAX
+
+    def test_two_writes_at_once_both_remain(self, monkeypatch):
+        # Dropdown scans run on worker threads and share this cache. Each write
+        # rebuilds the dict from the snapshot it sees, so an unlocked second write
+        # can assign over the first and drop that answer.
+        mock_client = MagicMock()
+        svc = self._service(monkeypatch, mock_client)
+        stored: dict[str, object] = {}
+
+        def write_b() -> None:
+            try:
+                svc._cache_put(("b",), [{"value": "b", "count": 1}])
+                stored["b"] = "ok"
+            except Exception as error:
+                stored["b"] = error
+
+        other = threading.Thread(target=write_b)
+
+        class SwitchingCache(dict):
+            def items(self):
+                if not other.is_alive() and "b" not in stored:
+                    other.start()
+                    other.join(timeout=0.25)
+                return super().items()
+
+        svc._discovery_cache = SwitchingCache({("seed",): (time.monotonic() + 30, [])})
+        svc._cache_put(("a",), [{"value": "a", "count": 1}])
+        other.join(timeout=5)
+
+        assert stored.get("b") == "ok"
+        assert ("a",) in svc._discovery_cache
+        assert ("b",) in svc._discovery_cache
 
 
 class TestGetDistinctTraceValues:

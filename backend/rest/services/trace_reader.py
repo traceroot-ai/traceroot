@@ -309,6 +309,9 @@ class TraceReaderService:
         # long TTL (1 hour); False results expire after 10s so the onboarding
         # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
         self._has_traces_cache: dict[str, tuple[float, bool]] = {}
+        # The onboarding probe reads this from a worker thread. Eviction pops the
+        # oldest entry, and two pops of that same entry raise KeyError.
+        self._has_traces_lock = threading.Lock()
         # Trace start time cache: (project, trace, customer_only) -> (expiry, datetime).
         # Only a root span's start time is cached; it is immutable once written, so
         # 1-hour TTL is safe. Bounded to 1024 entries. Changed only under its lock:
@@ -512,9 +515,13 @@ class TraceReaderService:
         )
         found = len(result.result_rows) > 0
         ttl = 3600.0 if found else 10.0
-        if len(self._has_traces_cache) >= self._HAS_TRACES_CACHE_MAX:
-            self._has_traces_cache.pop(next(iter(self._has_traces_cache)))
-        self._has_traces_cache[project_id] = (now + ttl, found)
+        # Two reads evicting at once would both choose the oldest entry, and the
+        # second one's pop would fail. Same guard as the trace-start cache.
+        with self._has_traces_lock:
+            cache = self._has_traces_cache
+            if len(cache) >= self._HAS_TRACES_CACHE_MAX:
+                cache.pop(next(iter(cache)))
+            cache[project_id] = (now + ttl, found)
         return found
 
     _TRACE_START_CACHE_MAX = 1024

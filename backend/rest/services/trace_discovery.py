@@ -4,6 +4,7 @@ Every read here answers "what could the user pick?", never "what matches?". Sugg
 not permission — a value or key that falls outside an answer here stays filterable.
 """
 
+import threading
 import time
 from datetime import datetime
 
@@ -151,6 +152,9 @@ class TraceDiscoveryService:
         # Per-(namespace, project, subject, window) cache of discovery answers:
         # key -> (expiry, rows).
         self._discovery_cache: dict[tuple, tuple[float, list[dict]]] = {}
+        # Dropdown scans write this from worker threads. Each write rebuilds the
+        # dict, and a second assignment from the same snapshot drops the first.
+        self._discovery_lock = threading.Lock()
 
     def _cache_get(self, cache_key: tuple) -> list[dict] | None:
         """Return the unexpired cached rows for a discovery key, or ``None``.
@@ -161,12 +165,13 @@ class TraceDiscoveryService:
         Returns:
             list[dict] | None: The cached rows, or ``None`` on a miss or an expired entry.
         """
-        cached = self._discovery_cache.get(cache_key)
-        # Monotonic, like the other in-process TTL caches (trace_reader): a wall-clock step
-        # (NTP, DST-free but still steppable) must not expire or extend an entry.
-        if cached is not None and cached[0] > time.monotonic():
-            return cached[1]
-        return None
+        with self._discovery_lock:
+            cached = self._discovery_cache.get(cache_key)
+            # Monotonic, like the other in-process TTL caches (trace_reader): a wall-clock
+            # step (NTP, DST-free but still steppable) must not expire or extend an entry.
+            if cached is not None and cached[0] > time.monotonic():
+                return cached[1]
+            return None
 
     def _cache_put(self, cache_key: tuple, rows: list[dict]) -> None:
         """Cache one discovery answer, keeping the cache size bounded.
@@ -176,10 +181,11 @@ class TraceDiscoveryService:
             rows (list[dict]): The rows to serve for the TTL.
         """
         now = time.monotonic()
-        self._discovery_cache = {k: v for k, v in self._discovery_cache.items() if v[0] > now}
-        if len(self._discovery_cache) >= DISCOVERY_CACHE_MAX:
-            self._discovery_cache.pop(next(iter(self._discovery_cache)))
-        self._discovery_cache[cache_key] = (now + DISCOVERY_CACHE_TTL_SECONDS, rows)
+        with self._discovery_lock:
+            self._discovery_cache = {k: v for k, v in self._discovery_cache.items() if v[0] > now}
+            if len(self._discovery_cache) >= DISCOVERY_CACHE_MAX:
+                self._discovery_cache.pop(next(iter(self._discovery_cache)))
+            self._discovery_cache[cache_key] = (now + DISCOVERY_CACHE_TTL_SECONDS, rows)
 
     def get_distinct_span_values(
         self,

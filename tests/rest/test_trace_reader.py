@@ -647,6 +647,38 @@ class TestHasTraces:
         assert "a" not in service._has_traces_cache
         assert "c" in service._has_traces_cache
 
+    def test_two_reads_evicting_at_once_both_succeed(self):
+        # The onboarding probe runs this on a worker thread. A second read that
+        # evicts between the first one choosing the oldest entry and removing it
+        # must not make either read fail.
+        service, _ = _make_service(lambda *a, **kw: _rows([(1,)]))
+        service._HAS_TRACES_CACHE_MAX = 2
+        results: dict[str, object] = {}
+
+        def read(project_id: str) -> None:
+            try:
+                results[project_id] = service.has_traces(project_id)
+            except Exception as error:
+                results[project_id] = error
+
+        other = threading.Thread(target=read, args=("d",))
+
+        class SwitchingCache(dict):
+            def pop(self, *args):
+                if not other.is_alive() and "d" not in results:
+                    # A thread switch here lets the other read evict first. It may
+                    # wait for this one instead, so the wait is bounded.
+                    other.start()
+                    other.join(timeout=0.25)
+                return super().pop(*args)
+
+        expiry = time.monotonic() + 3600
+        service._has_traces_cache = SwitchingCache({"a": (expiry, True), "b": (expiry, True)})
+        read("c")
+        other.join(timeout=5)
+
+        assert results == {"c": True, "d": True}
+
 
 class TestTraceStartTime:
     OLD = datetime(2020, 1, 1)
