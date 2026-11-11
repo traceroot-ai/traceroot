@@ -5,6 +5,7 @@ Reads are scoped to the API key's project; the client never supplies a
 project id.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -117,6 +118,23 @@ class TestPublicListSessions:
         assert kwargs["limit"] == 5
         assert kwargs["search_query"] == "abc"
 
+    def test_list_reads_off_the_event_loop(self, client, mock_reader):
+        ran_on_loop: list[bool] = []
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                ran_on_loop.append(False)
+            else:
+                ran_on_loop.append(True)
+            return SESSION_LIST
+
+        mock_reader.list_sessions.side_effect = read
+        resp = client.get("/api/v1/public/sessions", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert ran_on_loop == [False]
+
     def test_free_plan_clamps_start_after_to_retention_cutoff(self, mock_reader):
         tc, mod, original = _client_with(mock_reader, billing_plan="free")
         try:
@@ -152,6 +170,23 @@ class TestPublicGetSession:
         assert kwargs["project_id"] == "proj-A"
         assert kwargs["session_id"] == "sess-1"
         assert resp.json()["session_id"] == "sess-1"
+
+    def test_get_reads_off_the_event_loop(self, client, mock_reader):
+        ran_on_loop: list[bool] = []
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                ran_on_loop.append(False)
+            else:
+                ran_on_loop.append(True)
+            return SESSION_DETAIL
+
+        mock_reader.get_session.side_effect = read
+        resp = client.get("/api/v1/public/sessions/sess-1", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert ran_on_loop == [False]
 
     def test_forwards_time_bounds(self, client, mock_reader):
         mock_reader.get_session.return_value = SESSION_DETAIL
