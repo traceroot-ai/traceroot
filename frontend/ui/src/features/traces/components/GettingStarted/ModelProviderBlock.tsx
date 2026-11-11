@@ -27,29 +27,37 @@ import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import type { ProviderKeyBinding } from "./integrations";
 
 /**
- * Whether this step can configure an adapter by itself, from that adapter's two
- * table entries.
+ * Whether this step can configure an adapter by itself, from its config entry,
+ * seeded catalogue models, and free-text model-ID support.
  *
  * An adapter qualifies on two counts. A single pasted key has to be the whole
  * credential — `credentialType: "api-key"` with no base URL to ask for — which
  * leaves out Azure OpenAI (needs a base URL) and AWS Bedrock (an access-key
  * pair or a default-credentials toggle, plus a region). And there have to be
- * models to seed — see {@link SEEDED_MODELS} — which leaves out adapters
- * without a curated catalogue (OpenRouter takes a free-text model ID input
- * directly in this step instead): `listWorkspaceModels` builds a BYOK provider's
- * models purely from the row's `customModels`, so a row saved with a key and
- * nothing to seed is accepted, looks saved, and offers no model anywhere.
+ * models available — either seeded from {@link SEEDED_MODELS} or collected via
+ * a free-text model ID input ({@link acceptsFreeTextModel}, e.g. OpenRouter):
+ * `listWorkspaceModels` builds a BYOK provider's models purely from the row's
+ * `customModels`, so a row saved with a key and no models is accepted, looks
+ * saved, and offers no model anywhere.
  *
  * Takes the entries rather than looking them up so each half of the rule can be
- * checked on its own: in today's tables the two exclude the same three
- * adapters, so a future adapter that needs a base URL *and* has models to seed
- * would otherwise slip in on a condition nothing exercises.
+ * checked on its own: a future adapter that needs a base URL *and* accepts
+ * models must still fail on the credential half.
  */
 export function isInlineConfigurable(
   config: { credentialType: "api-key" | "aws"; requiresBaseUrl: boolean } | undefined,
   catalogue: readonly unknown[] | undefined,
+  freeTextModel = false,
 ): boolean {
-  return keyIsWholeCredential(config) && (catalogue?.length ?? 0) > 0;
+  return keyIsWholeCredential(config) && (freeTextModel || (catalogue?.length ?? 0) > 0);
+}
+
+/**
+ * Adapters without a curated catalogue whose single model ID is collected via a
+ * free-text input inline rather than seeded from {@link SEEDED_MODELS}.
+ */
+export function acceptsFreeTextModel(adapter: LLMAdapter): boolean {
+  return adapter === LLMAdapter.OPENROUTER;
 }
 
 /**
@@ -117,7 +125,7 @@ export function seedFor(adapter: LLMAdapter): string[] {
  * provider surface offers.
  */
 export const INLINE_ADAPTERS: LLMAdapter[] = PROVIDER_PRIORITY.filter((adapter) =>
-  isInlineConfigurable(ADAPTER_CONFIG[adapter], seedFor(adapter)),
+  isInlineConfigurable(ADAPTER_CONFIG[adapter], seedFor(adapter), acceptsFreeTextModel(adapter)),
 );
 
 /**
@@ -140,12 +148,13 @@ class ProbeRejected extends Error {
  * fails neither and the step can configure it inline.
  *
  * Pulled out of the sentence below because the step now reaches it one adapter
- * at a time as well: a stack bound to Azure, Bedrock or OpenRouter has to be
- * told why its own key cannot be pasted here, in the same terms as the list.
+ * at a time as well: a stack bound to Azure, Bedrock, or an unseeded catalogue
+ * adapter has to be told why its own key cannot be pasted here, in the same
+ * terms as the list.
  */
 export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "model-list" | null {
   const config = ADAPTER_CONFIG[adapter];
-  if (isInlineConfigurable(config, seedFor(adapter))) return null;
+  if (isInlineConfigurable(config, seedFor(adapter), acceptsFreeTextModel(adapter))) return null;
   return keyIsWholeCredential(config) ? "model-list" : "more-than-a-key";
 }
 
@@ -253,8 +262,8 @@ const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
  * Two different situations, kept apart because the honest sentence differs.
  * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
  * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
- * access-key pair and a region, OpenRouter a model list. `none` covers a
- * provider there is no adapter for at all, Mistral today: nothing anywhere in
+ * access-key pair and a region, or an unseeded adapter without free-text model
+ * input. `none` covers a provider there is no adapter for at all, Mistral today: nothing anywhere in
  * TraceRoot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
  *
@@ -360,7 +369,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   // cases that reach it, instead of re-checking the third.
   const bound = providerKey.kind === "none" ? undefined : providerKey;
   const adapter = override ?? bound?.adapter;
-  const needsModelId = adapter === LLMAdapter.OPENROUTER;
+  const needsModelId = adapter ? acceptsFreeTextModel(adapter) : false;
 
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -402,9 +411,9 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
       // Seed a few models alongside the key: the model pickers build a BYOK
       // provider's models from `customModels` alone, so a key on its own would
       // store a provider that offers nothing. See {@link SEEDED_MODELS}.
-      // OpenRouter has no curated catalogue and takes a free-text model ID
-      // entered directly in this step.
-      const customModels = chosen === LLMAdapter.OPENROUTER ? [modelId.trim()] : seedFor(chosen);
+      // Free-text model adapters (OpenRouter) have no curated catalogue and
+      // take the model ID entered directly in this step.
+      const customModels = acceptsFreeTextModel(chosen) ? [modelId.trim()] : seedFor(chosen);
       return createModelProvider(workspaceId, {
         adapter: chosen,
         provider: ADAPTER_CONFIG[chosen].label,
@@ -620,15 +629,12 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   }
 
   // A stack whose provider this step cannot store a key for: no adapter at
-  // all, or one the step excludes (Azure needs a base URL; Bedrock needs
-  // AWS credentials). OpenRouter takes free-text model IDs rather than a
-  // curated catalogue, so this step collects the model ID inline rather
-  // than rejecting it for having nothing to seed.
-  if (
-    !bound ||
-    !adapter ||
-    (adapter !== LLMAdapter.OPENROUTER && settingsOnlyReason(adapter) !== null)
-  ) {
+  // all, or one the inline rule excludes. Drawing the field anyway would be a
+  // field that cannot work — and `ADAPTER_CONFIG[adapter]` on the first of
+  // those is a lookup on undefined, which would throw from render and take the
+  // API key, the SDK install and the stack picker down with it, since this
+  // block renders inline in the same panel.
+  if (!bound || !adapter || settingsOnlyReason(adapter) !== null) {
     const copy = unavailableKeyCopy(adapter ? { kind: "fixed", adapter } : providerKey);
     return (
       <p className="text-[12px] text-muted-foreground">

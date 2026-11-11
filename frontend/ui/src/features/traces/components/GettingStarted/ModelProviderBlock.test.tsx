@@ -71,6 +71,7 @@ vi.mock("@/components/ui/select", () => ({
 import { ApiError } from "@/lib/api/errors";
 import standardPrices from "../../../../../../packages/core/src/standard-model-prices.json";
 import {
+  acceptsFreeTextModel,
   INLINE_ADAPTERS,
   isInlineConfigurable,
   ModelProviderBlock,
@@ -155,8 +156,8 @@ afterEach(() => {
 describe("the adapters offered inline", () => {
   it("offers exactly the adapters a single pasted key fully configures", () => {
     // Taken across PROVIDER_PRIORITY, not ADAPTER_CONFIG's keys: the latter also
-    // holds the internal `typesafe` decision adapter, which would wrongly make
-    // this eight.
+    // holds the internal `typesafe` decision adapter, which has neither
+    // seeded models nor free-text model-ID input.
     expect(INLINE_ADAPTERS).toEqual([
       "anthropic",
       "openai",
@@ -165,26 +166,33 @@ describe("the adapters offered inline", () => {
       "moonshot",
       "zai",
       "google",
+      "openrouter",
     ]);
     expect(INLINE_ADAPTERS).not.toContain("typesafe");
   });
 
-  it("keeps out an adapter whose key is not the whole credential, catalogue or not", () => {
-    // Today's tables exclude Azure, Bedrock and OpenRouter on both halves of
-    // the rule at once, so the concrete list above cannot tell the halves
-    // apart. Each clause is pinned here instead, against entries the tables do
-    // not have yet.
+  it("keeps out an adapter whose key is not the whole credential, catalogue or free-text", () => {
     const catalogue = [{ id: "a-model" }];
     expect(
       isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: true }, catalogue),
     ).toBe(false);
+    expect(
+      isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: true }, undefined, true),
+    ).toBe(false);
     expect(isInlineConfigurable({ credentialType: "aws", requiresBaseUrl: false }, catalogue)).toBe(
       false,
     );
+    expect(
+      isInlineConfigurable({ credentialType: "aws", requiresBaseUrl: false }, undefined, true),
+    ).toBe(false);
     expect(isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: false }, [])).toBe(
       false,
     );
+    expect(
+      isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: false }, [], true),
+    ).toBe(true);
     expect(isInlineConfigurable(undefined, catalogue)).toBe(false);
+    expect(isInlineConfigurable(undefined, undefined, true)).toBe(false);
     expect(
       isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: false }, catalogue),
     ).toBe(true);
@@ -256,27 +264,41 @@ describe("the models a saved key starts with", () => {
     );
   }
 
-  it.each(INLINE_ADAPTERS)("seeds a few catalogue models for %s, every one priced", (adapter) => {
-    // `customModels` is what the assistant and detector pickers offer, and a
-    // model with no standard price is priced at $0 there. The whole catalogue
-    // carried ids like that.
-    const seeded = seedFor(adapter);
-    const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
+  const SEEDED_INLINE_ADAPTERS = INLINE_ADAPTERS.filter(
+    (adapter) => !acceptsFreeTextModel(adapter),
+  );
 
-    expect(seeded.length).toBeGreaterThan(0);
-    expect(seeded.length).toBeLessThanOrEqual(3);
-    for (const id of seeded) {
-      expect(catalogue).toContain(id);
-      expect(priced(id), `${id} has no standard price`).toBe(true);
-    }
-  });
+  it.each(SEEDED_INLINE_ADAPTERS)(
+    "seeds a few catalogue models for %s, every one priced",
+    (adapter) => {
+      // `customModels` is what the assistant and detector pickers offer, and a
+      // model with no standard price is priced at $0 there. The whole catalogue
+      // carried ids like that.
+      const seeded = seedFor(adapter);
+      const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
 
-  it.each(INLINE_ADAPTERS)("keeps %s's default model what it was before seeding", (adapter) => {
-    // The first seeded id is the default every picker opens on. Seeding the
-    // newest model of each tier first made OpenAI's the $10 / $50 tier, where
-    // the catalogue's order gives the $2 / $10 one.
-    const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
-    expect(seedFor(adapter)[0]).toBe(defaultAdapterModel(adapter, catalogue));
+      expect(seeded.length).toBeGreaterThan(0);
+      expect(seeded.length).toBeLessThanOrEqual(3);
+      for (const id of seeded) {
+        expect(catalogue).toContain(id);
+        expect(priced(id), `${id} has no standard price`).toBe(true);
+      }
+    },
+  );
+
+  it.each(SEEDED_INLINE_ADAPTERS)(
+    "keeps %s's default model what it was before seeding",
+    (adapter) => {
+      // The first seeded id is the default every picker opens on. Seeding the
+      // newest model of each tier first made OpenAI's the $10 / $50 tier, where
+      // the catalogue's order gives the $2 / $10 one.
+      const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
+      expect(seedFor(adapter)[0]).toBe(defaultAdapterModel(adapter, catalogue));
+    },
+  );
+
+  it("seeds nothing for an adapter that collects a free-text model ID", () => {
+    expect(seedFor("openrouter")).toEqual([]);
   });
 
   it("follows the catalogue when a refresh moves a provider's default", () => {
@@ -805,7 +827,8 @@ describe("no adapter a pasted key fully configures", () => {
     }));
     try {
       const fresh = await import("./ModelProviderBlock");
-      expect(fresh.INLINE_ADAPTERS).toEqual([]);
+      // Only free-text model adapters (OpenRouter) remain inline when the catalogue is empty.
+      expect(fresh.INLINE_ADAPTERS).toEqual(["openrouter"]);
 
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -1017,22 +1040,20 @@ describe("the only words left around the key field", () => {
   });
 
   it("does not say a provider calls itself", () => {
-    // Both live cases in the catalogue: the entry IS the provider, so any
-    // sentence that named the stack and then the provider would only repeat
-    // the name. Mistral is the `none` entry and OpenRouter the settings-only
-    // one, and each is what a customer sees the moment they pick it. Neither
-    // line names the stack now, which is how this stays true.
+    // Both live cases: the entry IS the provider, so any sentence that named the
+    // stack and then the provider would only repeat the name. Mistral is the
+    // `none` entry and TypeSafe AI is an unseeded catalogue adapter.
     expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
       state: "traceroot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
-    expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" })).toEqual({
-      state: "OpenRouter needs a model list chosen.",
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "typesafe" })).toEqual({
+      state: "TypeSafe AI needs a model list chosen.",
       settings: "Add it in",
     });
     for (const [binding, name] of [
       [{ kind: "none", provider: "Mistral" } as const, "Mistral"],
-      [{ kind: "fixed", adapter: "openrouter" } as const, "OpenRouter"],
+      [{ kind: "fixed", adapter: "typesafe" } as const, "TypeSafe AI"],
     ] as const) {
       // No name twice over, in either form.
       const { state } = unavailableKeyCopy(binding);
@@ -1043,7 +1064,8 @@ describe("the only words left around the key field", () => {
   it("derives each exclusion from the clause the adapter actually fails", () => {
     expect(settingsOnlyReason("azure")).toBe("more-than-a-key");
     expect(settingsOnlyReason("amazon-bedrock")).toBe("more-than-a-key");
-    expect(settingsOnlyReason("openrouter")).toBe("model-list");
+    expect(settingsOnlyReason("typesafe")).toBe("model-list");
+    expect(settingsOnlyReason("openrouter")).toBeNull();
     for (const adapter of INLINE_ADAPTERS) {
       expect(settingsOnlyReason(adapter), adapter).toBeNull();
     }
@@ -1190,10 +1212,56 @@ describe("configuring OpenRouter inline", () => {
 
     expect(
       await screen.findByText(
-        /^Verified and saved\. The AI assistant and detectors now run on your own OpenRouter account\./,
+        /^Verified and saved\. Its models are now offered in the AI assistant's model menu and as a detector's model; choose one there to run on your own OpenRouter account\./,
       ),
     ).toBeTruthy();
     expect(screen.getByText("sk-ope...key")).toBeTruthy();
+  });
+
+  it("does not save when OpenRouter key verification fails", async () => {
+    mocks.testModelProvider.mockResolvedValue({
+      success: false,
+      error: "Invalid API key",
+      detail: "HTTP 401: Unauthorized",
+    });
+
+    renderBlock("ws-1", OPENROUTER);
+    const keyField = await fillKey("sk-fake-key");
+    const modelField = await fillModelId("openai/gpt-4o");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
+    expect(screen.getByText(/HTTP 401: Unauthorized/)).toBeTruthy();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+    expect(keyField.value).toBe("sk-fake-key");
+    expect(modelField.value).toBe("openai/gpt-4o");
+  });
+
+  it("offers OpenRouter in the framework provider dropdown and supports switching to and from it", async () => {
+    renderBlock("ws-1", OPENAI);
+    const select = (await screen.findByLabelText("Model provider")) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toContain("openrouter");
+
+    // Switch framework dropdown to OpenRouter
+    fireEvent.change(select, { target: { value: "openrouter" } });
+    expect(await screen.findByLabelText("OpenRouter API key")).toBeTruthy();
+    expect(screen.getByLabelText("Model ID")).toBeTruthy();
+
+    await fillKey("sk-or-framework");
+    await fillModelId("openai/gpt-4o");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "openrouter",
+      apiKey: "sk-or-framework",
+    });
+    expect(mocks.createModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "openrouter",
+      provider: "OpenRouter",
+      apiKey: "sk-or-framework",
+      customModels: ["openai/gpt-4o"],
+    });
   });
 
   it("refuses to save when model ID is empty or whitespace-only, and says a model ID is required", async () => {

@@ -232,7 +232,7 @@ describe("POST model-providers/test - network providers succeed", () => {
     {
       name: "openrouter",
       body: { adapter: "openrouter", apiKey: "k" },
-      url: "https://openrouter.ai/api/v1/models",
+      url: "https://openrouter.ai/api/v1/key",
     },
     {
       name: "deepseek",
@@ -305,7 +305,7 @@ describe("POST model-providers/test - network providers succeed", () => {
     );
   });
 
-  it("openrouter with baseUrl checks models on the custom endpoint", async () => {
+  it("openrouter with baseUrl checks key on the custom endpoint", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const res = await POST(
       makeRequest({
@@ -317,8 +317,11 @@ describe("POST model-providers/test - network providers succeed", () => {
     );
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://proxy.test/api/v1/models",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      "https://proxy.test/api/v1/key",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer k" },
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 });
@@ -353,6 +356,16 @@ describe("POST model-providers/test - error responses", () => {
     fetchMock.mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized" });
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
     expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
+  });
+
+  it("openrouter 401 on /key maps to Invalid API key", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized" });
+    const res = await POST(makeRequest({ adapter: "openrouter", apiKey: "fake" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/key",
+      expect.objectContaining({ headers: { Authorization: "Bearer fake" } }),
+    );
   });
 
   it("anthropic non-auth (non-401/403) errors are treated as connectable (success)", async () => {

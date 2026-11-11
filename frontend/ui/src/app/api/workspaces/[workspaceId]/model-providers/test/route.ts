@@ -245,8 +245,10 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "openrouter": {
+        // GET /models is public on OpenRouter and returns 200 even for a fake
+        // key; GET /key requires Bearer auth and rejects invalid keys with 401.
         const openrouterBase = adapterBaseUrl(adapter, baseUrl);
-        const check = await checkEndpoint(`${openrouterBase}/models`, {
+        const check = await checkEndpoint(`${openrouterBase}/key`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
