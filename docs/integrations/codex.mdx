@@ -48,8 +48,8 @@ Use Codex as usual. Each turn becomes one trace, sent live while Codex works. Tr
 Codex Turn                   # AGENT span — one per turn
 ├── gpt-…                    # LLM span — tokens including reasoning
 │   ├── exec_command         # TOOL span — command, exit code, output
-│   └── exec
-└── spawn_agent              # TOOL span — a sub-agent's turn
+│   ├── exec
+│   └── spawn_agent          # TOOL span — a sub-agent's turn
 ```
 
 For `codex exec` and other runs without a prompt, trust has to be in place first, because untrusted hooks are skipped without any message. Run `codex exec --skip-git-repo-check "echo hello" < /dev/null`; the output should include `hook: Stop Completed`. The [README](https://github.com/traceroot-ai/traceroot-codex-plugin#headless-runs) shows how to carry trust to CI.
