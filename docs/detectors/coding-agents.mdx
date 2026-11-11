@@ -1,0 +1,123 @@
+---
+title: Coding agents
+description: Trace Claude Code and Codex for a team and find what to change so they fail less
+---
+
+Coding agents such as Claude Code and Codex fail in patterns: the same command guessed wrong across many sessions, a repository fact nobody wrote down, a script that prints secrets. This page sets up a project that traces them, labels every turn with three detectors, and gives you the queries and the prompt to turn the labels into changes you can make to a repository's agent instructions.
+
+The setup reports at repository and team level. There is no per-developer view.
+
+## 1. Create a project and a key
+
+Create a dedicated project for coding-agent traces, for example `coding-agents`, and a project API key. Keep its membership small: everyone in the project can read every prompt and tool output.
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+traceroot projects create --workspace-id <workspace id> --name coding-agents
+```
+
+Decide the retention now. A project admin can shorten it with `traceroot projects update <project id> --trace-ttl-days <n>`.
+
+## 2. Install the plugins
+
+Both plugins send one trace per turn: a request and the agent's reply, with every model call and tool call.
+
+<Tabs>
+  <Tab title="Claude Code">
+    `uv` must be on the `PATH` that Claude Code sees. The hook runs through `uv` so the SDK installs on first use.
+
+    ```bash
+    claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+    claude plugin install traceroot-observability@traceroot-claude-code-plugin
+    ```
+
+    Enter the project API key when asked. For a self-hosted instance also set the host URL. Restart Claude Code, send one prompt, and look for a trace named `Claude Code Turn`.
+  </Tab>
+  <Tab title="Codex">
+    Node.js 22 or later is required.
+
+    ```bash
+    codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+    codex plugin add tracing@traceroot-codex-plugin
+    codex features enable hooks
+    ```
+
+    Write `~/.codex/traceroot.json` with `{"enabled": true, "api_key": "<project API key>"}`, start `codex` and trust the plugin's hooks. Run one prompt and look for a trace named `Codex Turn`. For `codex exec` and CI, see the plugin's README on headless runs.
+  </Tab>
+</Tabs>
+
+### What leaves the machine
+
+Prompts, tool arguments, command output and tool errors are captured. Both plugins mask secret-looking text first, and the setting is on by default:
+
+- provider keys, GitHub, Slack and AWS tokens, JWTs and `Bearer` headers
+- signed-URL parameters such as `X-Amz-Signature` and `X-Amz-Security-Token`
+- passwords in connection strings and private key blocks
+- secret-named `key=value` pairs and long `UPPER_SNAKE=` values
+
+Each match becomes `[REDACTED:<kind>]`. Masking runs on the recorded input, output and metadata, and on the failed-tool message that SQL can read. It is a safety net, not a guarantee. Do not enable tracing in repositories whose sessions read credentials, `.env` files or customer data, and run your secret scanner over a sample of exported traces (`traceroot traces export <trace id>`) before relying on it.
+
+Each detector run also sends the turn (up to 150,000 characters) to the judge model, and each finding's summary to the embedding model that groups signals. Use a [bring your own key](/ai-agent/byok) model if that does not fit your data policy.
+
+Each turn's root span carries two metadata keys: `coding_agent` (`claude_code` or `codex`) and `turn_outcome` (`completed`, `aborted` or `error`). Use them in a detector trigger (`metadata`, key `coding_agent`, `=`) to share a project with other traces.
+
+## 3. Create the three detectors
+
+Detectors are created with a signed-in user, not a project API key, so run `traceroot login` first. The three standard templates carry their own prompt, output fields and defaults (100% sampling, agent runs off), so only a name is needed:
+
+```bash
+export PROJECT_ID=<project id>
+traceroot detectors create --project-id "$PROJECT_ID" --name cai-agent-task         --template coding-agent-task
+traceroot detectors create --project-id "$PROJECT_ID" --name cai-agent-failure      --template coding-agent-failure
+traceroot detectors create --project-id "$PROJECT_ID" --name cai-agent-context-debt --template coding-agent-context-debt
+```
+
+| Template | Fires | Output fields | Signals |
+|---|---|---|---|
+| `coding-agent-task` | On every real turn, silent on background calls such as session titles | `label` (`bug_fix`, `feature`, `refactor`, `tests`, `docs`, `question`, `ops`, `other`), `outcome` (`done`, `partial`, `abandoned`, `unclear`), `area` | Off, a label per turn is not a problem to group |
+| `coding-agent-failure` | When a turn went wrong and was not cleanly fixed | `label` (for example `retry_loop`, `env_or_setup`, `wrong_scope`, `premature_done`), `evidence`, `recovered` | On |
+| `coding-agent-context-debt` | When a stable, repository-specific fact was missing | `label`, `missing`, `fix_kind` (`agents_md`, `skill`, `hook`, `tool`), `fix_text` | On |
+
+The public API accepts `enable_signals` on create and update, so a labeler you write yourself can stay out of Signals too. Creating is idempotent on the name and returns the existing detector unchanged, so change a prompt with `traceroot detectors update`.
+
+The judge cannot see a repository's current `AGENTS.md` or `CLAUDE.md`. Check every `fix_text` against the real file before treating it as a finding.
+
+Detection starts at ingestion and is not retroactive: create the detectors before anyone installs the plugins. On the free plan, three detectors at 100% sampling use three of the 100 included runs per turn, so use a paid or self-hosted project.
+
+## 4. Read the labels
+
+```bash
+traceroot findings list --since 1d
+traceroot findings get --trace <trace id>
+```
+
+A finding is one per trace and joins every detector's summary, each starting with `task=`, `failure=` or `context_debt=`. The per-detector fields, such as `fix_text`, are on `findings get`.
+
+## 5. Find patterns
+
+The queries in [`scripts/coding_agent_insights`](https://github.com/traceroot-ai/traceroot/tree/main/scripts/coding_agent_insights) read only the `spans` and `traces` tables, so they return structure (failed tools, retry loops, exploration-heavy turns, turn shape) and never prompt or output text. A failed call is a span with status `ERROR` (Claude Code) or a non-zero `exit_code` in its metadata (Codex).
+
+```bash
+export TRACEROOT_API_KEY=<project API key>
+python scripts/coding_agent_insights/run_queries.py --days 7                        # q01 to q08
+python scripts/coding_agent_insights/run_queries.py --only q09 --repo org/repo --ids <id>,<id>
+python scripts/coding_agent_insights/run_queries.py --only q10 --repo org/repo --tool Bash
+```
+
+| Query | Answers |
+|---|---|
+| `q01` | Turns, sessions and repositories per day and agent |
+| `q02` | Turn shape: turns without tool calls, turns with a failed call |
+| `q03` | Tool inventory with both failure encodings |
+| `q04` | Failing tools by repository, with the number of distinct sessions hit |
+| `q05` | The first 80 characters of recurring errors (read them privately) |
+| `q06` | Turns where one tool failed three or more times |
+| `q07` | Exploration-heavy turns per repository, a sign of a missing code map |
+| `q08` | Sessions with many turns and many failures |
+| `q09` | Affected turns against the other turns of the same repository |
+| `q10` | A daily failure rate for one tool in one repository, to track a fix |
+
+Then open a signal from the failure or context-debt detector, choose **Open in agent**, and paste the prompt from `assistant_prompt.md` (`run_queries.py --print-prompt --pattern "<one line>"` fills it in) with the query results below it. The assistant reads the findings and at least five traces, names the pattern, compares it with the other turns, proposes one rule, skill, hook or tool, and writes a monitor query. The in-app assistant cannot run SQL itself, so a person runs the queries and pastes the results.
+
+A pattern counts only if it recurs in at least three sessions on at least two days, at least four of five sampled traces show it, a fix can be written as one instruction, and the repository does not already contain it.

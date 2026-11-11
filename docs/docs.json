@@ -124,7 +124,8 @@
           {
             "group": "Detectors",
             "pages": [
-              "detectors/introduction"
+              "detectors/introduction",
+              "detectors/coding-agents"
             ]
           },
           {
