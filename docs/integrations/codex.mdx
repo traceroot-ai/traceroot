@@ -37,6 +37,7 @@ The plugin runs as a Codex hook, which doesn't reliably inherit your shell envir
 | `host_url` | `TRACEROOT_CODEX_HOST_URL` or `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | Set only when self-hosting. |
 | `user_id` | `TRACEROOT_CODEX_USER_ID` | — | Recorded on each trace. |
 | `capture_images` | `TRACEROOT_CODEX_CAPTURE_IMAGES` | `false` | Send screenshots from tool output and images attached to prompts. |
+| `debug` | `TRACEROOT_CODEX_DEBUG` | `false` | Log diagnostics to stderr. |
 
 Environment variables win over a project `.codex/traceroot.json`, which wins over the global file. `api_key`, `host_url` and `capture_images` are read only from environment variables or the global file, so a repository you open can't redirect your traces. The [plugin README](https://github.com/traceroot-ai/traceroot-codex-plugin#configure) lists every setting.
 
