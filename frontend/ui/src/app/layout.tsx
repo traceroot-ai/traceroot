@@ -19,9 +19,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "traceroot",
   description: "traceroot: the open-source platform that continuously improves your ai agents.",
-  icons: {
-    icon: "/images/favicon.ico",
-  },
+  // Tab and home-screen icons come from app/icon.png and app/apple-icon.png:
+  // Next.js links them with a content hash, so a new logo gets a new URL and
+  // browsers fetch it instead of reusing a cached old icon.
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
