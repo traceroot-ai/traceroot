@@ -267,6 +267,7 @@ def _detector_detail() -> DetectorDetail:
         output_schema={"type": "object"},
         sample_rate=25,
         enable_rca=True,
+        enable_signals=False,
         detection_model="claude-haiku-4-5",
         detection_provider="anthropic",
         detection_source="system",

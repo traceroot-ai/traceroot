@@ -143,6 +143,7 @@ def test_detector_detail_extends_item_with_config_fields():
         output_schema={"type": "object"},
         sample_rate=25,
         enable_rca=True,
+        enable_signals=False,
         detection_model=None,
         detection_provider=None,
         detection_source=None,
@@ -153,4 +154,5 @@ def test_detector_detail_extends_item_with_config_fields():
     assert dumped["detector_id"] == "d1"
     assert dumped["sample_rate"] == 25
     assert dumped["enable_rca"] is True
+    assert dumped["enable_signals"] is False
     assert dumped["trigger_conditions"] is None

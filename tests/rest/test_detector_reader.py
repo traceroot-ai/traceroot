@@ -393,6 +393,7 @@ def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
         {"type": "object"},
         25,
         True,
+        False,
         "claude-haiku-4-5",
         "anthropic",
         "system",
@@ -416,6 +417,7 @@ def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
     assert detail.output_schema == {"type": "object"}
     assert detail.sample_rate == 25
     assert detail.enable_rca is True
+    assert detail.enable_signals is False
     assert detail.detection_model == "claude-haiku-4-5"
     assert detail.detection_provider == "anthropic"
     assert detail.detection_source == "system"
@@ -439,6 +441,7 @@ def test_get_detector_without_trigger_has_none_conditions(reader, monkeypatch):
         None,
         100,
         False,
+        True,
         None,
         None,
         None,
@@ -449,6 +452,7 @@ def test_get_detector_without_trigger_has_none_conditions(reader, monkeypatch):
     detail = reader.get_detector("proj-A", "det-2")
     assert detail.trigger_conditions is None
     assert detail.enabled is False
+    assert detail.enable_signals is True
     assert detail.detection_model is None
 
 

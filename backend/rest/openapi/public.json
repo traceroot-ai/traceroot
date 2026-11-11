@@ -2312,6 +2312,10 @@
             "title": "Enable Rca",
             "type": "boolean"
           },
+          "enable_signals": {
+            "title": "Enable Signals",
+            "type": "boolean"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -2366,6 +2370,7 @@
           "output_schema",
           "sample_rate",
           "enable_rca",
+          "enable_signals",
           "detection_model",
           "detection_provider",
           "detection_source",

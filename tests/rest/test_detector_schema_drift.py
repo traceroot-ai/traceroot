@@ -34,6 +34,7 @@ REFERENCED_COLUMNS = {
         "sample_rate",
         "enabled",
         "enable_rca",
+        "enable_signals",
         "detection_model",
         "detection_provider",
         "detection_source",

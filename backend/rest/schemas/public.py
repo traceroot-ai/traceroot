@@ -206,6 +206,7 @@ class DetectorDetail(DetectorItem):
     output_schema: Any | None
     sample_rate: int
     enable_rca: bool
+    enable_signals: bool
     detection_model: str | None
     detection_provider: str | None
     detection_source: str | None

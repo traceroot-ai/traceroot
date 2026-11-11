@@ -350,6 +350,7 @@ def _detector_detail() -> DetectorDetail:
         output_schema={"type": "object"},
         sample_rate=25,
         enable_rca=True,
+        enable_signals=False,
         detection_model="claude-haiku-4-5",
         detection_provider="anthropic",
         detection_source="system",
@@ -367,6 +368,7 @@ class TestGetDetector:
         assert body["detector_id"] == "det-1"
         assert body["prompt"] == "Flag traces with elevated error rates"
         assert body["sample_rate"] == 25
+        assert body["enable_signals"] is False
         assert body["trigger_conditions"] == [
             {"field": "root_span_finished", "op": "=", "value": True}
         ]

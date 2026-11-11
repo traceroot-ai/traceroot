@@ -149,7 +149,7 @@ class DetectorReaderService:
         """
         rows = self._pg_rows(
             "SELECT d.id, d.name, d.template, d.enabled, d.create_time, d.prompt, "
-            "d.output_schema, d.sample_rate, d.enable_rca, d.detection_model, "
+            "d.output_schema, d.sample_rate, d.enable_rca, d.enable_signals, d.detection_model, "
             "d.detection_provider, d.detection_source, d.update_time, t.conditions "
             "FROM detectors d "
             "LEFT JOIN detector_triggers t ON t.detector_id = d.id "
@@ -169,11 +169,12 @@ class DetectorReaderService:
             output_schema=row[6],
             sample_rate=row[7],
             enable_rca=row[8],
-            detection_model=row[9],
-            detection_provider=row[10],
-            detection_source=row[11],
-            updated_at=row[12],
-            trigger_conditions=row[13],
+            enable_signals=row[9],
+            detection_model=row[10],
+            detection_provider=row[11],
+            detection_source=row[12],
+            updated_at=row[13],
+            trigger_conditions=row[14],
         )
 
     # ------------------------------------------------------------------ #
