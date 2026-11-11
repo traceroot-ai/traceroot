@@ -514,7 +514,7 @@ function AffectedTraces({
                 const pending = isPending ? "…" : "-";
                 return (
                   <TR key={traceId} interactive onClick={() => onOpenTrace(traceId)}>
-                    <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
+                    <td className={cn(TD, "whitespace-nowrap tabular-nums text-muted-foreground")}>
                       {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
                     </td>
                     <td className={cn(TD, "text-foreground")}>

@@ -156,6 +156,7 @@
   height: 32px;
   padding-top: 0;
   padding-bottom: 0;
+  font-variant-numeric: tabular-nums;
 }
 .data-table tbody td.font-mono,
 .data-table tbody td .font-mono {
