@@ -1,6 +1,7 @@
 """Unit tests for scripts/check_model_prices.py: compare the standard model price file
 with two public price catalogs, flag a rate only when every catalog that lists the
-model disagrees, list catalog models we do not price, and fail loudly, never as an
+model disagrees, list catalog models and model IDs we do not price, check the price
+file itself, name the open PRs that fix each finding, and fail loudly, never as an
 all-clear, when a format changes.
 
 Every test uses small inline samples. None reads the real price file or the network.
@@ -10,20 +11,23 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
 import scripts.check_model_prices as check
 from scripts.check_model_prices import (
     CheckError,
+    apply_pr,
     build_payload,
     build_report,
     differs,
     format_report,
+    index_hosted,
     index_litellm,
     index_modelsdev,
     lookup,
+    track,
     validate_rows,
 )
 
@@ -53,33 +57,41 @@ def ll_entry(provider, input_=1e-6, output=2e-6, cache_read=1e-7, mode="chat", *
     }
 
 
-def md_model(input_=1e-6, output=2e-6, cache_read=1e-7, outputs=("text",), **extra):
-    cost = {"input": input_ * 1e6, "output": output * 1e6}
+def md_model(input_=1e-6, output=2e-6, cache_read=1e-7, outputs=("text",), cost=(), **extra):
+    rates = {"input": input_ * 1e6, "output": output * 1e6, **dict(cost)}
     if cache_read is not None:
-        cost["cache_read"] = cache_read * 1e6
-    return {"cost": cost, "modalities": {"input": ["text"], "output": list(outputs)}, **extra}
+        rates["cache_read"] = cache_read * 1e6
+    return {"cost": rates, "modalities": {"input": ["text"], "output": list(outputs)}, **extra}
 
 
 # Each catalog must have every compared rate somewhere, or the run fails as a format
 # change. These fillers carry them; neither is a text model, so neither is "missing".
-LITELLM_FILLER = {"text-embedding-filler": ll_entry("openai", mode="embedding")}
+CACHE_WRITE_RATES = {
+    "cache_creation_input_token_cost": 1e-6,
+    "cache_creation_input_token_cost_above_1hr": 2e-6,
+}
+LITELLM_FILLER = {
+    "text-embedding-filler": ll_entry("openai", mode="embedding", **CACHE_WRITE_RATES)
+}
 
 
 def md_catalog(**providers):
     keys = ("openai", "anthropic", "google", "xai", "deepseek", "zai", "moonshotai")
     catalog = {key: {"models": {}} for key in keys}
-    catalog["zai"]["models"]["glm-filler"] = md_model(outputs=("image",))
+    catalog["zai"]["models"]["glm-filler"] = md_model(outputs=("image",), cost={"cache_write": 1.0})
     for key, models in providers.items():
-        catalog[key]["models"].update(models)
+        catalog.setdefault(key, {"models": {}})["models"].update(models)
     return catalog
 
 
 def report_for(rows, litellm, modelsdev, min_compared=1):
+    litellm = {**LITELLM_FILLER, **litellm}
     return build_report(
         rows,
-        index_litellm({**LITELLM_FILLER, **litellm}),
+        index_litellm(litellm),
         index_modelsdev(modelsdev),
         date=DATE,
+        hosted=index_hosted(litellm, modelsdev),
         min_compared=min_compared,
     )
 
@@ -226,6 +238,167 @@ def test_models_priced_through_another_rows_pattern_are_compared_with_that_row()
         {"type": "link", "url": check.PRICING_PAGES["anthropic"], "text": "claude-f-2"},
         {"type": "text", "text": " (priced as claude-f)", "style": {"italic": True}},
     ]
+
+
+def test_cache_write_rates_are_compared():
+    rows = [row("claude-w", "anthropic")]
+    rows[0]["prices"].update(cacheWrite=1.25e-6, cacheWrite1h=2e-6)
+    no_1h = row("claude-v", "anthropic")  # no cacheWrite1h key at all
+    litellm = {
+        "claude-w": ll_entry(
+            "anthropic",
+            cache_creation_input_token_cost=2.5e-6,
+            cache_creation_input_token_cost_above_1hr=2e-6,
+        ),
+        "claude-v": ll_entry("anthropic"),
+    }
+    modelsdev = md_catalog(anthropic={"claude-w": md_model(cost={"cache_write": 2.5})})
+    report = report_for([*rows, no_1h], litellm, modelsdev)
+
+    # cacheWrite1h is optional in the price file, and only LiteLLM has a 1-hour rate.
+    assert [(f["model"], f["field"], f["ours"]) for f in report["flagged"]] == [
+        ("claude-w", "cacheWrite", 1.25e-6)
+    ]
+    assert "claude-w  cache write  1.25  → 2.50" in format_report(report)
+
+
+def test_lookup_tries_patterns_in_model_name_order():
+    # The worker reads rows ordered by modelName, whatever their order in the file.
+    later = row("model-b", "openai", pattern=r"(?i)^model-.*$")
+    earlier = row("model-a", "openai", pattern=r"(?i)^model-.*$")
+
+    assert lookup([later, earlier], "model-z") is earlier
+
+
+def test_an_id_two_patterns_match_at_different_prices_is_an_overlap():
+    # The older rows' patterns, meant for dated snapshots, also match the newer versions.
+    broad = row("claude-g", "anthropic", input_=1e-5, pattern=r"(?i)^claude-g(-[\d-]+)?$")
+    newer = row("claude-g-2", "anthropic", input_=8e-6, pattern=r"(?i)^claude-g-2(-\d+)?$")
+    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+)?$")
+    copy = row("claude-h-2", "anthropic", pattern=r"(?i)^claude-h-2(-\d+)?$")
+    litellm = {
+        "claude-g": ll_entry("anthropic", input_=1e-5),
+        "claude-g-2-20260101": ll_entry("anthropic", input_=8e-6),
+        "claude-h-2-20260101": ll_entry("anthropic"),
+    }
+    report = report_for([broad, newer, same, copy], litellm, md_catalog())
+
+    # Both rows match the dated ID; at the same price an overlap does no harm.
+    assert report["overlaps"] == [
+        {"model": "claude-g-2-20260101", "rows": ["claude-g", "claude-g-2"]}
+    ]
+    assert "claude-g-2-20260101 is matched by claude-g and claude-g-2" in format_report(report)
+
+
+def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
+    rows = [
+        row("claude-k-5", "anthropic", pattern=r"(?i)^(anthropic[/.])?claude-k-5$"),
+        row("claude-k-5-1", "anthropic", input_=3e-6, pattern=r"(?i)^claude-k-5-1$"),
+        row(
+            "claude-j",
+            "anthropic",
+            input_=9e-6,
+            pattern=r"(?i)^((eu|us)\.)?anthropic\.claude-[jk]-5-1$",
+        ),
+    ]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "anthropic.claude-k-5": ll_entry("bedrock_converse"),  # the row matches it
+        "us.anthropic.claude-k-5": ll_entry("bedrock_converse"),
+        "bedrock/us-gov-west-1/us-gov.anthropic.claude-k-5-v1:0": ll_entry("bedrock"),
+        "eu.anthropic.claude-k-5-1": ll_entry("bedrock_converse"),  # another row's pattern
+        "jp.anthropic.claude-k-5": ll_entry("bedrock_converse", deprecation_date="2026-01-01"),
+        "vertex_ai/claude-k-5@default": ll_entry("vertex_ai-anthropic_models"),
+        "vertex_ai/claude-k-5@20260101": ll_entry("vertex_ai-anthropic_models"),
+        "azure_ai/claude-k-5": ll_entry("azure_ai"),
+    }
+    modelsdev = md_catalog(
+        openrouter={
+            "anthropic/claude-k-5": md_model(),
+            "anthropic/claude-k-5.1": md_model(),
+            "anthropic/claude-k-5:free": md_model(),
+            "~anthropic/claude-k-latest": md_model(),
+        }
+    )
+    report = report_for(rows, litellm, modelsdev)
+
+    found = [(i["model"], i["row"], i["source"], i["priced_as"]) for i in report["unpriced_ids"]]
+    assert found == [
+        ("anthropic/claude-k-5.1", "claude-k-5-1", "OpenRouter", None),
+        ("claude-k-5@20260101", "claude-k-5", "Vertex AI", None),
+        ("eu.anthropic.claude-k-5-1", "claude-k-5-1", "Bedrock", "claude-j"),
+        ("us-gov.anthropic.claude-k-5-v1:0", "claude-k-5", "Bedrock", None),
+        ("us.anthropic.claude-k-5", "claude-k-5", "Bedrock", None),
+    ]
+    text = format_report(report)
+    assert "*Model IDs not priced*, by the row that should match them (5)" in text
+    assert "• claude-k-5: 1 Vertex AI, 2 Bedrock" in text
+    assert "• claude-k-5-1: 1 OpenRouter, eu.anthropic.claude-k-5-1 is priced as claude-j" in text
+
+
+def test_models_with_a_1m_context_window_need_their_1m_id_priced():
+    rows = [
+        row("claude-l", "anthropic"),
+        row("claude-m", "anthropic", pattern=r"(?i)^claude-m(\[1m\])?$"),
+        row("claude-n", "anthropic"),
+    ]
+    litellm = {
+        "claude-l": ll_entry("anthropic", max_input_tokens=1_000_000),
+        "claude-m": ll_entry("anthropic", max_input_tokens=1_000_000),
+        "claude-n": ll_entry("anthropic", max_input_tokens=200_000),
+    }
+    report = report_for(rows, litellm, md_catalog())
+
+    assert [(i["model"], i["source"]) for i in report["unpriced_ids"]] == [
+        ("claude-l[1m]", "1M context")
+    ]
+    assert "• claude-l: [1m]" in format_report(report)
+
+
+def test_price_file_problems_are_found_without_a_catalog():
+    unit_slip = row("gpt-p", "openai", input_=3.0)
+    rows = [
+        row("gpt-a", "openai"),
+        row("GPT-A", "openai"),
+        row("gpt-b", "openai", pattern="("),
+        row("gpt-c", "openai", pattern=r"(?i)^(?P<name>gpt-c)$"),
+        row("gpt-d", "openai", pattern=r"(?i)^gpt-e$"),
+        unit_slip,
+        row("gpt-q", "openai", input_=1e-6, cache_read=2e-6),
+    ]
+    report = report_for(rows, {"gpt-a": ll_entry("openai")}, md_catalog())
+
+    assert [(p["row"], p["problem"]) for p in report["row_problems"]] == [
+        ("GPT-A", "modelName is listed twice"),
+        ("gpt-b", "matchPattern does not compile, so the row matches its exact name only"),
+        ("gpt-c", "matchPattern uses regex syntax the UI cannot read the same way"),
+        ("gpt-d", "matchPattern does not match the row's own modelName"),
+        ("gpt-p", "input rate is outside $0-$1,000 per 1M tokens"),
+        ("gpt-q", "cache read rate is above the input rate"),
+    ]
+    assert format_report(report).startswith(
+        f"*Model pricing audit, {DATE}*: prices match the catalogs, 6 price file problems"
+    )
+
+
+def test_long_context_rates_are_listed():
+    rows = [row("gpt-r", "openai"), row("gpt-s", "openai"), row("gemini-t", "google")]
+    litellm = {
+        "gpt-r": ll_entry("openai", input_cost_per_token_above_272k_tokens=2e-6),
+        "gpt-s": ll_entry("openai", input_cost_per_token_above_272k_tokens_batches=1e-6),
+    }
+    modelsdev = md_catalog(
+        openai={"gpt-r": md_model(cost={"context_over_200k": {"input": 2.0}})},
+        google={"gemini-t": md_model(cost={"context_over_200k": {"input": 2.0}})},
+    )
+    report = report_for(rows, litellm, modelsdev)
+
+    # LiteLLM's named threshold wins; batch-only tiers don't count.
+    assert [(i["model"], i["above"]) for i in report["long_context"]] == [
+        ("gpt-r", 272_000),
+        ("gemini-t", 200_000),
+    ]
+    assert "(2): gpt-r over 272K, gemini-t over 200K" in format_report(report)
 
 
 def test_retired_models_are_not_missing():
@@ -402,6 +575,173 @@ def test_slack_message_stays_within_block_kit_limits():
             assert len(_block_text(block)) <= limit, block["type"]
 
 
+# --- --track: open PRs that fix a finding -----------------------------------------
+
+
+def test_a_pr_is_merged_by_its_own_row_changes():
+    base = [row("gpt-a", "openai"), row("gpt-b", "openai"), row("gpt-c", "openai")]
+    # Since the PR branched, the current file changed gpt-a and gained gpt-new.
+    current = [row("gpt-a", "openai", input_=5e-6), *base[1:], row("gpt-new", "openai")]
+    head = [base[0], row("gpt-b", "openai", input_=7e-6), row("gpt-d", "openai")]
+
+    merged = apply_pr(current, base, head)
+
+    assert [(r["modelName"], r["prices"]["input"]) for r in merged] == [
+        ("gpt-a", 5e-6),  # left as the current file has it
+        ("gpt-b", 7e-6),  # the PR's change
+        ("gpt-new", 1e-6),
+        ("gpt-d", 1e-6),  # the PR's new row; gpt-c, which it removed, is gone
+    ]
+
+
+def _tracked_report():
+    rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6), row("gpt-a", "openai")]
+    litellm = {
+        "deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6, output=2e-6),
+        "gpt-a": ll_entry("openai"),
+        "gpt-new": ll_entry("openai"),
+    }
+    catalogs = (index_litellm({**LITELLM_FILLER, **litellm}), index_modelsdev(md_catalog()))
+
+    def evaluate(pr_rows):
+        return build_report(pr_rows, *catalogs, date=DATE, min_compared=0)
+
+    fix_input = [row("deepseek-d", "deepseek", input_=1e-6, output=1e-6), rows[1]]
+    adds_new = [*fix_input, row("gpt-new", "openai", input_=9e-6)]
+    prs = [
+        {"number": 11, "url": "https://github.test/pull/11", "rows": fix_input, "closes": [10]},
+        {"number": 12, "url": "https://github.test/pull/12", "rows": adds_new, "draft": True},
+        {"number": 13, "url": "https://github.test/pull/13", "error": "could not read it"},
+    ]
+    report = evaluate(rows)
+    track(report, prs, evaluate)
+    return report
+
+
+def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
+    report = _tracked_report()
+
+    assert [(f["field"], f["tracked_by"]) for f in report["flagged"]] == [
+        ("input", [11, 12]),
+        ("output", []),
+    ]
+    assert report["missing"][0]["tracked_by"] == [12]
+    assert [
+        (pr["number"], pr["fixes"], pr["adds"], pr.get("error")) for pr in report["pull_requests"]
+    ] == [
+        (11, ["deepseek-d input rate"], [], None),
+        (12, ["deepseek-d input rate", "gpt-new not priced"], ["gpt-new input rate"], None),
+        (13, [], [], "could not read it"),
+    ]
+    assert report["pull_requests"][0]["closes"] == [10]
+
+
+def test_tracked_prs_show_in_the_report_and_the_slack_table():
+    report = _tracked_report()
+    text = format_report(report)
+
+    assert "1 model with prices to check (1 with an open PR)" in text
+    assert "deepseek-d  input   0.50  → 1.00  #11, #12" in text
+    assert "\n            output  1.00  → 2.00\n" in text
+    assert "• *openai* (1): gpt-new (#12)" in text
+    assert "• #12 would add: gpt-new input rate" in text
+    assert "• #13: could not read it" in text
+    assert "checked 3 open pricing PRs" in text
+
+    payload = build_payload(report)
+    table = next(b for b in payload["blocks"] if b["type"] == "table")
+    assert table["rows"][0][4]["elements"][0]["elements"][0]["text"] == "Open PR"
+    assert table["rows"][1][4]["elements"][0]["elements"] == [
+        {"type": "link", "url": "https://github.test/pull/11", "text": "#11"},
+        {"type": "text", "text": ", "},
+        {"type": "link", "url": "https://github.test/pull/12", "text": "#12"},
+    ]
+    assert table["rows"][2][4]["elements"][0]["elements"] == [{"type": "text", "text": "—"}]
+    assert "gpt-new (<https://github.test/pull/12|#12>)" in json.dumps(payload)
+
+
+def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
+    rows = [row("gpt-a", "openai")]
+    report = build_report(
+        rows,
+        index_litellm({**LITELLM_FILLER, "gpt-a": ll_entry("openai", input_=2e-6)}),
+        index_modelsdev(md_catalog()),
+        date=DATE,
+        min_compared=0,
+    )
+
+    def pull(number, title, body="", files=(check.PRICE_PATH,)):
+        return {
+            "number": number,
+            "title": title,
+            "body": body,
+            "html_url": f"https://github.test/pull/{number}",
+            "draft": False,
+            "base": {"sha": f"base{number}"},
+            "head": {"sha": f"head{number}"},
+            "files": list(files),
+        }
+
+    pulls = [
+        pull(1, "fix(pricing): gpt-a input rate", "Fixes #9"),
+        pull(2, "docs: typo"),
+        pull(3, "chore: bump gpt-a in examples", files=("README.md",)),
+        pull(4, "fix(pricing): broken branch"),
+    ]
+    calls = []
+
+    def fake_github(url, token):
+        calls.append(url)
+        if "/pulls?" in url:
+            return pulls
+        number = int(url.rsplit("head", 1)[1])
+        files = next(p["files"] for p in pulls if p["number"] == number)
+        return {
+            "merge_base_commit": {"sha": f"mb{number}"},
+            "files": [{"filename": name} for name in files],
+        }
+
+    def fake_fetch(url):
+        if "head4" in url:
+            raise URLError("gone")
+        return [row("gpt-a", "openai", input_=2e-6)] if "head" in url else rows
+
+    monkeypatch.setattr(check, "_github", fake_github)
+    monkeypatch.setattr(check, "fetch_json", fake_fetch)
+    prs = check.fetch_pricing_prs("owner/repo", rows, report, token=None)
+
+    # PR 2 neither mentions pricing nor a flagged model; PR 3 doesn't touch the file.
+    assert [pr["number"] for pr in prs] == [1, 4]
+    assert prs[0]["closes"] == [9]
+    assert prs[0]["rows"][0]["prices"]["input"] == 2e-6
+    assert prs[1]["error"] == "could not read its price file (URLError)"
+    assert not any("pull/2" in url or "head2" in url for url in calls)
+
+
+def test_github_rate_limit_stops_tracking(monkeypatch):
+    def limited(url, token):
+        if "/pulls?" in url:
+            return [
+                {"number": 1, "title": "fix(pricing)", "base": {"sha": "b"}, "head": {"sha": "h"}}
+            ]
+        raise HTTPError(url, 403, "rate limited", {}, None)
+
+    monkeypatch.setattr(check, "_github", limited)
+    report = {
+        key: []
+        for key in (
+            "flagged",
+            "unpriced_ids",
+            "overlaps",
+            "row_problems",
+            "missing",
+            "long_context",
+        )
+    }
+    with pytest.raises(HTTPError):
+        check.fetch_pricing_prs("owner/repo", [], report, token=None)
+
+
 # --- the command line: main() with the network and Slack replaced ---------------
 
 
@@ -413,6 +753,11 @@ def run(tmp_path, monkeypatch):
     monkeypatch.setattr(check, "post_to_slack", lambda _url, payload: posted.append(payload))
 
     def _run(rows, litellm, modelsdev, *extra):
+        if isinstance(litellm, dict):
+            # Only the cache write rates, so a test can still remove any other field.
+            filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
+            litellm = {"cache-write-filler": filler, **litellm}
+
         def fake_fetch(url):
             if isinstance(litellm, Exception):
                 raise litellm
@@ -450,6 +795,23 @@ def test_quiet_day_posts_a_heartbeat(run, tmp_path):
         payload["blocks"][1]["text"]["text"] == ":large_green_circle: *Prices match the catalogs*"
     )
     assert json.loads(saved.read_text()) == payload
+
+
+def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monkeypatch):
+    def offline(url, token):
+        raise URLError("offline")
+
+    monkeypatch.setattr(check, "_github", offline)
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    code, posted, report = run(
+        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1", "--track"
+    )
+
+    assert code == 0
+    assert report["tracking"] == "GitHub could not be read (URLError)"
+    assert "flagged" in report and report["flagged"][0]["model"] == "gpt-a"
+    footer = posted[0]["blocks"][-1]["elements"][0]["text"]
+    assert footer.endswith("open PRs not checked: GitHub could not be read (URLError)")
 
 
 def test_format_change_exits_nonzero_and_posts_a_failure(run):
