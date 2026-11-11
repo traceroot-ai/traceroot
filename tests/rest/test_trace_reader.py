@@ -899,3 +899,36 @@ def test_aggregate_page_order_breaks_time_ties_by_id(method_name, page_order, re
     page_query = " ".join(client.query.call_args_list[0].args[0].split())
     assert page_order in page_query
     assert page_query.endswith(result_order)
+
+
+class TestDistinctValuesCache:
+    def test_two_writes_at_once_both_remain(self):
+        # The public filter read runs this scan on a worker thread. Each write
+        # rebuilds the dict from the snapshot it sees, so an unlocked second write
+        # can assign over the first and drop that answer.
+        service, _ = _make_service(lambda *a, **kw: _rows([("gpt-4", 1)]))
+        stored: dict[str, object] = {}
+
+        def write_b() -> None:
+            try:
+                service.get_distinct_span_values("proj-b", "model_name")
+                stored["b"] = "ok"
+            except Exception as error:
+                stored["b"] = error
+
+        other = threading.Thread(target=write_b)
+
+        class SwitchingCache(dict):
+            def items(self):
+                if not other.is_alive() and "b" not in stored:
+                    other.start()
+                    other.join(timeout=0.25)
+                return super().items()
+
+        service._distinct_cache = SwitchingCache({("seed",): (time.time() + 30, [])})
+        service.get_distinct_span_values("proj-a", "model_name")
+        other.join(timeout=5)
+
+        projects = {key[1] for key in service._distinct_cache if len(key) > 1}
+        assert stored.get("b") == "ok"
+        assert projects == {"proj-a", "proj-b"}
