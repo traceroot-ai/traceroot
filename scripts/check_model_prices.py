@@ -199,6 +199,11 @@ MINOR_MODELS = re.compile(
     r"-latest$|-\d{4}(-\d{2}-\d{2})?$|-\d{2}-\d{4}$|-\d{4}-\d+k$|realtime|-live|search",
     re.IGNORECASE,
 )
+# What the model-ID section lists, for both the terminal and Slack.
+ID_HEADING = (
+    "IDs a model has on Bedrock, Vertex AI or OpenRouter, or with [1m], that its row's "
+    "matchPattern misses, so their spans record no cost"
+)
 # Slack Block Kit text limits.
 HEADER_LIMIT = 150
 SECTION_LIMIT = 3000
@@ -876,7 +881,7 @@ def _status_parts(report: dict) -> list[tuple[str, str]]:
         parts.append(("red_circle", text))
     unpriced = [item for item in report["unpriced_ids"] if not item["priced_as"]]
     if unpriced:
-        text = _with_prs(f"{_plural(len(unpriced), 'model ID')} not priced", unpriced, report)
+        text = _with_prs(f"{_plural(len(unpriced), 'model ID')} with no price", unpriced, report)
         parts.append(("large_orange_circle", text))
     wrong = [item for item in report["unpriced_ids"] if item["priced_as"]]
     if wrong:
@@ -907,10 +912,15 @@ def _split_missing(missing: list[dict]) -> tuple[dict, dict]:
     return main, minor
 
 
-def _id_lines(report: dict, links) -> list[str]:
-    """Model IDs a row should price but doesn't. IDs no open PR fixes come first, one
-    line per row, e.g. "• claude-x: 7 Bedrock, 1 OpenRouter, [1m]"; then one line per
-    set of open PRs, naming the rows whose IDs they fix."""
+def _example(ids: list[str]) -> str:
+    """One ID to show for a row, preferring a US Bedrock profile as the most familiar."""
+    return min(ids, key=lambda model_id: (not model_id.startswith("us."), model_id))
+
+
+def _id_lines(report: dict, links) -> tuple[list[str], list[str]]:
+    """Model IDs with no price, as (lines for IDs no open PR fixes, one per row, e.g.
+    "• claude-x: 7 Bedrock, 1 OpenRouter, [1m], e.g. `us.anthropic.claude-x`"; lines
+    naming the rows whose IDs each set of open PRs fixes)."""
     groups: dict[str, dict] = {}
     covered: dict[tuple[int, ...], list[str]] = {}
     for item in report["unpriced_ids"]:
@@ -918,22 +928,41 @@ def _id_lines(report: dict, links) -> list[str]:
             rows = covered.setdefault(tuple(item["tracked_by"]), [])
             rows += [] if item["row"] in rows else [item["row"]]
             continue
-        group = groups.setdefault(item["row"], {"sources": {}, "wrong": []})
+        group = groups.setdefault(item["row"], {"sources": {}, "ids": [], "wrong": []})
         if item["priced_as"]:
-            group["wrong"].append(f"{item['model']} is priced as {item['priced_as']}")
+            group["wrong"].append(f"`{item['model']}` is priced as {item['priced_as']}")
+        elif item["source"] == "1M context":
+            group["sources"]["[1m]"] = 1
         else:
-            source = "[1m]" if item["source"] == "1M context" else item["source"]
-            group["sources"][source] = group["sources"].get(source, 0) + 1
+            group["sources"][item["source"]] = group["sources"].get(item["source"], 0) + 1
+            group["ids"].append(item["model"])
     lines = []
     for row, group in sorted(groups.items()):
         parts = [
-            source if source == "[1m]" else f"{count} {source}"
-            for source, count in group["sources"].items()
+            f"{count} {source}" for source, count in group["sources"].items() if source != "[1m]"
         ]
+        if group["ids"]:
+            parts[-1] += f", e.g. `{_example(group['ids'])}`"
+        if "[1m]" in group["sources"]:
+            parts.append("[1m]")
         lines.append(f"• {_escape(row)}: {_escape(', '.join(parts + group['wrong']))}")
-    for prs, rows in sorted(covered.items()):
-        lines.append(f"• _Open PR_ {links(list(prs))}: {_escape(', '.join(sorted(rows)))}")
-    return lines
+    covered_lines = [
+        f"• _Open PR_ {links(list(prs))}: {_escape(', '.join(sorted(rows)))}"
+        for prs, rows in sorted(covered.items())
+    ]
+    return lines, covered_lines
+
+
+def _fit(heading: str, lines: list[str], limit: int) -> str:
+    """The heading and as many whole lines as fit in limit characters, then a count of
+    the rest."""
+    text = heading
+    for index, line in enumerate(lines):
+        more = f"\n…and {len(lines) - index} more in the JSON report"
+        if len(text) + 1 + len(line) + len(more) > limit:
+            return text + more
+        text += "\n" + line
+    return text
 
 
 def _problem_lines(report: dict, links) -> list[str]:
@@ -1024,8 +1053,9 @@ def format_report(report: dict) -> str:
             lines.append(f"Pricing pages: {links}")
 
     if report["unpriced_ids"]:
-        heading = "*Model IDs not priced*, by the row that should match them"
-        lines += ["", f"{heading} ({len(report['unpriced_ids'])})", *_id_lines(report, _pr_text)]
+        heading = f"*Model IDs with no price* ({len(report['unpriced_ids'])}): {ID_HEADING}"
+        open_ids, covered = _id_lines(report, _pr_text)
+        lines += ["", heading, *open_ids, *covered]
     problems = _problem_lines(report, _pr_text)
     if problems:
         lines += ["", f"*Price file problems* ({len(problems)})", *problems]
@@ -1131,14 +1161,14 @@ def build_payload(report: dict) -> dict:
                 {"type": "context", "block_id": "prices_more", "elements": [_mrkdwn(more)]}
             )
     if report["unpriced_ids"]:
-        heading = (
-            f"*Model IDs not priced* · {len(report['unpriced_ids'])} IDs on other hosts, or "
-            "with [1m], that the model's row should match, by row"
-        )
-        body = "\n".join(_id_lines(report, links))
-        blocks.append(
-            {"type": "section", "text": _mrkdwn(_clip(f"{heading}\n{body}", SECTION_LIMIT))}
-        )
+        heading = f"*Model IDs with no price* · {len(report['unpriced_ids'])} {ID_HEADING}"
+        open_ids, covered = _id_lines(report, links)
+        if open_ids:
+            text = _fit(f"{heading}\n_No open PR:_", open_ids, SECTION_LIMIT)
+            blocks.append({"type": "section", "text": _mrkdwn(text)})
+        if covered:
+            text = _fit("" if open_ids else heading, covered, CONTEXT_LIMIT).lstrip("\n")
+            blocks.append({"type": "context", "elements": [_mrkdwn(text)]})
     problems = _problem_lines(report, links)
     if problems:
         text = "*Price file problems*\n" + "\n".join(problems)

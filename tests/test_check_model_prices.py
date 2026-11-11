@@ -298,7 +298,7 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
             "claude-j",
             "anthropic",
             input_=9e-6,
-            pattern=r"(?i)^((eu|us)\.)?anthropic\.claude-[jk]-5-1$",
+            pattern=r"(?i)^(claude-j|((eu|us)\.)?anthropic\.claude-[jk]-5-1)$",
         ),
     ]
     litellm = {
@@ -331,9 +331,29 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         ("us.anthropic.claude-k-5", "claude-k-5", "Bedrock", None),
     ]
     text = format_report(report)
-    assert "*Model IDs not priced*, by the row that should match them (5)" in text
-    assert "• claude-k-5: 1 Vertex AI, 2 Bedrock" in text
-    assert "• claude-k-5-1: 1 OpenRouter, eu.anthropic.claude-k-5-1 is priced as claude-j" in text
+    assert f"*Model IDs with no price* (5): {check.ID_HEADING}" in text
+    # One example per row, preferring a US Bedrock profile.
+    assert "• claude-k-5: 1 Vertex AI, 2 Bedrock, e.g. `us.anthropic.claude-k-5`" in text
+    assert (
+        "• claude-k-5-1: 1 OpenRouter, e.g. `anthropic/claude-k-5.1`, "
+        "`eu.anthropic.claude-k-5-1` is priced as claude-j"
+    ) in text
+    blocks = build_payload(report)["blocks"]
+    section = next(
+        _block_text(b) for b in blocks if _block_text(b).startswith("*Model IDs with no price*")
+    )
+    assert section.startswith(f"*Model IDs with no price* · 5 {check.ID_HEADING}\n_No open PR:_\n")
+
+
+def test_long_lists_are_cut_at_a_whole_line_with_a_count():
+    lines = [f"• row-{n}: 3 Bedrock" for n in range(40)]
+    text = check._fit("*Heading*", lines, 200)
+
+    assert len(text) <= 200
+    assert text.startswith("*Heading*\n• row-0: 3 Bedrock\n")
+    kept = text.count("• row-")
+    assert text.endswith(f"\n…and {40 - kept} more in the JSON report")
+    assert check._fit("*Heading*", lines[:2], 200) == "*Heading*\n" + "\n".join(lines[:2])
 
 
 def test_models_with_a_1m_context_window_need_their_1m_id_priced():
@@ -353,6 +373,10 @@ def test_models_with_a_1m_context_window_need_their_1m_id_priced():
         ("claude-l[1m]", "1M context")
     ]
     assert "• claude-l: [1m]" in format_report(report)
+
+    litellm["us.anthropic.claude-l"] = ll_entry("bedrock_converse")
+    text = format_report(report_for(rows, litellm, md_catalog()))
+    assert "• claude-l: 1 Bedrock, e.g. `us.anthropic.claude-l`, [1m]" in text
 
 
 def test_price_file_problems_are_found_without_a_catalog():
