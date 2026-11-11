@@ -34,12 +34,19 @@ describe("resolvePiModel", () => {
   });
 
   it("uses openai-responses for system OpenAI models", () => {
-    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex"]) {
+    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex", "gpt-5.6-terra"]) {
       const m = resolvePiModel(id, null);
       expect(m.api, id).toBe("openai-responses");
       expect(m.provider).toBe("openai");
       expect(m.id).toBe(id);
     }
+  });
+
+  it("supplies reasoning and base rates for hosted Terra missing from pi-ai", () => {
+    expect(resolvePiModel("gpt-5.6-terra", null)).toMatchObject({
+      reasoning: true,
+      cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+    });
   });
 
   it("keeps the o-series on openai-completions (per-model catalog override)", () => {

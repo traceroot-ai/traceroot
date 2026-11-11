@@ -57,10 +57,13 @@ export async function resolveProjectModel(
   }
 
   // 2. System model: validate against catalog, then use shared resolver
-  for (const group of SYSTEM_MODELS) {
-    if (group.models.some((m) => m.id === rcaModel)) {
-      const model = resolvePiModel(rcaModel, null);
-      return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
+  // Older Terra choices were BYOK. Hosted Terra must be selected explicitly.
+  if (rcaModel !== "gpt-5.6-terra" || rcaSource === ModelSource.SYSTEM) {
+    for (const group of SYSTEM_MODELS) {
+      if (group.models.some((m) => m.id === rcaModel)) {
+        const model = resolvePiModel(rcaModel, null);
+        return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
+      }
     }
   }
 

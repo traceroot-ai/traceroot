@@ -155,6 +155,7 @@ export const SYSTEM_MODELS: {
       // sends when no effort is requested; chat completions sends nothing for them.
       { id: "o3", label: "o3", apiProtocol: "openai-completions" },
       { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
+      { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
       { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
     ],
   },

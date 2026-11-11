@@ -117,38 +117,39 @@ describe("resolveProjectModel", () => {
     expect(resolvePiModelMock).not.toHaveBeenCalled();
   });
 
-  it("resolves a system model via resolvePiModel", async () => {
-    resolvePiModelMock.mockReturnValue({ id: "claude-sonnet-4-5", provider: "anthropic" });
+  it.each([
+    ["claude-sonnet-4-5", null, null, "anthropic"],
+    ["gpt-5.6-terra", "OpenAI", "system", "openai"],
+  ])("resolves hosted %s via resolvePiModel", async (id, savedProvider, source, provider) => {
+    resolvePiModelMock.mockReturnValue({ id, provider });
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("claude-sonnet-4-5", null, null, "ws-123");
+    const res = await resolveProjectModel(id, savedProvider, source, "ws-123");
 
-    expect(resolvePiModelMock).toHaveBeenCalledWith("claude-sonnet-4-5", null);
-    expect(res).toEqual({
-      model: "claude-sonnet-4-5",
-      providerName: "anthropic",
-      source: "system",
-    });
+    expect(resolvePiModelMock).toHaveBeenCalledWith(id, null);
+    expect(res).toEqual({ model: id, providerName: provider, source: "system" });
   });
 
-  it("resolves legacy BYOK via model provider lookup when rcaSource is null", async () => {
+  it("resolves legacy BYOK Terra via model provider lookup when rcaSource is null", async () => {
     modelProviderFindMany.mockResolvedValue([
-      { provider: "my-deepseek", customModels: ["deepseek-chat"] },
+      { provider: "my-openai", customModels: ["gpt-5.6-terra"] },
     ]);
-    fetchProviderConfigMock.mockResolvedValue({
-      adapter: "deepseek",
+    const provider = {
+      adapter: "openai",
       key: "sk-xxx",
       baseUrl: null,
       config: null,
-    });
-    resolvePiModelMock.mockReturnValue({ id: "deepseek-chat", provider: "openai" });
+    };
+    fetchProviderConfigMock.mockResolvedValue(provider);
+    resolvePiModelMock.mockReturnValue({ id: "gpt-5.6-terra", provider: "openai" });
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
+    const res = await resolveProjectModel("gpt-5.6-terra", null, null, "ws-123");
 
     expect(modelProviderFindMany).toHaveBeenCalled();
-    expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-deepseek");
-    expect(res).toEqual({ model: "deepseek-chat", providerName: "my-deepseek", source: "byok" });
+    expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-openai");
+    expect(resolvePiModelMock).toHaveBeenCalledWith("gpt-5.6-terra", provider);
+    expect(res).toEqual({ model: "gpt-5.6-terra", providerName: "my-openai", source: "byok" });
   });
 
   it("returns null for unknown models not in system catalog", async () => {
