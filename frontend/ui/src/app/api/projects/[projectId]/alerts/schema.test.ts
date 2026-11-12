@@ -339,29 +339,17 @@ describe("isAggregationValidForMeasure", () => {
 
 describe("thresholdProblemForMeasure", () => {
   it("refuses a negative threshold on a measure that cannot go below zero", () => {
-    expect(thresholdProblemForMeasure("SPANS", "latency", "p95", ">", -500.25, "HOLD")).toBe(
+    expect(thresholdProblemForMeasure("SPANS", "latency", ">", -500.25)).toBe(
       "Threshold must be zero or more: latency can never be negative",
     );
-    expect(thresholdProblemForMeasure("SPANS", "latency", "p95", ">", 500, "HOLD")).toBeNull();
+    expect(thresholdProblemForMeasure("SPANS", "latency", ">", 500)).toBeNull();
   });
 
-  it("judges `< 0` on the aggregation and the no-data mode", () => {
-    expect(thresholdProblemForMeasure("SPANS", "latency", "p95", "<", 0, "NOTIFY")).toBeNull();
-    expect(thresholdProblemForMeasure("SPANS", "latency", "p95", "<", 0, "HOLD")).toContain(
-      "only under no-data mode NOTIFY",
-    );
-    expect(thresholdProblemForMeasure("SPANS", "count", "count", "<", 0, "NOTIFY")).toContain(
-      "a window with no data reads 0",
-    );
-  });
-
-  it("has no opinion on a view, measure, aggregation, operator or mode the registry does not declare", () => {
+  it("has no opinion on a view, measure or operator the registry does not declare", () => {
     // Each has its own refusal; a stored row carrying one must not throw here.
-    expect(thresholdProblemForMeasure("TRACES", "latency", "p95", ">", -5, "HOLD")).toBeNull();
-    expect(thresholdProblemForMeasure("SPANS", "not_a_measure", "p95", ">", -5, "HOLD")).toBeNull();
-    expect(thresholdProblemForMeasure("SPANS", "latency", "median", ">", -5, "HOLD")).toBeNull();
-    expect(thresholdProblemForMeasure("SPANS", "latency", "p95", "~", -5, "HOLD")).toBeNull();
-    expect(thresholdProblemForMeasure("SPANS", "latency", "p95", ">", -5, "SKIP")).toBeNull();
+    expect(thresholdProblemForMeasure("TRACES", "latency", ">", -5)).toBeNull();
+    expect(thresholdProblemForMeasure("SPANS", "not_a_measure", ">", -5)).toBeNull();
+    expect(thresholdProblemForMeasure("SPANS", "latency", "~", -5)).toBeNull();
   });
 });
 

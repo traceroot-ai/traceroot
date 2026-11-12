@@ -445,11 +445,26 @@ describe("updateAlert", () => {
       expect(current().threshold).toBe(500);
     });
 
-    it("refuses a PATCH that repeats a stored negative threshold next to a rename", async () => {
+    it("renames a rule stored with a negative threshold when the PATCH repeats its condition, as the form does", async () => {
+      mockAccess();
+      // Stored as the Decimal the column reads back, compared as the number the patch carries.
+      store.set("alert-1", { ...row(), threshold: new Prisma.Decimal(-5) });
+      expect(
+        await update({
+          name: "Renamed",
+          view: "SPANS",
+          measure: "latency",
+          thresholdOperator: ">",
+          threshold: -5,
+        }),
+      ).toMatchObject({ ok: true, changed: ["name"] });
+      expect(current().name).toBe("Renamed");
+    });
+
+    it("refuses a PATCH that moves a stored negative threshold to another negative one", async () => {
       mockAccess();
       store.set("alert-1", row({ threshold: -5 }));
-      // A threshold in the patch is judged even when unchanged, and the form sends one on every edit.
-      expect(await update({ threshold: -5, name: "Renamed" })).toEqual({
+      expect(await update({ threshold: -6, name: "Renamed" })).toEqual({
         ok: false,
         status: 400,
         error: "Threshold must be zero or more: latency can never be negative",
@@ -501,36 +516,6 @@ describe("updateAlert", () => {
         threshold: 0,
         noDataMode: "NOTIFY",
       });
-    });
-
-    it("refuses a mode-only or aggregation-only edit that leaves `< 0` unable to fire", async () => {
-      mockAccess();
-      store.set("alert-1", row({ thresholdOperator: "<", threshold: 0, noDataMode: "NOTIFY" }));
-      expect(await update({ noDataMode: "HOLD" })).toEqual({
-        ok: false,
-        status: 400,
-        error:
-          "This alert can never fire: latency can never be negative, and a window with no data pages only under no-data mode NOTIFY",
-      });
-      expect(await update({ aggregation: "sum" })).toEqual({
-        ok: false,
-        status: 400,
-        error:
-          "This alert can never fire: latency can never be negative, and a window with no data reads 0. Use = 0 to alert on an empty window",
-      });
-      expect(tx.alert.updateMany).not.toHaveBeenCalled();
-      expect(current()).toMatchObject({ aggregation: "p95", noDataMode: "NOTIFY" });
-    });
-
-    it("renames and pauses a stored `< 0` count rule that can never fire", async () => {
-      mockAccess();
-      store.set(
-        "alert-1",
-        row({ measure: "count", aggregation: "count", thresholdOperator: "<", threshold: 0 }),
-      );
-      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
-      expect(await setStatus("PAUSED")).toMatchObject({ ok: true });
-      expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: 0 });
     });
   });
 

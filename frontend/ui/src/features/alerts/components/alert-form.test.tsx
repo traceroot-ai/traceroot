@@ -432,29 +432,21 @@ describe("AlertForm", () => {
       expect(previewMetrics()).not.toContainEqual({ measure: "count", agg: "count" });
     });
 
-    it("blocks the save of a legacy negative threshold and says why", () => {
+    it("saves a rename of a legacy negative threshold, and blocks a change to it with the reason", () => {
       renderForm({ alertId: "alert-9", initialDraft: { ...SAVED_DRAFT, threshold: "-5" } });
-      const save = screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
-      expect(save.disabled).toBe(true);
-      expect(
-        screen.getByText("Threshold must be zero or more: latency can never be negative"),
-      ).toBeTruthy();
-    });
-
-    it("saves `< 0` only where a gap pages, and otherwise says why it never fires", () => {
-      const lessThanZero = { ...SAVED_DRAFT, operator: "<" as const, threshold: "0" };
-      renderForm({ alertId: "alert-9", initialDraft: lessThanZero });
       const save = () => screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
-      expect(save().disabled).toBe(false);
-      cleanup();
+      const reason = "Threshold must be zero or more: latency can never be negative";
 
-      renderForm({ alertId: "alert-9", initialDraft: { ...lessThanZero, noDataMode: "HOLD" } });
+      fireEvent.change(screen.getByLabelText("name"), { target: { value: "Renamed" } });
+      expect(save().disabled).toBe(false);
+      expect(screen.queryByText(reason)).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-6" } });
       expect(save().disabled).toBe(true);
-      expect(
-        screen.getByText(
-          "This alert can never fire: latency can never be negative, and a window with no data pages only under no-data mode NOTIFY",
-        ),
-      ).toBeTruthy();
+      expect(screen.getByText(reason)).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-5.0" } });
+      expect(save().disabled).toBe(false);
     });
 
     it("warns, without blocking the save, when the rule has an alert open", () => {

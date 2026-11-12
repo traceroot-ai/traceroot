@@ -97,18 +97,21 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
   // accepts, so a blank input would silently save a rule that fires above zero.
   const threshold = parseThreshold(draft.threshold);
   // The write service's own check, so the form holds back what the API would
-  // refuse and says why instead of answering with a failed save.
+  // refuse and says why instead of answering with a failed save. Like the
+  // service, an edit is judged only when it changes the loaded condition, so a
+  // rule saved before this check can still be renamed.
   const measure = getMeasure(draft.view, draft.measureId);
+  const changesCondition =
+    !isEdit ||
+    initialDraft === undefined ||
+    draft.view !== initialDraft.view ||
+    draft.measureId !== initialDraft.measureId ||
+    draft.operator !== initialDraft.operator ||
+    threshold !== parseThreshold(initialDraft.threshold);
   const thresholdProblem =
-    threshold === null || measure === undefined
+    threshold === null || measure === undefined || !changesCondition
       ? null
-      : alertThresholdProblem(
-          measure,
-          draft.operator,
-          threshold,
-          draft.aggregation,
-          draft.noDataMode,
-        );
+      : alertThresholdProblem(measure, draft.operator, threshold);
   const isNameValid = draft.name.trim() !== "";
   // The same predicate the preview panel reports unavailable through, and the
   // one the API gates on.

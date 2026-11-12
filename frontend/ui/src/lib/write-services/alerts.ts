@@ -13,7 +13,6 @@
 import { Prisma } from "@prisma/client";
 import {
   canonicalizeAlertFilters,
-  DEFAULT_ALERT_NO_DATA_MODE,
   hasOutstandingAlertPage,
   prisma,
   STOPPED_ALERT_STATUSES,
@@ -80,11 +79,8 @@ export function validateAlertCreate(
   const thresholdProblem = thresholdProblemForMeasure(
     rule.view,
     rule.measure,
-    rule.aggregation,
     rule.thresholdOperator,
     rule.threshold,
-    // An omitted mode stores the column default, which is this one.
-    rule.noDataMode ?? DEFAULT_ALERT_NO_DATA_MODE,
   );
   if (thresholdProblem !== null) return { ok: false, error: thresholdProblem };
   return { ok: true, rule: { ...rule, filters } };
@@ -373,37 +369,34 @@ export async function updateAlert(input: {
     }
 
     const snapshot = toRuleSnapshot(existing);
+    const { changed, data: edit } = diffPatch(patch, {
+      ...snapshot,
+      name: existing.name,
+      renotify: existing.renotify,
+    });
 
     // Merged the same way: a threshold-only edit is judged against the stored
-    // measure. An edit touching none of these fields leaves the stored
-    // condition alone, so renaming a rule saved before this check still goes
-    // through.
+    // measure. Only a value that differs from the stored one counts, because
+    // the form sends the whole rule on every save: an edit that changes none
+    // of these four fields leaves the stored condition alone, so renaming a
+    // rule saved before this check still goes through.
     const rewritesCondition =
-      patch.view !== undefined ||
-      patch.measure !== undefined ||
-      patch.aggregation !== undefined ||
-      patch.thresholdOperator !== undefined ||
-      patch.threshold !== undefined ||
-      patch.noDataMode !== undefined;
+      edit.view !== undefined ||
+      edit.measure !== undefined ||
+      edit.thresholdOperator !== undefined ||
+      edit.threshold !== undefined;
     if (rewritesCondition) {
       const thresholdProblem = thresholdProblemForMeasure(
         view,
         measure,
-        aggregation,
         patch.thresholdOperator ?? snapshot.thresholdOperator,
         patch.threshold ?? snapshot.threshold,
-        patch.noDataMode ?? snapshot.noDataMode,
       );
       if (thresholdProblem !== null) {
         return { result: { ok: false, status: 400, error: thresholdProblem } };
       }
     }
 
-    const { changed, data: edit } = diffPatch(patch, {
-      ...snapshot,
-      name: existing.name,
-      renotify: existing.renotify,
-    });
     if (changed.length === 0) {
       return {
         result: {

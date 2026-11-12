@@ -148,29 +148,18 @@ export function isAggregationValidForMeasure(
 
 /**
  * Why the threshold can never decide anything on this measure, or null. An
- * undeclared view, measure, aggregation, operator or no-data mode has its own
- * refusal, so it gets no opinion here.
+ * undeclared view, measure or operator has its own refusal, so it gets no
+ * opinion here.
  */
 export function thresholdProblemForMeasure(
   view: string,
   measure: string,
-  aggregation: string,
   operator: string,
   threshold: number,
-  noDataMode: string,
 ): string | null {
-  if (
-    !isAlertView(view) ||
-    !isAlertAggregation(aggregation) ||
-    !isAlertThresholdOperator(operator) ||
-    !isAlertNoDataMode(noDataMode)
-  ) {
-    return null;
-  }
+  if (!isAlertView(view) || !isAlertThresholdOperator(operator)) return null;
   const known = getMeasure(view, measure);
-  return known === undefined
-    ? null
-    : alertThresholdProblem(known, operator, threshold, aggregation, noDataMode);
+  return known === undefined ? null : alertThresholdProblem(known, operator, threshold);
 }
 
 /**

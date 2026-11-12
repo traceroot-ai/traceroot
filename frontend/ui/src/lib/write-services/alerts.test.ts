@@ -179,26 +179,6 @@ describe("validateAlertCreate", () => {
       rule: { thresholdOperator: "<", threshold: 0, noDataMode: "NOTIFY" },
     });
   });
-
-  it("refuses `< 0` where it can never fire", () => {
-    const lessThanZero = { ...validRule, thresholdOperator: "<", threshold: 0 };
-    // An omitted mode stores HOLD, under which a gap pages nothing.
-    expect(validateAlertCreate(lessThanZero)).toEqual({
-      ok: false,
-      error:
-        "This alert can never fire: latency can never be negative, and a window with no data pages only under no-data mode NOTIFY",
-    });
-    // A count reads 0 on an empty window, so there is never a gap to page.
-    const countRule = { ...lessThanZero, measure: "count", aggregation: "count", filters: [] };
-    expect(validateAlertCreate({ ...countRule, noDataMode: "NOTIFY" })).toEqual({
-      ok: false,
-      error:
-        "This alert can never fire: count can never be negative, and a window with no data reads 0. Use = 0 to alert on an empty window",
-    });
-    expect(validateAlertCreate({ ...countRule, thresholdOperator: "=" })).toMatchObject({
-      ok: true,
-    });
-  });
 });
 
 describe("createAlert", () => {
