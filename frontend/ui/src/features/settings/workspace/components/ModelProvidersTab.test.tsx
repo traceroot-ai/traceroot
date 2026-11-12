@@ -288,6 +288,47 @@ describe("ModelProvidersTab", () => {
     );
   });
 
+  it("sends baseUrl: null when Base URL is cleared in edit mode and clears Connected on edit", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "google",
+          provider: "Google Gemini",
+          keyPreview: "sk-...",
+          baseUrl: "https://example.com/v1testing",
+          customModels: [],
+          withDefaultModels: true,
+          config: null,
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.testModelProvider.mockResolvedValue({ success: true });
+
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+    expect(await screen.findByText("Connected")).toBeTruthy();
+
+    const baseUrlInput = screen.getByDisplayValue("https://example.com/v1testing");
+    fireEvent.change(baseUrlInput, { target: { value: "" } });
+    expect(screen.queryByText("Connected")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(2));
+    expect(mocks.testModelProvider).toHaveBeenLastCalledWith("ws-1", {
+      adapter: "google",
+      providerId: "provider-1",
+      baseUrl: null,
+    });
+  });
+
   it("shows the catalog protocol for an o-series model and persists an explicit Responses pick", async () => {
     mocks.getModelProviders.mockResolvedValue({
       byokEnabled: true,

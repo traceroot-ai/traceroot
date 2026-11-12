@@ -33,7 +33,7 @@ const testSchema = z.object({
   adapter: z.enum(ADAPTER_VALUES),
   apiKey: z.string().optional(),
   providerId: z.string().optional(), // use stored key from DB
-  baseUrl: z.string().optional(),
+  baseUrl: z.string().nullable().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   // Bedrock-specific
   awsAccessKeyId: z.string().optional(),
@@ -108,8 +108,13 @@ async function checkEndpoint(
   });
 }
 
+function normalizeDestinationUrl(adapter: string, baseUrl?: string | null): string | undefined {
+  const raw = baseUrl?.trim() || ADAPTER_DEFAULT_BASE_URL[adapter];
+  return raw ? raw.replace(/\/+$/, "") : undefined;
+}
+
 function adapterBaseUrl(adapter: string, baseUrl?: string): string {
-  return (baseUrl || ADAPTER_DEFAULT_BASE_URL[adapter]).replace(/\/$/, "");
+  return normalizeDestinationUrl(adapter, baseUrl) ?? "";
 }
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
@@ -139,12 +144,13 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   }
 
   const { awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } = result.data;
-  let { adapter, baseUrl } = result.data;
+  const adapter = result.data.adapter;
+  let baseUrl = result.data.baseUrl ?? undefined;
 
   // Resolve API key: use provided key, or fetch from DB via providerId.
-  // When providerId supplies the stored key, destination and adapter are derived
-  // from the stored provider record so callers cannot redirect saved credentials
-  // to an arbitrary host (SSRF / credential exfiltration).
+  // Never send a stored credential to a different adapter or Base URL than
+  // the one saved on the provider record; reject changed destinations so the
+  // user has to re-enter the API key before probing a new endpoint.
   let apiKey = result.data.apiKey;
   if (!apiKey && result.data.providerId) {
     const provider = await prisma.modelProvider.findFirst({
@@ -152,13 +158,20 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       select: { keyCipher: true, adapter: true, baseUrl: true },
     });
     if (provider?.keyCipher) {
-      apiKey = decryptKey(provider.keyCipher);
-      if (
-        provider.adapter &&
-        ADAPTER_VALUES.includes(provider.adapter as (typeof ADAPTER_VALUES)[number])
-      ) {
-        adapter = provider.adapter as (typeof ADAPTER_VALUES)[number];
+      const adapterChanged = Boolean(provider.adapter) && adapter !== provider.adapter;
+      const storedDest = normalizeDestinationUrl(provider.adapter || adapter, provider.baseUrl);
+      const requestedBaseUrl =
+        result.data.baseUrl === undefined ? provider.baseUrl : result.data.baseUrl;
+      const requestedDest = normalizeDestinationUrl(adapter, requestedBaseUrl);
+
+      if (adapterChanged || requestedDest !== storedDest) {
+        return errorResponse(
+          "Destination changed. Re-enter the API key to test a new Base URL.",
+          400,
+        );
       }
+
+      apiKey = decryptKey(provider.keyCipher);
       baseUrl = provider.baseUrl ?? undefined;
     }
   }

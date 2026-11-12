@@ -239,8 +239,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       // Use stored key from DB
       testData.providerId = editProvider.id;
     }
-    const trimmedBaseUrl = baseUrl.trim();
-    if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
+    if (adapterConfig?.credentialType !== "aws") {
+      Object.assign(testData, getBaseUrlPayload(baseUrl, !!editProvider));
+    }
     setTestResult(null);
     testMutation.mutate(testData as any);
   }
@@ -522,7 +523,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 </label>
                 <Input
                   value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    setTestResult(null);
+                  }}
                   placeholder={
                     adapterConfig.requiresBaseUrl
                       ? "https://your-resource.openai.azure.com"
