@@ -11,8 +11,12 @@
 export const OUTPUT_FIELD_TYPES = ["string", "number", "boolean"] as const;
 
 /**
- * Names that would mutate Object.prototype or be silently ignored after
- * `Object.create(null)`. A schema is detector-author input, so it is untrusted.
+ * Field names with a special meaning on JavaScript objects. A field's name
+ * becomes a key on ordinary objects, in the tool's parameters and in the data
+ * the model returns: there, assigning `__proto__` replaces the prototype
+ * instead of adding a field, `constructor` is already inherited by every
+ * object, and `prototype` has its own meaning on functions. A schema is
+ * detector-author input, so it is untrusted.
  */
 export const RESERVED_FIELD_NAMES: ReadonlySet<string> = new Set([
   "__proto__",
