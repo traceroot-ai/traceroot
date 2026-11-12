@@ -270,6 +270,26 @@ def test_a_bare_expression_is_told_what_a_query_starts_with(sql: str) -> None:
     assert _message(sql) == "SQL statement must start with SELECT or WITH"
 
 
+# A misspelt first word followed by a query body does not parse, and the parse
+# error's position points past the word that is wrong. No query opens with a
+# plain word, so these get the same message as a bare expression.
+MISSPELT_FIRST_WORD_CASES = [
+    pytest.param("selec * from spans", id="typo-select-star"),
+    pytest.param("selct name from spans", id="typo-select-column"),
+    pytest.param("SELEC count() FROM spans", id="typo-uppercase-count"),
+    pytest.param("-- note\nselec * from spans", id="typo-after-line-comment"),
+    pytest.param("/* note */ selec * from spans", id="typo-after-block-comment"),
+    pytest.param("; selec * from spans", id="typo-after-semicolon"),
+]
+
+
+@pytest.mark.parametrize("sql", MISSPELT_FIRST_WORD_CASES)
+def test_a_misspelt_first_word_before_a_query_body_is_told_what_a_query_starts_with(
+    sql: str,
+) -> None:
+    assert _message(sql) == "SQL statement must start with SELECT or WITH"
+
+
 # Every recognised non-read statement keeps the SELECT-only message, including
 # the ones sqlglot only understands as an opaque exp.Command.
 STATEMENT_CASES = [
@@ -306,6 +326,21 @@ def test_a_parse_error_names_its_position_but_not_the_sql() -> None:
     assert "FORM" not in msg and "spans" not in msg
 
 
+# Input that opens with a statement keyword, or with anything other than a plain
+# word, keeps the parse error and its position.
+@pytest.mark.parametrize(
+    ("sql", "column"),
+    [
+        pytest.param("WITH t AS (SELECT 1) selec x", 28, id="with-then-typo"),
+        pytest.param("(SELECT 1 FORM spans)", 20, id="parenthesised-select"),
+        pytest.param("DELETE FROM spans WHERE (", 25, id="mangled-delete"),
+        pytest.param("ALTER TABLE spans RENAME TO", 27, id="mangled-alter"),
+    ],
+)
+def test_a_parse_error_after_a_keyword_keeps_its_position(sql: str, column: int) -> None:
+    assert _message(sql) == f"SQL statement could not be parsed near line 1, column {column}"
+
+
 def test_a_token_error_still_reads_as_a_parse_error() -> None:
     # An unterminated string fails in the tokenizer, which carries no position.
     assert _message("SELECT 'abc") == "SQL statement could not be parsed"
@@ -319,6 +354,18 @@ def test_a_failing_first_token_check_falls_back_to_the_select_only_message(
 
     monkeypatch.setattr(validator_module.sqlglot, "tokenize", boom)
     assert "Only SELECT statements are allowed" in _message("selec x")
+
+
+def test_a_failing_first_token_check_keeps_the_parse_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("tokenizer unavailable")
+
+    monkeypatch.setattr(validator_module.sqlglot, "tokenize", boom)
+    assert (
+        _message("selec * from spans") == "SQL statement could not be parsed near line 1, column 12"
+    )
 
 
 def test_a_failing_statement_table_lookup_falls_back_to_the_select_only_message(

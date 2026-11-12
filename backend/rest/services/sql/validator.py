@@ -9,6 +9,8 @@ Policy summary
 1.  Empty / whitespace-only / comment-only SQL is rejected.
 2.  SQL must parse under the ClickHouse dialect; parse errors are rejected.
     The message gives the line and column of the error, never any of the SQL.
+    Input that opens with a plain word (a typo such as ``selec * from spans``)
+    is rejected with "must start with SELECT or WITH" instead.
 3.  Exactly one statement is required.
     Note: a trailing ``;`` produces one statement (it is a statement terminator
     in sqlglot, not a separator).  ``SELECT 1; SELECT 2`` yields two statements
@@ -287,6 +289,20 @@ def _parse_error_position(exc: Exception) -> str:
     return f" near line {line}, column {col}"
 
 
+def _first_token(sql: str) -> TokenType | None:
+    """Return the type of the token the parser opens the statement with.
+
+    ``None`` if there is no such token or tokenizing fails.
+    """
+    try:
+        tokens = sqlglot.tokenize(sql, read="clickhouse")
+        # The parser drops leading ``;``, so the statement opens after them. ``;`` is
+        # a STATEMENT_PARSERS key too, so reading it would pass any input as a statement.
+        return next((t.token_type for t in tokens if t.token_type is not TokenType.SEMICOLON), None)
+    except Exception:
+        return None
+
+
 def _opens_with_statement_keyword(sql: str) -> bool:
     """Return ``True`` if sqlglot dispatched *sql* as a statement.
 
@@ -297,15 +313,10 @@ def _opens_with_statement_keyword(sql: str) -> bool:
     ``COMMANDS``. It only picks the message for input that is already rejected;
     on any doubt it answers ``True``, which keeps the SELECT-only message.
     """
+    first = _first_token(sql)
+    if first is None:
+        return True
     try:
-        tokens = sqlglot.tokenize(sql, read="clickhouse")
-        # The parser drops leading ``;``, so the statement opens after them. ``;`` is
-        # a STATEMENT_PARSERS key too, so reading it would pass any input as a statement.
-        first = next(
-            (t.token_type for t in tokens if t.token_type is not TokenType.SEMICOLON), None
-        )
-        if first is None:
-            return True
         # WITH is dispatched through the expression parser, not STATEMENT_PARSERS,
         # so ``WITH t AS (...) DELETE ...`` must not be told to start with WITH.
         return (
@@ -356,6 +367,11 @@ def validate(sql: str) -> exp.Query:
         # fragment (which can carry a project_id or other tenant data). Keep the
         # original on the exception chain for server-side debugging only. The
         # line and column are numbers, so they are safe to return.
+        # A misspelt first word followed by a query body (`selec * from spans`)
+        # fails here, and the position would point past the typo. No query opens
+        # with a plain word, so it gets the same message as `selec x`.
+        if _first_token(sql) is TokenType.VAR:
+            raise SqlValidationError("SQL statement must start with SELECT or WITH") from exc
         raise SqlValidationError(
             f"SQL statement could not be parsed{_parse_error_position(exc)}"
         ) from exc
