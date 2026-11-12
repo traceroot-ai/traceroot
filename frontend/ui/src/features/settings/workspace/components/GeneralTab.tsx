@@ -73,46 +73,55 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
   const isAdmin = workspace?.role === Role.ADMIN;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">General</h2>
-        <p className="text-sm text-muted-foreground">Manage your workspace settings</p>
+    <div className="space-y-4">
+      <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
+        <h2 className="text-[15px] font-medium">General</h2>
+        <p className="text-[13px] text-muted-foreground">Manage your workspace settings</p>
       </div>
 
-      <div className="border p-4">
-        <h3 className="text-sm font-medium">Rename workspace</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Update the name of your workspace. Changes will take effect immediately.
-        </p>
-        <div className="mt-3 flex gap-2">
-          <Input
-            value={workspaceName}
-            onChange={(e) => setWorkspaceName(e.target.value)}
-            placeholder="Workspace name"
-            className="h-8 max-w-xs text-sm"
-          />
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={
-              updateMutation.isPending || workspaceName === workspace?.name || !workspaceName.trim()
-            }
-          >
-            {updateMutation.isPending ? "Saving..." : "Save"}
-          </Button>
+      <div className="border">
+        <div className="flex h-9 items-center border-b px-4">
+          <h3 className="text-[13px] font-medium">Rename workspace</h3>
+        </div>
+        <div className="p-4">
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Update the name of your workspace. Changes will take effect immediately.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Input
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+              placeholder="Workspace name"
+              className="h-8 max-w-xs text-[13px]"
+            />
+            <Button
+              onClick={handleSave}
+              disabled={
+                updateMutation.isPending ||
+                workspaceName === workspace?.name ||
+                !workspaceName.trim()
+              }
+            >
+              {updateMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
         </div>
       </div>
 
       {isAdmin && (
-        <div className="border p-4">
-          <h3 className="text-sm font-medium">Delete workspace</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Permanently delete this workspace and all of its projects and data. This action cannot
-            be undone.
-          </p>
-          <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3">
-            Delete workspace
-          </DeleteButton>
+        <div className="border">
+          <div className="flex h-9 items-center border-b px-4">
+            <h3 className="text-[13px] font-medium">Delete workspace</h3>
+          </div>
+          <div className="p-4">
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Permanently delete this workspace and all of its projects and data. This action cannot
+              be undone.
+            </p>
+            <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3">
+              Delete workspace
+            </DeleteButton>
+          </div>
         </div>
       )}
 

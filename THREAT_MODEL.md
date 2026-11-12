@@ -1,4 +1,4 @@
-# Threat Model — TraceRoot
+# Threat Model — traceroot
 
 > **Framework:** STRIDE + 4-question model
 > **Surfaces covered:** SaaS (app.traceroot.ai), Self-hosted, Python and TypeScript SDKs
@@ -9,7 +9,7 @@
 
 ## 1. What Are We Building?
 
-TraceRoot is an open-source AI agent improvement platform. It captures LLM traces, filters signal from noise, and enables AI-assisted root cause analysis by connecting to a sandbox with production source code and GitHub history.
+traceroot is an open-source AI agent improvement platform. It captures LLM traces, filters signal from noise, and enables AI-assisted root cause analysis by connecting to a sandbox with production source code and GitHub history.
 
 ### System Components
 
@@ -29,7 +29,7 @@ TraceRoot is an open-source AI agent improvement platform. It captures LLM trace
 
 ### Deployment Surfaces
 
-- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
+- **SaaS** (`app.traceroot.ai`): traceroot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
 - **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
 - **SDK only**: User installs the Python or TypeScript SDK and points it at either SaaS or their own host.
@@ -40,7 +40,7 @@ TraceRoot is an open-source AI agent improvement platform. It captures LLM trace
 [ User's AI Agent Process ]
         |  SDK (OTLP/HTTP)
         v
-[ TraceRoot Ingestion API ]  <-- trust boundary: API key required
+[ traceroot Ingestion API ]  <-- trust boundary: API key required
         |
         v
 [ ClickHouse + S3 ]          <-- trust boundary: internal network only
@@ -69,7 +69,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 |---|---|---|---|
 | S-01 | Attacker uses a stolen `TRACEROOT_API_KEY` to ingest fake traces or read another tenant's data | REST API | P0 |
 | S-02 | Attacker forges an auth or integration callback to hijack a session or attach the wrong GitHub installation | Browser client / Next.js API routes | P1 |
-| S-03 | Malicious SDK version published to PyPI or npm impersonates an official TraceRoot package (typosquatting) | PyPI / npm / SDK | P1 |
+| S-03 | Malicious SDK version published to PyPI or npm impersonates an official traceroot package (typosquatting) | PyPI / npm / SDK | P1 |
 | S-04 | In self-hosted mode, internal services (Redis, ClickHouse) accept connections without authentication if misconfigured | Self-hosted infra | P2 |
 
 ### 2.2 Tampering

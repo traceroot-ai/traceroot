@@ -88,41 +88,31 @@ export function NewDatasetPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-dataset-title"
-        className="relative z-10 flex max-h-[90vh] w-[min(560px,94vw)] flex-col rounded-lg border border-border bg-background shadow-xl"
+        className="relative z-10 flex max-h-[90vh] w-[min(560px,94vw)] flex-col rounded-[2px] border border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
-          <h2 id="new-dataset-title" className="text-[13px] font-semibold">
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
+          <h2 id="new-dataset-title" className="text-[15px] font-medium">
             New dataset
           </h2>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
             aria-label="Close"
-            className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-auto p-4">
           <DatasetFormFields state={state} onChange={setState} />
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => onOpenChange(false)}
-          >
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={handleCreate}
-            disabled={!canCreate || create.isPending}
-          >
+          <Button onClick={handleCreate} disabled={!canCreate || create.isPending}>
             {create.isPending ? "Creating…" : "Create"}
           </Button>
         </div>
@@ -180,36 +170,31 @@ export function DatasetEditPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-dataset-title"
-        className="relative z-10 flex max-h-[90vh] w-[min(560px,94vw)] flex-col rounded-lg border border-border bg-background shadow-xl"
+        className="relative z-10 flex max-h-[90vh] w-[min(560px,94vw)] flex-col rounded-[2px] border border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
-          <h2 id="edit-dataset-title" className="text-[13px] font-semibold">
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
+          <h2 id="edit-dataset-title" className="text-[15px] font-medium">
             Edit dataset
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-auto p-4">
           <DatasetFormFields state={state} onChange={setState} />
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
-          <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={handleSave}
-            disabled={!canSave || update.isPending}
-          >
+          <Button onClick={handleSave} disabled={!canSave || update.isPending}>
             {update.isPending ? "Saving…" : "Save"}
           </Button>
         </div>

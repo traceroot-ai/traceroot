@@ -1,8 +1,9 @@
 "use client";
 
+import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, X } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { X } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
@@ -54,7 +55,6 @@ const isIdentifiedFilter = (p: Predicate) =>
 
 export default function DetectorDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const detectorId = params.detectorId as string;
@@ -202,17 +202,11 @@ export default function DetectorDetailPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <button
-            type="button"
-            onClick={() => router.push(listHref)}
-            className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Detectors
-          </button>
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[13px] font-medium">{detector?.name ?? detectorId}</span>
-        </div>
+        <PageBackHeader
+          backHref={listHref}
+          backLabel="Detectors"
+          title={detector?.name ?? detectorId}
+        />
 
         {/* Filter bar — identical instantiation to traces/sessions/users. */}
         <SearchFilterBar
@@ -231,7 +225,7 @@ export default function DetectorDetailPage() {
             <button
               type="button"
               onClick={() => updateFilters(state.filters.filter((p) => !isIdentifiedFilter(p)))}
-              className="flex h-7 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[12px] text-foreground hover:bg-muted/70"
+              className="flex h-7 items-center gap-1 rounded-[2px] border border-border bg-background px-2 text-[12px] text-foreground hover:bg-muted hover:bg-muted/70"
               aria-label="Remove filter Identified is Yes"
             >
               Identified: Yes

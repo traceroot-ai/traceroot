@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -9,14 +9,16 @@ import { PostHogPageView } from "@/providers/posthog-pageview";
 import { PostHogIdentifier } from "@/providers/posthog-identifier";
 import { Suspense } from "react";
 
-const inter = Inter({ subsets: ["latin"] });
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans", display: "swap" });
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "traceroot",
   description: "traceroot: the open-source platform that continuously improves your ai agents.",
-  icons: {
-    icon: "/images/favicon.ico",
-  },
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -26,7 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
         <PHProvider>
           <Suspense fallback={null}>
             <PostHogPageView />

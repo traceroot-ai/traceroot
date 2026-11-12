@@ -184,7 +184,7 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
           />
         </div>
 
-        <div className="shrink-0 bg-background pt-3">
+        <div className="shrink-0 border-t border-border bg-background pt-3">
           <div className="flex items-center justify-end gap-2">
             {!isEdit && (
               <AlertsCapacityNotice capacity={capacity} className="mr-auto text-muted-foreground" />
@@ -199,17 +199,11 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
                 to Slack.
               </p>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(listHref)}
-              className="h-7 text-[12px]"
-            >
+            <Button type="button" variant="outline" onClick={() => router.push(listHref)}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" className="h-7 text-[12px]" disabled={!canSubmit}>
-              {isEdit ? "Save Alert" : "Create Alert"}
+            <Button type="submit" disabled={!canSubmit}>
+              {isEdit ? "Save alert" : "Create alert"}
             </Button>
           </div>
         </div>

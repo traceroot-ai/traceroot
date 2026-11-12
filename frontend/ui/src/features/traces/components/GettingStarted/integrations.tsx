@@ -7,6 +7,16 @@ export interface IntegrationCodeExample {
   initSnippet: string;
 }
 
+/** An SDK per language, or a coding agent's plugin, whose install and config name the host. */
+export type IntegrationSetup =
+  | { kind: "sdk"; languages: Partial<Record<Lang, IntegrationCodeExample>> }
+  | {
+      kind: "plugin";
+      install: (hostUrl: string | null) => string;
+      /** `label` heads the config block. */
+      config: (hostUrl: string | null) => { label: string; value: string };
+    };
+
 /**
  * Which group of the stack picker an entry belongs to.
  *
@@ -20,7 +30,7 @@ export interface IntegrationCodeExample {
  * name, and a name in the wrong half of a two-column list is a name they cannot
  * find.
  */
-export type IntegrationCategory = "provider" | "framework";
+export type IntegrationCategory = "provider" | "framework" | "coding-agent";
 
 /**
  * Which provider key this integration needs, and how firmly.
@@ -54,7 +64,7 @@ export interface IntegrationOption {
   providerKey: ProviderKeyBinding;
   logo: string;
   logoDark?: string;
-  languages: Partial<Record<Lang, IntegrationCodeExample>>;
+  setup: IntegrationSetup;
 }
 
 export const ALL_LANGS: Lang[] = ["python", "typescript"];
@@ -69,6 +79,7 @@ export const ALL_LANGS: Lang[] = ["python", "typescript"];
 export const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
   { category: "provider", label: "Model providers" },
   { category: "framework", label: "Frameworks & SDKs" },
+  { category: "coding-agent", label: "Coding agents" },
 ];
 
 const PYTHON_INSTALL_COMMAND = "pip install traceroot";
@@ -91,13 +102,16 @@ export const INTEGRATIONS: IntegrationOption[] = [
     // Agno takes any model; the example builds the agent on agno.models.anthropic.Claude.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/agno.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.AGNO])`,
+        },
       },
     },
   },
@@ -109,16 +123,19 @@ traceroot.initialize(integrations=[Integration.AGNO])`,
     // The snippet above initializes Integration.OPENAI, with the others named as swaps.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/autogen.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[
     Integration.AUTOGEN,
     Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
 ])`,
+        },
       },
     },
   },
@@ -130,22 +147,25 @@ traceroot.initialize(integrations=[
     // Anthropic's own agent SDK — @anthropic-ai/claude-agent-sdk, ANTHROPIC_API_KEY.
     providerKey: { kind: "fixed", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/claude-agent-sdk.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])`,
-      },
-      typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import * as claudeAgentSDK from "@anthropic-ai/claude-agent-sdk";
+        },
+        typescript: {
+          installCommand: TYPESCRIPT_INSTALL_COMMAND,
+          initSnippet: `import * as claudeAgentSDK from "@anthropic-ai/claude-agent-sdk";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
   instrumentModules: { claudeAgentSDK },
 });`,
+        },
       },
     },
   },
@@ -157,16 +177,19 @@ TraceRoot.initialize({
     // CrewAI drives any LLM; the snippet above initializes Integration.OPENAI.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/crewai.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[
     Integration.CREWAI,
     Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
 ])`,
+        },
       },
     },
   },
@@ -178,13 +201,16 @@ traceroot.initialize(integrations=[
     // DSPy is provider-agnostic; the docs example is dspy.LM("openai/gpt-4o-mini").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/dspy.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.DSPY])`,
+        },
       },
     },
   },
@@ -196,13 +222,16 @@ traceroot.initialize(integrations=[Integration.DSPY])`,
     // Google's own agent kit — GOOGLE_API_KEY, Gemini models only.
     providerKey: { kind: "fixed", adapter: LLMAdapter.GOOGLE },
     logo: "/logo/integrations/google-adk.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
+        },
       },
     },
   },
@@ -214,22 +243,25 @@ traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
     // LangChain wraps any chat model; the docs example is ChatOpenAI(model="gpt-4o").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/langchain.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.LANGCHAIN])`,
-      },
-      typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import * as lcCallbackManager from "@langchain/core/callbacks/manager";
+        },
+        typescript: {
+          installCommand: TYPESCRIPT_INSTALL_COMMAND,
+          initSnippet: `import * as lcCallbackManager from "@langchain/core/callbacks/manager";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
   instrumentModules: { langchain: lcCallbackManager },
 });`,
+        },
       },
     },
   },
@@ -241,22 +273,25 @@ TraceRoot.initialize({
     // DeepAgents takes any model; the docs example is claude-sonnet-4-6 / ChatAnthropic.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/langchain.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.LANGCHAIN])`,
-      },
-      typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import * as lcCallbackManager from "@langchain/core/callbacks/manager";
+        },
+        typescript: {
+          installCommand: TYPESCRIPT_INSTALL_COMMAND,
+          initSnippet: `import * as lcCallbackManager from "@langchain/core/callbacks/manager";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
   instrumentModules: { langchain: lcCallbackManager },
 });`,
+        },
       },
     },
   },
@@ -268,13 +303,16 @@ TraceRoot.initialize({
     // The snippet initializes Integration.OPENAI and the docs set Settings.llm = OpenAI(...).
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/llamaindex.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
+        },
       },
     },
   },
@@ -286,13 +324,16 @@ traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
     // Any chat client; the docs example is agent_framework.openai.OpenAIChatClient.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/microsoft-agent-framework.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])`,
+        },
       },
     },
   },
@@ -305,10 +346,12 @@ traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])`,
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/mastra.svg",
     logoDark: "/logo/integrations/mastra-dark.svg",
-    languages: {
-      typescript: {
-        installCommand: MASTRA_INSTALL_COMMAND,
-        initSnippet: `import { Mastra } from "@mastra/core";
+    setup: {
+      kind: "sdk",
+      languages: {
+        typescript: {
+          installCommand: MASTRA_INSTALL_COMMAND,
+          initSnippet: `import { Mastra } from "@mastra/core";
 import { Observability } from "@mastra/observability";
 import { TraceRootExporter } from "@traceroot-ai/mastra";
 
@@ -326,6 +369,7 @@ const mastra = new Mastra({
     },
   }),
 });`,
+        },
       },
     },
   },
@@ -338,22 +382,25 @@ const mastra = new Mastra({
     providerKey: { kind: "fixed", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai-agents-sdk.svg",
     logoDark: "/logo/integrations/openai-agents-sdk-dark.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])`,
-      },
-      typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import * as agents from "@openai/agents";
+        },
+        typescript: {
+          installCommand: TYPESCRIPT_INSTALL_COMMAND,
+          initSnippet: `import * as agents from "@openai/agents";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
   instrumentModules: { openaiAgents: agents },
 });`,
+        },
       },
     },
   },
@@ -366,15 +413,18 @@ TraceRoot.initialize({
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/pi.svg",
     logoDark: "/logo/integrations/pi-dark.svg",
-    languages: {
-      typescript: {
-        installCommand: PI_INSTALL_COMMAND,
-        initSnippet: `import * as pi from "@earendil-works/pi-coding-agent";
+    setup: {
+      kind: "sdk",
+      languages: {
+        typescript: {
+          installCommand: PI_INSTALL_COMMAND,
+          initSnippet: `import * as pi from "@earendil-works/pi-coding-agent";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
   instrumentModules: { piCodingAgent: pi },
 });`,
+        },
       },
     },
   },
@@ -386,13 +436,16 @@ TraceRoot.initialize({
     // Pydantic AI names the model as a string; the docs example is "openai:gpt-4o-mini".
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/pydantic-ai.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
+        },
       },
     },
   },
@@ -405,10 +458,12 @@ traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/vercel-ai.svg",
     logoDark: "/logo/integrations/vercel-ai-dark.svg",
-    languages: {
-      typescript: {
-        installCommand: VERCEL_AI_INSTALL_COMMAND,
-        initSnippet: `// AI SDK 7. On AI SDK 6 (legacy), see https://traceroot.ai/docs/integrations/vercel-ai
+    setup: {
+      kind: "sdk",
+      languages: {
+        typescript: {
+          installCommand: VERCEL_AI_INSTALL_COMMAND,
+          initSnippet: `// AI SDK 7. On AI SDK 6 (legacy), see https://traceroot.ai/docs/integrations/vercel-ai
 // (no @ai-sdk/otel; set experimental_telemetry: { isEnabled: true } per call).
 import { TraceRoot } from "@traceroot-ai/traceroot";
 import { registerTelemetry } from "ai";
@@ -419,6 +474,7 @@ TraceRoot.initialize();
 
 // Required on AI SDK 7 — without it no spans are produced.
 registerTelemetry(new OpenTelemetry({ usage: true }));`,
+        },
       },
     },
   },
@@ -431,17 +487,19 @@ registerTelemetry(new OpenTelemetry({ usage: true }));`,
     providerKey: { kind: "fixed", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/anthropic.svg",
     logoDark: "/logo/integrations/anthropic-dark.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.ANTHROPIC])`,
-      },
-      typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import Anthropic from "@anthropic-ai/sdk";
+        },
+        typescript: {
+          installCommand: TYPESCRIPT_INSTALL_COMMAND,
+          initSnippet: `import Anthropic from "@anthropic-ai/sdk";
 import * as anthropicSDK from "@anthropic-ai/sdk";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
@@ -450,6 +508,7 @@ TraceRoot.initialize({
 });
 
 const client = new Anthropic();`,
+        },
       },
     },
   },
@@ -461,13 +520,16 @@ const client = new Anthropic();`,
     // This entry is the Google GenAI SDK itself; the adapter is labelled Google Gemini.
     providerKey: { kind: "fixed", adapter: LLMAdapter.GOOGLE },
     logo: "/logo/integrations/gemini.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
+        },
       },
     },
   },
@@ -479,13 +541,16 @@ traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
     // The Mistral SDK, and MISTRAL_API_KEY — but LLMAdapter has no Mistral adapter.
     providerKey: { kind: "none", provider: "Mistral" },
     logo: "/logo/integrations/mistral.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.MISTRAL])`,
+        },
       },
     },
   },
@@ -498,17 +563,19 @@ traceroot.initialize(integrations=[Integration.MISTRAL])`,
     providerKey: { kind: "fixed", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai.svg",
     logoDark: "/logo/integrations/openai-dark.svg",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: PYTHON_INSTALL_COMMAND,
+          initSnippet: `import traceroot
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.OPENAI])`,
-      },
-      typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import OpenAI from "openai";
+        },
+        typescript: {
+          installCommand: TYPESCRIPT_INSTALL_COMMAND,
+          initSnippet: `import OpenAI from "openai";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
@@ -516,6 +583,7 @@ TraceRoot.initialize({
 });
 
 const openai = new OpenAI();`,
+        },
       },
     },
   },
@@ -528,10 +596,12 @@ const openai = new OpenAI();`,
     providerKey: { kind: "fixed", adapter: LLMAdapter.OPENROUTER },
     logo: "/logo/integrations/openrouter.svg",
     logoDark: "/logo/integrations/openrouter-dark.svg",
-    languages: {
-      python: {
-        installCommand: "pip install traceroot openai",
-        initSnippet: `import os
+    setup: {
+      kind: "sdk",
+      languages: {
+        python: {
+          installCommand: "pip install traceroot openai",
+          initSnippet: `import os
 import openai
 import traceroot
 from traceroot import Integration
@@ -542,10 +612,10 @@ client = openai.OpenAI(
     api_key=os.environ["OPENROUTER_API_KEY"],
     base_url="https://openrouter.ai/api/v1",
 )`,
-      },
-      typescript: {
-        installCommand: "npm install @traceroot-ai/traceroot openai",
-        initSnippet: `import OpenAI from "openai";
+        },
+        typescript: {
+          installCommand: "npm install @traceroot-ai/traceroot openai",
+          initSnippet: `import OpenAI from "openai";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
@@ -556,7 +626,78 @@ const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",
 });`,
+        },
       },
+    },
+  },
+  {
+    id: "claude-code",
+    name: "Claude Code",
+    href: "https://traceroot.ai/docs/integrations/claude-code",
+    category: "coding-agent",
+    // Claude Code runs on Anthropic's models.
+    providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
+    logo: "/logo/integrations/claude-agent-sdk.svg",
+    setup: {
+      kind: "plugin",
+      // Claude Code reads the host from its plugin settings before the environment.
+      install: (hostUrl) => {
+        const install = `claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+claude plugin install traceroot-observability@traceroot-claude-code-plugin`;
+        return hostUrl === null ? install : `${install} --config TRACEROOT_HOST_URL="${hostUrl}"`;
+      },
+      config: () => ({ label: "bash", value: `export TRACEROOT_API_KEY="your_key_here"` }),
+    },
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    href: "https://traceroot.ai/docs/integrations/codex",
+    category: "coding-agent",
+    // Codex runs on OpenAI's models.
+    providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
+    logo: "/logo/integrations/openai.svg",
+    logoDark: "/logo/integrations/openai-dark.svg",
+    setup: {
+      kind: "plugin",
+      install: () => `codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+codex plugin add tracing@traceroot-codex-plugin
+codex features enable hooks
+# Then start codex and choose "Trust all and continue" when it asks to review hooks`,
+      config: (hostUrl) => ({
+        label: "~/.codex/traceroot.json",
+        value: JSON.stringify(
+          {
+            enabled: true,
+            api_key: "your_key_here",
+            ...(hostUrl === null ? {} : { host_url: hostUrl }),
+          },
+          null,
+          2,
+        ),
+      }),
+    },
+  },
+  {
+    id: "pi-cli",
+    name: "pi CLI",
+    href: "https://traceroot.ai/docs/integrations/pi-cli",
+    category: "coding-agent",
+    // pi takes any provider; OpenAI is suggested.
+    providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
+    logo: "/logo/integrations/pi.svg",
+    logoDark: "/logo/integrations/pi-dark.svg",
+    setup: {
+      kind: "plugin",
+      install: () => "pi install npm:@traceroot-ai/pi-extension",
+      config: (hostUrl) => ({
+        label: "bash",
+        value: [
+          "export TRACEROOT_ENABLED=true",
+          'export TRACEROOT_API_KEY="your_key_here"',
+          ...(hostUrl === null ? [] : [`export TRACEROOT_HOST_URL="${hostUrl}"`]),
+        ].join("\n"),
+      }),
     },
   },
 ];

@@ -135,8 +135,9 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
 // Layout constants for tree alignment
 export const TREE_LAYOUT = {
   NESTING_INDENT: 22, // Space per nesting level
-  ROW_HEIGHT: 28, // Height of each row (compact)
-  ICON_BOX_SIZE: 18, // Size of icon box
+  ROW_HEIGHT: 32, // Height of each row; equals a table row so list and tree rows line up
+  HEADER_HEIGHT: 32, // Tree/timeline column header, same as a table header row
+  ICON_BOX_SIZE: 20, // Size of icon box
   LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 

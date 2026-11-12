@@ -186,7 +186,7 @@ export function SpanInfoPanel({
         {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <span className="text-muted-foreground">Span Kind:</span>
+            <span className="text-muted-foreground">Span kind:</span>
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
           {extraTags}
@@ -201,7 +201,7 @@ export function SpanInfoPanel({
             </div>
           )}
           {hasError && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-danger-soft px-2.5 py-1 text-xs font-medium text-danger">
               <DOMAIN_ICONS.error className="h-3 w-3" />
               ERROR
             </div>
@@ -229,7 +229,7 @@ export function SpanInfoPanel({
             <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
           )}
           {!isTrace && selection.span.model_name && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-ink">
               <DOMAIN_ICONS.model className="h-3 w-3" />
               {selection.span.model_name}
             </div>
@@ -237,7 +237,7 @@ export function SpanInfoPanel({
           {!isTrace && redacted && (
             <div
               className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs"
-              title="Your app ran its redaction function on this span before sending it. Anything it removed never reached TraceRoot."
+              title="Your app ran its redaction function on this span before sending it. Anything it removed never reached traceroot."
             >
               <EyeOff className="h-3 w-3 text-muted-foreground" />
               <span className="font-medium">Redacted by your app</span>
@@ -311,7 +311,7 @@ export function SpanInfoPanel({
                     }),
                   );
                 }}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] border bg-background py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">User:</span>
@@ -330,7 +330,7 @@ export function SpanInfoPanel({
                     }),
                   );
                 }}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] border bg-background py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <DOMAIN_ICONS.session className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">Session:</span>
@@ -353,8 +353,8 @@ export function SpanInfoPanel({
       <div className="space-y-3 p-4">
         {/* Error box: shown when an ERROR span has a type or a message to show */}
         {hasError && (errorType || statusMessage) && (
-          <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
+          <div className="rounded-md border border-danger-border bg-danger-soft p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-danger">
               <DOMAIN_ICONS.error className="h-3 w-3" />
               Error
             </div>
@@ -363,33 +363,29 @@ export function SpanInfoPanel({
               (errorType || trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   {errorType && (
-                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                      <DOMAIN_ICONS.error className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
-                        {errorType}
-                      </span>
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
+                      <DOMAIN_ICONS.error className="h-3 w-3 shrink-0 text-danger" />
+                      <span className="min-w-0 break-all font-mono text-danger">{errorType}</span>
                     </div>
                   )}
                   {trace.git_repo && (
-                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                      <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
+                      <GitBranch className="h-3 w-3 shrink-0 text-danger" />
+                      <span className="min-w-0 break-all font-mono text-danger">
                         {trace.git_repo}
                       </span>
                     </div>
                   )}
                   {trace.git_ref && (
-                    <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                      <GitCommitHorizontal className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                      <span className="font-mono text-red-700 dark:text-red-300">
-                        {trace.git_ref.substring(0, 7)}
-                      </span>
+                    <div className="inline-flex items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
+                      <GitCommitHorizontal className="h-3 w-3 shrink-0 text-danger" />
+                      <span className="font-mono text-danger">{trace.git_ref.substring(0, 7)}</span>
                     </div>
                   )}
                   {selection.span.git_source_file && (
-                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                      <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
-                      <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
+                    <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
+                      <FileCode className="h-3 w-3 shrink-0 text-danger" />
+                      <span className="min-w-0 break-all font-mono text-danger">
                         {selection.span.git_source_file}
                         {selection.span.git_source_line && (
                           <span className="whitespace-nowrap">
@@ -402,7 +398,7 @@ export function SpanInfoPanel({
                 </div>
               )}
             {statusMessage && (
-              <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
+              <p className="whitespace-pre-wrap break-all font-mono text-xs text-danger">
                 {statusMessage}
               </p>
             )}

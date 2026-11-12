@@ -6,7 +6,7 @@ description: Connect traceroot to your LLM providers, frameworks, and tools
 export const IntegrationCard = ({ logo, logoDark, title, href }) => (
   <a
     href={href}
-    className="not-prose group flex flex-row items-center p-3 gap-2.5 border border-gray-950/10 dark:border-white/10 rounded-xl bg-white dark:bg-background-dark hover:border-primary dark:hover:border-primary-light transition-colors no-underline"
+    className="tr-integration-card not-prose group flex flex-row items-center p-3 gap-2.5 border border-gray-950/10 dark:border-white/10 rounded-xl bg-white dark:bg-background-dark hover:border-primary dark:hover:border-primary-light transition-colors no-underline"
   >
     <div className="shrink-0 flex items-center justify-center">
       <img
@@ -40,7 +40,7 @@ export const IntegrationGrid = ({ cols = 3, children }) => (
   </div>
 );
 
-traceroot integrates with popular LLM providers and agent frameworks via auto-instrumentation — every call is captured as a span with no code changes beyond initialization.
+traceroot integrates with popular LLM providers, agent frameworks and coding agents via auto-instrumentation — every call is captured as a span with no code changes beyond initialization.
 
 Don't see your integration? [Request one on GitHub](https://github.com/traceroot-ai/traceroot/issues/new).
 
@@ -192,6 +192,30 @@ Trace direct calls to LLM providers.
     logo="../logo/integrations/typesafe.svg"
     title="TypeSafe AI"
     href="/integrations/typesafe"
+  />
+</IntegrationGrid>
+
+## Coding Agents
+
+Trace your coding agent's own sessions with traceroot's plugins and extensions.
+
+<IntegrationGrid cols={3}>
+  <IntegrationCard
+    logo="../logo/integrations/claude-agent-sdk.svg"
+    title="Claude Code"
+    href="/integrations/claude-code"
+  />
+  <IntegrationCard
+    logo="../logo/integrations/openai.svg"
+    logoDark="../logo/integrations/openai-dark.svg"
+    title="Codex"
+    href="/integrations/codex"
+  />
+  <IntegrationCard
+    logo="../logo/integrations/pi.svg"
+    logoDark="../logo/integrations/pi-dark.svg"
+    title="pi CLI"
+    href="/integrations/pi-cli"
   />
 </IntegrationGrid>
 
