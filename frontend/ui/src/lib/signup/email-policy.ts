@@ -84,8 +84,12 @@ const DISPOSABLE = {
 };
 
 function matchesDomain(domain: string, domains: ReadonlySet<string>): boolean {
-  const labels = domain.split(".");
-  return labels.some((_, index) => domains.has(labels.slice(index).join(".")));
+  for (const blockedDomain of domains) {
+    if (domain === blockedDomain || domain.endsWith(`.${blockedDomain}`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isSignupEmailPolicyEnabled(authURL: string): boolean {
