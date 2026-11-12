@@ -73,7 +73,7 @@ export function LoopsTable({
           return (
             <tr
               key={loop.id}
-              onClick={() => router.push(`/projects/${projectId}/loops/${loop.id}/edit`)}
+              onClick={() => router.push(`/projects/${projectId}/loops/${loop.id}`)}
               className="cursor-pointer border-b border-border transition-colors hover:bg-muted"
             >
               <td className={DETECTOR_TD}>

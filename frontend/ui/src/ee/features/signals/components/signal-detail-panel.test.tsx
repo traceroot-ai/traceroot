@@ -100,6 +100,12 @@ const signalDetail = vi.hoisted(() => ({
 
 /** Set per test: true while the previous window's answer stands in for a new one. */
 const signalQuery = vi.hoisted(() => ({ isPlaceholderData: false }));
+const loopsByDetector = vi.hoisted(() => ({
+  map: new Map<string, { id: string; name: string }>(),
+}));
+vi.mock("@/features/loops/hooks/use-loops", () => ({
+  useLoopsByDetector: () => ({ data: loopsByDetector.map }),
+}));
 
 vi.mock("../hooks", () => ({
   useSignal: () => ({
@@ -256,6 +262,21 @@ describe("SignalDetailPanel criteria check", () => {
       expect(screen.queryByText(/did not pass the check/)).toBeNull();
       cleanup();
     }
+  });
+});
+
+describe("SignalDetailPanel provenance", () => {
+  it("says which Loop found the signal, linking to it", () => {
+    loopsByDetector.map = new Map([["det-1", { id: "loop-1", name: "Coding agents" }]]);
+    renderPanel();
+    const link = screen.getByRole("link", { name: /Found by Loop Coding agents/ });
+    expect(link.getAttribute("href")).toBe("/projects/proj-1/loops/loop-1");
+    loopsByDetector.map = new Map();
+  });
+
+  it("says nothing about a Loop for a detector's signal", () => {
+    renderPanel();
+    expect(screen.queryByText(/Found by Loop/)).toBeNull();
   });
 });
 

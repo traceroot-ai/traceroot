@@ -15,6 +15,8 @@ import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-i
 import type { FilterFieldDef } from "@/features/filters/registry";
 import type { Predicate } from "@/types/api";
 import { useAllDetectorNames } from "@/features/detectors/hooks/use-detectors";
+import { FoundByLoop } from "@/features/loops/components/found-by-loop";
+import { useLoopsByDetector } from "@/features/loops/hooks/use-loops";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -143,6 +145,9 @@ export default function SignalsPage() {
   // Every detector's name, not just the first page, so a project with more
   // than one page of detectors can still filter signals by all of them.
   const { data: detectorNames } = useAllDetectorNames(projectId);
+  // A signal a Loop created shows the Loop, not the Loop's hidden detector.
+  const loopsByDetector =
+    useLoopsByDetector(projectId).data ?? new Map<string, { id: string; name: string }>();
   const fields = useMemo(
     () =>
       signalFilterFields(
@@ -293,15 +298,29 @@ export default function SignalsPage() {
                       title={signal.detectorId}
                     >
                       <Link
-                        href={`/projects/${projectId}/detectors/${signal.detectorId}`}
+                        href={
+                          loopsByDetector.get(signal.detectorId)
+                            ? `/projects/${projectId}/loops/${loopsByDetector.get(signal.detectorId)!.id}`
+                            : `/projects/${projectId}/detectors/${signal.detectorId}`
+                        }
                         onClick={(e) => e.stopPropagation()}
                         className="hover:text-foreground hover:underline"
-                        aria-label={`Open detector ${signal.detectorName ?? signal.detectorId}`}
+                        aria-label={`Open ${loopsByDetector.get(signal.detectorId) ? "Loop" : "detector"} ${signal.detectorName ?? signal.detectorId}`}
                       >
                         {signal.detectorId}
                       </Link>
                     </td>
-                    <td className={cn(TD, "text-foreground")}>{signal.detectorName ?? "—"}</td>
+                    <td className={cn(TD, "text-foreground")}>
+                      {loopsByDetector.has(signal.detectorId) ? (
+                        <FoundByLoop
+                          projectId={projectId}
+                          detectorId={signal.detectorId}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        (signal.detectorName ?? "—")
+                      )}
+                    </td>
                     <td className={cn(TD, "text-right tabular-nums text-muted-foreground")}>
                       <Link
                         href={tracesHref(signal.id)}

@@ -11,6 +11,7 @@ import {
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
+  LOOP_RUN_QUOTAS,
 } from "@traceroot/core";
 import type { UsageStats, AIUsageByModel } from "@/types/api";
 import { formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
@@ -135,9 +136,13 @@ export function BillingTab({
   const aiUsage = currentUsage?.ai;
   const rcaUsage = currentUsage?.rca;
   const detectorUsage = currentUsage?.detector;
+  const loopUsage = currentUsage?.loop;
   const eventQuota = EVENT_QUOTAS[currentPlan];
   const aiRunQuota = AI_RUN_QUOTAS[currentPlan];
   const rcaRunQuota = RCA_RUN_QUOTAS[currentPlan];
+  const loopRunQuota = LOOP_RUN_QUOTAS[currentPlan];
+  const loopRunsUsed = loopUsage?.runsUsed ?? 0;
+  const loopCapReached = currentPlan === PlanType.FREE && loopRunsUsed >= loopRunQuota.included;
   const detectorRunQuota = DETECTOR_RUN_QUOTAS[currentPlan];
 
   // Fetch live subscription info from Stripe
@@ -352,6 +357,26 @@ export function BillingTab({
         systemInputTokens={detectorUsage?.systemInputTokens ?? 0}
         systemOutputTokens={detectorUsage?.systemOutputTokens ?? 0}
         byModel={detectorUsage?.byModel}
+      />
+
+      <UsageSection
+        title="Loop usage"
+        runsLabel="Loop runs"
+        runsValue={formatRcaQuotaLabel(loopRunQuota, loopRunsUsed)}
+        runsHelper={
+          loopCapReached
+            ? "Limit reached: Loop runs are skipped until you upgrade."
+            : "Each run that called the agent; a run skipped for lack of new traces is free."
+        }
+        systemCost={loopUsage?.systemTokenCost ?? 0}
+        systemHelper={
+          currentPlan === PlanType.FREE
+            ? "Included in your plan (we pay)."
+            : "Usage based, like detector runs."
+        }
+        systemInputTokens={loopUsage?.systemInputTokens ?? 0}
+        systemOutputTokens={loopUsage?.systemOutputTokens ?? 0}
+        byModel={loopUsage?.byModel}
       />
 
       <UsageSection

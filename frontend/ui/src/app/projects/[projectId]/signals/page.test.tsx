@@ -15,10 +15,13 @@ const list = vi.hoisted(() => ({
   customStartDate: null as Date | null,
   customEndDate: null as Date | null,
   meta: { page: 0, limit: 50, total: 0 },
+  rows: [] as unknown[],
 }));
 const detectorNames = vi.hoisted(() => ({ data: [] as { id: string; name: string }[] }));
 // Captures the filter fields the page builds, to check the Detector field's options.
 const filterInput = vi.hoisted(() => ({ fields: undefined as unknown }));
+// The Loops that own detector ids: a signal's detector is shown as its Loop when it is one's.
+const loops = vi.hoisted(() => ({ byDetector: new Map<string, { id: string; name: string }>() }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
@@ -49,12 +52,15 @@ vi.mock("@/lib/hooks/use-retention", () => ({
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ sidebarCollapsed: false }),
 }));
+vi.mock("@/features/loops/hooks/use-loops", () => ({
+  useLoopsByDetector: () => ({ data: loops.byDetector }),
+}));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useAllDetectorNames: () => ({ data: detectorNames.data }),
 }));
 vi.mock("@/ee/features/signals/hooks", () => ({
   useSignals: () => ({
-    data: { data: [], meta: list.meta },
+    data: { data: list.rows, meta: list.meta },
     isLoading: false,
     error: null,
   }),
@@ -114,6 +120,8 @@ afterEach(() => {
   list.customStartDate = null;
   list.customEndDate = null;
   list.meta = { page: 0, limit: 50, total: 0 };
+  list.rows = [];
+  loops.byDetector = new Map();
 });
 
 const setup = (over: Record<string, number> = {}) => ({
@@ -243,5 +251,37 @@ describe("Signals page pagination", () => {
     list.meta = { page: 0, limit: 50, total: 500 };
     render(<SignalsPage />);
     expect(screen.getByTestId("pager").textContent).toBe("page 2 limit 100");
+  });
+});
+
+describe("Signals page provenance", () => {
+  const row = (id: string, detectorId: string, detectorName: string) => ({
+    id,
+    detectorId,
+    detectorName,
+    title: `Signal ${id}`,
+    status: "open",
+    hitCount: 2,
+    rangeHitCount: 2,
+    createTime: "2026-11-11T09:00:00Z",
+  });
+
+  it("shows the Loop that found a signal, linking to it, and a detector's name for the rest", () => {
+    list.rows = [row("s1", "det-loop", "loop:Coding agents"), row("s2", "det-1", "Failures")];
+    list.meta = { page: 0, limit: 50, total: 2 };
+    loops.byDetector = new Map([["det-loop", { id: "loop-1", name: "Coding agents" }]]);
+    render(<SignalsPage />);
+
+    const found = screen.getByRole("link", { name: /Found by Loop Coding agents/ });
+    expect(found.getAttribute("href")).toBe("/projects/p1/loops/loop-1");
+    // The hidden detector's own name is not shown for it; the other signal keeps its detector.
+    expect(screen.queryByText("loop:Coding agents")).toBeNull();
+    expect(screen.getByText("Failures")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Open Loop loop:Coding agents" }).getAttribute("href"),
+    ).toBe("/projects/p1/loops/loop-1");
+    expect(screen.getByRole("link", { name: "Open detector Failures" }).getAttribute("href")).toBe(
+      "/projects/p1/detectors/det-1",
+    );
   });
 });

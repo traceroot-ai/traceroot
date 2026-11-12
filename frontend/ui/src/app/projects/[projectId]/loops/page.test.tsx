@@ -199,7 +199,7 @@ describe("Loops list", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions for Coding agents" }));
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Daily at 09:00 Europe/Berlin"));
-    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/loops/l1/edit");
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/loops/l1");
   });
 
   it("disables New Loop at five Loops and says why", () => {

@@ -21,6 +21,7 @@ import {
   type SignalDetail,
   type SignalTimeRange,
 } from "../hooks";
+import { FoundByLoop } from "@/features/loops/components/found-by-loop";
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 
@@ -319,6 +320,9 @@ function SignalBlocks({
 
       <Block title="Summary">
         <p className="px-3 py-2.5 text-[13px] text-foreground">{signal.criteriaCovers}</p>
+        <div className="px-3 pb-2.5 text-[12px] text-muted-foreground">
+          <FoundByLoop projectId={projectId} detectorId={signal.detectorId} />
+        </div>
         {signal.criteriaValidated === false && (
           // A diagnostic only: the signal was created anyway.
           <p className="px-3 pb-2.5 text-[12px] text-muted-foreground">

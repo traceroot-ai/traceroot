@@ -56,6 +56,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
         billingSubscriptionId: workspace.billingSubscriptionId,
         billingStatus: workspace.billingStatus,
         currentUsage: workspace.currentUsage,
+        loopBlocked: workspace.loopBlocked,
       };
   return successResponse({
     id: workspace.id,
