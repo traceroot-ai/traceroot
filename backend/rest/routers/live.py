@@ -117,6 +117,13 @@ async def live_trace_stream(
         trace_start_time = await asyncio.to_thread(
             service.get_trace_start_time, project_id, trace_id
         )
+        if trace_start_time is None:
+            # No root span yet: judge retention by the trace's earliest span, so an
+            # expired trace whose root never arrived cannot be streamed. Unscoped,
+            # like the stream itself.
+            trace_start_time = await asyncio.to_thread(
+                service.get_trace_earliest_span_time, project_id, trace_id
+            )
         enforce_retention_by_time(_access.billing_plan, trace_start_time)
     except BaseException:
         await pubsub.unsubscribe(channel)

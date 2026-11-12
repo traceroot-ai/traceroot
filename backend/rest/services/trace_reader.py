@@ -574,14 +574,27 @@ class TraceReaderService:
     ) -> datetime | None:
         """The earliest start of any customer span in the trace, or ``None`` if it has none.
 
+        A span stored under an internal source never counts. See
+        ``get_trace_earliest_span_time``.
+        """
+        return self.get_trace_earliest_span_time(project_id, trace_id, customer_only=True)
+
+    def get_trace_earliest_span_time(
+        self, project_id: str, trace_id: str, *, customer_only: bool = False
+    ) -> datetime | None:
+        """The earliest start of any span in the trace, or ``None`` if it has none.
+
         Retention for a trace whose root span has not arrived: a root normally starts
         before its children, so this is the closest bound available, and it is the
         same for every span of the trace. Only each span's latest version counts, as
         in the other span readers, so an obsolete version that ClickHouse has not
-        merged away yet never moves the start earlier. A span stored under an
-        internal source never counts either. Never cached, because an earlier span
+        merged away yet never moves the start earlier. Scope it the way the caller
+        reads the trace: with ``customer_only``, a span stored under an internal
+        source never counts, and without it every span does, matching the unscoped
+        root lookup in ``get_trace_start_time``. Never cached, because an earlier span
         can still arrive.
         """
+        scope = f"AND {customer_traffic_only()}" if customer_only else ""
         result = self._client.query(
             f"""
             SELECT minOrNull(span_start_time)
@@ -589,7 +602,7 @@ class TraceReaderService:
                 SELECT span_start_time FROM spans
                 WHERE project_id = {{project_id:String}}
                   AND trace_id   = {{trace_id:String}}
-                  AND {customer_traffic_only()}
+                  {scope}
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY span_id
             )
