@@ -122,9 +122,10 @@ export const SYSTEM_MODELS: {
     envVar: "ANTHROPIC_API_KEY",
     piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
-    // claude-fable-5 is deliberately excluded from SYSTEM_MODELS: it runs at $10 / $50
-    // and requires 30-day data retention (not available under zero-data-retention
-    // configurations). It is available exclusively via BYOK (ADAPTER_MODELS.anthropic).
+    // claude-fable-5 and its successors (5-1, 5-2) are deliberately excluded from
+    // SYSTEM_MODELS: they require 30-day data retention (not available under
+    // zero-data-retention configurations). They are available exclusively via BYOK
+    // (ADAPTER_MODELS.anthropic).
     models: [
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
@@ -193,16 +194,17 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gpt-5.4", label: "gpt-5.4" },
     { id: "gpt-5.4-pro", label: "gpt-5.4-pro" },
     { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
-    { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
-    { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
     { id: "gpt-5.2", label: "gpt-5.2" },
+    { id: "gpt-5.2-pro", label: "gpt-5.2-pro" },
     { id: "gpt-5", label: "gpt-5" },
     { id: "gpt-5-mini", label: "gpt-5-mini" },
     // See the o-series note on SYSTEM_MODELS.
     { id: "o3", label: "o3", apiProtocol: "openai-completions" },
-    { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
   ],
   anthropic: [
+    { id: "claude-fable-5-2", label: "claude-fable-5-2" },
+    { id: "claude-fable-5-1", label: "claude-fable-5-1" },
+    { id: "claude-fable-5", label: "claude-fable-5" },
     { id: "claude-opus-5-5", label: "claude-opus-5-5" },
     { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
@@ -212,50 +214,81 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-sonnet-5-5", label: "claude-sonnet-5-5" },
     { id: "claude-sonnet-5", label: "claude-sonnet-5" },
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
-    { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
     { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
-    { id: "claude-fable-5", label: "claude-fable-5" },
   ],
   google: [
+    { id: "gemini-3.8-flash", label: "gemini-3.8-flash" },
+    { id: "gemini-4-argon", label: "gemini-4-argon" },
+    { id: "gemini-3.6-flash", label: "gemini-3.6-flash" },
     { id: "gemini-3.5-flash", label: "gemini-3.5-flash" },
+    { id: "gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite" },
+    { id: "gemini-3.1-flash-lite", label: "gemini-3.1-flash-lite" },
     { id: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview" },
     { id: "gemini-3-flash-preview", label: "gemini-3-flash-preview" },
-    { id: "gemini-3.1-flash-lite-preview", label: "gemini-3.1-flash-lite-preview" },
     { id: "gemini-2.5-flash", label: "gemini-2.5-flash" },
     { id: "gemini-2.5-pro", label: "gemini-2.5-pro" },
   ],
   deepseek: [
     { id: "deepseek-v4-pro", label: "deepseek-v4-pro" },
+    { id: "deepseek-flash", label: "deepseek-flash" },
     { id: "deepseek-v4-flash", label: "deepseek-v4-flash" },
-    { id: "deepseek-chat", label: "deepseek-chat" },
   ],
   xai: [
     { id: "grok-4.7", label: "grok-4.7" },
     { id: "grok-4.6", label: "grok-4.6" },
     { id: "grok-4.5", label: "grok-4.5" },
+    { id: "grok-4.3", label: "grok-4.3" },
     { id: "grok-4.20", label: "grok-4.20" },
+    { id: "grok-4.20-0309-non-reasoning", label: "grok-4.20-0309-non-reasoning" },
     { id: "grok-4", label: "grok-4" },
+    { id: "grok-build-0.1", label: "grok-build-0.1" },
   ],
   moonshot: [
     { id: "kimi-k3", label: "kimi-k3" },
+    { id: "kimi-k2.7-code", label: "kimi-k2.7-code" },
+    { id: "kimi-k2.7-code-highspeed", label: "kimi-k2.7-code-highspeed" },
     { id: "kimi-k2.6", label: "kimi-k2.6" },
     { id: "kimi-k2.5", label: "kimi-k2.5" },
     { id: "kimi-k2-thinking", label: "kimi-k2-thinking" },
   ],
   zai: [
     { id: "glm-5.2", label: "glm-5.2" },
+    { id: "glm-5.3", label: "glm-5.3" },
+    { id: "glm-5.3-flash", label: "glm-5.3-flash" },
+    { id: "glm-5.3-flashx", label: "glm-5.3-flashx" },
     { id: "glm-5.1", label: "glm-5.1" },
     { id: "glm-5", label: "glm-5" },
     { id: "glm-5-turbo", label: "glm-5-turbo" },
     { id: "glm-4.7", label: "glm-4.7" },
+    { id: "glm-4.7-flash", label: "glm-4.7-flash" },
+    { id: "glm-4.7-flashx", label: "glm-4.7-flashx" },
     { id: "glm-4.6", label: "glm-4.6" },
     { id: "glm-4.5", label: "glm-4.5" },
     { id: "glm-4.5-air", label: "glm-4.5-air" },
+    { id: "glm-4.5-airx", label: "glm-4.5-airx" },
     { id: "glm-4.5-flash", label: "glm-4.5-flash" },
   ],
-  typesafe: [{ id: "jev-1.13.0", label: "jev-1.13.0" }],
+  typesafe: [
+    { id: "jev-1.13.0", label: "jev-1.13.0" },
+    { id: "jev-1.14.0", label: "jev-1.14.0" },
+  ],
 };
+
+// Only where the default is not the first listed model.
+const ADAPTER_DEFAULT_MODELS: Partial<Record<LLMAdapter, string>> = {
+  // Fable leads the list as the most capable, but costs more and needs 30-day retention.
+  anthropic: "claude-opus-5-5",
+};
+
+/** The model a new BYOK key and "Add Model" start with, picked from `modelIds`. */
+export function defaultAdapterModel(
+  adapter: LLMAdapter,
+  modelIds: readonly string[],
+): string | undefined {
+  const preferred = ADAPTER_DEFAULT_MODELS[adapter];
+  return preferred && modelIds.includes(preferred) ? preferred : modelIds[0];
+}
 
 /**
  * The protocol a model runs on under an adapter when the workspace has not

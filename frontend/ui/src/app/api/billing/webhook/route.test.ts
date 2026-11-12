@@ -10,12 +10,26 @@ vi.mock("next/headers", () => ({
   headers: async () => new Map([["stripe-signature", signatureHeader.value]]),
 }));
 
+// The plan item is looked up by the real helper, so the price env vars it reads
+// must be in place before core's plan table is built.
+vi.hoisted(() => {
+  process.env.STRIPE_PRICE_ID_PRO = "price_pro";
+  process.env.STRIPE_PRICE_ID_AI_USAGE = "price_ai_usage";
+  process.env.STRIPE_PRICE_ID_RCA_USAGE = "price_rca_usage";
+  process.env.STRIPE_PRICE_ID_DETECTOR_USAGE = "price_detector_usage";
+});
+
 const workspaceUpdateMock = vi.fn();
 const workspaceUpdateManyMock = vi.fn();
 const constructEventMock = vi.fn();
 const subscriptionRetrieveMock = vi.fn();
 
-vi.mock("@traceroot/core", () => ({
+vi.mock("@traceroot/core", async () => ({
+  findPlanItem: (
+    await vi.importActual<
+      typeof import("../../../../../../packages/core/src/ee/billing/subscriptionItems.ts")
+    >("../../../../../../packages/core/src/ee/billing/subscriptionItems.ts")
+  ).findPlanItem,
   prisma: {
     workspace: {
       update: (...args: unknown[]) => workspaceUpdateMock(...args),
@@ -26,7 +40,7 @@ vi.mock("@traceroot/core", () => ({
     webhooks: { constructEvent: (...args: unknown[]) => constructEventMock(...args) },
     subscriptions: { retrieve: (...args: unknown[]) => subscriptionRetrieveMock(...args) },
   }),
-  mapPriceIdToPlan: () => "pro",
+  mapPriceIdToPlan: (priceId: string | null) => (priceId === "price_pro" ? "pro" : "free"),
   PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
 }));
 
@@ -44,6 +58,7 @@ function recordNotFound(): Error & { code: string } {
 function subscriptionEvent(
   type: "customer.subscription.updated" | "customer.subscription.deleted",
   workspaceId: string | undefined = "ws-gone",
+  priceIds: string[] = ["price_pro"],
 ) {
   const now = Math.floor(Date.now() / 1000);
   return {
@@ -56,7 +71,7 @@ function subscriptionEvent(
         metadata: workspaceId ? { workspaceId } : {},
         current_period_start: now,
         current_period_end: now + 2_592_000,
-        items: { data: [{ price: { id: "price_test123" } }] },
+        items: { data: priceIds.map((id) => ({ price: { id } })) },
       },
     },
   };
@@ -135,6 +150,27 @@ describe("POST /api/billing/webhook — healthy path", () => {
     expect(arg.data.billingPlan).toBe("pro");
     expect(arg.data.billingSubscriptionId).toBe("sub_test123");
     expect(arg.data.billingPeriodEnd).toBeInstanceOf(Date);
+  });
+
+  it("keeps the paid plan when the plan item comes after the metered items", async () => {
+    // A downgrade schedule's phase transition keeps the metered items and
+    // recreates the plan item, which then lands last (#1880).
+    constructEventMock.mockReturnValue(
+      subscriptionEvent("customer.subscription.updated", "ws-live", [
+        "price_ai_usage",
+        "price_rca_usage",
+        "price_detector_usage",
+        "price_pro",
+      ]),
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    const write = workspaceUpdateManyMock.mock.calls[0] ?? workspaceUpdateMock.mock.calls[0];
+    const arg = write[0] as { data: { billingPlan: string; billingPriceId: string } };
+    expect(arg.data.billingPlan).toBe("pro");
+    expect(arg.data.billingPriceId).toBe("price_pro");
   });
 
   it("reverts the workspace to the free plan on subscription deletion", async () => {

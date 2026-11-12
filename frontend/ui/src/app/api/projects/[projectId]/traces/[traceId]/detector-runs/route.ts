@@ -27,6 +27,11 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(authResult.user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (traceId === "." || traceId === "..") {
+    return Response.json({ error: "Invalid trace ID" }, { status: 400 });
+  }
+
   let res: Response;
   try {
     const qs = new URLSearchParams({ project_id: projectId });

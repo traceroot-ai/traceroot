@@ -6,7 +6,7 @@ import {
   DATASET_VERSION_MAX_BYTES,
   serializedByteLength,
 } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import {
   publishDatasetVersion,
   resolvePublicDataset,
@@ -27,7 +27,7 @@ type RouteParams = { params: Promise<{ datasetId: string }> };
 // Optimistic concurrency on base_version_id (409 on mismatch); idempotency_key
 // makes a retried publish return the same version.
 export async function POST(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
   const { datasetId } = await params;
@@ -186,7 +186,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 // newest-first, cursor-paginated. The read is shared with the internal route
 // (`listDatasetVersionsPage`).
 export async function GET(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { datasetId } = await params;
   const url = new URL(request.url);

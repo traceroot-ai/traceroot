@@ -80,6 +80,13 @@ ALLOWED_CASES = [
     # Mixed-case CTE alias — the in-scope reference must be allowed (identifier
     # matching is case-insensitive; scope.cte_sources preserves original case).
     "WITH MyCte AS (SELECT trace_id FROM traces) SELECT count() FROM MyCte",
+    # Mixed-case public table name, matched case-insensitively here like every
+    # other identifier. The rewriter then emits the curated view under its own
+    # canonical name, so this is a query the gateway answers rather than one it
+    # merely parses, and the stages downstream must spell the table the same way
+    # the schema does rather than the way the caller did.
+    "SELECT span_id FROM SPANS",
+    "SELECT trace_id FROM Traces",
 ]
 
 

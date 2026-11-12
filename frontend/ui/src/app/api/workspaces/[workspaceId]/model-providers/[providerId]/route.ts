@@ -32,7 +32,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
 
 const updateSchema = z.object({
   provider: z.string().min(1).max(100).optional(), // rename label
-  apiKey: z.string().min(1).optional(),
+  apiKey: z.string().trim().min(1, "API key is required").optional(),
   baseUrl: z.string().url().nullable().optional(),
   customModels: z.array(z.string().min(1)).optional(),
   withDefaultModels: z.boolean().optional(),

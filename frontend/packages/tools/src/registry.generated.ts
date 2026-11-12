@@ -1143,6 +1143,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_signal",
+    description:
+      "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/signals/{signal_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        signal_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["signal_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_sql_schema",
     description:
       "List the tables and columns available to run_sql, with their types. Read this before writing a query: it is the whole surface a query may reference.",
@@ -1590,6 +1612,48 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only sessions with traces before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_signals",
+    description:
+      "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
+    method: "get",
+    path: "/api/v1/public/signals",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Items per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        page: {
+          default: 0,
+          description: "0-based page index",
+          maximum: 10000,
+          minimum: 0,
+          type: "integer",
+        },
+        status: {
+          enum: ["open", "resolved", "dismissed"],
+          type: "string",
+          description: "Only signals with this status",
+        },
+        detector_id: {
+          type: "string",
+          description: "Only signals of this detector",
         },
         project_id: {
           type: "string",
@@ -2212,6 +2276,52 @@ export const REGISTRY: readonly RegistryEntry[] = [
       additionalProperties: false,
     },
     bodyParams: ["project_id", "status"],
+    policy: {
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "set_signal_status",
+    description:
+      "Resolve or reopen a signal. Resolving needs a reason (fixed_elsewhere, fixed_by_pr, already_fixed_before, other); 'other' also needs a note. A resolved signal opens again by itself when its detector finds the problem in a trace that started after the resolve. Dismissing is not possible here: a dismissed signal never reopens, so a person dismisses in the web app. Send expected_status to refuse the change when the status changed since you read it (a conflict). Setting the current status changes nothing.",
+    method: "patch",
+    path: "/api/v1/public/signals/{signal_id}/status",
+    inputSchema: {
+      type: "object",
+      properties: {
+        signal_id: {
+          type: "string",
+        },
+        expected_status: {
+          description:
+            "The status the caller last read. When the signal's current status differs, nothing is written and the answer is a 409.",
+          enum: ["open", "resolved", "dismissed"],
+          type: "string",
+        },
+        note: {
+          description: 'A free-text note; required when reason is "other"',
+          maxLength: 4000,
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+        },
+        reason: {
+          description: 'Why the signal is resolved; required when status is "resolved"',
+          enum: ["fixed_elsewhere", "fixed_by_pr", "already_fixed_before", "other"],
+          type: "string",
+        },
+        status: {
+          enum: ["resolved", "open"],
+          type: "string",
+        },
+      },
+      required: ["signal_id", "project_id", "status"],
+      additionalProperties: false,
+    },
+    bodyParams: ["expected_status", "note", "project_id", "reason", "status"],
     policy: {
       approvalClass: "confirm",
       minRole: "MEMBER",

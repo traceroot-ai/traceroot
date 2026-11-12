@@ -298,14 +298,14 @@ export function SaveTestCaseDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby="save-test-case-title"
-        className="relative z-10 flex max-h-[90vh] w-[min(1080px,94vw)] flex-col rounded-lg border border-border bg-background shadow-xl"
+        className="relative z-10 flex max-h-[90vh] w-[min(1080px,94vw)] flex-col rounded-[2px] border border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
           <h2
             id="save-test-case-title"
             ref={headingRef}
             tabIndex={-1}
-            className="text-[13px] font-semibold focus:outline-none"
+            className="text-[15px] font-medium focus:outline-none"
           >
             Add to datasets
           </h2>
@@ -313,13 +313,13 @@ export function SaveTestCaseDrawer({
             type="button"
             onClick={() => onOpenChange(false)}
             aria-label="Close"
-            className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-5 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
           <FormCard label="Dataset">
             <Select
               value={datasets.some((d) => d.id === datasetId) ? datasetId : ""}
@@ -328,13 +328,13 @@ export function SaveTestCaseDrawer({
                 setDuplicate(null);
               }}
             >
-              <SelectTrigger className="h-7 text-[13px]">
+              <SelectTrigger className="h-8 text-[13px]">
                 <SelectValue placeholder="Select dataset" />
               </SelectTrigger>
               <SelectContent>
                 {datasets.length ? (
                   datasets.map((item) => (
-                    <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                    <SelectItem key={item.id} value={item.id}>
                       {item.name}
                     </SelectItem>
                   ))
@@ -350,7 +350,7 @@ export function SaveTestCaseDrawer({
               </SelectContent>
             </Select>
             {duplicate && (
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
+              <p className="mt-1.5 text-[12px] text-muted-foreground">
                 This span is already a test case in this dataset. Open it instead of adding another
                 row.
               </p>
@@ -403,29 +403,22 @@ export function SaveTestCaseDrawer({
               maxRows={12}
               collapseResetKey={String(seedGeneration)}
             />
-            {metadataError && <p className="mt-1 text-[11px] text-destructive">{metadataError}</p>}
+            {metadataError && <p className="mt-1 text-[12px] text-destructive">{metadataError}</p>}
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
           {feedback && (
             <span
               className={cn(
-                "mr-auto text-[11px]",
-                feedback.tone === "error"
-                  ? "text-destructive"
-                  : "text-emerald-600 dark:text-emerald-400",
+                "mr-auto text-[12px]",
+                feedback.tone === "error" ? "text-destructive" : "text-success",
               )}
             >
               {feedback.text}
             </span>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           {duplicate ? (
@@ -437,7 +430,7 @@ export function SaveTestCaseDrawer({
               Open existing test case
             </Link>
           ) : (
-            <Button size="sm" className="h-7 text-[12px]" onClick={handleSave} disabled={!canSave}>
+            <Button onClick={handleSave} disabled={!canSave}>
               Save
             </Button>
           )}
@@ -465,7 +458,7 @@ export function TraceEvaluationChip({
   return (
     <Link
       href={`/projects/${projectId}/evaluations/${run.id}`}
-      className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+      className="inline-flex items-center gap-1.5 rounded-[2px] border bg-background px-2.5 py-1 text-xs transition-colors hover:bg-muted"
       title="This trace was produced by an evaluation run"
     >
       <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
@@ -508,7 +501,7 @@ function DatasetSdkSnippet({
   const code = sdkSnippet(lang, projectName, datasetId, version);
   return (
     <div className="overflow-hidden rounded border border-border">
-      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1.5 py-1">
+      <div className="flex items-center justify-between border-b border-border px-1.5 py-1">
         <div className="flex items-center gap-0.5">
           {(["python", "typescript"] as Lang[]).map((l) => (
             <button
@@ -518,7 +511,7 @@ function DatasetSdkSnippet({
               className={cn(
                 "rounded px-1.5 py-0.5 text-xs font-medium transition-colors",
                 lang === l
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-background text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -585,7 +578,7 @@ export function SpanDatasetChip({
           </PopoverTrigger>
           <PopoverContent
             align="start"
-            className="w-[540px] max-w-[92vw] border bg-popover px-3 pb-2 pt-3 text-xs text-popover-foreground shadow-md"
+            className="w-[540px] max-w-[92vw] border bg-popover px-3 pb-2 pt-3 text-xs text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
           >
             <div className="mb-2 flex items-start justify-between gap-2">
               <div>

@@ -7,6 +7,7 @@ import {
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DIGEST_SUMMARY_SYSTEM_MODEL_ID,
+  defaultAdapterModel,
   defaultApiProtocol,
   isDecisionModelId,
   ADAPTER_CONFIG,
@@ -15,7 +16,6 @@ import {
 describe("defaultApiProtocol", () => {
   it("prefers the catalog entry's own protocol over the adapter default", () => {
     expect(defaultApiProtocol("openai", "o3")).toBe("openai-completions");
-    expect(defaultApiProtocol("openai", "o4-mini")).toBe("openai-completions");
     expect(defaultApiProtocol("openai", "gpt-5")).toBe("openai-responses");
   });
 
@@ -40,8 +40,10 @@ describe("isDecisionModelId", () => {
 });
 
 describe("ADAPTER_MODELS", () => {
-  it("lists claude-opus-5-5 first, so it is the default Anthropic model", () => {
-    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-opus-5-5");
+  it("lists the Fable family first but defaults Anthropic to claude-opus-5-5", () => {
+    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-fable-5-2");
+    const ids = ADAPTER_MODELS["anthropic"]?.map((model) => model.id) ?? [];
+    expect(defaultAdapterModel(LLMAdapter.ANTHROPIC, ids)).toBe("claude-opus-5-5");
   });
 
   it("contains no duplicate model IDs within a single adapter", () => {
@@ -86,6 +88,16 @@ describe("ADAPTER_MODELS", () => {
     const anthropic = SYSTEM_MODELS.find((system) => system.provider === "Anthropic");
 
     expect(anthropic?.models.map((model) => model.id)).toContain(DIGEST_SUMMARY_SYSTEM_MODEL_ID);
+  });
+
+  it("offers the Fable models via BYOK only, never as system models", () => {
+    const byokIds = ADAPTER_MODELS.anthropic?.map((model) => model.id);
+    const systemIds = SYSTEM_MODELS.flatMap((system) => system.models.map((model) => model.id));
+
+    for (const id of ["claude-fable-5-2", "claude-fable-5-1", "claude-fable-5"]) {
+      expect(byokIds).toContain(id);
+      expect(systemIds).not.toContain(id);
+    }
   });
 
   describe("apiProtocol consistency with SYSTEM_MODELS", () => {

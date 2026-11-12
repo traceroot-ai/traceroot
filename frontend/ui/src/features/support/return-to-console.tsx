@@ -8,7 +8,7 @@ export function ReturnToConsole({ ended = false }: { ended?: boolean }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="mx-auto max-w-lg space-y-4 p-8">
-      <h1 className="text-xl font-semibold">
+      <h1 className="text-[15px] font-medium">
         {ended ? "This support session has ended" : "End the current support session?"}
       </h1>
       <p className="text-sm text-muted-foreground">
@@ -17,7 +17,7 @@ export function ReturnToConsole({ ended = false }: { ended?: boolean }) {
           : "Return to your employee account before viewing another customer. The current session will be closed and logged."}
       </p>
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}

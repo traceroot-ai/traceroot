@@ -1,4 +1,4 @@
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import { getDatasetVersionPage } from "@/lib/eval/dataset-read";
 import { evalReadResponse } from "@/lib/eval/read-result";
 
@@ -19,7 +19,7 @@ type RouteParams = { params: Promise<{ versionId: string }> };
 // point nobody is reading the status code as a contract. Once a caller asks for a page,
 // neither layer will return an unbounded one.
 export async function GET(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { versionId } = await params;
   const url = new URL(request.url);

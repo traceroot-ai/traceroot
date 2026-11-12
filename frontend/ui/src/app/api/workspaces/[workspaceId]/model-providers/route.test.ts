@@ -172,4 +172,15 @@ describe("POST model-providers", () => {
     expect(body.error).toBe("A provider with this name already exists in this workspace");
     expect(modelProviderCreateMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["   ", "\u00a0"])("rejects a blank API key (%j) without saving it", async (blank) => {
+    const res = await POST(
+      makeRequest({ adapter: "anthropic", provider: "Claude", apiKey: blank }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "API key is required" });
+    expect(modelProviderCreateMock).not.toHaveBeenCalled();
+  });
 });

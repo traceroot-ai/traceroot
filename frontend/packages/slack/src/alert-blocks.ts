@@ -190,34 +190,54 @@ export interface AlertClosedBlockParams {
   /** User-controlled; escaped at render. */
   name: string;
   reason: AlertCloseReason;
-  /** Who edited or resumed the rule; user-controlled. Null when the account is gone. */
+  /** Who edited, resumed or deleted the rule; user-controlled. Null when the account is gone. */
   actor: string | null;
 }
 
+const EVALUATED_FRESH =
+  "It is evaluated fresh from here, so a breach that still stands is announced as a new alert.";
+
+/** What follows the close, and the footer that names what closed it, per reason. */
+const CLOSE_WORDING: Record<AlertCloseReason, { after: string; footer: string }> = {
+  edited: { after: EVALUATED_FRESH, footer: "Closed by a rule edit, not by a recovery" },
+  resumed: { after: EVALUATED_FRESH, footer: "Closed by a rule resume, not by a recovery" },
+  deleted: {
+    after: "The rule no longer exists, so nothing more is announced for it.",
+    footer: "Closed by a rule delete, not by a recovery",
+  },
+};
+
 /**
- * The close of a page that an edit or a resume discarded. It is headed like a
- * recovery because it ends the same thing, the alert the channel was told about, but
- * it reports no reading: the rule that raised that alert has changed or was not
- * running, so the message says who closed it and that a breach still standing will be
- * announced again.
+ * The close of a page that an edit, a resume or a delete discarded. It is headed like
+ * a recovery because it ends the same thing, the alert the channel was told about, but
+ * it reports no reading: the rule that raised that alert has changed, was not running
+ * or is gone, so the message says who closed it and what follows. A deleted rule gets
+ * no link, since there is no page left to open.
  */
 export function buildAlertClosedBlocks(params: AlertClosedBlockParams): AlertSlackMessage {
   const { appBaseUrl, projectId, alertId, name, reason, actor } = params;
+  const wording = CLOSE_WORDING[reason];
 
   const title = `[OK] ${name}`;
   const closed =
     `Rule ${reason}${actor === null ? "" : ` by ${actor}`}, previous alert closed. ` +
-    "It is evaluated fresh from here, so a breach that still stands is announced as a new alert.";
-  const footer = `Closed by a rule ${reason === "edited" ? "edit" : "resume"}, not by a recovery`;
+    wording.after;
 
   const blocks = [
     { type: "header", text: { type: "plain_text", text: truncate(title, HEADER_LIMIT) } },
     { type: "section", text: { type: "mrkdwn", text: truncateEscaped(escapeMrkdwn(closed)) } },
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: `<${alertUrl(appBaseUrl, projectId, alertId)}|View alert>` },
-    },
-    { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
+    ...(reason === "deleted"
+      ? []
+      : [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `<${alertUrl(appBaseUrl, projectId, alertId)}|View alert>`,
+            },
+          },
+        ]),
+    { type: "context", elements: [{ type: "mrkdwn", text: wording.footer }] },
   ];
 
   return {
