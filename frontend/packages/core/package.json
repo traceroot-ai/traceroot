@@ -57,6 +57,7 @@
     "db:push": "dotenv -e ../../../.env -- prisma db push",
     "build": "dotenv -e ../../../.env -- prisma generate && tsc",
     "clean": "rm -rf dist",
+    "loops:seed": "dotenv -e ../../../.env -- tsx scripts/seed-loops.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"

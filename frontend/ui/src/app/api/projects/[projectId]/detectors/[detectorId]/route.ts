@@ -1,6 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
+import { LOOP_DETECTOR_TEMPLATE } from "@traceroot/core/loops/pure";
 import { readDeleteReason } from "@/lib/route-helpers";
 import { deleteDetector, updateDetector, type DetectorPatch } from "@/lib/write-services/detectors";
 import {
@@ -23,7 +24,7 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
   if (accessResult.error) return accessResult.error;
 
   const detector = await prisma.detector.findFirst({
-    where: { id: detectorId, projectId },
+    where: { id: detectorId, projectId, template: { not: LOOP_DETECTOR_TEMPLATE } },
     include: { trigger: true },
   });
 

@@ -17,6 +17,7 @@ import {
   detectorModelProblem,
   listWorkspaceModels,
 } from "@traceroot/core";
+import { LOOP_DETECTOR_TEMPLATE } from "@traceroot/core/loops/pure";
 import { z } from "zod";
 import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 import {
@@ -372,7 +373,11 @@ export async function updateDetector(input: {
       }
 
       const existing = await tx.detector.findFirst({
-        where: { id: input.detectorId, projectId: input.projectId },
+        where: {
+          id: input.detectorId,
+          projectId: input.projectId,
+          template: { not: LOOP_DETECTOR_TEMPLATE },
+        },
         include: { trigger: true },
       });
       if (!existing) return { result: DETECTOR_NOT_FOUND };
@@ -452,7 +457,11 @@ export async function deleteDetector(input: {
       if (!access.ok) return { result: access };
 
       const existing = await tx.detector.findFirst({
-        where: { id: input.detectorId, projectId: input.projectId },
+        where: {
+          id: input.detectorId,
+          projectId: input.projectId,
+          template: { not: LOOP_DETECTOR_TEMPLATE },
+        },
       });
       if (!existing) return { result: DETECTOR_NOT_FOUND };
 

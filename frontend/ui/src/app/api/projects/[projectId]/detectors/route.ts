@@ -1,6 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
+import { LOOP_DETECTOR_TEMPLATE } from "@traceroot/core/loops/pure";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
@@ -32,16 +33,18 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
   const searchQuery = searchParams.get("search_query")?.trim() || null;
 
+  // A Loop's hidden detector is not a detector the user manages.
   const where = searchQuery
     ? {
         projectId,
+        template: { not: LOOP_DETECTOR_TEMPLATE },
         OR: [
           { name: { contains: searchQuery, mode: "insensitive" as const } },
           { template: { contains: searchQuery, mode: "insensitive" as const } },
           { prompt: { contains: searchQuery, mode: "insensitive" as const } },
         ],
       }
-    : { projectId };
+    : { projectId, template: { not: LOOP_DETECTOR_TEMPLATE } };
 
   const [data, total] = await prisma.$transaction([
     prisma.detector.findMany({

@@ -154,7 +154,7 @@ describe("updateDetector", () => {
       error: "Detector not found",
     });
     expect(tx.detector.findFirst).toHaveBeenCalledWith({
-      where: { id: "d1", projectId: "p1" },
+      where: { id: "d1", projectId: "p1", template: { not: "loop" } },
       include: { trigger: true },
     });
   });
