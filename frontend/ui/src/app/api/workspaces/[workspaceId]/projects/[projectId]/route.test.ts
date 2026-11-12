@@ -156,15 +156,22 @@ describe("project PATCH rename collisions", () => {
   const p2002 = (target: unknown) =>
     Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
 
-  it("maps a rename collision (Prisma P2002 on the name index) to 409 instead of 500", async () => {
-    update.mockRejectedValue(p2002("uq_project_workspace_live_name"));
+  it("maps a rename collision (Prisma P2002 naming the workspace_id and name columns) to 409 instead of 500", async () => {
+    // What Prisma 5.22 actually raises for the partial unique index (#3025).
+    update.mockRejectedValue(p2002(["workspace_id", "name"]));
     const res = await patch({ name: "Taken" });
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe("A project with this name already exists");
   });
 
+  it("still maps a collision reported by the index name to 409", async () => {
+    update.mockRejectedValue(p2002("uq_project_workspace_live_name"));
+    const res = await patch({ name: "Taken" });
+    expect(res.status).toBe(409);
+  });
+
   it("rethrows an alertConfig-upsert P2002 even when the PATCH also carries a name", async () => {
-    update.mockRejectedValue(p2002(["projectId"]));
+    update.mockRejectedValue(p2002(["project_id"]));
     await expect(
       patch({ name: "Checkout", alert_emails: ["a@example.com"] }),
     ).rejects.toMatchObject({ code: "P2002" });

@@ -331,21 +331,49 @@ describe("updateProject", () => {
     });
   });
 
-  it("maps a rename collision on the live-name index to 409 and rethrows a P2002 on any other target", async () => {
+  it("maps a rename onto a taken name to 409, whichever way the violated constraint is reported", async () => {
     mockAccess();
-    tx.project.update.mockRejectedValueOnce(prismaError("P2002", "uq_project_workspace_live_name"));
-    expect(await runUpdate({ name: "Taken" })).toEqual({
-      ok: false,
-      status: 409,
-      error: "A project with this name already exists",
-    });
+    // Prisma 5.22 names the columns of the partial unique index, not the index
+    // itself: `meta.target` is `["workspace_id", "name"]` (issue #3025). The other
+    // spellings are the index name, and the column order / casing a driver or a
+    // fake may use.
+    const targets: unknown[] = [
+      ["workspace_id", "name"],
+      ["name", "workspace_id"],
+      ["workspaceId", "name"],
+      "uq_project_workspace_live_name",
+    ];
+    for (const target of targets) {
+      tx.project.update.mockRejectedValueOnce(prismaError("P2002", target));
+      expect(await runUpdate({ name: "Taken" })).toEqual({
+        ok: false,
+        status: 409,
+        error: "A project with this name already exists",
+      });
+    }
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a P2002 that is not the rename's name collision", async () => {
+    mockAccess();
+    // The alertConfig upsert's own unique violation, even when the patch carries a name.
     tx.project.update.mockRejectedValueOnce(prismaError("P2002", ["projectId"]));
     await expect(
       runUpdate({ name: "Taken", alertEmails: ["a@example.com"] }),
     ).rejects.toMatchObject({ code: "P2002" });
-    // A target that merely mentions "name" is some other constraint, not the
-    // rename: the fields of a schema-level unique, say, or an index elsewhere.
-    for (const target of [["workspaceId", "name"], "uq_project_workspace_hostname", undefined]) {
+    // Anything that is not exactly the (workspace, name) pair is some other
+    // constraint: a lone column, extra columns, another index, or no target at all.
+    const others: unknown[] = [
+      ["project_id"],
+      ["name"],
+      ["workspace_id"],
+      ["workspace_id", "name", "delete_time"],
+      ["workspace_id", "hostname"],
+      [],
+      "uq_project_workspace_hostname",
+      undefined,
+    ];
+    for (const target of others) {
       tx.project.update.mockRejectedValueOnce(prismaError("P2002", target));
       await expect(runUpdate({ name: "Taken" })).rejects.toMatchObject({ code: "P2002" });
     }

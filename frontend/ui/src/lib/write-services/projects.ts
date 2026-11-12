@@ -247,9 +247,32 @@ function toProjectRecord(row: ProjectRow): ProjectRecord {
 
 const PROJECT_NOT_FOUND = { ok: false, status: 404, error: "Project not found" } as const;
 // The partial unique index over (workspaceId, name) where deleteTime is null.
-// Raw SQL in the migration rather than a schema-level unique, so Prisma
-// reports a collision on it by this name rather than by field list.
+// Raw SQL in the migration rather than a schema-level unique. Prisma 5 does not
+// report a collision on it by this name: it reports the columns, as
+// `meta.target: ["workspace_id", "name"]`. The name is still accepted, for a
+// client or driver that does report it.
 const LIVE_NAME_INDEX = "uq_project_workspace_live_name";
+
+/**
+ * True when `e` is the unique violation of a rename onto another live project's
+ * name in the same workspace: a P2002 naming exactly the `workspace_id` and `name`
+ * columns (in either order; `workspaceId` is accepted too), or the index itself.
+ *
+ * Exact, not a substring match: a P2002 that names only some of those columns, or
+ * extra ones, or another constraint, such as the alert settings upsert's project-id
+ * key, is not a name collision and must not be reported as one.
+ */
+function isLiveNameCollision(e: unknown): boolean {
+  if (!isPrismaKnownError(e, "P2002")) return false;
+  const target = prismaErrorTarget(e);
+  if (target === LIVE_NAME_INDEX) return true;
+  // prismaErrorTarget lowercases and comma-joins; fold the column spelling.
+  const columns = target
+    .split(",")
+    .map((column) => column.replace(/_/g, ""))
+    .sort();
+  return columns.length === 2 && columns[0] === "name" && columns[1] === "workspaceid";
+}
 
 const PROJECT_NAME_TAKEN = {
   ok: false,
@@ -370,9 +393,7 @@ export async function updateProject(input: {
     // key) even when this patch carries a name, so match the violated
     // constraint exactly; any other target, or none, is not the rename and
     // is rethrown rather than reported as a name collision.
-    if (isPrismaKnownError(e, "P2002") && prismaErrorTarget(e) === LIVE_NAME_INDEX) {
-      return PROJECT_NAME_TAKEN;
-    }
+    if (isLiveNameCollision(e)) return PROJECT_NAME_TAKEN;
     throw e;
   }
   if (outcome.audit) await writeAudit(prisma, outcome.audit);
