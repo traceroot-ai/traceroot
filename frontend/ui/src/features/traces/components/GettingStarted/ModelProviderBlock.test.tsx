@@ -811,15 +811,16 @@ describe("a member who cannot write one", () => {
   });
 });
 
-describe("no adapter a pasted key fully configures", () => {
+describe("no catalogue-seeded adapter a pasted key configures", () => {
   it("says why rather than throwing through the whole panel", async () => {
-    // INLINE_ADAPTERS is derived once at module load, so an empty list can only
-    // be reached by reloading the module over an empty catalogue: with no
-    // catalogue anywhere there is nothing left to seed, and every adapter fails
-    // the second half of the rule. The adapter the binding names then has
-    // nowhere to be configured, and the form must not be drawn over it — this
-    // block renders inline in the same panel as the API key, the SDK install
-    // and the stack picker, so a throw from here would take all three with it.
+    // INLINE_ADAPTERS is derived once at module load, so dropping every
+    // catalogue-seeded adapter requires reloading the module over an empty
+    // catalogue: with no catalogue anywhere there is nothing left to seed, so
+    // only free-text model adapters (OpenRouter) remain inline. A binding whose
+    // adapter requires seeded models then fails the second half of the rule,
+    // and the form must not be drawn over it — this block renders inline in the
+    // same panel as the API key, the SDK install and the stack picker, so a
+    // throw from here would take all three with it.
     vi.resetModules();
     vi.doMock("@traceroot/core", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@traceroot/core")>()),
@@ -827,7 +828,6 @@ describe("no adapter a pasted key fully configures", () => {
     }));
     try {
       const fresh = await import("./ModelProviderBlock");
-      // Only free-text model adapters (OpenRouter) remain inline when the catalogue is empty.
       expect(fresh.INLINE_ADAPTERS).toEqual(["openrouter"]);
 
       const queryClient = new QueryClient({
