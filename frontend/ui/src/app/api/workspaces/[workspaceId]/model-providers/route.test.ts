@@ -11,17 +11,6 @@ const workspaceFindUniqueMock = vi.fn();
 const modelProviderFindUniqueMock = vi.fn();
 const modelProviderCreateMock = vi.fn();
 
-const { MockPrismaClientKnownRequestError } = vi.hoisted(() => {
-  class MockPrismaClientKnownRequestError extends Error {
-    code: string;
-    constructor(message: string, { code }: { code: string }) {
-      super(message);
-      this.code = code;
-    }
-  }
-  return { MockPrismaClientKnownRequestError };
-});
-
 vi.mock("@traceroot/core", () => ({
   prisma: {
     workspace: { findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args) },
@@ -48,9 +37,6 @@ vi.mock("@traceroot/core", () => ({
     TYPESAFE: "typesafe",
   },
   BEDROCK_USE_DEFAULT_CREDENTIALS: "__BEDROCK_DEFAULT_CREDENTIALS__",
-  Prisma: {
-    PrismaClientKnownRequestError: MockPrismaClientKnownRequestError,
-  },
 }));
 
 const requireAuthMock = vi.fn();
@@ -155,7 +141,7 @@ describe("POST model-providers", () => {
   it("returns 409 Conflict when database throws unique constraint error on create", async () => {
     modelProviderFindUniqueMock.mockResolvedValue(null);
     modelProviderCreateMock.mockRejectedValue(
-      new MockPrismaClientKnownRequestError("Unique constraint failed", { code: "P2002" }),
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
     );
 
     const res = await POST(

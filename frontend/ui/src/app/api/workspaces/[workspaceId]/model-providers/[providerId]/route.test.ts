@@ -11,17 +11,6 @@ const modelProviderFindFirstMock = vi.fn();
 const modelProviderDuplicateMock = vi.fn();
 const modelProviderUpdateMock = vi.fn();
 
-const { MockPrismaClientKnownRequestError } = vi.hoisted(() => {
-  class MockPrismaClientKnownRequestError extends Error {
-    code: string;
-    constructor(message: string, { code }: { code: string }) {
-      super(message);
-      this.code = code;
-    }
-  }
-  return { MockPrismaClientKnownRequestError };
-});
-
 vi.mock("@traceroot/core", () => ({
   prisma: {
     modelProvider: {
@@ -39,9 +28,6 @@ vi.mock("@traceroot/core", () => ({
   encryptKey: (key: string) => `enc(${key})`,
   maskKey: (key: string) => `mask(${key})`,
   BEDROCK_USE_DEFAULT_CREDENTIALS: "__BEDROCK_DEFAULT_CREDENTIALS__",
-  Prisma: {
-    PrismaClientKnownRequestError: MockPrismaClientKnownRequestError,
-  },
 }));
 
 const requireAuthMock = vi.fn();
@@ -155,7 +141,7 @@ describe("PATCH model-providers/[providerId]", () => {
 
   it("returns 409 Conflict when database throws unique constraint error on update", async () => {
     modelProviderUpdateMock.mockRejectedValue(
-      new MockPrismaClientKnownRequestError("Unique constraint failed", { code: "P2002" }),
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
     );
 
     const res = await PATCH(makeRequest({ provider: "New Claude Name" }), makeParams());

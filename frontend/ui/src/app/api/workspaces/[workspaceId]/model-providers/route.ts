@@ -10,7 +10,6 @@ import {
   type PlanType,
   LLMAdapter,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
-  Prisma,
 } from "@traceroot/core";
 import {
   requireAuth,
@@ -19,6 +18,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -215,10 +215,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
     return successResponse(modelProvider, 201);
   } catch (error) {
-    if (
-      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") ||
-      (typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002")
-    ) {
+    if (isPrismaKnownError(error, "P2002")) {
       return errorResponse("A provider with this name already exists in this workspace", 409);
     }
     throw error;

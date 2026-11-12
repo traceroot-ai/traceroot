@@ -7,7 +7,6 @@ import {
   encryptKey,
   maskKey,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
-  Prisma,
 } from "@traceroot/core";
 import {
   requireAuth,
@@ -15,6 +14,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -167,10 +167,7 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
 
     return successResponse(updated);
   } catch (error) {
-    if (
-      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") ||
-      (typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002")
-    ) {
+    if (isPrismaKnownError(error, "P2002")) {
       return errorResponse("A provider with this name already exists in this workspace", 409);
     }
     throw error;
