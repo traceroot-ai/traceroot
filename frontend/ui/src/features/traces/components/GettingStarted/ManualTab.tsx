@@ -133,6 +133,20 @@ function OwnStackPicker({
   );
 }
 
+function UnresolvedHostWarning({ variable, value }: { variable: string; value: string }) {
+  return (
+    <p className="text-[12px] text-muted-foreground">
+      This page cannot work out this deployment&apos;s API address, because{" "}
+      <code className="font-mono">{variable}</code> is set to{" "}
+      <code className="font-mono">{value}</code>. Set{" "}
+      <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself, or
+      your traces go to traceroot Cloud. Once <code className="font-mono">{variable}</code> is
+      corrected and the web app rebuilt, the address appears here: the value is built into the app
+      rather than read at startup.
+    </p>
+  );
+}
+
 /**
  * How the key reaches the application, and where its traces go.
  *
@@ -163,15 +177,7 @@ function EnvironmentStep({ lang }: { lang: Lang }) {
       <p className="text-[13px] font-medium text-foreground">3. Set environment variables</p>
       <CodeBlock label="bash" value={lines.join("\n")} />
       {host.kind === "unresolved" ? (
-        <p className="text-[12px] text-muted-foreground">
-          This page cannot work out this deployment&apos;s API address, because{" "}
-          <code className="font-mono">{host.variable}</code> is set to{" "}
-          <code className="font-mono">{host.value}</code>. Set{" "}
-          <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself,
-          or your traces go to traceroot Cloud. Once{" "}
-          <code className="font-mono">{host.variable}</code> is corrected and the web app rebuilt,
-          the address appears here: the value is built into the app rather than read at startup.
-        </p>
+        <UnresolvedHostWarning variable={host.variable} value={host.value} />
       ) : hostUrl !== null ? (
         <p className="text-[12px] text-muted-foreground">
           <code className="font-mono">TRACEROOT_HOST_URL</code> points the SDK at this deployment;
@@ -258,8 +264,14 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
     // Point the plugin at this deployment the same way EnvironmentStep does for the SDKs.
     const host = sdkHostUrl();
     const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
+    // Claude Code reads the host from its plugin settings before the environment.
+    const isClaudeCode = selectedIntegration.id === "claude-code";
+    const installCommand =
+      hostUrl !== null && isClaudeCode
+        ? `${plugin.installCommand} --config TRACEROOT_HOST_URL="${hostUrl}"`
+        : plugin.installCommand;
     const configSnippet =
-      hostUrl === null
+      hostUrl === null || isClaudeCode
         ? plugin.initSnippet
         : plugin.label === "bash"
           ? `${plugin.initSnippet}\nexport TRACEROOT_HOST_URL="${hostUrl}"`
@@ -273,7 +285,7 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
 
         <div className="space-y-2">
           <p className="text-[13px] font-medium text-foreground">2. Install the plugin</p>
-          <CodeBlock label="bash" value={plugin.installCommand} />
+          <CodeBlock label="bash" value={installCommand} />
         </div>
 
         {!integration && (
@@ -289,6 +301,9 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
             {integration ? "3" : "4"}. Configure
           </p>
           <CodeBlock label={plugin.label} value={configSnippet} />
+          {host.kind === "unresolved" && (
+            <UnresolvedHostWarning variable={host.variable} value={host.value} />
+          )}
         </div>
 
         <div className="space-y-2">

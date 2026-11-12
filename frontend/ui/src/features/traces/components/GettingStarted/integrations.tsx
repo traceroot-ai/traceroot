@@ -571,6 +571,7 @@ const openai = new OpenAI({
     name: "Claude Code",
     href: "https://traceroot.ai/docs/integrations/claude-code",
     category: "coding-agent",
+    // Claude Code runs on Anthropic's models.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/claude-agent-sdk.svg",
     languages: {},
@@ -586,6 +587,7 @@ claude plugin install traceroot-observability@traceroot-claude-code-plugin`,
     name: "Codex",
     href: "https://traceroot.ai/docs/integrations/codex",
     category: "coding-agent",
+    // Codex runs on OpenAI's models.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai.svg",
     logoDark: "/logo/integrations/openai-dark.svg",
@@ -607,6 +609,7 @@ codex features enable hooks
     name: "pi CLI",
     href: "https://traceroot.ai/docs/integrations/pi-cli",
     category: "coding-agent",
+    // pi takes any provider; OpenAI is suggested.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/pi.svg",
     logoDark: "/logo/integrations/pi-dark.svg",
