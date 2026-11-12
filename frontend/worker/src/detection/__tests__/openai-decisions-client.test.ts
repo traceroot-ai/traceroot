@@ -349,15 +349,46 @@ describe("callDecisions (stubbed fetch)", () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
       });
 
-      it("bounds an error body too, so a 5xx cannot stream past the limit", async () => {
-        const { stream, response } = endlessBody(500);
+      it("bounds an error body too, keeping its status: a 400 stays terminal", async () => {
+        const { stream, response } = endlessBody(400);
         fetchMock.mockResolvedValue(response);
 
         const err = await callError();
 
-        expect(err.message).toMatch(/over the \d+-byte limit/);
+        expect(err.message).toBe("OpenAI decisions returned 400");
         expect(stream.cancelled).toBe(true);
         expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("still retries a 503 whose oversized body was cut off", async () => {
+        vi.useFakeTimers();
+        const { stream, response } = endlessBody(503);
+        fetchMock.mockResolvedValueOnce(response).mockResolvedValueOnce(jsonResponse(200, OK_BODY));
+
+        const p = call();
+        await vi.runAllTimersAsync();
+
+        expect((await p).answers.gate.probability).toBe(0.97);
+        expect(stream.cancelled).toBe(true);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+
+      it("gives up on an oversized 5xx with its status after MAX_RETRIES retries", async () => {
+        vi.useFakeTimers();
+        const streams: { cancelled: boolean }[] = [];
+        fetchMock.mockImplementation(async () => {
+          const { stream, response } = endlessBody(500);
+          streams.push(stream);
+          return response;
+        });
+
+        const p = callError();
+        await vi.runAllTimersAsync();
+        const err = await p;
+
+        expect(err.message).toBe("OpenAI decisions returned 500");
+        expect(fetchMock).toHaveBeenCalledTimes(MAX_RETRIES + 1);
+        expect(streams.every((s) => s.cancelled)).toBe(true);
       });
 
       it("fails on a declared Content-Length over the limit before reading the body", async () => {

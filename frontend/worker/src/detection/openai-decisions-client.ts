@@ -16,8 +16,11 @@ import { abortableSleep, retryDelayMs, MAX_RETRIES, type JsonValue } from "./typ
 /** Far above any real response (two answers and the usage are a few KB). */
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
 
-function responseTooLarge(maxBytes: number): Error {
-  return new Error(`response body is over the ${maxBytes}-byte limit`);
+class ResponseTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`response body is over the ${maxBytes}-byte limit`);
+    this.name = "ResponseTooLargeError";
+  }
 }
 
 /**
@@ -29,7 +32,7 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
     await response.body?.cancel().catch(() => {});
-    throw responseTooLarge(maxBytes);
+    throw new ResponseTooLargeError(maxBytes);
   }
   if (!response.body) return "";
 
@@ -43,7 +46,7 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
     bytes += value.byteLength;
     if (bytes > maxBytes) {
       await reader.cancel().catch(() => {});
-      throw responseTooLarge(maxBytes);
+      throw new ResponseTooLargeError(maxBytes);
     }
     text += decoder.decode(value, { stream: true });
   }
@@ -152,7 +155,12 @@ export async function callDecisions<Q extends DecisionsQuestions>(
           body: payload,
           signal: controller.signal,
         });
-        text = await readBoundedText(response, MAX_RESPONSE_BYTES);
+        text = await readBoundedText(response, MAX_RESPONSE_BYTES).catch((err: unknown) => {
+          // An oversized error body is dropped, not the error: its status
+          // still names the failure and decides the retry below.
+          if (!response.ok && err instanceof ResponseTooLargeError) return "";
+          throw err;
+        });
       } catch (err) {
         if (controller.signal.aborted) throw new Error(timeoutMessage);
         throw new Error(
