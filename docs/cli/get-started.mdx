@@ -3,9 +3,9 @@ title: Get Started
 description: Set up traceroot in your repository and work with your project from the terminal
 ---
 
-The traceroot CLI sets up tracing in your repository with one command, then lets you work with your project from the terminal — traces, detector findings, alerts, dashboards, evaluations, and SQL — and pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
+The traceroot CLI sets up tracing in your repository with one command, then lets you work with your project from the terminal: traces, detector findings, alerts, dashboards, evaluations, and SQL. Pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
 
-Full source and reference live in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repo.
+The source is in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repo.
 
 ## Set up a repository
 
@@ -27,7 +27,7 @@ npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
 
 A project API key also sets the project. Without a key, run `npx -y traceroot-cli@latest login` first, then run setup without `--api-key`. Login prints a URL and a code for a person to confirm in a browser, and waits, so a coding agent has to show them to you. If setup exits 10, it can't choose for you, usually because you have several projects or none: follow the remedy it prints. With several projects, you can pass `--project`.
 
-Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to `.traceroot/prompts/setup-instrument.md` rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one. After the task is done and the application has run, rerun the same setup command with `--resume`, such as `npx -y traceroot-cli@latest setup --no-input --resume`, to get a link to the first trace. [Coding agents](/getting-started/coding-agents#set-up-tracing) has these steps as a prompt.
+Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to `.traceroot/prompts/setup-instrument.md` rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one. After the task is done and the application has run, rerun the same setup command with `--resume`, such as `npx -y traceroot-cli@latest setup --no-input --resume`, to get a link to the first trace. [Exit codes](/cli/scripting#exit-codes) lists what each code means, and [Coding agents](/getting-started/coding-agents#set-up-tracing) has these steps as a prompt.
 
 ## Install
 
@@ -53,7 +53,7 @@ Run `traceroot login` to sign in through your browser:
 traceroot login
 ```
 
-It prints a URL and a code, tries to open your browser, and saves a session to `~/.config/traceroot/credentials.json`. If no browser opens, open the URL yourself.
+It prints a URL and a code, tries to open your browser, and saves a session to `~/.config/traceroot/credentials.json`. If no browser opens, open the URL yourself. A key or saved credential [changes what `login` does](/cli/authentication#what-login-does).
 
 ### API key login (CI & scripts)
 
@@ -65,20 +65,7 @@ traceroot login --api-key tr-...
 
 This validates the key against the API and saves it to `./.traceroot/config.json`.
 
-```bash .env
-TRACEROOT_API_KEY=tr-...
-TRACEROOT_HOST_URL=https://app.traceroot.ai
-```
-
-The CLI resolves credentials in this order:
-
-1. `--api-key` flag
-2. `--env-file <path>`
-3. `TRACEROOT_TOKEN` environment variable
-4. Credentials file (`~/.config/traceroot/credentials.json`)
-5. `TRACEROOT_API_KEY` environment variable
-6. Config file (`./.traceroot/config.json`)
-7. Auto-discovered `./.env` — a `TRACEROOT_API_KEY` here selects key mode when nothing above it is set
+Or set `TRACEROOT_API_KEY`, which a saved browser login [outranks](/cli/authentication#which-credential-is-used). A project API key [can't create or change resources](/cli/authentication#browser-login-and-api-keys).
 
 Create API keys in [traceroot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
 
@@ -109,108 +96,36 @@ Set `TRACEROOT_PROJECT_ID` so later commands need no extra flags, or pass `--pro
 export TRACEROOT_PROJECT_ID=<project-id>
 ```
 
+[Choose a project](/cli/authentication#choose-a-project) has the full order.
+
 ## Inspect and export traces
 
 Once authenticated and scoped to a project, list, inspect, and export traces:
 
 ```bash
-# List recent traces, newest first (filter by time with --since, --from, or --to)
+# Recent traces
 traceroot traces list --limit 10
 
-# Inspect one trace: header, duration, span tree, and web app link
-traceroot traces get <trace-id>
-
-# Fetch full trace details including span inputs, outputs, and metadata as JSON
+# One trace as JSON, with span I/O
 traceroot traces get <trace-id> --fields full --json
 
-# Write a full trace bundle to disk to share or feed into another tool
+# A trace bundle on disk
 traceroot traces export <trace-id> --output ./my-trace
 ```
 
-### Trace projections and field groups (`--fields`)
-
-By default, `traceroot traces get` prints the trace header, an optional detector finding block, the span tree, and the web app URL.
-
-When emitting JSON (`--json`), `traceroot traces get` defaults to the lightweight `skeleton` projection, leaving span `input`, `output`, and `metadata` as `null` to minimize payload size. Pass `--fields` to include specific data groups:
-
-- **Field groups**: `core`, `usage`, `io`, `metadata`
-- **Aliases**: `skeleton` (`core,usage`) and `full` (`core,usage,io,metadata`)
-
-So `--fields full`, or `--fields io,metadata`, includes span I/O in the JSON payload.
-
-`traceroot traces export` instead defaults to the `full` projection, writing `trace.json`, `spans.json`, `git_context.json`, `manifest.json`, and `finding.json` (if flagged by a detector) into the destination directory. Pass `--fields <groups>` to narrow what is exported.
-
-## Read evaluations
-
-The CLI also reads your offline [evaluations](/evals/introduction): the datasets you run against and the runs that scored them.
-
-```bash
-# Which evaluations exist, and how each one's latest run ended
-traceroot evals list
-
-# One evaluation's runs, newest first — the RUN ID column is what you read next
-traceroot evals runs list --evaluation-id <evaluation-id>
-
-# One run: its counts, per-scorer means, and per-case cost and duration
-traceroot evals runs get <run-id>
-```
-
-See [From the terminal](/evals/cli) for what each read shows, and for the dataset commands.
-
-## Command reference
-
-Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
-
-| Command | What it does |
-| :-- | :-- |
-| `setup` | Connect this repository to traceroot and see your first trace. See [Tracing](/tracing/get-started). |
-| `setup doctor` | Diagnose a setup that did not complete. Flag: `--service <path>`. |
-| `doctor` | Check credentials, the repository, environment, and skills. |
-| `login` | Sign in through your browser and save the session; with `--api-key`, validate and save a project API key instead. |
-| `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
-| `traces get <id>` | Show one trace: header, span tree, duration, and web app link. `--json` leaves span I/O `null`; add `--fields full` to include it. |
-| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
-| `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
-| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
-| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
-| `datasets versions get <version-id>` | Show one version and a page of its cases. Flag: `--limit <n>` — 200 by default, up to 1000. |
-| `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
-| `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
-| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
-| `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
-| `sql schema` | List every table and column available to read-only SQL. |
-
-## Output and exit codes
-
-With `--json`, a command writes one JSON document to stdout. If it fails, stdout is empty and stderr gets `{"error":{"code":"...","message":"..."}}`. `doctor` and `setup doctor` instead write their report to stdout and exit 1 if a check fails, and `setup` writes one JSON event per line, ending in a `result` event with `ok` and `data.trace_url`. Without `--json`, setup writes everything to stderr, including the link to your first trace.
-
-| Exit code | Meaning |
-| :- | :- |
-| 0 | Success. For `setup`, also check for the link: it can exit 0 when it's paused or hasn't seen a trace yet |
-| 1 | Internal error, a failed `doctor` check, or an HTTP error not covered below, such as 409 or a 5xx |
-| 2 | Usage error, or input the server rejected (HTTP 400 or 422), including a missing `--project` after a browser login |
-| 3 | Not authenticated, or not allowed |
-| 4 | Not found |
-| 5 | Network error or rate limit, retry |
-| 10 | `setup`: it can't choose for you, usually because there are several projects or none. Follow the remedy it prints |
-| 11 | `setup`: unsupported language, service path, or coding agent |
-| 12 | `setup`: the coding agent failed |
-| 14 | `setup`: no trace arrived in time |
-| 15 | `setup`: this deployment doesn't support a step |
-| 16 | `setup`: it would overwrite something unsafely, or couldn't verify an existing key |
-| 130 | Interrupted |
+[Traces](/cli/traces) covers time filters, field groups, and the exported files.
 
 ## Next steps
 
-<CardGroup cols={2}>
-  <Card title="Tracing" icon="route" href="/tracing/get-started">
-    Set up tracing with one command, or instrument by hand.
-  </Card>
-  <Card title="Evaluations from the Terminal" icon="terminal" href="/evals/cli">
-    Read datasets, evaluations, and past runs.
-  </Card>
-  <Card title="traceroot Cloud" icon="cloud" href="https://app.traceroot.ai">
-    Create API keys and open traces in the web app.
-  </Card>
-</CardGroup>
+| To | Go to |
+| :- | :- |
+| Fix a stopped setup | [Troubleshoot](/tracing/get-started#troubleshoot) |
+| Read and export traces | [Traces](/cli/traces) |
+| Read findings and manage detectors | [Detectors and Findings](/cli/detectors-and-findings) |
+| Manage alerts | [Alerts](/cli/alerts) |
+| Read and change dashboards | [Dashboards and Widgets](/cli/dashboards-and-widgets) |
+| Manage workspaces and projects | [Workspaces and Projects](/cli/workspaces-and-projects) |
+| Query spans and traces | [Read-only SQL](/cli/sql) |
+| Read evaluations and datasets | [Evaluations from the Terminal](/evals/cli) |
+| Use the CLI in scripts and CI | [Scripting and CI](/cli/scripting) |
+| See every command | [All Commands](/cli/reference) |

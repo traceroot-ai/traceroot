@@ -1,0 +1,82 @@
+---
+title: Scripting and CI
+description: JSON output, exit codes, and JSON request bodies for scripts and CI
+---
+
+## Run in CI
+
+Set a project API key in the environment. It names its project, so reads need nothing else.
+
+```bash
+export TRACEROOT_API_KEY="$CI_SECRET"
+traceroot traces list --since 1h --json
+```
+
+To fail a step when a detector found something in the last hour:
+
+```bash
+set -e
+findings=$(traceroot findings list --since 1h --json)
+echo "$findings" | jq -e '.count == 0'
+```
+
+A failed CLI call stops the script with the CLI's own [exit code](#exit-codes), so you can tell an auth failure (3) from a network failure (5). `jq -e` exits 1 when there are findings.
+
+`--env-file <path>` reads settings from a file, and outranks the environment. `--timeout <ms>` sets the per-request timeout. An API key can't [list workspaces or projects, or change resources](/cli/authentication#browser-login-and-api-keys). For `setup`, see [Run without prompts](/cli/get-started#run-without-prompts).
+
+## JSON output
+
+With `--json`, a command writes one JSON document to stdout. If it fails, stdout is empty and stderr gets `{"error":{"code":"...","message":"..."}}`.
+
+Three commands are different. `doctor` and `setup doctor` write their report to stdout and exit 1 if a check fails. `setup` writes one JSON event per line, ending in a `result` event with `ok` and `data.trace_url`. If it fails, `result` carries an `error` in setup's own codes. Stderr gets no JSON error unless the run never started, though progress text still goes there. Without `--json`, all its messages, including the link to your first trace, go to stderr.
+
+| Command | Document |
+| :- | :- |
+| `traces list`, `detectors list`, `findings list` | API response, plus `count` and `range` |
+| `alerts list`, `projects list`, `workspaces list` | API response, plus `count` |
+| `traces get` | API response, plus `finding` |
+| `traces export` | `output_dir`, `files`, `finding_id` |
+| `doctor`, `setup doctor`, `instrument`, `skills list`, `skills install` | Result under `data` |
+| `login`, `logout`, `status` | Their own fields |
+| Every other command | API response, unchanged |
+
+```bash
+traceroot traces list --since 1h --json | jq -r '.data[] | select(.error_count > 0) | .trace_id'
+traceroot traces get <trace-id> --json 2>&1 >/dev/null | jq -r '.error.code'
+```
+
+## Exit codes
+
+| Exit code | JSON `code` | Meaning |
+| :- | :- | :- |
+| 0 | | Success. For `setup`, also check for the link: it can exit 0 when it's paused, hasn't seen a trace yet, or you declined a question |
+| 1 | `internal` | Internal error, a failed `doctor` check, any other HTTP error (such as 409 or a 5xx), or a non-empty export directory or existing prompt file without `--force` |
+| 2 | `usage` | Usage error, including a missing `--project` after a browser login, or HTTP 400 or 422 |
+| 3 | `auth` | Not authenticated, or not allowed (HTTP 401 or 403) |
+| 4 | `not_found` | Not found (HTTP 404) |
+| 5 | `network` | Network error, timeout, or rate limit (HTTP 429), retry |
+| 130 | | Interrupted |
+
+`setup` also uses these:
+
+| Exit code | Meaning |
+| :- | :- |
+| 10 | It can't choose for you, usually because there are several projects or none. Follow the remedy it prints |
+| 11 | Unsupported language, service path, or coding agent |
+| 12 | The coding agent failed |
+| 14 | No trace arrived in time |
+| 15 | This deployment doesn't support a step |
+| 16 | It would overwrite something unsafely, or couldn't verify an existing key |
+
+## Send a JSON body
+
+Commands that change something take their fields as one JSON document, named like the flags with underscores. `-` reads stdin. Flags override the file.
+
+```bash
+traceroot alerts create --from-file rule.json --threshold 2000
+jq '.threshold = 2000' rule.json | traceroot alerts create --from-file -
+```
+
+Before sending anything, the CLI checks for a JSON object, known top-level fields, required fields, and allowed values in top-level fields with a fixed list. The server checks the rest, including value types and nested fields. Either refusal exits 2.
+
+Under a browser login, your [chosen project](/cli/authentication#choose-a-project) fills in `project_id`, unless the file or `--project-id` sets it. An API key can't make these writes, even with `--project-id`.

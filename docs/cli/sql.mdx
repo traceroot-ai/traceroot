@@ -9,7 +9,7 @@ You can query the gateway with the [traceroot CLI](/cli/get-started) or with the
 
 ## Query with the CLI
 
-Pass a query as one quoted argument, or use `--file <path>` to read it from a file:
+Pass a query as one quoted argument, or use `-f, --file <path>` to read it from a file:
 
 ```bash
 traceroot sql "SELECT count() AS spans FROM spans WHERE span_start_time >= now() - INTERVAL 1 DAY"
@@ -34,7 +34,9 @@ traceroot sql \
   --param environment=production
 ```
 
-Run `traceroot sql schema` to list the available tables, columns, and ClickHouse types. The [CLI repository](https://github.com/traceroot-ai/traceroot-cli#sql-queries) documents installation, authentication, output formats, and the complete flag reference.
+Combining `--json` with `--csv`, or repeating a `--param` name, exits 2. A table's row count, and a truncation warning for a table or CSV, go to stderr. With `--json`, read `truncated` from the response instead. A file written with `--output` has no terminal styling.
+
+Run `traceroot sql schema` to list the available tables, columns, and ClickHouse types. [All Commands](/cli/reference) lists every command, and `traceroot sql --help` lists every flag.
 
 ## Worked queries
 
@@ -75,7 +77,7 @@ ORDER BY total_cost DESC
 
 ## Query with the API
 
-Send a project API key as a bearer token to `POST /api/v1/public/sql`. A user session token also works with the `project_id` query parameter, which is how browser-login users run `traceroot sql --project <id>` without a project API key:
+Send a project API key as a bearer token to `POST /api/v1/public/sql`. A session token or CLI access token also works with the `project_id` query parameter. After a browser login, `traceroot sql --project <id>` exchanges the session for a short-lived access token and sends that:
 
 ```bash
 curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \

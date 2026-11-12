@@ -28,13 +28,13 @@ A key belongs to one project, so requests made with it need no `project_id`. If 
 
 ### Session token and CLI access token
 
-Both identify you rather than a project. Sign in with the [CLI](/cli/get-started):
+Both identify you rather than a project. Sign in with the [CLI](/cli/authentication):
 
 ```bash
 traceroot login
 ```
 
-This runs a browser login and stores a session token in `~/.config/traceroot/credentials.json`. You can send that session token as the bearer directly.
+With no API key configured, this runs a browser login and stores a session token in `~/.config/traceroot/credentials.json`. You can send that session token as the bearer directly.
 
 The CLI itself sends a short-lived access token instead. To mint one, exchange the session token at the web app:
 
