@@ -60,12 +60,12 @@ afterEach(() => {
  * `NEXT_PUBLIC_API_URL` is read through `@/env.client`, which parses it once at
  * module load, so the stub has to be followed by a fresh import of the tab.
  */
-async function renderTabWith(env: { apiUrl: string; appUrl: string }) {
+async function renderTabWith(env: { apiUrl: string; appUrl: string }, integrationId = "openai") {
   vi.stubEnv("NEXT_PUBLIC_API_URL", env.apiUrl);
   vi.stubEnv("NEXT_PUBLIC_APP_URL", env.appUrl);
   vi.resetModules();
   const { ManualTab: Reloaded } = await import("./ManualTab");
-  return render(<Reloaded projectId="proj_1" integration={byId("openai")} />);
+  return render(<Reloaded projectId="proj_1" integration={byId(integrationId)} />);
 }
 
 /** The environment step's code block. */
@@ -78,10 +78,10 @@ function envBlock(container: HTMLElement): string {
 }
 
 describe("ManualTab", () => {
-  it("is five steps: the key, the install, the environment, the call, and the connections", () => {
+  it("is five steps: the key, the install, the environment, the call, and the run", () => {
     // The stack picker and the model key are above this section now, shared
     // with the command. What is numbered here is what is actually done in order
-    // in a terminal and an editor.
+    // in a terminal and an editor, ending in the run that sends the first trace.
     render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
     const steps = screen
       .getAllByText(/^\d+\. /)
@@ -90,9 +90,24 @@ describe("ManualTab", () => {
       "Create an API key",
       "Install SDK",
       "Set environment variables",
-      "Initialize TraceRoot for OpenAI",
-      "External integrations",
+      "Initialize traceroot for OpenAI",
+      "Run your application",
     ]);
+  });
+
+  it("ends the numbered steps on the request that sends the first trace", () => {
+    // Without it the walkthrough stopped at the snippet, and a reader who never
+    // ran the code never saw a trace. GitHub and Slack follow it, unnumbered.
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    const run = screen.getByText("5. Run your application");
+    const request = screen.getByText(
+      "Make an LLM request through the code you instrumented to send your first trace.",
+    );
+    const integrations = screen.getByText("External integrations");
+    expect(run.compareDocumentPosition(request) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      request.compareDocumentPosition(integrations) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("does not pick the stack or the model key for itself", () => {
@@ -110,7 +125,7 @@ describe("ManualTab", () => {
     expect(container.textContent).toContain("Integration.OPENAI");
 
     rerender(<ManualTab projectId="proj_1" integration={byId("mastra")} />);
-    expect(screen.getByText(/4\. Initialize TraceRoot for Mastra/)).toBeDefined();
+    expect(screen.getByText(/4\. Initialize traceroot for Mastra/)).toBeDefined();
     expect(container.textContent).toContain("@traceroot-ai/mastra");
   });
 
@@ -136,13 +151,10 @@ describe("ManualTab", () => {
     expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
   });
 
-  it("groups GitHub and Slack into the external integrations card", () => {
+  it("groups GitHub and Slack into the external integrations card, unnumbered", () => {
+    // Unnumbered, as on the "Using AI" tab: a first trace does not need them.
     render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    // Number-agnostic: which step this is is already pinned, in order, by the
-    // first test in this file. Repeating the ordinal here only made a step
-    // being added or removed a two-place edit -- this card went from 6 to 4 in
-    // this change alone.
-    expect(screen.getByText(/External integrations$/)).toBeDefined();
+    expect(screen.getByText("External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });
@@ -184,8 +196,8 @@ describe("ManualTab with no stack chosen above it", () => {
       "Install SDK",
       "Set environment variables",
       "Select your integration",
-      "Initialize TraceRoot for OpenAI",
-      "External integrations",
+      "Initialize traceroot for OpenAI",
+      "Run your application",
     ]);
   });
 
@@ -196,13 +208,13 @@ describe("ManualTab with no stack chosen above it", () => {
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
     const picker = screen.getByRole("radiogroup", { name: "Integration" });
     expect(within(picker).getAllByRole("radio")).toHaveLength(INTEGRATIONS.length);
-    expect(within(picker).getByText("Model Providers")).toBeDefined();
+    expect(within(picker).getByText("Model providers")).toBeDefined();
     expect(within(picker).getByText("Frameworks")).toBeDefined();
   });
 
   it("groups its own picker as providers and frameworks, starting on OpenAI", () => {
     render(<ManualTab projectId="proj_1" />);
-    const providers = pickerGroup("Model Providers");
+    const providers = pickerGroup("Model providers");
     const frameworks = pickerGroup("Frameworks");
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
@@ -218,7 +230,7 @@ describe("ManualTab with no stack chosen above it", () => {
     const { container } = render(<ManualTab projectId="proj_1" />);
     fireEvent.click(screen.getByRole("radio", { name: "Mastra" }));
 
-    expect(screen.getByText("5. Initialize TraceRoot for Mastra")).toBeDefined();
+    expect(screen.getByText("5. Initialize traceroot for Mastra")).toBeDefined();
     expect(container.textContent).toContain("@traceroot-ai/mastra");
     const docs = screen.getByRole("link", { name: "View Mastra docs" });
     expect(docs.getAttribute("href")).toBe("https://traceroot.ai/docs/integrations/mastra");
@@ -226,7 +238,7 @@ describe("ManualTab with no stack chosen above it", () => {
     const picker = screen.getByRole("radiogroup", { name: "Integration" });
     expect(picker.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
-      docs.compareDocumentPosition(screen.getByText("5. Initialize TraceRoot for Mastra")) &
+      docs.compareDocumentPosition(screen.getByText("5. Initialize traceroot for Mastra")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -238,7 +250,7 @@ describe("ManualTab with no stack chosen above it", () => {
       expect(screen.queryByText(/model key/i)).toBeNull();
       expect(screen.queryByTestId("model-provider-block")).toBeNull();
     }
-    expect(screen.getByText("6. External integrations")).toBeDefined();
+    expect(screen.getByText("External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
   });
 
@@ -290,7 +302,7 @@ describe("the environment step", () => {
     );
   });
 
-  it("leaves the host out on TraceRoot Cloud, which both SDKs default to", async () => {
+  it("leaves the host out on traceroot Cloud, which both SDKs default to", async () => {
     const { container } = await renderTabWith({
       apiUrl: "https://app.traceroot.ai/api/v1",
       appUrl: "https://app.traceroot.ai",
@@ -317,6 +329,24 @@ describe("the environment step", () => {
     expect(text).toContain("NEXT_PUBLIC_API_URL is corrected and the web app rebuilt");
   });
 
+  it("points coding-agent plugins at this deployment", async () => {
+    const env = { apiUrl: "http://localhost:8000/api/v1", appUrl: "http://localhost:3000" };
+    const codex = await renderTabWith(env, "codex");
+    expect(codex.container.textContent).toContain('"host_url": "http://localhost:8000"');
+    cleanup();
+
+    const claude = await renderTabWith(env, "claude-code");
+    expect(claude.container.textContent).toContain(
+      'traceroot-observability@traceroot-claude-code-plugin --config TRACEROOT_HOST_URL="http://localhost:8000"',
+    );
+    expect(claude.container.textContent).not.toContain("export TRACEROOT_HOST_URL");
+  });
+
+  it("says the host still has to be set for a plugin when the API URL is not an origin", async () => {
+    const { container } = await renderTabWith({ apiUrl: "http://:8000", appUrl: "" }, "codex");
+    expect(container.textContent).toContain("Set TRACEROOT_HOST_URL to the API's origin yourself");
+  });
+
   it("still sets the host when only the app URL is unusable and the API URL is absolute", async () => {
     // The app URL stops the setup command, whose `--auth-host` it is, but the
     // SDKs need only the API origin, which an absolute API URL names alone.
@@ -336,7 +366,7 @@ describe("the environment step", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "TypeScript" })[0]);
     expect(container.textContent).toContain(
-      "load that before TraceRoot is initialized: config(), from the dotenv package.",
+      "load that before traceroot is initialized: config(), from the dotenv package.",
     );
     expect(container.textContent).not.toContain("dotenv/config");
     expect(container.textContent).not.toContain("load_dotenv");

@@ -7,7 +7,7 @@ import type { AlertMeasure } from "../rule-model";
 
 function MetaChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+    <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] text-muted-foreground">
       {children}
     </span>
   );
@@ -24,11 +24,7 @@ interface MeasureOptionProps {
  * scroll containers cannot clip it.
  */
 export function MeasureOption({ measure, doc }: MeasureOptionProps) {
-  const item = (
-    <SelectItem value={measure.id} className="text-[12px]">
-      {measure.label}
-    </SelectItem>
-  );
+  const item = <SelectItem value={measure.id}>{measure.label}</SelectItem>;
   if (!doc) return item;
 
   return (
@@ -39,7 +35,7 @@ export function MeasureOption({ measure, doc }: MeasureOptionProps) {
         align="start"
         sideOffset={8}
         collisionPadding={8}
-        className="w-64 border bg-popover p-3 text-popover-foreground shadow-md"
+        className="w-64 border bg-popover p-3 text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
         <p className="text-[13px] font-medium">{measure.label}</p>
         <div className="mt-1.5 flex flex-wrap gap-1">
@@ -48,7 +44,7 @@ export function MeasureOption({ measure, doc }: MeasureOptionProps) {
         </div>
         <p className="mt-2 text-[12px] leading-snug text-muted-foreground">{doc.description}</p>
         {doc.unavailable && (
-          <p className="mt-2 border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground">
+          <p className="mt-2 border-t border-border pt-2 text-[12px] leading-snug text-muted-foreground">
             {doc.unavailable}
           </p>
         )}

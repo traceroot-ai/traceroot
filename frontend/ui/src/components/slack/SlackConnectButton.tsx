@@ -166,7 +166,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                 <span
                   className={
                     testFeedback.kind === "ok"
-                      ? "ml-1 text-[12px] text-green-600 dark:text-green-500"
+                      ? "ml-1 text-[12px] text-success"
                       : "ml-1 text-[12px] text-destructive"
                   }
                 >
@@ -205,7 +205,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex w-full select-none items-center gap-2 rounded-sm px-2 py-1 text-[12px] transition-colors hover:bg-accent"
+                    className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] transition-colors hover:bg-muted"
                   >
                     <Settings className="h-3.5 w-3.5 shrink-0" />
                     Configure
@@ -213,7 +213,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                 </PopoverTrigger>
                 <PopoverContent side="right" align="start" sideOffset={4} className="w-72 p-2">
                   {/* Selected channel summary */}
-                  <div className="px-2 pb-2 text-[11px] text-muted-foreground">
+                  <div className="px-2 pb-2 text-[12px] text-muted-foreground">
                     {channelLabel ? `Posting alerts to ${channelLabel}` : "No channel selected"}
                   </div>
 
@@ -244,7 +244,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                         key={ch.id}
                         type="button"
                         onClick={() => handleSelectChannel({ id: ch.id, name: ch.name })}
-                        className="flex w-full select-none items-center rounded-sm px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent"
+                        className="flex h-8 w-full select-none items-center rounded-[2px] px-2 text-left text-[13px] transition-colors hover:bg-muted"
                       >
                         {ch.isPrivate ? (
                           <Lock className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -261,7 +261,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                       <button
                         type="button"
                         onClick={() => handleSelectChannel({ id: search, name: search.slice(1) })}
-                        className="flex w-full select-none items-center rounded-sm px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent"
+                        className="flex h-8 w-full select-none items-center rounded-[2px] px-2 text-left text-[13px] transition-colors hover:bg-muted"
                       >
                         Use <span className="ml-1 font-mono">{search}</span>
                       </button>
@@ -270,7 +270,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
 
                   {/* Private channel re-auth hint */}
                   {showPrivateScopeHint && (
-                    <p className="mt-1 px-2 text-[11px] italic text-muted-foreground">
+                    <p className="mt-1 px-2 text-[12px] italic text-muted-foreground">
                       Re-authenticate to grant private-channel access.
                     </p>
                   )}
@@ -285,7 +285,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                   setOpen(false);
                 }}
                 disabled={disconnect.isPending}
-                className="flex w-full select-none items-center gap-2 rounded-sm px-2 py-1 text-[12px] text-destructive transition-colors hover:bg-accent disabled:opacity-50"
+                className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive transition-colors hover:bg-muted disabled:opacity-50"
               >
                 <Unlink className="h-3.5 w-3.5" />
                 {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
@@ -312,7 +312,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
       {canManage && (
         <a
           href={installHref}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="inline-flex h-7 items-center gap-2 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-foreground hover:text-background"
         >
           Connect
           <ExternalLink className="h-3 w-3" />

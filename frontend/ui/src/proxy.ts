@@ -106,9 +106,9 @@ export const config = {
     // - api/health, exact (load balancer / kubelet liveness probe; a 307 here reads as unhealthy)
     // - api/csp-report (browsers post policy violation reports without the session)
     // - _next (Next.js internals)
-    // - static files
+    // - static files, app/icon.png, app/apple-icon.png
     // auth/* pages (sign-in, sign-up) are matched so they get the policy;
     // proxy() lets them through without a session.
-    "/((?!api/auth|api/public|api/internal|api/cli|api/billing/webhook|api/email/unsubscribe|api/health$|api/csp-report|api/github/token|api/github/callback|api/github/install-callback|_next/static|_next/image|images/|favicon.ico).*)",
+    "/((?!api/auth|api/public|api/internal|api/cli|api/billing/webhook|api/email/unsubscribe|api/health$|api/csp-report|api/github/token|api/github/callback|api/github/install-callback|_next/static|_next/image|images/|favicon.ico|icon.png$|apple-icon.png$).*)",
   ],
 };

@@ -147,7 +147,8 @@ describe("campaign attribution through real better-auth handlers", () => {
         email: "google@example.com",
         emailVerified: true,
       },
-      data: {},
+      // better-auth 1.7 derives the account id from the Google profile's `sub`.
+      data: { sub: "google-user" },
     });
     const start = await auth.handler(
       request("/sign-in/social", { provider: "google", callbackURL: `${baseURL}/onboarding` }),

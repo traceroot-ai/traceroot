@@ -113,7 +113,7 @@ describe("useCreateDetector error path", () => {
 
     let thrown: ApiError | null = null;
     try {
-      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+      await result.current.mutateAsync({ name: "Failure detector" } as never);
     } catch (e) {
       thrown = e as ApiError;
     }
@@ -134,7 +134,7 @@ describe("useCreateDetector error path", () => {
 
     let thrown: ApiError | null = null;
     try {
-      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+      await result.current.mutateAsync({ name: "Failure detector" } as never);
     } catch (e) {
       thrown = e as ApiError;
     }
@@ -155,7 +155,7 @@ describe("useCreateDetector error path", () => {
 
     let thrown: ApiError | null = null;
     try {
-      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+      await result.current.mutateAsync({ name: "Failure detector" } as never);
     } catch (e) {
       thrown = e as ApiError;
     }
@@ -178,7 +178,7 @@ describe("useUpdateDetector error path", () => {
 
     let thrown: ApiError | null = null;
     try {
-      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+      await result.current.mutateAsync({ name: "Failure detector" } as never);
     } catch (e) {
       thrown = e as ApiError;
     }

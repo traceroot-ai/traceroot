@@ -14,26 +14,28 @@ describe("GettingStarted integrations", () => {
       logo: "/logo/integrations/openrouter.svg",
       logoDark: "/logo/integrations/openrouter-dark.svg",
     });
-    expect(openrouter?.languages.python?.installCommand).toBe("pip install traceroot openai");
-    expect(openrouter?.languages.python?.initSnippet).toContain(
-      'base_url="https://openrouter.ai/api/v1"',
-    );
-    expect(openrouter?.languages.python?.initSnippet).toContain("Integration.OPENAI");
-    expect(openrouter?.languages.typescript?.installCommand).toBe(
+    const languages = openrouter?.setup.kind === "sdk" ? openrouter.setup.languages : undefined;
+    expect(languages?.python?.installCommand).toBe("pip install traceroot openai");
+    expect(languages?.python?.initSnippet).toContain('base_url="https://openrouter.ai/api/v1"');
+    expect(languages?.python?.initSnippet).toContain("Integration.OPENAI");
+    expect(languages?.typescript?.installCommand).toBe(
       "npm install @traceroot-ai/traceroot openai",
     );
-    expect(openrouter?.languages.typescript?.initSnippet).toContain(
-      'baseURL: "https://openrouter.ai/api/v1"',
-    );
+    expect(languages?.typescript?.initSnippet).toContain('baseURL: "https://openrouter.ai/api/v1"');
   });
 });
 
-describe("the two groups the picker offers", () => {
+describe("the groups the picker offers", () => {
   it("names them in the order the picker shows them", () => {
-    expect(INTEGRATION_GROUPS.map((group) => group.category)).toEqual(["provider", "framework"]);
+    expect(INTEGRATION_GROUPS.map((group) => group.category)).toEqual([
+      "provider",
+      "framework",
+      "coding-agent",
+    ]);
     expect(INTEGRATION_GROUPS.map((group) => group.label)).toEqual([
       "Model providers",
       "Frameworks & SDKs",
+      "Coding agents",
     ]);
   });
 

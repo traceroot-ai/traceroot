@@ -45,10 +45,10 @@ describe("DetectorRunsTable", () => {
     );
     for (const header of [
       "Timestamp",
-      "Judge Run ID",
+      "Judge run ID",
       "Trace ID",
       "Signal ID",
-      "Agent Run ID",
+      "Agent run ID",
       "Identified",
       "Summary",
       "Status",

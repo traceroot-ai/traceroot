@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -84,7 +85,8 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col text-[13px]">
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
-      <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
+      <ProjectBreadcrumb projectId={projectId} />
+      <PageHeader title="Evaluations" />
       <RunsTab projectId={projectId} />
     </div>
   );
@@ -147,7 +149,7 @@ function RunTableRow({
         >
           {r.datasetName}
         </Link>{" "}
-        {datasetVersion && <span className="font-mono text-[11px]">{datasetVersion}</span>}
+        {datasetVersion && <span className="font-mono text-[12px]">{datasetVersion}</span>}
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(avgCost)}</Td>
@@ -157,7 +159,7 @@ function RunTableRow({
       <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
         {formatElapsed(avgDurationMs)}
       </Td>
-      <Td className="text-right">
+      <Td className="col-sticky-end text-right">
         <DatasetActionsMenu onDelete={onDelete} />
       </Td>
     </TR>
@@ -349,25 +351,21 @@ function RunsTab({ projectId }: { projectId: string }) {
           {selectedIds.size > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-7 gap-1.5 text-[12px]">
+                <Button size="sm" className="h-8 gap-1.5 text-[13px]">
                   Actions ({selectedIds.size} selected)
                   <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-32">
-                <DropdownMenuItem
-                  disabled={selectedIds.size < 2}
-                  onSelect={compareSelected}
-                  className="text-[12px]"
-                >
+                <DropdownMenuItem disabled={selectedIds.size < 2} onSelect={compareSelected}>
                   Compare
                   {selectedIds.size < 2 && (
-                    <span className="ml-auto text-[10px] text-muted-foreground">pick 2+</span>
+                    <span className="ml-auto text-[12px] text-muted-foreground">pick 2+</span>
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => setBulkDeleteOpen(true)}
-                  className="text-[12px] text-destructive"
+                  className="text-destructive"
                 >
                   Delete
                 </DropdownMenuItem>
@@ -397,14 +395,16 @@ function RunsTab({ projectId }: { projectId: string }) {
                 />
               </Th>
               <Th className="w-[150px]">Timestamp</Th>
-              <Th>Evaluation Name</Th>
-              <Th>Run Name</Th>
+              <Th>Evaluation name</Th>
+              <Th>Run name</Th>
               <Th>Dataset</Th>
               <Th className="w-[100px] text-right">Cost</Th>
-              <Th className="w-[100px] text-right">Avg Cost</Th>
+              <Th className="w-[100px] text-right">Avg cost</Th>
               <Th className="w-[90px] text-right">Duration</Th>
-              <Th className="w-[100px] text-right">Avg Duration</Th>
-              <Th className="w-[70px] text-right">Actions</Th>
+              <Th className="w-[100px] text-right">Avg duration</Th>
+              <Th className="col-sticky-end-head w-[70px] text-right">
+                <span className="sr-only">Actions</span>
+              </Th>
             </TRHead>
           </THead>
           <TBody>

@@ -138,7 +138,7 @@ describe("AiAssistantPanel", () => {
 
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
-    const link = screen.getByRole("link", { name: /Workspace Settings.*Model Providers/i });
+    const link = screen.getByRole("link", { name: /Workspace Settings.*Model providers/i });
     expect(link.getAttribute("href")).toBe("/workspaces/ws-abc/settings/model-providers");
   });
 

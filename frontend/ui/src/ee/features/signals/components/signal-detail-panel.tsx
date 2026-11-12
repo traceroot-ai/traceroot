@@ -41,14 +41,14 @@ function Block({
   children: ReactNode;
 }) {
   return (
-    <section aria-label={title} className="overflow-hidden rounded-md border border-border">
+    <section aria-label={title} className="overflow-hidden rounded-[2px] border border-border">
       <div
         className={cn(
           "flex items-center justify-between gap-2",
-          plain ? "px-3 pt-2.5" : "border-b border-border bg-muted/50 px-2.5 py-1.5",
+          plain ? "px-4 pt-3" : "border-b border-border px-4 py-2",
         )}
       >
-        <h3 className="text-xs font-medium text-foreground">{title}</h3>
+        <h3 className="text-[13px] font-medium text-foreground">{title}</h3>
         {headerAction}
       </div>
       {children}
@@ -142,14 +142,14 @@ export function SignalDetailPanel({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-12 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-1.5">
           <DOMAIN_ICONS.signal className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="shrink-0 text-sm font-medium">Signal</span>
+          <span className="shrink-0 text-[13px] font-medium">Signal</span>
           {detail && (
-            <h2 className="truncate text-sm text-muted-foreground">{detail.signal.title}</h2>
+            <h2 className="truncate text-[13px] text-muted-foreground">{detail.signal.title}</h2>
           )}
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">{signalId}</span>
+          <span className="shrink-0 text-[12px] text-muted-foreground">{signalId}</span>
           <CopyButton
             value={signalId}
             className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
@@ -158,7 +158,7 @@ export function SignalDetailPanel({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => onNavigate("up")}
             disabled={!canNavigateUp}
@@ -168,7 +168,7 @@ export function SignalDetailPanel({
             <ArrowUp className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => onNavigate("down")}
             disabled={!canNavigateDown}
@@ -178,7 +178,7 @@ export function SignalDetailPanel({
             <ArrowDown className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={onToggleFullscreen}
             className="h-7 w-7 p-0"
@@ -187,7 +187,7 @@ export function SignalDetailPanel({
             {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => (aiPanelOpen ? setAiPanelOpen(false) : openAgent())}
             className="ml-2 h-7 w-7 p-0"
@@ -220,7 +220,7 @@ export function SignalDetailPanel({
               ) : data.merged ? (
                 <p className="p-4 text-[13px] text-muted-foreground">
                   This signal was merged into{" "}
-                  <span className="font-mono text-[12px]">{data.mergedIntoId}</span>.
+                  <span className="text-[12px]">{data.mergedIntoId}</span>.
                 </p>
               ) : (
                 <SignalBlocks
@@ -342,7 +342,7 @@ function SignalBlocks({
           ) : undefined
         }
       >
-        <div className="px-3 py-2.5">
+        <div className="px-4 py-3">
           {rca?.result ? (
             <div className="space-y-3">
               {(earlier || mergedIn) && (
@@ -374,9 +374,10 @@ function SignalBlocks({
                   />
                 </div>
               )}
-              <div className="rounded-md border border-border px-3 py-2">
-                <MarkdownView content={rca.result} />
-              </div>
+              <MarkdownView
+                content={rca.result}
+                className="text-[13px] leading-6 [&_code]:text-[12px] [&_h1]:text-[15px] [&_h2]:text-[14px] [&_h3]:text-[13px] [&_ol]:mb-3 [&_p]:mb-3 [&_ul]:mb-3"
+              />
             </div>
           ) : (
             <RunRca
@@ -499,7 +500,7 @@ function AffectedTraces({
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-border/50">
+              <tr className="border-b border-border">
                 <th className={TH}>Timestamp</th>
                 <th className={TH}>Name</th>
                 <th className={TH}>Errors</th>
@@ -513,21 +514,19 @@ function AffectedTraces({
                 const pending = isPending ? "…" : "-";
                 return (
                   <TR key={traceId} interactive onClick={() => onOpenTrace(traceId)}>
-                    <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
+                    <td className={cn(TD, "whitespace-nowrap tabular-nums text-muted-foreground")}>
                       {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
                     </td>
                     <td className={cn(TD, "text-foreground")}>
                       {t?.name || (
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {traceId}
-                        </span>
+                        <span className="text-[12px] text-muted-foreground">{traceId}</span>
                       )}
                     </td>
                     <td className={TD}>
                       {!t ? (
                         <span className="text-muted-foreground">{pending}</span>
                       ) : t.error_count > 0 ? (
-                        <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                        <span className="inline-flex min-w-5 justify-center rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger">
                           {t.error_count}
                         </span>
                       ) : (

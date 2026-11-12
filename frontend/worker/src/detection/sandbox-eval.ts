@@ -19,7 +19,7 @@ import {
   decisionModelAlias,
 } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
-import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE } from "./judge-input.js";
+import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE, type JudgeInput } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
 import { usageFromError } from "./typesafe-client.js";
 import { decisionsCostFromError, runOpenAIDecisionDetection } from "./openai-decision-eval.js";
@@ -68,7 +68,7 @@ const MAX_ATTEMPTS = 2;
  * ~37k tokens at 4 chars/token: under 20% of a 200k-token window, the smallest
  * among the system models a detector can run on, leaving generous headroom for the system prompt + tool definitions + response budget.
  */
-const SAFETY_TRUNCATE_CHARS = 150_000;
+export const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
 export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
 /** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
@@ -154,6 +154,8 @@ export async function resolveDetectorApiKey(
 export async function runDetectionForTrace(params: {
   traceId: string;
   spansJsonl: string;
+  /** Returns the trace's judge input, shared by its detectors; built here when absent. */
+  getJudgeInput?: () => JudgeInput;
   detector: DetectorConfig;
   workspaceId: string;
 }): Promise<EvalResult> {
@@ -281,7 +283,9 @@ RULES:
 
 ${JUDGE_INPUT_FORMAT_NOTE}`;
 
-  const judgeInput = buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
+  const judgeInput =
+    params.getJudgeInput?.() ??
+    buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
   console.log(
     `[sandbox-eval] judge input for trace ${traceId}: ${JSON.stringify(judgeInput.stats)}`,
   );

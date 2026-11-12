@@ -204,7 +204,7 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
     // Keep wide blocks constrained to bubble width and readable at all panel widths.
     pre: ({ children, ...props }) => (
       <pre
-        className="max-w-full whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 text-foreground [overflow-wrap:anywhere]"
+        className="max-w-full whitespace-pre-wrap break-words rounded-md bg-muted p-2 text-foreground [overflow-wrap:anywhere]"
         {...props}
       >
         {children}
@@ -220,11 +220,11 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
             {parsed.rows.map((row, rowIndex) => (
               <div
                 key={rowIndex}
-                className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5"
+                className="rounded-[2px] border border-border bg-background px-2 py-1.5 hover:bg-muted"
               >
                 {Array.from({ length: parsed.columnCount }).map((_, colIndex) => (
-                  <div key={colIndex} className="border-b border-border/40 py-1.5 last:border-b-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                  <div key={colIndex} className="border-b border-border py-1.5 last:border-b-0">
+                    <div className="text-[12px] font-medium text-muted-foreground/80">
                       {parsed.headers[colIndex]}
                     </div>
                     <div className="mt-0.5 min-w-0 break-words [overflow-wrap:anywhere]">
@@ -244,15 +244,15 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
             {parsed.rows.map((row, rowIndex) => (
               <div
                 key={rowIndex}
-                className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5"
+                className="rounded-[2px] border border-border bg-background px-2 py-1.5 hover:bg-muted"
               >
                 {Array.from({ length: parsed.columnCount }).map((_, colIndex) => (
                   <div
                     key={colIndex}
-                    className="grid gap-x-2 border-b border-border/40 py-1 last:border-b-0"
+                    className="grid gap-x-2 border-b border-border py-1 last:border-b-0"
                     style={{ gridTemplateColumns: `${labelColWidth}px minmax(0, 1fr)` }}
                   >
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                    <span className="text-[12px] font-medium text-muted-foreground/80">
                       {parsed.headers[colIndex]}
                     </span>
                     <div className="min-w-0 break-words [overflow-wrap:anywhere]">
@@ -268,7 +268,7 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
 
       return (
         <table
-          className="my-2 w-full table-auto border-collapse text-[11px] [&_td]:whitespace-normal [&_td]:break-words [&_td]:border [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_td]:[overflow-wrap:anywhere] [&_th]:whitespace-normal [&_th]:break-words [&_th]:border [&_th]:border-border/60 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:align-top [&_th]:[overflow-wrap:anywhere]"
+          className="my-2 w-full table-auto border-collapse text-[12px] [&_td]:whitespace-normal [&_td]:break-words [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_td]:[overflow-wrap:anywhere] [&_th]:whitespace-normal [&_th]:break-words [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:align-top [&_th]:[overflow-wrap:anywhere]"
           {...props}
         >
           {children}
@@ -287,7 +287,7 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
           {children}
         </code>
       ) : (
-        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]" {...props}>
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px]" {...props}>
           {children}
         </code>
       );
@@ -372,10 +372,10 @@ function ToolStepItem({
   const captureNote = describeCapture(step);
 
   return (
-    <div className="text-[11px]">
+    <div className="text-[12px]">
       <button
         onClick={() => setIsOpen((v) => !v)}
-        className="flex w-full cursor-pointer select-none items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/50"
+        className="flex w-full cursor-pointer select-none items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted"
       >
         {/* A declined call (skipped or revised) was not broken — its line stays muted. */}
         {step.skipped || step.revisedText !== undefined ? (
@@ -386,7 +386,7 @@ function ToolStepItem({
               <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
             )}
             {step.status === "done" && (
-              <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />
+              <CheckCircle2 className="h-3 w-3 shrink-0 text-success/70" />
             )}
             {step.status === "error" && (
               <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />
@@ -396,7 +396,7 @@ function ToolStepItem({
         <span className="shrink-0 whitespace-nowrap italic text-muted-foreground/80">
           {formatToolName(step.toolName)}
         </span>
-        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/40">
+        <span className="min-w-0 truncate font-mono text-[12px] text-muted-foreground/40">
           ({step.toolName})
         </span>
         {step.skipped ? (
@@ -425,7 +425,7 @@ function ToolStepItem({
           <div className="mt-1 space-y-1.5 pl-5">
             <div>
               <p className="mb-0.5 text-muted-foreground/50">Args</p>
-              <pre className="overflow-x-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/60">
+              <pre className="overflow-x-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground/60">
                 {argsStr}
               </pre>
             </div>
@@ -447,7 +447,7 @@ function ToolStepItem({
                         ? "Error"
                         : "Result"}
                 </p>
-                <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/60">
+                <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground/60">
                   {resultStr}
                 </pre>
               </div>
@@ -584,12 +584,12 @@ function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: numb
   return (
     <div className="overflow-hidden break-words rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground">
       {msg.thinking && (
-        <details className="group mb-2 text-[11px]">
+        <details className="group mb-2 text-[12px]">
           <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 text-muted-foreground/60 hover:text-muted-foreground">
             <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
             <span className="italic">Reasoning</span>
           </summary>
-          <pre className="mt-1.5 max-h-[200px] overflow-auto whitespace-pre-wrap border-l-2 border-muted-foreground/20 pl-3 font-mono text-[10px] leading-relaxed text-muted-foreground/60">
+          <pre className="mt-1.5 max-h-[200px] overflow-auto whitespace-pre-wrap border-l-2 border-muted-foreground/20 pl-3 font-mono text-[12px] leading-relaxed text-muted-foreground/60">
             {msg.thinking}
           </pre>
         </details>
@@ -610,7 +610,7 @@ function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: numb
 
 function UserBubble({ msg }: { msg: AIMessage }) {
   return (
-    <div className="whitespace-pre-wrap break-words rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground">
+    <div className="whitespace-pre-wrap break-words rounded-md bg-primary px-3 py-1.5 text-xs text-primary-ink">
       {msg.content}
     </div>
   );
@@ -690,7 +690,7 @@ function ReplyFooter({
   }
   if (parts.length === 0) return null;
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[10px] text-muted-foreground/60">
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[12px] text-muted-foreground/60">
       {parts.map((part, i) => (
         <Fragment key={(part as ReactElement).key ?? i}>
           {i > 0 && <span>&middot;</span>}

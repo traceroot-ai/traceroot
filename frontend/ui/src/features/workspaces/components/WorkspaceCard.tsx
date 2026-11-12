@@ -38,7 +38,7 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
           </Link>
         </div>
         {!workspace.is_demo && (
-          <div className="flex gap-4 text-[11px] text-muted-foreground">
+          <div className="flex gap-4 text-[12px] text-muted-foreground">
             <span>Created {new Date(workspace.create_time).toLocaleDateString()}</span>
             {workspace.update_time && (
               <span>Updated {new Date(workspace.update_time).toLocaleDateString()}</span>

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ADAPTER_CONFIG, ADAPTER_MODELS } from "@traceroot/core";
+import { ADAPTER_CONFIG, ADAPTER_MODELS, defaultAdapterModel } from "@traceroot/core";
 
 const mocks = vi.hoisted(() => ({
   getModelProviders: vi.fn(),
@@ -269,7 +269,8 @@ describe("the models a saved key starts with", () => {
     // The first seeded id is the default every picker opens on. Seeding the
     // newest model of each tier first made OpenAI's the $10 / $50 tier, where
     // the catalogue's order gives the $2 / $10 one.
-    expect(seedFor(adapter)[0]).toBe(ADAPTER_MODELS[adapter]?.[0]?.id);
+    const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((m) => m.id);
+    expect(seedFor(adapter)[0]).toBe(defaultAdapterModel(adapter, catalogue));
   });
 
   it("follows the catalogue when a refresh moves a provider's default", () => {
@@ -955,7 +956,7 @@ describe("the key the selected stack asks for", () => {
     // settings tab to send the reader to for it either.
     renderBlock("ws-1", { kind: "none", provider: "Mistral" });
     expect(
-      await screen.findByText(/TraceRoot has no Mistral adapter, so there is no key to paste/),
+      await screen.findByText(/traceroot has no Mistral adapter, so there is no key to paste/),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByLabelText("Model provider")).toBeNull();
@@ -1001,7 +1002,7 @@ describe("the key the selected stack asks for", () => {
 describe("the only words left around the key field", () => {
   it("sends a provider with no adapter nowhere, and an excluded one to settings", () => {
     expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
-      state: "TraceRoot has no Mistral adapter, so there is no key to paste here.",
+      state: "traceroot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
     expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" })).toEqual({
@@ -1017,7 +1018,7 @@ describe("the only words left around the key field", () => {
     // one, and each is what a customer sees the moment they pick it. Neither
     // line names the stack now, which is how this stays true.
     expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
-      state: "TraceRoot has no Mistral adapter, so there is no key to paste here.",
+      state: "traceroot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
     expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" })).toEqual({
