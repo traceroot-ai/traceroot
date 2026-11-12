@@ -122,7 +122,6 @@ describe("auth options", () => {
     ["/sign-up/email", "a@example.co"],
     ["/sign-up/email", "a@notmailinator.com"],
     ["/sign-up/email", "a@mailinator.com.au"],
-    ["/admin/create-user", "a@example.com"],
   ])("allows %s with %s", async (path, email) => {
     await expect(
       options.databaseHooks.user.create.before({ email }, { path }),

@@ -1,5 +1,4 @@
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
@@ -12,8 +11,8 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
-import { isSelfSignup, signupAttributionProperties } from "@/lib/signup/attribution";
-import { signupEmailError } from "@/lib/signup/email-policy";
+import { signupAttributionProperties } from "@/lib/signup/attribution";
+import { enforceSignupEmailPolicy } from "@/lib/signup/email-policy-hook";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import {
   SESSION_EXPIRES_IN_SECONDS,
@@ -38,12 +37,7 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        // Reject before creating the account or triggering signup notifications.
-        before: async (user, context) => {
-          if (!isSelfSignup(context)) return;
-          const error = signupEmailError(user.email);
-          if (error) throw new APIError("BAD_REQUEST", error);
-        },
+        before: enforceSignupEmailPolicy,
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
