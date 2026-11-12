@@ -770,6 +770,11 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-4-6-sonnet@20251015", "claude-sonnet-4-6"),
     ("claude-4-6-opus@20251015", "claude-opus-4-6"),
     ("claude-4-sonnet@20250514", "claude-sonnet-4"),
+    # Vertex AI — the IDs Agent Platform actually serves: Anthropic order, @date
+    ("claude-haiku-4-5@20251001", "claude-haiku-4-5"),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5"),
+    ("claude-opus-4-5@20251101", "claude-opus-4-5"),
+    ("claude-sonnet-4@20250514", "claude-sonnet-4"),
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
