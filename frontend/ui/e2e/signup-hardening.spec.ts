@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 
 const prisma = new PrismaClient();
 const prefix = `signup-e2e-${randomUUID()}`;
-const VALID_DOMAIN = "traceroot.ai";
 
 // Keep the per-IP sign-up budget independent between tests.
 const ip = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
@@ -21,24 +20,11 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test.describe("sign-up domain policy", () => {
-  for (const [domain, code] of [
-    ["example.com", "EMAIL_DOMAIN_RESERVED"],
-    ["mailinator.com", "EMAIL_DOMAIN_DISPOSABLE"],
-  ] as const) {
-    test(`rejects ${domain} without creating an account`, async ({ request }) => {
-      const email = `${prefix}-${code.toLowerCase()}@${domain}`;
-      const response = await signUp(request, email);
-      expect(response.status()).toBe(400);
-      expect((await response.json()).code).toBe(code);
-      expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
-    });
-  }
-
-  test("accepts a deliverable domain", async ({ request }) => {
-    const email = `${prefix}-ok@${VALID_DOMAIN}`;
+for (const domain of ["workspace.test", "workspace.local", "mailinator.com"]) {
+  test(`creates a local account on ${domain}`, async ({ request }) => {
+    const email = `${prefix}@${domain}`;
     const response = await signUp(request, email);
     expect(response.status()).toBe(200);
     expect(await prisma.user.findUnique({ where: { email } })).not.toBeNull();
   });
-});
+}

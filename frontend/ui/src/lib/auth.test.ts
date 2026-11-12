@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -37,7 +38,7 @@ vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
-    BETTER_AUTH_URL: "http://localhost:3000",
+    BETTER_AUTH_URL: "https://app.traceroot.ai",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
@@ -126,6 +127,15 @@ describe("auth options", () => {
     await expect(
       options.databaseHooks.user.create.before({ email }, { path }),
     ).resolves.toBeUndefined();
+  });
+
+  it.each([
+    "http://localhost:3000",
+    "https://staging.traceroot.ai",
+    "https://tracing.example.org",
+    "https://app.traceroot.ai.example.org",
+  ])("leaves domain policy disabled for %s", (authURL) => {
+    expect(signupEmailPolicyHook(authURL)).toBeUndefined();
   });
 
   it("hands every new user to the sign-up follow-up with the endpoint path", async () => {

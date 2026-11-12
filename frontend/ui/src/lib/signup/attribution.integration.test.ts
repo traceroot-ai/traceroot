@@ -6,9 +6,9 @@ import { NextRequest } from "next/server";
 import { proxy } from "@/proxy";
 import { ATTRIBUTION_COOKIE, ATTRIBUTION_MAX_AGE_SECONDS } from "@/lib/marketing-attribution";
 import { signupAttributionProperties } from "./attribution";
-import { enforceSignupEmailPolicy } from "./email-policy-hook";
+import { signupEmailPolicyHook } from "./email-policy-hook";
 
-const baseURL = "http://localhost:3000";
+const baseURL = "https://app.traceroot.ai";
 const capturedAt = Date.now();
 const utm = { utm_source: "github", utm_medium: "referral", utm_campaign: "github-navigation" };
 let campaignCookie: string;
@@ -31,7 +31,7 @@ function testAuth() {
     databaseHooks: {
       user: {
         create: {
-          before: enforceSignupEmailPolicy,
+          before: signupEmailPolicyHook(baseURL),
           after: async (user, context) => {
             created({
               email: user.email,
@@ -176,6 +176,24 @@ describe("campaign attribution through real better-auth handlers", () => {
       properties: expected,
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["workspace.test", "EMAIL_DOMAIN_RESERVED"],
+    ["mailinator.com", "EMAIL_DOMAIN_DISPOSABLE"],
+  ])("rejects Cloud email signup for %s before creating a user", async (domain, code) => {
+    const { auth, created, database } = testAuth();
+    const response = await auth.handler(
+      request("/sign-up/email", {
+        email: `qa@${domain}`,
+        name: "QA",
+        password: "test-password-123",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code });
+    expect(database.user).toHaveLength(0);
+    expect(created).not.toHaveBeenCalled();
   });
 
   it("rejects a disposable Google signup before creating a user, account, or session", async () => {

@@ -15,29 +15,33 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { signupEmailError } from "@/lib/signup/email-policy";
 
-const signUpSchema = z
-  .object({
-    name: z.string().min(1, "Name is required"),
-    // The same policy is enforced server-side; this only surfaces it inline.
-    email: z
-      .string()
-      .email("Invalid email")
-      .superRefine((email, ctx) => {
-        const error = signupEmailError(email);
-        if (error) ctx.addIssue({ code: "custom", message: error.message });
-      }),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
+function createSignUpSchema(emailDomainPolicyEnabled: boolean) {
+  const email = z.string().email("Invalid email");
+  return z
+    .object({
+      name: z.string().min(1, "Name is required"),
+      email: emailDomainPolicyEnabled
+        ? email.superRefine((address, ctx) => {
+            const error = signupEmailError(address);
+            if (error) ctx.addIssue({ code: "custom", message: error.message });
+          })
+        : email,
+      password: z.string().min(8, "Password must be at least 8 characters"),
+      confirmPassword: z.string(),
+    })
+    .refine((data) => data.password === data.confirmPassword, {
+      message: "Passwords don't match",
+      path: ["confirmPassword"],
+    });
+}
 
+const signUpSchema = createSignUpSchema(false);
+const cloudSignUpSchema = createSignUpSchema(true);
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
   googleAuthConfigured: boolean;
+  emailDomainPolicyEnabled: boolean;
 };
 
 // A brand-new account always finishes at onboarding. The one thing that can
@@ -74,7 +78,7 @@ function postSignUpDestination(callbackUrl: string): string {
   return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
+function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -95,7 +99,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
     handleSubmit,
     formState: { errors },
   } = useForm<SignUpForm>({
-    resolver: zodResolver(signUpSchema),
+    resolver: zodResolver(emailDomainPolicyEnabled ? cloudSignUpSchema : signUpSchema),
     defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
   });
 
@@ -250,10 +254,10 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   );
 }
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+export function SignUpClient(props: SignUpClientProps) {
   return (
     <Suspense>
-      <SignUpContent googleAuthConfigured={googleAuthConfigured} />
+      <SignUpContent {...props} />
     </Suspense>
   );
 }
