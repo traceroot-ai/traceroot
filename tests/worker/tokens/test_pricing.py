@@ -927,10 +927,17 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-opus-5-20260728-v1:0", "claude-opus-5"),
     ("claude-opus-5@20260728", "claude-opus-5"),
     ("claude-5-opus@20260728", "claude-opus-5"),
-    # Opus 5.5 — plain (also its Vertex id), anthropic/ prefix, Bedrock
+    # Opus 5.5 — plain, Bedrock bare + CRIS inference profiles
     ("claude-opus-5-5", "claude-opus-5-5"),
     ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
     ("anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("global.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("us.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("eu.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("apac.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("jp.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("au.anthropic.claude-opus-5-5", "claude-opus-5-5"),
+    ("in.anthropic.claude-opus-5-5", "claude-opus-5-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),
@@ -972,10 +979,17 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("global.anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("claude-sonnet-5@20260601", "claude-sonnet-5"),
-    # Sonnet 5.5 — plain (also its Vertex id), anthropic/ prefix, Bedrock
+    # Sonnet 5.5 — plain, Bedrock bare + CRIS inference profiles
     ("claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("global.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("us.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("eu.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("apac.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("jp.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("au.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("in.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
@@ -1021,7 +1035,20 @@ class TestClaudeBedrockAndVertexIds:
             (prefix + e["modelName"], e["modelName"])
             for e in _standard_price_entries()
             for prefix in (
-                ["", "anthropic/", "anthropic."] if e["provider"] == "anthropic" else [""]
+                [
+                    "",
+                    "anthropic/",
+                    "anthropic.",
+                    "global.anthropic.",
+                    "us.anthropic.",
+                    "eu.anthropic.",
+                    "apac.anthropic.",
+                    "jp.anthropic.",
+                    "au.anthropic.",
+                    "in.anthropic.",
+                ]
+                if e["provider"] == "anthropic"
+                else [""]
             )
         ],
     )
@@ -1089,6 +1116,11 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
     ("claude-haiku-4.5", "claude-haiku-4-5"),
+    # OpenRouter 5.5 ids use a dotted version; these must hit only the 5.5 row
+    ("claude-opus-5.5", "claude-opus-5-5"),
+    ("anthropic/claude-opus-5.5", "claude-opus-5-5"),
+    ("claude-sonnet-5.5", "claude-sonnet-5-5"),
+    ("anthropic/claude-sonnet-5.5", "claude-sonnet-5-5"),
     # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
     ("anthropic/claude-opus-4.7-fast", "claude-opus-4-7-fast"),
     ("claude-opus-4-7-fast", "claude-opus-4-7-fast"),
