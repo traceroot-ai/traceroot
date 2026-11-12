@@ -110,7 +110,10 @@ async function checkEndpoint(
 
 function normalizeDestinationUrl(adapter: string, baseUrl?: string | null): string | undefined {
   const raw = baseUrl?.trim() || ADAPTER_DEFAULT_BASE_URL[adapter];
-  return raw ? raw.replace(/\/+$/, "") : undefined;
+  if (!raw) return undefined;
+  let end = raw.length;
+  while (end > 0 && raw[end - 1] === "/") end--;
+  return raw.slice(0, end);
 }
 
 function adapterBaseUrl(adapter: string, baseUrl?: string): string {

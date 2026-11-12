@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImpersonationError } from "@/lib/api/errors";
 
@@ -327,6 +327,49 @@ describe("ModelProvidersTab", () => {
       providerId: "provider-1",
       baseUrl: null,
     });
+  });
+
+  it("drops a stale in-flight probe result if Base URL is edited before it settles", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "google",
+          provider: "Google Gemini",
+          keyPreview: "sk-...",
+          baseUrl: "https://example.com/v1testing",
+          customModels: [],
+          withDefaultModels: true,
+          config: null,
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+
+    let resolveProbe!: (res: { success: boolean }) => void;
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean }>((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+
+    const baseUrlInput = screen.getByDisplayValue("https://example.com/v1testing");
+    fireEvent.change(baseUrlInput, { target: { value: "https://unreachable.example" } });
+
+    await act(async () => {
+      resolveProbe({ success: true });
+    });
+
+    expect(screen.queryByText("Connected")).toBeNull();
   });
 
   it("shows the catalog protocol for an o-series model and persists an explicit Responses pick", async () => {

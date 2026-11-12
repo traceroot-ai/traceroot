@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
@@ -81,6 +81,14 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const [awsSecretAccessKey, setAwsSecretAccessKey] = useState("");
   const [awsRegion, setAwsRegion] = useState("us-east-1");
   const [useDefaultCredentials, setUseDefaultCredentials] = useState(false);
+  // Generation counter so editing inputs or closing the dialog invalidates any
+  // in-flight connection probe and prevents it from writing a stale result.
+  const probeGenRef = useRef(0);
+
+  function clearTestResult() {
+    probeGenRef.current += 1;
+    setTestResult(null);
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["model-providers", workspaceId],
@@ -121,16 +129,26 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const testMutation = useMutation({
     mutationFn: (input: Parameters<typeof testModelProvider>[1]) =>
       testModelProvider(workspaceId, input),
-    onSuccess: (result) => setTestResult(result),
+    onMutate: () => {
+      probeGenRef.current += 1;
+      setTestResult(null);
+      return { gen: probeGenRef.current };
+    },
+    onSuccess: (result, _input, context) => {
+      if (context?.gen !== probeGenRef.current) return;
+      setTestResult(result);
+    },
     // The request itself can fail (expired session, offline, 500). Without this
     // the spinner would just stop and the user would see no result at all.
-    onError: (err) =>
+    onError: (err, _input, context) => {
+      if (context?.gen !== probeGenRef.current) return;
       setTestResult({
         success: false,
         error: err instanceof ImpersonationError ? err.message : "Connection failed",
         detail:
           err instanceof Error && !(err instanceof ImpersonationError) ? err.message : undefined,
-      }),
+      });
+    },
   });
 
   function closeDialog() {
@@ -146,7 +164,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setBaseUrl("");
     setCustomModels([]);
     setModelProtocols({});
-    setTestResult(null);
+    clearTestResult();
     setSaveError(null);
     setAwsAccessKeyId("");
     setAwsSecretAccessKey("");
@@ -170,7 +188,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setModelProtocols(
       ((p.config as Record<string, unknown>)?.modelProtocols as Record<string, string>) || {},
     );
-    setTestResult(null);
+    clearTestResult();
     setAwsAccessKeyId("");
     setAwsSecretAccessKey("");
     setAwsRegion((p.config as Record<string, string>)?.awsRegion || "us-east-1");
@@ -242,13 +260,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     if (adapterConfig?.credentialType !== "aws") {
       Object.assign(testData, getBaseUrlPayload(baseUrl, !!editProvider));
     }
-    setTestResult(null);
     testMutation.mutate(testData as any);
   }
 
   function handleAdapterChange(value: string) {
     const prevConfig = adapter ? ADAPTER_CONFIG[adapter] : null;
     setAdapter(value);
+    clearTestResult();
     const config = ADAPTER_CONFIG[value];
     // Auto-fill provider name if empty or still matches previous adapter's default label
     if (config && (!providerName || providerName === prevConfig?.label)) {
@@ -508,7 +526,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   value={apiKey}
                   onChange={(e) => {
                     setApiKey(e.target.value);
-                    setTestResult(null);
+                    clearTestResult();
                   }}
                   placeholder={editProvider ? editProvider.keyPreview : "sk-..."}
                 />
@@ -525,7 +543,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   value={baseUrl}
                   onChange={(e) => {
                     setBaseUrl(e.target.value);
-                    setTestResult(null);
+                    clearTestResult();
                   }}
                   placeholder={
                     adapterConfig.requiresBaseUrl
