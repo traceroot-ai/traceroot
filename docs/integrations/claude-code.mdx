@@ -16,22 +16,25 @@ claude plugin install traceroot-observability@traceroot-claude-code-plugin
 
 ## Set up
 
-Claude Code asks for the plugin settings when you install it and stores the API key in your OS keychain. You can also set them as environment variables:
+Claude Code asks for the plugin settings when you install it and stores the API key in your OS keychain. To check or change them later, run `/plugin` in Claude Code, or from a terminal:
 
 ```bash
-export TRACEROOT_API_KEY="tr-..."
-# Optional: only needed for self-hosted deployments
-# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+# Show the current settings and which are unset
+claude plugin configure traceroot-observability@traceroot-claude-code-plugin
+
+# Self-hosted only: point the plugin at your deployment
+echo '{"TRACEROOT_HOST_URL": "https://your-traceroot.example.com"}' \
+  | claude plugin configure traceroot-observability@traceroot-claude-code-plugin --values-stdin
 ```
 
-| Setting | Env var | Default | Description |
+| Setting | Option | Default | Description |
 |---|---|---|---|
 | API key | `TRACEROOT_API_KEY` | — | Required. Your traceroot API key. |
 | Host | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | Set only when self-hosting. |
 | Max chars per field | `TRACEROOT_PLUGIN_MAX_CHARS` | `20000` | Longer inputs and outputs are shortened in the middle. |
 | Debug logging | `TRACEROOT_PLUGIN_DEBUG` | `false` | Writes diagnostics to `~/.claude/state/traceroot/debug.log`. |
 
-Values entered in the plugin settings take precedence over environment variables. Restart Claude Code after changing them.
+An environment variable with the same name is used only when the plugin setting is empty. Settings with a default always have a value, so an `export` won't change them; set them in the plugin settings instead. Restart Claude Code after changing them.
 
 ## Usage
 
@@ -67,7 +70,7 @@ Prompts, tool inputs and tool outputs are sent as they are, including file conte
 ## Limitations
 
 - No user ID is recorded, so traces don't appear on the **Users** page.
-- If no trace arrives, set `TRACEROOT_PLUGIN_DEBUG=true` and check `~/.claude/state/traceroot/debug.log`. Without an API key the plugin does nothing.
+- If no trace arrives, turn on **Debug logging** in the plugin settings and check `~/.claude/state/traceroot/debug.log`. Without an API key the plugin does nothing.
 
 ## Run the example
 
