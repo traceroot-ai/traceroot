@@ -3,11 +3,14 @@ import {
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
+  LOOP_RUN_QUOTAS,
   USAGE_CONFIG,
   PlanType,
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,
+  isLoopRunBlocked,
+  isFreeCapReached,
   isIngestionBlocked,
   hasEntitlement,
 } from "../plans.ts";
@@ -134,5 +137,63 @@ describe("isDetectorRunBlocked", () => {
   it("respects ENABLE_BILLING=false (unblocks all)", () => {
     vi.stubEnv("ENABLE_BILLING", "false");
     expect(isDetectorRunBlocked(PlanType.FREE, 9999)).toBe(false);
+  });
+});
+
+describe("LOOP_RUN_QUOTAS", () => {
+  it("caps Free at 30 runs and leaves paid plans unlimited", () => {
+    expect(LOOP_RUN_QUOTAS[PlanType.FREE].included).toBe(30);
+    expect(LOOP_RUN_QUOTAS[PlanType.STARTER].included).toBe(Infinity);
+    expect(LOOP_RUN_QUOTAS[PlanType.PRO].included).toBe(Infinity);
+    expect(LOOP_RUN_QUOTAS[PlanType.ENTERPRISE].included).toBe(Infinity);
+  });
+});
+
+describe("isLoopRunBlocked", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENABLE_BILLING", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("Free: blocked at exactly 30 runs (hard cap)", () => {
+    expect(isLoopRunBlocked(PlanType.FREE, 0)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.FREE, 29)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.FREE, 30)).toBe(true);
+    expect(isLoopRunBlocked(PlanType.FREE, 5000)).toBe(true);
+  });
+
+  it("Paid plans: never blocked", () => {
+    expect(isLoopRunBlocked(PlanType.STARTER, 100_000)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.PRO, 100_000)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.ENTERPRISE, 100_000)).toBe(false);
+  });
+
+  it("respects ENABLE_BILLING=false (unblocks all)", () => {
+    vi.stubEnv("ENABLE_BILLING", "false");
+    expect(isLoopRunBlocked(PlanType.FREE, 5000)).toBe(false);
+  });
+});
+
+describe("isFreeCapReached", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENABLE_BILLING", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is the one rule behind the detector and Loop blocks", () => {
+    for (const used of [0, 29, 30, 100, 101]) {
+      expect(isFreeCapReached(LOOP_RUN_QUOTAS, PlanType.FREE, used)).toBe(
+        isLoopRunBlocked(PlanType.FREE, used),
+      );
+      expect(isFreeCapReached(DETECTOR_RUN_QUOTAS, PlanType.FREE, used)).toBe(
+        isDetectorRunBlocked(PlanType.FREE, used),
+      );
+    }
   });
 });

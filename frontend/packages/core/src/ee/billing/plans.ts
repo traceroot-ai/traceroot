@@ -50,6 +50,22 @@ export const DETECTOR_RUN_QUOTAS: Record<PlanType, { included: number; overageLa
   [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
 };
 
+// Loop runs (BYOK + hosted combined). Same shape and rules as detector runs;
+// Free is capped at 30 (the Free RCA cap, not the detector one), paid plans are
+// unlimited and hosted inference is billed at 1.05× passthrough past the
+// threshold below. BYOK runs are never billed.
+export const LOOP_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+  [PlanType.FREE]: { included: 30, overageLabel: "Hard cap (upgrade to continue)" },
+  [PlanType.STARTER]: { included: Infinity, overageLabel: "Unlimited" },
+  [PlanType.PRO]: { included: Infinity, overageLabel: "Unlimited" },
+  [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
+};
+
+// First N hosted Loop runs per billing period are absorbed on paid plans, as for
+// detectors. Proposed equal to the Free cap so upgrading never removes included
+// runs; not final (open decision), nothing reads it until Loop runs are metered.
+export const LOOP_HOSTED_LLM_FREE_THRESHOLD = 30;
+
 // First N detector scans per billing period are billed at $0 even on paid
 // plans — we absorb the hosted-LLM cost. This matches Free's 100-scan grant
 // so upgrading from Free to Starter never *removes* a feature the customer
@@ -124,11 +140,29 @@ export function isRcaRunBlocked(plan: PlanType, runsUsed: number): boolean {
  * Paid plans: never blocked (hosted inference is billed at 1.05× passthrough; BYOK is free).
  */
 export function isDetectorRunBlocked(plan: PlanType, scansRun: number): boolean {
+  return isFreeCapReached(DETECTOR_RUN_QUOTAS, plan, scansRun);
+}
+
+/**
+ * Check if Loop runs should be blocked for a given plan and usage.
+ * Free plan: hard cap at 30 runs (BYOK + hosted combined).
+ * Paid plans: never blocked.
+ */
+export function isLoopRunBlocked(plan: PlanType, runsUsed: number): boolean {
+  return isFreeCapReached(LOOP_RUN_QUOTAS, plan, runsUsed);
+}
+
+/**
+ * The rule the run-count blocks share: only the Free plan has a hard cap, and
+ * it is blocked once usage reaches the included allowance.
+ */
+export function isFreeCapReached(
+  quotas: Record<PlanType, { included: number }>,
+  plan: PlanType,
+  used: number,
+): boolean {
   if (!isBillingEnabled()) return false;
-  if (plan === PlanType.FREE) {
-    return scansRun >= DETECTOR_RUN_QUOTAS[plan].included;
-  }
-  return false;
+  return plan === PlanType.FREE && used >= quotas[plan].included;
 }
 
 // =============================================================================
@@ -230,6 +264,7 @@ export const PLANS: Record<
       "50k events / month included",
       "15-day retention",
       "100 detector runs / month",
+      "30 Loop runs / month",
       "30 chat + 30 RCA runs / month",
       "Slack alerts · BYOK or hosted LLM",
     ],
@@ -249,7 +284,7 @@ export const PLANS: Record<
       "150k events / month, $4 per 50k over",
       "30-day retention",
       "100 chat + 100 RCA runs / month, $10 per 100 over each",
-      "Unlimited detector runs",
+      "Unlimited detector and Loop runs",
       "Hosted LLM token cost × 1.05 on overage",
     ],
     support: "Discord",

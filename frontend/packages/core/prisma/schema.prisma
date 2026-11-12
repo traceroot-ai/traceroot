@@ -95,11 +95,13 @@ model Workspace {
   aiBlocked             Boolean           @default(false) @map("ai_blocked") // true when free plan exceeds AI token allowance
   rcaBlocked            Boolean           @default(false) @map("rca_blocked") // true when free plan exceeds 30 RCA runs (mirrors aiBlocked)
   detectorBlocked       Boolean           @default(false) @map("detector_blocked") // true when free plan exceeds 100 detector runs (any source)
+  loopBlocked           Boolean           @default(false) @map("loop_blocked") // true when free plan exceeds 30 Loop runs (any source)
   // currentUsage shape:
   //   { traces, spans, tokens, updatedAt,
   //     ai:       { runsUsed, systemUsage, byokUsage, byModel, lastReportedUnits, lastReportedPeriodStart },
   //     rca:      { runsUsed, systemTokenCost, systemInputTokens, systemOutputTokens, lastReportedUnits, lastReportedPeriodStart },
-  //     detector: { scansRun, systemTokenCost, systemInputTokens, systemOutputTokens, lastReportedUnits, lastReportedPeriodStart } }
+  //     detector: { scansRun, systemTokenCost, systemInputTokens, systemOutputTokens, lastReportedUnits, lastReportedPeriodStart },
+  //     loop:     { runsUsed, systemTokenCost, systemInputTokens, systemOutputTokens } }  (read by the billing page; written by metering once Loop runs are metered)
   // rca.systemTokenCost and detector.systemTokenCost are raw USD inference costs on
   // system-source agent/scan calls (BYOK skipped). The hourly billing job bills each
   // at 1.05× pass-through via STRIPE_PRICE_ID_RCA_USAGE / STRIPE_PRICE_ID_DETECTOR_USAGE.
@@ -193,6 +195,9 @@ model Project {
   accessKeys   AccessKey[]
   aiSessions   AISession[]
   detectors    Detector[]
+  loops        Loop[]
+  loopRuns     LoopRun[]
+  loopMemories LoopMemory[]
   alertConfig  DetectorAlertConfig?
   detectorRcas DetectorRca[]
   signals      Signal[]
@@ -386,6 +391,9 @@ model AISession {
   // The execution that opened this system session (null for user sessions and
   // for system sessions predating executions — no backfill by design).
   executionId   String?                @map("execution_id") @db.VarChar
+  // The Loop run that opened this system session. No FK, like Signal.detectorId:
+  // LoopRun.sessionId already points the other way and a Loop run outlives its session.
+  loopRunId     String?                @map("loop_run_id") @db.VarChar
   createTime    DateTime               @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime               @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
   messages      AIMessage[]
@@ -394,11 +402,13 @@ model AISession {
   // Executions that recorded this session as theirs once they completed (see
   // DetectorRcaExecution.sessionId) — the reverse of `execution` above.
   rcaExecutions DetectorRcaExecution[] @relation("executionSession")
+  LoopRun       LoopRun[]
 
   @@index([projectId], map: "ix_ai_session_project_id")
   @@index([workspaceId], map: "ix_ai_session_workspace_id")
   @@index([userId], map: "ix_ai_session_user_id")
   @@index([executionId], map: "ix_ai_session_execution_id")
+  @@index([loopRunId], map: "ix_ai_session_loop_run_id")
   @@map("ai_sessions")
 }
 
@@ -408,6 +418,7 @@ enum TurnKind {
   chat
   detector
   digest
+  loop_execution
 }
 
 // AI Messages - Individual messages within an AI session
@@ -495,12 +506,122 @@ model Detector {
 
   project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   trigger DetectorTrigger?
+  loop    Loop?
 
   // Backs the idempotent create; detectors have no soft delete, so the
   // unique is unconditional.
   @@unique([projectId, name], map: "uq_detector_project_name")
   @@index([projectId], map: "ix_detector_project_id")
   @@map("detectors")
+}
+
+// A per-project agent that runs on a schedule, reads many traces and records
+// findings that land in Signals. Each Loop owns one hidden detector row
+// (template "loop", never enabled) so every signal it creates carries the
+// Loop's detectorId; Loop deletion removes it in the same transaction.
+model Loop {
+  id                  String    @id @default(cuid()) @db.VarChar
+  projectId           String    @map("project_id") @db.VarChar
+  detectorId          String    @unique(map: "uq_loop_detector") @map("detector_id") @db.VarChar
+  name                String    @db.VarChar
+  template            String?   @db.VarChar // null = custom instructions
+  // The user's own instructions; the template's text is added at run time, so
+  // this may be empty when a template is chosen.
+  instructions        String    @default("") @db.Text
+  templateVersion     Int?      @map("template_version")
+  // "interval" | "daily" | "weekly". Interval is UTC arithmetic (intervalHours);
+  // daily and weekly fire at `hour` in `timezone` (weekday is ISO, 1 = Monday).
+  scheduleKind        String    @map("schedule_kind") @db.VarChar
+  intervalHours       Int?      @map("interval_hours")
+  weekday             Int?
+  hour                Int?
+  timezone            String?   @db.VarChar // canonical IANA name
+  // "active" | "paused" | "paused_by_system"; pauseReason is "failures" when the system paused it.
+  status              String    @default("active") @db.VarChar
+  pauseReason         String?   @map("pause_reason") @db.VarChar
+  statusChangedAt     DateTime  @default(now()) @map("status_changed_at") @db.Timestamp(6)
+  statusChangedBy     String?   @map("status_changed_by") @db.VarChar // null when the system changed it
+  dryRun              Boolean   @default(false) @map("dry_run") // runs and records a summary, writes no findings
+  precheckSql         String?   @map("precheck_sql") @db.Text // null = the template's default
+  lastPrecheckAt      DateTime? @map("last_precheck_at") @db.Timestamp(6)
+  lastPrecheckOutcome String?   @map("last_precheck_outcome") @db.VarChar
+  // Same types and meanings as Detector.detection*; null = the project's Agent model.
+  model               String?   @db.VarChar
+  provider            String?   @db.VarChar
+  source              String?   @db.VarChar // "system" | "byok" | null
+  maxFindingsPerRun   Int       @default(2) @map("max_findings_per_run")
+  lookbackHours       Int       @default(24) @map("lookback_hours")
+  nextRunAt           DateTime? @map("next_run_at") @db.Timestamp(6)
+  lastRunAt           DateTime? @map("last_run_at") @db.Timestamp(6)
+  failureStreak       Int       @default(0) @map("failure_streak")
+  createdBy           String    @map("created_by") @db.VarChar
+  createTime          DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime          DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project  Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  detector Detector     @relation(fields: [detectorId], references: [id], onDelete: Restrict)
+  runs     LoopRun[]
+  memories LoopMemory[]
+
+  @@unique([projectId, name], map: "uq_loop_project_name")
+  @@index([projectId], map: "ix_loop_project_id")
+  // A partial index ix_loop_next_run on (next_run_at) WHERE status = 'active'
+  // backs the scheduler's claim query; it lives in the migration as raw SQL.
+  @@map("loops")
+}
+
+// One execution of a Loop. Append-only, like DetectorRcaExecution: a run is
+// created, finished once, and never edited after.
+model LoopRun {
+  id          String    @id @default(cuid()) @db.VarChar
+  loopId      String    @map("loop_id") @db.VarChar
+  projectId   String    @map("project_id") @db.VarChar
+  seq         Int // per-Loop, from 1
+  trigger     String    @db.VarChar // "schedule" | "manual"
+  slotAt      DateTime? @map("slot_at") @db.Timestamp(6) // the claimed slot; null for manual
+  // "pending" | "running" | "succeeded" | "quiet" | "failed" | "timed_out" | "skipped_precheck" | "skipped_blocked"
+  status      String    @default("pending") @db.VarChar
+  attempts    Int       @default(1)
+  sessionId   String?   @map("session_id") @db.VarChar
+  startedAt   DateTime? @map("started_at") @db.Timestamp(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamp(6)
+  summary     String?   @db.Text
+  findingKeys String[]  @default([]) @map("finding_keys")
+  tracesRead  Int       @default(0) @map("traces_read")
+  error       String?   @db.Text
+  metadata    Json?     @db.JsonB
+  costUsd     Decimal?  @map("cost_usd") @db.Decimal(10, 6)
+  createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+
+  loop    Loop       @relation(fields: [loopId], references: [id], onDelete: Cascade)
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session AISession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@unique([loopId, seq], map: "uq_loop_run_loop_seq")
+  // One run per claimed slot: a second tick or replica cannot insert the same slot twice.
+  @@unique([loopId, slotAt], map: "uq_loop_run_loop_slot")
+  @@index([projectId, createTime], map: "ix_loop_run_project_time")
+  @@map("loop_runs")
+}
+
+// Short notes a Loop keeps between runs, keyed by topic. loopId null = shared
+// by every Loop in the project.
+model LoopMemory {
+  id             String    @id @default(cuid()) @db.VarChar
+  projectId      String    @map("project_id") @db.VarChar
+  loopId         String?   @map("loop_id") @db.VarChar
+  key            String    @db.VarChar(200)
+  content        String    @db.Text // at most 8 KB, enforced by the writer
+  expiresAt      DateTime? @map("expires_at") @db.Timestamp(6)
+  updatedByRunId String?   @map("updated_by_run_id") @db.VarChar
+  createTime     DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime     DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  loop    Loop?   @relation(fields: [loopId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, key], map: "uq_loop_memory_project_key")
+  @@map("loop_memories")
 }
 
 model DetectorTrigger {

@@ -34,6 +34,14 @@
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
     },
+    "./loops": {
+      "types": "./src/loops/index.ts",
+      "default": "./src/loops/index.ts"
+    },
+    "./loops/pure": {
+      "types": "./src/loops/pure.ts",
+      "default": "./src/loops/pure.ts"
+    },
     "./signals": {
       "types": "./src/ee/signals/index.ts",
       "default": "./src/ee/signals/index.ts"
