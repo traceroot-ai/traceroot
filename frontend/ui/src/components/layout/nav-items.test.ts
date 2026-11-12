@@ -5,7 +5,7 @@ describe("project navigation", () => {
   it("groups the sections along the product loop: Observe, Detect, Verify", () => {
     expect(NAV_GROUPS.map((g) => [g.label, g.items.map((i) => i.label)])).toEqual([
       ["Observe", ["Tracing", "Dashboard"]],
-      ["Detect", ["Detectors", "Signals", "Alerts"]],
+      ["Detect", ["Detectors", "Loops", "Signals", "Alerts"]],
       ["Verify", ["Datasets", "Evaluations"]],
     ]);
     expect(NAV_HOME.label).toBe("Home");
@@ -14,18 +14,19 @@ describe("project navigation", () => {
   it("covers every section exactly once", () => {
     const keys = [NAV_HOME, ...NAV_GROUPS.flatMap((g) => g.items)].map((i) => i.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toHaveLength(8);
+    expect(keys).toHaveLength(9);
   });
 
   it("builds project hrefs", () => {
     expect(navHref("p1", NAV_HOME)).toBe("/projects/p1/home");
-    expect(navHref("p1", NAV_GROUPS[1].items[1])).toBe("/projects/p1/signals");
+    expect(navHref("p1", NAV_GROUPS[1].items[2])).toBe("/projects/p1/signals");
   });
 
   it("marks an item active on its own pages and their children", () => {
-    const signals = NAV_GROUPS[1].items[1];
+    const signals = NAV_GROUPS[1].items[2];
     expect(isNavItemActive("/projects/p1/signals", "p1", signals)).toBe(true);
     expect(isNavItemActive("/projects/p1/detectors/d1", "p1", NAV_GROUPS[1].items[0])).toBe(true);
+    expect(isNavItemActive("/projects/p1/loops/l1/edit", "p1", NAV_GROUPS[1].items[1])).toBe(true);
     expect(isNavItemActive("/projects/p1/datasets/d9", "p1", NAV_GROUPS[2].items[0])).toBe(true);
     expect(isNavItemActive("/projects/p1/detectors", "p1", signals)).toBe(false);
   });

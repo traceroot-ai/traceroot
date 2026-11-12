@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Detect",
     items: [
       { key: "detectors", label: "Detectors", segment: "detectors", icon: DOMAIN_ICONS.detector },
+      { key: "loops", label: "Loops", segment: "loops", icon: DOMAIN_ICONS.loop },
       { key: "signals", label: "Signals", segment: "signals", icon: DOMAIN_ICONS.signal },
       { key: "alerts", label: "Alerts", segment: "alerts", icon: DOMAIN_ICONS.alert },
     ],

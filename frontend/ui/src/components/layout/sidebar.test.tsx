@@ -114,7 +114,7 @@ describe("Sidebar", () => {
       ]),
     ).toEqual([
       ["Observe", ["Tracing", "Dashboard"]],
-      ["Detect", ["Detectors", "Signals", "Alerts"]],
+      ["Detect", ["Detectors", "Loops", "Signals", "Alerts"]],
       ["Verify", ["Datasets", "Evaluations"]],
     ]);
     expect(container.querySelector('nav a[aria-current="page"]')?.textContent).toBe("Signals");

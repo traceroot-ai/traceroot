@@ -21,6 +21,7 @@ import {
   Lightbulb,
   FlaskConical,
   Play,
+  Repeat,
   Ruler,
   Shapes,
   Sparkle,
@@ -72,6 +73,8 @@ export const DOMAIN_ICONS = {
   project: FolderKanban,
   workspace: LayoutGrid,
   detector: Eye,
+  // A scheduled agent that reads many traces and records what it finds as signals.
+  loop: Repeat,
   // A recurring problem: detector hits grouped by what one fix would remove.
   signal: Lightbulb,
   environment: Globe,
