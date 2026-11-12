@@ -402,11 +402,15 @@ describe("OpenAI Decisions span", () => {
       const run = await withSelfTrace(META, runOpenAI);
       expect(run.ok).toBe(false);
 
+      const expected =
+        "OpenAI decisions returned 401: invalid_api_key - Invalid key. Authorization: Bearer [REDACTED]";
+      // JSON.stringify drops an Error's message, so the run's error is read directly.
+      const runError = run.ok ? null : (run.error as Error).message;
+      expect(runError).toBe(expected);
+
       const { span } = decisionAttributes("decisions gpt-6-luna");
-      expect(span.status.message).toBe(
-        "OpenAI decisions returned 401: invalid_api_key - Invalid key. Authorization: Bearer [REDACTED]",
-      );
-      const exported = JSON.stringify([span.status, span.events, span.attributes, run]);
+      expect(span.status.message).toBe(expected);
+      const exported = JSON.stringify([span.status, span.events, span.attributes, runError]);
       expect(exported).not.toContain("sk-key");
     } finally {
       vi.unstubAllGlobals();
