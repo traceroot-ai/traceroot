@@ -17,6 +17,7 @@ import { getModel } from "@earendil-works/pi-ai/compat";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { prisma } from "./lib/prisma.ts";
 import { decryptKey } from "./lib/encryption.ts";
+import standardModels from "./standard-model-prices.json" with { type: "json" };
 import {
   SYSTEM_MODELS,
   PROVIDER_PRIORITY,
@@ -59,12 +60,35 @@ export function isSystemModelId(modelId: string): boolean {
   return systemModelLookup.has(modelId);
 }
 
+// These hosted models are absent from the pinned pi-ai registry.
+type HostedFallback = Pick<Model<Api>, "contextWindow" | "reasoning" | "compat" | "headers">;
+const openAIHostedFallback = { contextWindow: 1_050_000, reasoning: true };
+const hostedFallbacks: Partial<Record<string, HostedFallback>> = {
+  "gpt-5.6-sol": openAIHostedFallback,
+  "gpt-5.6-terra": openAIHostedFallback,
+  "gpt-6-sol": openAIHostedFallback,
+  "claude-sonnet-5-5": {
+    contextWindow: 1_000_000,
+    // The Agent SDK sends an unsupported explicit thinking mode for reasoning
+    // models. Omit it so Sonnet uses the provider's adaptive thinking default.
+    reasoning: false,
+    // Both pinned SDKs otherwise opt into the legacy interleaved-thinking beta.
+    headers: { "anthropic-beta": "" },
+    compat: { supportsTemperature: false },
+  },
+};
+
 /**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
  */
-function buildFallbackModel(modelId: string, apiProtocol: string, provider: string): Model<Api> {
+function buildFallbackModel(
+  modelId: string,
+  apiProtocol: string,
+  provider: string,
+  hostedFallback?: HostedFallback,
+): Model<Api> {
   // pi-ai's getModel is typed to known provider IDs; BYOK adapter→provider maps
   // (e.g. deepseek → openai) are valid lookups.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,17 +96,27 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
   if (registryModel) {
     return { ...registryModel, api: apiProtocol } as Model<Api>;
   }
+  // Standard prices are per token; pi-ai expects dollars per million tokens.
+  const prices = hostedFallback
+    ? standardModels.find((entry) => entry.modelName === modelId)?.prices
+    : undefined;
   return {
     id: modelId,
     name: modelId,
     api: apiProtocol,
     provider,
-    baseUrl: "",
+    baseUrl: hostedFallback ? ADAPTER_DEFAULT_BASE_URL[provider] : "",
     reasoning: false,
     input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: {
+      input: (prices?.input ?? 0) * 1_000_000,
+      output: (prices?.output ?? 0) * 1_000_000,
+      cacheRead: (prices?.cacheRead ?? 0) * 1_000_000,
+      cacheWrite: (prices?.cacheWrite ?? 0) * 1_000_000,
+    },
     contextWindow: 200000,
-    maxTokens: 64000,
+    maxTokens: hostedFallback ? 128_000 : 64_000,
+    ...hostedFallback,
   } as Model<Api>;
 }
 
@@ -177,7 +211,12 @@ export function resolvePiModel(
   // 2. System model with per-model protocol
   const sysInfo = systemModelLookup.get(effectiveModelId);
   if (sysInfo) {
-    return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
+    return buildFallbackModel(
+      effectiveModelId,
+      sysInfo.apiProtocol,
+      sysInfo.piAIProvider,
+      hostedFallbacks[effectiveModelId],
+    );
   }
 
   // 3. Unknown — fall back
