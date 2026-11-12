@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock prisma BEFORE importing the resolver so fetchProviderConfig hits the mock.
 vi.mock("../lib/prisma", () => ({
@@ -22,7 +22,11 @@ import {
   invalidateProviderConfigCache,
   type ProviderModelConfig,
 } from "../model-resolver.ts";
-import { SYSTEM_MODELS, DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "../llm-providers.ts";
+import {
+  SYSTEM_MODELS,
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  RCA_SYSTEM_DEFAULT_MODEL_ID,
+} from "../llm-providers.ts";
 import { prisma } from "../lib/prisma.ts";
 import { decryptKey } from "../lib/encryption.ts";
 
@@ -330,5 +334,55 @@ describe("isSystemModelId", () => {
   it("rejects a retired or invented id", () => {
     expect(isSystemModelId("claude-retired-1")).toBe(false);
     expect(isSystemModelId("")).toBe(false);
+  });
+});
+
+describe("resolvePiModel default (no model id, no BYOK)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("uses the named RCA default, not the first Anthropic catalog entry, when an Anthropic key is set", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const anthropic = SYSTEM_MODELS.find((s) => s.piAIProvider === "anthropic")!;
+    // Guard: the test is only meaningful while the catalog head differs from the default.
+    expect(anthropic.models[0].id).not.toBe(RCA_SYSTEM_DEFAULT_MODEL_ID);
+    const m = resolvePiModel(undefined, null);
+    expect(m.id).toBe(RCA_SYSTEM_DEFAULT_MODEL_ID);
+    expect(m.provider).toBe("anthropic");
+    expect(m.api).toBe("anthropic-messages");
+  });
+
+  it("is a model in the hosted catalog (so it can actually be resolved)", () => {
+    expect(isSystemModelId(RCA_SYSTEM_DEFAULT_MODEL_ID)).toBe(true);
+  });
+
+  it("falls back to the first model of the first keyed provider when the default's key is missing", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "sk-openai-test");
+    const m = resolvePiModel(undefined, null);
+    expect(m.provider).toBe("openai");
+    expect(m.id).toBe(SYSTEM_MODELS.find((s) => s.piAIProvider === "openai")!.models[0].id);
+  });
+
+  it("returns the named default even with no provider key at all", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    expect(resolvePiModel(undefined, null).id).toBe(RCA_SYSTEM_DEFAULT_MODEL_ID);
+  });
+
+  it("does not override an explicit model id", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    expect(resolvePiModel("claude-opus-4-8", null).id).toBe("claude-opus-4-8");
+  });
+
+  it("does not override a BYOK adapter's own first curated model", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    const cfg: ProviderModelConfig = {
+      adapter: "deepseek",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(resolvePiModel(undefined, cfg).id).toMatch(/^deepseek-/);
   });
 });

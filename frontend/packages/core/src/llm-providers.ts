@@ -103,6 +103,34 @@ export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "gpt-6-luna";
 export const DETECTOR_SYSTEM_FALLBACK_MODEL_ID = "claude-haiku-5-5";
 
 /**
+ * Hosted default for the RCA / traceroot Agent when no model is specified and
+ * no BYOK config applies (a project's `rca_model` unset, an agent request with
+ * no model). `resolvePiModel(undefined, null)` uses this when its provider's
+ * key (ANTHROPIC_API_KEY) is set, and otherwise falls back to the first model
+ * of the highest-priority provider that has a key.
+ *
+ * Before this constant the default was implicit: the first entry of the first
+ * keyed provider in SYSTEM_MODELS, i.e. `claude-opus-4-8` ($5 / $25 per 1M),
+ * so reordering the catalog silently changed what new users ran and paid for.
+ *
+ * claude-sonnet-5 ($2 / $10 per 1M) was chosen on reasoning, NOT on a measured
+ * RCA comparison: RCA is a long multi-step tool-use loop (read traces, run
+ * code in a sandbox, iterate), which is a coding/agentic workload, and
+ * Sonnet-class models are the usual price/latency/quality point for that
+ * rather than the top Opus tier. It is the newest Sonnet in the hosted
+ * catalog, cheaper than both claude-sonnet-4-5 (the agent runtime's old
+ * hard-coded label) and claude-opus-4-8, and docs/integrations/internal-models.mdx
+ * describes it as near-Opus on coding and agentic quality. At minimum this
+ * stops defaulting new users to the most expensive model without an
+ * intentional choice.
+ *
+ * TODO: run an RCA-quality sweep like the detector judge's one in #2485 /
+ * #2556 (RCA usefulness, latency, cost across candidate models) once there is
+ * eval budget, and revisit this value.
+ */
+export const RCA_SYSTEM_DEFAULT_MODEL_ID = "claude-sonnet-5";
+
+/**
  * Hosted model for the finding-digest summary paragraph. Kept apart from the
  * detector default: that digest is the path deployments without OPENAI_API_KEY
  * use (with a key, signals send their own digest), so it stays on Anthropic.
@@ -164,6 +192,8 @@ export const SYSTEM_MODELS: {
 // Used by both the frontend ModelSelector (matches all providers including BYOK)
 // and the backend getDefaultSystemModel() (only matches SYSTEM_MODELS entries;
 // entries without a matching system provider are silently skipped server-side).
+// Within the winning provider, RCA_SYSTEM_DEFAULT_MODEL_ID is preferred over
+// catalog order.
 export const PROVIDER_PRIORITY: LLMAdapter[] = [
   LLMAdapter.ANTHROPIC,
   LLMAdapter.OPENAI,

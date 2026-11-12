@@ -6,6 +6,7 @@ import {
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  RCA_SYSTEM_DEFAULT_MODEL_ID,
   DIGEST_SUMMARY_SYSTEM_MODEL_ID,
   defaultAdapterModel,
   defaultApiProtocol,
@@ -82,6 +83,12 @@ describe("ADAPTER_MODELS", () => {
     );
 
     expect(systemModelIds).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+  });
+
+  it("keeps the RCA system default in the Anthropic system catalog", () => {
+    const anthropic = SYSTEM_MODELS.find((system) => system.provider === "Anthropic");
+
+    expect(anthropic?.models.map((model) => model.id)).toContain(RCA_SYSTEM_DEFAULT_MODEL_ID);
   });
 
   it("keeps the digest summary default on Anthropic, the provider of keyless-signals deployments", () => {

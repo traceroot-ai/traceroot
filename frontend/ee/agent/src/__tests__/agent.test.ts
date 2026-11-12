@@ -10,6 +10,7 @@ vi.mock("@traceroot/core", () => ({
   ADAPTER_TO_PI_AI: {},
   BEDROCK_USE_DEFAULT_CREDENTIALS: "__bedrock_default__",
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
+  RCA_SYSTEM_DEFAULT_MODEL_ID: "test-rca-default",
 }));
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: vi.fn(() => ({ id: "test-model", provider: "anthropic" })),
@@ -82,6 +83,20 @@ describe("getOrCreateAgent", () => {
       pendingDecisions.releaseSession("hook-session", "test cleanup");
       const channel = pendingDecisions.channelFor("hook-session");
       if (channel) pendingDecisions.unregisterChannel("hook-session", channel);
+    }
+  });
+
+  it("labels an omitted model with the shared RCA default, not a stale hard-coded one", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await getOrCreateAgent(config("default-label-session", [fakeTool("a")]));
+      const line = log.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.startsWith("[Agent] Using"));
+      expect(line).toContain('model="test-rca-default"');
+      expect(line).not.toContain("claude-sonnet-4-5");
+    } finally {
+      log.mockRestore();
     }
   });
 

@@ -20,6 +20,7 @@ import { decryptKey } from "./lib/encryption.ts";
 import {
   SYSTEM_MODELS,
   PROVIDER_PRIORITY,
+  RCA_SYSTEM_DEFAULT_MODEL_ID,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
@@ -86,12 +87,27 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
   } as Model<Api>;
 }
 
-/** Pick the first available system model by provider priority (env-var present). */
+/**
+ * Default hosted model when no model id and no BYOK config is given (RCA / agent).
+ *
+ * Prefers the explicit `RCA_SYSTEM_DEFAULT_MODEL_ID` when its provider's key is
+ * set. Otherwise (e.g. an OpenAI-only deployment) walks PROVIDER_PRIORITY and
+ * takes the first model of the first keyed provider, as before.
+ */
 function getDefaultSystemModel(): {
   modelId: string;
   piAIProvider: string;
   apiProtocol: string;
 } | null {
+  const named = systemModelLookup.get(RCA_SYSTEM_DEFAULT_MODEL_ID);
+  const namedProvider = named && SYSTEM_MODELS.find((s) => s.piAIProvider === named.piAIProvider);
+  if (named && namedProvider && process.env[namedProvider.envVar]) {
+    return {
+      modelId: RCA_SYSTEM_DEFAULT_MODEL_ID,
+      piAIProvider: named.piAIProvider,
+      apiProtocol: named.apiProtocol,
+    };
+  }
   for (const adapter of PROVIDER_PRIORITY) {
     const sys = SYSTEM_MODELS.find((s) => s.piAIProvider === adapter && process.env[s.envVar]);
     if (sys && sys.models.length > 0) {
@@ -123,7 +139,7 @@ export function resolvePiModel(
     throw new Error(`Model "${modelId}" is a decision model and cannot run as a chat model`);
   }
   const defaultSystemModel = !modelId ? getDefaultSystemModel() : null;
-  const effectiveModelId = modelId || defaultSystemModel?.modelId || "claude-sonnet-4-5";
+  const effectiveModelId = modelId || defaultSystemModel?.modelId || RCA_SYSTEM_DEFAULT_MODEL_ID;
 
   // 1. BYOK
   if (providerConfig) {
@@ -188,8 +204,10 @@ export function resolvePiModel(
       defaultSystemModel.piAIProvider,
     );
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return getModel("anthropic" as any, "claude-sonnet-4-5" as any) as Model<Api>;
+  // No provider key at all: still return the named default (the call will fail
+  // on auth) rather than a model nobody chose.
+  const last = systemModelLookup.get(RCA_SYSTEM_DEFAULT_MODEL_ID)!;
+  return buildFallbackModel(RCA_SYSTEM_DEFAULT_MODEL_ID, last.apiProtocol, last.piAIProvider);
 }
 
 const configCache = new Map<string, { config: ProviderModelConfig; expiresAt: number }>();
