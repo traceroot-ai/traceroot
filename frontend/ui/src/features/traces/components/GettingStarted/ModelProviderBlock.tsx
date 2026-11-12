@@ -27,28 +27,37 @@ import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import type { ProviderKeyBinding } from "./integrations";
 
 /**
- * Whether this step can configure an adapter by itself, from that adapter's two
- * table entries.
+ * Whether this step can configure an adapter by itself, from its config entry,
+ * seeded catalogue models, and free-text model-ID support.
  *
  * An adapter qualifies on two counts. A single pasted key has to be the whole
  * credential — `credentialType: "api-key"` with no base URL to ask for — which
  * leaves out Azure OpenAI (needs a base URL) and AWS Bedrock (an access-key
  * pair or a default-credentials toggle, plus a region). And there have to be
- * models to seed — see {@link SEEDED_MODELS} — which leaves out OpenRouter:
+ * models available — either seeded from {@link SEEDED_MODELS} or collected via
+ * a free-text model ID input ({@link acceptsFreeTextModel}, e.g. OpenRouter):
  * `listWorkspaceModels` builds a BYOK provider's models purely from the row's
- * `customModels`, so a row saved with a key and nothing to seed is accepted,
- * looks saved, and offers no model anywhere.
+ * `customModels`, so a row saved with a key and no models is accepted, looks
+ * saved, and offers no model anywhere.
  *
  * Takes the entries rather than looking them up so each half of the rule can be
- * checked on its own: in today's tables the two exclude the same three
- * adapters, so a future adapter that needs a base URL *and* has models to seed
- * would otherwise slip in on a condition nothing exercises.
+ * checked on its own: a future adapter that needs a base URL *and* accepts
+ * models must still fail on the credential half.
  */
 export function isInlineConfigurable(
   config: { credentialType: "api-key" | "aws"; requiresBaseUrl: boolean } | undefined,
   catalogue: readonly unknown[] | undefined,
+  freeTextModel = false,
 ): boolean {
-  return keyIsWholeCredential(config) && (catalogue?.length ?? 0) > 0;
+  return keyIsWholeCredential(config) && (freeTextModel || (catalogue?.length ?? 0) > 0);
+}
+
+/**
+ * Adapters without a curated catalogue whose single model ID is collected via a
+ * free-text input inline rather than seeded from {@link SEEDED_MODELS}.
+ */
+export function acceptsFreeTextModel(adapter: LLMAdapter): boolean {
+  return adapter === LLMAdapter.OPENROUTER;
 }
 
 /**
@@ -116,7 +125,7 @@ export function seedFor(adapter: LLMAdapter): string[] {
  * provider surface offers.
  */
 export const INLINE_ADAPTERS: LLMAdapter[] = PROVIDER_PRIORITY.filter((adapter) =>
-  isInlineConfigurable(ADAPTER_CONFIG[adapter], seedFor(adapter)),
+  isInlineConfigurable(ADAPTER_CONFIG[adapter], seedFor(adapter), acceptsFreeTextModel(adapter)),
 );
 
 /**
@@ -139,12 +148,13 @@ class ProbeRejected extends Error {
  * fails neither and the step can configure it inline.
  *
  * Pulled out of the sentence below because the step now reaches it one adapter
- * at a time as well: a stack bound to Azure, Bedrock or OpenRouter has to be
- * told why its own key cannot be pasted here, in the same terms as the list.
+ * at a time as well: a stack bound to Azure, Bedrock, or an unseeded catalogue
+ * adapter has to be told why its own key cannot be pasted here, in the same
+ * terms as the list.
  */
 export function settingsOnlyReason(adapter: LLMAdapter): "more-than-a-key" | "model-list" | null {
   const config = ADAPTER_CONFIG[adapter];
-  if (isInlineConfigurable(config, seedFor(adapter))) return null;
+  if (isInlineConfigurable(config, seedFor(adapter), acceptsFreeTextModel(adapter))) return null;
   return keyIsWholeCredential(config) ? "model-list" : "more-than-a-key";
 }
 
@@ -252,8 +262,8 @@ const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
  * Two different situations, kept apart because the honest sentence differs.
  * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
  * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
- * access-key pair and a region, OpenRouter a model list. `none` covers a
- * provider there is no adapter for at all, Mistral today: nothing anywhere in
+ * access-key pair and a region, or an unseeded adapter without free-text model
+ * input. `none` covers a provider there is no adapter for at all, Mistral today: nothing anywhere in
  * TraceRoot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
  *
@@ -324,6 +334,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   // two of them to disagree in.
   const [override, setOverride] = useState<LLMAdapter | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [modelId, setModelId] = useState("");
   const [failure, setFailure] = useState<{ message: string; detail?: string } | null>(null);
 
   // Everything above belongs to the stack that was selected when it happened:
@@ -348,6 +359,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
     liveBinding.current = providerKey;
     setOverride(null);
     setApiKey("");
+    setModelId("");
     setFailure(null);
   }
 
@@ -357,6 +369,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
   // cases that reach it, instead of re-checking the third.
   const bound = providerKey.kind === "none" ? undefined : providerKey;
   const adapter = override ?? bound?.adapter;
+  const needsModelId = adapter ? acceptsFreeTextModel(adapter) : false;
 
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -398,11 +411,14 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
       // Seed a few models alongside the key: the model pickers build a BYOK
       // provider's models from `customModels` alone, so a key on its own would
       // store a provider that offers nothing. See {@link SEEDED_MODELS}.
+      // Free-text model adapters (OpenRouter) have no curated catalogue and
+      // take the model ID entered directly in this step.
+      const customModels = acceptsFreeTextModel(chosen) ? [modelId.trim()] : seedFor(chosen);
       return createModelProvider(workspaceId, {
         adapter: chosen,
         provider: ADAPTER_CONFIG[chosen].label,
         apiKey: credential,
-        customModels: seedFor(chosen),
+        customModels,
       });
     },
     // The binding this save belongs to travels with it, so the callbacks below
@@ -422,6 +438,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
       // a key typed for a provider this save never touched.
       if (context?.binding !== liveBinding.current) return;
       setApiKey("");
+      setModelId("");
     },
     // The key stays in the field on every failure: nothing was stored, and it is
     // the one thing on screen the user cannot retype from memory. A rejection
@@ -638,6 +655,15 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
 
   const label = ADAPTER_CONFIG[adapter].label;
 
+  const handleSave = () => {
+    if (!adapter) return;
+    if (needsModelId && modelId.trim() === "") {
+      setFailure({ message: "A model ID is required" });
+      return;
+    }
+    saveMutation.mutate(adapter);
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
@@ -662,6 +688,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
               // provider's form, with "Verify and save" ready to send the old
               // key to the new provider.
               setApiKey("");
+              setModelId("");
               setFailure(null);
             }}
           >
@@ -687,15 +714,33 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
           autoComplete="off"
           placeholder={`${label} API key`}
           value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
+          onChange={(event) => {
+            setApiKey(event.target.value);
+            if (failure) setFailure(null);
+          }}
           className="h-8 flex-1 font-mono text-[12px]"
         />
+
+        {needsModelId && (
+          <Input
+            type="text"
+            aria-label="Model ID"
+            autoComplete="off"
+            placeholder="e.g. openai/gpt-4o"
+            value={modelId}
+            onChange={(event) => {
+              setModelId(event.target.value);
+              if (failure) setFailure(null);
+            }}
+            className="h-8 flex-1 font-mono text-[12px]"
+          />
+        )}
 
         <Button
           variant="outline"
           size="sm"
           className="shrink-0"
-          onClick={() => saveMutation.mutate(adapter)}
+          onClick={handleSave}
           disabled={saveMutation.isPending || apiKey.trim() === ""}
         >
           {saveMutation.isPending ? "Verifying..." : "Verify and save"}
