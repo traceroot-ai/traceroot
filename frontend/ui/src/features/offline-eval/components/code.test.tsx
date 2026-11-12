@@ -309,7 +309,7 @@ describe("EditableValueBlock", () => {
 
   it("renders the boxed chrome variant", () => {
     const { container } = render(<Editable boxed />);
-    expect(container.querySelector(".rounded-md.border")).toBeTruthy();
+    expect(container.querySelector(".rounded-\\[2px\\].border.border-border")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Input" })).toBeTruthy();
   });
 

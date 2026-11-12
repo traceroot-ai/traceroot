@@ -1,0 +1,161 @@
+/* Mintlify owns the footer content; these classes only enhance its layout. */
+#footer.tr-docs-footer {
+  --tr-footer-gap: 56px;
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0 0 32px;
+  border: 0;
+  color: var(--tr-muted);
+  font-family: "Geist", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.tr-docs-footer *,
+.tr-docs-footer *::before,
+.tr-docs-footer *::after {
+  box-sizing: border-box;
+}
+
+.tr-docs-footer__inner {
+  max-width: none;
+  gap: 0;
+  padding: calc(var(--tr-footer-gap) - 1px) 0 0;
+  border-top: 1px solid var(--tr-border);
+}
+
+/* The link box and wordmark replace Mintlify's separator and attribution. */
+.tr-docs-footer__inner > :not(.tr-docs-footer__row):not(.tr-docs-footer__extras) {
+  display: none;
+}
+
+.tr-docs-footer__extras,
+.tr-docs-footer__columns {
+  display: contents;
+}
+
+.tr-docs-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tr-docs-footer a:hover {
+  color: var(--tr-text);
+}
+
+.tr-docs-footer a:focus-visible {
+  outline: 2px solid var(--tr-link);
+  outline-offset: 4px;
+}
+
+.tr-docs-footer__row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 16px;
+  align-items: start;
+  padding: 24px 20px 26px;
+  border: 1px solid var(--tr-border);
+}
+
+/* Native Mintlify may place its duplicate socials beside or inside the logo. */
+.tr-docs-footer__row > :not(.tr-docs-footer__columns) {
+  display: none;
+}
+
+.tr-docs-footer__columns > div > div > p {
+  margin: 0 0 12px;
+  color: var(--tr-text);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 15px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.tr-docs-footer__columns > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.tr-docs-footer__columns > div > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tr-docs-footer__columns a {
+  display: inline-flex;
+  max-width: none;
+  min-height: 22px;
+  align-items: center;
+  gap: 7px;
+  padding: 1px 0;
+  overflow: visible;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: normal;
+}
+
+.tr-docs-footer__columns a:is([href^="https://traceroot.ai/docs"], [href^="https://cal.com/"], [href^="https://trust.traceroot.ai"], [href^="https://github.com/"], [href^="https://discord.gg/"], [href^="https://x.com/"], [href^="https://www.linkedin.com/"])::after {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' fill='none' stroke='black' stroke-width='1.1'%3E%3Cpath d='M2.5 7.5l5-5M3.5 2.5h4v4'/%3E%3C/svg%3E") center / contain no-repeat;
+  content: "";
+  opacity: 0.7;
+}
+
+.tr-docs-footer__wordmark {
+  display: block;
+  width: 100%;
+  /* Home's canvas has 6px of empty space above the first pixel. */
+  margin: calc(var(--tr-footer-gap) - 6px) 0 0;
+  aspect-ratio: 800 / 128;
+}
+
+.tr-docs-footer__wordmark :is(img, canvas) {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  aspect-ratio: 800 / 128;
+}
+
+.tr-docs-footer__wordmark [hidden] {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  #footer.tr-docs-footer::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--tr-footer-divider-left);
+    width: 1px;
+    background: var(--tr-border);
+    content: "";
+  }
+}
+
+@media (max-width: 679px) {
+  .tr-docs-footer__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    grid-auto-flow: column;
+    gap: 32px 24px;
+  }
+
+  .tr-docs-footer__wordmark {
+    margin-top: calc(var(--tr-footer-gap) - 4px);
+  }
+}

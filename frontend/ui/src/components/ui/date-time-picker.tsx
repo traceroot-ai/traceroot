@@ -141,11 +141,11 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
   };
 
   const inputBase =
-    "h-7 text-center text-[13px] border border-border rounded bg-background focus:outline-none focus:ring-1 focus:ring-ring";
+    "h-8 text-center text-[13px] border border-border rounded-[2px] bg-background focus:outline-none focus:ring-1 focus:ring-ring";
 
   return (
-    <div className="mb-3">
-      <label className="mb-1.5 block text-[13px] text-muted-foreground">{label}</label>
+    <div className="mb-4">
+      <label className="mb-1.5 block text-[12px] font-medium text-muted-foreground">{label}</label>
       <div className="flex items-center gap-1">
         <input
           type="text"
@@ -213,7 +213,7 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
             setPeriod(newP);
             updateDate(year, month, day, hour, minute, newP);
           }}
-          className="ml-1 flex h-7 items-center gap-0.5 rounded border border-border bg-background px-2 text-[13px] hover:bg-muted"
+          className="ml-1 flex h-8 items-center gap-0.5 rounded-[2px] border border-border bg-background px-2 text-[13px] hover:bg-muted"
         >
           {period}
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -261,13 +261,11 @@ export function DateRangePicker({
   }, [start, end, minDate, onApply]);
 
   return (
-    <div className={cn("p-3", className)}>
+    <div className={cn("p-4", className)}>
       <TimeInput label="Start time" date={start} onChange={setStart} />
       <TimeInput label="End time" date={end} onChange={setEnd} />
-      <div className="mt-3 flex justify-center">
-        <Button size="sm" className="h-8 px-6 text-[13px]" onClick={handleApply}>
-          Apply
-        </Button>
+      <div className="-mx-4 -mb-4 mt-4 flex justify-end border-t border-border px-4 py-3">
+        <Button onClick={handleApply}>Apply</Button>
       </div>
     </div>
   );
