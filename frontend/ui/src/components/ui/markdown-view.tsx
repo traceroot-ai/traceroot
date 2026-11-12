@@ -17,7 +17,7 @@ import { highlightCode, normalizeLang } from "@/lib/code-highlight";
  * remarkUnderline. Fenced code is syntax-highlighted for Python and JavaScript
  * (TypeScript/JSON alias onto them); other languages render plain.
  *
- * Typography is deliberately compact (11px) to match the surrounding I/O panels.
+ * Typography is deliberately compact (12px) to match the surrounding I/O panels.
  */
 
 function CodeBlock({ code, lang }: { code: string; lang: string | null }) {
@@ -26,11 +26,11 @@ function CodeBlock({ code, lang }: { code: string; lang: string | null }) {
   return (
     <div className="my-1.5 overflow-hidden rounded border border-border">
       {lang && (
-        <div className="border-b border-border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+        <div className="border-b border-border px-2 py-0.5 font-mono text-[12px] text-muted-foreground">
           {lang}
         </div>
       )}
-      <pre className="whitespace-pre-wrap break-words bg-background px-2 py-1.5 font-mono text-[11px] leading-relaxed">
+      <pre className="whitespace-pre-wrap break-words bg-background px-2 py-1.5 font-mono text-[12px] leading-relaxed">
         {tokens.map((t, i) => (
           <span key={i} className={t.cls}>
             {t.text}
@@ -74,16 +74,16 @@ const COMPONENTS: Components = {
     <h2 className="mb-1.5 mt-2 text-[12px] font-semibold first:mt-0">{children}</h2>
   ),
   h3: ({ children }) => (
-    <h3 className="mb-1 mt-2 text-[11px] font-semibold first:mt-0">{children}</h3>
+    <h3 className="mb-1 mt-2 text-[12px] font-semibold first:mt-0">{children}</h3>
   ),
   h4: ({ children }) => (
-    <h4 className="mb-1 mt-2 text-[11px] font-semibold first:mt-0">{children}</h4>
+    <h4 className="mb-1 mt-2 text-[12px] font-semibold first:mt-0">{children}</h4>
   ),
   h5: ({ children }) => (
-    <h5 className="mb-1 mt-2 text-[11px] font-semibold first:mt-0">{children}</h5>
+    <h5 className="mb-1 mt-2 text-[12px] font-semibold first:mt-0">{children}</h5>
   ),
   h6: ({ children }) => (
-    <h6 className="mb-1 mt-2 text-[11px] font-semibold first:mt-0">{children}</h6>
+    <h6 className="mb-1 mt-2 text-[12px] font-semibold first:mt-0">{children}</h6>
   ),
   blockquote: ({ children }) => (
     <blockquote className="my-1.5 border-l-2 border-border pl-2 text-muted-foreground">
@@ -93,11 +93,11 @@ const COMPONENTS: Components = {
   hr: () => <hr className="my-2 border-border" />,
   table: ({ children }) => (
     <div className="my-1.5 overflow-x-auto">
-      <table className="w-full border-collapse text-[11px]">{children}</table>
+      <table className="w-full border-collapse text-[12px]">{children}</table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-border bg-muted/40 px-1.5 py-0.5 text-left font-medium">
+    <th className="border border-border bg-muted px-1.5 py-0.5 text-left font-medium">
       {children}
     </th>
   ),
@@ -113,7 +113,7 @@ const COMPONENTS: Components = {
     // An unlabelled fence has no language-* class, so fall back to a newline check.
     const isBlock = !!match || raw.includes("\n");
     if (isBlock) return <CodeBlock code={raw.replace(/\n$/, "")} lang={match?.[1] ?? null} />;
-    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{children}</code>;
+    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px]">{children}</code>;
   },
 };
 
@@ -121,7 +121,7 @@ const PLUGINS = [remarkGfm, remarkUnderline];
 
 export function MarkdownView({ content, className }: { content: string; className?: string }) {
   return (
-    <div className={cn("text-[11px] leading-relaxed [overflow-wrap:anywhere]", className)}>
+    <div className={cn("text-[12px] leading-relaxed [overflow-wrap:anywhere]", className)}>
       <ReactMarkdown remarkPlugins={PLUGINS} components={COMPONENTS}>
         {content}
       </ReactMarkdown>

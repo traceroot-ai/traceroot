@@ -1,5 +1,5 @@
 name: "Feature Request"
-description: "Suggest an idea or enhancement for TraceRoot."
+description: "Suggest an idea or enhancement for traceroot."
 labels: [enhancement, needs approval]
 body:
   - type: markdown

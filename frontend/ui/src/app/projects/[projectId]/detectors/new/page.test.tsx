@@ -93,18 +93,18 @@ afterEach(() => {
 });
 
 const createButton = () =>
-  screen.getByRole("button", { name: "Create Detector" }) as HTMLButtonElement;
+  screen.getByRole("button", { name: "Create detector" }) as HTMLButtonElement;
 const editFilter = () => fireEvent.click(screen.getByRole("button", { name: "edit filter" }));
 
 describe("NewDetectorPage", () => {
   it("submits the selected template's defaults", async () => {
     render(<NewDetectorPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
     const failure = getTemplate("failure")!;
     expect(mocks.mutateAsync).toHaveBeenCalledWith({
-      name: "Failure Detector",
+      name: "Failure detector",
       template: "failure",
       prompt: failure.prompt,
       outputSchema: failure.outputSchema,
@@ -129,7 +129,7 @@ describe("NewDetectorPage", () => {
     expect(screen.getByText("Run the agent when a signal is created or reopened.")).toBeTruthy();
     fireEvent.change(mode, { target: { value: "manual" } });
     expect(screen.getByText("Run the agent from a signal when you need it.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableRca: false });
@@ -138,7 +138,7 @@ describe("NewDetectorPage", () => {
   it("creates a detector that does not group its hits when Generate signals is off", async () => {
     render(<NewDetectorPage />);
     fireEvent.click(document.getElementById("new-detector-signals") as HTMLElement);
-    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableSignals: false });
@@ -146,13 +146,13 @@ describe("NewDetectorPage", () => {
 
   it("submits user-edited name and prompt over the template defaults", async () => {
     render(<NewDetectorPage />);
-    fireEvent.change(screen.getByDisplayValue("Failure Detector"), {
+    fireEvent.change(screen.getByDisplayValue("Failure detector"), {
       target: { value: "My detector" },
     });
     fireEvent.change(document.querySelector("textarea")!, {
       target: { value: "my prompt" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
@@ -217,7 +217,7 @@ describe("NewDetectorPage — creation error handling", () => {
     mocks.mutateAsync.mockRejectedValueOnce(mocks.createMutationError);
 
     render(<NewDetectorPage />);
-    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const nameInput = screen.getByDisplayValue("Failure detector");
     const errorEl = screen.getByText(errorMsg);
     expect(errorEl).toBeDefined();
     expect(nameInput.parentElement?.contains(errorEl)).toBe(true);
@@ -226,7 +226,7 @@ describe("NewDetectorPage — creation error handling", () => {
     expect(mocks.resetMutation).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(errorMsg)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create detector" }));
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
   });
 
@@ -235,7 +235,7 @@ describe("NewDetectorPage — creation error handling", () => {
     mocks.createMutationError = new ApiError(400, errorMsg);
 
     render(<NewDetectorPage />);
-    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const nameInput = screen.getByDisplayValue("Failure detector");
     const errorEl = screen.getByText(errorMsg);
     expect(errorEl).toBeDefined();
     expect(nameInput.parentElement?.contains(errorEl)).toBe(false);

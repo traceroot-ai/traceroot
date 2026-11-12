@@ -11,7 +11,7 @@ export function formatSessionAgent(userAgent: string | null | undefined): string
   }
 
   if (userAgent.startsWith("traceroot-cli")) {
-    return "TraceRoot CLI";
+    return "traceroot CLI";
   }
 
   const browser = detectBrowser(userAgent);

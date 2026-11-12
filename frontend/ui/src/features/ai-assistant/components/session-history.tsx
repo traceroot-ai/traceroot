@@ -83,14 +83,14 @@ export function SessionHistory({
     <div className="max-h-[400px] overflow-y-auto">
       {groups.map((group) => (
         <div key={group.label}>
-          <div className="px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">
+          <div className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground">
             {group.label}
           </div>
           {group.sessions.map((s) => (
             <button
               key={s.id}
               className={cn(
-                "group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-muted/50",
+                "group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-muted",
                 s.id === currentSessionId && "bg-muted",
               )}
               onClick={() => onSelect(s)}

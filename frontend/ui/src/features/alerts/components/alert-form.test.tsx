@@ -190,7 +190,7 @@ describe("AlertForm", () => {
   }
 
   function saveButton() {
-    return screen.getByRole("button", { name: "Create Alert" });
+    return screen.getByRole("button", { name: "Create alert" });
   }
 
   function fillRequiredFields(name = "p95 latency", threshold = "500") {
@@ -434,7 +434,7 @@ describe("AlertForm", () => {
 
     it("blocks the save of a legacy negative threshold and says why", () => {
       renderForm({ alertId: "alert-9", initialDraft: { ...SAVED_DRAFT, threshold: "-5" } });
-      const save = screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      const save = screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
       expect(save.disabled).toBe(true);
       expect(
         screen.getByText("Threshold must be zero or more: latency can never be negative"),
@@ -444,7 +444,7 @@ describe("AlertForm", () => {
     it("saves `< 0` only where a gap pages, and otherwise says why it never fires", () => {
       const lessThanZero = { ...SAVED_DRAFT, operator: "<" as const, threshold: "0" };
       renderForm({ alertId: "alert-9", initialDraft: lessThanZero });
-      const save = () => screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      const save = () => screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
       expect(save().disabled).toBe(false);
       cleanup();
 
@@ -462,7 +462,7 @@ describe("AlertForm", () => {
 
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT, hasOpenPage: true });
       expect(screen.getByText(hint)).toBeTruthy();
-      const save = screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      const save = screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
       expect(save.disabled).toBe(false);
       cleanup();
 
@@ -474,8 +474,8 @@ describe("AlertForm", () => {
       const fetchMock = stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
 
-      expect(screen.queryByRole("button", { name: "Create Alert" })).toBeNull();
-      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      expect(screen.queryByRole("button", { name: "Create alert" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Save alert" }));
 
       await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
       const [url, init] = writeCalls(fetchMock)[0];
@@ -511,7 +511,7 @@ describe("AlertForm", () => {
       cleanup();
       // Same client, so the settled capacity is there on the first edit render.
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT }, queryClient);
-      const save = screen.getByRole("button", { name: "Save Alert" });
+      const save = screen.getByRole("button", { name: "Save alert" });
 
       expect(save.hasAttribute("disabled")).toBe(false);
       expect(screen.queryByText(/This project has/)).toBeNull();
@@ -609,7 +609,7 @@ describe("AlertForm", () => {
       rememberListPage();
       stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
-      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save alert" }));
       await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(rememberedList));
     });
 
@@ -625,7 +625,7 @@ describe("AlertForm", () => {
     it("falls back to the bare list when no list page was recorded", async () => {
       stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
-      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save alert" }));
       await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts"));
     });
   });

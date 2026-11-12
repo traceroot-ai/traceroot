@@ -93,7 +93,7 @@ export function CliHandbackStep({
                 `setup` refuses a Node older than 20.12 while the rest of the CLI
                 runs on 20.3. The traces panel says the last two in the same
                 words. */}
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-[12px] text-muted-foreground">
               Run it where {projectName}&apos;s code lives. It asks before editing your code. Needs
               Node.js 20.12 or later.
             </p>
@@ -106,10 +106,10 @@ export function CliHandbackStep({
           <p className="text-[13px] font-medium">
             The setup command cannot be shown for this deployment
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[12px] text-muted-foreground">
             <code className="font-mono">{setup.variable}</code> is set to{" "}
             <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
-            the command would sign you in and send traces to TraceRoot Cloud instead. Correct that
+            the command would sign you in and send traces to traceroot Cloud instead. Correct that
             value and rebuild the web app. Meanwhile, &quot;Set up manually&quot; works once you set{" "}
             <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
             address.

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { formatSessionAgent } from "./session-label";
 
 describe("formatSessionAgent", () => {
-  it("labels a traceroot-cli user-agent as TraceRoot CLI regardless of version", () => {
-    expect(formatSessionAgent("traceroot-cli/1.2.3")).toBe("TraceRoot CLI");
-    expect(formatSessionAgent("traceroot-cli/0.0.1-beta")).toBe("TraceRoot CLI");
+  it("labels a traceroot-cli user-agent as traceroot CLI regardless of version", () => {
+    expect(formatSessionAgent("traceroot-cli/1.2.3")).toBe("traceroot CLI");
+    expect(formatSessionAgent("traceroot-cli/0.0.1-beta")).toBe("traceroot CLI");
   });
 
   it("summarizes a Chrome-on-macOS browser user-agent", () => {
