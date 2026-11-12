@@ -6,11 +6,14 @@
  * the run instead of producing a finding. Those errors carry the usage OpenAI
  * billed for the response. 429 and 5xx are retried, honouring retry-after,
  * with the TOTAL time (attempts plus waits) capped by `deadlineMs`. Error
- * messages carry OpenAI's error message but never the API key. A response body
+ * messages carry the provider's error text with the configured key and
+ * anything credential-shaped redacted, since a provider (or a proxy at the
+ * BYOK base URL) can echo the request's Authorization header. A response body
  * is read up to MAX_RESPONSE_BYTES: the base URL is the provider's, so the
  * deadline bounds how long a response takes but not how much it sends.
  */
 
+import { REDACTED, redactValue } from "@traceroot/core/capture-policy";
 import { abortableSleep, retryDelayMs, MAX_RETRIES, type JsonValue } from "./typesafe-client.js";
 
 /** Far above any real response (two answers and the usage are a few KB). */
@@ -163,14 +166,13 @@ export async function callDecisions<Q extends DecisionsQuestions>(
         });
       } catch (err) {
         if (controller.signal.aborted) throw new Error(timeoutMessage);
-        throw new Error(
-          `OpenAI decisions request failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`OpenAI decisions request failed: ${scrubErrorText(reason, apiKey)}`);
       }
 
       if (response.ok) return parseResult(text, questions);
 
-      const error = statusError(response.status, text);
+      const error = statusError(response.status, text, apiKey);
       const retryable = response.status === 429 || response.status >= 500;
       if (!retryable || attempt >= MAX_RETRIES) throw error;
 
@@ -209,9 +211,22 @@ export function decisionsUsageFromError(err: unknown): DecisionsUsage | null {
   };
 }
 
-function statusError(status: number, rawBody: string): Error {
-  const detail = describeDetail(rawBody);
+function statusError(status: number, rawBody: string, apiKey: string): Error {
+  const detail = describeDetail(scrubErrorText(rawBody, apiKey));
   return new Error(`OpenAI decisions returned ${status}${detail ? `: ${detail}` : ""}`);
+}
+
+/**
+ * Provider error text with the configured key removed wherever it appears,
+ * then through the shared capture redaction (`Bearer …`, `sk-…`,
+ * credential-named keys, JSON inside a string). The exact-key pass catches a
+ * key no pattern recognises. Both run on the whole text, before
+ * `describeDetail` cuts it, so a cut can't leave part of a key behind for the
+ * patterns to miss.
+ */
+function scrubErrorText(text: string, apiKey: string): string {
+  const withoutKey = apiKey ? text.split(apiKey).join(REDACTED) : text;
+  return String(redactValue(withoutKey));
 }
 
 /** OpenAI's error envelope is `{error: {message, type, code}}`. */

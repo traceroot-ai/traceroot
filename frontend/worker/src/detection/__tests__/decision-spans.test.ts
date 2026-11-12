@@ -376,4 +376,40 @@ describe("OpenAI Decisions span", () => {
       "llm.cost.total": 0.000042,
     });
   });
+
+  it("keeps a provider key that the error echoes out of the span and the run's error", async () => {
+    // The real client against a provider that reflects the Authorization header.
+    const { callDecisions } = await vi.importActual<typeof import("../openai-decisions-client.js")>(
+      "../openai-decisions-client.js",
+    );
+    mockCallDecisions.mockImplementationOnce(callDecisions);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "Invalid key. Authorization: Bearer sk-key",
+              code: "invalid_api_key",
+            },
+          },
+          { status: 401 },
+        ),
+      ),
+    );
+
+    try {
+      const run = await withSelfTrace(META, runOpenAI);
+      expect(run.ok).toBe(false);
+
+      const { span } = decisionAttributes("decisions gpt-6-luna");
+      expect(span.status.message).toBe(
+        "OpenAI decisions returned 401: invalid_api_key - Invalid key. Authorization: Bearer [REDACTED]",
+      );
+      const exported = JSON.stringify([span.status, span.events, span.attributes, run]);
+      expect(exported).not.toContain("sk-key");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

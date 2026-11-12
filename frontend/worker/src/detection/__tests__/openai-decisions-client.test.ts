@@ -309,6 +309,74 @@ describe("callDecisions (stubbed fetch)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    describe("a provider error that reflects the key", () => {
+      // A provider or proxy at the BYOK base URL can echo the request back.
+      const UNPATTERNED_KEY = "gw7f3a9c2e1b5d4";
+
+      it("redacts the key from a JSON error that echoes the Authorization header", async () => {
+        fetchMock.mockResolvedValue(
+          jsonResponse(401, {
+            error: {
+              message: `Invalid credentials in Authorization: Bearer ${API_KEY}`,
+              type: "invalid_request_error",
+              code: "invalid_api_key",
+            },
+          }),
+        );
+        const err = await callError();
+        expect(err.message).toBe(
+          "OpenAI decisions returned 401: invalid_api_key - Invalid credentials in Authorization: Bearer [REDACTED]",
+        );
+      });
+
+      it("redacts the key from a plain-text error", async () => {
+        fetchMock.mockResolvedValue(
+          jsonResponse(401, `Unauthorized. Authorization: Bearer ${API_KEY}`),
+        );
+        const err = await callError();
+        expect(err.message).toBe(
+          "OpenAI decisions returned 401: Unauthorized. Authorization: Bearer [REDACTED]",
+        );
+      });
+
+      it("redacts a key no pattern recognises, in JSON and plain text", async () => {
+        fetchMock
+          .mockResolvedValueOnce(
+            jsonResponse(403, { error: { message: `key ${UNPATTERNED_KEY} is not allowed` } }),
+          )
+          .mockResolvedValueOnce(jsonResponse(403, `key ${UNPATTERNED_KEY} is not allowed`));
+        for (let i = 0; i < 2; i++) {
+          const err = await callError({ apiKey: UNPATTERNED_KEY });
+          expect(err.message).toBe("OpenAI decisions returned 403: key [REDACTED] is not allowed");
+        }
+      });
+
+      it("redacts before cutting the detail, so no part of the key survives the cut", async () => {
+        // The key starts just before the 200-character cut of a plain body.
+        const body = `${"x".repeat(195)} ${UNPATTERNED_KEY} trailing text`;
+        fetchMock.mockResolvedValue(jsonResponse(400, body));
+        const err = await callError({ apiKey: UNPATTERNED_KEY });
+        expect(err.message).not.toContain(UNPATTERNED_KEY.slice(0, 4));
+      });
+
+      it("applies the shared key-aware redaction to JSON inside the error message", async () => {
+        fetchMock.mockResolvedValue(
+          jsonResponse(400, { error: { message: JSON.stringify({ apiKey: "dummy-secret" }) } }),
+        );
+        const err = await callError();
+        expect(err.message).not.toContain("dummy-secret");
+        expect(err.message).toContain("[REDACTED]");
+      });
+
+      it("redacts the key from a network failure that names it", async () => {
+        fetchMock.mockRejectedValue(new TypeError(`fetch failed for key ${UNPATTERNED_KEY}`));
+        const err = await callError({ apiKey: UNPATTERNED_KEY });
+        expect(err.message).toBe(
+          "OpenAI decisions request failed: fetch failed for key [REDACTED]",
+        );
+      });
+    });
+
     it("a 400 with a plain body is terminal and keeps the body", async () => {
       fetchMock.mockResolvedValue(jsonResponse(400, "bad request"));
       const err = await callError();
