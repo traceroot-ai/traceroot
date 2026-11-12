@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
@@ -23,9 +23,10 @@ vi.mock("@/lib/auth-client", () => ({
   },
 }));
 
-import { SignUpClient } from "../sign-up-client";
+vi.mock("@/env", () => ({ env: {} }));
 
-const signUpProps = { googleAuthConfigured: false, emailDomainPolicyEnabled: false };
+import { env } from "@/env";
+import SignUpPage from "../page";
 
 function setParams(params: Record<string, string>) {
   searchParams = new URLSearchParams(params);
@@ -41,6 +42,12 @@ function fillForm(email = "kai@acme.io") {
   fireEvent.change(passwords[1], { target: { value: "password123" } });
 }
 
+beforeEach(() => {
+  env.BETTER_AUTH_URL = "http://localhost:3000";
+  env.AUTH_GOOGLE_CLIENT_ID = "";
+  env.AUTH_GOOGLE_CLIENT_SECRET = "";
+});
+
 afterEach(() => {
   cleanup();
   mocks.push.mockReset();
@@ -50,9 +57,9 @@ afterEach(() => {
   searchParams = new URLSearchParams();
 });
 
-describe("SignUpClient", () => {
+describe("SignUpPage", () => {
   it("shows a validation error and does not submit a signup without a name", async () => {
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     fillForm();
     fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
@@ -64,7 +71,7 @@ describe("SignUpClient", () => {
   it("submits a test-domain signup and onboards outside TraceRoot Cloud", async () => {
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     fillForm("kai@workspace.test");
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -82,7 +89,7 @@ describe("SignUpClient", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -105,7 +112,9 @@ describe("SignUpClient", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.signInSocial.mockResolvedValue(undefined);
 
-    render(<SignUpClient {...signUpProps} googleAuthConfigured />);
+    env.AUTH_GOOGLE_CLIENT_ID = "test-client";
+    env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
+    render(<SignUpPage />);
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
@@ -121,7 +130,7 @@ describe("SignUpClient", () => {
     setParams({ callbackUrl: "/projects/p1/traces" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -134,7 +143,7 @@ describe("SignUpClient", () => {
     setParams({ callbackUrl: "/device-settings" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -144,7 +153,7 @@ describe("SignUpClient", () => {
   it("carries the callback to the sign-in link", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
 
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     const link = screen.getByRole("link", { name: "Sign in" });
     expect(link.getAttribute("href")).toBe(
       `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
@@ -155,7 +164,8 @@ describe("SignUpClient", () => {
     ["kai@example.com", "This email domain can't receive mail"],
     ["kai@mailinator.com", "Disposable email addresses aren't supported"],
   ])("shows the rejection for %s inline without calling the server", async (email, message) => {
-    render(<SignUpClient {...signUpProps} emailDomainPolicyEnabled />);
+    env.BETTER_AUTH_URL = "https://app.traceroot.ai";
+    render(<SignUpPage />);
     fillForm(email);
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -164,7 +174,7 @@ describe("SignUpClient", () => {
   });
 
   it("uses a bare sign-in link when there is no callback", () => {
-    render(<SignUpClient {...signUpProps} />);
+    render(<SignUpPage />);
     const link = screen.getByRole("link", { name: "Sign in" });
     expect(link.getAttribute("href")).toBe("/auth/sign-in");
   });

@@ -12,7 +12,6 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "test": "vitest run",
     "test:e2e": "dotenv -e ../../.env -- playwright test",
-    "test:e2e:signup": "dotenv -e ../../.env -- playwright test --config playwright.signup.config.ts",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

@@ -15,28 +15,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { signupEmailError } from "@/lib/signup/email-policy";
 
-function createSignUpSchema(emailDomainPolicyEnabled: boolean) {
-  const email = z.string().email("Invalid email");
-  return z
-    .object({
-      name: z.string().min(1, "Name is required"),
-      email: emailDomainPolicyEnabled
-        ? email.superRefine((address, ctx) => {
-            const error = signupEmailError(address);
-            if (error) ctx.addIssue({ code: "custom", message: error.message });
-          })
-        : email,
-      password: z.string().min(8, "Password must be at least 8 characters"),
-      confirmPassword: z.string(),
-    })
-    .refine((data) => data.password === data.confirmPassword, {
-      message: "Passwords don't match",
-      path: ["confirmPassword"],
-    });
-}
+const signUpSchema = z
+  .object({
+    name: z.string().min(1, "Name is required"),
+    email: z.string().email("Invalid email"),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
 
-const signUpSchema = createSignUpSchema(false);
-const cloudSignUpSchema = createSignUpSchema(true);
+const cloudSignUpSchema = signUpSchema.superRefine(({ email }, ctx) => {
+  const error = signupEmailError(email);
+  if (error) ctx.addIssue({ code: "custom", message: error.message, path: ["email"] });
+});
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {

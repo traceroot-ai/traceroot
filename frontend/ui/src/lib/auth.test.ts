@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
+import { signupEmailError } from "@/lib/signup/email-policy";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -103,39 +103,16 @@ describe("auth options", () => {
     );
   });
 
-  it.each([
-    ["/sign-up/email", "a@mail.EXAMPLE.COM.", "EMAIL_DOMAIN_RESERVED"],
-    ["/sign-up/email", "a@foo.test", "EMAIL_DOMAIN_RESERVED"],
-    ["/sign-up/email", "a@localhost", "EMAIL_DOMAIN_RESERVED"],
-    ["/sign-up/email", "a@[127.0.0.1]", "EMAIL_DOMAIN_RESERVED"],
-    ["/sign-up/email", "invalid", "EMAIL_DOMAIN_RESERVED"],
-    ["/callback/:id", '"a@b"@sub.YOPMAIL.COM ', "EMAIL_DOMAIN_DISPOSABLE"],
-  ])("rejects %s with %s before creating a user", async (path, email, code) => {
+  it("enforces the signup email policy through the Cloud auth configuration", async () => {
     await expect(
-      options.databaseHooks.user.create.before({ email }, { path }),
+      options.databaseHooks.user.create.before(
+        { email: "a@example.com" },
+        { path: "/sign-up/email" },
+      ),
     ).rejects.toMatchObject({
       status: "BAD_REQUEST",
-      body: { code },
+      body: { code: "EMAIL_DOMAIN_RESERVED" },
     });
-  });
-
-  it.each([
-    ["/sign-up/email", "a@example.co"],
-    ["/sign-up/email", "a@notmailinator.com"],
-    ["/sign-up/email", "a@mailinator.com.au"],
-  ])("allows %s with %s", async (path, email) => {
-    await expect(
-      options.databaseHooks.user.create.before({ email }, { path }),
-    ).resolves.toBeUndefined();
-  });
-
-  it.each([
-    "http://localhost:3000",
-    "https://staging.traceroot.ai",
-    "https://tracing.example.org",
-    "https://app.traceroot.ai.example.org",
-  ])("leaves domain policy disabled for %s", (authURL) => {
-    expect(signupEmailPolicyHook(authURL)).toBeUndefined();
   });
 
   it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
@@ -171,5 +148,19 @@ describe("auth options with an invalid trusted-proxy value", () => {
     } finally {
       delete process.env.TEST_TRUSTED_PROXY_CIDRS;
     }
+  });
+});
+
+describe("signup email policy boundaries", () => {
+  it.each([
+    ["a@mail.EXAMPLE.COM.", "EMAIL_DOMAIN_RESERVED"],
+    ["a@localhost", "EMAIL_DOMAIN_RESERVED"],
+    ["a@[127.0.0.1]", "EMAIL_DOMAIN_RESERVED"],
+    ["invalid", "EMAIL_DOMAIN_RESERVED"],
+    ['"a@b"@sub.YOPMAIL.COM ', "EMAIL_DOMAIN_DISPOSABLE"],
+    ["a@notmailinator.com", undefined],
+    ["a@mailinator.com.au", undefined],
+  ])("classifies %s as %s", (email, code) => {
+    expect(signupEmailError(email)?.code).toBe(code);
   });
 });

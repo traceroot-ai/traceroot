@@ -18,11 +18,11 @@ const expected = {
   marketing_attribution_model: "last_campaign_touch",
 };
 
-function testAuth() {
+function testAuth(authURL = baseURL) {
   const created = vi.fn();
   const database = { user: [], session: [], account: [], verification: [] };
   const auth = betterAuth({
-    baseURL,
+    baseURL: authURL,
     secret: "local-test-secret-012345678901234567890123",
     database: memoryAdapter(database),
     emailAndPassword: { enabled: true },
@@ -31,7 +31,7 @@ function testAuth() {
     databaseHooks: {
       user: {
         create: {
-          before: signupEmailPolicyHook(baseURL),
+          before: signupEmailPolicyHook(authURL),
           after: async (user, context) => {
             created({
               email: user.email,
@@ -48,10 +48,15 @@ function testAuth() {
   return { auth, created, database };
 }
 
-function request(path: string, body?: Record<string, unknown>, cookie = campaignCookie) {
-  return new Request(`${baseURL}/api/auth${path}`, {
+function request(
+  path: string,
+  body?: Record<string, unknown>,
+  cookie = campaignCookie,
+  origin = baseURL,
+) {
+  return new Request(`${origin}/api/auth${path}`, {
     method: body ? "POST" : "GET",
-    headers: { "content-type": "application/json", origin: baseURL, cookie },
+    headers: { "content-type": "application/json", origin, cookie },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 }
@@ -106,7 +111,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("campaign attribution through real better-auth handlers", () => {
+describe("signup through real Better Auth handlers", () => {
   it("attributes day-31 signup to a repeat campaign click on day 29", async () => {
     const day = 24 * 60 * 60 * 1000;
     const returnedAt = capturedAt + 29 * day;
@@ -196,11 +201,32 @@ describe("campaign attribution through real better-auth handlers", () => {
     expect(created).not.toHaveBeenCalled();
   });
 
+  it.each(["workspace.test", "workspace.local", "mailinator.com"])(
+    "creates a local account on %s",
+    async (domain) => {
+      const localURL = "http://localhost:3000";
+      const { auth, database } = testAuth(localURL);
+      const email = `qa@${domain}`;
+      const response = await auth.handler(
+        request(
+          "/sign-up/email",
+          { email, name: "QA", password: "test-password-123" },
+          "",
+          localURL,
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(database.user).toContainEqual(expect.objectContaining({ email }));
+    },
+  );
+
   it("rejects a disposable Google signup before creating a user, account, or session", async () => {
     const { auth, created, database } = testAuth();
     const { response } = await completeGoogleSignup(auth, "google@mailinator.com");
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toContain("/api/auth/error?error=Disposable");
+    const redirect = new URL(response.headers.get("location")!);
+    expect(redirect.pathname).toBe("/api/auth/error");
+    expect(redirect.searchParams.get("error")).toBe("EMAIL_DOMAIN_DISPOSABLE");
     expect(database.user).toHaveLength(0);
     expect(database.account).toHaveLength(0);
     expect(database.session).toHaveLength(0);
