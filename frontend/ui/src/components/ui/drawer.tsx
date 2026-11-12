@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Right-anchored, NON-MODAL slide-in panel for multi-step flows.
+ * Right-anchored (or `side="left"`), NON-MODAL slide-in panel for multi-step flows.
  *
  * Built on @radix-ui/react-dialog (already a dependency) rather than adding
  * `vaul`: this reuses Radix's Escape handling and a11y wiring. It is deliberately
@@ -29,6 +29,8 @@ export interface DrawerContentProps extends React.ComponentPropsWithoutRef<
 > {
   /** Tailwind width class for the panel. */
   width?: string;
+  /** Edge the panel slides in from. */
+  side?: "left" | "right";
   /**
    * Omit the built-in top-right close control. For content that carries its
    * own close button in a header row (the trace viewer), so the two don't
@@ -40,34 +42,42 @@ export interface DrawerContentProps extends React.ComponentPropsWithoutRef<
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DrawerContentProps
->(({ className, children, width = "w-[720px]", hideClose = false, ...props }, ref) => (
-  <DrawerPortal>
-    <DialogPrimitive.Content
-      ref={ref}
-      // Non-modal: a click on the page behind interacts with it (and never closes
-      // this panel) — it closes only via Escape or the X, matching the "Save as test
-      // case" panel. No overlay is rendered, so the page is never greyed out.
-      onInteractOutside={(e) => e.preventDefault()}
-      className={cn(
-        "animate-slide-in-right fixed inset-y-0 right-0 z-50 flex max-w-[96vw] flex-col border-l border-border bg-background shadow-xl",
-        "focus:outline-none",
-        width,
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      {!hideClose && (
-        <DialogPrimitive.Close
-          className="absolute right-3 top-3 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
-          aria-label="Close"
-        >
-          <X className="h-4 w-4" />
-        </DialogPrimitive.Close>
-      )}
-    </DialogPrimitive.Content>
-  </DrawerPortal>
-));
+>(
+  (
+    { className, children, width = "w-[720px]", side = "right", hideClose = false, ...props },
+    ref,
+  ) => (
+    <DrawerPortal>
+      <DialogPrimitive.Content
+        ref={ref}
+        // Non-modal: a click on the page behind interacts with it (and never closes
+        // this panel) — it closes only via Escape or the X, matching the "Save as test
+        // case" panel. No overlay is rendered, so the page is never greyed out.
+        onInteractOutside={(e) => e.preventDefault()}
+        className={cn(
+          side === "left"
+            ? "animate-slide-in-left left-0 border-r"
+            : "animate-slide-in-right right-0 border-l",
+          "fixed inset-y-0 z-50 flex max-w-[96vw] flex-col border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]",
+          "focus:outline-none",
+          width,
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {!hideClose && (
+          <DialogPrimitive.Close
+            className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DrawerPortal>
+  ),
+);
 DrawerContent.displayName = "DrawerContent";
 
 const DrawerHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

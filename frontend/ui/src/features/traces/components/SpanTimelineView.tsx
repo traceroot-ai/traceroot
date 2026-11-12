@@ -152,12 +152,12 @@ export function SpanTimelineView({
   return (
     <div
       ref={containerRef}
-      className="flex h-full flex-col overflow-hidden bg-background font-mono text-[11px]"
+      className="flex h-full flex-col overflow-hidden bg-background text-[12px] tabular-nums"
     >
       {/* TIME RULER — same height as SpanTreeView trace row for scroll alignment */}
       <div
-        className="z-20 flex flex-shrink-0 border-b border-border bg-muted/10"
-        style={{ height: ROW_HEIGHT }}
+        className="z-20 flex flex-shrink-0 border-b border-border"
+        style={{ height: TREE_LAYOUT.HEADER_HEIGHT }}
       >
         <div className="relative flex-1 overflow-hidden">
           {ticks.map((tick) => {
@@ -167,7 +167,11 @@ export function SpanTimelineView({
             return (
               <div
                 key={tick.sec}
-                className="absolute bottom-0 top-0 border-l border-border/40 text-muted-foreground"
+                className={cn(
+                  "absolute bottom-0 top-0 text-muted-foreground",
+                  // The 0 tick sits on the tree divider; a second line there reads as a double rule.
+                  tick.leftPct > 0 && "border-l border-border",
+                )}
                 style={{ left: `${tick.leftPct}%` }}
               >
                 <span
@@ -203,7 +207,10 @@ export function SpanTimelineView({
             {ticks.map((tick) => (
               <div
                 key={tick.sec}
-                className="absolute bottom-0 top-0 border-l border-border/20"
+                className={cn(
+                  "absolute bottom-0 top-0",
+                  tick.leftPct > 0 && "border-l border-border/20",
+                )}
                 style={{ left: `${tick.leftPct}%` }}
               />
             ))}
@@ -222,20 +229,20 @@ export function SpanTimelineView({
                 <div
                   key="trace-root"
                   className={cn(
-                    "group absolute left-0 top-0 z-10 flex w-full cursor-pointer items-center border-b border-border/5 transition-colors hover:bg-muted/50",
-                    hoveredSpanId === "trace" && "bg-muted/60",
-                    isSelected && "bg-muted/60",
+                    "group absolute left-0 top-0 z-10 flex w-full cursor-pointer items-center border-b border-border/5 transition-colors hover:bg-muted",
+                    hoveredSpanId === "trace" && "bg-muted",
+                    isSelected && "bg-accent",
                   )}
                   style={rowStyle}
                   onMouseEnter={() => onHoverChange("trace")}
                   onMouseLeave={() => onHoverChange(null)}
                   onClick={() => onSelect({ type: "trace" })}
                 >
-                  <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
+                  <span className="absolute left-2 z-20 whitespace-nowrap text-[12px] font-medium text-muted-foreground">
                     {formatDuration(traceDurationMs)}
                   </span>
                   {(traceAggregates.totalTokens > 0 || traceAggregates.totalCost > 0) && (
-                    <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
+                    <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[12px] font-medium text-muted-foreground">
                       {traceAggregates.totalTokens > 0 && (
                         <span className="inline-flex items-center gap-0.5 font-sans font-medium">
                           <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
@@ -256,10 +263,10 @@ export function SpanTimelineView({
                   )}
                   <div
                     className={cn(
-                      "absolute z-10 overflow-hidden rounded-[2px] border border-solid border-foreground/30 bg-foreground/[0.06] transition-colors group-hover:bg-foreground/15",
-                      isSelected && "ring-1 ring-border",
+                      "absolute z-10 overflow-hidden rounded-[2px] bg-foreground/[0.06] transition-colors group-hover:bg-foreground/15",
+                      isSelected && "bg-foreground/15",
                     )}
-                    style={{ left: "0px", width: "100%", height: "20px" }}
+                    style={{ left: "0px", width: "100%", height: "24px" }}
                   />
                 </div>
               );
@@ -282,15 +289,18 @@ export function SpanTimelineView({
             const showTokens =
               showRightMetrics && span.total_tokens != null && span.total_tokens > 0;
             const showCost =
-              showRightMetrics && span.cost != null && Number.isFinite(span.cost) && span.cost > 0;
+              (showRightMetrics || span.span_kind === SpanKind.TOOL) &&
+              span.cost != null &&
+              Number.isFinite(span.cost) &&
+              span.cost > 0;
 
             return (
               <div
                 key={span.span_id}
                 className={cn(
                   "group absolute left-0 top-0 z-10 flex w-full cursor-pointer items-center border-b border-border/5 transition-colors",
-                  hoveredSpanId === span.span_id ? "bg-muted/60" : "bg-transparent",
-                  isSelected && "bg-muted/80",
+                  hoveredSpanId === span.span_id ? "bg-muted" : "bg-transparent",
+                  isSelected && "bg-accent",
                 )}
                 style={rowStyle}
                 onMouseEnter={(e) => {
@@ -304,12 +314,12 @@ export function SpanTimelineView({
                 onClick={() => onSelect({ type: "span", span })}
               >
                 {showDuration && (
-                  <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] text-muted-foreground">
+                  <span className="absolute left-2 z-20 whitespace-nowrap text-[12px] text-muted-foreground">
                     {durationText}
                   </span>
                 )}
                 {(showTokens || showCost) && (
-                  <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
+                  <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[12px] text-muted-foreground">
                     {showTokens && (
                       <span className="inline-flex items-center gap-0.5 font-sans font-medium">
                         <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
@@ -332,18 +342,18 @@ export function SpanTimelineView({
                 ) : (
                   <div
                     className={cn(
-                      "absolute z-10 overflow-hidden rounded-[2px] border border-solid transition-colors",
+                      "absolute z-10 overflow-hidden rounded-[2px] transition-colors",
                       isError
-                        ? "border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950/60"
+                        ? "bg-red-200 dark:bg-red-950/60"
                         : getSpanKindColor(span.span_kind).surface,
-                      item.metrics.isInProgress && "animate-pulse border-dashed opacity-70",
+                      item.metrics.isInProgress && "animate-pulse border border-dashed opacity-70",
                       // Tinted bars wash out a neutral ring; foreground/50 stays legible on every kind
-                      isSelected && "ring-1 ring-foreground/50",
+                      isSelected && "brightness-95",
                     )}
                     style={{
                       left: `${item.metrics.startOffsetPx}px`,
                       width: `${Math.max(4, item.metrics.widthPx)}px`,
-                      height: "20px",
+                      height: "24px",
                     }}
                   />
                 )}

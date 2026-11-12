@@ -1,17 +1,18 @@
 ---
-title: Introduction
-description: Understand what TraceRoot traces and why it matters
+title: How AI agent tracing works
+sidebarTitle: Introduction
+description: Follow model and tool calls through a run and see how many tokens each model call used.
 ---
 
 Tracing records what your AI agent does — every LLM call, tool invocation, and function execution — so you can debug individual runs and understand behavior over time.
 
-Once tracing is active, TraceRoot gives you:
+Once tracing is active, traceroot gives you:
 - **Full span hierarchy** — see exactly how your agent executes, call by call
 - **Token usage and cost** — per LLM call and aggregated per trace
 - **Source code correlation** — every span links back to the file and line that produced it
 
 <Frame caption="Trace viewer: Trace Tree, LLM span details, Usage breakdown and Input">
-  <img src="/images/traces_v2.png" alt="TraceRoot trace viewer with a multi-step agent trace and an LLM span selected showing latency, tokens and cost" />
+  <img src="/images/traces_v2.png" alt="traceroot trace viewer with a multi-step agent trace and an LLM span selected showing latency, tokens and cost" />
 </Frame>
 
 ## Where to start
