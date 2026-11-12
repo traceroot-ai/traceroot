@@ -2,8 +2,15 @@ import { test, expect, type BrowserContext, type APIRequestContext } from "@play
 import { PrismaClient } from "@prisma/client";
 import { createHmac, randomUUID } from "node:crypto";
 
+// Fail with a clear message instead of "Invalid URL" or a crypto TypeError
+// when the spec runs without the repo-root .env that `make dev` writes.
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`E2E requires ${name}; set it in the repo-root .env`);
+  return value;
+}
 // Intentionally localhost-only: fixtures must never touch a remote tenant.
-const database = new URL(process.env.DATABASE_URL!);
+const database = new URL(requireEnv("DATABASE_URL"));
 if (!["localhost", "127.0.0.1"].includes(database.hostname))
   throw new Error("E2E requires local Postgres");
 const prisma = new PrismaClient();
@@ -35,7 +42,7 @@ async function login(context: BrowserContext, userId: string) {
   await prisma.session.create({
     data: { id: randomUUID(), token, userId, expiresAt: new Date(Date.now() + 86400000) },
   });
-  const signature = createHmac("sha256", process.env.BETTER_AUTH_SECRET!)
+  const signature = createHmac("sha256", requireEnv("BETTER_AUTH_SECRET"))
     .update(token)
     .digest("base64");
   await context.addCookies([
