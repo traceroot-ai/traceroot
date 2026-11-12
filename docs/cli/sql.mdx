@@ -30,7 +30,7 @@ Bind `{name:Type}` placeholders with one `--param name=value` flag per value. Pa
 ```bash
 traceroot sql \
   "SELECT count() FROM spans WHERE span_start_time >= {since:DateTime64(3)} AND environment = {environment:String}" \
-  --param since=2026-09-18T00:00:00Z \
+  --param "since=2026-09-18 00:00:00" \
   --param environment=production
 ```
 
@@ -38,7 +38,7 @@ Run `traceroot sql schema` to list the available tables, columns, and ClickHouse
 
 ## Worked queries
 
-Always include a time predicate on `span_start_time` or `trace_start_time`. The gateway uses that range when reading the underlying project-scoped views, so bounded queries scan less data.
+Always include a time predicate on `span_start_time` or `trace_start_time` that compares the column directly with a constant: a timestamp, a parameter, or an expression such as `now() - INTERVAL 7 DAY`. The gateway uses that range when reading the underlying project-scoped views, so bounded queries scan less data.
 
 ### Recent error spans
 
@@ -83,7 +83,7 @@ curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
   --header "Content-Type: application/json" \
   --data '{
     "query": "SELECT model_name, sum(cost) AS total_cost FROM spans WHERE span_start_time >= {since:DateTime64(3)} GROUP BY model_name ORDER BY total_cost DESC",
-    "parameters": {"since": "2026-09-18T00:00:00Z"},
+    "parameters": {"since": "2026-09-18 00:00:00"},
     "max_rows": 1000
   }'
 ```
@@ -143,7 +143,8 @@ The gateway rejects:
 - database-qualified names and the internal view names;
 - `FINAL`, `SETTINGS`, and `FORMAT` clauses;
 - any reference or alias named `project_id`;
-- a CTE named `spans` or `traces`; and
+- a CTE named `spans` or `traces`;
+- a `WHERE` that filters on a time column in any other form than a direct comparison with a constant (`>=`, `>`, `<`, `<=`, `=`, or `BETWEEN`), joined to the rest of the clause by `AND`; and
 - parameter names `project_id` or beginning with `scope_`, which are reserved for server-side scoping.
 
 Queries are limited to 65,536 characters. A request can bind at most 100 parameters, whose serialized JSON is limited to 16,384 characters.
