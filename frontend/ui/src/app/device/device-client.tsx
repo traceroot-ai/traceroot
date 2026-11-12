@@ -81,7 +81,7 @@ function deviceSignInUrl(userCode: string, clientId: string | null): string {
 // signed-out visitor to sign-*in*, and better-auth has no separate social
 // sign-up — `signIn.social` creates the account on first use, which
 // `signupProvider()` in lib/signup/on-user-created.ts classifies as a signup by
-// looking for `/callback/<provider>`. So clicking Google on the page this one
+// its `/callback/:id` route. So clicking Google on the page this one
 // hands people to *is* the default new-account path, and it used to arrive back
 // here owning nothing. Checking the account instead of trusting the route it
 // took covers sign-up, sign-in, social and an already-authenticated session

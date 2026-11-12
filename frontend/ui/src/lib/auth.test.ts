@@ -55,7 +55,10 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
   databaseHooks: {
     user: {
       create: {
-        after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
+        after: (
+          user: Record<string, unknown>,
+          context?: { path: string; params?: Record<string, string> } | null,
+        ) => Promise<void>;
       };
     };
   };
@@ -105,6 +108,15 @@ describe("auth options", () => {
     await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
     const user = { id: "u1", email: "a@example.com", name: null };
     expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+  });
+
+  it("passes a Google sign-up's provider through to the follow-up", async () => {
+    // better-auth gives the hook the matched route, with the provider in its
+    // params (attribution.integration.test.ts checks this against real
+    // handlers). Handing on the path alone reports the provider as "unknown".
+    const context = { path: "/callback/:id", params: { id: "google" } };
+    await options.databaseHooks.user.create.after({ id: "u3", email: "g@example.com" }, context);
+    expect(onUserCreatedMock).toHaveBeenCalledWith(expect.anything(), context);
   });
 
   it("resolves before the follow-up settles and logs its later rejection", async () => {
