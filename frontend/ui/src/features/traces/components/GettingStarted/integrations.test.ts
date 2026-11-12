@@ -14,17 +14,14 @@ describe("GettingStarted integrations", () => {
       logo: "/logo/integrations/openrouter.svg",
       logoDark: "/logo/integrations/openrouter-dark.svg",
     });
-    expect(openrouter?.languages.python?.installCommand).toBe("pip install traceroot openai");
-    expect(openrouter?.languages.python?.initSnippet).toContain(
-      'base_url="https://openrouter.ai/api/v1"',
-    );
-    expect(openrouter?.languages.python?.initSnippet).toContain("Integration.OPENAI");
-    expect(openrouter?.languages.typescript?.installCommand).toBe(
+    const languages = openrouter?.setup.kind === "sdk" ? openrouter.setup.languages : undefined;
+    expect(languages?.python?.installCommand).toBe("pip install traceroot openai");
+    expect(languages?.python?.initSnippet).toContain('base_url="https://openrouter.ai/api/v1"');
+    expect(languages?.python?.initSnippet).toContain("Integration.OPENAI");
+    expect(languages?.typescript?.installCommand).toBe(
       "npm install @traceroot-ai/traceroot openai",
     );
-    expect(openrouter?.languages.typescript?.initSnippet).toContain(
-      'baseURL: "https://openrouter.ai/api/v1"',
-    );
+    expect(languages?.typescript?.initSnippet).toContain('baseURL: "https://openrouter.ai/api/v1"');
   });
 });
 
