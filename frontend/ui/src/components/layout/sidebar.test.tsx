@@ -85,13 +85,13 @@ describe("Sidebar", () => {
     expect(container.querySelector('[data-testid="star-widget"]')).toBeNull();
   });
 
-  it("puts Home first among the project links, above Tracing", () => {
+  it("puts Agent first among the project links, above Tracing", () => {
     navigation.pathname = "/projects/p1/home";
     navigation.params = { projectId: "p1" };
     render();
 
     const links = Array.from(container.querySelectorAll("nav a"));
-    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(["Home", "Tracing"]);
+    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(["Agent", "Tracing"]);
 
     const home = links[0];
     expect(home.getAttribute("href")).toBe("/projects/p1/home");
