@@ -147,7 +147,10 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
   await expect(page.locator('nav a[href="/admin"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Account menu" }).click();
   await expect(page.getByRole("link", { name: "Support console", exact: true })).toBeVisible();
-  await page.screenshot({ path: "/tmp/impersonation-account-menu.png", fullPage: true });
+  await page.screenshot({
+    path: test.info().outputPath("impersonation-account-menu.png"),
+    fullPage: true,
+  });
   await page.getByRole("link", { name: "Support console", exact: true }).click();
   await expect(page.getByRole("link", { name: "Support console", exact: true })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Access logs" })).toHaveCount(0);
@@ -161,7 +164,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
   await expect(customerRow.getByRole("cell").nth(2)).toHaveText(ids.customer);
   await expect(customerRow.getByRole("cell").nth(0).getByRole("button")).toHaveCount(0);
   await page.screenshot({
-    path: "/tmp/impersonation-user-columns.png",
+    path: test.info().outputPath("impersonation-user-columns.png"),
     fullPage: true,
   });
   await expect(page.getByRole("columnheader", { name: "User ID", exact: true })).toBeVisible();
@@ -173,7 +176,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
   await expect(page.getByRole("dialog")).toHaveAccessibleDescription(emails.customer);
   await expect(page.getByRole("dialog").getByText(/Read-only:|Read \+ write:/)).toHaveCount(0);
   await page.screenshot({
-    path: "/tmp/impersonation-simple-dialog.png",
+    path: test.info().outputPath("impersonation-simple-dialog.png"),
     fullPage: true,
   });
   await expect(page.getByText("Maximum 2 hours", { exact: false })).toHaveCount(0);
@@ -188,7 +191,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
     .getByRole("status")
     .filter({ has: page.getByRole("button", { name: "Stop", exact: true }) })
     .screenshot({
-      path: "/tmp/impersonation-sidebar-strip.png",
+      path: test.info().outputPath("impersonation-sidebar-strip.png"),
     });
   await expect(page.getByText("Read-only", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Reason:", { exact: false })).toHaveCount(0);
@@ -455,7 +458,7 @@ test("admin UI grants access with the staff role selector", async ({ page, conte
   await setRole("No Access");
   await expect(employeeAccess).toHaveText("No Access");
   await page.screenshot({
-    path: "/tmp/impersonation-staff-access-select.png",
+    path: test.info().outputPath("impersonation-staff-access-select.png"),
     fullPage: true,
   });
   await expect(page.getByText(emails.employee, { exact: true })).toBeVisible();
