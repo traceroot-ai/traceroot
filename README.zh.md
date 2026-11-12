@@ -169,7 +169,7 @@ make prod-lite
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 <details open>
-<summary>支持的框架与模型厂商</summary>
+<summary>支持的框架、模型厂商与编程 Agent</summary>
 
 ### Agent 框架
 
@@ -199,6 +199,14 @@ make prod-lite
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | 自动埋点 Mistral 的 chat completions、工具调用以及流式响应。 |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | 自动埋点 Chat Completions 与 Responses API。 |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | 通过 OpenAI SDK 的 OpenRouter base URL 进行兼容追踪；可参考 [Python](./examples/python/openrouter-tool-agent) 与 [TypeScript](./examples/typescript/openrouter) 示例。 |
+
+### 编程 Agent
+
+| 集成 | 支持语言 | 描述 |
+| ----------- | -------- | ----------- |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | 插件 | 通过 traceroot 插件追踪 Claude Code 的请求、工具调用、子 Agent 与 token 用量。 |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | 插件 | 通过 traceroot 插件实时追踪 Codex 的 turn、工具调用、子 Agent 与 token 用量。 |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | 扩展 | 通过 traceroot 扩展追踪交互式 pi CLI 会话的 turn、工具调用与 token 用量。 |
 
 </details>
 

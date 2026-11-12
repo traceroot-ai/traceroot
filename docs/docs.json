@@ -231,6 +231,14 @@
             ]
           },
           {
+            "group": "Coding Agents",
+            "pages": [
+              "integrations/claude-code",
+              "integrations/codex",
+              "integrations/pi-cli"
+            ]
+          },
+          {
             "group": "Internal Model Providers",
             "pages": [
               "integrations/internal-models"
