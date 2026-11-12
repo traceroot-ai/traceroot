@@ -12,7 +12,7 @@ traceroot is an open-source platform for tracing AI agents and improving them fr
 
 ## Set up tracing in a repository
 
-Follow the setup prompt in https://traceroot.ai/docs/getting-started/coding-agents.md. Use `npx -y traceroot-cli@latest setup --no-input` rather than adding the SDK by hand: it gets the API key and writes the instrumentation task, and `setup --no-input --resume` confirms the first trace. With no credential it exits 3, and that page covers signing in.
+Follow the setup prompt in https://traceroot.ai/docs/getting-started/coding-agents.md. Use `npx -y traceroot-cli@latest setup --no-input` rather than adding the SDK by hand: it gets the API key and writes the instrumentation task, and rerunning the same command with `--resume` confirms the first trace. With no credential it exits 3, and that page covers signing in.
 
 ## Common mistakes
 

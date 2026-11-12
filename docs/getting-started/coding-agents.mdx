@@ -20,8 +20,8 @@ Set up traceroot tracing in this repo with the traceroot setup wizard.
      choosing a project.
 2. Setup writes a project API key to .env.local or .env and an instrumentation task to
    .traceroot/prompts/setup-instrument.md. Carry out that task yourself, in this session.
-3. Run the app once, then run: npx -y traceroot-cli@latest setup --no-input --resume
-   You're done when it prints a link to the first trace.
+3. When the task is done, don't stop. Rerun the same setup command, keeping all flags,
+   and add --resume. You're done when it prints a link to the first trace.
 
 Don't print the API key or commit the file that holds it.
 Reference: https://traceroot.ai/docs/cli/get-started.md
@@ -111,37 +111,9 @@ Run `traceroot <command> --help` for every flag, and `traceroot doctor` to check
 
 ## Trace your coding agent
 
-These plugins send your coding agent's own sessions to traceroot, which is separate from tracing your application. Sessions can include your prompts, tool input and output, commands, and file contents. An exported `TRACEROOT_API_KEY` also applies to anything else you or your agent start from that shell, and it takes priority over the key in a repository's env file.
+Plugins for [Claude Code](/integrations/claude-code), [Codex](/integrations/codex), and [pi](/integrations/pi-cli) send your coding agent's own sessions to traceroot, which is separate from tracing your application. Sessions can include your prompts, tool input and output, commands, and file contents.
 
-<Tabs>
-  <Tab title="Claude Code">
-    ```bash
-    claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
-    claude plugin install traceroot-observability@traceroot-claude-code-plugin
-    export TRACEROOT_API_KEY="tr-..."
-    ```
-
-    Restart Claude Code after setting the key. Nothing is sent without one. Needs `uv`, or Python 3.11 or later with the `traceroot` package. See the [plugin README](https://github.com/traceroot-ai/traceroot-claude-code-plugin).
-  </Tab>
-  <Tab title="Codex">
-    ```bash
-    codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
-    codex plugin add tracing@traceroot-codex-plugin
-    codex features enable hooks
-    ```
-
-    It stays off until you trust its hooks and add `~/.codex/traceroot.json` with `"enabled": true` and your `api_key`. Runs without a trust prompt, such as `codex exec`, send nothing until the hooks are trusted. See the [plugin README](https://github.com/traceroot-ai/traceroot-codex-plugin).
-  </Tab>
-  <Tab title="pi">
-    ```bash
-    pi install npm:@traceroot-ai/pi-extension
-    export TRACEROOT_ENABLED=true
-    export TRACEROOT_API_KEY="tr-..."
-    ```
-
-    Restart pi after setting these. This is separate from the [pi SDK integration](/integrations/pi), which traces pi sessions embedded in your own application. See the [extension README](https://github.com/traceroot-ai/traceroot-pi-extension).
-  </Tab>
-</Tabs>
+If you export `TRACEROOT_API_KEY` for a plugin, it also applies to anything else you or your agent start from that shell, and it takes priority over the key in a repository's env file.
 
 ## Next steps
 
