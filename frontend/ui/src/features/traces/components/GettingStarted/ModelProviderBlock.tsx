@@ -640,7 +640,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {/* Offered only where it is a real question. A provider's own SDK can
             only use that provider's key, so a dropdown over it would be a
             choice with one right answer and several wrong ones; a framework
@@ -688,7 +688,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
           placeholder={`${label} API key`}
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
-          className="h-8 flex-1 font-mono text-[12px]"
+          className="h-8 min-w-[12rem] flex-1 font-mono text-[12px]"
         />
 
         <Button
