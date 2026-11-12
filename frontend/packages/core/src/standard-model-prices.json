@@ -163,7 +163,7 @@
     "prices": {
       "input": 2e-6,
       "output": 1e-5,
-      "cacheRead": 2e-7,
+      "cacheRead": 1e-7,
       "cacheWrite": 2.5e-6,
       "cacheWrite1h": 4e-6
     }

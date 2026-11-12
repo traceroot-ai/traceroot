@@ -28,6 +28,21 @@ afterEach(() => {
 });
 
 describe("listWorkspaceModels", () => {
+  it("removes hosted o4-mini and preserves the OpenAI default", async () => {
+    const models = await listWorkspaceModels("w1", {
+      db: reader(db([])),
+      env: { OPENAI_API_KEY: "sk-test" },
+    });
+    const openai = models.systemModels[0]!;
+    expect(openai).toMatchObject({ provider: "OpenAI", source: "system" });
+    const ids = openai.models.map((m) => m.id);
+    expect(ids[0]).toBe("gpt-5.5");
+    expect(ids).not.toContain("o4-mini");
+    expect(
+      detectorModelProblem({ detectionSource: "system", detectionModel: "o4-mini" }, models),
+    ).toContain("is not a system model this workspace can use");
+  });
+
   it("lists a system provider only when the process holds its API key", async () => {
     const models = await listWorkspaceModels("w1", {
       db: reader(db([])),
