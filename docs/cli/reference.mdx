@@ -1,0 +1,139 @@
+---
+title: All Commands
+description: Every traceroot CLI command, and the global flags they all take
+---
+
+This page lists every command. A command with its own page has its flags there, and the rest list them here. `traceroot <command> --help` always has the full list.
+
+## Global flags
+
+Every command takes these.
+
+| Flag | Effect |
+| :- | :- |
+| `--api-key <key>` | API key to authenticate with |
+| `--host <url>` | API host |
+| `--auth-host <url>` | Host for browser login and token exchange. Default: `--host` |
+| `--project <id>` | Project for a browser login |
+| `--env-file <path>` | `.env` file to load |
+| `--json` | [Machine-readable output](/cli/scripting#json-output) |
+| `--timeout <ms>` | Per-request timeout. Default: 30000 |
+| `-V, --version` | Print the version |
+| `-h, --help` | Print help |
+
+[Authentication](/cli/authentication) covers how the credential, host, and project flags are resolved.
+
+## Set up and diagnose
+
+[Tracing](/tracing/get-started) covers what setup does.
+
+| Command | What it does |
+| :- | :- |
+| `setup` | Connect this repository and see a first trace. Flags: `--agent <agent>`, `--language <language>`, `--service <path>`, `--project <name-or-id>`, `--handoff <code>`, `--no-browser`, `--no-instrument`, `--manual`, `--resume`, `--no-input`, `--trace-timeout <seconds>` |
+| `setup doctor` | Diagnose a setup that didn't complete. Flag: `--service <path>` |
+| `doctor` | Check credentials, traceroot files, the repository, the environment, and the skills `skills install` copies. Flag: `--service <path>` |
+| `instrument` | Write a prompt for a coding agent to add traceroot, without editing your code. `setup` is the normal route. Flags: `--agent <agent>`, `--print`, `--output <path>`, `--force` |
+| `skills list` | List the skills bundled with the CLI, and where they're installed |
+| `skills install [skill]` | Copy `traceroot-instrument-repo` or `traceroot-quickstart` into an agent's skill directory. [Coding agents](/getting-started/coding-agents#skills) lists the skills to use. Flags: `--agent <agent>`, `--force`, `--dry-run` |
+
+## Sign in
+
+[Authentication](/cli/authentication#what-login-does) covers what these do.
+
+| Command | What it does |
+| :- | :- |
+| `login` | Sign in through your browser, or save a key from `--api-key` |
+| `logout` | End the session, or remove the saved key |
+| `status` | Show who the credential belongs to |
+
+## Traces
+
+See [Traces](/cli/traces).
+
+| Command | What it does |
+| :- | :- |
+| `traces list` | List traces, newest first |
+| `traces get <trace-id>` | Show one trace and its spans |
+| `traces export <trace-id>` | Write one trace to a directory |
+
+## Detectors and findings
+
+See [Detectors and Findings](/cli/detectors-and-findings).
+
+| Command | What it does |
+| :- | :- |
+| `detectors list` | List detectors |
+| `detectors get <detector-id>` | Show one detector's configuration |
+| `detectors create` | Create a detector |
+| `detectors update <detector-id>` | Change a detector |
+| `detectors delete <detector-id>` | Delete a detector |
+| `findings list` | List findings |
+| `findings get [finding-id]` | Show one finding |
+
+## Alerts
+
+See [Alerts](/cli/alerts).
+
+| Command | What it does |
+| :- | :- |
+| `alerts list` | List alerts |
+| `alerts get <alert-id>` | Show one alert's rule and state |
+| `alerts create` | Create an alert |
+| `alerts update <alert-id>` | Change a rule |
+| `alerts status <alert-id>` | Pause or resume an alert |
+| `alerts delete <alert-id>` | Delete an alert |
+
+## Dashboards and widgets
+
+See [Dashboards and Widgets](/cli/dashboards-and-widgets).
+
+| Command | What it does |
+| :- | :- |
+| `dashboards list` | List dashboards |
+| `dashboards get <dashboard-id>` | Show one dashboard and its widgets |
+| `dashboards create` | Create a dashboard |
+| `dashboards update <dashboard-id>` | Change a name or description |
+| `dashboards delete <dashboard-id>` | Delete a dashboard and its widgets |
+| `widgets get <widget-id>` | Show one widget's definition |
+| `widgets data <widget-id>` | Read a widget's data for a time window |
+| `widgets create` | Add a widget to a dashboard |
+| `widgets update <widget-id>` | Change a widget |
+| `widgets delete <widget-id>` | Delete a widget |
+
+## Workspaces and projects
+
+See [Workspaces and Projects](/cli/workspaces-and-projects).
+
+| Command | What it does |
+| :- | :- |
+| `workspaces list` | List your workspaces |
+| `workspaces create` | Create a workspace |
+| `workspaces update <workspace-id>` | Rename a workspace |
+| `workspaces delete <workspace-id>` | Delete a workspace and everything in it |
+| `projects list` | List your projects |
+| `projects create` | Create a project |
+| `projects update <project-id>` | Change a name or trace retention |
+| `projects delete <project-id>` | Delete a project |
+
+## SQL
+
+See [Read-only SQL](/cli/sql).
+
+| Command | What it does |
+| :- | :- |
+| `sql [query]` | Run one query over spans and traces |
+| `sql schema` | List the tables and columns a query can use |
+
+## Evaluations and datasets
+
+See [Evaluations from the Terminal](/evals/cli).
+
+| Command | What it does |
+| :- | :- |
+| `datasets list` | List datasets |
+| `datasets get <dataset-id>` | Show one dataset |
+| `datasets versions list <dataset-id>` | List a dataset's versions |
+| `datasets versions get <version-id>` | Show one version and its cases |
+| `evals list` | List evaluations |
+| `evals runs list` | List evaluation runs |
+| `evals runs get <run-id>` | Show one run |

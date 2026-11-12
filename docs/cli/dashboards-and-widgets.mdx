@@ -1,0 +1,60 @@
+---
+title: Dashboards and Widgets from the Terminal
+sidebarTitle: Dashboards and Widgets
+description: Read and change dashboards and widgets with the traceroot CLI
+---
+
+Read your [dashboards](/dashboards/get-started) and their data with any credential, and change them with [a browser login](/cli/authentication#browser-login-and-api-keys).
+
+## Read dashboards and widgets
+
+```bash
+traceroot dashboards list
+traceroot dashboards get <dashboard-id>
+traceroot widgets get <widget-id>
+```
+
+There's no `widgets list`. `dashboards get` shows a dashboard's widgets with their IDs. `widgets get` shows one widget as stored: its title, type, spec, display config, and dashboard.
+
+## Read a widget's data
+
+```bash
+traceroot widgets data <widget-id> --range 7d
+traceroot widgets data <widget-id> --start-time 2026-06-01T00:00:00Z --end-time 2026-06-02T00:00:00Z
+```
+
+`--range` takes `30m`, `1h`, `3h`, `6h`, `1d`, `7d`, `14d`, `30d`, `60d`, or `90d`. Give it, or both `--start-time` and `--end-time`, or neither for the last 24 hours.
+
+The response's `status` is `ok` with rows, `skipped` for a trace feed or legacy detector widget, or `error` with a reason. Its `window` says what the rows cover, because retention can shorten it.
+
+## Create and change dashboards
+
+```bash
+traceroot dashboards create --name "Agent latency" --description "LLM latency by model"
+traceroot dashboards update <dashboard-id> --name "Model latency"
+```
+
+Creating a name that already exists in the project returns that dashboard. `dashboards update` changes the name and description, and the layout can't be changed here. To clear a description, send `{ "description": null }` with `--from-file`.
+
+## Create and change widgets
+
+A widget's `--type` is `query`, a chart, or `trace_feed`, a list of recent traces. Its `--spec` is JSON in the matching form: `view`, `filters`, `metric`, `breakdown`, and `display` for `query`, and `filters` and `limit` for `trace_feed`.
+
+An existing widget of the same type is the best model. Read its stored spec, edit it, and pass it back:
+
+```bash
+traceroot widgets get <widget-id> --json | jq '{spec}' > widget.json
+traceroot widgets create --dashboard-id <dashboard-id> --title "Latency by model" --type query --from-file widget.json
+traceroot widgets update <widget-id> --from-file widget.json
+```
+
+Every `widgets create` adds a new widget. On `widgets update`, a spec replaces the whole spec and must be in the widget's form, because the type can't change. To change `display_config` on an update, send it with `--from-file`; `null` resets it.
+
+## Delete
+
+```bash
+traceroot widgets delete <widget-id> --reason "Duplicate of the latency chart"
+traceroot dashboards delete <dashboard-id> --reason "Replaced by the latency dashboard"
+```
+
+`--reason` is required, 3 to 500 characters, and recorded in the audit log. Deleting a dashboard deletes its widgets. A project's last dashboard can't be deleted, and trying exits 1.
