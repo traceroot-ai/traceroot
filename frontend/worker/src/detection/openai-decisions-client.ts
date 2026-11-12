@@ -6,10 +6,49 @@
  * the run instead of producing a finding. Those errors carry the usage OpenAI
  * billed for the response. 429 and 5xx are retried, honouring retry-after,
  * with the TOTAL time (attempts plus waits) capped by `deadlineMs`. Error
- * messages carry OpenAI's error message but never the API key.
+ * messages carry OpenAI's error message but never the API key. A response body
+ * is read up to MAX_RESPONSE_BYTES: the base URL is the provider's, so the
+ * deadline bounds how long a response takes but not how much it sends.
  */
 
 import { abortableSleep, retryDelayMs, MAX_RETRIES, type JsonValue } from "./typesafe-client.js";
+
+/** Far above any real response (two answers and the usage are a few KB). */
+export const MAX_RESPONSE_BYTES = 1024 * 1024;
+
+function responseTooLarge(maxBytes: number): Error {
+  return new Error(`response body is over the ${maxBytes}-byte limit`);
+}
+
+/**
+ * The body as text, read a chunk at a time and cancelled as soon as it passes
+ * `maxBytes`, so an oversized response is never buffered whole. A declared
+ * Content-Length over the limit fails before anything is read.
+ */
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw responseTooLarge(maxBytes);
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw responseTooLarge(maxBytes);
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
 
 /** Yes/no question; the answer is P(yes). */
 export interface PredicateQuestion {
@@ -113,7 +152,7 @@ export async function callDecisions<Q extends DecisionsQuestions>(
           body: payload,
           signal: controller.signal,
         });
-        text = await response.text();
+        text = await readBoundedText(response, MAX_RESPONSE_BYTES);
       } catch (err) {
         if (controller.signal.aborted) throw new Error(timeoutMessage);
         throw new Error(

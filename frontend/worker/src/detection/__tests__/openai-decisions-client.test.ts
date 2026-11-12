@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  MAX_RESPONSE_BYTES,
   callDecisions,
   decisionsUsageFromError,
   DecisionRefusedError,
@@ -313,6 +314,81 @@ describe("callDecisions (stubbed fetch)", () => {
       const err = await callError();
       expect(err.message).toBe("OpenAI decisions returned 400: bad request");
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe("response size", () => {
+      const KIB = new Uint8Array(1024).fill(0x20);
+
+      /** A body that never ends on its own, counting the chunks pulled from it. */
+      function endlessBody(status: number) {
+        const stream = { pulled: 0, cancelled: false };
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            stream.pulled++;
+            controller.enqueue(KIB);
+          },
+          cancel() {
+            stream.cancelled = true;
+          },
+        });
+        return { stream, response: new Response(body, { status }) };
+      }
+
+      it("stops reading and cancels a body that goes over the limit, without retrying", async () => {
+        const { stream, response } = endlessBody(200);
+        fetchMock.mockResolvedValue(response);
+
+        const err = await callError();
+
+        expect(err.message).toBe(
+          `OpenAI decisions request failed: response body is over the ${MAX_RESPONSE_BYTES}-byte limit`,
+        );
+        expect(stream.cancelled).toBe(true);
+        // Read up to the limit and one chunk past it, never the whole stream.
+        expect(stream.pulled * 1024).toBeLessThanOrEqual(MAX_RESPONSE_BYTES + 2 * 1024);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("bounds an error body too, so a 5xx cannot stream past the limit", async () => {
+        const { stream, response } = endlessBody(500);
+        fetchMock.mockResolvedValue(response);
+
+        const err = await callError();
+
+        expect(err.message).toMatch(/over the \d+-byte limit/);
+        expect(stream.cancelled).toBe(true);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("fails on a declared Content-Length over the limit before reading the body", async () => {
+        const { stream, response } = endlessBody(200);
+        response.headers.set("content-length", String(MAX_RESPONSE_BYTES + 1));
+        fetchMock.mockResolvedValue(response);
+
+        const err = await callError();
+
+        expect(err.message).toMatch(/over the \d+-byte limit/);
+        expect(stream.cancelled).toBe(true);
+        // Only the stream's own start-up pull: nothing was read past the header.
+        expect(stream.pulled).toBeLessThanOrEqual(1);
+      });
+
+      it("reads a body that arrives in many chunks, under the limit", async () => {
+        const text = JSON.stringify(OK_BODY);
+        const bytes = new TextEncoder().encode(text);
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7));
+            controller.close();
+          },
+        });
+        fetchMock.mockResolvedValue(new Response(body, { status: 200 }));
+
+        const result = await call();
+
+        expect(result.answers.gate.probability).toBe(0.97);
+        expect(result.answers.label.choice).toBe("tool_error");
+      });
     });
 
     it("a network failure is terminal", async () => {
