@@ -55,7 +55,7 @@ function fillAndSubmit() {
 describe("SignInClient", () => {
   it("titles the card with the product name", () => {
     render(<SignInClient googleAuthConfigured={false} />);
-    expect(screen.getByRole("heading", { name: "Sign in to traceroot" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Welcome back" })).toBeTruthy();
   });
 
   it("carries the callback to the sign-up link so a new user finishes the round-trip", () => {
@@ -90,7 +90,7 @@ describe("SignInClient", () => {
     mocks.signInSocial.mockResolvedValue({ error: null });
 
     render(<SignInClient googleAuthConfigured={true} />);
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
 
     await waitFor(() =>
       expect(mocks.signInSocial).toHaveBeenCalledWith({

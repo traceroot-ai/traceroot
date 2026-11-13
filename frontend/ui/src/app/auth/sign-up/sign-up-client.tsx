@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -11,8 +10,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Logo } from "@/components/Logo";
+import {
+  AuthError,
+  AuthField,
+  AuthFooter,
+  AuthHeader,
+  AuthLayout,
+  GoogleAuthOption,
+  PasswordInput,
+} from "@/components/auth/auth-layout";
 import { signupEmailError } from "@/lib/signup/email-policy";
 
 const signUpSchema = z
@@ -84,8 +90,6 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
       : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
@@ -129,122 +133,61 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
   }
 
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mb-2 flex justify-center">
-            <Logo size="lg" />
-          </div>
-          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {error && (
-            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-              {error}
-            </div>
-          )}
+    <AuthLayout>
+      <AuthHeader
+        title="Create your account"
+        subtitle="Start tracing and improving your AI agents."
+      />
+      {googleAuthConfigured && (
+        <GoogleAuthOption onClick={handleGoogleSignUp} isLoading={isGoogleLoading} />
+      )}
+      <div className="space-y-5">
+        <AuthError message={error} />
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Name</label>
-              <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-              {errors.name && <p className="mt-1 text-[12px] text-danger">{errors.name.message}</p>}
-            </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <AuthField label="Name" error={errors.name?.message}>
+            <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
+          </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Email</label>
-              <Input
-                type="email"
-                placeholder="you@example.com"
-                className="h-8 text-[13px]"
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
-              )}
-            </div>
+          <AuthField label="Email" error={errors.email?.message}>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              className="h-8 text-[13px]"
+              {...register("email")}
+            />
+          </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="********"
-                  className="h-8 pr-10 text-[13px]"
-                  {...register("password")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
-              )}
-            </div>
+          <AuthField label="Password" error={errors.password?.message}>
+            <PasswordInput
+              placeholder="********"
+              autoComplete="new-password"
+              className="h-8 text-[13px]"
+              {...register("password")}
+            />
+          </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Confirm Password</label>
-              <div className="relative">
-                <Input
-                  type={showConfirmPassword ? "text" : "password"}
-                  placeholder="********"
-                  className="h-8 pr-10 text-[13px]"
-                  {...register("confirmPassword")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-[12px] text-danger">{errors.confirmPassword.message}</p>
-              )}
-            </div>
+          <AuthField label="Confirm Password" error={errors.confirmPassword?.message}>
+            <PasswordInput
+              placeholder="********"
+              autoComplete="new-password"
+              className="h-8 text-[13px]"
+              {...register("confirmPassword")}
+            />
+          </AuthField>
 
-            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Sign up"}
-            </Button>
-          </form>
-
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[12px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignUp}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
-
-          <p className="text-center text-[12px] text-muted-foreground">
-            Already have an account?{" "}
-            <Link href={signInHref} className="font-medium text-brand hover:underline">
-              Sign in
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
+            {isLoading ? "Creating account..." : "Sign up"}
+          </Button>
+        </form>
+      </div>
+      <AuthFooter>
+        Already have an account?{" "}
+        <Link href={signInHref} className="font-medium text-brand hover:underline">
+          Sign in
+        </Link>
+      </AuthFooter>
+    </AuthLayout>
   );
 }
 

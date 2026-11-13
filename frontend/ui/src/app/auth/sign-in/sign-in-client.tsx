@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -11,8 +10,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Logo } from "@/components/Logo";
+import {
+  AuthError,
+  AuthField,
+  AuthFooter,
+  AuthHeader,
+  AuthLayout,
+  GoogleAuthOption,
+  PasswordInput,
+} from "@/components/auth/auth-layout";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -38,7 +44,6 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
       : "/auth/sign-up";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
@@ -81,101 +86,54 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   }
 
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mb-2 flex justify-center">
-            <Logo size="lg" />
-          </div>
-          <CardTitle className="text-[15px] font-medium">Sign in to traceroot</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {error && (
-            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-              {error}
-            </div>
-          )}
+    <AuthLayout>
+      <AuthHeader
+        title="Welcome back"
+        subtitle="Sign in to traceroot to see your traces and agents."
+      />
+      {googleAuthConfigured && (
+        <GoogleAuthOption onClick={handleGoogleSignIn} isLoading={isGoogleLoading} />
+      )}
+      <div className="space-y-5">
+        <AuthError message={error} />
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Email</label>
-              <Input
-                type="email"
-                placeholder="you@example.com"
-                className="h-8 text-[13px]"
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
-              )}
-            </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <AuthField label="Email" error={errors.email?.message}>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              className="h-8 text-[13px]"
+              {...register("email")}
+            />
+          </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="********"
-                  className="h-8 pr-10 text-[13px]"
-                  {...register("password")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
-              )}
-            </div>
+          <AuthField label="Password" error={errors.password?.message}>
+            <PasswordInput
+              placeholder="********"
+              className="h-8 text-[13px]"
+              {...register("password")}
+            />
+          </AuthField>
 
-            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign in"}
-            </Button>
-          </form>
-
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[12px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignIn}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
-
-          <p className="text-center text-[12px] text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href={signUpHref} className="font-medium text-brand hover:underline">
-              Sign up
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
+            {isLoading ? "Signing in..." : "Sign in"}
+          </Button>
+        </form>
+      </div>
+      <AuthFooter>
+        Don&apos;t have an account?{" "}
+        <Link href={signUpHref} className="font-medium text-brand hover:underline">
+          Sign up
+        </Link>
+      </AuthFooter>
+    </AuthLayout>
   );
 }
 
-export function SignInClient({ googleAuthConfigured }: SignInContentProps) {
+export function SignInClient(props: SignInContentProps) {
   return (
     <Suspense>
-      <SignInContent googleAuthConfigured={googleAuthConfigured} />
+      <SignInContent {...props} />
     </Suspense>
   );
 }
