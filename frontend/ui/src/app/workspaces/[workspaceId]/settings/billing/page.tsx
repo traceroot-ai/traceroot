@@ -1,9 +1,11 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PlanType } from "@traceroot/core";
 import { BillingTab } from "@/ee/features/billing/BillingTab";
+import { reconcileCheckout } from "@/ee/features/billing/api";
 import { getWorkspace } from "@/lib/api";
 import { WorkspaceSettingsLayout } from "@/features/settings/scoped-settings-layout";
 
@@ -15,6 +17,22 @@ export default function WorkspaceSettingsBillingPage() {
     queryKey: ["workspace", workspaceId],
     queryFn: () => getWorkspace(workspaceId),
   });
+
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const checkoutSessionId =
+    searchParams.get("success") === "true" ? searchParams.get("session_id") : null;
+  const reconciledSessionId = useRef<string | null>(null);
+
+  // Back from Checkout: sync the subscription from Stripe now instead of waiting
+  // for the webhook, then reload the workspace so the new plan shows.
+  useEffect(() => {
+    if (!checkoutSessionId || reconciledSessionId.current === checkoutSessionId) return;
+    reconciledSessionId.current = checkoutSessionId;
+    reconcileCheckout(workspaceId, checkoutSessionId)
+      .catch((error) => console.error("Failed to reconcile checkout:", error))
+      .finally(() => queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] }));
+  }, [checkoutSessionId, workspaceId, queryClient]);
 
   return (
     <WorkspaceSettingsLayout workspaceId={workspaceId} tab="billing">
