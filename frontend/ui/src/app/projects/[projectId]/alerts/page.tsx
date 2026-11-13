@@ -1,7 +1,9 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { hasOutstandingAlertPage } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
@@ -29,7 +31,11 @@ export default function AlertsPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
 
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+    hasOpenPage: boolean;
+  } | null>(null);
 
   const { state, queryOptions, updateKeyword, updateLimit, goToPage } = useListPageState();
   // The page lives in the URL; recorded so an alert's Back, Cancel and Save
@@ -84,26 +90,27 @@ export default function AlertsPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Alerts</h1>
-          {showListChrome && (
-            <div className="flex items-center gap-3">
-              {capacity && isAlertCapacityLow(capacity) && (
-                <span className="text-[12px] text-muted-foreground">
-                  {capacity.used} of {capacity.max} alerts used
-                </span>
-              )}
-              <Button
-                size="sm"
-                className="h-7 text-[12px]"
-                disabled={isAtAlertCapacity(capacity)}
-                onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
-              >
-                New Alert
-              </Button>
-            </div>
-          )}
-        </div>
+        <PageHeader
+          title="Alerts"
+          actions={
+            showListChrome ? (
+              <>
+                {capacity && isAlertCapacityLow(capacity) && (
+                  <span className="text-[12px] text-muted-foreground">
+                    {capacity.used} of {capacity.max} alerts used
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  disabled={isAtAlertCapacity(capacity)}
+                  onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
+                >
+                  New alert
+                </Button>
+              </>
+            ) : undefined
+          }
+        />
 
         {/* No date filter: an alert is configuration, and the list endpoint
             takes no time range. */}
@@ -114,7 +121,7 @@ export default function AlertsPage() {
         {showListChrome && (
           <AlertsCapacityNotice
             capacity={capacity}
-            className="border-b border-border bg-muted/50 px-4 py-2 text-muted-foreground"
+            className="border-b border-border px-4 py-2 text-muted-foreground"
           />
         )}
 
@@ -158,7 +165,13 @@ export default function AlertsPage() {
                 projectId={projectId}
                 workspaceId={project?.workspace_id}
                 onToggleStatus={handleToggleStatus}
-                onDelete={(alert) => setDeleteTarget({ id: alert.id, name: alert.name })}
+                onDelete={(alert) =>
+                  setDeleteTarget({
+                    id: alert.id,
+                    name: alert.name,
+                    hasOpenPage: hasOutstandingAlertPage(alert),
+                  })
+                }
                 isStatusPending={statusMutation.isPending}
               />
             </>
@@ -179,6 +192,7 @@ export default function AlertsPage() {
       {deleteTarget && (
         <DeleteAlertDialog
           alertName={deleteTarget.name}
+          hasOpenPage={deleteTarget.hasOpenPage}
           isOpen={true}
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleDeleteConfirm}

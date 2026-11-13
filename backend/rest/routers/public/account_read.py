@@ -132,12 +132,19 @@ async def list_workspaces(
             rate-limit identity.
 
     Returns:
-        PublicWorkspaceListResponse: The user's workspaces (id, name, role).
+        PublicWorkspaceListResponse: The user's workspaces (id, name, role,
+            is_demo); the public demo workspace, when present, comes last.
     """
     workspaces = await _fetch_memberships(auth.user_id)
     try:
         items = [
-            WorkspaceListItem(id=ws["id"], name=ws["name"], role=ws["role"]) for ws in workspaces
+            WorkspaceListItem(
+                id=ws["id"],
+                name=ws["name"],
+                role=ws["role"],
+                is_demo=bool(ws.get("is_demo", False)),
+            )
+            for ws in workspaces
         ]
     except (KeyError, TypeError) as e:
         # A membership item missing a required field is a malformed upstream
@@ -177,7 +184,7 @@ async def list_projects(
 
     Returns:
         PublicProjectListResponse: The accessible projects (id, name,
-            workspace_id, workspace_name).
+            workspace_id, workspace_name, workspace_is_demo).
     """
     workspaces = await _fetch_memberships(auth.user_id)
     items: list[ProjectListItem] = []
@@ -192,6 +199,7 @@ async def list_projects(
                         name=project["name"],
                         workspace_id=ws["id"],
                         workspace_name=ws["name"],
+                        workspace_is_demo=bool(ws.get("is_demo", False)),
                     )
                 )
     except (KeyError, TypeError) as e:

@@ -3,9 +3,9 @@ title: Read-only SQL
 description: Query your project's spans and traces from the CLI or public API
 ---
 
-TraceRoot's SQL gateway runs analytical queries against your project's trace data. It is read-only and project-scoped: the project is resolved during authentication, and SQL text and parameters cannot override it.
+traceroot's SQL gateway runs analytical queries against your project's trace data. It is read-only and project-scoped: the project is resolved during authentication, and SQL text and parameters cannot override it.
 
-You can query the gateway with the [TraceRoot CLI](/cli/get-started) or with the public API.
+You can query the gateway with the [traceroot CLI](/cli/get-started) or with the public API.
 
 ## Query with the CLI
 
@@ -136,7 +136,7 @@ Queries can reference only two logical tables:
 
 Use `traceroot sql schema --json` or `GET /api/v1/public/sql/schema` for the authoritative column list and types.
 
-These are curated views over TraceRoot's internal tables. They deliberately exclude:
+These are curated views over traceroot's internal tables. They deliberately exclude:
 
 - span and trace `input` and `output` payloads;
 - the raw metadata JSON document; `metadata` is exposed instead as a one-level string map, accessed with expressions such as `metadata['user_id']`;
@@ -179,7 +179,7 @@ On self-hosted deployments, operators can change the four ClickHouse caps with `
 
 Concurrency is not a queue. If either per-process slot limit is full, the API returns HTTP 429 with `Too many queries are running. Retry shortly.` and a one-second `Retry-After` header.
 
-TraceRoot Cloud also applies a per-project SQL request rate:
+traceroot Cloud also applies a per-project SQL request rate:
 
 | Plan | Requests per minute |
 | :-- | --: |

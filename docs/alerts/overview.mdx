@@ -1,6 +1,7 @@
 ---
-title: Introduction
-description: Get notified when your agent gets slow, expensive or fails
+title: Alerts for agent latency, cost, and errors
+sidebarTitle: Introduction
+description: Set a threshold and get a Slack message when a metric crosses it or returns to normal.
 ---
 
 Alerts watch your agent's latency, cost, token use and errors, and post to Slack when one crosses a threshold you set. You are notified about a problem when it starts, without having to watch a dashboard.
@@ -28,7 +29,7 @@ Each evaluation reads **OK**, **Alert** or **No Data**, and only a change notifi
 
 You need incoming traces, the **Member** role or higher, and Slack connected to the workspace (see [Slack notifications](#slack-notifications)).
 
-Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Alerts** from the left nav, then click **New Alert**.
+Open your project in [traceroot Cloud](https://app.traceroot.ai), select **Alerts** from the left nav, then click **New Alert**.
 
 1. **Scope**: click **Add filter** to limit which spans are measured, such as `Span kind is LLM`. Leave it empty to measure every span.
 2. **Condition**: pick the aggregation and measure, the operator and threshold, and the window. The threshold is in the measure's unit, so "p95 latency over 2 seconds" is `2000`. A rule has one threshold; for a warning and a critical level, create two alerts.
@@ -39,18 +40,18 @@ The **Live preview** charts the rule as you edit, with the threshold drawn acros
 
 ## Create alerts with AI
 
-Select **Home** from the left nav to open the TraceRoot Agent, then describe the alert you want, or ask it to suggest one from your traces. For example:
+Select **Home** from the left nav to open the traceroot Agent, then describe the alert you want, or ask it to suggest one from your traces. For example:
 
 - "Alert me when p99 latency of LLM spans goes over 2 seconds"
 - "Suggest a useful alert for this project based on my recent traces"
 
 The agent drafts the rule with its preview chart. Nothing is saved until you click **Create alert** under the chat; reply instead to revise the draft.
 
-<Frame caption="TraceRoot Agent: an error alert suggested from recent traces, then approved in chat">
-  <img src="/images/alerts_agent_v2.png" alt="TraceRoot Agent checking existing alerts and recent traffic, then creating a span error alert" />
+<Frame caption="traceroot Agent: an error alert suggested from recent traces, then approved in chat">
+  <img src="/images/alerts_agent_v2.png" alt="traceroot Agent checking existing alerts and recent traffic, then creating a span error alert" />
 </Frame>
 
-AI coding agents can also create alerts with the [TraceRoot CLI](/cli/get-started) (`traceroot alerts create`) or the public API under `/api/v1/public/alerts`. Writes need a signed-in user; a project API key can only read.
+AI coding agents can also create alerts with the [traceroot CLI](/cli/get-started) (`traceroot alerts create`) or the public API under `/api/v1/public/alerts`. Writes need a signed-in user; a project API key can only read.
 
 ## Alert states
 
@@ -60,7 +61,7 @@ Each row in the Alerts list shows a badge. When a badge has a reason, such as wh
 - **Alert**: the latest value breaches the threshold.
 - **No Data**: the latest window was empty, or the rule has not run yet.
 - **Failing**: the last run failed. It retries on its normal schedule.
-- **Parked**: TraceRoot stopped the rule because its settings cannot be evaluated. Fix the setting the badge names and save, or resume the rule.
+- **Parked**: traceroot stopped the rule because its settings cannot be evaluated. Fix the setting the badge names and save, or resume the rule.
 - **Paused**: you stopped the rule. Nothing is evaluated or sent.
 
 ## Manage alerts
@@ -71,15 +72,15 @@ Use the **Actions** menu on a row:
 - **Edit** opens the same form. Saving a change to the rule starts it fresh; a rename or a renotify change does not.
 - **Delete** removes the rule permanently. Type the alert's name to confirm.
 
-Starting fresh closes an open alert and posts an `[OK]` to Slack that says who edited or resumed the rule; see [Starting fresh](/alerts/rule-reference#starting-fresh). The edit form shows a reminder when the rule has an alert open. Deleting a rule with an alert open posts no closing message.
+Starting fresh closes an open alert and posts an `[OK]` to Slack that says who edited or resumed the rule; see [Starting fresh](/alerts/rule-reference#starting-fresh). The edit form shows a reminder when the rule has an alert open. Deleting a rule with an alert open closes it the same way: the `[OK]` names who deleted the rule when their account has a display name, and has no link, since the rule is gone. The delete dialog shows a reminder too.
 
 ## Slack notifications
 
-Slack is connected once per TraceRoot workspace, and every project in it posts alerts to that channel. Detector notifications use the same connection.
+Slack is connected once per traceroot workspace, and every project in it posts alerts to that channel. Detector notifications use the same connection.
 
 1. As a workspace admin, open **Settings → Integrations**.
 2. Click **Connect** and complete the authorization in Slack.
-3. Pick the channel TraceRoot should post to.
+3. Pick the channel traceroot should post to.
 
 Each message names the state and the rule, such as `[ALERT] p95 latency`, then states the value, threshold, window and filters in one sentence. **View alert** opens the rule, and a breach also links **View traces** for the evaluated window. The `[OK]` that closes an alert after an edit or a resume is not a recovery, so it states who made the change in place of a value.
 

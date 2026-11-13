@@ -167,13 +167,13 @@ export function RunEvaluationDrawer({
   const code = snippet(lang, dataset);
 
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
+    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div>
           <h2 className="text-[13px] font-semibold">Copy starter code</h2>
           <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
             The evaluation runs in your application or CI environment. Its results are reported back
-            to TraceRoot and appear on this page.
+            to traceroot and appear on this page.
           </p>
         </div>
         <button
@@ -192,7 +192,7 @@ export function RunEvaluationDrawer({
             <p className="text-[13px] font-medium">{dataset?.name ?? chosen}</p>
           ) : (
             <Select value={dataset ? chosen : ""} onValueChange={setChosen}>
-              <SelectTrigger className="h-7 text-[13px]">
+              <SelectTrigger className="h-8 text-[13px]">
                 <SelectValue
                   placeholder={
                     isLoading
@@ -208,7 +208,7 @@ export function RunEvaluationDrawer({
               <SelectContent>
                 {datasets.length ? (
                   datasets.map((item) => (
-                    <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                    <SelectItem key={item.id} value={item.id}>
                       {item.name}
                     </SelectItem>
                   ))
@@ -227,7 +227,7 @@ export function RunEvaluationDrawer({
         </FormCard>
 
         <div className="overflow-hidden rounded border border-border">
-          <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1.5 py-1">
+          <div className="flex items-center justify-between border-b border-border px-1.5 py-1">
             <div className="flex items-center gap-0.5">
               {(["python", "typescript"] as Lang[]).map((l) => (
                 <button
@@ -237,7 +237,7 @@ export function RunEvaluationDrawer({
                   className={cn(
                     "rounded px-1.5 py-0.5 text-xs font-medium transition-colors",
                     lang === l
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -256,37 +256,35 @@ export function RunEvaluationDrawer({
               clear of the horizontal scrollbar at the pre's bottom edge. */}
           <HighlightedCode
             code={code}
-            className="max-h-[55vh] overflow-auto whitespace-pre px-3 pb-6 pt-2.5 font-mono text-[11px] leading-relaxed"
+            className="max-h-[55vh] overflow-auto whitespace-pre px-3 pb-6 pt-2.5 font-mono text-[12px] leading-relaxed"
           />
         </div>
 
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">
               Change these for your application
             </span>
           </div>
-          <ul className="flex list-disc flex-col gap-1 py-2 pl-7 pr-3 text-[11px] leading-relaxed text-muted-foreground">
+          <ul className="flex list-disc flex-col gap-1 py-2 pl-7 pr-3 text-[12px] leading-relaxed text-muted-foreground">
             <li>Import the function that runs your application.</li>
             <li>Map the test-case input into that function.</li>
             <li>Import or define the scorers you want to use.</li>
           </ul>
-          <p className="border-t border-border px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="border-t border-border px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
             The dataset id and snapshot id are already filled in.
           </p>
         </div>
 
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          The task function and the scorers stay in your code. TraceRoot records the run, its
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
+          The task function and the scorers stay in your code. traceroot records the run, its
           results, and the traces they produced.
         </p>
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-3">
-        <span className="text-[11px] text-muted-foreground">Nothing runs from this panel.</span>
-        <Button size="sm" className="h-7 text-[12px]" onClick={() => onOpenChange(false)}>
-          Done
-        </Button>
+        <span className="text-[12px] text-muted-foreground">Nothing runs from this panel.</span>
+        <Button onClick={() => onOpenChange(false)}>Done</Button>
       </div>
     </div>
   );

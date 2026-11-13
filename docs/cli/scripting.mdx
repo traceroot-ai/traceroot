@@ -24,7 +24,9 @@ Every CLI execution terminates with a class-specific exit code so your scripts c
 #!/usr/bin/env bash
 set -uo pipefail
 
-if ! traceroot traces get "$TRACE_ID" --json > trace.json; then
+if traceroot traces get "$TRACE_ID" --json > trace.json; then
+  echo "Trace downloaded successfully"
+else
   exit_code=$?
   case $exit_code in
     2) echo "Usage error: Invalid trace ID syntax" ;;

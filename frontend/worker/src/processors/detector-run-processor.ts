@@ -7,8 +7,10 @@ import {
   EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
-import { runDetectionForTrace } from "../detection/sandbox-eval.js";
+import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../detection/sandbox-eval.js";
+import { buildJudgeInput, type JudgeInput } from "../detection/judge-input.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
+import { downloadSpansJsonl } from "../detection/spans-download.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
 import { enqueueSignalHits } from "../ee/signals/queue.js";
@@ -78,22 +80,13 @@ export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
 }
 
-async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
-  const response = await fetch(
-    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/spans-jsonl?project_id=${projectId}`,
-    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to download spans for trace ${traceId}: HTTP ${response.status}`);
-  }
-  return response.text();
-}
-
 interface TriggeredResult {
   detectorId: string;
   detectorName: string;
   summary: string;
   data: unknown;
+  /** Whether this run's eval recorded inference usage; persisted on the run. */
+  usedInference: boolean;
   /** Whether this run's self-trace was emitted; carried to the triggered run write. */
   selfTraced: boolean;
 }
@@ -132,6 +125,25 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   }
 }
 
+/**
+ * Whether a scan recorded inference usage — the model was reached and billed,
+ * whatever the run's final status. Token counts are the reliable signal: a
+ * provider can be billed with a zero cost (free/system model, BYOK), and an
+ * error response can name a model without ever producing tokens, so neither a
+ * model id nor a positive cost alone proves a call. The sandbox eval
+ * accumulates tokens across attempts, so a run that burned calls and then
+ * failed (no submit_result, a rejected TypeSafe answer) still counts; a
+ * failure before any call (missing key, unknown model, span download) leaves
+ * both counts at zero.
+ *
+ * Persisted to detector_runs.used_inference, which the usage meter reads
+ * alongside status: a run consumes quota (and stays in the paid overage
+ * denominator) when its latest version completed OR used inference.
+ */
+function recordedInferenceUsage(usage: ScanUsage): boolean {
+  return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
+}
+
 interface SingleDetectorOutcome {
   triggered: TriggeredResult | null;
   /** null when the eval threw before pi-ai was called (cost/source unknown). */
@@ -165,9 +177,10 @@ async function runSingleDetector(params: {
   traceId: string;
   projectId: string;
   spansJsonl: string;
+  getJudgeInput: () => JudgeInput;
   workspaceId: string;
 }): Promise<SingleDetectorOutcome> {
-  const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
+  const { detector, traceId, projectId, spansJsonl, getJudgeInput, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
   // The eval runs inside the self-trace: the detector-run root span is live
@@ -193,6 +206,7 @@ async function runSingleDetector(params: {
       runDetectionForTrace({
         traceId,
         spansJsonl,
+        getJudgeInput,
         detector: {
           id: detector.id,
           name: detector.name,
@@ -238,6 +252,9 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: "failed",
+      // The eval threw before it returned a usage record: nothing here proves
+      // a model call was billed, so the run stays out of the usage meter.
+      usedInference: false,
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage: null };
@@ -267,6 +284,7 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: result.error ? "failed" : "completed",
+      usedInference: recordedInferenceUsage(usage),
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage };
@@ -283,6 +301,7 @@ async function runSingleDetector(params: {
       detectorName: detector.name,
       summary: result.summary,
       data: result.data,
+      usedInference: recordedInferenceUsage(usage),
       selfTraced,
     },
     usage,
@@ -310,6 +329,9 @@ export async function processTrace(
           traceId,
           findingId: null,
           status: "failed",
+          // No detector ever ran, so nothing was billed: this failure must not
+          // consume detector-scan quota.
+          usedInference: false,
         }).catch((err) => console.error("[Detector] Failed to write run:", err)),
       ),
     );
@@ -354,6 +376,11 @@ async function evaluateTrace(
     return;
   }
 
+  // Built on first use and shared by this trace's detectors.
+  let judgeInput: JudgeInput | undefined;
+  const getJudgeInput = () =>
+    (judgeInput ??= buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS }));
+
   // Run all detectors in parallel; collect triggered results
   const settled = await Promise.allSettled(
     detectors.map((detector) => {
@@ -375,6 +402,7 @@ async function evaluateTrace(
         traceId,
         projectId,
         spansJsonl,
+        getJudgeInput,
         workspaceId,
       });
     }),
@@ -465,6 +493,7 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
+        usedInference: r.usedInference,
         timestampMs: findingTimestamp,
         selfTraced: r.selfTraced,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),

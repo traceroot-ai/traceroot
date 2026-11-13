@@ -44,13 +44,17 @@ traceroot alerts get cm2k7r3d80003qz8ry4k5m1fg
 ```
 
 ```text
-Alert ID:     cm2k7r3d80003qz8ry4k5m1fg
-Name:         High Error Rate Spike
-Status:       ACTIVE
-Severity:     CRITICAL
-Condition:    error_rate > 5% over 5m window
-Last fired:   2026-10-01T08:15:22Z
-Channels:     Slack (#prod-incidents), PagerDuty
+Alert:       High Error Rate Spike
+Alert ID:    cm2k7r3d80003qz8ry4k5m1fg
+Status:      ACTIVE (severity critical)
+Rule:        avg errors > 0.05 / 5m
+View:        spans
+Filters:     environment = production
+Renotify:    every 30m
+No data:     KEEP_STATE
+Last eval:   2026-10-01 14:30:00 UTC
+Created:     2026-09-15 09:12:00 UTC by Alice
+Updated:     2026-10-01 12:00:00 UTC
 ```
 
 ### `traceroot alerts create`

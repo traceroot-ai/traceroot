@@ -100,23 +100,30 @@ traceroot widgets create --from-file <path> [options]
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
-| `--from-file <path>` | string | Path to JSON definition |
+| `--from-file <path>` | string | Path to JSON definition (or `-` for stdin) |
 | `--dashboard-id <id>` | string | Target dashboard ID |
 | `--title <string>` | string | Widget title |
-| `--type <string>` | string | Widget type (`timeseries`, `counter`, `table`, `bar`) |
-| `--spec <json-string>` | string | Query specification defining metrics, dimensions, and filters |
+| `--type <string>` | string | Widget type: `query` (metric chart) or `trace_feed` (recent traces list) |
+| `--spec <json-string>` | string | Widget content spec. For `query`: `{ view, filters, metric, breakdown, display }`; for `trace_feed`: predicate filters and limit |
 
-Define a widget in `latency_widget.json`:
+Define a query widget in `latency_widget.json`:
 
 ```json
 {
   "dashboard_id": "cm2k7p9x40000qz8rn3f1i7bd",
   "title": "P95 Latency by Model",
-  "type": "timeseries",
+  "type": "query",
   "spec": {
-    "metric": "duration_ms",
-    "aggregation": "p95",
-    "group_by": ["model_name"]
+    "view": "spans",
+    "filters": [],
+    "metric": {
+      "measure": "duration_ms",
+      "agg": "p95"
+    },
+    "breakdown": "model_name",
+    "display": {
+      "type": "line"
+    }
   }
 }
 ```

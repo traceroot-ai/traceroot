@@ -77,8 +77,8 @@ def test_list_workspaces_returns_user_workspaces():
     assert resp.status_code == 200
     assert resp.json() == {
         "data": [
-            {"id": "ws-1", "name": "Alpha", "role": "admin"},
-            {"id": "ws-2", "name": "Beta", "role": "viewer"},
+            {"id": "ws-1", "name": "Alpha", "role": "admin", "is_demo": False},
+            {"id": "ws-2", "name": "Beta", "role": "viewer", "is_demo": False},
         ]
     }
     # The session-token path also forwards the resolved user id (from the
@@ -94,11 +94,64 @@ def test_list_projects_flattens_across_workspaces():
     assert resp.status_code == 200
     assert resp.json() == {
         "data": [
-            {"id": "proj-1", "name": "P1", "workspace_id": "ws-1", "workspace_name": "Alpha"},
-            {"id": "proj-2", "name": "P2", "workspace_id": "ws-1", "workspace_name": "Alpha"},
-            {"id": "proj-3", "name": "P3", "workspace_id": "ws-2", "workspace_name": "Beta"},
+            {
+                "id": "proj-1",
+                "name": "P1",
+                "workspace_id": "ws-1",
+                "workspace_name": "Alpha",
+                "workspace_is_demo": False,
+            },
+            {
+                "id": "proj-2",
+                "name": "P2",
+                "workspace_id": "ws-1",
+                "workspace_name": "Alpha",
+                "workspace_is_demo": False,
+            },
+            {
+                "id": "proj-3",
+                "name": "P3",
+                "workspace_id": "ws-2",
+                "workspace_name": "Beta",
+                "workspace_is_demo": False,
+            },
         ]
     }
+
+
+@respx.mock
+def test_list_workspaces_and_projects_mark_the_demo_workspace():
+    """The public demo workspace is marked, so a CLI script can skip it."""
+    _mock_account_auth()
+    _mock_memberships(
+        body={
+            "workspaces": [
+                {"id": "ws-own", "name": "Own", "role": "admin", "is_demo": False, "projects": []},
+                {
+                    "id": "ws-demo",
+                    "name": "Demo",
+                    "role": "viewer",
+                    "is_demo": True,
+                    "projects": [{"id": "proj-demo", "name": "Demo Project"}],
+                },
+            ]
+        }
+    )
+    client = TestClient(app)
+
+    workspaces = client.get("/api/v1/public/workspaces", headers=USER_HEADER).json()["data"]
+    assert [(w["id"], w["is_demo"]) for w in workspaces] == [("ws-own", False), ("ws-demo", True)]
+
+    projects = client.get("/api/v1/public/projects", headers=USER_HEADER).json()["data"]
+    assert projects == [
+        {
+            "id": "proj-demo",
+            "name": "Demo Project",
+            "workspace_id": "ws-demo",
+            "workspace_name": "Demo",
+            "workspace_is_demo": True,
+        }
+    ]
 
 
 @respx.mock
@@ -129,7 +182,13 @@ def test_list_projects_filters_by_workspace_id():
     assert resp.status_code == 200
     assert resp.json() == {
         "data": [
-            {"id": "proj-3", "name": "P3", "workspace_id": "ws-2", "workspace_name": "Beta"},
+            {
+                "id": "proj-3",
+                "name": "P3",
+                "workspace_id": "ws-2",
+                "workspace_name": "Beta",
+                "workspace_is_demo": False,
+            },
         ]
     }
 
@@ -316,8 +375,8 @@ def test_list_workspaces_accepts_a_cli_access_jwt(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {
         "data": [
-            {"id": "ws-1", "name": "Alpha", "role": "admin"},
-            {"id": "ws-2", "name": "Beta", "role": "viewer"},
+            {"id": "ws-1", "name": "Alpha", "role": "admin", "is_demo": False},
+            {"id": "ws-2", "name": "Beta", "role": "viewer", "is_demo": False},
         ]
     }
     # Regression guard: the JWT's subject (user id) is forwarded to the internal
@@ -338,9 +397,27 @@ def test_list_projects_accepts_a_cli_access_jwt(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {
         "data": [
-            {"id": "proj-1", "name": "P1", "workspace_id": "ws-1", "workspace_name": "Alpha"},
-            {"id": "proj-2", "name": "P2", "workspace_id": "ws-1", "workspace_name": "Alpha"},
-            {"id": "proj-3", "name": "P3", "workspace_id": "ws-2", "workspace_name": "Beta"},
+            {
+                "id": "proj-1",
+                "name": "P1",
+                "workspace_id": "ws-1",
+                "workspace_name": "Alpha",
+                "workspace_is_demo": False,
+            },
+            {
+                "id": "proj-2",
+                "name": "P2",
+                "workspace_id": "ws-1",
+                "workspace_name": "Alpha",
+                "workspace_is_demo": False,
+            },
+            {
+                "id": "proj-3",
+                "name": "P3",
+                "workspace_id": "ws-2",
+                "workspace_name": "Beta",
+                "workspace_is_demo": False,
+            },
         ]
     }
     assert json.loads(membership.calls.last.request.content) == {"userId": "u1"}

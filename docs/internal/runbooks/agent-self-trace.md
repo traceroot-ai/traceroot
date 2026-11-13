@@ -1,6 +1,6 @@
 # Agent self-trace — enable, observe, disable
 
-Every TraceRoot-operated agent run (automatic RCA, follow-up and manual chat turns, the
+Every traceroot-operated agent run (automatic RCA, follow-up and manual chat turns, the
 worker's digest-summary call) can be recorded as a trace in the customer's project,
 stored under `source='agent'` (agent service) or `source='detector'` (worker). Emission is
 on by default and controlled per kind.

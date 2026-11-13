@@ -56,7 +56,7 @@ Once initialized, all `systemOne` calls are captured automatically:
 | Input | The `state` and `questions` sent to Jev |
 | Output | Answers and their probabilities |
 | Tokens | Input and output tokens |
-| Cost | Calculated when the model ID matches TraceRoot's pricing table |
+| Cost | Calculated when the model ID matches traceroot's pricing table |
 | Latency | Request duration |
 
 Jev calls are recorded as decision spans, not LLM spans, because Jev selects among the options you give it instead of generating text.

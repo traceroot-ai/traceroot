@@ -785,7 +785,7 @@ describe("the close an edit or a resume left on the rule", () => {
   });
 
   it("clears a stored value that is not a marker rather than finding it every tick", async () => {
-    queryRaw.mockResolvedValue([{ pendingClose: { reason: "deleted" } }]);
+    queryRaw.mockResolvedValue([{ pendingClose: { reason: "renamed" } }]);
 
     expect(await takeAlertPendingClose("alert-1")).toBeNull();
     expect(console.error).toHaveBeenCalledTimes(1);

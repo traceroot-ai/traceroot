@@ -188,6 +188,15 @@ describe("detector included-threshold math (first 100 free on paid plans)", () =
     expect(billableUnits(1.3, 1000)).toBe(123);
   });
 
+  it("counts failed scans that used inference in the denominator: 100 completed + 50 failed-billed = 150", () => {
+    // scansRun is the canonical ClickHouse count of runs whose latest version
+    // completed OR recorded inference usage — a failed run that burned model
+    // calls is one scan. Before the fix this read as 100 scans (no overage);
+    // now 50 of 150 scans are billable.
+    // billable = 0.30 * (50/150) = 0.10 → 0.10 * 1.05 * 100 = 10.5 → 11
+    expect(billableUnits(0.3, 150)).toBe(11);
+  });
+
   it("upgrading from Free preserves the 100-free benefit: 99 scans on Starter bills $0", () => {
     // Reflects the "Starter is never worse than Free" invariant.
     expect(billableUnits(0.1, 99)).toBe(0);

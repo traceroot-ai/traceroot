@@ -12,14 +12,6 @@ SPAN_HEX = "bb" * 8
 
 
 @pytest.fixture()
-def mock_s3(monkeypatch):
-    """Mock S3 service."""
-    mock = MagicMock()
-    monkeypatch.setattr("rest.services.s3.get_s3_service", lambda: mock)
-    return mock
-
-
-@pytest.fixture()
 def mock_ch(monkeypatch):
     """Mock ClickHouse client."""
     mock = MagicMock()

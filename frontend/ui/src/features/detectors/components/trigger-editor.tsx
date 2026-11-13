@@ -238,8 +238,8 @@ export function TriggerEditor({
     return (
       <>
         {/* Card header */}
-        <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
-          <span className="text-[12px] font-medium text-muted-foreground">Filter</span>
+        <div className="flex h-9 items-center justify-between border-b border-border px-4">
+          <span className="text-[13px] font-medium text-foreground">Filter</span>
           <button
             type="button"
             onClick={addCondition}
@@ -251,7 +251,7 @@ export function TriggerEditor({
           </button>
         </div>
         {/* Card body */}
-        <div className="p-3">
+        <div className="p-4">
           {conditions.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">Runs on all completed traces.</p>
           ) : (

@@ -18,7 +18,7 @@ traceroot detectors list [options]
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--limit <n>` | number | Maximum number of detectors to return |
-| `--since <duration>` | string | Filter detectors updated within a duration (e.g. `24h`, `7d`) |
+| `--since <duration>` | string | Filter detectors created within a duration (e.g. `24h`, `7d`) |
 | `--project <id>` | string | Project ID (required when using browser login) |
 | `--json` | boolean | Output raw JSON records |
 
@@ -54,7 +54,7 @@ traceroot detectors create --from-file <path> [options]
 | :--- | :--- | :--- |
 | `--from-file <path>` | string | Path to JSON file (or `-` for stdin) defining the detector |
 | `--name <string>` | string | Name of the detector |
-| `--template <string>` | string | Template key (e.g. `tool-call-failure`, `hallucination`) |
+| `--template <string>` | string | Template key: `failure`, `hallucination`, `logic`, `task`, `safety`, `blank` |
 | `--prompt <string>` | string | LLM evaluation prompt or rule specification |
 | `--project <id>` | string | Project ID (required when using browser login) |
 
@@ -62,9 +62,9 @@ Create a definition file `detector.json`:
 
 ```json
 {
-  "name": "SQL Injection Detection",
-  "template": "security_check",
-  "prompt": "Evaluate whether any tool call contains unsanitized SQL syntax or injection risks.",
+  "name": "Safety Policy Detector",
+  "template": "safety",
+  "prompt": "Evaluate whether any tool call or model output violates safety policies or produces hazardous actions.",
   "enabled": true,
   "sample_rate": 100
 }
@@ -89,15 +89,19 @@ traceroot detectors update <detector-id> [options]
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
-| `--from-file <path>` | string | JSON file with updated attributes |
+| `--from-file <path>` | string | JSON file (or `-` for stdin) with updated attributes |
 | `--name <string>` | string | New detector name |
 | `--prompt <string>` | string | Updated prompt |
-| `--enabled <boolean>` | boolean | Enable or disable the detector (`true` / `false`) |
+| `--enabled` | boolean | The pause switch (enables the detector; to disable, pass JSON via `--from-file`) |
 | `--sample-rate <n>` | integer | Evaluation sample percentage (`1` to `100`) |
 
 ```bash
+# Enable a detector
+traceroot detectors update cm2k7s5e90004qz8rz7n8p2hj --enabled
+
 # Disable a detector
-traceroot detectors update cm2k7s5e90004qz8rz7n8p2hj --enabled false
+# The --enabled flag is a boolean switch without a value; disable by passing JSON with enabled: false via --from-file:
+echo '{"enabled": false}' | traceroot detectors update cm2k7s5e90004qz8rz7n8p2hj --from-file -
 ```
 
 ### `traceroot detectors delete <id>`
@@ -147,7 +151,7 @@ traceroot findings list --detector cm2k7s5e90004qz8rz7n8p2hj --limit 50
 
 ### `traceroot findings get [id]`
 
-Show the details of a finding, including per-detector results, severity, and the automated Root Cause Analysis (RCA).
+Show the details of a finding, including run IDs, per-detector results, category, and the automated Root Cause Analysis (RCA).
 
 You must specify either the finding ID as an argument or pass `--trace <id>`.
 
@@ -160,13 +164,17 @@ traceroot findings get --trace 99224be337d725fd5e8f2e7b45dc22ef
 ```
 
 ```text
-Finding ID:   8e7d6c5b4a3f2e1d9c0b1a2f3e4d5c6b
-Severity:     HIGH
-Detector:     SQL Injection Detection (cm2k7s5e90004qz8rz7n8p2hj)
-Trace ID:     99224be337d725fd5e8f2e7b45dc22ef
-Created:      2026-10-01T18:24:12Z
+Run IDs:    cm2k9s3d10000qz8rj5m6k7ea
+Trace ID:   99224be337d725fd5e8f2e7b45dc22ef
+Finding ID: 8e7d6c5b4a3f2e1d9c0b1a2f3e4d5c6b
+Time:       2026-10-01 18:24:12 UTC
+Summary:    SQL injection vulnerability detected in tool execution
 
-ROOT CAUSE ANALYSIS (RCA):
+Detector: Safety Policy Detector (safety)
+ID:       cm2k7s5e90004qz8rz7n8p2hj
+Category: Safety
+
+RCA:
 The agent constructed a raw SQL query inside tool call 'execute_sql' by concatenating
 the user input without validation:
   query: "SELECT * FROM users WHERE name = '" + user_input + "'"
