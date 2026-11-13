@@ -157,6 +157,8 @@ cp .env.example .env
 make prod-lite
 ```
 
+`make prod-lite` generates your own credentials in `.env`; keep a backup of that file. Upgrading an existing install is covered in the guide below.
+
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
 ## Integrations

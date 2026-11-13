@@ -9,6 +9,35 @@ services:
   # ---------------------------------------------------------------------------
   # Infrastructure
   # ---------------------------------------------------------------------------
+  # One-shot gate: refuses values copied from the example configuration before any
+  # service that holds data or credentials starts, and names the variable to change.
+  # The compose `:?` checks above only catch an unset value, not a copied one.
+  preflight:
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
+    environment:
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?required, generate with openssl rand -hex 32}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?required, generate with openssl rand -hex 32}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        refuse_copied() {
+          case "$$2" in
+            clickhouse|minio|minio-password|changeme)
+              echo "preflight: $$1 has a value from the example configuration. Set your own value in .env (openssl rand -hex 32), or run make prod-lite to generate one, then start again." >&2
+              exit 1;;
+          esac
+        }
+        refuse_copied CLICKHOUSE_PASSWORD "$$CLICKHOUSE_PASSWORD"
+        refuse_copied MINIO_ROOT_PASSWORD "$$MINIO_ROOT_PASSWORD"
+        case "$$ENCRYPTION_KEY" in
+          9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00)
+            echo "preflight: ENCRYPTION_KEY has the value from the example configuration. Run make rotate-encryption-key to move stored provider keys to a new key, then start again." >&2
+            exit 1;;
+        esac
+    restart: "no"
+
   postgres:
     image: docker.io/postgres:${POSTGRES_VERSION:-17}
     restart: always
@@ -31,10 +60,13 @@ services:
   clickhouse:
     image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
     restart: always
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?required, generate with openssl rand -hex 32}
       # Read by sql_gateway_bootstrap_user.xml via from_env, so the password for the
       # only access-management account is never written into a mounted config file.
       SQL_GATEWAY_BOOTSTRAP_PASSWORD: "${SQL_GATEWAY_BOOTSTRAP_PASSWORD:?required - the only account permitted to create database users}"
@@ -59,11 +91,14 @@ services:
     image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     restart: always
     command: server /data --console-address ":9001"
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-password}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}
     ports:
-      - 9090:9000
+      - 127.0.0.1:9090:9000
       - 127.0.0.1:9091:9001
     volumes:
       - minio_data:/data
@@ -82,7 +117,7 @@ services:
     environment:
       # The credentials minio starts with; \"...\" below keeps each one a single argument.
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-password}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}
       # The same bucket rest, worker and detector use.
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
     volumes:
@@ -191,6 +226,25 @@ services:
       "
     restart: "no"
 
+  # One-time move of stored provider keys and Slack tokens to a new encryption key.
+  # Run through `make rotate-encryption-key`, never started by a plain `up`.
+  rotate-encryption-key:
+    profiles: ["rotate"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      target: rotate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
+      OLD_ENCRYPTION_KEY: ${OLD_ENCRYPTION_KEY:-}
+      NEW_ENCRYPTION_KEY: ${NEW_ENCRYPTION_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   migrate-clickhouse:
     build:
       context: .
@@ -269,7 +323,7 @@ services:
       # --- Model providers ---
       MODEL_PROVIDER_TEST_TIMEOUT_MS: ${MODEL_PROVIDER_TEST_TIMEOUT_MS:-10000}
       # --- Encryption ---
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required, generate with openssl rand -hex 32}
       # --- Billing ---
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -309,6 +363,8 @@ services:
       # --- Enterprise ---
       TRACEROOT_EE_LICENSE_KEY: ${TRACEROOT_EE_LICENSE_KEY:-}
     depends_on:
+      preflight:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       migrate:
@@ -328,7 +384,7 @@ services:
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?required, generate with openssl rand -hex 32}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       # The SQL gateway's read-only identity. clickhouse-init provisions the account;
       # these are what let the API authenticate as it. Without them the read-only
@@ -344,8 +400,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_URL: redis://redis:6379/1
       S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
       TRACEROOT_UI_URL: http://web:3000
@@ -366,6 +422,8 @@ services:
       INGEST_MAX_REQUEST_BYTES: ${INGEST_MAX_REQUEST_BYTES:-16777216}
       INGEST_MAX_UNZIPPED_BYTES: ${INGEST_MAX_UNZIPPED_BYTES:-33554432}
     depends_on:
+      preflight:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       migrate-clickhouse:
@@ -388,13 +446,13 @@ services:
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?required, generate with openssl rand -hex 32}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_URL: redis://redis:6379/1
       S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
       # --- Ingest limits (rest gets the same values) ---
@@ -414,6 +472,8 @@ services:
       ATTACHMENT_MAX_IMAGES_PER_BATCH: ${ATTACHMENT_MAX_IMAGES_PER_BATCH:-1000}
       ATTACHMENT_MAX_SPAN_BYTES: ${ATTACHMENT_MAX_SPAN_BYTES:-8388608}
     depends_on:
+      preflight:
+        condition: service_completed_successfully
       migrate-clickhouse:
         condition: service_completed_successfully
       redis:
@@ -429,7 +489,7 @@ services:
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?required, generate with openssl rand -hex 32}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://rest:8000
@@ -447,6 +507,8 @@ services:
       # --- Worker config ---
       USAGE_METERING_CRON: ${USAGE_METERING_CRON:-"5 * * * *"}
     depends_on:
+      preflight:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       migrate-clickhouse:
@@ -462,13 +524,13 @@ services:
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?required, generate with openssl rand -hex 32}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_URL: redis://redis:6379/1
       S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
       BACKEND_INTERNAL_URL: http://rest:8000
@@ -481,7 +543,7 @@ services:
       TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-noreply@traceroot.ai}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required, generate with openssl rand -hex 32}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -502,6 +564,8 @@ services:
       # on their own retry budget afterwards.
       ALERTS_SCHEDULER_ENABLED: ${ALERTS_SCHEDULER_ENABLED:-true}
     depends_on:
+      preflight:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       migrate-clickhouse:
@@ -535,7 +599,7 @@ services:
       # Agent self-tracing (design: agent-self-trace). On unless set to 0; kinds default to all.
       AGENT_SELF_TRACE: ${AGENT_SELF_TRACE:-1}
       AGENT_SELF_TRACE_KINDS: ${AGENT_SELF_TRACE_KINDS:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required, generate with openssl rand -hex 32}
       # --- Sandbox ---
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-docker}
       SANDBOX_IDLE_TTL_MINUTES: ${SANDBOX_IDLE_TTL_MINUTES:-30}
@@ -545,6 +609,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
+      preflight:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
 

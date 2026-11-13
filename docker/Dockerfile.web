@@ -80,6 +80,16 @@ COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY frontend/packages/core/prisma ./packages/core/prisma
 ENTRYPOINT ["./packages/core/node_modules/.bin/prisma", "migrate", "deploy", "--schema", "packages/core/prisma/schema.prisma"]
 
+# --- Rotate stage (used by the rotate-encryption-key compose service) ---
+FROM base AS rotate
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY frontend/packages/core ./packages/core
+RUN cd packages/core && npx prisma generate
+WORKDIR /app/packages/core
+ENTRYPOINT ["/app/node_modules/.bin/tsx", "scripts/rotate-encryption-key.ts"]
+
 # --- Runner stage ---
 FROM node:24-alpine AS runner
 WORKDIR /app
