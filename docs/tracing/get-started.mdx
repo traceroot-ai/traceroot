@@ -115,6 +115,8 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # self-hosted: your API's 
 
 Run your own tests with `TRACEROOT_ENABLED=false` so they don't send traces either. For full SDK details, see the [Python SDK](/tracing/python-sdk) or [TypeScript SDK](/tracing/typescript-sdk).
 
+Already using OpenTelemetry? You can [export to traceroot over OTLP](/integrations/opentelemetry) without the SDK.
+
 ### 5. See your first trace
 
 Run your application and exercise the code you instrumented. Open [traceroot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
