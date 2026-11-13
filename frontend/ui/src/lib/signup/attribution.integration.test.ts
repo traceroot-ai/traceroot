@@ -8,7 +8,7 @@ import { ATTRIBUTION_COOKIE, ATTRIBUTION_MAX_AGE_SECONDS } from "@/lib/marketing
 import { signupAttributionProperties } from "./attribution";
 import { signupEmailPolicyHook } from "./email-policy-hook";
 
-const baseURL = "https://app.traceroot.ai";
+const baseURL = "https://cloud.example.com";
 const capturedAt = Date.now();
 const utm = { utm_source: "github", utm_medium: "referral", utm_campaign: "github-navigation" };
 let campaignCookie: string;
@@ -18,11 +18,11 @@ const expected = {
   marketing_attribution_model: "last_campaign_touch",
 };
 
-function testAuth(authURL = baseURL) {
+function testAuth(emailDomainPolicyEnabled = true) {
   const created = vi.fn();
   const database = { user: [], session: [], account: [], verification: [] };
   const auth = betterAuth({
-    baseURL: authURL,
+    baseURL,
     secret: "local-test-secret-012345678901234567890123",
     database: memoryAdapter(database),
     emailAndPassword: { enabled: true },
@@ -31,7 +31,7 @@ function testAuth(authURL = baseURL) {
     databaseHooks: {
       user: {
         create: {
-          before: signupEmailPolicyHook(authURL),
+          before: signupEmailPolicyHook(emailDomainPolicyEnabled),
           after: async (user, context) => {
             created({
               email: user.email,
@@ -48,15 +48,10 @@ function testAuth(authURL = baseURL) {
   return { auth, created, database };
 }
 
-function request(
-  path: string,
-  body?: Record<string, unknown>,
-  cookie = campaignCookie,
-  origin = baseURL,
-) {
-  return new Request(`${origin}/api/auth${path}`, {
+function request(path: string, body?: Record<string, unknown>, cookie = campaignCookie) {
+  return new Request(`${baseURL}/api/auth${path}`, {
     method: body ? "POST" : "GET",
-    headers: { "content-type": "application/json", origin, cookie },
+    headers: { "content-type": "application/json", origin: baseURL, cookie },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 }
@@ -202,18 +197,12 @@ describe("signup through real Better Auth handlers", () => {
   });
 
   it.each(["workspace.test", "workspace.local", "mailinator.com"])(
-    "creates a local account on %s",
+    "creates an account outside TraceRoot Cloud on %s",
     async (domain) => {
-      const localURL = "http://localhost:3000";
-      const { auth, database } = testAuth(localURL);
+      const { auth, database } = testAuth(false);
       const email = `qa@${domain}`;
       const response = await auth.handler(
-        request(
-          "/sign-up/email",
-          { email, name: "QA", password: "test-password-123" },
-          "",
-          localURL,
-        ),
+        request("/sign-up/email", { email, name: "QA", password: "test-password-123" }),
       );
       expect(response.status).toBe(200);
       expect(database.user).toContainEqual(expect.objectContaining({ email }));

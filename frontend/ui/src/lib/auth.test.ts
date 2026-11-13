@@ -38,7 +38,8 @@ vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
-    BETTER_AUTH_URL: "https://app.traceroot.ai",
+    BETTER_AUTH_URL: "https://cloud.example.com",
+    TRACEROOT_CLOUD_ENV: "production",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps

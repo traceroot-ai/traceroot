@@ -92,10 +92,6 @@ function matchesDomain(domain: string, domains: ReadonlySet<string>): boolean {
   return false;
 }
 
-export function isSignupEmailPolicyEnabled(authURL: string): boolean {
-  return URL.parse(authURL)?.origin === "https://app.traceroot.ai";
-}
-
 // Email format is validated separately by Better Auth and the sign-up form.
 export function signupEmailError(email: string) {
   const at = email.lastIndexOf("@");

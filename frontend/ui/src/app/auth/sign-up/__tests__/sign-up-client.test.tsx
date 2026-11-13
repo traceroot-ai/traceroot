@@ -43,7 +43,7 @@ function fillForm(email = "kai@acme.io") {
 }
 
 beforeEach(() => {
-  env.BETTER_AUTH_URL = "http://localhost:3000";
+  env.TRACEROOT_CLOUD_ENV = undefined;
   env.AUTH_GOOGLE_CLIENT_ID = "";
   env.AUTH_GOOGLE_CLIENT_SECRET = "";
 });
@@ -161,10 +161,10 @@ describe("SignUpPage", () => {
   });
 
   it.each([
-    ["kai@example.com", "This email domain can't receive mail"],
-    ["kai@mailinator.com", "Disposable email addresses aren't supported"],
-  ])("shows the rejection for %s inline without calling the server", async (email, message) => {
-    env.BETTER_AUTH_URL = "https://app.traceroot.ai";
+    ["production", "kai@example.com", "This email domain can't receive mail"],
+    ["staging", "kai@mailinator.com", "Disposable email addresses aren't supported"],
+  ] as const)("shows the %s rejection for %s inline", async (cloudEnv, email, message) => {
+    env.TRACEROOT_CLOUD_ENV = cloudEnv;
     render(<SignUpPage />);
     fillForm(email);
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
