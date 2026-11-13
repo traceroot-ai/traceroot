@@ -133,19 +133,57 @@ describe("SignInClient", () => {
 });
 
 describe("SignInClient social buttons", () => {
+  it("splits the row in half when both Google and AgentID are configured", () => {
+    render(<SignInClient socialProviders={["google", "agentid"]} />);
+    const google = screen.getByRole("button", { name: "Google" });
+    const agentid = screen.getByRole("button", { name: "AgentID" });
+    // Same row, Google first: one shared two-column grid.
+    expect(google.parentElement).toBe(agentid.parentElement);
+    expect(google.parentElement?.className).toContain("grid-cols-2");
+    expect(google.compareDocumentPosition(agentid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps a lone provider full width", () => {
+    render(<SignInClient socialProviders={["agentid"]} />);
+    const agentid = screen.getByRole("button", { name: "AgentID" });
+    expect(screen.queryByRole("button", { name: "Google" })).toBeNull();
+    expect(agentid.parentElement?.className).not.toContain("grid-cols-2");
+  });
+
   it("shows no divider when neither provider is configured", () => {
     render(<SignInClient socialProviders={[]} />);
     expect(screen.queryByText("Or continue with")).toBeNull();
   });
 
-  it("gives the button back and shows why when the sign-in cannot start", async () => {
+  it("starts the AgentID round-trip with the callback and disables both buttons", async () => {
+    setParams({ callbackUrl: NESTED_CALLBACK });
+    mocks.signInSocial.mockReturnValue(new Promise(() => {}));
+
+    render(<SignInClient socialProviders={["google", "agentid"]} />);
+    fireEvent.click(screen.getByRole("button", { name: "AgentID" }));
+
+    expect(mocks.signInSocial).toHaveBeenCalledWith({
+      provider: "agentid",
+      callbackURL: NESTED_CALLBACK,
+    });
+    const redirecting = await screen.findByRole("button", { name: "Redirecting..." });
+    expect((redirecting as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Google" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("gives both buttons back and shows why when the sign-in cannot start", async () => {
     mocks.signInSocial.mockResolvedValue({ error: { message: "Provider not found" } });
 
-    render(<SignInClient socialProviders={["google"]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    render(<SignInClient socialProviders={["google", "agentid"]} />);
+    fireEvent.click(screen.getByRole("button", { name: "AgentID" }));
 
     expect(await screen.findByText("Provider not found")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Google" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect((screen.getByRole("button", { name: "AgentID" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
   });
@@ -153,7 +191,7 @@ describe("SignInClient social buttons", () => {
   it("recovers the same way when the request itself fails", async () => {
     mocks.signInSocial.mockRejectedValue(new Error("network down"));
 
-    render(<SignInClient socialProviders={["google"]} />);
+    render(<SignInClient socialProviders={["google", "agentid"]} />);
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
     expect(await screen.findByText("Could not start sign-in. Please try again.")).toBeTruthy();
@@ -164,15 +202,23 @@ describe("SignInClient social buttons", () => {
 });
 
 describe("configuredSocialProviders", () => {
-  it("lists Google only when its id and secret are both set", () => {
-    expect(
-      configuredSocialProviders({ AUTH_GOOGLE_CLIENT_ID: "", AUTH_GOOGLE_CLIENT_SECRET: "" }),
-    ).toEqual([]);
-    expect(
-      configuredSocialProviders({ AUTH_GOOGLE_CLIENT_ID: "g", AUTH_GOOGLE_CLIENT_SECRET: " " }),
-    ).toEqual([]);
-    expect(
-      configuredSocialProviders({ AUTH_GOOGLE_CLIENT_ID: "g", AUTH_GOOGLE_CLIENT_SECRET: "g" }),
-    ).toEqual(["google"]);
+  const unset = {
+    AUTH_GOOGLE_CLIENT_ID: "",
+    AUTH_GOOGLE_CLIENT_SECRET: "",
+    AUTH_AGENTID_CLIENT_ID: "",
+    AUTH_AGENTID_CLIENT_SECRET: "",
+  };
+  const google = { AUTH_GOOGLE_CLIENT_ID: "g", AUTH_GOOGLE_CLIENT_SECRET: "g" };
+  const agentid = { AUTH_AGENTID_CLIENT_ID: "a", AUTH_AGENTID_CLIENT_SECRET: "a" };
+
+  it.each([
+    ["none", {}, []],
+    ["Google", google, ["google"]],
+    ["Google with a blank secret", { ...google, AUTH_GOOGLE_CLIENT_SECRET: " " }, []],
+    ["AgentID", agentid, ["agentid"]],
+    ["AgentID with a blank secret", { ...agentid, AUTH_AGENTID_CLIENT_SECRET: " " }, []],
+    ["both, Google first", { ...google, ...agentid }, ["google", "agentid"]],
+  ])("%s", (_, env, expected) => {
+    expect(configuredSocialProviders({ ...unset, ...env })).toEqual(expected);
   });
 });
