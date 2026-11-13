@@ -167,6 +167,8 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
 | `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
 | `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
+| `signals list` | List the project's signals, newest created first. Merged signals are left out. Flags: `--limit <n>`, `--page <n>`, `--status <status>`, `--detector-id <id>`. |
+| `signals get <signal-id>` | Show one signal: status, detector, hit count, first and last seen, and up to 20 recent traces with their finding ids. |
 | `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
 | `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
 | `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
