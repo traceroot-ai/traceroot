@@ -310,9 +310,10 @@ class TraceReaderService:
         # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
         self._has_traces_cache: dict[str, tuple[float, bool]] = {}
         # Trace start time cache: (project, trace, customer_only) -> (expiry, datetime).
-        # Only a root span's start time is cached; it is immutable once written, so
-        # 1-hour TTL is safe. Bounded to 1024 entries. Changed only under its lock:
-        # the image route and the live view read it from worker threads.
+        # A missing root is provisional while spans can arrive incrementally, so
+        # negative results are deliberately not cached. Bounded to 1024 entries.
+        # Changed only under its lock: the image route and the live view read it
+        # from worker threads.
         self._trace_start_cache: dict[tuple[str, str, bool], tuple[float, datetime]] = {}
         self._trace_start_lock = threading.Lock()
         # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
@@ -524,9 +525,9 @@ class TraceReaderService:
     ) -> datetime | None:
         """Lightweight query: just the trace's root-span start time.
 
-        A root's start time is immutable once written, so a found one is cached for
-        1 hour. ``None`` (no root span yet) is never cached: the root may arrive
-        later, and a cached ``None`` would keep hiding its start time from retention.
+        Positive results are cached for 1 hour. An earlier root arriving within that
+        window is observed after expiry; a missing root is never cached because
+        children can arrive first.
         Used by retention gating on by-id endpoints (span IO, live SSE, span
         attachments) without the cost of a full get_trace() skeleton fetch. With
         ``customer_only``, a root stored under an internal source never supplies the
