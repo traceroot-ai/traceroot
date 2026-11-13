@@ -33,7 +33,7 @@ def test_root_and_child_only_snapshots_record_the_batch_receive_time(
     ch.insert_spans_batch.side_effect = lambda _: order.append("stored")
     mock_project_ingestion.side_effect = lambda *_: order.append("recorded")
     process_s3_traces(s3_key="batch.json", project_id="p1", received_at=RECEIVED)
-    mock_project_ingestion.assert_called_once_with({"p1"}, datetime.fromisoformat(RECEIVED))
+    mock_project_ingestion.assert_called_once_with("p1", datetime.fromisoformat(RECEIVED))
     assert order == ["stored", "recorded"]
 
 
@@ -51,17 +51,25 @@ def test_failed_span_storage_has_no_activity(mock_s3, ch, mock_project_ingestion
     mock_project_ingestion.assert_not_called()
 
 
-def test_failed_activity_write_fails_the_task_for_retry(mock_s3, ch, mock_project_ingestion):
+def test_failed_activity_write_keeps_delivery_and_live_updates_running(
+    mock_s3, ch, mock_project_ingestion, caplog
+):
+    from worker.detector_tasks import enqueue_detector_runs
+    from worker.ingest_tasks import _publish_live_spans
+
     mock_s3.download_json.return_value = make_otel_payload([make_span("aa" * 16, "bb" * 8)])
     mock_project_ingestion.side_effect = RuntimeError("activity unavailable")
-    with pytest.raises(RuntimeError, match="activity unavailable"):
-        process_s3_traces(s3_key="batch.json", project_id="p1", received_at=RECEIVED)
+    result = process_s3_traces(s3_key="batch.json", project_id="p1", received_at=RECEIVED)
+    assert result["spans"] == 1
+    enqueue_detector_runs.assert_called_once_with("p1", {"aa" * 16})
+    _publish_live_spans.assert_called_once()
+    assert "Failed to record ingestion time for project p1 from batch.json" in caplog.text
 
 
 def test_legacy_task_falls_back_to_processing_time(mock_s3, ch, mock_project_ingestion):
     mock_s3.download_json.return_value = make_otel_payload([make_span("aa" * 16, "bb" * 8)])
     before = datetime.now(UTC)
     process_s3_traces(s3_key="batch.json", project_id="p1")
-    ids, timestamp = mock_project_ingestion.call_args.args
-    assert ids == {"p1"}
+    project_id, timestamp = mock_project_ingestion.call_args.args
+    assert project_id == "p1"
     assert before <= timestamp <= datetime.now(UTC)

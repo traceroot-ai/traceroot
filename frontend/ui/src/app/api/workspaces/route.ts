@@ -4,7 +4,6 @@ import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
-import { latestProjectIngestion } from "@/lib/workspace-ingestion";
 import { isDemoWorkspace, sortDemoLast, userMembershipWhere } from "@/lib/demo-workspace";
 
 const createWorkspaceSchema = z.object({
@@ -39,6 +38,10 @@ async function handleGET() {
   // the user's own. Its member count is every user, so it is not shown.
   const workspaces = sortDemoLast(memberships, (m) => m.workspace.id).map((m) => {
     const isDemo = isDemoWorkspace(m.workspace.id);
+    const lastIngestedAt = m.workspace.projects.reduce<Date | null>((latest, project) => {
+      const received = project.lastIngestedAt;
+      return received && (!latest || received > latest) ? received : latest;
+    }, null);
     return {
       id: m.workspace.id,
       name: m.workspace.name,
@@ -48,7 +51,7 @@ async function handleGET() {
       project_count: m.workspace.projects.length,
       projects: m.workspace.projects.map(({ id, name }) => ({ id, name })),
       create_time: m.workspace.createTime,
-      last_ingested_at: latestProjectIngestion(m.workspace.projects),
+      last_ingested_at: lastIngestedAt,
     };
   });
 
@@ -117,7 +120,6 @@ async function handlePOST(request: NextRequest) {
       project_count: 0,
       projects: [],
       create_time: workspace.createTime,
-      last_ingested_at: null,
     },
     { status: 201 },
   );

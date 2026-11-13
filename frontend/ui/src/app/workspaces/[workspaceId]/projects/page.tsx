@@ -27,7 +27,10 @@ export default function ProjectsPage() {
   }, [user, router]);
 
   // Get workspace with projects
-  const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session);
+  const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session, {
+    refetchInterval: 30_000,
+    refetchOnMount: "always",
+  });
 
   if (!user) {
     return null;
@@ -81,8 +84,8 @@ export default function ProjectsPage() {
                     {workspace?.is_demo ? "—" : formatDate(project.create_time)}
                   </td>
                   <td className="whitespace-nowrap px-3 text-muted-foreground">
-                    {!workspace?.is_demo && project.update_time
-                      ? formatDate(project.update_time)
+                    {!workspace?.is_demo && project.last_ingested_at
+                      ? formatDate(project.last_ingested_at)
                       : "—"}
                   </td>
                   <td className="px-2 text-right">

@@ -93,7 +93,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/workspaces/[workspaceId]", () => {
-  it("returns the latest project ingestion time with the workspace details", async () => {
+  it("returns the ingestion date on embedded projects for the Projects table", async () => {
     workspaceFindUniqueMock.mockResolvedValue({
       id: "ws-1",
       name: "Acme",
@@ -113,7 +113,7 @@ describe("GET /api/workspaces/[workspaceId]", () => {
     const res = (await GET(makeRequest(undefined), makeParams())) as MockResponse;
     expect(JSON.parse(JSON.stringify(await res.json()))).toMatchObject({
       id: "ws-1",
-      last_ingested_at: "2026-11-13T12:34:56.000Z",
+      projects: [{ id: "p1", last_ingested_at: "2026-11-13T12:34:56.000Z" }],
     });
   });
 });

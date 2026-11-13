@@ -13,12 +13,14 @@ from psycopg2 import sql
 from psycopg2.pool import ThreadedConnectionPool
 
 from db.project_ingestion import record_project_ingestion
-from scripts.backfill_project_ingestion import backfill
 from tests.fixtures.otel_payloads import make_otel_payload, make_span
 from worker.ingest_tasks import process_s3_traces
 
 DATABASE = os.environ.get("PROJECT_INGESTION_TEST_DATABASE_URL")
-pytestmark = pytest.mark.skipif(not DATABASE, reason="requires a disposable Postgres database")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not DATABASE, reason="requires a disposable Postgres database"),
+]
 MIGRATION = Path(__file__).resolve().parents[2] / (
     "frontend/packages/core/prisma/migrations/"
     "20261113000000_add_project_last_ingested_at/migration.sql"
@@ -66,9 +68,10 @@ def test_migration_leaves_unknown_dates_null(pg):
 
 
 def test_updates_are_project_scoped_monotonic_and_ignore_deleted_projects(pg):
-    record_project_ingestion({"p1"}, T0 + timedelta(seconds=5))
-    record_project_ingestion({"p1"}, T0)
-    record_project_ingestion({"p2", "deleted", "missing"}, T0)
+    record_project_ingestion("p1", T0 + timedelta(seconds=5))
+    record_project_ingestion("p1", T0)
+    for project_id in ("p2", "deleted", "missing"):
+        record_project_ingestion(project_id, T0)
     assert pg() == {
         "p1": datetime(2026, 11, 13, 12, 0, 5),
         "p2": datetime(2026, 11, 13, 12, 0),
@@ -81,24 +84,10 @@ def test_concurrent_snapshots_keep_the_latest_receive_time(pg):
     with ThreadPoolExecutor(max_workers=8) as executor:
         list(
             executor.map(
-                lambda n: record_project_ingestion({"p1"}, T0 + timedelta(seconds=n)), offsets
+                lambda n: record_project_ingestion("p1", T0 + timedelta(seconds=n)), offsets
             )
         )
     assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 7)
-
-
-def test_backfill_recovers_history_without_overwriting_newer_ingestion(pg, monkeypatch):
-    from db.project_ingestion import get_pg_pool
-
-    record_project_ingestion({"p1"}, T0 + timedelta(seconds=5))
-    ch = MagicMock()
-    ch.query.return_value.result_rows = [("p1", T0), ("p2", T0)]
-    monkeypatch.setattr("scripts.backfill_project_ingestion.get_pg_pool", get_pg_pool)
-    monkeypatch.setattr("scripts.backfill_project_ingestion.get_clickhouse_client", lambda: ch)
-    assert backfill(apply=True) == 2
-    assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 5)
-    assert pg()["p2"] == datetime(2026, 11, 13, 12, 0)
-    assert ch.query.call_args.kwargs["parameters"] == {"ids": ["p1", "p2"]}
 
 
 def test_task_persists_receive_time_for_existing_trace_snapshots(pg, monkeypatch):
@@ -128,4 +117,32 @@ def test_failed_storage_does_not_mark_the_project_updated(pg, monkeypatch):
     monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: ch)
     with pytest.raises(RuntimeError, match="storage unavailable"):
         process_s3_traces(s3_key="batch.json", project_id="p1", received_at=T0.isoformat())
+    assert pg()["p1"] is None
+
+
+@pytest.mark.parametrize("endpoint", ["/api/v1/internal/traces", "/api/v1/internal/traces/agent"])
+def test_self_traces_leave_customer_ingestion_time_unchanged(pg, monkeypatch, endpoint):
+    from fastapi.testclient import TestClient
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+
+    from rest.main import app
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    ch = MagicMock()
+    monkeypatch.setattr("rest.routers.internal.ingest.get_clickhouse_client", lambda: ch)
+    request = ExportTraceServiceRequest()
+    span = request.resource_spans.add().scope_spans.add().spans.add()
+    span.trace_id = bytes.fromhex("aa" * 16)
+    span.span_id = bytes.fromhex("bb" * 8)
+    span.name = "platform run"
+    span.start_time_unix_nano = 1700000000000000000
+    span.end_time_unix_nano = 1700000001000000000
+    response = TestClient(app).post(
+        endpoint,
+        content=request.SerializeToString(),
+        headers={"X-Internal-Secret": "test-secret", "X-Project-Id": "p1"},
+    )
+    assert response.status_code == 200
+    ch.insert_spans_batch.assert_called_once()
     assert pg()["p1"] is None

@@ -28,7 +28,10 @@ export default function WorkspacesPage() {
   }, [user, router]);
 
   // Get all workspaces
-  const { data: workspaces, isLoading } = useWorkspaces(!!session, WORKSPACE_REFRESH_MS);
+  const { data: workspaces, isLoading } = useWorkspaces(!!session, {
+    refetchInterval: WORKSPACE_REFRESH_MS,
+    refetchOnMount: "always",
+  });
 
   if (!user) {
     return null;

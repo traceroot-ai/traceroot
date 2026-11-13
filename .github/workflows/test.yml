@@ -279,6 +279,11 @@ jobs:
       - name: Migrate Postgres
         run: cd frontend/packages/core && pnpm exec prisma migrate deploy
 
+      - name: Check project ingestion timestamps
+        env:
+          PROJECT_INGESTION_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: uv run pytest tests/integration/test_project_ingestion.py -v
+
       - name: Migrate ClickHouse
         run: docker compose run --rm migrate-clickhouse up
 

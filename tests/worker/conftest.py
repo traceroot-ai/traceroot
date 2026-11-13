@@ -10,7 +10,6 @@ def mock_project_ingestion(monkeypatch):
     """Keep project activity writes isolated from Postgres in worker unit tests."""
     mock = MagicMock()
     monkeypatch.setattr("worker.ingest_tasks.record_project_ingestion", mock)
-    monkeypatch.setattr("rest.routers.internal.ingest.record_project_ingestion", mock)
     return mock
 
 

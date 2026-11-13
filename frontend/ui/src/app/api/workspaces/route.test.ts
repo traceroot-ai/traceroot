@@ -136,7 +136,6 @@ describe("POST /api/workspaces", () => {
     workspaceCreateMock.mockResolvedValue({ id: "ws-1", name: "Acme", createTime: new Date() });
     const res = (await POST(makeRequest({ name: "Acme" }))) as unknown as MockResponse;
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ last_ingested_at: null });
     expect(workspaceCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ name: "Acme", createdBy: "user-1" }),
     });

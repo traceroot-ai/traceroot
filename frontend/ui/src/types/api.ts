@@ -62,6 +62,7 @@ export interface Project {
   delete_time?: string | null;
   create_time: string;
   update_time?: string;
+  last_ingested_at?: string | null;
 }
 
 // Member types

@@ -414,7 +414,16 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
             if traces or spans:
-                record_project_ingestion({project_id}, version or datetime.now(UTC))
+                # Activity failures must not fail delivery, detection, or live updates.
+                try:
+                    record_project_ingestion(project_id, version or datetime.now(UTC))
+                except Exception:
+                    logger.error(
+                        "Failed to record ingestion time for project %s from %s",
+                        project_id,
+                        s3_key,
+                        exc_info=True,
+                    )
 
             if spans:
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).

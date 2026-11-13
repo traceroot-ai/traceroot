@@ -37,8 +37,6 @@ def mock_ch(monkeypatch, request):
     """Mock the ClickHouse client the endpoint family under test binds."""
     mock = MagicMock()
     family = getattr(request.cls, "CH_FAMILY", DEFAULT_CH_FAMILY)
-    if family == "ingest":
-        monkeypatch.setattr("rest.routers.internal.ingest.record_project_ingestion", MagicMock())
     monkeypatch.setattr(
         f"rest.routers.internal.{family}.get_clickhouse_client",
         lambda: mock,
@@ -970,41 +968,6 @@ class TestInternalTraceIngest:
     CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces?project_id=proj-1"
     AGENT_URL = "/api/v1/internal/traces/agent?project_id=proj-1"
-
-    @pytest.mark.parametrize("path", [URL, AGENT_URL])
-    def test_records_ingestion_for_every_project_after_both_inserts(
-        self, path, client, secret, mock_ch, monkeypatch
-    ):
-        from datetime import UTC
-
-        activity = MagicMock()
-        monkeypatch.setattr("rest.routers.internal.ingest.record_project_ingestion", activity)
-        order = []
-        mock_ch.insert_spans_batch.side_effect = lambda _: order.append("spans")
-        mock_ch.insert_traces_batch.side_effect = lambda _: order.append("traces")
-        activity.side_effect = lambda *_: order.append("activity")
-        before = datetime.now(UTC)
-        response = client.post(
-            path,
-            content=_otlp_body(extra_trace_ids=(b"\xcd" * 16,), span_project_ids=("p1", "p2")),
-            headers={"X-Internal-Secret": secret},
-        )
-        assert response.status_code == 200
-        ids, received = activity.call_args.args
-        assert ids == {"p1", "p2"}
-        assert before <= received <= datetime.now(UTC)
-        assert order == ["spans", "traces", "activity"]
-
-    @pytest.mark.parametrize("insert", ["insert_spans_batch", "insert_traces_batch"])
-    def test_storage_failure_does_not_record_ingestion(
-        self, insert, client, secret, mock_ch, monkeypatch
-    ):
-        activity = MagicMock()
-        monkeypatch.setattr("rest.routers.internal.ingest.record_project_ingestion", activity)
-        getattr(mock_ch, insert).side_effect = RuntimeError("storage unavailable")
-        with pytest.raises(RuntimeError, match="storage unavailable"):
-            client.post(self.URL, content=_otlp_body(), headers={"X-Internal-Secret": secret})
-        activity.assert_not_called()
 
     def test_rejects_missing_secret(self, client):
         resp = client.post(self.URL, content=_otlp_body())
