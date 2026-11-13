@@ -147,8 +147,8 @@ def test_open_ended_categoricals_use_a_distinct_query_with_no_static_values():
 
 def test_duration_aggregates_via_min_max_while_cost_and_tokens_sum():
     """duration is max(end)-min(start), NOT a sum — the lowering must differ."""
-    assert reg.get_column("cost").aggregate_expr == "sum(cost)"
-    assert reg.get_column("total_tokens").aggregate_expr == "sum(total_tokens)"
+    assert reg.get_column("cost").aggregate_expr == "ifNull(sum(cost), 0)"
+    assert reg.get_column("total_tokens").aggregate_expr == "ifNull(sum(total_tokens), 0)"
     dur = reg.get_column("duration_ms").aggregate_expr
     assert "min(span_start_time)" in dur and "max(span_end_time)" in dur
     assert "sum(" not in dur

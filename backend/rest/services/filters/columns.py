@@ -233,6 +233,9 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         detector_trigger=False,
     ),
     # Aggregate tier — time-bounded GROUP BY trace_id HAVING <agg> <op> <value>.
+    # Spans with no cost or token count (tool spans, unpriced models) store NULL, and a sum
+    # over only NULLs is NULL, which no comparison matches. The list shows those traces as
+    # $0 / 0 tokens, so the filter counts a missing value as 0 too.
     FilterColumn(
         name="cost",
         label="Cost",
@@ -241,7 +244,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.NUMERIC,
         operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
-        aggregate_expr="sum(cost)",
+        aggregate_expr="ifNull(sum(cost), 0)",
         source_columns=("cost",),
     ),
     FilterColumn(
@@ -252,7 +255,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.NUMERIC,
         operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
-        aggregate_expr="sum(total_tokens)",
+        aggregate_expr="ifNull(sum(total_tokens), 0)",
         source_columns=("total_tokens",),
     ),
     FilterColumn(
