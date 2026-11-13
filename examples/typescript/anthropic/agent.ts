@@ -136,7 +136,7 @@ class ReActAgent {
   private messages: Anthropic.MessageParam[];
   private system: string;
 
-  constructor(model = 'claude-sonnet-4-5-20250929') {
+  constructor(model = 'claude-sonnet-5-5') {
     this.client = new Anthropic();
     this.model = model;
     this.messages = [];
