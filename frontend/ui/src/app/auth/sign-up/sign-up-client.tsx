@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import type { SocialProvider } from "@/lib/social-providers";
+import { SocialSignInButtons } from "../social-sign-in-buttons";
 
 const signUpSchema = z
   .object({
@@ -29,7 +31,7 @@ const signUpSchema = z
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
-  googleAuthConfigured: boolean;
+  socialProviders: SocialProvider[];
 };
 
 // A brand-new account always finishes at onboarding. The one thing that can
@@ -66,7 +68,7 @@ function postSignUpDestination(callbackUrl: string): string {
   return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
+function SignUpContent({ socialProviders }: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -80,7 +82,6 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
@@ -112,14 +113,6 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  async function handleGoogleSignUp() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: destination,
-    });
   }
 
   return (
@@ -207,28 +200,11 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
             </Button>
           </form>
 
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[12px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignUp}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
+          <SocialSignInButtons
+            providers={socialProviders}
+            callbackURL={destination}
+            onError={setError}
+          />
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
@@ -242,10 +218,10 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   );
 }
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+export function SignUpClient({ socialProviders }: SignUpClientProps) {
   return (
     <Suspense>
-      <SignUpContent googleAuthConfigured={googleAuthConfigured} />
+      <SignUpContent socialProviders={socialProviders} />
     </Suspense>
   );
 }
