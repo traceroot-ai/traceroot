@@ -1,6 +1,14 @@
 import { prisma } from "../lib/prisma.ts";
 import { registerCacheClear } from "./sync-standard-prices.ts";
 
+export interface LongContextPrices {
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  cacheWrite1h: number | null;
+}
+
 export interface ModelPricing {
   input: number;
   output: number;
@@ -11,14 +19,10 @@ export interface ModelPricing {
   // case the combined `cacheWrite` rate (which already equals the 5-minute rate) is
   // used. Only `cacheWrite1h` is populated in the price table today.
   cacheWrite1h: number | null;
-  // Set when a prompt over this many tokens (uncached + cache read + cache write)
-  // is billed on the long card. Absent means one rate at any length.
-  longContextThreshold?: number | null;
-  inputLong?: number | null;
-  outputLong?: number | null;
-  cacheReadLong?: number | null;
-  cacheWriteLong?: number | null;
-  cacheWrite1hLong?: number | null;
+  // Present when a prompt over `threshold` tokens (uncached + cache read + cache
+  // write) is billed on `prices`. Absent means one rate at any length. A null
+  // long rate keeps that category on the short card. A rate of 0 is used.
+  long?: { threshold: number; prices: LongContextPrices } | null;
 }
 
 interface CachedModel {
@@ -31,7 +35,9 @@ interface CachedModel {
 }
 
 // Bedrock regional and country profiles. global. is the base endpoint.
-const REGIONAL_PROFILE = /^(?:us|eu|apac|jp|au|in)\./i;
+// Same list as _REGIONAL_PREFIXES in the Python worker.
+export const REGIONAL_PREFIXES = ["us", "eu", "apac", "jp", "au", "in"] as const;
+const REGIONAL_PROFILE = new RegExp(`^(?:${REGIONAL_PREFIXES.join("|")})\\.`, "i");
 
 // `matchPattern` values are authored for the Python worker, which accepts the PCRE
 // inline flag `(?i)`. JavaScript's RegExp does not — it throws "Invalid group" — and
@@ -80,6 +86,7 @@ async function loadCache(): Promise<CachedModel[]> {
     for (const p of m.prices) {
       priceMap[p.usageType] = Number(p.price);
     }
+    const threshold = m.longContextThreshold ?? null;
     return {
       modelName: m.modelName,
       matcher: compileMatchPattern(m.matchPattern, m.modelName),
@@ -90,12 +97,19 @@ async function loadCache(): Promise<CachedModel[]> {
         cacheRead: priceMap["cacheRead"] ?? null,
         cacheWrite: priceMap["cacheWrite"] ?? null,
         cacheWrite1h: priceMap["cacheWrite1h"] ?? null,
-        longContextThreshold: m.longContextThreshold ?? null,
-        inputLong: priceMap["input_long"] ?? null,
-        outputLong: priceMap["output_long"] ?? null,
-        cacheReadLong: priceMap["cacheRead_long"] ?? null,
-        cacheWriteLong: priceMap["cacheWrite_long"] ?? null,
-        cacheWrite1hLong: priceMap["cacheWrite1h_long"] ?? null,
+        long:
+          threshold == null
+            ? null
+            : {
+                threshold,
+                prices: {
+                  input: priceMap["input_long"] ?? null,
+                  output: priceMap["output_long"] ?? null,
+                  cacheRead: priceMap["cacheRead_long"] ?? null,
+                  cacheWrite: priceMap["cacheWrite_long"] ?? null,
+                  cacheWrite1h: priceMap["cacheWrite1h_long"] ?? null,
+                },
+              },
       },
     };
   });
@@ -107,6 +121,20 @@ function scaleRate(rate: number | null | undefined, premium: number): number | n
   return rate == null ? null : rate * premium;
 }
 
+function scaleLong(long: ModelPricing["long"], premium: number): ModelPricing["long"] {
+  if (long == null) return long;
+  return {
+    threshold: long.threshold,
+    prices: {
+      input: scaleRate(long.prices.input, premium),
+      output: scaleRate(long.prices.output, premium),
+      cacheRead: scaleRate(long.prices.cacheRead, premium),
+      cacheWrite: scaleRate(long.prices.cacheWrite, premium),
+      cacheWrite1h: scaleRate(long.prices.cacheWrite1h, premium),
+    },
+  };
+}
+
 function ratesFor(modelId: string, model: CachedModel): ModelPricing {
   const premium = model.regionalPremium;
   if (premium == null || !REGIONAL_PROFILE.test(modelId)) return model.prices;
@@ -116,25 +144,21 @@ function ratesFor(modelId: string, model: CachedModel): ModelPricing {
     cacheRead: scaleRate(model.prices.cacheRead, premium),
     cacheWrite: scaleRate(model.prices.cacheWrite, premium),
     cacheWrite1h: scaleRate(model.prices.cacheWrite1h, premium),
-    longContextThreshold: model.prices.longContextThreshold,
-    inputLong: scaleRate(model.prices.inputLong, premium),
-    outputLong: scaleRate(model.prices.outputLong, premium),
-    cacheReadLong: scaleRate(model.prices.cacheReadLong, premium),
-    cacheWriteLong: scaleRate(model.prices.cacheWriteLong, premium),
-    cacheWrite1hLong: scaleRate(model.prices.cacheWrite1hLong, premium),
+    long: scaleLong(model.prices.long, premium),
   };
 }
 
 function cardForPrompt(pricing: ModelPricing, promptTokens: number): ModelPricing {
-  const threshold = pricing.longContextThreshold;
-  if (threshold == null || promptTokens <= threshold) return pricing;
+  const long = pricing.long;
+  if (long == null || promptTokens <= long.threshold) return pricing;
+  const next = long.prices;
   return {
     ...pricing,
-    input: pricing.inputLong ?? pricing.input,
-    output: pricing.outputLong ?? pricing.output,
-    cacheRead: pricing.cacheReadLong ?? pricing.cacheRead,
-    cacheWrite: pricing.cacheWriteLong ?? pricing.cacheWrite,
-    cacheWrite1h: pricing.cacheWrite1hLong ?? pricing.cacheWrite1h,
+    input: next.input ?? pricing.input,
+    output: next.output ?? pricing.output,
+    cacheRead: next.cacheRead ?? pricing.cacheRead,
+    cacheWrite: next.cacheWrite ?? pricing.cacheWrite,
+    cacheWrite1h: next.cacheWrite1h ?? pricing.cacheWrite1h,
   };
 }
 
@@ -214,12 +238,16 @@ export async function calculateCost(
   cacheReadTokens: number = 0,
   cacheWriteTokens: number = 0,
   cacheWrite1hTokens: number = 0,
+  options?: { longContext?: boolean },
 ): Promise<number> {
   const pricing = await getModelPricing(modelId);
   if (!pricing) return 0;
+  // Callers that only kept a sum across requests stay on the short card.
+  // One request's own counts are what select the long card.
+  const card = options?.longContext === false ? { ...pricing, long: null } : pricing;
 
   return calculateCostFromPricing(
-    pricing,
+    card,
     inputTokens,
     outputTokens,
     cacheReadTokens,

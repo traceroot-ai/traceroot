@@ -23,7 +23,12 @@ logger = logging.getLogger(__name__)
 
 # Bedrock regional and country inference profiles. global. is the base rate.
 # India sits with Japan and Australia: same kind of profile, same 10% premium.
-_REGIONAL_PROFILE = re.compile(r"^(?:us|eu|apac|jp|au|in)\.", re.IGNORECASE)
+# The catalogue patterns and the TypeScript lookup keep this same list.
+_REGIONAL_PREFIXES = ("us", "eu", "apac", "jp", "au", "in")
+_REGIONAL_PROFILE = re.compile(
+    rf"^(?:{'|'.join(_REGIONAL_PREFIXES)})\.",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # In-memory cache (populated on first call)
@@ -37,7 +42,6 @@ def _load_cache() -> list[dict]:
     if _cache is not None:
         return _cache
 
-    models: list[dict] = []
     try:
         conn = psycopg2.connect(settings.database_url)
         try:
@@ -75,12 +79,21 @@ def _load_cache() -> list[dict]:
                 ),
                 "long_context_threshold": int(threshold) if threshold is not None else None,
                 "prices": {},
+                "long_prices": {},
             }
-        by_model[model_name]["prices"][usage_type] = (
-            float(price) if isinstance(price, Decimal) else price
-        )
+        rate = float(price) if isinstance(price, Decimal) else price
+        if usage_type.endswith("_long"):
+            by_model[model_name]["long_prices"][usage_type[: -len("_long")]] = rate
+        else:
+            by_model[model_name]["prices"][usage_type] = rate
 
-    models = list(by_model.values())
+    models = []
+    for entry in by_model.values():
+        long_prices = entry.pop("long_prices")
+        threshold = entry.pop("long_context_threshold")
+        if threshold is not None:
+            entry["long_context"] = {"threshold": threshold, "prices": long_prices}
+        models.append(entry)
     _cache = models
     return _cache
 
@@ -100,22 +113,34 @@ def _rates_for(entry: dict, model: str) -> dict:
     """
     prices = entry["prices"]
     premium = entry.get("regional_premium")
-    scaled = prices
+    factor = None
     if premium and _REGIONAL_PROFILE.match(model) is not None:
-        factor = Decimal(str(premium))
-        scaled = {}
-        for key, value in prices.items():
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                scaled[key] = value
-                continue
-            scaled[key] = float(Decimal(str(value)) * factor)
-    threshold = entry.get("long_context_threshold")
-    if threshold is None:
+        # Plain float, same as the TypeScript card. _rate turns the result
+        # back into a Decimal when the cost is summed.
+        factor = float(premium)
+    scaled = _scale_rates(prices, factor)
+    long = entry.get("long_context")
+    if not long:
         return scaled
-    # The threshold is a token count, not a rate, so the premium must not touch it.
-    if scaled is prices:
-        scaled = dict(prices)
-    scaled["longContextThreshold"] = int(threshold)
+    # The threshold is a token count. It stays beside the long card, so the
+    # premium multiplies rates and never the threshold.
+    out = dict(scaled)
+    out["long"] = {
+        "threshold": int(long["threshold"]),
+        "prices": _scale_rates(long["prices"], factor),
+    }
+    return out
+
+
+def _scale_rates(prices: dict, factor: float | None) -> dict:
+    if factor is None:
+        return prices
+    scaled: dict = {}
+    for key, value in prices.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            scaled[key] = value
+            continue
+        scaled[key] = value * factor
     return scaled
 
 
@@ -157,9 +182,6 @@ def _rate(prices: dict[str, float], key: str, *fallbacks: str) -> Decimal:
     return Decimal(0)
 
 
-_LONG_RATE_KEYS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
-
-
 def _prompt_tokens(buckets: TokenBuckets) -> int:
     """Tokens that count toward a long-context threshold.
 
@@ -172,16 +194,19 @@ def _prompt_tokens(buckets: TokenBuckets) -> int:
 def _prices_for_prompt_length(prices: dict, buckets: TokenBuckets) -> dict:
     """Short card at or under the threshold, long card one token past it.
 
-    Entries with no threshold price exactly as before. A missing long rate
-    keeps that category on the short rate.
+    No long card prices exactly as before. A missing long rate keeps that
+    category on the short rate. A long rate of 0 is a real rate, matching
+    the TypeScript ``??`` fallback, and a threshold of 0 is a real threshold.
     """
-    threshold = prices.get("longContextThreshold")
-    if not threshold or _prompt_tokens(buckets) <= int(threshold):
+    long = prices.get("long")
+    if not isinstance(long, dict):
+        return prices
+    threshold = long.get("threshold")
+    if threshold is None or _prompt_tokens(buckets) <= int(threshold):
         return prices
     chosen = dict(prices)
-    for key in _LONG_RATE_KEYS:
-        long_rate = prices.get(f"{key}_long")
-        if long_rate:
+    for key, long_rate in long.get("prices", {}).items():
+        if long_rate is not None:
             chosen[key] = long_rate
     return chosen
 

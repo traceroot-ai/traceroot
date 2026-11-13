@@ -14,6 +14,8 @@ import {
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
+import { REGIONAL_PREFIXES } from "../model-pricing/lookup.ts";
+import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
 // cacheWrite1h = 2x input.
@@ -191,40 +193,58 @@ describe("getModelPricing — Bedrock regional premium", () => {
     const global = await lookup("global.anthropic.claude-sonnet-4-6");
     const bare = await lookup("claude-sonnet-4-6");
     const regional = await lookup("jp.anthropic.claude-sonnet-4-6");
-    expect(global?.input).toBeCloseTo(0.000003);
-    expect(bare?.input).toBeCloseTo(0.000003);
-    expect(regional?.input).toBeCloseTo(0.0000033);
-    expect(regional?.output).toBeCloseTo(0.0000165);
-    expect(regional?.cacheRead).toBeCloseTo(0.00000033);
-    expect(regional?.cacheWrite).toBeCloseTo(0.000004125);
-    expect(regional?.cacheWrite1h).toBeCloseTo(0.0000066);
+    expect(global?.input).toBeCloseTo(0.000003, 12);
+    expect(bare?.input).toBeCloseTo(0.000003, 12);
+    expect(regional?.input).toBeCloseTo(0.0000033, 12);
+    expect(regional?.output).toBeCloseTo(0.0000165, 12);
+    expect(regional?.cacheRead).toBeCloseTo(0.00000033, 12);
+    expect(regional?.cacheWrite).toBeCloseTo(0.000004125, 12);
+    expect(regional?.cacheWrite1h).toBeCloseTo(0.0000066, 12);
   });
 });
 
 describe("calculateCostFromPricing — long context", () => {
+  const longPrices = {
+    input: 0.0000005,
+    output: 0.0000025,
+    cacheRead: 0.00000005,
+    cacheWrite: 0.000000625,
+    cacheWrite1h: 0.000001,
+  };
   const haiku: ModelPricing = {
     input: 0.0000001,
     output: 0.0000005,
     cacheRead: 0.00000001,
     cacheWrite: 0.000000125,
     cacheWrite1h: 0.0000002,
-    longContextThreshold: 100_000,
-    inputLong: 0.0000005,
-    outputLong: 0.0000025,
-    cacheReadLong: 0.00000005,
-    cacheWriteLong: 0.000000625,
-    cacheWrite1hLong: 0.000001,
+    long: { threshold: 100_000, prices: longPrices },
   };
 
   it("stays on the short card at the threshold and switches one token past it", () => {
-    expect(calculateCostFromPricing(haiku, 100_000, 0)).toBeCloseTo(100_000 * 0.0000001);
-    expect(calculateCostFromPricing(haiku, 100_001, 0)).toBeCloseTo(100_001 * 0.0000005);
+    expect(calculateCostFromPricing(haiku, 100_000, 0)).toBeCloseTo(100_000 * 0.0000001, 12);
+    expect(calculateCostFromPricing(haiku, 100_001, 0)).toBeCloseTo(100_001 * 0.0000005, 12);
   });
 
-  it("counts cache read and cache write toward the prompt length", () => {
+  it("counts cache read toward the prompt length", () => {
     expect(calculateCostFromPricing(haiku, 90_000, 0, 10_001, 0)).toBeCloseTo(
       90_000 * 0.0000005 + 10_001 * 0.00000005,
+      12,
     );
+  });
+
+  it("counts cache write toward the prompt length and prices those writes on the long card", () => {
+    expect(calculateCostFromPricing(haiku, 90_000, 0, 0, 10_001)).toBeCloseTo(
+      90_000 * 0.0000005 + 10_001 * 0.000000625,
+      12,
+    );
+  });
+
+  it("uses a long rate of 0 instead of falling back to the short rate", () => {
+    const free: ModelPricing = {
+      ...haiku,
+      long: { threshold: 0, prices: { ...longPrices, input: 0, output: 0 } },
+    };
+    expect(calculateCostFromPricing(free, 11, 1)).toBeCloseTo(0, 12);
   });
 
   it("keeps the short rate for a category the long card does not set", () => {
@@ -234,12 +254,91 @@ describe("calculateCostFromPricing — long context", () => {
       cacheRead: null,
       cacheWrite: 0.000000125,
       cacheWrite1h: null,
-      longContextThreshold: 10,
+      long: {
+        threshold: 10,
+        prices: {
+          input: null,
+          output: null,
+          cacheRead: null,
+          cacheWrite: null,
+          cacheWrite1h: null,
+        },
+      },
     };
     // Over the threshold, with no long rates at all. Every category stays short,
     // and a missing cache-read rate contributes nothing.
     const cost = calculateCostFromPricing(partial, 11, 1, 4, 2);
-    expect(cost).toBeCloseTo(11 * 0.0000001 + 1 * 0.0000005 + 2 * 0.000000125);
+    expect(cost).toBeCloseTo(11 * 0.0000001 + 1 * 0.0000005 + 2 * 0.000000125, 12);
+  });
+});
+
+describe("getModelPricing — long rows and a regional long card", () => {
+  it("reads the *_long rows into the long card, including an explicit 0", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([
+      {
+        modelName: "claude-haiku-5-5",
+        matchPattern: "(?i)^claude-haiku-5-5$",
+        longContextThreshold: 100_000,
+        prices: [
+          { usageType: "input", price: 0.0000001 },
+          { usageType: "output", price: 0.0000005 },
+          { usageType: "input_long", price: 0.0000005 },
+          { usageType: "output_long", price: 0.0000025 },
+          { usageType: "cacheWrite_long", price: 0 },
+        ],
+      },
+    ]);
+    const pricing = await lookup("claude-haiku-5-5");
+    expect(pricing?.long).toEqual({
+      threshold: 100_000,
+      prices: {
+        input: 0.0000005,
+        output: 0.0000025,
+        cacheRead: null,
+        cacheWrite: 0,
+        cacheWrite1h: null,
+      },
+    });
+  });
+
+  it("applies the regional premium to a long prompt", async () => {
+    const { getModelPricing: lookup, calculateCostFromPricing: price } = await loadWithCatalogue([
+      {
+        modelName: "claude-haiku-5-5",
+        matchPattern: "(?i)^(jp\\.)?anthropic\\.claude-haiku-5-5$",
+        regionalPremium: 1.1,
+        longContextThreshold: 100_000,
+        prices: [
+          { usageType: "input", price: 1e-7 },
+          { usageType: "output", price: 5e-7 },
+          { usageType: "input_long", price: 5e-7 },
+          { usageType: "output_long", price: 2.5e-6 },
+        ],
+      },
+    ]);
+    const pricing = await lookup("jp.anthropic.claude-haiku-5-5");
+    expect(pricing?.input).toBeCloseTo(1.1e-7, 12);
+    expect(pricing?.long?.threshold).toBe(100_000);
+    expect(pricing?.long?.prices.input).toBeCloseTo(5.5e-7, 12);
+    expect(price(pricing!, 100_001, 0)).toBeCloseTo(100_001 * 5.5e-7, 12);
+  });
+});
+
+describe("regional prefix list", () => {
+  it("matches every region prefix in the catalogue and leaves global off the premium", () => {
+    const group = /\(((?:[a-z]+\\\.\|)+[a-z]+\\\.)\)/g;
+    const allowed = new Set<string>([...REGIONAL_PREFIXES, "global"]);
+    const seen = new Set<string>();
+    for (const entry of standardModels) {
+      for (const match of entry.matchPattern.matchAll(group)) {
+        for (const part of match[1].split("|")) {
+          const prefix = part.replace(/\\\./g, "");
+          expect(allowed.has(prefix)).toBe(true);
+          if (prefix !== "global") seen.add(prefix);
+        }
+      }
+    }
+    expect([...seen].sort()).toEqual([...REGIONAL_PREFIXES].sort());
   });
 });
 

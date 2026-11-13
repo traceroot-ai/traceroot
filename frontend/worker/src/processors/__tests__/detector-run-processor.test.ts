@@ -282,7 +282,9 @@ describe("processTrace — finding + RCA", () => {
 
     await processTrace("t1", "p1", ["d1"]);
 
-    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500);
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500, 0, 0, 0, {
+      longContext: false,
+    });
     expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({

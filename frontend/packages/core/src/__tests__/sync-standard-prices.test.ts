@@ -56,8 +56,20 @@ describe("syncStandardPrices", () => {
     expect(types).toContain("input_long");
     expect(types).toContain("cacheWrite1h_long");
 
+    // The update path deletes the old rows and writes them back with createMany.
+    // Checking only the nested create would miss a regression that dropped the long rows there.
+    const written = createMany.mock.calls.flatMap(
+      (call) => (call[0] as { data: { modelId: string; usageType: string }[] }).data,
+    );
+    const haikuRows = written.filter((row) => row.modelId === "tr-claude-haiku-5-5");
+    expect(haikuRows.map((row) => row.usageType)).toEqual(
+      expect.arrayContaining(["input_long", "cacheWrite1h_long"]),
+    );
+
     const older = calls.find((args) => args.create.modelName === "claude-haiku-4-5");
     expect(older?.create.longContextThreshold).toBeNull();
     expect(older?.create.prices.create.map((row) => row.usageType)).not.toContain("input_long");
+    const olderRows = written.filter((row) => row.modelId === "tr-claude-haiku-4-5");
+    expect(olderRows.map((row) => row.usageType)).not.toContain("input_long");
   });
 });

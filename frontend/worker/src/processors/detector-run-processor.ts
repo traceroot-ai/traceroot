@@ -119,10 +119,16 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   }
 
   try {
+    // The sandbox adds tokens across attempts and does not keep each call.
+    // Stay on the base card rather than treating that sum as one long prompt.
     const fallback = await calculateCost(
       usage.inferenceModel,
       usage.inferenceInputTokens,
       usage.inferenceOutputTokens,
+      0,
+      0,
+      0,
+      { longContext: false },
     );
     return fallback > 0 ? fallback : usage.inferenceCost;
   } catch (err) {

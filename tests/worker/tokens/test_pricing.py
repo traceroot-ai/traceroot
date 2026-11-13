@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from worker.tokens.pricing import calculate_cost, get_model_price
+from worker.tokens.pricing import (
+    _REGIONAL_PREFIXES,
+    _REGIONAL_PROFILE,
+    calculate_cost,
+    get_model_price,
+)
 
 MATCHED_MODEL_NAME = "__matched_model_name"
 
@@ -43,28 +48,32 @@ def _standard_price_entries() -> list[dict]:
     return json.loads(PRICES_JSON.read_text())
 
 
+def _cache_entry(entry: dict) -> dict:
+    long = entry.get("longContext") or {}
+    item = {
+        "model_name": entry["modelName"],
+        "match_pattern": entry["matchPattern"],
+        "regional_premium": entry.get("regionalPremium"),
+        "prices": {
+            **entry["prices"],
+            MATCHED_MODEL_NAME: entry["modelName"],
+        },
+    }
+    threshold = long.get("thresholdTokens")
+    if threshold is not None:
+        item["long_context"] = {
+            "threshold": threshold,
+            "prices": {
+                key: value for key, value in long.get("prices", {}).items() if value is not None
+            },
+        }
+    return item
+
+
 @pytest.fixture(scope="module")
 def real_cache() -> list[dict]:
     """Build a pricing cache from the production standard-model-prices.json."""
-    entries = _standard_price_entries()
-    return [
-        {
-            "model_name": entry["modelName"],
-            "match_pattern": entry["matchPattern"],
-            "regional_premium": entry.get("regionalPremium"),
-            "long_context_threshold": (entry.get("longContext") or {}).get("thresholdTokens"),
-            "prices": {
-                **entry["prices"],
-                **{
-                    f"{key}_long": value
-                    for key, value in (entry.get("longContext") or {}).get("prices", {}).items()
-                    if value is not None
-                },
-                MATCHED_MODEL_NAME: entry["modelName"],
-            },
-        }
-        for entry in entries
-    ]
+    return [_cache_entry(entry) for entry in _standard_price_entries()]
 
 
 CODEX_MODEL_PRICES = [
@@ -805,7 +814,7 @@ class TestClaudeBedrockAndVertexIds:
         # A regional profile of a 4.5+ card is 1.1x the catalogue rate. Comparing
         # the raw card would call that a family miss.
         premium = expected.get("regional_premium")
-        if premium and model_id.lower().startswith(_REGIONAL_PREFIXES):
+        if premium and _REGIONAL_PROFILE.match(model_id):
             expected_input *= premium
         assert price["input"] == pytest.approx(expected_input), (
             f"{model_id} matched a different family than {expected_name}"
@@ -859,8 +868,7 @@ class TestClaudeBedrockAndVertexIds:
 
 # Regional Bedrock profiles (us/eu/apac/jp/au/in) for Claude 4.5 and later are
 # billed at 1.1x the global endpoint. global. and a bare id stay on the card.
-# Issue #2939. India is the same kind of profile as Japan and Australia.
-_REGIONAL_PREFIXES = ("us.", "eu.", "apac.", "jp.", "au.", "in.")
+# India is the same kind of profile as Japan and Australia.
 _RATE_KEYS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
 # Claude 4.5 and later. Opus 4.1 / Sonnet 4 and the fast cards stay at the base rate.
 _PREMIUM_MODELS = frozenset(
@@ -891,9 +899,9 @@ class TestBedrockRegionalPremium:
     def test_later_sonnet_resolves_to_its_own_row_in_name_order(
         self, real_cache, model_id, expected_name
     ):
-        # The worker loads rows ORDER BY model_name. claude-sonnet-4 sorts first
-        # and its old suffix also matched -5 and -6, so the premium would land
-        # on a card that is not supposed to have one.
+        # The worker loads rows ORDER BY model_name. claude-sonnet-4 sorts before
+        # 4.5 and 4.6, so a pattern wide enough to match those ids would put
+        # the premium on the wrong card.
         ordered = sorted(real_cache, key=lambda entry: entry["model_name"])
         with patch("worker.tokens.pricing._load_cache", lambda: ordered):
             price = get_model_price(model_id)
@@ -904,7 +912,7 @@ class TestBedrockRegionalPremium:
     def test_regional_profile_is_ten_percent_over_global(self, real_cache, prefix):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             base = get_model_price("global.anthropic.claude-sonnet-4-6")
-            regional = get_model_price(f"{prefix}anthropic.claude-sonnet-4-6")
+            regional = get_model_price(f"{prefix}.anthropic.claude-sonnet-4-6")
         assert base is not None and regional is not None
         for key in _RATE_KEYS:
             assert regional[key] == pytest.approx(base[key] * 1.1), key
@@ -919,6 +927,29 @@ class TestBedrockRegionalPremium:
         assert global_price["input"] == sonnet46["prices"]["input"]
         assert bare["input"] == sonnet46["prices"]["input"]
         assert old["input"] == sonnet4["prices"]["input"]
+
+    def test_us_sonnet_4_6_input_is_the_published_regional_rate(self, real_cache):
+        # $3/MTok global input, plus the 10% regional premium: $3.30/MTok.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price("us.anthropic.claude-sonnet-4-6")
+        assert price is not None
+        assert price["input"] == pytest.approx(3.3e-6)
+
+    def test_catalogue_region_prefixes_match_the_premium_constant(self):
+        # A prefix in a pattern that the constant does not list is billed at
+        # the global rate and nothing fails. global. is in the patterns and
+        # must stay off the premium.
+        allowed = set(_REGIONAL_PREFIXES) | {"global"}
+        seen = set()
+        group = re.compile(r"\(((?:[a-z]+\\\.\|)+[a-z]+\\\.)\)")
+        for entry in _standard_price_entries():
+            for match in group.finditer(entry["matchPattern"]):
+                for part in match.group(1).split("|"):
+                    prefix = part.replace("\\.", "")
+                    assert prefix in allowed, (entry["modelName"], prefix)
+                    if prefix != "global":
+                        seen.add(prefix)
+        assert seen == set(_REGIONAL_PREFIXES)
 
     def test_premium_flag_is_only_on_claude_4_5_and_later(self):
         for entry in _standard_price_entries():
@@ -1321,7 +1352,7 @@ def _priced(model: str, **counts: int) -> float:
 
 
 class TestLongContextTiers:
-    """Issue #2940. Over the prompt threshold the whole request uses the long card.
+    """Over the prompt threshold the whole request uses the long card.
 
     The prompt is uncached input plus cache read plus cache write. The boundary
     itself stays on the short card; one token past it switches.
@@ -1369,6 +1400,33 @@ class TestLongContextTiers:
             over = _priced("claude-haiku-5-5", input_uncached=90_000, cache_read=10_001)
         assert at == pytest.approx(90_000 * 0.0000001 + 10_000 * 0.00000001)
         assert over == pytest.approx(90_000 * 0.0000005 + 10_001 * 0.00000005)
+
+    def test_cache_write_crosses_the_threshold(self, real_cache):
+        # 90k uncached + 10k cache write is the boundary. One more write crosses it,
+        # and the write tokens themselves move onto the long card.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            at = _priced("claude-haiku-5-5", input_uncached=90_000, cache_write=10_000)
+            over = _priced("claude-haiku-5-5", input_uncached=90_000, cache_write=10_001)
+        assert at == pytest.approx(90_000 * 0.0000001 + 10_000 * 0.000000125)
+        assert over == pytest.approx(90_000 * 0.0000005 + 10_001 * 0.000000625)
+
+    def test_a_zero_long_rate_is_used_and_a_zero_threshold_is_real(self):
+        from worker.tokens.buckets import TokenBuckets
+        from worker.tokens.pricing import cost_from_buckets
+
+        prices = {
+            "input": 1e-6,
+            "output": 0,
+            "long": {"threshold": 0, "prices": {"input": 0}},
+        }
+        buckets = TokenBuckets(
+            input_uncached=11,
+            output=0,
+            cache_read=0,
+            cache_write=0,
+            cache_write_1h=0,
+        )
+        assert cost_from_buckets(prices, buckets) == pytest.approx(0)
 
     def test_a_model_without_a_tier_ignores_length(self, real_cache):
         card = next(e for e in real_cache if e["model_name"] == "claude-haiku-4-5")["prices"]
