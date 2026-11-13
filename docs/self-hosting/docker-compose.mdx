@@ -36,17 +36,13 @@ cp .env.example .env
 - `INTERNAL_API_SECRET`
 - `SQL_GATEWAY_BOOTSTRAP_PASSWORD`
 
-You can populate these in `.env` automatically using `openssl`:
+Run the `make env-secrets` helper to generate these securely:
 
 ```bash
-# On Linux / macOS:
-for key in BETTER_AUTH_SECRET INTERNAL_API_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD; do
-  sed -i.bak -E "s|^#? *${key}=.*|${key}=$(openssl rand -hex 32)|" .env
-done
-rm -f .env.bak
+make env-secrets
 ```
 
-`SQL_GATEWAY_BOOTSTRAP_PASSWORD` ships commented out, so the pattern allows a leading `#` and keeps working once that line is uncommented.
+This helper copies `.env.example` to `.env` if `.env` does not already exist, sets file permissions to `chmod 600`, and populates 32-byte hex secrets for any missing or placeholder values without placing credentials in process arguments (`argv`).
 
 Or generate each secret manually using `openssl` and paste unique values into your `.env`:
 
@@ -85,7 +81,7 @@ Alternatively, you can use the make target:
 make prod-lite
 ```
 
-`make prod-lite` is not the same command: it runs `up --build` attached, so the stack stops when you press Ctrl+C, and it copies `.env.example` to `.env` first if no `.env` exists. Run it before step 3 and `SQL_GATEWAY_BOOTSTRAP_PASSWORD` is still commented out in the generated file, so Compose refuses to start.
+`make prod-lite` automatically runs `make env-secrets` first if any required secrets are missing, and launches the stack attached (Ctrl+C to stop).
 
 `make prod` launches a live terminal tmux dashboard that requires local `uv` and Python installations. For a detached container-only deployment, use `docker compose -f docker-compose.prod.yml up --build -d`.
 
