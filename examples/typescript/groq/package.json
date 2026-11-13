@@ -1,0 +1,20 @@
+{
+  "name": "@traceroot/example-groq",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx agent.ts"
+  },
+  "dependencies": {
+    "@traceroot-ai/traceroot": "0.1.2",
+    "dotenv": "^16.4.5",
+    "groq-sdk": "^0.31.0",
+    "openai": "^6.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
