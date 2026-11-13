@@ -370,7 +370,7 @@ describe("MessageList tool entries", () => {
   });
 
   it.each([
-    { name: "done", patch: {}, iconClass: "text-green-500" },
+    { name: "done", patch: {}, iconClass: "text-success" },
     { name: "error", patch: { status: "error", isError: true }, iconClass: "text-destructive" },
     {
       name: "skipped",
@@ -382,7 +382,7 @@ describe("MessageList tool entries", () => {
       name: "revised",
       patch: { status: "done", revisedText: "use a line chart" },
       iconClass: "text-muted-foreground",
-      absent: "text-green-500",
+      absent: "text-success",
     },
     { name: "running", patch: { status: "running" }, iconClass: "animate-spin" },
   ] as { name: string; patch: Partial<ToolCallStep>; iconClass: string; absent?: string }[])(

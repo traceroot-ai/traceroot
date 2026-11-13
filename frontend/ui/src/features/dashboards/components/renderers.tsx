@@ -19,7 +19,7 @@ import {
 } from "recharts";
 import type { FieldUnit } from "@/features/filters/filter-controls";
 import { ChartLegend, type LegendEntry } from "./ChartLegend";
-import { seriesColor } from "../series-colors";
+import { seriesColor, seriesColorFor } from "../series-colors";
 import { type DisplayType, type WidgetQueryResult, AGGS } from "../types";
 
 // Recharts makes its wrapper, SVG, and individual marks (bar rects, line/area
@@ -223,7 +223,7 @@ export function ChartTip({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="grid min-w-32 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+    <div className="grid min-w-32 gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       {label != null && label !== "" && (
         <div className="font-medium">{labelFormatter ? labelFormatter(label) : String(label)}</div>
       )}
@@ -286,7 +286,7 @@ function legendFor(
       .filter((v): v is number => typeof v === "number");
     const sum = nums.reduce((a, b) => a + b, 0);
     const value = nums.length === 0 ? null : summable ? sum : sum / nums.length;
-    return { key: k, label: k, color: seriesColor(i), value };
+    return { key: k, label: k, color: seriesColorFor(k, i), value };
   });
   const total = summable ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
   return { entries, total };
@@ -413,9 +413,9 @@ function TimeSeries({
               key={k}
               dataKey={k}
               stackId={additive ? "1" : undefined}
-              stroke={seriesColor(i)}
+              stroke={seriesColorFor(k, i)}
               strokeOpacity={seriesOpacity(hovered, k)}
-              fill={seriesColor(i)}
+              fill={seriesColorFor(k, i)}
               fillOpacity={seriesOpacity(hovered, k, 0.35)}
               isAnimationActive={false}
               connectNulls={!additive}
@@ -425,7 +425,7 @@ function TimeSeries({
             <Line
               key={k}
               dataKey={k}
-              stroke={seriesColor(i)}
+              stroke={seriesColorFor(k, i)}
               strokeOpacity={seriesOpacity(hovered, k)}
               dot={additive ? false : isolatedDot}
               strokeWidth={1.5}
@@ -556,7 +556,7 @@ function TableView({ result, unit }: { result: WidgetQueryResult; unit?: FieldUn
     <div className="h-full overflow-auto">
       <table className="w-full text-[11.5px]">
         <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="text-left text-[12px] text-muted-foreground">
             {result.columns.map((c) => (
               <th key={c} className="pb-1.5 pr-3 font-medium">
                 {c}
@@ -566,7 +566,7 @@ function TableView({ result, unit }: { result: WidgetQueryResult; unit?: FieldUn
         </thead>
         <tbody>
           {result.rows.map((r, i) => (
-            <tr key={i} className="border-t border-border/60">
+            <tr key={i} className="border-t border-border">
               {r.map((v, j) => (
                 <td key={j} className="py-1 pr-3">
                   {j === valueIdx ? fmtValueWithUnit(v, unit) : v == null ? "—" : String(v)}

@@ -1,3 +1,4 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
 /**
  * Cookie-route handlers for signals (ee). The route files under app/api only
  * wrap these with the impersonation policy. Every write runs through core
@@ -57,7 +58,7 @@ async function authorize(projectId: string, role?: Role) {
   if (authResult.error) return { error: authResult.error };
   const access = await requireProjectAccess(authResult.user.id, projectId, role);
   if (access.error) return { error: access.error };
-  return { user: authResult.user, project: access.project };
+  return { user: authResult.user, project: access.project, membership: access.membership };
 }
 
 /**
@@ -441,6 +442,8 @@ export async function handleRequestSignalRca(
   const { projectId, signalId } = await params;
   const auth = await authorize(projectId, Role.MEMBER);
   if (auth.error) return auth.error;
+  const denied = demoAgentWriteDenied(auth.project.workspaceId, auth.membership.role);
+  if (denied) return denied;
   // The worker starts signal RCAs only with the key; a request would wait forever.
   if (!signalsKeyConfigured()) {
     return errorResponse("This deployment has no OpenAI API key, which signals need", 409);

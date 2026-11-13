@@ -103,7 +103,12 @@ export function DashboardGrid({
     <GridLayout
       className="layout"
       layout={fullLayout}
-      gridConfig={{ cols: COLS, rowHeight: ROW_HEIGHT }}
+      gridConfig={{
+        cols: COLS,
+        rowHeight: ROW_HEIGHT,
+        margin: [16, 16],
+        containerPadding: [16, 16],
+      }}
       dragConfig={{ handle: ".drag-handle" }}
       width={width}
       onLayoutChange={handleChange}

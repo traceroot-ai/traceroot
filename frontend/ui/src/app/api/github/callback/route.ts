@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { userMembershipWhere } from "@/lib/demo-workspace";
 import {
   GITHUB_AUTH_STATE_COOKIE,
   GITHUB_INSTALL_STATE_COOKIE,
@@ -121,11 +122,12 @@ async function processGitHubCallback(
 
   // 5. Resolve target workspace: cookie set at /api/github/login kickoff, or
   //    the user's first membership for the direct-install flow (where the user
-  //    started at github.com and we never set the cookie).
+  //    started at github.com and we never set the cookie). Never the demo
+  //    workspace: a new user joins it before they create their own.
   let workspaceId = request.cookies.get(GITHUB_WORKSPACE_ID_COOKIE)?.value;
   if (!workspaceId) {
     const membership = await prisma.workspaceMember.findFirst({
-      where: { userId: user.id },
+      where: userMembershipWhere(user.id, "exclude-demo"),
       orderBy: { createTime: "asc" },
       select: { workspaceId: true },
     });
@@ -161,11 +163,12 @@ async function processGitHubCallback(
   // which loses the session cookie (set on localhost).
   // Mirror the persistence condition (chosen && workspaceId): if either is
   // missing we didn't write a row, so we shouldn't redirect "as connected".
-  const redirectUrl =
-    chosen && workspaceId
+  const redirectUrl = !workspaceId
+    ? new URL("/workspaces", env.BETTER_AUTH_URL)
+    : chosen
       ? new URL(returnTo, env.BETTER_AUTH_URL)
       : new URL(
-          `/api/github/install?returnTo=${encodeURIComponent(returnTo)}`,
+          `/api/github/install?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(returnTo)}`,
           env.BETTER_AUTH_URL,
         );
 
@@ -180,7 +183,7 @@ async function processGitHubCallback(
   const clearCookie = (name: string) =>
     response.cookies.set(name, "", { httpOnly: true, sameSite: "lax", maxAge: 0, path: "/" });
   clearCookie(GITHUB_AUTH_STATE_COOKIE);
-  if (chosen && workspaceId) {
+  if (!workspaceId || chosen) {
     clearCookie(GITHUB_RETURN_TO_COOKIE);
     clearCookie(GITHUB_INSTALL_STATE_COOKIE);
     clearCookie(GITHUB_WORKSPACE_ID_COOKIE);

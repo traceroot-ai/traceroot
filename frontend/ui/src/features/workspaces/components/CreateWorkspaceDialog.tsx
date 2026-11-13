@@ -60,18 +60,26 @@ export function CreateWorkspaceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!isControlled && (
-        <DialogTrigger asChild>{trigger || <AddButton>New Workspace</AddButton>}</DialogTrigger>
+        <DialogTrigger asChild>{trigger || <AddButton>New workspace</AddButton>}</DialogTrigger>
       )}
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Create Workspace</DialogTitle>
+            <DialogTitle>New workspace</DialogTitle>
             <DialogDescription>
               Create a new workspace to manage your projects and team members.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="flex flex-col gap-1.5 py-4">
+            <label
+              htmlFor="workspace-name"
+              className="text-[12px] font-medium text-muted-foreground"
+            >
+              Name
+            </label>
             <Input
+              id="workspace-name"
+              className="h-8 text-[13px]"
               autoFocus
               placeholder="Workspace name"
               value={name}
@@ -79,7 +87,7 @@ export function CreateWorkspaceDialog({
               disabled={createMutation.isPending}
             />
             {createMutation.isError && (
-              <p className="mt-2 text-sm text-destructive">{createMutation.error.message}</p>
+              <p className="text-[12px] text-destructive">{createMutation.error.message}</p>
             )}
           </div>
           <DialogFooter>

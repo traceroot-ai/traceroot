@@ -1,7 +1,7 @@
 "use client";
 
+import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -117,48 +117,30 @@ export default function DashboardDetailPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex h-[45px] shrink-0 items-center justify-between border-b border-border px-4">
-          {/* Left: breadcrumb back to the list + the dashboard's identity
-              (the tabs are gone; the list page is the way to switch).
-              "Dashboards" renders exactly like the list page's heading. */}
-          <div className="flex min-w-0 items-center gap-2">
-            <Link
-              // ?list=1 pins the index on the list: without it a project with
-              // a single dashboard would auto-open right back here.
-              href={`/projects/${projectId}/dashboard?list=1`}
-              className="shrink-0 text-[13px] font-medium hover:underline"
-            >
-              Dashboards
-            </Link>
-            <span className="shrink-0 text-muted-foreground">/</span>
-            <h1 className="min-w-0 text-[13px] font-medium">
-              <span className="block max-w-[16rem] truncate" title={dashboard?.name}>
-                {dashboard?.name ?? "Dashboard"}
-              </span>
-            </h1>
-          </div>
-
-          {/* Right: create widget, then the time range. Deleting a dashboard
-              lives only in the list page's row actions. */}
-          <div className="flex items-center gap-2">
-            {/* Held back until the detail loads so it can't act on a
-                dashboard the app doesn't know yet. */}
-            {dashboard && (
-              <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
-                ＋ Create widget
-              </Button>
-            )}
-            <DateFilterSelect
-              dateFilter={dateFilter}
-              customStartDate={customStartDate}
-              customEndDate={customEndDate}
-              onDateFilterChange={setDateFilter}
-              onCustomRangeChange={setCustomRange}
-              retentionDays={retention.retentionDays}
-              onUpgradeClick={retention.onUpgradeClick}
-            />
-          </div>
-        </div>
+        <PageBackHeader
+          backHref={`/projects/${projectId}/dashboard?list=1`}
+          backLabel="Dashboards"
+          title={dashboard?.name ?? "Dashboard"}
+          actions={
+            <>
+              {dashboard && (
+                <Button size="sm" onClick={openCreate}>
+                  New widget
+                </Button>
+              )}
+              <DateFilterSelect
+                className="h-7"
+                dateFilter={dateFilter}
+                customStartDate={customStartDate}
+                customEndDate={customEndDate}
+                onDateFilterChange={setDateFilter}
+                onCustomRangeChange={setCustomRange}
+                retentionDays={retention.retentionDays}
+                onUpgradeClick={retention.onUpgradeClick}
+              />
+            </>
+          }
+        />
 
         {/* Body */}
         <div ref={bodyRef} className="flex-1 overflow-auto bg-background">
@@ -176,7 +158,7 @@ export default function DashboardDetailPage() {
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">No widgets yet.</p>
               <Button size="sm" className="text-[12px]" onClick={openCreate}>
-                ＋ Create widget
+                New widget
               </Button>
             </div>
           ) : (

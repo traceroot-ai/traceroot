@@ -6,7 +6,7 @@ import type { MeasureDoc } from "@/lib/measure-doc";
 
 function MetaChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+    <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] text-muted-foreground">
       {children}
     </span>
   );
@@ -28,7 +28,7 @@ interface MeasureOptionProps {
  */
 export function MeasureOption({ value, label, typeLabel, doc, icon }: MeasureOptionProps) {
   const item = (
-    <SelectItem value={value} className="text-[12px]" icon={icon}>
+    <SelectItem value={value} icon={icon}>
       {label}
     </SelectItem>
   );
@@ -42,7 +42,7 @@ export function MeasureOption({ value, label, typeLabel, doc, icon }: MeasureOpt
         align="start"
         sideOffset={8}
         collisionPadding={8}
-        className="w-64 border bg-popover p-3 text-popover-foreground shadow-md"
+        className="w-64 border bg-popover p-3 text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
         <p className="text-[13px] font-medium">{label}</p>
         <div className="mt-1.5 flex flex-wrap gap-1">

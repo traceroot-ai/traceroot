@@ -133,9 +133,9 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
 
   return (
     <div className="h-full overflow-auto bg-background">
-      <table aria-label="Trace detectors" className="w-full min-w-[820px] table-fixed">
+      <table aria-label="Trace detectors" className="data-table w-full min-w-[820px] table-fixed">
         <thead className="sticky top-0 bg-background">
-          <tr className="border-b border-border bg-muted/50">
+          <tr className="border-b border-border">
             <th className={cn(DETECTOR_TH, "w-[150px]")}>Name</th>
             <th className={cn(DETECTOR_TH, "w-[150px]")}>Timestamp</th>
             <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
@@ -161,7 +161,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
             return (
               <tr
                 key={r.run_id}
-                className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
+                className="border-b border-border transition-colors hover:bg-muted"
               >
                 <td className={cn(DETECTOR_TD, "text-foreground")}>
                   <Link

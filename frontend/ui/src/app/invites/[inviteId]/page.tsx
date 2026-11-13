@@ -39,7 +39,7 @@ export default function AcceptInvitePage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="max-w-md border p-6 text-center">
-          <h1 className="text-xl font-semibold">Invitation Error</h1>
+          <h1 className="text-[15px] font-medium">Invitation Error</h1>
           <p className="mt-2 text-muted-foreground">{error}</p>
           <button onClick={() => router.push("/workspaces")} className="mt-4 text-sm underline">
             Go to workspaces

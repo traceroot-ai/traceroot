@@ -1,5 +1,6 @@
 "use client";
 
+import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
 import { Loader2, Plus, Search, X } from "lucide-react";
@@ -231,10 +232,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
     <>
       {/* The experiment name rides in the top breadcrumb bar (Workspace / Project /
           Evaluations / <name>), like the dataset detail page. */}
-      <ProjectBreadcrumb
-        projectId={projectId}
-        trail={[{ label: "Evaluations", href: runsListHref }]}
-        current={data?.run.evaluationName}
+      <ProjectBreadcrumb projectId={projectId} />
+      <PageBackHeader
+        backHref={runsListHref}
+        backLabel="Evaluations"
+        title={data?.run.evaluationName ?? "Run"}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
@@ -306,7 +308,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               ? (selection) => (
                   <Button
                     variant="outline"
-                    size="sm"
                     className="h-7 shrink-0 gap-1.5 text-[12px]"
                     onClick={() => {
                       setSaveTestCaseSpanId(
@@ -324,7 +325,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           spanExtraTags={() => (
             <>
               {!useRealTrace && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/60 bg-amber-100/60 px-2.5 py-1 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-warning-border bg-warning-soft px-2.5 py-1 text-xs text-warning">
                   Reconstructed — no telemetry was emitted for this result
                 </span>
               )}
@@ -358,8 +359,8 @@ function PendingTracePanel({
   onClose: () => void;
 }) {
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-xl">
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
+    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <span className="text-sm font-medium">Evaluation trace</span>
         <Button
           variant="ghost"
@@ -379,7 +380,6 @@ function PendingTracePanel({
           but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it lands.
         </p>
         <Button
-          size="sm"
           variant="outline"
           className="h-7 gap-1.5 text-[12px]"
           disabled={isFetching}
@@ -435,13 +435,13 @@ function ResultsSection({
           many scores; the per-case rows speak for themselves, like a trace's spans. */}
       <SearchFilterBar
         searchInput={
-          <div className="relative min-w-[10rem] max-w-md flex-1">
+          <div className="relative min-w-[10rem] max-w-lg flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="Search..."
-              className="h-7 pl-8 text-[12px]"
+              className="h-8 pl-8 text-[13px]"
             />
           </div>
         }
@@ -456,7 +456,7 @@ function ResultsSection({
               <Th className="min-w-[180px]">Expected</Th>
               {/* One column per scorer (e.g. no_conclusion, covers_both_cities). */}
               {scorerNames.map((name) => (
-                <Th key={name} className="w-[130px] whitespace-nowrap text-right font-mono">
+                <Th key={name} className="w-[130px] whitespace-nowrap text-right capitalize">
                   {name}
                 </Th>
               ))}
@@ -499,16 +499,16 @@ function ResultsSection({
                     return (
                       <Td
                         key={name}
-                        className="whitespace-nowrap text-right text-[11px] tabular-nums"
+                        className="whitespace-nowrap text-right text-[12px] tabular-nums"
                       >
                         {s ? scoreValue(s) : <span className="text-muted-foreground">—</span>}
                       </Td>
                     );
                   })}
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                  <Td className="whitespace-nowrap text-right text-[12px] tabular-nums text-muted-foreground">
                     {fmtDurationMs(result.durationMs)}
                   </Td>
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                  <Td className="whitespace-nowrap text-right text-[12px] tabular-nums text-muted-foreground">
                     {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
                   </Td>
                 </TR>
