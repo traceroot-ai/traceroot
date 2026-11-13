@@ -6,6 +6,7 @@ from db.postgres import get_pg_pool
 from shared.datetime_utils import to_utc_naive
 
 PROJECT_INGESTION_SQL = """
+    SET LOCAL statement_timeout = '5s';
     UPDATE projects
     SET last_ingested_at = %s
     WHERE id = %s AND delete_time IS NULL

@@ -413,18 +413,6 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                 ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
-            if traces or spans:
-                # Activity failures must not fail delivery, detection, or live updates.
-                try:
-                    record_project_ingestion(project_id, version or datetime.now(UTC))
-                except Exception:
-                    logger.error(
-                        "Failed to record ingestion time for project %s from %s",
-                        project_id,
-                        s3_key,
-                        exc_info=True,
-                    )
-
             if spans:
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
                 #
@@ -454,6 +442,18 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         # 4. Publish to Redis for live trace streaming
         if spans:
             _publish_live_spans(spans, project_id)
+
+        if traces or spans:
+            # Record advisory activity after detection and live publication.
+            try:
+                record_project_ingestion(project_id, version or datetime.now(UTC))
+            except Exception:
+                logger.error(
+                    "Failed to record ingestion time for project %s from %s",
+                    project_id,
+                    s3_key,
+                    exc_info=True,
+                )
 
         return {
             "s3_key": s3_key,

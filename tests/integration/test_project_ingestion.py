@@ -1,6 +1,7 @@
 """Project ingestion timestamps against an explicitly selected disposable Postgres database."""
 
 import os
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -35,7 +36,9 @@ def pg(monkeypatch):
     admin.autocommit = True
     with admin.cursor() as cursor:
         cursor.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-    pool = ThreadedConnectionPool(1, 8, DATABASE, options=f"-c search_path={schema}")
+    pool = ThreadedConnectionPool(
+        1, 8, DATABASE, options=f"-c search_path={schema} -c statement_timeout=15000"
+    )
     connection = pool.getconn()
     with connection.cursor() as cursor:
         cursor.execute("CREATE TABLE projects (id text PRIMARY KEY, delete_time timestamp)")
@@ -88,6 +91,64 @@ def test_concurrent_snapshots_keep_the_latest_receive_time(pg):
             )
         )
     assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 7)
+
+
+def test_activity_write_times_out_on_a_locked_project_and_recovers(pg):
+    from db.project_ingestion import get_pg_pool
+
+    pool = get_pg_pool()
+    blocker = pool.getconn()
+    try:
+        with blocker.cursor() as cursor:
+            cursor.execute("SELECT id FROM projects WHERE id = 'p1' FOR UPDATE")
+        started = time.monotonic()
+        with pytest.raises(psycopg2.errors.QueryCanceled, match="statement timeout"):
+            record_project_ingestion("p1", T0)
+        assert time.monotonic() - started < 10
+    finally:
+        blocker.rollback()
+        pool.putconn(blocker)
+    assert pg()["p1"] is None
+    record_project_ingestion("p1", T0)
+    assert pg()["p1"] == datetime(2026, 11, 13, 12, 0)
+    connection = pool.getconn()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            assert cursor.fetchone()[0] == "15s"
+    finally:
+        connection.rollback()
+        pool.putconn(connection)
+
+
+def test_migration_fails_fast_behind_an_active_table_reader(pg):
+    from db.project_ingestion import get_pg_pool
+
+    pool = get_pg_pool()
+    blocker, migrator = pool.getconn(), pool.getconn()
+    try:
+        with blocker.cursor() as cursor:
+            cursor.execute("ALTER TABLE projects DROP COLUMN last_ingested_at")
+        blocker.commit()
+        with blocker.cursor() as cursor:
+            cursor.execute("SELECT id FROM projects")
+        started = time.monotonic()
+        with (
+            pytest.raises(psycopg2.errors.LockNotAvailable, match="lock timeout"),
+            migrator.cursor() as cursor,
+        ):
+            cursor.execute(MIGRATION.read_text())
+        assert time.monotonic() - started < 10
+        migrator.rollback()
+        blocker.rollback()
+        with migrator.cursor() as cursor:
+            cursor.execute(MIGRATION.read_text())
+        migrator.commit()
+    finally:
+        for connection in (blocker, migrator):
+            connection.rollback()
+            pool.putconn(connection)
+    assert pg()["p1"] is None
 
 
 def test_task_persists_receive_time_for_existing_trace_snapshots(pg, monkeypatch):

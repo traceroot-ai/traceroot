@@ -1,6 +1,8 @@
 """New data and replacement snapshots update activity only after storage succeeds."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
 
@@ -64,6 +66,34 @@ def test_failed_activity_write_keeps_delivery_and_live_updates_running(
     enqueue_detector_runs.assert_called_once_with("p1", {"aa" * 16})
     _publish_live_spans.assert_called_once()
     assert "Failed to record ingestion time for project p1 from batch.json" in caplog.text
+
+
+def test_blocked_activity_write_does_not_hold_detection_or_live_publication(
+    mock_s3, ch, mock_project_ingestion
+):
+    from worker.detector_tasks import enqueue_detector_runs
+    from worker.ingest_tasks import _publish_live_spans
+
+    mock_s3.download_json.return_value = make_otel_payload([make_span("aa" * 16, "bb" * 8)])
+    started, release = Event(), Event()
+
+    def blocked_write(*_):
+        started.set()
+        assert release.wait(timeout=5)
+
+    mock_project_ingestion.side_effect = blocked_write
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        task = executor.submit(
+            process_s3_traces, s3_key="batch.json", project_id="p1", received_at=RECEIVED
+        )
+        try:
+            assert started.wait(timeout=5)
+            assert not task.done()
+            enqueue_detector_runs.assert_called_once_with("p1", {"aa" * 16})
+            _publish_live_spans.assert_called_once()
+        finally:
+            release.set()
+        assert task.result(timeout=5)["spans"] == 1
 
 
 def test_legacy_task_falls_back_to_processing_time(mock_s3, ch, mock_project_ingestion):

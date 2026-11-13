@@ -6,6 +6,7 @@ from psycopg2.pool import ThreadedConnectionPool
 
 _pool: ThreadedConnectionPool | None = None
 _pool_lock = threading.Lock()
+PG_CONNECT_TIMEOUT_SECONDS = 5
 
 
 def get_pg_pool() -> ThreadedConnectionPool:
@@ -20,5 +21,7 @@ def get_pg_pool() -> ThreadedConnectionPool:
             if _pool is None:
                 from shared.config import settings
 
-                _pool = ThreadedConnectionPool(1, 8, settings.database_url)
+                _pool = ThreadedConnectionPool(
+                    1, 8, settings.database_url, connect_timeout=PG_CONNECT_TIMEOUT_SECONDS
+                )
     return _pool

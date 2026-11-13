@@ -95,8 +95,9 @@ describe("GET /api/workspaces with a demo workspace", () => {
       ],
     });
     expect(body.workspaces[0].projects[0]).not.toHaveProperty("lastIngestedAt");
-    expect(memberFindManyMock.mock.calls[0][0].include.workspace.include.projects.where).toEqual({
-      deleteTime: null,
+    expect(memberFindManyMock.mock.calls[0][0].include.workspace.include.projects).toEqual({
+      where: { deleteTime: null },
+      select: { id: true, name: true, lastIngestedAt: true },
     });
   });
 
