@@ -5,7 +5,7 @@ description: Per-plan request quotas, rate limiting architecture, and burst hand
 
 TraceRoot Cloud enforces rate limits across its API endpoints. Limits are measured per minute, keyed by workspace rather than by individual API key, and split into independent buckets so one class of traffic cannot exhaust another's budget.
 
-Rate limits apply strictly to TraceRoot Cloud. In [self-hosted](/self-hosting/overview) deployments (`ENABLE_BILLING=false`), rate limiting is disabled entirely, and throughput is limited only by your own infrastructure capacity.
+Rate limits apply strictly to TraceRoot Cloud. In [self-hosted](/developer/self-hosting) deployments (`ENABLE_BILLING=false`), rate limiting is disabled entirely, and throughput is limited only by your own infrastructure capacity.
 
 ## Architecture and keying
 

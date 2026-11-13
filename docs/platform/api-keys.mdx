@@ -12,9 +12,24 @@ Every API key in TraceRoot is **strictly scoped to a single project**:
 - Requests authenticated by a key can only ingest traces or read data within that specific project.
 - Keys cannot perform cross-project queries or access workspace-level administrative settings (such as inviting members or managing billing).
 
+## Key scopes
+
+Every API key has a scope that defines its access level within the project:
+
+| Scope | Description | Allowed Operations |
+| :--- | :--- | :--- |
+| **`ingest`** | Telemetry ingestion and project reads (default). | Ingest spans and traces (`POST /api/v1/public/traces`), read project data (traces, dashboards, widgets, alerts), report evaluation runs, and verify identity (`GET /api/v1/public/whoami`). An `ingest` key cannot access key-management endpoints. |
+| **`admin`** | Full project API access. | All `ingest` operations plus key management via `/api/v1/public/api-keys` (list keys, mint new `ingest` keys, and revoke keys). |
+
+<Note>
+  Administrative operations beyond key management (such as creating projects, modifying workspace settings, or configuring alerts and detectors) require a signed-in user credential (session token or CLI access token) and reject all API keys regardless of scope.
+</Note>
+
 ## Creating an API key
 
-API keys are created directly in the TraceRoot web interface:
+You can create API keys interactively in the web console or programmatically via the public API.
+
+### In the TraceRoot web console
 
 1. Navigate to **Project Settings** in your dashboard.
 2. Select **API Keys** from the navigation menu.
@@ -22,12 +37,60 @@ API keys are created directly in the TraceRoot web interface:
 4. Enter an optional **Name** — a descriptive label to identify the key's usage (e.g., `production-agent`, `staging-eval-runner`).
 5. Click **Create**.
 
-Creating or renaming an API key requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
+Creating or renaming an API key in the UI requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
+
+### Programmatically via the public API
+
+TraceRoot exposes key-management endpoints under `/api/v1/public/api-keys`. Programmatic key management requires an **`admin`**-scoped API key.
+
+#### Minting a new key
+
+Send a `POST` request to `/api/v1/public/api-keys`:
+
+```bash
+curl --request POST "https://app.traceroot.ai/api/v1/public/api-keys" \
+  --header "Authorization: Bearer $TRACEROOT_ADMIN_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "name": "ci-runner-key",
+    "expires_in_days": 90
+  }'
+```
+
+- **`name`** (string, required): A descriptive label for the key (1–100 characters). Duplicate key names within the same project return HTTP `409 Conflict`.
+- **`expires_in_days`** (integer, optional): Number of days until the key expires (up to 3650 days). Omit or set to `null` for a non-expiring key.
+- **Scope restriction**: An API key can only mint keys with the **`ingest`** scope. Requesting `scope: "admin"` returns HTTP `403 Forbidden` (`An API key can only create ingest-scoped keys. Create an admin key with a signed-in user's credential.`). This prevents a leaked administrative key from generating persistent admin successors.
+
+#### Listing keys
+
+Send a `GET` request to list metadata for all keys in the project:
+
+```bash
+curl "https://app.traceroot.ai/api/v1/public/api-keys" \
+  --header "Authorization: Bearer $TRACEROOT_ADMIN_API_KEY"
+```
+
+Returns a list of keys with their metadata (`id`, `name`, `hint`, `project_id`, `scope`, `created_at`, `expires_at`, `last_used_at`).
+
+#### Revoking a key
+
+Send a `DELETE` request naming the key ID:
+
+```bash
+curl --request DELETE "https://app.traceroot.ai/api/v1/public/api-keys/{key_id}" \
+  --header "Authorization: Bearer $TRACEROOT_ADMIN_API_KEY"
+```
+
+Returns HTTP `204 No Content` on success. TraceRoot refuses self-revocation with HTTP `409 Conflict` (`Refusing to revoke the API key used to make this request. Authenticate with a different key.`), protecting callers against invalidating their active credentials during key rotation.
+
+### Minting the initial project key via CLI
+
+When initializing a repository, `traceroot setup` mints the project's initial API key using an interactive user session credential. This allows automated local setup without manually copying tokens from the web dashboard.
 
 ## The key is shown only once
 
 <Warning>
-  TraceRoot displays the full API key **only once** immediately upon creation. TraceRoot stores only a one-way cryptographic hash of the secret (`secretHash`) in the database. If you lose the key, it cannot be recovered—you must revoke it and generate a new one.
+  TraceRoot displays the full API key **only once** immediately upon creation (in the UI or in the `POST` response body as `key`). TraceRoot stores only a one-way cryptographic hash of the secret (`secretHash`) in the database. If you lose the key, it cannot be recovered—you must revoke it and generate a new one.
 </Warning>
 
 Copy the key immediately and save it securely in your secret manager or local `.env` configuration:
@@ -39,21 +102,25 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai
 
 ## Key identification and properties
 
-In the TraceRoot UI, you can inspect and track existing keys:
+In the TraceRoot UI or via the listing endpoint, you can inspect and track existing keys:
 
 | Property | Description |
 | :--- | :--- |
-| **Name** | The custom label assigned to the key. Can be renamed at any time. |
+| **Name** | The custom label assigned to the key. Can be renamed at any time in the UI. |
 | **Key Hint** | A non-sensitive identifier (e.g., `tr-d0a3-57e3`) formatted as the key prefix and suffix, used to safely identify which key is deployed in an environment. |
+| **Scope** | The permission tier assigned to the key (`ingest` or `admin`). |
 | **Created** | Timestamp indicating when the key was originally generated. |
+| **Expires** | Expiration timestamp, or `null` for non-expiring keys. |
 | **Last Used** | Timestamp updated whenever the key authenticates an incoming request. |
 
 ## Renaming and revoking keys
 
 - **Renaming**: You can edit the friendly name of any key in the UI without affecting active connections or invalidating the token.
-- **Revoking**: If a key is leaked or decommissioned, click the delete icon next to the key. The dialog asks you to type the key's name (or `delete`, for an unnamed key) before **Delete API Key** is enabled. Revocation takes effect immediately: subsequent requests using that key return HTTP `401 Unauthorized`.
+- **Revoking**: Leaked or decommissioned keys can be revoked immediately:
+  - **In the UI**: Click the delete icon next to the key in Project Settings > API Keys. Confirm the deletion by typing the key's name (or `delete`, for an unnamed key).
+  - **Via the API**: Send `DELETE /api/v1/public/api-keys/{key_id}` with an `admin`-scoped key.
 
-There is no public API route for key creation. Keys must be created interactively through the authenticated web console, which prevents programmatic credential amplification and unauthorized key sprawl.
+Revocation takes effect immediately: subsequent requests using that key return HTTP `401 Unauthorized`.
 
 ## Next steps
 
