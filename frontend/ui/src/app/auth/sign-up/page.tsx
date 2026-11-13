@@ -1,4 +1,5 @@
 import { env } from "@/env";
+import { isCloud } from "@/lib/server/cloud";
 import { SignUpClient } from "./sign-up-client";
 
 export const dynamic = "force-dynamic";
@@ -8,5 +9,10 @@ export default function SignUpPage() {
     env.AUTH_GOOGLE_CLIENT_ID.trim() && env.AUTH_GOOGLE_CLIENT_SECRET.trim(),
   );
 
-  return <SignUpClient googleAuthConfigured={googleAuthConfigured} />;
+  return (
+    <SignUpClient
+      googleAuthConfigured={googleAuthConfigured}
+      emailDomainPolicyEnabled={isCloud()}
+    />
+  );
 }

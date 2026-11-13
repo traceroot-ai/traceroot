@@ -34,7 +34,7 @@ from rest.schemas.public import (
 )
 from rest.services.detector_reader import DetectorReaderService, get_detector_reader_service
 
-router = APIRouter(prefix="/public/detectors", tags=["Detectors (Public)"])
+router = APIRouter(prefix="/public/detectors", tags=["Detectors"])
 
 
 @router.get("", response_model=PublicDetectorListResponse, operation_id="list_detectors")

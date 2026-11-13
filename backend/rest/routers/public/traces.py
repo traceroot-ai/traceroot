@@ -1,27 +1,21 @@
 """Public traces endpoint for OTEL ingestion.
 
 This endpoint receives OTLP trace data from SDKs and:
-1. Stores OTEL JSON to S3/MinIO (durable buffer)
+1. Stores the request body to S3/MinIO exactly as received (durable buffer)
 2. Enqueues a Celery task with S3 reference for async processing
 
 The endpoint accepts OTLP protobuf format only:
-- application/x-protobuf: Decoded and converted to camelCase JSON before storage
+- application/x-protobuf: Stored as sent; the ingest worker decodes it
 
 Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
 """
 
-import gzip
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from google.protobuf.json_format import MessageToDict
-from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
-    ExportTraceServiceRequest,
-)
 from pydantic import BaseModel
 
 from ee.license import is_billing_enabled
@@ -35,38 +29,62 @@ from rest.routers.public.deps import (
     KeyStampedAuth,
     authenticate_api_key,
 )
+from rest.routers.public.request_body import read_capped_body
 from rest.services.s3 import get_s3_service
+from shared.bounded_gzip import GzipTooLargeError, iter_gunzip
+from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
 
 __all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
+router = APIRouter(prefix="/public/traces", tags=["Traces"])
 
 
 # Ingest shares the workspace/plan stamping wrapper with the public read routes
 # (defined in deps); the limiter keys ingest by its own bucket via ``key_ingest``.
 IngestAuth = KeyStampedAuth
 
+# How long an exporter should wait before resending a batch that could not be queued.
+_ENQUEUE_RETRY_AFTER_SECONDS = 5
 
-def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
-    """Decode OTLP protobuf to a Python dict.
 
-    Uses protobuf's MessageToDict for conversion, which produces
-    a JSON-compatible dict with proper field naming.
+def _body_too_large(detail: str) -> HTTPException:
+    """Log and build the 413 for a body over one of the ingest size limits."""
+    logger.warning(f"Refused trace ingest request: {detail}")
+    return HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=detail)
+
+
+def _is_gzipped(content_encoding: str) -> bool:
+    """Read ``Content-Encoding``, refusing any coding the worker can't undo.
+
+    The body is stored as sent and only the worker decodes it, from the key's
+    suffix, so the only codings accepted are none and a single gzip layer
+    (``x-gzip`` is the same coding). Anything else would be stored only to fail
+    in the worker, so it gets 400 here, which an exporter does not retry.
 
     Args:
-        data: Raw protobuf bytes
+        content_encoding (str): The request's ``Content-Encoding`` lines joined
+            with commas, or "".
 
     Returns:
-        Dict representation of the OTLP trace data
+        bool: True for gzip, False for no coding.
+
+    Raises:
+        HTTPException: 400 for any other coding.
     """
-    request = ExportTraceServiceRequest()
-    request.ParseFromString(data)
-    # MessageToDict converts protobuf to dict with camelCase field names
-    # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
-    return MessageToDict(request)
+    codings = [c.strip().lower() for c in content_encoding.split(",")]
+    codings = [c for c in codings if c and c != "identity"]
+    if not codings:
+        return False
+    if codings in (["gzip"], ["x-gzip"]):
+        return True
+    logger.warning(f"Refused trace ingest request with Content-Encoding {content_encoding!r}")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Content-Encoding must be gzip or omitted",
+    )
 
 
 class IngestResponse(BaseModel):
@@ -86,18 +104,27 @@ async def ingest_traces(
     """Ingest OTLP trace data.
 
     Accepts OTLP protobuf format only (optionally gzip compressed).
-    Protobuf is converted to camelCase JSON before storage in S3.
+    The body is stored in S3 exactly as received and decoded asynchronously,
+    so a 200 means the batch was stored and queued, not that it decoded.
 
-    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+    S3 path: events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
+    (``.pb`` when the body is not gzip-compressed)
+
+    Size limits: by default the body may be at most 16 MiB as sent and 32 MiB
+    once unzipped. A larger request gets 413.
 
     Headers:
         Authorization: Bearer <api_key>
-        Content-Encoding: gzip (optional)
+        Content-Encoding: gzip (optional; any other coding gets 400)
         Content-Type: application/x-protobuf
 
     Body:
         OTLP trace data in protobuf format
     """
+    # The batch's rows are versioned by when it arrived, so of two versions of a
+    # span the one sent later wins whatever order the worker processes them in.
+    received_at = datetime.now(UTC)
+
     # Check if ingestion is blocked (free plan limit exceeded)
     # This flag is updated hourly by the billing worker
     # Skip enforcement when billing is disabled (e.g. self-hosted)
@@ -125,8 +152,15 @@ async def ingest_traces(
             detail="Content-Type must be application/x-protobuf",
         )
 
-    # 1. Read body
-    body = await request.body()
+    # Validate Content-Encoding before reading body too. Repeated header lines are
+    # one list of codings, so they are read together.
+    gzipped = _is_gzipped(", ".join(request.headers.getlist("content-encoding")))
+
+    # 1. Read body, refusing anything over the request cap
+    cap = settings.ingest.max_request_bytes
+    body = await read_capped_body(
+        request, cap, lambda: _body_too_large(f"Request body exceeds {cap} bytes")
+    )
 
     if not body:
         raise HTTPException(
@@ -134,11 +168,16 @@ async def ingest_traces(
             detail="Empty request body",
         )
 
-    # 2. Decompress if gzip
-    content_encoding = request.headers.get("content-encoding", "")
-    if "gzip" in content_encoding.lower():
+    # 2. A gzip body must unzip cleanly within the cap. The output is only
+    #    counted, never kept: the worker decodes the batch from the body as sent.
+    if gzipped:
         try:
-            body = gzip.decompress(body)
+            for _ in iter_gunzip(body, settings.ingest.max_unzipped_bytes):
+                pass
+        except GzipTooLargeError as e:
+            raise _body_too_large(
+                f"Decompressed request body exceeds {settings.ingest.max_unzipped_bytes} bytes"
+            ) from e
         except Exception as e:
             logger.warning(f"Failed to decompress gzip: {e}")
             raise HTTPException(
@@ -146,46 +185,44 @@ async def ingest_traces(
                 detail="Invalid gzip payload",
             ) from e
 
-    # 3. Decode protobuf to camelCase JSON (OTLP standard format)
-    try:
-        trace_data = decode_otlp_protobuf(body)
-        logger.debug("Decoded OTLP protobuf to JSON")
-    except Exception as e:
-        logger.warning(f"Failed to parse OTLP protobuf: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse OTLP protobuf: {e}",
-        ) from e
-
-    # 4. Generate S3 key (time-partitioned)
-    now = datetime.now(UTC)
+    # 3. Generate S3 key (time-partitioned); the suffix tells the worker the format
     file_id = str(uuid.uuid4())
+    suffix = ".pb.gz" if gzipped else ".pb"
     s3_key = (
-        f"events/otel/{project_id}/"
-        f"{now.year}/{now.month:02d}/{now.day:02d}/{now.hour:02d}/"
-        f"{file_id}.json"
+        f"events/ingest/{project_id}/"
+        f"{received_at.year}/{received_at.month:02d}/{received_at.day:02d}/"
+        f"{received_at.hour:02d}/{file_id}{suffix}"
     )
 
-    # 5. Upload JSON to S3
+    # 4. Upload the body to S3 exactly as received
     try:
         s3_service = get_s3_service()
         s3_service.ensure_bucket_exists()
-        s3_service.upload_json(s3_key, trace_data)
-        logger.info(f"Stored OTEL JSON to {s3_key} for project {project_id}")
+        s3_service.upload_bytes(s3_key, body, content_type="application/x-protobuf")
+        logger.info(f"Stored OTLP batch to {s3_key} for project {project_id}")
     except Exception as e:
-        logger.error(f"Failed to upload OTEL JSON to S3: {e}")
+        logger.error(f"Failed to upload OTLP batch to S3: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Storage error: {e}",
         ) from e
 
-    # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)
+    # 5. Enqueue Celery task for async processing (S3 reference only, not full payload)
     try:
-        process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
+        process_s3_traces.delay(
+            s3_key=s3_key, project_id=project_id, received_at=received_at.isoformat()
+        )
         logger.info(f"Enqueued Celery task for {s3_key}")
     except Exception as e:
-        # Log but don't fail the request - S3 has the data, can retry later
+        # Only a queued task ever reads the staged object, so answering 200 here
+        # would drop the batch. A 503 makes the exporter send it again; the staged
+        # copy is left where it is and never processed.
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not queue the batch for processing. Retry shortly.",
+            headers={"Retry-After": str(_ENQUEUE_RETRY_AFTER_SECONDS)},
+        ) from e
 
-    # 7. Return success (async processing happens in background)
+    # 6. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)

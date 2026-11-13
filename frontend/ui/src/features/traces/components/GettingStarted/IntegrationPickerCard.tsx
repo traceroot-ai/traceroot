@@ -23,22 +23,22 @@ export function IntegrationPickerCard({
       aria-checked={selected}
       onClick={onSelect}
       className={cn(
-        "group flex items-center gap-2.5 rounded-md border p-3 text-left transition-colors",
+        "group flex h-8 items-center gap-2 rounded-[2px] border px-3 text-left transition-colors",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        selected ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary",
+        selected ? "border-brand-border bg-accent" : "border-border bg-background hover:bg-muted",
       )}
     >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
         <img
           src={logo}
           alt=""
-          className={cn("h-5 w-5 object-contain", logoDark && "dark:hidden")}
+          className={cn("h-4 w-4 object-contain", logoDark && "dark:hidden")}
         />
         {logoDark && (
-          <img src={logoDark} alt="" className="hidden h-5 w-5 object-contain dark:block" />
+          <img src={logoDark} alt="" className="hidden h-4 w-4 object-contain dark:block" />
         )}
       </span>
-      <span className="whitespace-nowrap text-sm font-medium text-foreground">{name}</span>
+      <span className="whitespace-nowrap text-[13px] font-medium text-foreground">{name}</span>
     </button>
   );
 }

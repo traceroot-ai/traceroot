@@ -38,7 +38,7 @@ from rest.schemas.public import (
     PublicDashboardListResponse,
 )
 
-router = APIRouter(prefix="/public/dashboards", tags=["Dashboards (Public)"])
+router = APIRouter(prefix="/public/dashboards", tags=["Dashboards"])
 
 
 @router.get("", response_model=PublicDashboardListResponse, operation_id="list_dashboards")

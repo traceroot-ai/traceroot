@@ -131,6 +131,30 @@ describe("resolveProjectModel", () => {
     });
   });
 
+  it("honors the source for a model available in both hosted and BYOK catalogs", async () => {
+    const model = "gpt-5.6-terra";
+    const config = { adapter: "openai", key: "sk-xxx", baseUrl: null, config: null };
+    modelProviderFindMany.mockResolvedValue([{ provider: "my-openai", customModels: [model] }]);
+    fetchProviderConfigMock.mockResolvedValue(config);
+    resolvePiModelMock.mockReturnValue({ id: model, provider: "openai" });
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    expect(await resolveProjectModel(model, "OpenAI", "system", "ws-123")).toEqual({
+      model,
+      providerName: "openai",
+      source: "system",
+    });
+    expect(resolvePiModelMock).toHaveBeenLastCalledWith(model, null);
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+
+    expect(await resolveProjectModel(model, null, null, "ws-123")).toEqual({
+      model,
+      providerName: "my-openai",
+      source: "byok",
+    });
+    expect(resolvePiModelMock).toHaveBeenLastCalledWith(model, config);
+  });
+
   it("resolves legacy BYOK via model provider lookup when rcaSource is null", async () => {
     modelProviderFindMany.mockResolvedValue([
       { provider: "my-deepseek", customModels: ["deepseek-chat"] },

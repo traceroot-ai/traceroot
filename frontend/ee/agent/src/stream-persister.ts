@@ -1,6 +1,6 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
-import { agentCaptureInput } from "./capture-input.js";
+import { persistedCaptureInput } from "./capture-input.js";
 import type { TokenUsageData } from "./session.js";
 import type { AgentTraceOutcome } from "./self-trace.js";
 
@@ -29,7 +29,9 @@ export type AppendMessageFn = (
  *   redacted, allow-listed output kept, bounded per step and per run; a
  *   structured value is capped leaf by leaf so a result's small `details`
  *   stay intact beside a large `content`, and what is cut is marked on the
- *   row (`truncated`, `withheld`, `outputBytes`);
+ *   row (`truncated`, `withheld`, `outputBytes`); a read the panel cards
+ *   keeps its card `details` alone (see persistedCaptureInput), so reload
+ *   draws the card the live stream drew;
  * - thinking deltas go to segment metadata, never into content;
  * - a failed run persists its error message as `runError` on the final
  *   segment's metadata, so reload shows the failure the live stream showed;
@@ -39,6 +41,16 @@ export type AppendMessageFn = (
  * fire-and-forget writes could land out of order and scramble history. A
  * failed insert is logged and skipped — later rows still persist.
  */
+/** A tool result's size as the capture policy measures it: its text, or its JSON. */
+function resultBytes(result: unknown): number {
+  try {
+    const text = typeof result === "string" ? result : (JSON.stringify(result) ?? "");
+    return Buffer.byteLength(text, "utf8");
+  } catch {
+    return 0;
+  }
+}
+
 export interface StreamPersisterOptions {
   /**
    * The capture-policy budget to charge (see applyCapturePolicy). Deliberately
@@ -117,17 +129,17 @@ export class StreamPersister {
     if (event.type === "tool_execution_end") {
       const args = this.pendingToolArgs.get(event.toolCallId) ?? {};
       this.pendingToolArgs.delete(event.toolCallId);
-      const captured = applyCapturePolicy(
-        agentCaptureInput(event.toolName, args, event.result),
-        this.captureState,
-      );
+      const input = persistedCaptureInput(event.toolName, args, event.result);
+      const captured = applyCapturePolicy(input, this.captureState);
       const spanId = this.options.toolSpanIds?.()?.get(event.toolCallId);
       this.completedToolRows.set(event.toolCallId, {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         args: captured.args,
         ...(captured.result !== undefined ? { result: captured.result } : {}),
-        outputBytes: captured.outputBytes,
+        // What the tool returned, not the card details a read keeps of it.
+        outputBytes:
+          input.result === event.result ? captured.outputBytes : resultBytes(event.result),
         ...(captured.truncated ? { truncated: true } : {}),
         ...(captured.withheld ? { withheld: captured.withheld } : {}),
         ...(spanId ? { spanId } : {}),

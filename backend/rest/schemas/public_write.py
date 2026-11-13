@@ -705,3 +705,59 @@ class DeleteAlertResponse(_DeleteResponse):
 
     page_cleared: bool = False
     alert: DeletedResource
+
+
+# ── signal status ───────────────────────────────────────────────────────
+
+# Mirror RESOLVE_REASONS and SIGNAL_NOTE_MAX_LENGTH in
+# frontend/packages/core/src/ee/signals/constants.ts (a parity test reads it).
+SignalResolveReason = Literal["fixed_elsewhere", "fixed_by_pr", "already_fixed_before", "other"]
+SIGNAL_NOTE_MAX_LENGTH = 4000
+
+
+class SignalStatusRequest(BaseModel):
+    """Body for resolving or reopening a signal.
+
+    Only ``resolved`` and ``open`` are settable here. A dismissed signal never
+    reopens on a new finding, so dismissing stays a decision a person makes in
+    the web app. Resolving needs a ``reason``; the reason ``other`` also needs
+    a ``note``. The write service is the single validator of those rules.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str
+    status: Literal["resolved", "open"]
+    reason: SignalResolveReason | SkipJsonSchema[None] = Field(
+        None, description='Why the signal is resolved; required when status is "resolved"'
+    )
+    note: Annotated[str, Field(max_length=SIGNAL_NOTE_MAX_LENGTH)] | SkipJsonSchema[None] = Field(
+        None, description='A free-text note; required when reason is "other"'
+    )
+    expected_status: Literal["open", "resolved", "dismissed"] | SkipJsonSchema[None] = Field(
+        None,
+        description=(
+            "The status the caller last read. When the signal's current status "
+            "differs, nothing is written and the answer is a 409."
+        ),
+    )
+
+
+class SignalStatusRow(BaseModel):
+    """A signal as the status write returns it."""
+
+    signal_id: str
+    project_id: str
+    detector_id: str
+    title: str
+    status: Literal["open", "resolved", "dismissed"]
+    resolved_at: str | None = Field(json_schema_extra={"format": "date-time"})
+    reopen_count: int
+
+
+class SignalStatusResponse(BaseModel):
+    """The signal after the write. ``changed`` is empty when it already had that status."""
+
+    updated: bool
+    changed: list[str]
+    signal: SignalStatusRow

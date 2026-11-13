@@ -1,35 +1,16 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DetectorsTab } from "@/features/settings/project";
-import { useProject } from "@/features/projects/hooks";
-import { SettingsLayout, PROJECT_SETTINGS_TABS } from "@/features/settings/settings-layout";
+import { ProjectSettingsLayout } from "@/features/settings/scoped-settings-layout";
 
 export default function ProjectSettingsDetectorsPage() {
   const params = useParams();
   const projectId = params.projectId as string;
-  const { data: project } = useProject(projectId);
 
   return (
-    <div className="flex h-full">
-      <ProjectBreadcrumb projectId={projectId} current="Settings" />
-
-      <SettingsLayout
-        tabs={PROJECT_SETTINGS_TABS}
-        activeTab="detectors"
-        basePath={`/projects/${projectId}/settings`}
-        crossLink={
-          project?.workspace_id
-            ? {
-                label: "Org Settings",
-                href: `/workspaces/${project.workspace_id}/settings/general`,
-              }
-            : undefined
-        }
-      >
-        <DetectorsTab projectId={projectId} />
-      </SettingsLayout>
-    </div>
+    <ProjectSettingsLayout projectId={projectId} tab="detectors">
+      <DetectorsTab projectId={projectId} />
+    </ProjectSettingsLayout>
   );
 }

@@ -1,0 +1,98 @@
+---
+title: Codex
+description: Trace OpenAI Codex sessions with the traceroot plugin
+---
+
+Trace every Codex turn — model calls, tool calls, sub-agents and token usage — live, with the [traceroot Codex plugin](https://github.com/traceroot-ai/traceroot-codex-plugin).
+
+## Install
+
+Requires Node.js 22 or later.
+
+```bash
+codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+codex plugin add tracing@traceroot-codex-plugin
+codex features enable hooks
+```
+
+Start `codex` and choose **Trust all and continue** at the "Hooks need review" prompt, or trust them later with `/hooks`.
+
+## Set up
+
+Create `~/.codex/traceroot.json`:
+
+```json
+{
+  "enabled": true,
+  "api_key": "your-key-from-app.traceroot.ai"
+}
+```
+
+The plugin runs as a Codex hook, which doesn't reliably inherit your shell environment, so the config file is preferred.
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| `enabled` | `TRACE_TO_TRACEROOT` | `false` | Turns tracing on. An API key must also be set. |
+| `api_key` | `TRACEROOT_CODEX_API_KEY` or `TRACEROOT_API_KEY` | — | Required. |
+| `host_url` | `TRACEROOT_CODEX_HOST_URL` or `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | Set only when self-hosting. |
+| `user_id` | `TRACEROOT_CODEX_USER_ID` | — | Recorded on each trace. |
+| `capture_images` | `TRACEROOT_CODEX_CAPTURE_IMAGES` | `false` | Send screenshots from tool output and images attached to prompts. |
+| `debug` | `TRACEROOT_CODEX_DEBUG` | `false` | Log diagnostics to stderr. |
+
+Environment variables win over a project `.codex/traceroot.json`, which wins over the global file. `api_key`, `host_url` and `capture_images` are read only from environment variables or the global file, so a repository you open can't redirect your traces. The [plugin README](https://github.com/traceroot-ai/traceroot-codex-plugin#configure) lists every setting.
+
+## Usage
+
+Use Codex as usual. Each turn becomes one trace, sent live while Codex works. Traces from the same thread share a session ID.
+
+```
+Codex Turn                   # AGENT span — one per turn
+├── gpt-…                    # LLM span — tokens including reasoning
+│   ├── exec_command         # TOOL span — command, exit code, output
+│   ├── exec
+│   └── spawn_agent          # TOOL span — a sub-agent's turn
+```
+
+For `codex exec` and other runs without a prompt, trust has to be in place first, because untrusted hooks are skipped without any message. Run `codex exec --skip-git-repo-check "echo hello" < /dev/null`; the output should include `hook: Stop Completed`. The [README](https://github.com/traceroot-ai/traceroot-codex-plugin#headless-runs) shows how to carry trust to CI.
+
+## Verify
+
+Run one prompt in Codex and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `Codex Turn`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|---|---|
+| Turns | One trace per turn, grouped by Codex thread |
+| Model calls | Model id, prompt and response |
+| Tokens | Input, output and reasoning counts |
+| Tool calls | Tool name, input, output, status and exit code |
+| Sub-agents | Sub-agent turns under the tool span that started them |
+| Images | Screenshots and prompt images, when `capture_images` is on |
+| User, environment, git | `user_id`, `environment`, repository and commit |
+
+Prompts, tool inputs and tool outputs are sent as they are, including commands and file contents. Nothing is redacted. Self-hosted instances store images as attachments when `ATTACHMENT_ENABLED=true`. See [Data Capture and Privacy](/tracing/data-capture#what-is-captured-by-default).
+
+## Limitations
+
+- If no trace arrives, check that the hooks are trusted (`/hooks`) and that `enabled` is `true`. Set `debug` to `true` (`TRACEROOT_CODEX_DEBUG`) to log to stderr.
+- Codex asks you to trust the hooks again after every plugin update. Until you do, no traces are sent.
+
+## Run the example
+
+<Card title="traceroot-codex-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-codex-plugin">
+  Source, full settings and headless setup
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions" icon="route" href="/tracing/sessions">
+    See a whole Codex thread as one timeline.
+  </Card>
+  <Card title="Data Capture and Privacy" icon="shield-halved" href="/tracing/data-capture">
+    Control what leaves your machine.
+  </Card>
+</CardGroup>

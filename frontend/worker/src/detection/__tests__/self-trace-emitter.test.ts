@@ -98,6 +98,15 @@ describe("with a secret (SDK-traced path)", () => {
     expect(opts.globalAttributes?.["traceroot.source"]).toBeUndefined();
   });
 
+  it("disables SDK auto-instrumentation without disabling explicit self-tracing", async () => {
+    const run = await withSelfTrace(meta(), async () => "verdict");
+
+    // An omitted map opts into the SDK's provider hooks, which bypass our capture policy.
+    expect(mockInitialize.mock.calls[0][0].instrumentModules).toEqual({});
+    expect(mockObserve).toHaveBeenCalledTimes(1);
+    expect(run).toEqual({ ok: true, value: "verdict", selfTraced: true });
+  });
+
   it("hands the caller's trace id, name, metadata and project to observe verbatim", async () => {
     const run = await withSelfTrace(meta(), async () => 42);
     expect(run).toEqual({ ok: true, value: 42, selfTraced: true });

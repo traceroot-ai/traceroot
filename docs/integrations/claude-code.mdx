@@ -1,0 +1,90 @@
+---
+title: Claude Code
+description: Trace Claude Code sessions with the traceroot plugin
+---
+
+Trace every Claude Code request — model calls, tool calls, sub-agents and token usage — with the [traceroot Claude Code plugin](https://github.com/traceroot-ai/traceroot-claude-code-plugin).
+
+## Install
+
+The plugin runs its hook with `uv` (recommended) or Python 3.11+ with the `traceroot` package installed.
+
+```bash
+claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+claude plugin install traceroot-observability@traceroot-claude-code-plugin
+```
+
+## Set up
+
+Claude Code asks for the plugin settings when you install it and stores the API key in your OS keychain. To check or change them later, run `/plugin` in Claude Code, or from a terminal:
+
+```bash
+# Show the current settings and which are unset
+claude plugin configure traceroot-observability@traceroot-claude-code-plugin
+
+# Self-hosted only: point the plugin at your deployment
+echo '{"TRACEROOT_HOST_URL": "https://your-traceroot.example.com"}' \
+  | claude plugin configure traceroot-observability@traceroot-claude-code-plugin --values-stdin
+```
+
+| Setting | Option | Default | Description |
+|---|---|---|---|
+| API key | `TRACEROOT_API_KEY` | — | Required. Your traceroot API key. |
+| Host | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | Set only when self-hosting. |
+| Max chars per field | `TRACEROOT_PLUGIN_MAX_CHARS` | `20000` | Longer inputs and outputs are shortened in the middle. |
+| Debug logging | `TRACEROOT_PLUGIN_DEBUG` | `false` | Writes diagnostics to `~/.claude/state/traceroot/debug.log`. |
+
+An environment variable with the same name is used only when the plugin setting is empty. Settings with a default always have a value, so an `export` won't change them; set them in the plugin settings instead. Restart Claude Code after changing them.
+
+## Usage
+
+Use Claude Code as usual. Each request you send becomes one trace, sent when Claude Code finishes responding (after any sub-agents report back). Traces from the same session share a session ID.
+
+```
+Claude Code Turn             # AGENT span — one per request
+├── claude-opus-…            # LLM span — tokens, cache reads and writes
+│   ├── Bash                 # TOOL span — input and output
+│   └── Edit
+└── Agent                    # TOOL span — a sub-agent's model and tool calls
+```
+
+## Verify
+
+Send one request in Claude Code and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `Claude Code Turn`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|---|---|
+| Requests | One trace per request, grouped by Claude Code session |
+| Model calls | Model id, prompt and response, extended thinking |
+| Tokens | Input, output, cache read and cache write counts |
+| Tool calls | Tool name, input and output; failed tools are marked as errors |
+| Sub-agents | Each sub-agent's model and tool calls under its Agent span |
+| Git | Repository and ref of the working directory |
+
+Prompts, tool inputs and tool outputs are sent as they are, including file contents and command output. Nothing is redacted. See [Data Capture and Privacy](/tracing/data-capture#what-is-captured-by-default).
+
+## Limitations
+
+- No user ID is recorded, so traces don't appear on the **Users** page.
+- If no trace arrives, turn on **Debug logging** in the plugin settings and check `~/.claude/state/traceroot/debug.log`. Without an API key the plugin does nothing.
+
+## Run the example
+
+<Card title="traceroot-claude-code-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-claude-code-plugin">
+  Source and full settings
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions" icon="route" href="/tracing/sessions">
+    See a whole Claude Code session as one timeline.
+  </Card>
+  <Card title="Data Capture and Privacy" icon="shield-halved" href="/tracing/data-capture">
+    Control what leaves your machine.
+  </Card>
+</CardGroup>

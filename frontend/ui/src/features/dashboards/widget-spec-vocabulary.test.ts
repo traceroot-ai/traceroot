@@ -104,7 +104,7 @@ describe("validateWidgetSpecVocabulary", () => {
 
   it("rejects a filter op outside the field's list", () => {
     expect(error(spec({ filters: [{ field: "name", op: ">", value: "x" }] }))).toBe(
-      'filter op ">" not allowed for field "name" on view "spans" — valid ops: =, contains',
+      'filter op ">" not allowed for field "name" on view "spans" — valid ops: =, contains, in',
     );
   });
 

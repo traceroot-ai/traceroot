@@ -9,6 +9,7 @@ import {
   FieldDropdown,
   FilterControlSizeProvider,
   MetadataKeyCombobox,
+  MultiValueDropdown,
   NumberField,
   ParkedValueField,
   TextField,
@@ -20,8 +21,18 @@ import {
   filterOpLabel,
   isEnumerableFilter,
   type TimeRange,
+  type WidgetFilterValue,
   type WidgetSchemaField,
 } from "../types";
+
+type FilterValue = WidgetFilterValue | "";
+
+export type FilterRowPatch = Partial<{
+  field: string;
+  op: string;
+  value: FilterValue;
+  key: string | undefined;
+}>;
 
 export function FilterRow({
   index,
@@ -37,13 +48,10 @@ export function FilterRow({
   fieldsUnavailable = false,
 }: {
   index: number;
-  filter: { field: string; op: string; value: string | number; key?: string };
+  filter: { field: string; op: string; value: FilterValue; key?: string };
   filterableFields: [string, WidgetSchemaField][];
   fieldsMap: Record<string, WidgetSchemaField>;
-  onChange: (
-    idx: number,
-    patch: Partial<{ field: string; op: string; value: string | number; key: string | undefined }>,
-  ) => void;
+  onChange: (idx: number, patch: FilterRowPatch) => void;
   onRemove: (idx: number) => void;
   projectId: string;
   view: "spans" | "traces" | undefined;
@@ -66,8 +74,8 @@ export function FilterRow({
   const fieldMeta = fieldsMap[filter.field];
   const isNumeric = fieldMeta?.type === "number";
 
-  // Equality on a string dimension offers the field's stored values as a
-  // dropdown; contains and numeric comparisons stay free inputs.
+  // Equality and membership on a string dimension offer the field's stored
+  // values as a dropdown; contains and numeric comparisons stay free inputs.
   const enumerable = isEnumerableFilter(fieldMeta, filter.op);
   const { values, isLoading } = useWidgetFieldValues(
     projectId,
@@ -77,12 +85,12 @@ export function FilterRow({
     enumerable,
   );
 
-  // Keep a previously-saved value selectable even when it no longer occurs in
-  // the active window's stored values (it gets no count, marking it as stale).
+  // Keep previously-saved values selectable even when they no longer occur in
+  // the active window's stored values (they get no count, marking them stale).
   const options = useMemo(() => {
-    const current = String(filter.value);
-    const hasCurrent = values.some((v) => v.value === current);
-    return current && !hasCurrent ? [{ value: current }, ...values] : values;
+    const current = [filter.value].flat().map(String).filter(Boolean);
+    const stale = current.filter((c) => !values.some((v) => v.value === c));
+    return [...stale.map((value) => ({ value })), ...values];
   }, [values, filter.value]);
 
   const subject = filter.key ? `${filter.field}[${filter.key}]` : filter.field;
@@ -183,7 +191,10 @@ export function FilterRow({
                 key={op}
                 active={op === filter.op}
                 onClick={() => {
-                  onChange(index, { op });
+                  // `in` holds a list and every other op one value, so crossing
+                  // that line starts the value over.
+                  const crosses = (op === "in") !== (filter.op === "in");
+                  onChange(index, crosses ? { op, value: op === "in" ? [] : "" } : { op });
                   close();
                 }}
               >
@@ -196,6 +207,13 @@ export function FilterRow({
         {/* value — same controls as the trace-list builder's ValueControl */}
         {!fieldMeta ? (
           <ParkedValueField />
+        ) : enumerable && filter.op === "in" ? (
+          <MultiValueDropdown
+            values={Array.isArray(filter.value) ? filter.value : []}
+            options={options}
+            onValues={(v) => onChange(index, { value: v })}
+            placeholder={isLoading ? "Loading…" : undefined}
+          />
         ) : enumerable ? (
           <ValueDropdown
             value={String(filter.value)}

@@ -20,15 +20,15 @@ export interface ReloadableListener {
   closeAllConnections?: () => void;
 }
 
-/** The slice of a sandbox executor this module needs to tear one down. */
-export interface Destroyable {
-  destroy(): Promise<void>;
+/** The slice of the sandbox registry this module needs to tear every executor down. */
+export interface ExecutorPool {
+  destroyAll(): Promise<void>;
 }
 
 interface HotState {
   listener?: ReloadableListener;
   signalHandlers?: Array<[NodeJS.Signals, () => void]>;
-  executors?: Map<string, Destroyable>;
+  executors?: ExecutorPool;
 }
 
 const SLOT = "__traceRootAgentHotState";
@@ -47,7 +47,7 @@ export function rememberListener(listener: ReloadableListener): void {
  * Hand the live executors to the next execution, so a reload tears down the
  * sandbox containers the previous module instance would otherwise orphan.
  */
-export function rememberExecutors(executors: Map<string, Destroyable>): void {
+export function rememberExecutors(executors: ExecutorPool): void {
   hotState().executors = executors;
 }
 
@@ -62,12 +62,11 @@ export function rememberExecutors(executors: Map<string, Destroyable>): void {
 export async function closePreviousListener(): Promise<void> {
   const executors = hotState().executors;
   hotState().executors = undefined;
-  for (const [id, executor] of executors ?? []) {
-    await executor.destroy().catch((error: unknown) => {
-      console.error(`[Agent] Failed to destroy the previous execution's executor ${id}:`, error);
-    });
-  }
-  executors?.clear();
+  // destroyAll also stops the previous registry's idle sweep, whose timer would
+  // otherwise keep firing against a module instance nothing uses any more.
+  await executors?.destroyAll().catch((error: unknown) => {
+    console.error("[Agent] Failed to destroy the previous execution's executors:", error);
+  });
 
   const previous = hotState().listener;
   if (!previous) return;

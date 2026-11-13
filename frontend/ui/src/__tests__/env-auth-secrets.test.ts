@@ -101,3 +101,8 @@ describe("the server schema actually uses it", () => {
     },
   );
 });
+
+it("treats an empty Cloud environment as unset", async () => {
+  const { env } = await loadEnv({ TRACEROOT_CLOUD_ENV: "" });
+  expect(env.TRACEROOT_CLOUD_ENV).toBeUndefined();
+});

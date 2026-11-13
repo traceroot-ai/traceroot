@@ -7,7 +7,7 @@
  * two filter UIs stay identical.
  */
 import { createContext, useContext, useState } from "react";
-import { ChevronDown, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -222,10 +222,71 @@ export function ValueDropdown({
             >
               <span className="flex-1 truncate">{opt.value}</span>
               {opt.count !== undefined && (
-                <span className="text-[11px] text-muted-foreground">{opt.count}</span>
+                <span className="text-[12px] text-muted-foreground">{opt.count}</span>
               )}
             </DropdownItem>
           ))
+        )
+      }
+    </Dropdown>
+  );
+}
+
+/**
+ * The stored-values picker for a membership (`in`) filter: the same dropdown
+ * as `ValueDropdown`, but each pick toggles a value in the selection and the
+ * menu stays open so several can be chosen in one go.
+ */
+export function MultiValueDropdown({
+  values,
+  options,
+  onValues,
+  placeholder = "Select values",
+  triggerClassName,
+}: {
+  values: readonly string[];
+  options: { value: string; count?: number }[];
+  onValues: (v: string[]) => void;
+  placeholder?: string;
+  triggerClassName?: string;
+}) {
+  const textSize = useTextSize();
+  const selected = new Set(values);
+  return (
+    <Dropdown
+      trigger={
+        <span className={cn("truncate", values.length === 0 && "text-muted-foreground")}>
+          {values.length > 0 ? values.join(", ") : placeholder}
+        </span>
+      }
+      triggerClassName={cn("min-w-0 flex-1", triggerClassName)}
+      contentClassName="w-[12rem]"
+    >
+      {() =>
+        options.length === 0 ? (
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
+        ) : (
+          options.map((opt) => {
+            const on = selected.has(opt.value);
+            return (
+              <DropdownItem
+                key={opt.value}
+                active={on}
+                onClick={() =>
+                  onValues(on ? values.filter((v) => v !== opt.value) : [...values, opt.value])
+                }
+              >
+                <Check
+                  className={cn("h-3.5 w-3.5 shrink-0", on ? "opacity-100" : "opacity-0")}
+                  aria-hidden
+                />
+                <span className="flex-1 truncate">{opt.value}</span>
+                {opt.count !== undefined && (
+                  <span className="text-[12px] text-muted-foreground">{opt.count}</span>
+                )}
+              </DropdownItem>
+            );
+          })
         )
       }
     </Dropdown>
@@ -325,7 +386,7 @@ export function MetadataKeyCombobox({
               }}
             >
               <span className="flex-1 truncate">{k.value}</span>
-              <span className="text-[11px] text-muted-foreground">{k.count}</span>
+              <span className="text-[12px] text-muted-foreground">{k.count}</span>
             </DropdownItem>
           ))
         ) : (
@@ -414,7 +475,7 @@ export function Dropdown({
           disabled={disabled}
           className={cn(
             "flex h-7 items-center justify-between gap-1 rounded-md border border-border bg-background px-2 font-normal transition-colors",
-            "hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50",
+            "hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
             textSize,
             triggerClassName,
           )}
@@ -447,9 +508,9 @@ export function DropdownItem({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
+        "flex h-7 w-full items-center gap-2 rounded-[2px] px-2 text-left transition-colors hover:bg-muted",
         textSize,
-        active && "bg-muted/40",
+        active && "bg-accent",
       )}
     >
       {children}

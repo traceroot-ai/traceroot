@@ -79,7 +79,10 @@ beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
   mockFetch.mockResolvedValue({ ok: true });
   core.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  core.requireProjectAccess.mockResolvedValue({ project: { id: "p1", workspaceId: "w1" } });
+  core.requireProjectAccess.mockResolvedValue({
+    project: { id: "p1", workspaceId: "w1" },
+    membership: { role: "MEMBER" },
+  });
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -667,4 +670,22 @@ describe("hand-run RCA", () => {
     expect(res.status).toBe(409);
     expect(core.writeAudit).not.toHaveBeenCalled();
   });
+});
+
+// MEMBER is normally allowed to run RCA, but demo members are read-only.
+it.each(["VIEWER", "MEMBER"])("blocks demo %s RCA before scheduling", async (role) => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "w1");
+  try {
+    core.requireProjectAccess.mockResolvedValue({
+      project: { id: "p1", workspaceId: "w1" },
+      membership: { role },
+    });
+    const res = await handleRequestSignalRca(req(), {
+      params: Promise.resolve({ projectId: "p1", signalId: "s1" }),
+    });
+    expect(res.status).toBe(403);
+    expect(core.requestSignalRca).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
