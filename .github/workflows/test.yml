@@ -304,6 +304,19 @@ jobs:
           TRACEROOT_REDIS_URL: redis://localhost:6379/0
         run: uv run pytest tests/e2e/test_agent_trace_contract.py -v
 
+      # A scratch database: the test empties its tables.
+      - name: AgentID owner-cap SQL test
+        if: ${{ !cancelled() }}
+        env:
+          AGENTID_CAP_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentid_cap_test
+        run: |
+          set -euo pipefail
+          docker compose exec -T postgres createdb -U postgres agentid_cap_test
+          cd frontend/packages/core
+          DATABASE_URL="$AGENTID_CAP_TEST_DATABASE_URL" pnpm exec prisma migrate deploy
+          pnpm exec prisma generate
+          cd ../../ui && pnpm exec vitest run src/lib/agentid-owner-cap.pg.test.ts
+
       - name: Service logs
         if: failure()
         run: |

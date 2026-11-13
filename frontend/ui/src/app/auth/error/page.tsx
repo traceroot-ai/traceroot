@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AGENTID_OWNER_LIMIT_REACHED, AGENTID_OWNER_MISSING } from "@/lib/agentid-owner-cap";
 
 const errorMessages: Record<string, string> = {
   Configuration: "There is a problem with the server configuration.",
@@ -22,6 +23,10 @@ const errorMessages: Record<string, string> = {
   state_not_found: "Your sign-in expired. Please start again.",
   state_invalid: "Your sign-in expired. Please start again.",
   state_security_mismatch: "Your sign-in expired. Please start again.",
+  [AGENTID_OWNER_LIMIT_REACHED]:
+    "This AgentMail account or organization already has the maximum number of AgentID agents on traceroot.",
+  [AGENTID_OWNER_MISSING]:
+    "AgentID did not say which AgentMail account or organization this agent belongs to, which traceroot needs to create the account.",
   Default: "An error occurred during authentication.",
 };
 

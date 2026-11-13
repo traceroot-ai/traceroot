@@ -62,6 +62,7 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   account: { accountLinking: { enabled: boolean; trustedProviders: string[] } };
   onAPIError: { errorURL: string };
+  user?: { validateUserInfo?: unknown };
   plugins: { id: string }[];
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
@@ -99,9 +100,10 @@ describe("auth options", () => {
     expect(options.account.accountLinking.trustedProviders).toEqual(["google"]);
   });
 
-  it("registers no AgentID provider when its credentials are unset", () => {
+  it("registers no AgentID provider, and no sign-up cap, when its credentials are unset", () => {
     expect(genericOAuthMock).not.toHaveBeenCalled();
     expect(options.plugins.map((p) => p.id)).not.toContain("generic-oauth");
+    expect(options.user).toBeUndefined();
   });
 
   it("keeps the device-code creation cap", () => {
@@ -165,7 +167,7 @@ describe("auth options", () => {
 });
 
 describe("auth options with AgentID configured", () => {
-  it("registers the AgentID provider", async () => {
+  it("registers the AgentID provider and its per-owner cap", async () => {
     vi.resetModules();
     betterAuthMock.mockClear();
     genericOAuthMock.mockClear();
@@ -177,12 +179,14 @@ describe("auth options with AgentID configured", () => {
       delete process.env.TEST_AGENTID_CLIENT_ID;
       delete process.env.TEST_AGENTID_CLIENT_SECRET;
     }
+    const configured = betterAuthMock.mock.calls[0]?.[0] as typeof options;
     const { config } = genericOAuthMock.mock.calls[0]?.[0] as {
       config: { providerId: string; clientId: string }[];
     };
     expect(config).toEqual([
       expect.objectContaining({ providerId: "agentid", clientId: "agentid-client" }),
     ]);
+    expect(typeof configured.user?.validateUserInfo).toBe("function");
   });
 });
 

@@ -14,6 +14,7 @@ import { onUserCreated } from "@/lib/signup/on-user-created";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { agentIdProvider, isAgentIdConfigured } from "@/lib/agentid";
+import { agentIdOwnerCap, reserveAgentIdOwnerSlot } from "@/lib/agentid-owner-cap";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -72,6 +73,14 @@ export const auth = betterAuth({
       clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
     },
   },
+
+  user: agentIdEnabled
+    ? {
+        validateUserInfo: agentIdOwnerCap((owner, agent) =>
+          reserveAgentIdOwnerSlot(prisma, owner, agent),
+        ),
+      }
+    : undefined,
 
   account: {
     accountLinking: {
