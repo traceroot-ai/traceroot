@@ -247,6 +247,9 @@ def run_prod_setup():
     """Build Docker images and start all services. Idempotent."""
     ensure_env_file(keys=ALL_GENERATED_KEYS)
 
+    # Compose reports only that preflight failed; running it directly prints which value to change.
+    _run(f"{PROD_COMPOSE} run --rm preflight")
+
     print("Building Docker images (cached if unchanged)...")
     _run(f"{PROD_COMPOSE} build")
 

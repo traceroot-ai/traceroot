@@ -38,6 +38,7 @@ dev-autoreload: install-hooks
 dev-lite: install-hooks
 	@uv run python tmux_tools/launcher.py --env-only
 	@test -d frontend/node_modules || pnpm --dir frontend install
+	@$(PROD_COMPOSE) run --rm preflight
 	@echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 
@@ -102,6 +103,7 @@ rotate-encryption-key: env-secrets
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets
+	@$(PROD_COMPOSE) run --rm preflight
 	@echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 

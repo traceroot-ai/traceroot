@@ -933,3 +933,11 @@ def test_rotation_refuses_a_symlinked_env(rotation):
     assert "symlink" in result.stderr
     assert target.read_text() == f"ENCRYPTION_KEY={_OLD_KEY}\n"
     assert not log.exists()
+
+
+@pytest.mark.parametrize("target", ["prod-lite", "dev-lite"])
+def test_make_targets_run_the_preflight_so_its_message_reaches_the_terminal(target):
+    """Compose alone says only that preflight failed; running it prints the variable."""
+    recipe = _makefile_recipe(target)
+    assert "run --rm preflight" in recipe
+    assert recipe.index("run --rm preflight") < recipe.index("up --build")
