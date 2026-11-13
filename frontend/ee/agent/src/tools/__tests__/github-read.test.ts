@@ -83,6 +83,14 @@ describe("github_commits", () => {
     expect(out(result)).toContain("No GitHub App installed");
   });
 
+  it("reports a network failure as text instead of throwing", async () => {
+    stubFetch(() => {
+      throw new TypeError("fetch failed");
+    });
+    const result = await tool.execute({} as never, { repo: "acme/api" } as never);
+    expect(out(result)).toContain("Could not reach the GitHub API");
+  });
+
   it("never returns the token, even when the API echoes it", async () => {
     stubFetch(() => new Response(`bad credentials ${TOKEN}`, { status: 403 }));
     const result = await tool.execute({} as never, { repo: "acme/api" } as never);
