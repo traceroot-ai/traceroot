@@ -199,5 +199,9 @@ async def get_signal(
     auth: DualStampedAuth,
     signal_id: str,
 ) -> SignalDetail:
-    """Get one signal of the caller's project. A merged signal names the signal it moved to."""
+    """Get one signal of the caller's project.
+
+    Lists up to 20 of the signal's recent traces inside the plan's retention
+    window, latest trace start first. A merged signal names the signal it moved to.
+    """
     return await _get_signal_detail(auth.project_id, signal_id)
