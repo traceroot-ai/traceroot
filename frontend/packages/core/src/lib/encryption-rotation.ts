@@ -80,7 +80,7 @@ async function rotateColumn<Row extends { id: string }>(
       result = reencryptValue(read(row), oldKeyHex, newKeyHex);
     } catch {
       throw new EncryptionRotationError(
-        `${table} row ${row.id} opens with neither the old nor the new key; nothing was changed`,
+        `${table} row ${row.id} opens with neither the old nor the new key`,
       );
     }
     if (!result.rotated) {
