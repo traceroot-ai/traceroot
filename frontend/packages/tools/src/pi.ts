@@ -1,4 +1,4 @@
-import type { ApiClient } from "./client.js";
+import { ApiError, type ApiClient } from "./client.js";
 import { dispatch } from "./dispatch.js";
 import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { ParamSchema, RegistryEntry } from "./types.js";
@@ -70,6 +70,8 @@ export interface ToPiAgentToolOptions {
    * named. Read on every call because the window changes per message.
    */
   defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
+  /** Custom handler for API errors; return a string to override error rendering as a plain result. */
+  formatError?: (error: ApiError) => string | undefined;
 }
 
 /** "list_traces" -> "List traces" for the tool's human-readable label. */
@@ -93,6 +95,7 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
     details,
     defaults,
     description,
+    formatError,
   } = options;
 
   // The registry keeps agentHiddenParams in inputSchema/bodyParams for full
@@ -141,6 +144,12 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
         const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
         return { content: [{ type: "text", text }], details: details?.(result) };
       } catch (error) {
+        if (error instanceof ApiError && formatError) {
+          const customText = formatError(error);
+          if (customText !== undefined) {
+            return { content: [{ type: "text", text: customText }], details: undefined };
+          }
+        }
         // Deliberate divergence from the runtime's throw-on-failure contract:
         // errors are returned as tool-result text so the model can read the
         // failure (status, detail) and adapt — matching how the in-app agent's
