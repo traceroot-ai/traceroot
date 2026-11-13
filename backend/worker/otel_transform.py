@@ -542,8 +542,10 @@ def extract_attribute_value(attr_value: dict) -> Any:
     elif "arrayValue" in attr_value:
         return [extract_attribute_value(v) for v in attr_value["arrayValue"].get("values", [])]
     elif "kvlistValue" in attr_value:
+        # proto3 JSON omits an unset `value` and an empty `key`. Read both the way
+        # attributes_to_dict does, so one such entry cannot fail the whole batch.
         return {
-            kv["key"]: extract_attribute_value(kv["value"])
+            kv.get("key", ""): extract_attribute_value(kv.get("value", {}))
             for kv in attr_value["kvlistValue"].get("values", [])
         }
     else:
