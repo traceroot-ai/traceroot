@@ -40,6 +40,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       id: true,
       keyHint: true,
       name: true,
+      scope: true,
       expireTime: true,
       lastUseTime: true,
       createTime: true,
@@ -52,6 +53,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       id: k.id,
       key_hint: k.keyHint,
       name: k.name,
+      scope: k.scope,
       expire_time: k.expireTime,
       last_use_time: k.lastUseTime,
       create_time: k.createTime,
@@ -124,6 +126,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       key: accessKey, // Full key - only returned on creation!
       key_hint: savedKey.keyHint,
       name: savedKey.name,
+      scope: savedKey.scope,
       expire_time: savedKey.expireTime,
       create_time: savedKey.createTime,
     },

@@ -92,6 +92,7 @@ export interface AccessKey {
   project_id?: string;
   key_hint: string;
   name: string | null;
+  scope?: string;
   expire_time: string | null;
   last_use_time: string | null;
   create_time: string;
