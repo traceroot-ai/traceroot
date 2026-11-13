@@ -12563,7 +12563,7 @@
     },
     "/api/v1/public/signals/{signal_id}": {
       "get": {
-        "description": "Get one signal of the caller's project. A merged signal names the signal it moved to.",
+        "description": "Get one signal of the caller's project.\n\nLists up to 20 of the signal's recent traces inside the plan's retention\nwindow, latest trace start first. A merged signal names the signal it moved to.",
         "operationId": "get_signal",
         "parameters": [
           {
