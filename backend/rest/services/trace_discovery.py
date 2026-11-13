@@ -377,6 +377,14 @@ class TraceDiscoveryService:
         # Both halves scan the same project over the same window, so they bind the same
         # parameter names to the same values.
         params = {**span_params, **trace_params}
+        # Exclude offline-evaluation traces from BOTH halves, as the distinct-values scans
+        # do, so an eval-only key is never offered in the key combobox and then matches
+        # nothing in the reads that hide those traces. Membership, not each row's own flag:
+        # an eval trace's LLM spans carry is_evaluation = 0. Each scan is aliased `t` so
+        # the `t.trace_id NOT IN (...)` predicate binds.
+        evaluation_exclusion = _evaluation_exclusion(params)
+        span_where = f"{span_where} AND {evaluation_exclusion}"
+        trace_where = f"{trace_where} AND {evaluation_exclusion}"
 
         # In each half the key fan-out sits in its OWN layer ABOVE the dedup: LIMIT 1 BY is
         # applied after the SELECT expressions are evaluated, so an arrayJoin inside the
@@ -393,7 +401,7 @@ class TraceDiscoveryService:
                 SELECT arrayJoin(mapKeys(metadata_map)) AS value
                 FROM (
                     SELECT project_id, trace_id, span_id, metadata_map
-                    FROM spans
+                    FROM spans AS t
                     WHERE {span_where}
                     ORDER BY ch_update_time DESC
                     LIMIT 1 BY project_id, trace_id, span_id
@@ -404,7 +412,7 @@ class TraceDiscoveryService:
                 SELECT arrayJoin(mapKeys(metadata_map)) AS value
                 FROM (
                     SELECT project_id, trace_id, metadata_map
-                    FROM traces
+                    FROM traces AS t
                     WHERE {trace_where}
                     ORDER BY ch_update_time DESC
                     LIMIT 1 BY project_id, trace_id
