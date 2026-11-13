@@ -145,7 +145,12 @@ describe("setSignalStatus", () => {
       change: resolve,
       expectedStatus: "open",
     });
-    expect(res).toEqual({ ok: true, changed: true, status: "resolved" });
+    expect(res).toMatchObject({
+      ok: true,
+      changed: true,
+      status: "resolved",
+      signal: { status: "resolved", resolvedAt: expect.any(Date) },
+    });
     expect(order).toEqual(["find", "lock", "read", "update", "event"]);
     expect(lockArgs[0]).toEqual(["proj1", "det1"]);
     expect(rows[0].status).toBe("resolved");
@@ -171,7 +176,12 @@ describe("setSignalStatus", () => {
       actorUserId: "user1",
       change: { status: "open", note: null },
     });
-    expect(res).toEqual({ ok: true, changed: true, status: "open" });
+    expect(res).toMatchObject({
+      ok: true,
+      changed: true,
+      status: "open",
+      signal: { status: "open", resolvedAt: null },
+    });
     expect(rows[0].resolvedAt).toBe(null);
     expect(events[0]).toMatchObject({ fromStatus: "resolved", toStatus: "open", reason: null });
   });
@@ -212,7 +222,12 @@ describe("setSignalStatus", () => {
       actorUserId: "user1",
       change: resolve,
     });
-    expect(res).toEqual({ ok: true, changed: false, status: "resolved" });
+    expect(res).toMatchObject({
+      ok: true,
+      changed: false,
+      status: "resolved",
+      signal: { status: "resolved" },
+    });
     expect(events).toEqual([]);
   });
 

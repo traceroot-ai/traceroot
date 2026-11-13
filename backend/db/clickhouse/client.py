@@ -82,7 +82,9 @@ class ClickHouseClient:
         Args:
             traces (list[dict[str, Any]]): Trace records; an optional
                 "source" field distinguishes detector self-traces from
-                customer traffic and defaults to "user".
+                customer traffic and defaults to "user". An optional
+                "ch_update_time" field sets the record's ReplacingMergeTree
+                version; it defaults to the insert time.
         """
         if not traces:
             return
@@ -105,7 +107,7 @@ class ClickHouseClient:
                     t.get("output"),
                     t.get("metadata"),
                     now,  # ch_create_time
-                    now,  # ch_update_time
+                    t.get("ch_update_time") or now,  # ch_update_time
                     t.get("environment"),
                     1 if t.get("is_evaluation") else 0,
                 ]
@@ -193,7 +195,9 @@ class ClickHouseClient:
         Args:
             spans (list[dict[str, Any]]): Span records; an optional
                 "source" field distinguishes detector self-traces from
-                customer traffic and defaults to "user".
+                customer traffic and defaults to "user". An optional
+                "ch_update_time" field sets the record's ReplacingMergeTree
+                version; it defaults to the insert time.
         """
         if not spans:
             return
@@ -228,7 +232,7 @@ class ClickHouseClient:
                     s.get("git_source_line"),
                     s.get("git_source_function"),
                     now,  # ch_create_time
-                    now,  # ch_update_time
+                    s.get("ch_update_time") or now,  # ch_update_time
                     s.get("environment"),
                     1 if s.get("is_evaluation") else 0,
                 ]

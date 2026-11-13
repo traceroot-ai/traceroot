@@ -5,7 +5,7 @@ import {
   UpsertResultRequestSchema,
   type UpsertResultResponse,
 } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 
 type RouteParams = { params: Promise<{ runId: string }> };
 
@@ -27,7 +27,7 @@ const isUniqueViolation = (e: unknown) =>
 // written, so trace_id may be null now and set on a later minimal call without
 // costing the result its cost or its scores.
 export async function POST(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
   const { runId } = await params;

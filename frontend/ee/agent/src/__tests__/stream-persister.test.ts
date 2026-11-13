@@ -433,6 +433,37 @@ describe("StreamPersister", () => {
     expect(md.result.details).toEqual({ resourceType: "dashboard", resourceId: "d1" });
   });
 
+  it("keeps a card read's details for reload, dropping the text and reporting the real size", async () => {
+    const text = "Dashboard: d1 | Overview\n" + "row\n".repeat(500);
+    const details = { kind: "dashboard_read", dashboard: { id: "d1", name: "Overview" } };
+    const result = { content: [{ type: "text", text }], details };
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1", { dashboard_id: "d1" }, "get_dashboard_data"));
+    persister.onEvent(toolEnd("t1", result, false, "get_dashboard_data"));
+    await persister.finish();
+
+    expect(calls[0].metadata).toMatchObject({
+      toolName: "get_dashboard_data",
+      result: { details },
+    });
+    const md = calls[0].metadata as { result: Record<string, unknown>; outputBytes: number };
+    expect(md.result).not.toHaveProperty("content");
+    expect(md).not.toHaveProperty("withheld");
+    expect(md.outputBytes).toBe(Buffer.byteLength(JSON.stringify(result), "utf8"));
+  });
+
+  it("still withholds a read's output when it carries no card details", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1", {}, "list_detectors"));
+    persister.onEvent(
+      toolEnd("t1", { content: [{ type: "text", text: "2 detectors" }] }, false, "list_detectors"),
+    );
+    await persister.finish();
+
+    expect(calls[0].metadata).toMatchObject({ withheld: "not-allowlisted" });
+    expect(calls[0].metadata).not.toHaveProperty("result");
+  });
+
   it("leaves small args and results exactly as captured (no marker under the cap)", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(toolStart("t1", { query: "errors" }));

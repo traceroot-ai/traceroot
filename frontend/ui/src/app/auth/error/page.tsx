@@ -27,7 +27,7 @@ function AuthErrorContent() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl text-red-600">Authentication Error</CardTitle>
+          <CardTitle className="text-[15px] text-danger">Authentication Error</CardTitle>
           <CardDescription>{errorMessage}</CardDescription>
         </CardHeader>
         <CardContent className="flex justify-center">

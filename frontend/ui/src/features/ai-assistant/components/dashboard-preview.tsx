@@ -3,10 +3,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
-import { makeRange } from "@/features/dashboards/range-presets";
 import type { Widget } from "@/features/dashboards/types";
 import type { PreviewTile } from "../lib/resource-card";
-import { REFERENCE_COL_WIDTH, SNAPSHOT_QUERY_OPTIONS } from "./preview-constants";
+import { REFERENCE_COL_WIDTH, SNAPSHOT_QUERY_OPTIONS, frozenRange } from "./preview-constants";
 
 /**
  * The dashboard a transcript built, as it is: the real grid's geometry laid
@@ -35,12 +34,11 @@ const WidgetBody = dynamic(
   { ssr: false },
 );
 
-// react-grid-layout's defaults, which the dashboard grid leaves in place: ten
-// pixels between tiles, and the same ten around the grid (its container
-// padding falls back to the margin). Each formula below is the library's own
+// The dashboard grid's geometry (DashboardGrid): sixteen pixels between tiles,
+// and the same sixteen around the grid. Each formula below is the library's own
 // item and container arithmetic; at the reference width every value is a
 // whole pixel, so its rounding never bites.
-const MARGIN = 10;
+const MARGIN = 16;
 
 /** The container width at which the grid's columns come out at the reference width. */
 export const REFERENCE_WIDTH = COLS * REFERENCE_COL_WIDTH + (COLS - 1) * MARGIN + 2 * MARGIN;
@@ -62,7 +60,7 @@ export function gridHeight(tiles: readonly Pick<PreviewTile, "y" | "h">[]): numb
 }
 
 /** The tile as the dashboard's body takes it; the body needs no dashboard id. */
-function tileWidget(tile: PreviewTile): Widget {
+function tileWidget(tile: PreviewTile & { widget: NonNullable<PreviewTile["widget"]> }): Widget {
   return {
     id: tile.id,
     dashboardId: "",
@@ -119,8 +117,8 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
   // computation, and a later tiles identity change must not thaw the range.
   const range = useMemo(() => {
     if (!seen) return null;
-    const rangeId = tiles[0]?.range.id;
-    return rangeId === undefined ? null : makeRange(rangeId);
+    const first = tiles[0];
+    return first === undefined ? null : frozenRange(first.range.id, first.bounds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seen]);
 
@@ -164,10 +162,13 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
               </span>
             </div>
             <div className="min-h-0 flex-1">
-              {range !== null && (
+              {tile.notice !== undefined && (
+                <p className="text-[12px] text-muted-foreground">{tile.notice}</p>
+              )}
+              {range !== null && tile.widget !== null && (
                 <WidgetBody
                   projectId={tile.projectId}
-                  widget={tileWidget(tile)}
+                  widget={tileWidget({ ...tile, widget: tile.widget })}
                   range={range}
                   queryOptions={SNAPSHOT_QUERY_OPTIONS}
                 />
@@ -176,6 +177,16 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
           </div>
         ))}
       </div>
+      {/* The grid is a picture and hidden from assistive tech; a widget the read
+          could not answer would otherwise be silent, so its reason is said here. */}
+      {tiles.some((tile) => tile.notice !== undefined) && (
+        <ul className="sr-only">
+          {tiles.map(
+            (tile) =>
+              tile.notice !== undefined && <li key={tile.id}>{`${tile.title}: ${tile.notice}`}</li>,
+          )}
+        </ul>
+      )}
     </div>
   );
 }

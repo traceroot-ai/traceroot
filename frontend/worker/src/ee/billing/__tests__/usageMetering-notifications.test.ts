@@ -56,7 +56,7 @@ function workspace(overrides: Record<string, unknown> = {}) {
     billingSubscriptionId: null,
     billingPeriodStart: null,
     billingPeriodEnd: null,
-    projects: [{ id: "proj-1" }],
+    projects: [{ id: "proj-1", deleteTime: null, freeQuotaEligible: true }],
     ...overrides,
   };
 }

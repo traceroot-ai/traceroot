@@ -64,6 +64,8 @@ export interface AIMessage {
 }
 
 export interface AISession {
+  /** Locally bundled, read-only demonstration; never sent to the sessions API. */
+  isExample?: boolean;
   id: string;
   projectId: string;
   title: string | null;

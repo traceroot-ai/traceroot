@@ -11,9 +11,9 @@
  * project over one exporter.
  *
  * withSelfTrace() records fn's execution live: the root is active for fn's
- * whole duration, so spans created inside — the traced pi-ai call, any future
- * auto-instrumented spans — parent into the self-trace. Everything here is
- * strictly best-effort: tracing failures log and degrade to selfTraced=false;
+ * whole duration, so explicitly traced pi-ai calls parent into the self-trace.
+ * SDK auto-instrumentation is disabled to keep raw provider I/O out of it. Everything
+ * here is strictly best-effort: tracing failures log and degrade to selfTraced=false;
  * fn always runs exactly once; nothing throws into the caller's run.
  */
 
@@ -103,6 +103,9 @@ export function initSelfTraceEmitter(): void {
   try {
     TraceRoot.initialize({
       baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
+      // SDK defaults can capture raw provider I/O outside our capture policy.
+      // Only the explicit, bounded instrumentation should record self-trace spans.
+      instrumentModules: {},
       internalExport: {
         path: "/api/v1/internal/traces",
         headers: { "X-Internal-Secret": secret },

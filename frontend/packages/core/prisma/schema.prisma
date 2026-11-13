@@ -20,6 +20,13 @@ model AccessKey {
   secretHash  String    @unique @map("secret_hash") @db.VarChar
   keyHint     String    @map("key_hint") @db.VarChar
   name        String?   @db.VarChar
+  // "admin" (everything this project allows) or "ingest" (send telemetry only).
+  // Defaults to ingest: a key minted without an explicit scope is the one that
+  // ships inside an instrumented application, so the narrow scope is the safe
+  // thing to hand out. Keys that predate this column were backfilled to admin
+  // by the migration — a migration must not silently revoke live credentials —
+  // which is why the column default and that backfill value differ.
+  scope       String    @default("ingest") @db.VarChar
   expireTime  DateTime? @map("expire_time") @db.Timestamp(6)
   lastUseTime DateTime? @map("last_use_time") @db.Timestamp(6)
   createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
@@ -194,6 +201,7 @@ model Project {
   datasets     Dataset[]
   evaluations  Evaluation[]
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  freeQuotaEligible Boolean @default(true) @map("free_quota_eligible")
 
   // A partial unique index uq_project_workspace_live_name on
   // (workspace_id, name) WHERE delete_time IS NULL backs the idempotent
@@ -282,12 +290,12 @@ model Verification {
 }
 
 // Device Codes - better-auth device-authorization plugin (CLI login).
-// deviceCode and userCode are looked up on every poll/approval, so both get
-// indexes beyond the upstream plugin's unindexed defaults.
+// deviceCode and userCode are looked up on every poll/approval and are unique
+// as of better-auth 1.7.
 model DeviceCode {
   id              String    @id @default(cuid()) @db.VarChar
-  deviceCode      String    @map("device_code") @db.VarChar
-  userCode        String    @map("user_code") @db.VarChar
+  deviceCode      String    @unique(map: "uq_device_code_device_code") @map("device_code") @db.VarChar
+  userCode        String    @unique(map: "uq_device_code_user_code") @map("user_code") @db.VarChar
   userId          String?   @map("user_id") @db.VarChar
   expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
   status          String    @db.VarChar
@@ -298,8 +306,6 @@ model DeviceCode {
   createdAt       DateTime  @default(now()) @db.Timestamp(6)
   updatedAt       DateTime  @updatedAt @db.Timestamp(6)
 
-  @@index([deviceCode], map: "ix_device_code_device_code")
-  @@index([userCode], map: "ix_device_code_user_code")
   // Supports pruning expired rows (cleanup) and bounds the hot verify/poll path.
   @@index([expiresAt], map: "ix_device_code_expires_at")
   @@map("device_codes")
@@ -315,6 +321,8 @@ model Jwks {
   privateKey String    @map("private_key") @db.VarChar
   createdAt  DateTime  @default(now()) @db.Timestamp(6)
   expiresAt  DateTime? @map("expires_at") @db.Timestamp(6)
+  alg        String?   @db.VarChar
+  crv        String?   @db.VarChar
 
   @@map("jwks")
 }
@@ -1080,6 +1088,10 @@ model Alert {
   // without a page, so this is the only record of what the failed page said.
   // Null for an attempt recorded before the column existed.
   lastNotifySeverity String?   @map("last_notify_severity") @db.VarChar
+  // An open page that an edit or a resume discarded and nobody has been told
+  // about yet (`AlertPendingClose`). The write that voids the state sets it; the
+  // next tick posts the close and clears it. Null for every other rule.
+  pendingClose       Json?     @map("pending_close") @db.JsonB
   // Null `nextRunAt` means due immediately; `lastClaimedAt` is the CAS token a
   // completing tick writes back against.
   nextRunAt          DateTime? @map("next_run_at") @db.Timestamp(6)

@@ -6,6 +6,8 @@ import {
   rememberListener,
   type ReloadableListener,
 } from "../hot-reload.js";
+import { SandboxRegistry } from "../executors/registry.js";
+import type { Executor } from "../executors/interface.js";
 
 /** The slot the module hands across a `vite-node --watch` re-execution. */
 const SLOT = "__traceRootAgentHotState";
@@ -95,7 +97,11 @@ describe("closePreviousListener", () => {
 describe("rememberExecutors", () => {
   it("destroys the previous execution's executors before the listener is closed", async () => {
     const destroy = vi.fn().mockResolvedValue(undefined);
-    const executors = new Map([["sess-1", { destroy }]]);
+    const executors = new SandboxRegistry({
+      create: () => ({ destroy }) as unknown as Executor,
+      idleTtlMs: 60_000,
+    });
+    executors.acquire("sess-1");
     rememberExecutors(executors);
     await closePreviousListener();
     expect(destroy).toHaveBeenCalledTimes(1);
@@ -103,6 +109,17 @@ describe("rememberExecutors", () => {
     // A second reload finds nothing to destroy.
     await closePreviousListener();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a teardown that fails instead of aborting the reload", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    rememberExecutors({ destroyAll: vi.fn().mockRejectedValue(new Error("docker is gone")) });
+    await expect(closePreviousListener()).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith(
+      "[Agent] Failed to destroy the previous execution's executors:",
+      expect.any(Error),
+    );
+    error.mockRestore();
   });
 });
 

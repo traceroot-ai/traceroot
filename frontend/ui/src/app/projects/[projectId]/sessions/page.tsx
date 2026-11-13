@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useLayoutEffect, useState } from "react";
+import { useMemo, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
@@ -15,11 +15,12 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
   formatDate,
   formatCost,
-  formatTokens,
+  formatTokenFlow,
   formatExactTokens,
   cn,
   buildUrlWithFilters,
@@ -68,6 +69,10 @@ export default function SessionsPage() {
     [queryOptions],
   );
 
+  // Every new page of rows, or a new search/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify(sessionQueryOptions));
+
   useLayoutEffect(() => {
     setHideAiButton(false);
   }, [setHideAiButton]);
@@ -93,10 +98,10 @@ export default function SessionsPage() {
     <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation */}
-        <div className="border-b border-border bg-background">
-          <div className="flex">
+        <div className="flex h-11 items-center border-b border-border bg-background">
+          <div className="flex gap-1 px-4">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = tab.id === "sessions";
@@ -105,10 +110,10 @@ export default function SessionsPage() {
                   key={tab.id}
                   href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                    "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
-                      ? "border-foreground bg-muted text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -156,26 +161,26 @@ export default function SessionsPage() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto">
-                <table className="w-full">
+              <div ref={listRef} className="flex-1 overflow-auto">
+                <table className="data-table w-full tabular-nums [&_:is(th,td):nth-child(n+4)]:text-right">
                   <thead className="sticky top-0 bg-background">
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="w-[140px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Timestamp
                       </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Session ID
                       </th>
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[140px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[110px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Tokens
                       </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
-                      <th className="w-[70px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[70px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
                       </th>
                     </tr>
@@ -188,38 +193,50 @@ export default function SessionsPage() {
                           setSelectedSessionId(session.session_id);
                         }}
                         className={cn(
-                          "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                          selectedSessionId === session.session_id
-                            ? "bg-muted"
-                            : "hover:bg-muted/50",
+                          "cursor-pointer border-b border-border transition-colors",
+                          selectedSessionId === session.session_id ? "bg-accent" : "hover:bg-muted",
                         )}
                       >
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                           {formatDate(session.first_trace_time)}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] font-medium text-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-foreground">
                           {session.session_id}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {(session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0) >
-                          0 ? (
+                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {session.user_ids.length > 0 ? (
                             <span
-                              title={`${formatExactTokens(session.total_input_tokens)} / ${formatExactTokens(session.total_output_tokens)}`}
+                              className="flex items-center gap-1.5"
+                              title={session.user_ids.join("\n")}
                             >
-                              {formatTokens(session.total_input_tokens ?? 0)} /{" "}
-                              {formatTokens(session.total_output_tokens ?? 0)}
+                              <span className="block min-w-0 truncate">{session.user_ids[0]}</span>
+                              {session.user_ids.length > 1 && (
+                                <span className="shrink-0">+{session.user_ids.length - 1}</span>
+                              )}
                             </span>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {(session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0) >
+                          0 ? (
+                            <span
+                              title={`${formatExactTokens(session.total_input_tokens)} / ${formatExactTokens(session.total_output_tokens)}`}
+                            >
+                              {formatTokenFlow(
+                                session.total_input_tokens,
+                                session.total_output_tokens,
+                              )}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                           {formatCost(getTotalCost(session))}
                         </td>
-                        <td className="px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-muted-foreground">
                           {session.trace_count}
                         </td>
                       </tr>
@@ -242,7 +259,7 @@ export default function SessionsPage() {
 
       {/* Detail panel - overlays right side, slides in from right (like traces) */}
       {selectedSessionId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
+        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
           <SessionDetailPanel
             projectId={projectId}
             sessionId={selectedSessionId}

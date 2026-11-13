@@ -5,12 +5,15 @@
  * it would in production.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
+import type { DeletedAlertClose } from "@/lib/alerts/post-deleted-close";
 import { DELETE_REASON_MESSAGE, NO_FIELDS_MESSAGE } from "./update-support";
 
 type Where = Record<string, unknown>;
 
-const { tx, root, order, store } = vi.hoisted(() => ({
+const { tx, root, order, store, postDeletedAlertClose, slack } = vi.hoisted(() => ({
   tx: {
+    $queryRaw: vi.fn(),
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
     alert: { findFirst: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
@@ -20,6 +23,9 @@ const { tx, root, order, store } = vi.hoisted(() => ({
   root: { auditLog: { create: vi.fn() } },
   order: [] as string[],
   store: new Map<string, Record<string, unknown>>(),
+  postDeletedAlertClose: vi.fn<(close: DeletedAlertClose) => Promise<void>>(),
+  // Only reached by the one test that runs the real send.
+  slack: { resolveAlertChannel: vi.fn(), postMessage: vi.fn() },
 }));
 vi.mock("@traceroot/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@traceroot/core")>()),
@@ -31,7 +37,14 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
     },
     auditLog: root.auditLog,
   },
+  decryptKey: (cipher: string) => `decrypted(${cipher})`,
 }));
+vi.mock("@traceroot/slack", () => ({
+  resolveAlertChannel: slack.resolveAlertChannel,
+  createSlackClient: () => ({ chat: { postMessage: slack.postMessage } }),
+  buildAlertClosedBlocks: () => ({ blocks: [], color: "#1a7f4e", text: "[OK] P95 latency" }),
+}));
+vi.mock("@/lib/alerts/post-deleted-close", () => ({ postDeletedAlertClose }));
 import { deleteAlert, setAlertStatus, updateAlert } from "./alerts";
 
 const T0 = new Date("2026-08-12T10:00:00.000Z");
@@ -60,6 +73,7 @@ const baseRow = {
   lastNotifyAt: null,
   nextRunAt: new Date("2026-08-12T10:31:00.000Z") as Date | null,
   lastClaimedAt: T0 as Date | null,
+  pendingClose: null as Record<string, unknown> | null,
   createTime: T0,
   updateTime: T0,
   createdBy: "u1",
@@ -73,10 +87,16 @@ function matches(candidate: Record<string, unknown>, where: Where): boolean {
   if (typeof where.status === "string" && candidate.status !== where.status) return false;
   const status = where.status as { in?: string[] } | undefined;
   if (Array.isArray(status?.in) && !status.in.includes(candidate.status as string)) return false;
+  // The only marker guard the services write: "still empty".
+  const marker = where.pendingClose as { equals?: unknown } | undefined;
+  if (marker?.equals === Prisma.DbNull && candidate.pendingClose !== null) return false;
   return true;
 }
 const rowsMatching = (where: Where) => [...store.values()].filter((r) => matches(r, where));
 const current = () => store.get("alert-1") as Row;
+/** Every write but the close marker, which rides behind a reset that cleared a page. */
+const ruleWrites = () =>
+  tx.alert.updateMany.mock.calls.filter(([args]) => !("pendingClose" in args.data));
 
 const provenance = { transport: "public-api" as const };
 
@@ -116,6 +136,11 @@ beforeEach(() => {
   for (const model of [tx.project, tx.workspaceMember, tx.alert, tx.user, tx.auditLog]) {
     for (const fn of Object.values(model)) fn.mockReset();
   }
+  tx.$queryRaw.mockReset();
+  tx.$queryRaw.mockImplementation(async () => {
+    order.push("lock");
+    return [];
+  });
   tx.alert.findFirst.mockImplementation(async ({ where }: { where: Where }) => {
     const [found] = rowsMatching(where);
     return found === undefined ? null : { ...found };
@@ -131,6 +156,12 @@ beforeEach(() => {
     const rows = rowsMatching(where);
     for (const r of rows) store.delete(r.id as string);
     return { count: rows.length };
+  });
+  postDeletedAlertClose.mockReset();
+  slack.resolveAlertChannel.mockReset();
+  slack.postMessage.mockReset();
+  postDeletedAlertClose.mockImplementation(async () => {
+    order.push("slack");
   });
   tx.user.findUnique.mockResolvedValue({ name: "Ada", email: "ada@example.com" });
   root.auditLog.create.mockReset();
@@ -236,7 +267,7 @@ describe("updateAlert", () => {
       where: { id: "alert-1", projectId: "p1" },
       data: { name: "Renamed" },
     });
-    expect(order).toEqual(["write", "commit", "audit"]);
+    expect(order).toEqual(["lock", "write", "commit", "audit"]);
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: {
         actorUserId: "u1",
@@ -270,6 +301,67 @@ describe("updateAlert", () => {
     // reset reschedules rather than unscheduling.
     expect(stored.lastClaimedAt).toBeNull();
     expect(stored.nextRunAt).toBeInstanceOf(Date);
+  });
+
+  describe("the close it leaves for the page it cleared", () => {
+    it("names the edit and who made it, inside the transaction that voided the page", async () => {
+      mockAccess();
+      await update({ threshold: 999 }, { actorUserId: "u7" });
+
+      expect(current().pendingClose).toEqual({
+        reason: "edited",
+        actorUserId: "u7",
+        at: expect.any(String),
+      });
+      // The marker is the last write before the commit: neither lands without the other.
+      expect(order.slice(-3)).toEqual(["write", "commit", "audit"]);
+      // And the row was locked before anything read or wrote it. Whether a page
+      // is being discarded is decided from that read, so a tick must not be able
+      // to raise one between the read and the reset.
+      expect(order[0]).toBe("lock");
+      const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [string[], ...unknown[]];
+      expect(strings.join("?")).toBe(
+        "SELECT id FROM alerts WHERE id = ? AND project_id = ? FOR UPDATE",
+      );
+      expect(values).toEqual(["alert-1", "p1"]);
+      expect(tx.alert.updateMany.mock.calls.at(-1)?.[0].where).toEqual({
+        id: "alert-1",
+        projectId: "p1",
+        pendingClose: { equals: Prisma.DbNull },
+      });
+    });
+
+    it("leaves none when the edit cleared no page, or changed nothing that is evaluated", async () => {
+      mockAccess();
+      await update({ name: "Renamed" });
+      expect(current().pendingClose).toBeNull();
+
+      store.set("alert-1", row({ severity: "OK", alertedAt: null }));
+      await update({ threshold: 999 });
+      expect(current().pendingClose).toBeNull();
+    });
+
+    it("keeps the first marker when the rule is edited again before the close goes out", async () => {
+      mockAccess();
+      await update({ threshold: 999 }, { actorUserId: "u7" });
+      const first = current().pendingClose;
+
+      // The second edit finds no page to clear, the first having reset the state.
+      expect(await update({ threshold: 1200 }, { actorUserId: "u8" })).toMatchObject({
+        stateReset: true,
+        pageCleared: false,
+      });
+      expect(current().pendingClose).toEqual(first);
+    });
+
+    it("does not overwrite a marker still standing beside a page raised since", async () => {
+      mockAccess();
+      const waiting = { reason: "resumed", actorUserId: "u3", at: "2026-08-12T09:00:00.000Z" };
+      store.set("alert-1", row({ pendingClose: waiting }));
+
+      expect(await update({ threshold: 999 })).toMatchObject({ pageCleared: true });
+      expect(current().pendingClose).toEqual(waiting);
+    });
   });
 
   it("reports no cleared page when the state it voided held none", async () => {
@@ -357,7 +449,7 @@ describe("updateAlert", () => {
         projectId: "p1",
         status: "PARKED",
       });
-      expect(tx.alert.updateMany).toHaveBeenCalledTimes(1);
+      expect(ruleWrites()).toHaveLength(1);
     });
 
     it("counts a renotify edit, which the evaluated rule does not include, and reports the reset it applied", async () => {
@@ -424,7 +516,7 @@ describe("updateAlert", () => {
       expect(await update({ threshold: 999 })).toMatchObject({ ok: true });
       expect(current().status).toBe("ACTIVE");
       expect(current().threshold).toBe(999);
-      expect(tx.alert.updateMany).toHaveBeenCalledTimes(3);
+      expect(ruleWrites()).toHaveLength(3);
     });
   });
 
@@ -517,6 +609,20 @@ describe("setAlertStatus", () => {
       projectId: "p1",
       status: { in: ["PAUSED", "PARKED"] },
     });
+    // The page it cleared is closed by the worker, off this marker.
+    expect(stored.pendingClose).toMatchObject({ reason: "resumed", actorUserId: "u1" });
+    // Read under the same row lock an edit takes, for the same reason.
+    expect(order[0]).toBe("lock");
+  });
+
+  it("leaves no close when it pauses, or resumes a rule that held no page", async () => {
+    mockAccess();
+    await setStatus("PAUSED");
+    expect(current().pendingClose).toBeNull();
+
+    store.set("alert-1", row({ status: "PAUSED", severity: "OK", alertedAt: null }));
+    await setStatus("ACTIVE");
+    expect(current().pendingClose).toBeNull();
   });
 
   it("resumes a parked rule the same way, as the operator's retry of it", async () => {
@@ -633,7 +739,13 @@ describe("deleteAlert", () => {
     });
     expect(store.has("alert-1")).toBe(false);
     expect(tx.alert.deleteMany).toHaveBeenCalledWith({ where: { id: "alert-1", projectId: "p1" } });
-    expect(order).toEqual(["delete", "commit", "audit"]);
+    // The close goes out only once the delete is durable.
+    expect(order).toEqual(["lock", "delete", "commit", "audit", "slack"]);
+    // The lock has to land before the read: read first, a tick could take the
+    // marker in between and the close would go out twice.
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.alert.findFirst.mock.invocationCallOrder[0],
+    );
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         operation: "delete_alert",
@@ -653,6 +765,108 @@ describe("deleteAlert", () => {
     store.set("alert-1", row({ severity: "OK", alertedAt: null }));
     expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
     expect(await remove()).toEqual({ ok: false, status: 404, error: "Alert not found" });
+  });
+
+  describe("the close it sends for the page it took with it", () => {
+    it("sends it once committed and audited, naming the rule and who deleted it", async () => {
+      mockAccess();
+      await remove({ actorUserId: "u2" });
+      expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+      expect(postDeletedAlertClose).toHaveBeenCalledWith({
+        projectId: "p1",
+        alertId: "alert-1",
+        name: "P95 latency",
+        actorName: "Ada",
+      });
+      // The channel's readers need not have access to the project, so the address
+      // the app would fall back to is not even selected.
+      expect(tx.user.findUnique).toHaveBeenCalledWith({
+        where: { id: "u2" },
+        select: { name: true },
+      });
+    });
+
+    it("names nobody for an account with no name, or one that is gone", async () => {
+      mockAccess();
+      tx.user.findUnique.mockResolvedValueOnce({ name: "" });
+      await remove();
+      store.set("alert-1", row());
+      tx.user.findUnique.mockResolvedValueOnce(null);
+      await remove();
+
+      const actors = postDeletedAlertClose.mock.calls.map(([close]) => close.actorName);
+      expect(actors).toEqual([null, null]);
+    });
+
+    it("sends one for a page carried across a gap in NO_DATA", async () => {
+      mockAccess();
+      store.set("alert-1", row({ severity: "NO_DATA" }));
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: true });
+      expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends the close an earlier edit left and no tick has sent yet", async () => {
+      mockAccess();
+      store.set(
+        "alert-1",
+        row({
+          severity: "UNKNOWN",
+          alertedAt: null,
+          pendingClose: { reason: "edited", actorUserId: "u1", at: T0.toISOString() },
+        }),
+      );
+      // The edit already discarded the page, so this delete reports none of its own.
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
+      expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends nothing when no page was open and no close was waiting", async () => {
+      mockAccess();
+      store.set("alert-1", row({ severity: "OK", alertedAt: null }));
+      await remove();
+      expect(postDeletedAlertClose).not.toHaveBeenCalled();
+      expect(tx.user.findUnique).not.toHaveBeenCalled();
+      expect(order).toEqual(["lock", "delete", "commit", "audit"]);
+    });
+
+    it("sends nothing for a delete that found no row, or that a non-member asked for", async () => {
+      mockAccess();
+      tx.alert.deleteMany.mockResolvedValueOnce({ count: 0 });
+      await remove();
+      mockAccess("VIEWER");
+      await remove();
+      expect(postDeletedAlertClose).not.toHaveBeenCalled();
+    });
+  });
+
+  it("still deletes, audits and answers ok when Slack refuses the close", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/alerts/post-deleted-close")>(
+      "@/lib/alerts/post-deleted-close",
+    );
+    postDeletedAlertClose.mockImplementationOnce(actual.postDeletedAlertClose);
+    slack.resolveAlertChannel.mockResolvedValueOnce({
+      ok: true,
+      target: { channelId: "C_ALERTS", encryptedBotToken: "enc-token" },
+    });
+    slack.postMessage.mockRejectedValueOnce(new Error("channel_not_found"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAccess();
+
+    expect(await remove()).toEqual({
+      ok: true,
+      data: { id: "alert-1", name: "P95 latency" },
+      reason: "the rule was replaced by a detector",
+      pageCleared: true,
+    });
+
+    expect(slack.postMessage).toHaveBeenCalledTimes(1);
+    expect(store.has("alert-1")).toBe(false);
+    expect(root.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("deleted close not sent alert=alert-1 project=p1"),
+      expect.any(Error),
+    );
+    logged.mockRestore();
   });
 
   it("404s when the row vanishes between the read and the delete", async () => {

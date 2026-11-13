@@ -118,7 +118,7 @@ export function SpanKindIcon({
     return (
       <div
         className={cn(
-          "flex flex-shrink-0 items-center justify-center rounded border",
+          "flex flex-shrink-0 items-center justify-center rounded-[2px] border",
           color.surface,
         )}
         style={{ width: TREE_LAYOUT.ICON_BOX_SIZE, height: TREE_LAYOUT.ICON_BOX_SIZE }}

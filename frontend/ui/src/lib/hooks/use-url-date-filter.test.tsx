@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-import { DATE_FILTER_OPTIONS, findDateFilterOption } from "@/lib/date-filter";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER, findDateFilterOption } from "@/lib/date-filter";
 import { dateFilterStorageKey, readStoredDateFilter } from "@/lib/date-filter-storage";
 import { useUrlDateFilter } from "./use-url-date-filter";
 
@@ -314,5 +314,59 @@ describe("useUrlDateFilter persistence", () => {
       new Date(result.current.filter.timestamps.startAfter!).getTime();
     expect(Math.round(fetchedWindowMs / 86_400_000)).toBe(7);
     client.clear();
+  });
+});
+
+describe("useUrlDateFilter with an invalid custom range in the URL", () => {
+  const END = "2026-07-04T00:00:00.000Z";
+
+  it("falls back to the default window when a bound is not a date", () => {
+    search = `date_filter=custom&start=garbage&end=${END}`;
+    const { result } = renderHook(() => useUrlDateFilter(undefined, "14d"));
+    expect(result.current.dateFilter.id).toBe("14d");
+    expect(result.current.customStartDate).toBeNull();
+    expect(result.current.timestamps.startAfter).toBeDefined();
+    expect(result.current.timestamps.endBefore).toBeUndefined();
+  });
+
+  it("falls back to the default window when a bound is not a real calendar day", () => {
+    search = `date_filter=custom&start=2026-02-30T00:00:00.000Z&end=${END}`;
+    const { result } = renderHook(() => useUrlDateFilter(undefined, "14d"));
+    expect(result.current.dateFilter.id).toBe("14d");
+    expect(result.current.customStartDate).toBeNull();
+  });
+
+  it("falls back to the default window when the bounds are missing", () => {
+    search = "date_filter=custom";
+    const { result } = renderHook(() => useUrlDateFilter(undefined, "7d"));
+    expect(result.current.dateFilter.id).toBe("7d");
+    expect(result.current.timestamps.startAfter).toBeDefined();
+  });
+
+  it("falls back to the default window when the bounds are reversed", () => {
+    search = `date_filter=custom&start=${END}&end=2026-07-01T00:00:00.000Z`;
+    const { result } = renderHook(() => useUrlDateFilter());
+    expect(result.current.dateFilter.id).toBe(DEFAULT_DATE_FILTER.id);
+    expect(result.current.customStartDate).toBeNull();
+    expect(result.current.customEndDate).toBeNull();
+  });
+
+  it("keeps a valid custom range from the URL", () => {
+    const start = "2026-07-01T00:00:00.000Z";
+    search = `date_filter=custom&start=${start}&end=${END}`;
+    const { result } = renderHook(() => useUrlDateFilter());
+    expect(result.current.dateFilter.isCustom).toBe(true);
+    expect(result.current.timestamps).toEqual({ startAfter: start, endBefore: END });
+  });
+
+  it("falls back when the URL changes to an invalid custom range after mount", async () => {
+    search = "date_filter=7d";
+    const { result, rerender } = renderHook(() => useUrlDateFilter(undefined, "14d"));
+    expect(result.current.dateFilter.id).toBe("7d");
+    search = `date_filter=custom&start=${END}&end=garbage`;
+    rerender();
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("14d"));
+    expect(result.current.customEndDate).toBeNull();
+    expect(() => result.current.timestamps).not.toThrow();
   });
 });

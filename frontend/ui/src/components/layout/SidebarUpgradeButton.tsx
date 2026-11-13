@@ -29,12 +29,12 @@ export function SidebarUpgradeButton({
 
   return (
     <>
-      <Tooltip>
+      <Tooltip key={String(collapsed)}>
         <TooltipTrigger asChild>
           <button
             className={cn(
-              "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50 disabled:opacity-50",
-              collapsed ? "justify-center px-2" : "px-3",
+              "flex w-full items-center gap-2 py-1.5 text-[13px] transition-colors hover:bg-muted disabled:opacity-50",
+              collapsed ? "justify-center px-2" : "px-4",
             )}
             // Wait for the workspace record so the dialog acts on the real plan;
             // opening it with the FREE fallback could route a subscribed

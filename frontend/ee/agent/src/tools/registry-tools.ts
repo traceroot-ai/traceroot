@@ -8,6 +8,12 @@ import {
 } from "@traceroot-ai/tools";
 import { alertDetailCardDetails, alertListCardDetails } from "./alert-card-details.js";
 import {
+  dashboardDataCardDetails,
+  dashboardDetailCardDetails,
+  widgetDataCardDetails,
+  widgetDetailCardDetails,
+} from "./dashboard-card-details.js";
+import {
   formatDashboardData,
   formatAlertDetail,
   formatAlertList,
@@ -147,14 +153,24 @@ export function createRegistryReadTools(
     bind("get_finding", formatFindingDetail),
     bind("get_finding_by_trace", formatFindingDetail),
     bind("list_dashboards", formatDashboardList),
-    bind("get_dashboard", formatDashboardDetail),
+    // The widget and dashboard reads are drawn in the chat: the definition
+    // and the window ride beside the text, and the panel runs each widget
+    // through the dashboards feature's own query hook. The definition reads
+    // answer for no window, so their cards are drawn over the page's.
+    bind("get_dashboard", formatDashboardDetail, {
+      details: (data) => dashboardDetailCardDetails(data, window),
+    }),
     bind("run_widget_query", formatWidgetQueryResult, { defaults: pageWindow }),
     bind("get_dashboard_data", (data) => formatDashboardData(data, { dashboardUrl }), {
       defaults: pageWindow,
+      details: dashboardDataCardDetails,
     }),
-    bind("get_widget", formatWidgetDetail),
+    bind("get_widget", formatWidgetDetail, {
+      details: (data) => widgetDetailCardDetails(data, window),
+    }),
     bind("get_widget_data", (data) => formatWidgetData(data, { dashboardUrl }), {
       defaults: pageWindow,
+      details: widgetDataCardDetails,
     }),
     // The two alert reads are carded in the chat: a compact projection of
     // the payload rides beside the text so the panel can draw rows and a

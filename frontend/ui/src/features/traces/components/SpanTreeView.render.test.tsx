@@ -4,7 +4,7 @@
 // the pure row-model logic; this file exercises the actual JSX, which needs
 // @tanstack/react-virtual mocked since jsdom has no real layout to measure.
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -80,10 +80,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderTree() {
+function renderTree(t: TraceDetail = trace) {
   render(
     <SpanTreeView
-      trace={trace}
+      trace={t}
       selection={selection}
       onSelect={vi.fn()}
       collapsedIds={new Set()}
@@ -117,5 +117,78 @@ describe("SpanTreeView token/cost badges", () => {
     for (const badge of screen.getAllByText("100 → 50 (150)")) {
       expect(badge.querySelector("svg")).toBeTruthy();
     }
+  });
+
+  it("shows a tool span's cost from a narrower row, and no cost on an agent span", () => {
+    const llm = trace.spans[0];
+    const noTokens = {
+      model_name: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+    };
+    renderTree({
+      ...trace,
+      spans: [
+        llm,
+        {
+          ...llm,
+          ...noTokens,
+          span_id: "span-2",
+          name: "web-search",
+          span_kind: SpanKind.TOOL,
+          cost: 0.02,
+        },
+        {
+          ...llm,
+          ...noTokens,
+          span_id: "span-3",
+          name: "agent",
+          span_kind: SpanKind.AGENT,
+          cost: 0.5,
+        },
+      ],
+    });
+
+    expect(screen.getByText("0.0200").className).toContain("@[100px]:inline-flex");
+    expect(screen.getByText("0.0123").className).toContain("@[190px]:inline-flex");
+    expect(screen.queryByText("0.5000")).toBeNull();
+  });
+});
+
+describe("SpanTreeView selection", () => {
+  it("selects and highlights a span, then returns to the trace", () => {
+    const onSelect = vi.fn();
+    const onHoverChange = vi.fn();
+    const props = {
+      trace,
+      onSelect,
+      collapsedIds: new Set<string>(),
+      onToggleCollapse: vi.fn(),
+      onHoverChange,
+      scrollRef: { current: null },
+    };
+    const { rerender } = render(
+      <SpanTreeView {...props} selection={{ type: "trace" }} hoveredSpanId={null} />,
+    );
+    const spanRow = screen.getByText("llm-call").closest("div.group")!;
+    fireEvent.mouseEnter(spanRow);
+    expect(onHoverChange).toHaveBeenCalledWith("span-1");
+    fireEvent.click(spanRow);
+    expect(onSelect).toHaveBeenCalledWith({ type: "span", span: trace.spans[0] });
+
+    rerender(
+      <SpanTreeView
+        {...props}
+        selection={{ type: "span", span: trace.spans[0] }}
+        hoveredSpanId="span-1"
+      />,
+    );
+    expect(spanRow.className).toContain("bg-accent");
+    const traceRow = screen.getByText("root-trace").closest("div[style*='translate']")!;
+    fireEvent.click(traceRow);
+    expect(onSelect).toHaveBeenCalledWith({ type: "trace" });
+    fireEvent.mouseLeave(spanRow);
+    expect(onHoverChange).toHaveBeenLastCalledWith(null);
   });
 });

@@ -10,13 +10,15 @@
  * `replaceAlert` (PUT) would validate a full body with the create schema and
  * call the same diff-and-write core; the core is shared on purpose.
  */
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   canonicalizeAlertFilters,
   hasOutstandingAlertPage,
   prisma,
   STOPPED_ALERT_STATUSES,
+  type AlertCloseReason,
   type AlertFilter,
+  type AlertPendingClose,
 } from "@traceroot/core";
 import {
   alertCreateSchema,
@@ -42,6 +44,7 @@ import {
   type AlertRecord,
   type AlertRow,
 } from "@/app/api/projects/[projectId]/alerts/serialize";
+import { postDeletedAlertClose, type DeletedAlertClose } from "@/lib/alerts/post-deleted-close";
 import { writeAudit, type AuditEntry } from "./audit";
 import { requireProjectMember } from "./project-access";
 import type { DeleteResult, EditOutcome, Provenance, ServiceResult, UpdateResult } from "./types";
@@ -273,10 +276,38 @@ function auditEntry(
 }
 
 /**
+ * Leaves the close of a discarded page for the worker, which is the only side
+ * that can notify: the next tick posts it and clears the marker, whatever the
+ * rule's status is by then. Written in the transaction that voided the page,
+ * so neither lands without the other.
+ *
+ * Only into an empty marker. A close still waiting to go out is for the page
+ * the channel actually saw, and a second edit before then has no page of its
+ * own to close, so the first marker is the one that stands.
+ */
+async function leavePendingClose(
+  tx: Tx,
+  target: { projectId: string; alertId: string },
+  reason: AlertCloseReason,
+  actorUserId: string,
+): Promise<void> {
+  const marker: AlertPendingClose = { reason, actorUserId, at: new Date().toISOString() };
+  await tx.alert.updateMany({
+    where: {
+      id: target.alertId,
+      projectId: target.projectId,
+      pendingClose: { equals: Prisma.DbNull },
+    },
+    data: { pendingClose: { ...marker } },
+  });
+}
+
+/**
  * Partially update an alert rule for a MEMBER of its project. The patch is
  * validated merged with the stored rule; any change to an evaluated field
  * voids the evaluation state (a cold start, due now) and the answer says so,
- * with `pageCleared` when the state it voided held an open page. An edit that
+ * with `pageCleared` when the state it voided held an open page. That page is
+ * closed in Slack by the worker, off the marker this leaves. An edit that
  * rewrites the rule or its renotify settings re-arms a parked alert through
  * a status compare-and-set; a name-only edit leaves it parked.
  */
@@ -297,6 +328,12 @@ export async function updateAlert(input: {
     if (!validated.ok) return { result: { ok: false, status: 400, error: validated.error } };
     const { patch } = validated;
 
+    // Locked before it is read: whether this write discards an open page is
+    // decided from `existing`, and a tick that lands a page between that read
+    // and the reset would leave the page open with no close marker behind it.
+    // Under the lock the tick's write waits, then misses the claim the reset
+    // voided. Raw because Prisma has no row-lock API.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
       select: alertSelect,
@@ -410,20 +447,23 @@ export async function updateAlert(input: {
     }
     if (count === 0) return { result: ALERT_NOT_FOUND };
 
+    const stateReset = rewritesRule || reArmed;
+    const pageCleared = stateReset && hasOutstandingAlertPage(existing);
+    if (pageCleared) await leavePendingClose(tx, input, "edited", input.actorUserId);
+
     const alert = await tx.alert.findFirst({
       where: { id: alertId, projectId },
       select: alertSelect,
     });
     if (!alert) return { result: ALERT_NOT_FOUND };
 
-    const stateReset = rewritesRule || reArmed;
     return {
       result: {
         ok: true,
         data: await recordOf(tx, alert),
         changed,
         stateReset,
-        pageCleared: stateReset && hasOutstandingAlertPage(existing),
+        pageCleared,
       },
       audit: auditEntry(input, access.workspaceId, "update_alert", alertId, { changed }),
     };
@@ -437,7 +477,8 @@ export async function updateAlert(input: {
  * Pause or resume an alert for a MEMBER of its project. Only ACTIVE and
  * PAUSED are settable: PARKED is the evaluator's verdict and cannot be
  * requested. Pausing keeps the severity it stopped at; resuming is a cold
- * start, because the gap it was paused for was never evaluated. Kept apart
+ * start, because the gap it was paused for was never evaluated, and it leaves
+ * the same close marker an edit does for a page that start discards. Kept apart
  * from `updateAlert` so a pause never round-trips the rule payload it could
  * clobber.
  */
@@ -460,6 +501,8 @@ export async function setAlertStatus(input: {
     }
     const { status } = parsed.data;
 
+    // Locked for the same reason an edit locks it: a resume reads the page it discards.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
       select: alertSelect,
@@ -519,13 +562,15 @@ export async function setAlertStatus(input: {
       return { result: { ok: false, status: 409, error: PARKED_MESSAGE } };
     }
     const stateReset = status === "ACTIVE";
+    const pageCleared = stateReset && hasOutstandingAlertPage(existing);
+    if (pageCleared) await leavePendingClose(tx, input, "resumed", input.actorUserId);
     return {
       result: {
         ok: true,
         data: await recordOf(tx, alert),
         changed: ["status"],
         stateReset,
-        pageCleared: stateReset && hasOutstandingAlertPage(existing),
+        pageCleared,
       },
       audit: auditEntry(input, access.workspaceId, "set_alert_status", alertId, {
         changed: ["status"],
@@ -539,9 +584,20 @@ export async function setAlertStatus(input: {
 }
 
 /**
- * Hard-delete an alert for a MEMBER of its project. An outstanding page is
- * not notified as resolved; the answer carries `pageCleared` when one was
- * open so the caller can say so.
+ * A delete's outcome, plus the close it owes Slack: like the audit entry, it is only
+ * acted on once the transaction has committed.
+ */
+type DeleteAlertOutcome = Promise<
+  Awaited<EditOutcome<DeleteResult>> & { close?: DeletedAlertClose }
+>;
+
+/**
+ * Hard-delete an alert for a MEMBER of its project, and the answer carries
+ * `pageCleared` when an outstanding page was open. That page is closed in Slack
+ * by this call itself once the delete has committed, best-effort: there is no
+ * rule left for the worker to read a close from. A close an earlier edit or
+ * resume left on the row, and the worker has not sent yet, goes out the same
+ * way: the rule goes, but the page it closes was still seen.
  */
 export async function deleteAlert(input: {
   actorUserId: string;
@@ -554,13 +610,17 @@ export async function deleteAlert(input: {
   if (!reason.ok) return reason;
 
   const { projectId, alertId } = input;
-  const outcome = await prisma.$transaction(async (tx): EditOutcome<DeleteResult> => {
+  const outcome = await prisma.$transaction(async (tx): DeleteAlertOutcome => {
     const access = await requireProjectMember(tx, projectId, input.actorUserId);
     if (!access.ok) return { result: access };
 
+    // Locked for the same reason an edit locks it: the delete reads the page and
+    // the close marker it sends a close for. Unlocked, a tick could take the
+    // marker in between and the close would be sent twice.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: { id: true, name: true, severity: true, alertedAt: true },
+      select: { id: true, name: true, severity: true, alertedAt: true, pendingClose: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -568,7 +628,17 @@ export async function deleteAlert(input: {
     if (count === 0) return { result: ALERT_NOT_FOUND };
 
     const pageCleared = hasOutstandingAlertPage(existing);
+    let close: DeletedAlertClose | undefined;
+    if (pageCleared || existing.pendingClose !== null) {
+      const actor = await tx.user.findUnique({
+        where: { id: input.actorUserId },
+        select: { name: true },
+      });
+      // || not ??: an empty-string name is no name, and the channel never gets an email.
+      close = { projectId, alertId, name: existing.name, actorName: actor?.name || null };
+    }
     return {
+      close,
       result: {
         ok: true,
         data: { id: existing.id, name: existing.name },
@@ -584,5 +654,6 @@ export async function deleteAlert(input: {
   });
 
   if (outcome.audit) await writeAudit(prisma, outcome.audit);
+  if (outcome.close) await postDeletedAlertClose(outcome.close);
   return outcome.result;
 }
