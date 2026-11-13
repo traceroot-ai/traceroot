@@ -37,11 +37,34 @@ You can create API keys interactively in the web console or programmatically via
 4. Enter an optional **Name** — a descriptive label to identify the key's usage (e.g., `production-agent`, `staging-eval-runner`).
 5. Click **Create**.
 
-Creating or renaming an API key in the UI requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
+Creating or renaming an API key in the UI requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role. Keys created through the dashboard default to the **`ingest`** scope, providing the appropriate minimal privilege for applications to embed in their `.env` files.
 
-### Programmatically via the public API
+### Provisioning an admin key (Workspace Admin)
 
-TraceRoot exposes key-management endpoints under `/api/v1/public/api-keys`. Programmatic key management requires an **`admin`**-scoped API key.
+Because an API key can never mint another `admin`-scoped key (preventing credential escalation), the initial `admin` key for a project must be minted using a signed-in user credential (such as a browser session token or a CLI access token).
+
+A workspace administrator can mint an `admin`-scoped key by sending a `POST` request to `/api/v1/public/projects/{project_id}/api-keys`:
+
+```bash
+curl --request POST "https://app.traceroot.ai/api/v1/public/projects/$PROJECT_ID/api-keys" \
+  --header "Authorization: Bearer $TRACEROOT_TOKEN" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "name": "ci-admin-key",
+    "scope": "admin",
+    "expires_in_days": 90
+  }'
+```
+
+- **Authentication**: Requires a user session token or CLI access token (`$TRACEROOT_TOKEN`).
+- **Authorization**: Minting an `admin`-scoped key strictly requires the **ADMIN** role in the project's workspace. Requests by users with only the `MEMBER` role return HTTP `403 Forbidden` (`Minting an admin-scoped key requires the workspace admin role`).
+- **Response**: Returns HTTP `201 Created` with key details and the generated secret token in `key`.
+
+Once provisioned, this `$TRACEROOT_ADMIN_API_KEY` can be stored in your CI/CD secrets to manage and rotate application credentials programmatically without requiring human logins.
+
+### Programmatic key management (Key rotation)
+
+TraceRoot exposes key-management endpoints under `/api/v1/public/api-keys` to allow automated workflows (such as CI/CD pipelines) to rotate credentials. Programmatic key management requires an **`admin`**-scoped API key.
 
 #### Minting a new key
 
@@ -70,7 +93,24 @@ curl "https://app.traceroot.ai/api/v1/public/api-keys" \
   --header "Authorization: Bearer $TRACEROOT_ADMIN_API_KEY"
 ```
 
-Returns a list of keys with their metadata (`id`, `name`, `hint`, `project_id`, `scope`, `created_at`, `expires_at`, `last_used_at`).
+Returns a JSON object with a `keys` array wrapper (`{ "keys": [...] }`); each element contains key metadata:
+
+```json
+{
+  "keys": [
+    {
+      "id": "c1f7a0b3-9e42-4f11-8a9d-5b32e01f6c77",
+      "name": "ci-runner-key",
+      "hint": "tr-c1f7-6c77",
+      "project_id": "proj-d0a3ee92-659e-4f63-ae11-8ca6f57657e3",
+      "scope": "ingest",
+      "expires_at": "2026-11-20T00:00:00.000Z",
+      "last_used_at": "2026-10-15T12:30:00.000Z",
+      "created_at": "2026-08-22T00:00:00.000Z"
+    }
+  ]
+}
+```
 
 #### Revoking a key
 
@@ -118,7 +158,7 @@ In the TraceRoot UI or via the listing endpoint, you can inspect and track exist
 - **Renaming**: You can edit the friendly name of any key in the UI without affecting active connections or invalidating the token.
 - **Revoking**: Leaked or decommissioned keys can be revoked immediately:
   - **In the UI**: Click the delete icon next to the key in Project Settings > API Keys. Confirm the deletion by typing the key's name (or `delete`, for an unnamed key).
-  - **Via the API**: Send `DELETE /api/v1/public/api-keys/{key_id}` with an `admin`-scoped key.
+  - **Via the API**: Send `DELETE /api/v1/public/api-keys/{key_id}` with an `admin`-scoped key, or `DELETE /api/v1/public/projects/{project_id}/api-keys/{key_id}` with a user session token.
 
 Revocation takes effect immediately: subsequent requests using that key return HTTP `401 Unauthorized`.
 
