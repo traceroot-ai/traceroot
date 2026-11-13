@@ -55,8 +55,7 @@ export class DockerExecutor implements Executor {
       `${SESSION_LABEL}=${this.sessionId}`,
       "--label",
       `${OWNER_LABEL}=${this.ownerId}`,
-      // Network enabled — required for git clone and gh CLI (per design doc)
-      // Token-based auth is ephemeral (1hr) and container is disposable
+      // Network enabled — required for git clone
       "-w",
       WORKSPACE_DIR,
       DOCKER_IMAGE,

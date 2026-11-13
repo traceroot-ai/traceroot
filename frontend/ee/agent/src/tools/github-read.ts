@@ -38,9 +38,14 @@ async function githubGet(
   query: Record<string, string>,
   accept = "application/vnd.github+json",
 ): Promise<{ ok: true; body: string } | { ok: false; message: string }> {
-  const tokenRes = await fetch(`${uiBaseUrl}/api/github/token?repo=${encodeURIComponent(repo)}`, {
-    headers: { "x-workspace-id": workspaceId, "X-Internal-Secret": agentInternalSecret() },
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await fetch(`${uiBaseUrl}/api/github/token?repo=${encodeURIComponent(repo)}`, {
+      headers: { "x-workspace-id": workspaceId, "X-Internal-Secret": agentInternalSecret() },
+    });
+  } catch {
+    return { ok: false, message: "Could not reach the GitHub token service." };
+  }
   if (!tokenRes.ok) {
     return { ok: false, message: "No GitHub App installed for this repository." };
   }
@@ -48,14 +53,20 @@ async function githubGet(
 
   const url = new URL(`${GITHUB_API}/repos/${repo}${path}`);
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: accept,
-      "User-Agent": "TraceRoot-Agent",
-    },
-  });
-  const body = await res.text();
+  let res: Response;
+  let body: string;
+  try {
+    res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: accept,
+        "User-Agent": "TraceRoot-Agent",
+      },
+    });
+    body = await res.text();
+  } catch {
+    return { ok: false, message: "Could not reach the GitHub API." };
+  }
   if (!res.ok) {
     const detail = body.replaceAll(token, "[REDACTED]").slice(0, 300);
     const hint =
