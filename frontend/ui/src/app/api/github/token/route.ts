@@ -4,7 +4,16 @@ import { env } from "@/env";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, verifyInternalSecret } from "@/lib/auth-helpers";
 import { isDemoViewer, DEMO_VIEWER_FORBIDDEN } from "@/lib/demo-workspace";
-import { getInstallationToken } from "@traceroot/github";
+import { getInstallationToken, type InstallationTokenScope } from "@traceroot/github";
+
+/** Access the agent needs: read code, pull requests and repository metadata. */
+const AGENT_PERMISSIONS = {
+  contents: "read",
+  pull_requests: "read",
+  metadata: "read",
+} as const;
+
+const REPO_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Issue a short-lived GitHub App installation access token for a workspace's
@@ -18,10 +27,12 @@ import { getInstallationToken } from "@traceroot/github";
 async function handleGET(request: NextRequest) {
   try {
     let workspaceId: string | undefined;
+    let isInternal = false;
 
     const internalWorkspaceId = request.headers.get("x-workspace-id");
     if (internalWorkspaceId && verifyInternalSecret(request)) {
       workspaceId = internalWorkspaceId;
+      isInternal = true;
     } else {
       const authResult = await requireAuth();
       if (authResult.error) return authResult.error;
@@ -72,10 +83,26 @@ async function handleGET(request: NextRequest) {
       chosen = match;
     }
 
+    // The agent only reads: its token is limited to read access on the one
+    // requested repository (every repository of the installation when no repo
+    // is named, as for a status check).
+    let scope: InstallationTokenScope | undefined;
+    if (isInternal) {
+      scope = { permissions: { ...AGENT_PERMISSIONS } };
+      if (repo) {
+        const repoName = repo.split("/")[1];
+        if (!repoName || !REPO_NAME_RE.test(repoName)) {
+          return NextResponse.json({ error: "Invalid repo" }, { status: 400 });
+        }
+        scope.repositories = [repoName];
+      }
+    }
+
     const { token, expires_at } = await getInstallationToken(
       chosen.installationId,
       env.GITHUB_APP_ID,
       env.GITHUB_APP_PRIVATE_KEY,
+      scope,
     );
 
     return NextResponse.json({

@@ -226,3 +226,48 @@ describe("GET /api/github/token", () => {
     expect(res.status).toBe(500);
   });
 });
+
+describe("GET /api/github/token scoping", () => {
+  const READ_ONLY = { contents: "read", pull_requests: "read", metadata: "read" };
+
+  beforeEach(() => {
+    findManyMock.mockResolvedValue([{ installationId: "1", accountLogin: "acme" }]);
+  });
+
+  it("limits an agent token to read access on the requested repository", async () => {
+    verifyInternalSecretMock.mockReturnValue(true);
+    const res = await GET(
+      makeRequest({ workspaceIdHeader: "ws_1", internalSecret: true, repo: "acme/api" }),
+    );
+    expect(res.status).toBe(200);
+    expect(getInstallationTokenMock).toHaveBeenCalledWith("1", "123456", "fake-key", {
+      permissions: READ_ONLY,
+      repositories: ["api"],
+    });
+  });
+
+  it("keeps an agent token read-only when no repository is named", async () => {
+    verifyInternalSecretMock.mockReturnValue(true);
+    await GET(makeRequest({ workspaceIdHeader: "ws_1", internalSecret: true }));
+    expect(getInstallationTokenMock).toHaveBeenCalledWith("1", "123456", "fake-key", {
+      permissions: READ_ONLY,
+    });
+  });
+
+  it("rejects a malformed repository name before minting", async () => {
+    verifyInternalSecretMock.mockReturnValue(true);
+    const res = await GET(
+      makeRequest({ workspaceIdHeader: "ws_1", internalSecret: true, repo: "acme/a b" }),
+    );
+    expect(res.status).toBe(400);
+    expect(getInstallationTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("does not scope a token minted for a signed-in member", async () => {
+    verifyInternalSecretMock.mockReturnValue(false);
+    requireAuthMock.mockResolvedValue({ user: { id: "u_1" } });
+    requireMembershipMock.mockResolvedValue({ membership: { role: "MEMBER" } });
+    await GET(makeRequest({ workspaceIdQuery: "ws_1" }));
+    expect(getInstallationTokenMock).toHaveBeenCalledWith("1", "123456", "fake-key", undefined);
+  });
+});

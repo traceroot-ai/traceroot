@@ -1,9 +1,9 @@
 ---
 title: GitHub Integration
-description: Connect your GitHub repositories to enable source code access and automated PRs
+description: Connect your GitHub repositories to enable source code and history access
 ---
 
-GitHub integration lets the traceroot Agent clone your repo in a sandbox, read the source code behind failing spans, and create fix PRs — all from within traceroot.
+GitHub integration lets the traceroot Agent clone your repo in a sandbox, read the source code behind failing spans, and look through recent commits and pull requests — all from within traceroot. The agent works with read-only access to the repository it is analyzing, and proposes fixes as diffs for you to apply.
 
 ## Setup
 
@@ -19,9 +19,9 @@ GitHub integration lets the traceroot Agent clone your repo in a sandbox, read t
 | Permission | Access | Why |
 |-----------|--------|-----|
 | Metadata | Read-only | List repositories, collaborators, and access repository metadata (mandatory) |
-| Contents | Read and write | Clone and read source code for debugging; create fix PRs |
-| Pull requests | Read and write | Create fix PRs from root cause analysis; read PR context |
-| Issues | Read and write | Create and manage issues; read issue context for debugging |
+| Contents | Read and write | Clone and read source code for debugging |
+| Pull requests | Read and write | Read PR context |
+| Issues | Read and write | Read issue context for debugging |
 | Commit statuses | Read-only | Read commit statuses for trace correlation |
 | Discussions | Read-only | Read discussions and related context |
 

@@ -39,7 +39,7 @@ export function createBashTool(executor: Executor): AgentTool<any> {
     description:
       `Execute a bash command in the sandbox. The sandbox has jq, grep, cat, and standard Unix tools. ` +
       `Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). ` +
-      `Working directory is /workspace. No network access.`,
+      `Working directory is /workspace. The sandbox has no GitHub credentials: use the github_* tools for GitHub history.`,
     parameters: bashSchema,
     execute: async (
       _toolCallId: string,
