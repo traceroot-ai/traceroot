@@ -1,8 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
-import { setupGhCli } from "../executors/docker.js";
-import { setupGhCliDaytona } from "../executors/daytona.js";
 import { agentInternalSecret } from "../internal-secret.js";
 
 const schema = Type.Object({
@@ -57,7 +55,7 @@ export function createGitCloneTool(
     name: "git_clone",
     label: "Clone repository",
     description:
-      "Clone a GitHub repository into the sandbox. Uses the user's GitHub App installation for authentication. After cloning, use bash/read to explore the code.",
+      "Clone a GitHub repository into the sandbox. Uses the user's GitHub App installation for authentication. After cloning, use bash/read to explore the code and the github_* tools for commit and pull request history.",
     parameters: schema,
     execute: async (_, params): Promise<AgentToolResult<undefined>> => {
       // Validate before touching the network or the sandbox. These values reach
@@ -150,23 +148,22 @@ export function createGitCloneTool(
       // 5. Get commit info
       const commitInfo = await executor.exec(`cd "${clonePath}" && git log -1 --format="%h %s"`);
 
-      // 6. Set up gh CLI in sandbox (install + authenticate) so agent can query PRs/issues
-      try {
-        if (executor.hasNativeGit?.()) {
-          await setupGhCliDaytona(executor, token, github_username);
-        } else {
-          await setupGhCli(executor, token, github_username);
-        }
-      } catch {
-        // Non-fatal — clone succeeded, gh is a nice-to-have
-        console.warn("[git_clone] Failed to set up gh CLI in sandbox");
-      }
+      // 6. Commit identity for any local commits. No credential is stored in
+      // the sandbox: GitHub reads go through the host-side github_* tools.
+      const name = github_username || "TraceRoot Agent";
+      const email = github_username
+        ? `${github_username}@users.noreply.github.com`
+        : "agent@traceroot.ai";
+      await executor.exec(
+        `git config --global user.name "$GIT_NAME" && git config --global user.email "$GIT_EMAIL"`,
+        { env: { GIT_NAME: name, GIT_EMAIL: email } },
+      );
 
       return {
         content: [
           {
             type: "text",
-            text: `Cloned ${params.repo} to ${clonePath}\n\nCommit: ${commitInfo.stdout.trim()}\n${params.ref ? `Ref: ${params.ref}` : "(default branch)"}\n\nYou can now explore the code:\n  bash: ls ${clonePath}\n  bash: cat ${clonePath}/README.md\n  bash: git -C ${clonePath} log --oneline -10\n  bash: gh pr list --repo ${params.repo} --state merged --limit 5`,
+            text: `Cloned ${params.repo} to ${clonePath}\n\nCommit: ${commitInfo.stdout.trim()}\n${params.ref ? `Ref: ${params.ref}` : "(default branch)"}\n\nYou can now explore the code:\n  bash: ls ${clonePath}\n  bash: cat ${clonePath}/README.md\n  bash: git -C ${clonePath} log --oneline -10\n  github_pulls: repo ${params.repo}, state merged`,
           },
         ],
         details: undefined,

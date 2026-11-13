@@ -24,6 +24,7 @@ import {
   type SignalRcaContext,
 } from "../ee/signals/rca.js";
 import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
+import { fencedTextNotice, fenceUntrustedText } from "../detection/untrusted-text.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -106,6 +107,9 @@ async function resolveLegacyByok(
   return null;
 }
 
+/** Cap on the detector-derived text placed in an RCA prompt. */
+const FINDINGS_TEXT_MAX_CHARS = 8_000;
+
 /**
  * The prompt for an RCA started by signals: each listed hit started or reopened
  * a tracked signal, and hits on one trace can have unrelated causes, so the
@@ -120,14 +124,18 @@ export function signalRcaPrompt(
   githubNote: string,
 ): string {
   const n = findings.length;
-  const list = findings
-    .map(
-      (f, i) =>
-        `${i + 1}. Detector "${f.detectorName}" fired` +
-        (f.signalTitle ? ` (recurring problem: "${f.signalTitle}")` : "") +
-        `:\n   ${f.summary}`,
-    )
-    .join("\n\n");
+  const fenced = fenceUntrustedText(
+    findings
+      .map(
+        (f, i) =>
+          `${i + 1}. Detector "${f.detectorName}" fired` +
+          (f.signalTitle ? ` (recurring problem: "${f.signalTitle}")` : "") +
+          `:\n   ${f.summary}`,
+      )
+      .join("\n\n"),
+    FINDINGS_TEXT_MAX_CHARS,
+  );
+  const list = `${fencedTextNotice(fenced.marker)}\n\n${fenced.block}`;
   const intro =
     n === 1
       ? "A detector fired on this trace, and it is the first occurrence (or a return after a fix) of a recurring problem."
@@ -211,9 +219,13 @@ export async function runRcaSession(params: {
     data: { sessionId: session.id },
   });
 
-  const findingsList = params.findings
-    .map((f, i) => `${i + 1}. Detector "${f.detectorName}" fired:\n   ${f.summary}`)
-    .join("\n\n");
+  const fencedFindings = fenceUntrustedText(
+    params.findings
+      .map((f, i) => `${i + 1}. Detector "${f.detectorName}" fired:\n   ${f.summary}`)
+      .join("\n\n"),
+    FINDINGS_TEXT_MAX_CHARS,
+  );
+  const findingsList = `${fencedTextNotice(fencedFindings.marker)}\n\n${fencedFindings.block}`;
 
   const githubNote = params.hasGitHub
     ? "If any spans contain git_source_file and git_source_line, read that source code and check recent commits/PRs touching that file."
