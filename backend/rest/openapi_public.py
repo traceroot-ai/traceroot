@@ -36,6 +36,62 @@ def _error_response(description: str) -> dict[str, Any]:
     return {"description": description, "content": {"application/json": {"schema": _ERROR_SCHEMA}}}
 
 
+#: The one public route whose 422 is not only the string envelope. The shared widget
+#: handler turns a spec the builder rejects into `{"detail": {"step", "message"}}`
+#: (`WidgetSpecError`), so a client can show the failing builder step. A request body
+#: that fails ordinary validation on the same route still gets the string envelope.
+_WIDGET_QUERY_PATH = "/api/v1/public/widgets/query"
+_WIDGET_SPEC_ERROR_SCHEMA = {
+    "type": "object",
+    "title": "WidgetSpecErrorResponse",
+    "description": "A widget spec the query builder rejected, with the builder step at fault.",
+    "properties": {
+        "detail": {
+            "type": "object",
+            "properties": {
+                "step": {"type": "string", "description": "The builder step that failed."},
+                "message": {"type": "string"},
+            },
+            "required": ["step", "message"],
+        }
+    },
+    "required": ["detail"],
+}
+
+
+def _apply_widget_query_422(schema: dict[str, Any]) -> None:
+    """Document both shapes the widget query route can return for a 422."""
+    op = schema["paths"].get(_WIDGET_QUERY_PATH, {}).get("post")
+    if op is None or "422" not in op.get("responses", {}):
+        return
+    schema.setdefault("components", {}).setdefault("schemas", {})["WidgetSpecErrorResponse"] = (
+        copy.deepcopy(_WIDGET_SPEC_ERROR_SCHEMA)
+    )
+    op["responses"]["422"] = {
+        "description": "Validation error: a malformed request, or a widget spec the builder rejected",
+        "content": {
+            "application/json": {
+                "schema": {
+                    "oneOf": [
+                        _ERROR_SCHEMA,
+                        {"$ref": "#/components/schemas/WidgetSpecErrorResponse"},
+                    ]
+                }
+            }
+        },
+    }
+
+
+def _drop_unreferenced_schemas(schema: dict[str, Any], names: tuple[str, ...]) -> None:
+    """Remove the named component schemas when nothing in the document refers to them."""
+    components = schema.get("components", {}).get("schemas", {})
+    for name in names:
+        ref = f"#/components/schemas/{name}"
+        others = {k: v for k, v in components.items() if k not in names}
+        if name in components and ref not in json.dumps([schema["paths"], others]):
+            del components[name]
+
+
 def _apply_public_contract(schema: dict[str, Any]) -> None:
     """Document contract details FastAPI can't infer from the raw-Request /
     manual-HTTPException public routes: bearer auth (required), the protobuf
@@ -68,6 +124,14 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             responses = op.setdefault("responses", {})
             responses.setdefault("401", _error_response("Authentication failed"))
             responses.setdefault("503", _error_response("Authentication service unavailable"))
+            # FastAPI documents a 422 as its own array-of-errors model, but main.py's
+            # validation handler gives public routes the same ``{"detail": "<string>"}``
+            # envelope as every other error here. Document what is actually returned.
+            if "422" in responses:
+                responses["422"] = _error_response("Validation error")
+
+    _apply_widget_query_422(schema)
+    _drop_unreferenced_schemas(schema, ("HTTPValidationError", "ValidationError"))
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)
     # and documents its runtime error contract: 400 (empty body, invalid gzip, or a
