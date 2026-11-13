@@ -133,6 +133,56 @@ describe("runDetectionForTrace", () => {
     expect(mockComplete).toHaveBeenCalledTimes(1);
   });
 
+  it('does not report a finding when the judge stringifies identified as "false"', async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: "false", summary: "Trace is clean" },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: '{"span_id":"1","status":"OK"}',
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-haiku-4-5" },
+      workspaceId: "ws-1",
+    });
+
+    // Boolean("false") is true, so this used to register a finding (and spend
+    // an RCA run) on the verdict the model contradicted in its own summary.
+    expect(result.identified).toBe(false);
+    expect(result.summary).toBe("Trace is clean");
+  });
+
+  it('accepts a stringified identified as "true" from a weaker judge', async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: "true", summary: "Tool errored 3 times" },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: '{"span_id":"1","status":"ERROR"}',
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-haiku-4-5" },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(true);
+    expect(result.summary).toBe("Tool errored 3 times");
+  });
+
   it("resolves the shared detector default for unpinned system detectors", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
