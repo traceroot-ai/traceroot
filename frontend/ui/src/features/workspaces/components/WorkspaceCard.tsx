@@ -40,8 +40,8 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
         {!workspace.is_demo && (
           <div className="flex gap-4 text-[12px] text-muted-foreground">
             <span>Created {new Date(workspace.create_time).toLocaleDateString()}</span>
-            {workspace.update_time && (
-              <span>Updated {new Date(workspace.update_time).toLocaleDateString()}</span>
+            {workspace.last_ingested_at && (
+              <span>Updated {new Date(workspace.last_ingested_at).toLocaleDateString()}</span>
             )}
           </div>
         )}

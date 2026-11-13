@@ -11,6 +11,7 @@ import { isDemoViewer, isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPlainObject } from "@/lib/is-plain-object";
 import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
 import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
+import { latestProjectIngestion } from "@/lib/workspace-ingestion";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
@@ -73,6 +74,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       create_time: p.createTime,
     })),
     create_time: workspace.createTime,
+    last_ingested_at: latestProjectIngestion(workspace.projects),
     ...billing,
   });
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { latestProjectIngestion } from "@/lib/workspace-ingestion";
 import { isDemoWorkspace, sortDemoLast, userMembershipWhere } from "@/lib/demo-workspace";
 
 const createWorkspaceSchema = z.object({
@@ -23,7 +24,7 @@ async function handleGET() {
         include: {
           projects: {
             where: { deleteTime: null },
-            select: { id: true, name: true },
+            select: { id: true, name: true, lastIngestedAt: true },
           },
           _count: {
             select: { members: true },
@@ -45,8 +46,9 @@ async function handleGET() {
       is_demo: isDemo,
       member_count: isDemo ? undefined : m.workspace._count.members,
       project_count: m.workspace.projects.length,
-      projects: m.workspace.projects,
+      projects: m.workspace.projects.map(({ id, name }) => ({ id, name })),
       create_time: m.workspace.createTime,
+      last_ingested_at: latestProjectIngestion(m.workspace.projects),
     };
   });
 
@@ -115,6 +117,7 @@ async function handlePOST(request: NextRequest) {
       project_count: 0,
       projects: [],
       create_time: workspace.createTime,
+      last_ingested_at: null,
     },
     { status: 201 },
   );

@@ -7,11 +7,13 @@ import { getWorkspaces, getWorkspace } from "@/lib/api";
 /**
  * Hook for fetching all workspaces for the current user
  */
-export function useWorkspaces(enabled: boolean = true) {
+export function useWorkspaces(enabled: boolean = true, refetchInterval?: number) {
   return useQuery({
     queryKey: ["workspaces"],
     queryFn: getWorkspaces,
     enabled,
+    refetchInterval,
+    refetchOnMount: refetchInterval ? "always" : true,
   });
 }
 

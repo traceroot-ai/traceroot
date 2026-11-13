@@ -68,6 +68,44 @@ describe("GET /api/workspaces with a demo workspace", () => {
     };
   }
 
+  it("uses the latest ingestion across projects instead of workspace metadata", async () => {
+    const member = membership("ws-own", "Acme", "ADMIN", 1);
+    memberFindManyMock.mockResolvedValue([
+      {
+        ...member,
+        workspace: {
+          ...member.workspace,
+          updateTime: new Date("2026-11-13T23:00:00Z"),
+          projects: [
+            { id: "p1", name: "First", lastIngestedAt: new Date("2026-11-12T12:34:56Z") },
+            { id: "p2", name: "Second", lastIngestedAt: new Date("2026-11-13T12:34:56Z") },
+            { id: "p3", name: "Empty", lastIngestedAt: null },
+          ],
+        },
+      },
+    ]);
+    const res = await (GET as unknown as () => Promise<MockResponse>)();
+    const body = JSON.parse(JSON.stringify(await res.json()));
+    expect(body.workspaces[0]).toMatchObject({
+      last_ingested_at: "2026-11-13T12:34:56.000Z",
+      projects: [
+        { id: "p1", name: "First" },
+        { id: "p2", name: "Second" },
+        { id: "p3", name: "Empty" },
+      ],
+    });
+    expect(body.workspaces[0].projects[0]).not.toHaveProperty("lastIngestedAt");
+    expect(memberFindManyMock.mock.calls[0][0].include.workspace.include.projects.where).toEqual({
+      deleteTime: null,
+    });
+  });
+
+  it("returns null when the workspace has no ingestion history", async () => {
+    memberFindManyMock.mockResolvedValue([membership("ws-own", "Empty", "ADMIN", 1)]);
+    const res = await (GET as unknown as () => Promise<MockResponse>)();
+    expect(await res.json()).toMatchObject({ workspaces: [{ last_ingested_at: null }] });
+  });
+
   it("lists the demo last, marks it, and hides its member count", async () => {
     vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
     try {
@@ -98,6 +136,7 @@ describe("POST /api/workspaces", () => {
     workspaceCreateMock.mockResolvedValue({ id: "ws-1", name: "Acme", createTime: new Date() });
     const res = (await POST(makeRequest({ name: "Acme" }))) as unknown as MockResponse;
     expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ last_ingested_at: null });
     expect(workspaceCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ name: "Acme", createdBy: "user-1" }),
     });
