@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import type { SocialProvider } from "@/lib/social-providers";
+import { SocialSignInButtons } from "../social-sign-in-buttons";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -22,10 +24,10 @@ const signInSchema = z.object({
 type SignInForm = z.infer<typeof signInSchema>;
 
 type SignInContentProps = {
-  googleAuthConfigured: boolean;
+  socialProviders: SocialProvider[];
 };
 
-function SignInContent({ googleAuthConfigured }: SignInContentProps) {
+function SignInContent({ socialProviders }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -39,7 +41,6 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
@@ -70,14 +71,6 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  async function handleGoogleSignIn() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: callbackUrl,
-    });
   }
 
   return (
@@ -137,28 +130,11 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
             </Button>
           </form>
 
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[12px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignIn}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
+          <SocialSignInButtons
+            providers={socialProviders}
+            callbackURL={callbackUrl}
+            onError={setError}
+          />
 
           <p className="text-center text-[12px] text-muted-foreground">
             Don&apos;t have an account?{" "}
@@ -172,10 +148,10 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   );
 }
 
-export function SignInClient({ googleAuthConfigured }: SignInContentProps) {
+export function SignInClient({ socialProviders }: SignInContentProps) {
   return (
     <Suspense>
-      <SignInContent googleAuthConfigured={googleAuthConfigured} />
+      <SignInContent socialProviders={socialProviders} />
     </Suspense>
   );
 }

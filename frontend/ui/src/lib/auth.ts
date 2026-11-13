@@ -28,6 +28,9 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
 
+  // Failed OAuth callbacks land on the app's error page, not better-auth's.
+  onAPIError: { errorURL: new URL("/auth/error", env.BETTER_AUTH_URL).toString() },
+
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -42,7 +45,7 @@ export const auth = betterAuth({
           captureServerEvent(user.id, "user_signed_up", signupAttributionProperties(context));
           onUserCreated(
             { id: user.id, email: user.email, name: user.name ?? null },
-            context ? { path: context.path } : null,
+            context ? { path: context.path, provider: context.params?.id } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },

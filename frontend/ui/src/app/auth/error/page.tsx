@@ -12,6 +12,16 @@ const errorMessages: Record<string, string> = {
   Verification: "The verification link has expired or has already been used.",
   OAuthAccountNotLinked:
     "This email is already associated with another account. Please sign in with the original provider.",
+  // Codes better-auth sends from a failed OAuth callback.
+  account_not_linked:
+    "An account with this email already exists, and this sign-in was not linked to it. Sign in the way you did before.",
+  access_denied: "Sign-in was cancelled or not allowed by the provider.",
+  unable_to_get_user_info: "The sign-in provider did not confirm your identity. Please try again.",
+  oauth_provider_not_found: "That sign-in method is not available.",
+  state_mismatch: "Your sign-in expired. Please start again.",
+  state_not_found: "Your sign-in expired. Please start again.",
+  state_invalid: "Your sign-in expired. Please start again.",
+  state_security_mismatch: "Your sign-in expired. Please start again.",
   Default: "An error occurred during authentication.",
 };
 

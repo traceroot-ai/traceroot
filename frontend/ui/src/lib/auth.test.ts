@@ -50,12 +50,16 @@ vi.mock("@/env", () => ({
 
 await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
+  onAPIError: { errorURL: string };
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
   databaseHooks: {
     user: {
       create: {
-        after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
+        after: (
+          user: Record<string, unknown>,
+          context?: { path: string; params?: { id: string } } | null,
+        ) => Promise<void>;
       };
     };
   };
@@ -73,6 +77,10 @@ describe("auth options", () => {
 
   it("does not disable IP tracking, which would drop rate limiting entirely", () => {
     expect(options.advanced.ipAddress.disableIpTracking).toBeUndefined();
+  });
+
+  it("sends failed OAuth callbacks to the app's own error page", () => {
+    expect(options.onAPIError.errorURL).toBe("http://localhost:3000/auth/error");
   });
 
   it("keeps the device-code creation cap", () => {
@@ -105,6 +113,21 @@ describe("auth options", () => {
     await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
     const user = { id: "u1", email: "a@example.com", name: null };
     expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+  });
+
+  it("hands a social sign-up's provider id from the callback route param", async () => {
+    const { after } = options.databaseHooks.user.create;
+    await after(
+      { id: "u3", email: "g@example.com" },
+      {
+        path: "/callback/:id",
+        params: { id: "google" },
+      },
+    );
+    expect(onUserCreatedMock).toHaveBeenCalledWith(expect.objectContaining({ id: "u3" }), {
+      path: "/callback/:id",
+      provider: "google",
+    });
   });
 
   it("resolves before the follow-up settles and logs its later rejection", async () => {

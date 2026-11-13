@@ -47,9 +47,11 @@ beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-it("reads the provider from the endpoint path", () => {
-  const paths = ["/sign-up/email", "/callback/Oidc", "/x", undefined];
-  expect(paths.map((p) => signupProvider(p))).toEqual(["email", "oidc", "unknown", "unknown"]);
+it("reads the provider from the callback's route param, else from the endpoint path", () => {
+  expect(signupProvider({ path: "/callback/:id", provider: "Google" })).toBe("google");
+  expect(signupProvider({ path: "/sign-up/email" })).toBe("email");
+  expect(signupProvider({ path: "/x" })).toBe("unknown");
+  expect(signupProvider(null)).toBe("unknown");
 });
 
 it("does nothing, and logs nothing, when nothing is configured", async () => {
