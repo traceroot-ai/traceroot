@@ -258,6 +258,17 @@ model Account {
   @@map("accounts")
 }
 
+// Each AgentID agent's owner (AgentMail account or organization), written only
+// by the sign-up cap in ui/src/lib/agentid-owner-cap.ts.
+model AgentIdOwnerLink {
+  agentSub  String   @id @map("agent_sub") @db.VarChar
+  ownerSub  String   @map("owner_sub") @db.VarChar
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([ownerSub], map: "ix_agentid_owner_link_owner_sub")
+  @@map("agentid_owner_links")
+}
+
 // Sessions - better-auth session management
 model Session {
   id             String   @id @default(cuid()) @db.VarChar

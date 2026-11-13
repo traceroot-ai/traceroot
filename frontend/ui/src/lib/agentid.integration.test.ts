@@ -5,6 +5,11 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { genericOAuth } from "better-auth/plugins";
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import { AGENTID_ENDPOINTS, AGENTID_ISSUER, agentIdProvider } from "./agentid";
+import {
+  AGENTID_OWNER_LIMIT_REACHED,
+  AGENTID_OWNER_MISSING,
+  agentIdOwnerCap,
+} from "./agentid-owner-cap";
 
 // Real better-auth handlers and the real AgentID provider; only the network is
 // faked: fetch serves AgentID's token, userinfo and JWKS, and Google is stubbed.
@@ -26,6 +31,7 @@ let userinfo: Row;
 let googleProfile: { sub: string; email: string };
 let tokenRequests: { authorization: string | null; body: URLSearchParams }[];
 let createdWith: { path?: string; provider?: string }[];
+let reserve: ReturnType<typeof vi.fn<(owner: string, agent: string) => Promise<boolean>>>;
 
 beforeAll(async () => {
   const agent = await generateKeyPair("ES256", { extractable: true });
@@ -65,6 +71,7 @@ async function testAuth() {
     socialProviders: { google: { clientId: "test-client", clientSecret: "test-secret" } },
     account: { accountLinking: { enabled: true, trustedProviders: ["google"] } },
     onAPIError: { errorURL: `${baseURL}/auth/error` },
+    user: { validateUserInfo: agentIdOwnerCap(reserve) },
     databaseHooks: {
       user: {
         create: {
@@ -152,6 +159,7 @@ const userByEmail = (email: string) => db.user.find((u) => u.email === email);
 
 beforeEach(() => {
   tokenRequests = [];
+  reserve = vi.fn(async () => true);
   agent("agent-1");
   idTokenFor = () => idToken();
   vi.stubGlobal("fetch", fakeAgentId());
@@ -178,6 +186,7 @@ describe("AgentID sign-in", () => {
       expect.objectContaining({ email: "agent-1@agentmail.to", emailVerified: false }),
     ]);
     expect(accountsFor("agentid")).toEqual([expect.objectContaining({ accountId: "agent-1" })]);
+    expect(reserve).toHaveBeenCalledWith("owner-a", "agent-1");
     expect(createdWith).toEqual([{ path: "/callback/:id", provider: "agentid" }]);
 
     const [{ authorization, body }] = tokenRequests;
@@ -246,12 +255,14 @@ describe("AgentID never merges into an existing user", () => {
     expect(accountsFor("agentid")).toHaveLength(0);
   });
 
-  it("signs a returning agent into the same user", async () => {
+  it("signs a returning agent into the same user without consulting the cap again", async () => {
     const auth = await testAuth();
     await signIn(auth, "agentid");
+    reserve.mockResolvedValue(false);
 
     expect((await signIn(auth, "agentid")).location).toBe(`${baseURL}/onboarding`);
     expect(db.user).toHaveLength(1);
+    expect(reserve).toHaveBeenCalledOnce();
   });
 
   it("does not merge a second agent that reuses an address under a different sub", async () => {
@@ -271,5 +282,37 @@ describe("AgentID never merges into an existing user", () => {
     googleProfile = { sub: "google-5", email: "agent-1@agentmail.to" };
     expect(errorCode((await signIn(auth, "google")).location)).toBe("account_not_linked");
     expect(accountsFor("google")).toHaveLength(0);
+  });
+});
+
+describe("AgentID per-owner cap", () => {
+  it("refuses a new agent when its owner is at the cap", async () => {
+    reserve.mockResolvedValue(false);
+    const auth = await testAuth();
+
+    expect(errorCode((await signIn(auth, "agentid")).location)).toBe(AGENTID_OWNER_LIMIT_REACHED);
+    expect(db.user).toHaveLength(0);
+  });
+
+  it("refuses a new agent whose owner AgentID did not send", async () => {
+    agent("agent-1", undefined, null);
+    const auth = await testAuth();
+
+    expect(errorCode((await signIn(auth, "agentid")).location)).toBe(AGENTID_OWNER_MISSING);
+    expect(db.user).toHaveLength(0);
+    expect(reserve).not.toHaveBeenCalled();
+  });
+
+  it("leaves email and Google sign-ups alone", async () => {
+    reserve.mockResolvedValue(false);
+    const auth = await testAuth();
+    googleProfile = { sub: "google-h", email: "g@example.com" };
+
+    const email = await auth.handler(
+      request("/sign-up/email", { email: "h@example.com", name: "H", password: "pw-123456" }),
+    );
+    expect(email.status).toBe(200);
+    expect((await signIn(auth, "google")).location).toBe(`${baseURL}/onboarding`);
+    expect(reserve).not.toHaveBeenCalled();
   });
 });
