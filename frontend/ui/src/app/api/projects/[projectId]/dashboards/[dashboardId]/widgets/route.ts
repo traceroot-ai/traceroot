@@ -47,17 +47,24 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
   ) {
     return errorResponse("displayConfig must be a JSON object", 400);
   }
-  // A query spec that names fields the registry doesn't know stores fine and
-  // then fails at query time forever, with no UI path to repair it — the same
-  // vocabulary check the API/agent write path runs, so the guarantee holds on
-  // both. Only specs that parse as query specs can be checked; anything the
-  // schema can't read is still left to the query engine, as before.
+  // A query spec the schema can't read, or that names fields the registry
+  // doesn't know, stores fine and then fails at query time forever, with no UI
+  // path to repair it. Refuse both and store the parsed spec (defaults filled,
+  // undeclared keys dropped), as parseWidgetSpec does on the API/agent path.
+  let storedSpec = spec as object;
   if (type === "query") {
     const parsedSpec = WidgetSpecSchema.safeParse(spec);
-    if (parsedSpec.success) {
-      const vocabulary = validateWidgetSpecVocabulary(parsedSpec.data);
-      if (!vocabulary.ok) return errorResponse(vocabulary.error, 400);
+    if (!parsedSpec.success) {
+      const issue = parsedSpec.error.issues[0];
+      const path = issue.path.join(".");
+      return errorResponse(
+        `spec is not a valid widget spec: ${path ? `${path}: ` : ""}${issue.message}`,
+        400,
+      );
     }
+    const vocabulary = validateWidgetSpecVocabulary(parsedSpec.data);
+    if (!vocabulary.ok) return errorResponse(vocabulary.error, 400);
+    storedSpec = parsedSpec.data;
   }
 
   // The widget row and its grid placement land together — a widget with no
@@ -70,7 +77,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
           dashboardId,
           title: title.trim(),
           type,
-          spec: spec as object,
+          spec: storedSpec,
           displayConfig: (displayConfig as object) ?? {},
         },
       }),
