@@ -23,7 +23,9 @@ interface CachedModel {
 }
 
 // Bedrock regional and country profiles. global. is the base endpoint.
-const REGIONAL_PROFILE = /^(?:us|eu|apac|jp|au|in)\./i;
+// Same list as _REGIONAL_PREFIXES in the Python worker.
+export const REGIONAL_PREFIXES = ["us", "eu", "apac", "jp", "au", "in"] as const;
+const REGIONAL_PROFILE = new RegExp(`^(?:${REGIONAL_PREFIXES.join("|")})\\.`, "i");
 
 // `matchPattern` values are authored for the Python worker, which accepts the PCRE
 // inline flag `(?i)`. JavaScript's RegExp does not — it throws "Invalid group" — and

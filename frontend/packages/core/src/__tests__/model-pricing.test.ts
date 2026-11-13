@@ -14,6 +14,8 @@ import {
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
+import { REGIONAL_PREFIXES } from "../model-pricing/lookup.ts";
+import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
 // cacheWrite1h = 2x input.
@@ -191,13 +193,31 @@ describe("getModelPricing — Bedrock regional premium", () => {
     const global = await lookup("global.anthropic.claude-sonnet-4-6");
     const bare = await lookup("claude-sonnet-4-6");
     const regional = await lookup("jp.anthropic.claude-sonnet-4-6");
-    expect(global?.input).toBeCloseTo(0.000003);
-    expect(bare?.input).toBeCloseTo(0.000003);
-    expect(regional?.input).toBeCloseTo(0.0000033);
-    expect(regional?.output).toBeCloseTo(0.0000165);
-    expect(regional?.cacheRead).toBeCloseTo(0.00000033);
-    expect(regional?.cacheWrite).toBeCloseTo(0.000004125);
-    expect(regional?.cacheWrite1h).toBeCloseTo(0.0000066);
+    expect(global?.input).toBeCloseTo(0.000003, 12);
+    expect(bare?.input).toBeCloseTo(0.000003, 12);
+    expect(regional?.input).toBeCloseTo(0.0000033, 12);
+    expect(regional?.output).toBeCloseTo(0.0000165, 12);
+    expect(regional?.cacheRead).toBeCloseTo(0.00000033, 12);
+    expect(regional?.cacheWrite).toBeCloseTo(0.000004125, 12);
+    expect(regional?.cacheWrite1h).toBeCloseTo(0.0000066, 12);
+  });
+});
+
+describe("regional prefix list", () => {
+  it("matches every region prefix in the catalogue and leaves global off the premium", () => {
+    const group = /\(((?:[a-z]+\\\.\|)+[a-z]+\\\.)\)/g;
+    const allowed = new Set<string>([...REGIONAL_PREFIXES, "global"]);
+    const seen = new Set<string>();
+    for (const entry of standardModels) {
+      for (const match of entry.matchPattern.matchAll(group)) {
+        for (const part of match[1].split("|")) {
+          const prefix = part.replace(/\\\./g, "");
+          expect(allowed.has(prefix)).toBe(true);
+          if (prefix !== "global") seen.add(prefix);
+        }
+      }
+    }
+    expect([...seen].sort()).toEqual([...REGIONAL_PREFIXES].sort());
   });
 });
 

@@ -23,7 +23,12 @@ logger = logging.getLogger(__name__)
 
 # Bedrock regional and country inference profiles. global. is the base rate.
 # India sits with Japan and Australia: same kind of profile, same 10% premium.
-_REGIONAL_PROFILE = re.compile(r"^(?:us|eu|apac|jp|au|in)\.", re.IGNORECASE)
+# The catalogue patterns and the TypeScript lookup keep this same list.
+_REGIONAL_PREFIXES = ("us", "eu", "apac", "jp", "au", "in")
+_REGIONAL_PROFILE = re.compile(
+    rf"^(?:{'|'.join(_REGIONAL_PREFIXES)})\.",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # In-memory cache (populated on first call)
@@ -101,13 +106,15 @@ def _rates_for(entry: dict, model: str) -> dict:
     premium = entry.get("regional_premium")
     if not premium or _REGIONAL_PROFILE.match(model) is None:
         return prices
-    factor = Decimal(str(premium))
+    # Plain float, same as the TypeScript card. _rate turns the result back
+    # into a Decimal when the cost is summed.
+    factor = float(premium)
     scaled: dict = {}
     for key, value in prices.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             scaled[key] = value
             continue
-        scaled[key] = float(Decimal(str(value)) * factor)
+        scaled[key] = value * factor
     return scaled
 
 
