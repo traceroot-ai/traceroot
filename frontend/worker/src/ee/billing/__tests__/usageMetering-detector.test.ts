@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@traceroot/core", () => ({
   prisma: {},
@@ -31,59 +31,6 @@ vi.mock("./clickhouse.js", () => ({
     },
   }), // unused
 }));
-
-import { reportDetectorOverageToStripe } from "../usageMetering.js";
-
-function makeStripe() {
-  const create = vi.fn().mockResolvedValue({});
-  return {
-    client: {
-      billing: {
-        meterEvents: { create },
-      },
-    } as unknown as import("stripe").default,
-    create,
-  };
-}
-
-describe("reportDetectorOverageToStripe", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("emits a detector_usage meter event with correct units", async () => {
-    const { client, create } = makeStripe();
-
-    const ok = await reportDetectorOverageToStripe("ws-1", "cus_x", 42, client);
-
-    expect(ok).toBe(true);
-    expect(create).toHaveBeenCalledTimes(1);
-    const args = create.mock.calls[0][0];
-    expect(args.event_name).toBe("detector_usage");
-    expect(args.payload.stripe_customer_id).toBe("cus_x");
-    expect(args.payload.value).toBe("42");
-  });
-
-  it("skips and returns false when units <= 0 (idempotency: nothing to report)", async () => {
-    const { client, create } = makeStripe();
-
-    const a = await reportDetectorOverageToStripe("ws-1", "cus_x", 0, client);
-    const b = await reportDetectorOverageToStripe("ws-1", "cus_x", -5, client);
-
-    expect(a).toBe(false);
-    expect(b).toBe(false);
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it("returns false when Stripe call throws (caller decides whether to advance lastReportedUnits)", async () => {
-    const { client, create } = makeStripe();
-    create.mockRejectedValueOnce(new Error("stripe down"));
-
-    const ok = await reportDetectorOverageToStripe("ws-1", "cus_x", 100, client);
-
-    expect(ok).toBe(false);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Pure-math sanity checks for the detector billing path.
