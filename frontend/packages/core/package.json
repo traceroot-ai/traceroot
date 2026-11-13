@@ -30,6 +30,10 @@
       "types": "./src/llm-providers.ts",
       "default": "./src/llm-providers.ts"
     },
+    "./alert-delivery": {
+      "types": "./src/alert-delivery.ts",
+      "default": "./src/alert-delivery.ts"
+    },
     "./model-resolver": {
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"

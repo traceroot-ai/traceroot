@@ -1,19 +1,6 @@
 import type { AlertSeverity } from "@traceroot/core";
+import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "@traceroot/core";
 import type { AlertLastDelivery, AlertRule } from "./rule.js";
-
-/**
- * Non-deliveries only the workspace's Slack settings can clear. Recorded rather than
- * rolled back (see `alert-slack.ts`), which is what leaves them standing on the row
- * for a later tick to notice that the settings have since changed.
- */
-export const SLACK_CONFIGURATION_FAILURES: ReadonlySet<string> = new Set([
-  "no-channel",
-  "no-bot-token",
-  "bot-token-undecryptable",
-]);
-
-/** The delivery worker giving up once transient failures outlast a job's attempts. */
-export const RETRIES_EXHAUSTED = "retries-exhausted";
 
 const FAILED = "FAILED";
 const COMPENSATED = "COMPENSATED";

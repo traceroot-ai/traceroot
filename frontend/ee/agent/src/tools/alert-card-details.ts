@@ -22,6 +22,7 @@ export interface AlertCardRow {
   last_error: string | null;
   last_notify_status: string | null;
   last_notify_error: string | null;
+  last_notify_severity: string | null;
   last_notify_at: string | null;
 }
 
@@ -91,6 +92,7 @@ function cardRow(alert: unknown): AlertCardRow | null {
     last_error: text(alert.last_error),
     last_notify_status: text(alert.last_notify_status),
     last_notify_error: text(alert.last_notify_error),
+    last_notify_severity: text(alert.last_notify_severity),
     last_notify_at: text(alert.last_notify_at),
   };
 }

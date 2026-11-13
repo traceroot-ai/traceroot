@@ -637,6 +637,7 @@ _ALERT_ENVELOPES = {
             "lastErrorAt": None,
             "lastNotifyStatus": None,
             "lastNotifyError": None,
+            "lastNotifySeverity": None,
             "lastNotifyAt": None,
             "createTime": "2026-08-01T00:00:00Z",
             "updateTime": "2026-08-01T00:00:00Z",
