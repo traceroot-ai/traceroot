@@ -194,6 +194,8 @@ model Project {
   aiSessions   AISession[]
   detectors    Detector[]
   alertConfig  DetectorAlertConfig?
+  updateSchedule ProjectUpdateSchedule?
+  updateRuns   ProjectUpdateRun[]
   detectorRcas DetectorRca[]
   signals      Signal[]
   dashboards   Dashboard[]
@@ -536,6 +538,64 @@ model DetectorAlertConfig {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("detector_alert_configs")
+}
+
+// ---------------------------------------------------------------------------
+// Background updates
+//
+// A project that turns updates on gets one schedule row: a daily or weekly
+// slot at a wall-clock hour in its own timezone. No row means no updates.
+// nextSlotAt is the next slot the tick has not yet turned into a run; the tick
+// moves it forward with a compare-and-set, so two workers cannot both claim a
+// slot. Each run covers the window ending at its slot and records the window it
+// was compared with.
+// ---------------------------------------------------------------------------
+
+model ProjectUpdateSchedule {
+  id         String    @id @default(cuid()) @db.VarChar
+  projectId  String    @unique @map("project_id") @db.VarChar
+  enabled    Boolean   @default(true)
+  frequency  String    @default("weekly") @db.VarChar // UPDATE_FREQUENCIES: "daily" | "weekly"
+  weekday    Int       @default(1) // ISO weekday, 1 = Monday; unused when daily
+  hour       Int       @default(9) // local wall-clock hour, 0..23
+  timezone   String    @default("UTC") @db.VarChar // IANA name
+  // The next slot not yet turned into a run; null while disabled.
+  nextSlotAt DateTime? @map("next_slot_at") @db.Timestamp(6)
+  createTime DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, nextSlotAt], map: "ix_project_update_schedule_due")
+  @@map("project_update_schedules")
+}
+
+// One row per update run. dedupeKey is what makes a slot single-flight: a
+// scheduled run's key names its project and slot, so a second claim of the same
+// slot fails on the unique index instead of starting a second run. A manual run
+// carries a key of its own and may repeat for the same slot.
+model ProjectUpdateRun {
+  id              String    @id @default(cuid()) @db.VarChar
+  projectId       String    @map("project_id") @db.VarChar
+  dedupeKey       String    @unique @map("dedupe_key") @db.VarChar
+  trigger         String    @db.VarChar // "scheduled" | "manual"
+  slotAt          DateTime  @map("slot_at") @db.Timestamp(6)
+  windowStart     DateTime  @map("window_start") @db.Timestamp(6)
+  windowEnd       DateTime  @map("window_end") @db.Timestamp(6)
+  prevWindowStart DateTime  @map("prev_window_start") @db.Timestamp(6)
+  prevWindowEnd   DateTime  @map("prev_window_end") @db.Timestamp(6)
+  frequency       String    @db.VarChar
+  timezone        String    @db.VarChar
+  status          String    @default("pending") @db.VarChar // "pending" | "running" | "succeeded" | "failed" | "stopped"
+  error           String?   @db.Text
+  startedAt       DateTime? @map("started_at") @db.Timestamp(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamp(6)
+  createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, slotAt], map: "ix_project_update_run_project_slot")
+  @@map("project_update_runs")
 }
 
 model DetectorRca {
