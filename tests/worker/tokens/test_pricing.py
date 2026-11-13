@@ -476,6 +476,30 @@ class TestGeminiModelIds:
             assert get_model_price(model_id) is None
 
 
+# $ per 1M tokens, off-peak: input, cache hit, output
+DEEPSEEK_PUBLISHED_RATES = {
+    "deepseek-v4-flash": (0.15, 0.003, 0.60),
+    "deepseek-v4-pro": (0.66, 0.022, 1.98),
+}
+
+
+class TestDeepSeekPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://api-docs.deepseek.com/quick_start/pricing).
+
+    Peak hours cost twice the off-peak rate; the table has no time-of-day
+    pricing, so peak-hour calls record half their cost.
+    """
+
+    @pytest.mark.parametrize("model_name,rates", DEEPSEEK_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+        assert entry["prices"]["cacheWrite"] is None
+
+
 class TestDeepSeekModelIds:
     @pytest.mark.parametrize("model_id,expected_name", DEEPSEEK_MODEL_CASES)
     def test_matches_expected_model(self, real_cache, model_id, expected_name):
