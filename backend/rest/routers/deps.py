@@ -101,9 +101,10 @@ async def get_project_access(
                 },
             )
     except httpx.RequestError as e:
+        logger.error(f"Failed to validate project access: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Authentication service unavailable: {e}",
+            detail="Authentication service unavailable",
         ) from e
 
     if response.status_code == 401:

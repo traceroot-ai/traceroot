@@ -359,11 +359,13 @@ class TestGetProjectAccess:
     @respx.mock
     async def test_service_down(self):
         respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
-            side_effect=httpx.ConnectError("Connection refused")
+            side_effect=httpx.ConnectError("Connection refused to internal-ui:3000")
         )
         with pytest.raises(HTTPException) as exc_info:
             await get_project_access("proj-123", "untrusted-user", session_cookie="signed-cookie")
         assert exc_info.value.status_code == 503
+        # The client sees a fixed message; the connection error stays in the logs.
+        assert exc_info.value.detail == "Authentication service unavailable"
 
     @respx.mock
     async def test_auth_service_401(self):
