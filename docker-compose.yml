@@ -122,7 +122,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-password}  # CHANGEME
     ports:
-      - 9090:9000
+      - 127.0.0.1:9090:9000
       - 127.0.0.1:9091:9001
     volumes:
       - minio_data:/data

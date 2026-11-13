@@ -67,13 +67,22 @@ def _run(
 
 # Keys that must hold a unique, unguessable value in every install. .env.example
 # ships them empty because a value committed here is a value every install shares.
-GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET")
+GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET", "ENCRYPTION_KEY")
+
+# Generated only when empty or absent, never replaced. Stored provider keys and Slack
+# tokens are encrypted under whatever value is there, so swapping a non-empty one
+# would make them unreadable; `make rotate-encryption-key` is the way to change it.
+FRESH_ONLY_KEYS = frozenset({"ENCRYPTION_KEY"})
 
 # Required by docker-compose.prod.yml, which refuses to start without it, but
 # supplied by docker-compose.yml as one of the dev stack's deliberately weak known
 # defaults. The dev path therefore has nothing to repair and leaves .env silent
 # about it; every path that brings up prod compose has to fill it.
-PROD_GENERATED_KEYS = ("SQL_GATEWAY_BOOTSTRAP_PASSWORD",)
+PROD_GENERATED_KEYS = (
+    "SQL_GATEWAY_BOOTSTRAP_PASSWORD",
+    "CLICKHOUSE_PASSWORD",
+    "MINIO_ROOT_PASSWORD",
+)
 
 ALL_GENERATED_KEYS = GENERATED_KEYS + PROD_GENERATED_KEYS
 
@@ -88,8 +97,14 @@ PUBLISHED_PLACEHOLDERS = frozenset(
         "local-dev-secret-change-in-production",
         "changeme",
         "dev-sql-gateway-bootstrap",
+        "clickhouse",
+        "minio-password",
     }
 )
+
+
+def _cleaned(assigned: str) -> str:
+    return re.split(r"\s#", assigned, maxsplit=1)[0].strip().strip("\"'")
 
 
 def is_placeholder(assigned: str) -> bool:
@@ -100,8 +115,15 @@ def is_placeholder(assigned: str) -> bool:
     Only whitespace followed by "#" opens a comment, so a secret that merely
     contains a "#" is compared, and kept, in full.
     """
-    cleaned = re.split(r"\s#", assigned, maxsplit=1)[0].strip().strip("\"'")
+    cleaned = _cleaned(assigned)
     return not cleaned or cleaned.lower() in PUBLISHED_PLACEHOLDERS
+
+
+def _needs_value(key: str, assigned: str) -> bool:
+    """Whether ``KEY=assigned`` should be replaced with a generated value."""
+    if key in FRESH_ONLY_KEYS:
+        return not _cleaned(assigned)
+    return is_placeholder(assigned)
 
 
 def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
@@ -118,7 +140,7 @@ def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
         match = pattern.search(text)
         if match is None:
             text = text.rstrip("\n") + f"\n{key}={secrets.token_hex(32)}\n"
-        elif is_placeholder(match.group(2)):
+        elif _needs_value(key, match.group(2)):
             text = pattern.sub(lambda m: m.group(1) + secrets.token_hex(32), text, count=1)
     return text
 

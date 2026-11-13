@@ -52,7 +52,7 @@ exit 2
 """
 
 
-_INTERPOLATION = re.compile(r"\$\$|\$\{(\w+):-([^}]*)\}")
+_INTERPOLATION = re.compile(r"\$\$|\$\{(\w+):([-?])([^}]*)\}")
 
 # How a service gets the bucket name: S3_BUCKET_NAME from the host, else the API's default.
 _BUCKET_NAME = "${S3_BUCKET_NAME:-" + S3Settings.model_fields["bucket_name"].default + "}"
@@ -69,11 +69,21 @@ def _minio_init(compose_path: Path) -> dict:
 def _interpolate(value: str, host_env: dict[str, str]) -> str:
     """Resolve `value` as compose does.
 
-    `$$` is a literal `$` left for the container's shell, and `${NAME:-default}` is
-    NAME from the host, or the default when NAME is unset or empty.
+    `$$` is a literal `$` left for the container's shell, `${NAME:-default}` is NAME
+    from the host, or the default when NAME is unset or empty, and `${NAME:?message}`
+    is NAME from the host, which must be set.
     """
     assert "$" not in _INTERPOLATION.sub("", value), f"unsupported interpolation: {value}"
-    return _INTERPOLATION.sub(lambda m: "$" if m[0] == "$$" else host_env.get(m[1]) or m[2], value)
+
+    def resolve(m: re.Match) -> str:
+        if m[0] == "$$":
+            return "$"
+        if m[2] == "?":
+            assert host_env.get(m[1]), f"{m[1]} is required: {m[3]}"
+            return host_env[m[1]]
+        return host_env.get(m[1]) or m[3]
+
+    return _INTERPOLATION.sub(resolve, value)
 
 
 def _run_minio_init(
@@ -88,7 +98,8 @@ def _run_minio_init(
     runs in tmp_path, so a glob it leaves unquoted matches only files a test made.
     """
     spec = _minio_init(compose_path)
-    host_env = host_env or {}
+    # The production file requires the root password; the dev file defaults it.
+    host_env = {"MINIO_ROOT_PASSWORD": "operator-chosen", **(host_env or {})}
     container_env = {
         name: _interpolate(value, host_env) for name, value in spec.get("environment", {}).items()
     }

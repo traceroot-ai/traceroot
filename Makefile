@@ -5,16 +5,21 @@
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 # Secrets docker-compose.prod.yml marks required with ${VAR:?...}. Kept in sync
 # by tests/test_published_secrets.py, which reads both this list and the compose file.
-REQUIRED_SECRETS := INTERNAL_API_SECRET BETTER_AUTH_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD
+REQUIRED_SECRETS := INTERNAL_API_SECRET BETTER_AUTH_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD \
+	CLICKHOUSE_PASSWORD MINIO_ROOT_PASSWORD
+# Required too, but generated only when empty or absent and never replaced: stored
+# provider keys and Slack tokens are encrypted under the current value, so swapping it
+# in place would make them unreadable. `make rotate-encryption-key` changes it safely.
+FRESH_ONLY_SECRETS := ENCRYPTION_KEY
 # Values this repository published in .env.example or a compose file. Nobody chose
 # them, so an .env still carrying one is repaired rather than believed. Mirrors
 # PUBLISHED_PLACEHOLDERS in tmux_tools/launcher.py, which the same test pins to this.
 PUBLISHED_PLACEHOLDERS := dev-internal-secret internal-secret your-better-auth-secret \
-	local-dev-secret-change-in-production changeme dev-sql-gateway-bootstrap
+	local-dev-secret-change-in-production changeme dev-sql-gateway-bootstrap clickhouse minio-password
 # Only vX.Y.Z tags are platform versions; other tags must not become the label.
 APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset env-secrets
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset env-secrets rotate-encryption-key
 
 ## Install repository git hooks for contributors.
 install-hooks:
@@ -76,8 +81,9 @@ prod:
 ## this recipe has no business resolving silently.
 env-secrets:
 	@umask 077; if [ -L .env ]; then printf '%s\n' "env-secrets: .env is a symlink. Refusing to write secrets through it -- replace it with a regular file." >&2; exit 1; fi; test -f .env || cp .env.example .env; chmod 600 .env
-	@umask 077; for key in $(REQUIRED_SECRETS); do \
-		if awk -F= -v k="$$key" -v published="$(PUBLISHED_PLACEHOLDERS)" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t\r]+|[ \t\r]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) configured = 1 } END { exit !configured }' .env; then \
+	@umask 077; for key in $(REQUIRED_SECRETS) $(FRESH_ONLY_SECRETS); do \
+		case " $(FRESH_ONLY_SECRETS) " in *" $$key "*) published=""; ;; *) published="$(PUBLISHED_PLACEHOLDERS)"; ;; esac; \
+		if awk -F= -v k="$$key" -v published="$$published" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t\r]+|[ \t\r]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) configured = 1 } END { exit !configured }' .env; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
@@ -88,6 +94,11 @@ env-secrets:
 		rmdir "$$tmpdir"; \
 		echo "Generated $$key in .env"; \
 	done
+
+## Move stored provider keys and Slack tokens to a new encryption key. Needed once on an
+## install whose .env still has the example key; the stack refuses to start until it is done.
+rotate-encryption-key: env-secrets
+	@sh scripts/rotate-encryption-key.sh
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets

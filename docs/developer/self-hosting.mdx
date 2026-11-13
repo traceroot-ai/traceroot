@@ -45,6 +45,24 @@ make prod
 
 See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) for details.
 
+#### Credentials
+
+`make prod` and `make prod-lite` create a `.env` file and fill in credentials for your install: the database and object store passwords, the auth and internal API secrets, and the key that encrypts stored model provider keys and Slack tokens (`ENCRYPTION_KEY`). Each install gets its own values. To use your own, set them in `.env` before starting; a value copied from `.env.example` is not accepted and the stack stops with a message naming the variable to change.
+
+<Warning>
+  Keep a backup of `.env`. If `ENCRYPTION_KEY` is lost, stored model provider keys and Slack tokens can no longer be read and have to be entered again.
+</Warning>
+
+The object store API is published on `127.0.0.1` only. Put a reverse proxy in front of it deliberately if you need access from another machine.
+
+#### Upgrading an existing install
+
+1. Pull the latest version and run `make prod-lite` (or `make prod`). This replaces any database or object store password in `.env` that was copied from `.env.example` with a generated one.
+2. If the stack stops and names `ENCRYPTION_KEY`, your `.env` still has the key from `.env.example`. Run `make rotate-encryption-key` once. It re-encrypts the stored model provider keys and Slack tokens under a new key in a single transaction, writes the new key to `.env`, and saves the previous one to `.env.encryption-key.previous`. If anything fails, nothing is changed and you can run it again.
+3. Start the stack again with `make prod-lite` (or `make prod`).
+
+An install that never set `ENCRYPTION_KEY` has nothing stored under it and simply gets a generated one.
+
 
 ### Production Deployment
 

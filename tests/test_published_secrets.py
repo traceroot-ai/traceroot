@@ -99,7 +99,8 @@ def test_every_required_secret_is_generated_for_the_operator():
 
 def test_prod_lite_generates_the_same_set_without_the_python_toolchain():
     """prod-lite cannot call the launcher, so its own list must not drift."""
-    assert _makefile_required_secrets() == _compose_required_secrets()
+    generated = _makefile_required_secrets() | set(_makefile_list("FRESH_ONLY_SECRETS"))
+    assert generated == _compose_required_secrets()
 
 
 def _makefile_recipe(target: str) -> str:
@@ -126,6 +127,7 @@ def _run_env_secrets(
     """
     script = _makefile_recipe("env-secrets")
     script = script.replace("$(REQUIRED_SECRETS)", " ".join(sorted(_makefile_required_secrets())))
+    script = script.replace("$(FRESH_ONLY_SECRETS)", " ".join(_makefile_list("FRESH_ONLY_SECRETS")))
     script = script.replace(
         "$(PUBLISHED_PLACEHOLDERS)", " ".join(sorted(_makefile_list("PUBLISHED_PLACEHOLDERS")))
     )
@@ -317,7 +319,8 @@ def test_no_generated_secret_is_left_anywhere_but_env(tmp_path):
 
     env_path = tmp_path / ".env"
     secrets = set(_values(env_path).values())
-    assert len(secrets) == 3, f"expected three generated secrets, got {secrets}"
+    expected = len(_makefile_required_secrets()) + len(_makefile_list("FRESH_ONLY_SECRETS"))
+    assert len(secrets) == expected, f"expected {expected} generated secrets, got {secrets}"
     assert all(len(v) == 64 for v in secrets), secrets
 
     leaked = []
@@ -653,3 +656,280 @@ def test_published_default_is_treated_as_unset(published):
 def test_a_real_secret_is_kept_verbatim():
     secret = "a3f9c1d0b7e24856" * 4
     assert Settings(internal_api_secret=secret).internal_api_secret == secret
+
+
+# --- storage and database credentials -----------------------------------------
+
+_DEV_COMPOSE = _ROOT / "docker-compose.yml"
+_ENV_EXAMPLE = _ROOT / ".env.example"
+_COPIED_VALUES = ("clickhouse", "minio-password")
+
+
+@pytest.mark.parametrize("key", ["CLICKHOUSE_PASSWORD", "MINIO_ROOT_PASSWORD", "ENCRYPTION_KEY"])
+def test_prod_compose_has_no_fallback_for_the_new_required_values(key):
+    text = _COMPOSE.read_text()
+    assert not re.findall(rf"\$\{{{key}:-[^}}]*\}}", text), f"{key} still has a fallback default"
+    assert re.search(rf"\$\{{{key}:\?", text), f"{key} is not marked required"
+
+
+def test_prod_compose_object_store_credentials_are_the_root_credentials():
+    """One variable, not two that can drift: apps sign in as the account minio starts with."""
+    text = _COMPOSE.read_text()
+    assert "S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD" in text
+    assert not re.search(r"\$\{S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)", text)
+
+
+@pytest.mark.parametrize("compose", [_COMPOSE, _DEV_COMPOSE])
+def test_object_store_api_is_only_published_on_loopback(compose):
+    published = [
+        line.strip()
+        for line in compose.read_text().splitlines()
+        if re.match(r"\s*- \"?(\d{1,3}(\.\d{1,3}){3}:)?\d+:9000\"?\s*$", line)
+    ]
+    assert published, "the object store port mapping moved; update this test"
+    assert all(line.startswith("- 127.0.0.1:") for line in published), published
+
+
+def _compose_service(name: str) -> dict:
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_COMPOSE.read_text())["services"][name]
+
+
+@pytest.mark.parametrize(
+    "service",
+    ["clickhouse", "minio", "web", "rest", "worker", "billing", "detector", "agent"],
+)
+def test_nothing_with_data_or_credentials_starts_before_the_preflight(service):
+    depends = _compose_service(service)["depends_on"]
+    assert depends["preflight"]["condition"] == "service_completed_successfully"
+
+
+def _run_preflight(**values: str) -> subprocess.CompletedProcess:
+    """Run the preflight service's own script, the way the container would."""
+    script = _compose_service("preflight")["entrypoint"][2].replace("$$", "$")
+    env = {"PATH": os.environ["PATH"], **values}
+    return subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=env)
+
+
+_GOOD = {
+    "CLICKHOUSE_PASSWORD": "a" * 64,
+    "MINIO_ROOT_PASSWORD": "b" * 64,
+    "ENCRYPTION_KEY": "c" * 64,
+}
+
+
+def test_preflight_accepts_values_the_operator_chose():
+    result = _run_preflight(**_GOOD)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        ("CLICKHOUSE_PASSWORD", "clickhouse"),
+        ("MINIO_ROOT_PASSWORD", "minio-password"),
+        ("MINIO_ROOT_PASSWORD", "minio"),
+        ("CLICKHOUSE_PASSWORD", "changeme"),
+    ],
+)
+def test_preflight_refuses_a_copied_password_and_names_it(name, value):
+    result = _run_preflight(**{**_GOOD, name: value})
+    assert result.returncode != 0
+    assert name in result.stderr
+    assert value not in result.stderr.replace(name, "").replace("make prod-lite", "")
+
+
+def test_preflight_refuses_the_copied_encryption_key_and_names_the_command():
+    example_key = "9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00"
+    result = _run_preflight(**{**_GOOD, "ENCRYPTION_KEY": example_key})
+    assert result.returncode != 0
+    assert "ENCRYPTION_KEY" in result.stderr
+    assert "make rotate-encryption-key" in result.stderr
+
+
+def test_the_example_config_ships_no_encryption_key():
+    assert re.search(r"^ENCRYPTION_KEY=\s*$", _ENV_EXAMPLE.read_text(), re.MULTILINE)
+
+
+def test_copied_values_are_in_both_placeholder_lists():
+    for value in _COPIED_VALUES:
+        assert value in _makefile_list("PUBLISHED_PLACEHOLDERS")
+        assert value in PUBLISHED_PLACEHOLDERS
+
+
+def test_the_new_passwords_are_generated_on_the_prod_paths_only():
+    from tmux_tools.launcher import PROD_GENERATED_KEYS
+
+    for key in ("CLICKHOUSE_PASSWORD", "MINIO_ROOT_PASSWORD"):
+        assert key in PROD_GENERATED_KEYS
+        assert key not in GENERATED_KEYS
+
+
+def test_prod_lite_replaces_a_copied_database_password(tmp_path):
+    (tmp_path / ".env.example").write_text("CLICKHOUSE_PASSWORD=clickhouse  # CHANGEME\n")
+    (tmp_path / ".env").write_text("CLICKHOUSE_PASSWORD=clickhouse  # CHANGEME\n")
+    _run_env_secrets(tmp_path)
+    generated = _values(tmp_path / ".env")["CLICKHOUSE_PASSWORD"]
+    assert len(generated) == 64 and generated != "clickhouse"
+
+
+# --- the encryption key is generated once and never swapped in place ----------
+
+
+def test_prod_lite_generates_an_encryption_key_when_none_is_set(tmp_path):
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    _run_env_secrets(tmp_path)
+    key = _values(tmp_path / ".env")["ENCRYPTION_KEY"]
+    assert re.fullmatch(r"[0-9a-f]{64}", key), key
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00", "a" * 64, "changeme"],
+)
+def test_prod_lite_never_replaces_an_encryption_key_that_is_set(tmp_path, value):
+    """Stored provider keys are encrypted under it; replacing it would orphan them."""
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").write_text(f"ENCRYPTION_KEY={value}\n")
+    _run_env_secrets(tmp_path)
+    assert _values(tmp_path / ".env")["ENCRYPTION_KEY"] == value
+
+
+def test_launcher_fills_an_empty_encryption_key_but_keeps_a_set_one():
+    assert re.search(r"ENCRYPTION_KEY=[0-9a-f]{64}", fill_secrets("ENCRYPTION_KEY=\n"))
+    for value in ("9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00", "changeme"):
+        text = f"ENCRYPTION_KEY={value}\n"
+        assert fill_secrets(text, ("ENCRYPTION_KEY",)) == text
+
+
+def test_the_dev_path_fills_the_encryption_key(env):
+    env_path, example = env
+    ensure_env_file(env_path, example)
+    assert re.fullmatch(r"[0-9a-f]{64}", _values(env_path)["ENCRYPTION_KEY"])
+
+
+# --- rotate-encryption-key.sh -------------------------------------------------
+# The docker call is replaced by a recording stand-in here (the real run against a
+# database is covered by the end-to-end check); everything else is the real script.
+
+_ROTATE = _ROOT / "scripts" / "rotate-encryption-key.sh"
+_OLD_KEY = "9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00"
+
+
+@pytest.fixture
+def rotation(tmp_path: Path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "docker.log"
+    fake = bin_dir / "docker"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'echo "ARGS: $*" >> "$FAKE_DOCKER_LOG"\n'
+        'case "$*" in *"run "*) echo "OLD_IS_CURRENT: $([ "$OLD_ENCRYPTION_KEY" = "$FAKE_EXPECT_OLD" ] '
+        '&& echo yes || echo no)" >> "$FAKE_DOCKER_LOG"\n'
+        'echo "NEW_ENV: $NEW_ENCRYPTION_KEY" >> "$FAKE_PRIVATE_LOG"\n'
+        '[ -n "$FAKE_DOCKER_FAIL" ] && exit 1;; esac\n'
+        "exit 0\n"
+    )
+    fake.chmod(0o755)
+    work = tmp_path / "repo"
+    work.mkdir()
+
+    def run(fail: bool = False) -> subprocess.CompletedProcess:
+        env = {
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FAKE_DOCKER_LOG": str(log),
+            "FAKE_PRIVATE_LOG": str(tmp_path / "private.log"),
+            "FAKE_EXPECT_OLD": _OLD_KEY,
+        }
+        if fail:
+            env["FAKE_DOCKER_FAIL"] = "1"
+        return subprocess.run(
+            ["sh", str(_ROTATE)], cwd=work, capture_output=True, text=True, env=env
+        )
+
+    return work, log, tmp_path / "private.log", run
+
+
+def test_rotation_writes_a_new_key_and_keeps_the_old_one_aside(rotation):
+    work, log, private, run = rotation
+    (work / ".env").write_text(f"A=1\nENCRYPTION_KEY={_OLD_KEY}\nB=2\n")
+
+    result = run()
+
+    assert result.returncode == 0, result.stderr
+    values = _values(work / ".env")
+    assert re.fullmatch(r"[0-9a-f]{64}", values["ENCRYPTION_KEY"])
+    assert values["ENCRYPTION_KEY"] != _OLD_KEY
+    assert values["A"] == "1" and values["B"] == "2"
+    assert (work / ".env.encryption-key.previous").read_text().strip() == _OLD_KEY
+    assert not (work / ".env.encryption-key.pending").exists()
+    assert "OLD_IS_CURRENT: yes" in log.read_text()
+    assert f"NEW_ENV: {values['ENCRYPTION_KEY']}" in private.read_text()
+    for path in (work / ".env", work / ".env.encryption-key.previous"):
+        assert not stat.S_IMODE(os.stat(path).st_mode) & (stat.S_IRGRP | stat.S_IROTH)
+
+
+def test_rotation_never_puts_a_key_on_a_command_line_or_in_its_output(rotation):
+    work, log, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+
+    result = run()
+
+    new = _values(work / ".env")["ENCRYPTION_KEY"]
+    for text in (result.stdout, result.stderr, log.read_text()):
+        assert _OLD_KEY not in text and new not in text
+
+
+def test_a_failed_rotation_leaves_env_alone_and_a_rerun_reuses_the_new_key(rotation):
+    work, _, _, run = rotation
+    before = f"ENCRYPTION_KEY={_OLD_KEY}\n"
+    (work / ".env").write_text(before)
+
+    assert run(fail=True).returncode != 0
+    assert (work / ".env").read_text() == before
+    pending = (work / ".env.encryption-key.pending").read_text().strip()
+
+    assert run().returncode == 0
+    assert _values(work / ".env")["ENCRYPTION_KEY"] == pending
+
+
+def test_rotation_run_twice_is_a_no_op_the_second_time(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    run()
+    after_first = (work / ".env").read_text()
+
+    # A pending file left behind by a run that died after writing .env.
+    (work / ".env.encryption-key.pending").write_text(_values(work / ".env")["ENCRYPTION_KEY"])
+    result = run()
+
+    assert result.returncode == 0
+    assert (work / ".env").read_text() == after_first
+    assert not (work / ".env.encryption-key.pending").exists()
+
+
+@pytest.mark.parametrize("line", ["", "ENCRYPTION_KEY=\n", "ENCRYPTION_KEY=   # none yet\n"])
+def test_rotation_with_no_key_set_says_there_is_nothing_to_rotate(rotation, line):
+    work, log, _, run = rotation
+    (work / ".env").write_text(line)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "nothing to rotate" in result.stderr
+    assert not log.exists()
+
+
+def test_rotation_refuses_a_symlinked_env(rotation):
+    work, log, _, run = rotation
+    target = work / "elsewhere"
+    target.write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    (work / ".env").symlink_to(target)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "symlink" in result.stderr
+    assert target.read_text() == f"ENCRYPTION_KEY={_OLD_KEY}\n"
+    assert not log.exists()
