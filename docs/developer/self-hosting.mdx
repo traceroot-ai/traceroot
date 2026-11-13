@@ -58,7 +58,7 @@ The object store API is published on `127.0.0.1` only. Put a reverse proxy in fr
 ### Upgrading an existing install
 
 1. Pull the latest version and run `make prod-lite` (or `make prod`). This replaces any database or object store password in `.env` that was copied from `.env.example` with a generated one.
-2. If the stack stops and names `ENCRYPTION_KEY`, your `.env` still has the key from `.env.example`. Run `make rotate-encryption-key` once. It re-encrypts the stored model provider keys and Slack tokens under a new key in a single transaction, writes the new key to `.env`, and saves the previous one to `.env.encryption-key.previous`. If anything fails, nothing is changed and you can run it again.
+2. If the stack stops and names `ENCRYPTION_KEY`, your `.env` still has the key from `.env.example`. Run `make rotate-encryption-key` once. It re-encrypts the stored model provider keys and Slack tokens under a new key in a single transaction, writes the new key to `.env`, and saves the previous one in the `.env.encryption-key.d` directory. If anything fails, nothing is changed and you can run it again.
 3. Start the stack again with `make prod-lite` (or `make prod`).
 
 An install that never set `ENCRYPTION_KEY` has nothing stored under it and simply gets a generated one.

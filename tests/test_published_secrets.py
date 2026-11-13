@@ -814,6 +814,11 @@ def test_the_dev_path_fills_the_encryption_key(env):
 
 _ROTATE = _ROOT / "scripts" / "rotate-encryption-key.sh"
 _OLD_KEY = "9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00"
+_STATE = ".env.encryption-key.d"
+
+
+def _previous_keys(work: Path) -> list[str]:
+    return [p.read_text().strip() for p in sorted((work / _STATE).glob("previous-*"))]
 
 
 @pytest.fixture
@@ -825,6 +830,7 @@ def rotation(tmp_path: Path):
     fake.write_text(
         "#!/bin/sh\n"
         'echo "ARGS: $*" >> "$FAKE_DOCKER_LOG"\n'
+        'case "$*" in *" stop "*) [ -n "$FAKE_DOCKER_FAIL_STOP" ] && exit 1;; esac\n'
         'case "$*" in *"run "*) echo "OLD_IS_CURRENT: $([ "$OLD_ENCRYPTION_KEY" = "$FAKE_EXPECT_OLD" ] '
         '&& echo yes || echo no)" >> "$FAKE_DOCKER_LOG"\n'
         'echo "NEW_ENV: $NEW_ENCRYPTION_KEY" >> "$FAKE_PRIVATE_LOG"\n'
@@ -835,7 +841,7 @@ def rotation(tmp_path: Path):
     work = tmp_path / "repo"
     work.mkdir()
 
-    def run(fail: bool = False) -> subprocess.CompletedProcess:
+    def run(fail: bool = False, fail_stop: bool = False) -> subprocess.CompletedProcess:
         env = {
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "FAKE_DOCKER_LOG": str(log),
@@ -844,6 +850,8 @@ def rotation(tmp_path: Path):
         }
         if fail:
             env["FAKE_DOCKER_FAIL"] = "1"
+        if fail_stop:
+            env["FAKE_DOCKER_FAIL_STOP"] = "1"
         return subprocess.run(
             ["sh", str(_ROTATE)], cwd=work, capture_output=True, text=True, env=env
         )
@@ -862,11 +870,11 @@ def test_rotation_writes_a_new_key_and_keeps_the_old_one_aside(rotation):
     assert re.fullmatch(r"[0-9a-f]{64}", values["ENCRYPTION_KEY"])
     assert values["ENCRYPTION_KEY"] != _OLD_KEY
     assert values["A"] == "1" and values["B"] == "2"
-    assert (work / ".env.encryption-key.previous").read_text().strip() == _OLD_KEY
-    assert not (work / ".env.encryption-key.pending").exists()
+    assert _previous_keys(work) == [_OLD_KEY]
+    assert not (work / _STATE / "pending").exists()
     assert "OLD_IS_CURRENT: yes" in log.read_text()
     assert f"NEW_ENV: {values['ENCRYPTION_KEY']}" in private.read_text()
-    for path in (work / ".env", work / ".env.encryption-key.previous"):
+    for path in (work / ".env", *(work / _STATE).glob("previous-*")):
         assert not stat.S_IMODE(os.stat(path).st_mode) & (stat.S_IRGRP | stat.S_IROTH)
 
 
@@ -888,7 +896,7 @@ def test_a_failed_rotation_leaves_env_alone_and_a_rerun_reuses_the_new_key(rotat
 
     assert run(fail=True).returncode != 0
     assert (work / ".env").read_text() == before
-    pending = (work / ".env.encryption-key.pending").read_text().strip()
+    pending = (work / _STATE / "pending").read_text().strip()
 
     assert run().returncode == 0
     assert _values(work / ".env")["ENCRYPTION_KEY"] == pending
@@ -901,12 +909,13 @@ def test_rotation_run_twice_is_a_no_op_the_second_time(rotation):
     after_first = (work / ".env").read_text()
 
     # A pending file left behind by a run that died after writing .env.
-    (work / ".env.encryption-key.pending").write_text(_values(work / ".env")["ENCRYPTION_KEY"])
+    (work / _STATE / "pending").write_text(_values(work / ".env")["ENCRYPTION_KEY"])
+    (work / _STATE / "pending").chmod(0o600)
     result = run()
 
     assert result.returncode == 0
     assert (work / ".env").read_text() == after_first
-    assert not (work / ".env.encryption-key.pending").exists()
+    assert not (work / _STATE / "pending").exists()
 
 
 @pytest.mark.parametrize("line", ["", "ENCRYPTION_KEY=\n", "ENCRYPTION_KEY=   # none yet\n"])
@@ -941,3 +950,80 @@ def test_make_targets_run_the_preflight_so_its_message_reaches_the_terminal(targ
     recipe = _makefile_recipe(target)
     assert "run --rm preflight" in recipe
     assert recipe.index("run --rm preflight") < recipe.index("up --build")
+
+
+def test_rotation_aborts_when_the_services_cannot_be_stopped(rotation):
+    """A service still running keeps using the old key, so nothing may change."""
+    work, log, _, run = rotation
+    before = f"A=1\nENCRYPTION_KEY={_OLD_KEY}\n"
+    (work / ".env").write_text(before)
+
+    result = run(fail_stop=True)
+
+    assert result.returncode != 0
+    assert "could not stop" in result.stderr
+    assert (work / ".env").read_text() == before
+    assert "run --rm" not in log.read_text(), "the database must not be touched"
+    assert _previous_keys(work) == []
+
+
+def _plant_state(work: Path, kind: str) -> None:
+    state = work / _STATE
+    if kind == "dir_is_symlink":
+        (work / "elsewhere").mkdir()
+        state.symlink_to(work / "elsewhere")
+    elif kind == "dir_is_open":
+        state.mkdir(mode=0o755)
+        state.chmod(0o755)
+    elif kind == "pending_is_symlink":
+        state.mkdir(mode=0o700)
+        (work / "chosen").write_text("d" * 64 + "\n")
+        (state / "pending").symlink_to(work / "chosen")
+    elif kind == "pending_is_open":
+        state.mkdir(mode=0o700)
+        (state / "pending").write_text("d" * 64 + "\n")
+        (state / "pending").chmod(0o644)
+
+
+@pytest.mark.parametrize(
+    "kind", ["dir_is_symlink", "dir_is_open", "pending_is_symlink", "pending_is_open"]
+)
+def test_rotation_refuses_a_state_location_others_could_have_prepared(rotation, kind):
+    """A planted pending key would choose the new key; a planted directory could read the old."""
+    work, log, _, run = rotation
+    before = f"ENCRYPTION_KEY={_OLD_KEY}\n"
+    (work / ".env").write_text(before)
+    _plant_state(work, kind)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert (work / ".env").read_text() == before
+    assert not log.exists(), "nothing may run before the state location is trusted"
+    assert "d" * 64 not in (work / ".env").read_text()
+
+
+def test_a_link_at_the_old_backup_name_is_never_written_through(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    target = work / "attacker-readable"
+    target.write_text("")
+    (work / ".env.encryption-key.previous").symlink_to(target)
+
+    assert run().returncode == 0
+    assert target.read_text() == ""
+
+
+def test_rotation_rejects_a_pending_file_that_is_not_a_key(rotation):
+    work, log, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    (work / _STATE).mkdir(mode=0o700)
+    pending = work / _STATE / "pending"
+    pending.write_text("not-a-key\n")
+    pending.chmod(0o600)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "64-character" in result.stderr
+    assert not log.exists()
