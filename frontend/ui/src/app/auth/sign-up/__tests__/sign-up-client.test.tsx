@@ -152,3 +152,22 @@ describe("SignUpClient", () => {
     expect(link.getAttribute("href")).toBe("/auth/sign-in");
   });
 });
+
+describe("SignUpClient social buttons", () => {
+  it("sends an AgentID sign-up to the same onboarding destination as Google", async () => {
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.signInSocial.mockReturnValue(new Promise(() => {}));
+
+    render(<SignUpClient socialProviders={["google", "agentid"]} />);
+    fireEvent.click(screen.getByRole("button", { name: "AgentID" }));
+
+    const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };
+    expect(arg.provider).toBe("agentid");
+    expect(arg.callbackURL).toBe(
+      `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+    );
+    expect((screen.getByRole("button", { name: "Google" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+});

@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
+import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
@@ -13,6 +13,7 @@ import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { agentIdProvider, isAgentIdConfigured } from "@/lib/agentid";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -20,6 +21,8 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+const agentIdEnabled = isAgentIdConfigured(env);
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
@@ -73,6 +76,7 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
+      // Never add "agentid": a trusted provider links on email alone.
       trustedProviders: ["google"],
     },
   },
@@ -151,6 +155,7 @@ export const auth = betterAuth({
       jwt: { expirationTime: "10m" },
       jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),
+    ...(agentIdEnabled ? [genericOAuth({ config: [agentIdProvider(env)] })] : []),
   ],
 });
 
