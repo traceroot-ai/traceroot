@@ -28,7 +28,7 @@
     "@traceroot-ai/tools": "workspace:*",
     "@traceroot-ai/traceroot": "^0.4.0",
     "@traceroot/core": "workspace:*",
-    "hono": "^4.12.25"
+    "hono": "^4.13.16"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
