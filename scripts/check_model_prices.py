@@ -976,16 +976,6 @@ def _pr_text(numbers: list[int]) -> str:
     return ", ".join(f"#{number}" for number in numbers)
 
 
-def _pr_linker(report: dict):
-    """A function that writes open PRs as Slack links, e.g. "<url|#2902>"."""
-    urls = {pr["number"]: pr.get("url") for pr in report.get("pull_requests", [])}
-
-    def links(numbers: list[int]) -> str:
-        return ", ".join(f"<{urls[n]}|#{n}>" if urls.get(n) else f"#{n}" for n in numbers)
-
-    return links
-
-
 def _tracked(report: dict) -> bool:
     return report.get("tracking") == "ok"
 
@@ -1439,8 +1429,9 @@ def _slack_footer(report: dict, report_url: str | None) -> str:
 
 def build_payload(report: dict, report_url: str | None = None) -> dict:
     """The Slack message (Block Kit) for a completed run: what needs a fix and has no open
-    PR, then what open PRs already fix. The full lists are in the report page."""
-    links = _pr_linker(report)
+    PR, then what open PRs already fix. The full lists are in the report page, which also
+    links each PR; here they are plain numbers, since a GitHub link unfurls into a preview."""
+    links = _pr_text
     flagged = _open(report["flagged"])
     needs = _needs_lines(report)
     progress = _progress_lines(report, links) if _tracked(report) else []

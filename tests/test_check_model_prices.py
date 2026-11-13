@@ -759,7 +759,9 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
         ["Model", "Rate", "Ours", "Catalogs"],
         ["deepseek-d", "output", "1.00", "2.00"],
     ]
-    pr = "<https://github.test/pull/{0}|#{0}>".format
+    # Plain numbers: a GitHub link would unfurl into a preview. The report page links them.
+    pr = "#{0}".format
+    assert "github.test" not in json.dumps(blocks)
     assert _block_text(blocks[3]).split("\n") == [
         ":large_yellow_circle: *In progress (open PRs)*",
         f"• `deepseek-d` input $0.50 → $1.00: {pr(11)}, {pr(12)}",
