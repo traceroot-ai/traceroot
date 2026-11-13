@@ -22,6 +22,10 @@
       "types": "./src/lib/capture-note.ts",
       "default": "./src/lib/capture-note.ts"
     },
+    "./agent-service": {
+      "types": "./src/lib/agent-service.ts",
+      "default": "./src/lib/agent-service.ts"
+    },
     "./public-error": {
       "types": "./src/lib/public-error.ts",
       "default": "./src/lib/public-error.ts"

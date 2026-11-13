@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret-0123456789abcdef");
+
 // processRcaJob must allocate an execution before the agent runs, pass its
 // trace id to the agent, and record the resulting trace status after — with
 // every write to the shared finding row gated on the attempt still being the

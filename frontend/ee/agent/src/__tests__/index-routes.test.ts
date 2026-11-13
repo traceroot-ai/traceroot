@@ -1,3 +1,4 @@
+import { AUTH } from "./internal-auth-support.js";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { app } from "../index.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "../pending-decisions.js";
@@ -106,7 +107,7 @@ describe("DELETE session — release path", () => {
 
     const res = await app.request("/api/v1/projects/p1/sessions/del-1", {
       method: "DELETE",
-      headers: { "x-user-id": "u1" },
+      headers: { ...AUTH, "x-user-id": "u1" },
     });
 
     expect(res.status).toBe(200);
@@ -123,7 +124,7 @@ describe("DELETE session — release path", () => {
 
     const res = await app.request("/api/v1/projects/p1/sessions/del-2", {
       method: "DELETE",
-      headers: { "x-user-id": "intruder" },
+      headers: { ...AUTH, "x-user-id": "intruder" },
     });
 
     expect(res.status).toBe(404);
@@ -145,7 +146,7 @@ describe("DELETE session — release path", () => {
     });
     const run = await app.request("/api/v1/projects/p1/sessions/del-3/messages", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
       body: JSON.stringify({ message: "hello" }),
     });
     await run.text();
@@ -154,7 +155,7 @@ describe("DELETE session — release path", () => {
     mockedDeleteSession.mockResolvedValue(null as never);
     const intruder = await app.request("/api/v1/projects/p1/sessions/del-3", {
       method: "DELETE",
-      headers: { "x-user-id": "intruder" },
+      headers: { ...AUTH, "x-user-id": "intruder" },
     });
     expect(intruder.status).toBe(404);
     expect(executor.destroy).not.toHaveBeenCalled();
@@ -163,7 +164,7 @@ describe("DELETE session — release path", () => {
     mockedDeleteSession.mockResolvedValue({ id: "del-3" } as never);
     const owner = await app.request("/api/v1/projects/p1/sessions/del-3", {
       method: "DELETE",
-      headers: { "x-user-id": "u1" },
+      headers: { ...AUTH, "x-user-id": "u1" },
     });
     expect(owner.status).toBe(200);
     expect(executor.destroy).toHaveBeenCalledTimes(1);
@@ -211,7 +212,7 @@ describe("DELETE session — release path", () => {
 
     const run = app.request("/api/v1/projects/p1/sessions/del-4/messages", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
       body: JSON.stringify({ message: "add a detector" }),
     });
     // Let the route reach runAgent and park before the delete lands.
@@ -232,7 +233,7 @@ describe("DELETE session — release path", () => {
     const body = response.text();
     const del = await app.request("/api/v1/projects/p1/sessions/del-4", {
       method: "DELETE",
-      headers: { "x-user-id": "u1" },
+      headers: { ...AUTH, "x-user-id": "u1" },
     });
     await body;
 
@@ -264,7 +265,7 @@ describe("DELETE session — release path", () => {
     await (
       await app.request("/api/v1/projects/p1/sessions/del-6/messages", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
         body: JSON.stringify({ message: "hello" }),
       })
     ).text();
@@ -273,7 +274,7 @@ describe("DELETE session — release path", () => {
     mockedDeleteSession.mockResolvedValue({ id: "del-6" } as never);
     const del = await app.request("/api/v1/projects/p1/sessions/del-6", {
       method: "DELETE",
-      headers: { "x-user-id": "u1" },
+      headers: { ...AUTH, "x-user-id": "u1" },
     });
 
     expect(del.status).toBe(200);
@@ -300,7 +301,7 @@ describe("DELETE session — release path", () => {
     const run = () =>
       app.request("/api/v1/projects/p1/sessions/del-5/messages", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
         body: JSON.stringify({ message: "hello" }),
       });
     await (await run()).text();
@@ -310,7 +311,7 @@ describe("DELETE session — release path", () => {
     mockedDeleteSession.mockResolvedValue({ id: "del-5" } as never);
     const del = await app.request("/api/v1/projects/p1/sessions/del-5", {
       method: "DELETE",
-      headers: { "x-user-id": "u1" },
+      headers: { ...AUTH, "x-user-id": "u1" },
     });
 
     // The caller still learns the teardown failed — the cleanup is not a
@@ -336,7 +337,7 @@ describe("decisions endpoint is mounted on the service app", () => {
 
     const res = await app.request("/api/v1/projects/p1/sessions/mount-1/decisions", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
       body: JSON.stringify({ decisionId, action: "create" }),
     });
 
@@ -354,7 +355,7 @@ describe("messages route tenancy", () => {
 
     const res = await app.request("/api/v1/projects/pB/sessions/s-owned/messages", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
       body: JSON.stringify({ message: "hello" }),
     });
 
@@ -382,6 +383,7 @@ describe("messages route tenancy", () => {
     const res = await app.request("/api/v1/projects/p-url/sessions/s-owned/messages", {
       method: "POST",
       headers: {
+        ...AUTH,
         "content-type": "application/json",
         "x-user-id": "u1",
         "x-workspace-id": "w-header",
@@ -403,7 +405,7 @@ describe("DELETE session tenancy", () => {
 
     const res = await app.request("/api/v1/projects/pB/sessions/s-owned", {
       method: "DELETE",
-      headers: { "x-user-id": "u1" },
+      headers: { ...AUTH, "x-user-id": "u1" },
     });
 
     expect(res.status).toBe(404);
@@ -443,7 +445,7 @@ describe("messages route attendedness", () => {
 
     const res = await app.request("/api/v1/projects/p1/sessions/rca-1/messages", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
       body: JSON.stringify({ message: "create a detector for this" }),
     });
 
@@ -482,7 +484,7 @@ describe("messages route concurrency", () => {
     const post = () =>
       app.request("/api/v1/projects/p1/sessions/busy-1/messages", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
         body: JSON.stringify({ message: "hello" }),
       });
 
@@ -528,6 +530,7 @@ describe("messages route SSE stream", () => {
     const res = await app.request("/api/v1/projects/p1/sessions/sse-1/messages", {
       method: "POST",
       headers: {
+        ...AUTH,
         "content-type": "application/json",
         "x-user-id": "u1",
         "x-workspace-id": "w1",
@@ -561,7 +564,7 @@ describe("POST messages — page window", () => {
   const post = (body: Record<string, unknown>) =>
     app.request("/api/v1/projects/p1/sessions/win-1/messages", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
       body: JSON.stringify(body),
     });
 

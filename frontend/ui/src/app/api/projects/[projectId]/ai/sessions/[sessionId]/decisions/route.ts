@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import type { NextRequest } from "next/server";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
@@ -46,7 +47,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-user-id": user.id,
+        ...agentRequestHeaders({ userId: user.id }),
       },
       body: JSON.stringify({
         decisionId: body.decisionId,

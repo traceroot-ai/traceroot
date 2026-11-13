@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
@@ -32,7 +33,7 @@ async function handleDELETE(_request: NextRequest, { params }: RouteParams) {
     `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`,
     {
       method: "DELETE",
-      headers: { "x-user-id": user.id },
+      headers: agentRequestHeaders({ userId: user.id }),
     },
   );
 
