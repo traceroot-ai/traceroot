@@ -1031,6 +1031,40 @@ def test_a_host_id_newly_priced_below_the_hosts_rates_is_added():
     ]
 
 
+def test_a_dash_spelling_that_loses_its_price_is_added():
+    # Gateways send grok-q-20 for grok-q.20. The grok-q row's loose suffix prices it at
+    # the right rate, and grok-q-6 at the wrong one. Narrowing grok-q leaves both unpriced
+    # unless their own rows take the dash spelling, and no other finding would show it.
+    litellm = {
+        "xai/grok-q": ll_entry("xai"),
+        "xai/grok-q.20": ll_entry("xai"),
+        "xai/grok-q.6": ll_entry("xai", input_=5e-6),
+    }
+    before = [
+        row("grok-q", "xai", pattern=r"(?i)^(xai\/)?grok-q(-[\d-]+)?$"),
+        row("grok-q.20", "xai", pattern=r"(?i)^(xai\/)?grok-q\.20$"),
+        row("grok-q.6", "xai", input_=5e-6, pattern=r"(?i)^(xai\/)?grok-q\.6$"),
+    ]
+    narrowed = [row("grok-q", "xai", pattern=r"(?i)^(xai\/)?grok-q(-\d{4})?$"), *before[1:]]
+    extended = [
+        narrowed[0],
+        row("grok-q.20", "xai", pattern=r"(?i)^(xai\/)?grok-q[.-]20$"),
+        row("grok-q.6", "xai", input_=5e-6, pattern=r"(?i)^(xai\/)?grok-q[.-]6$"),
+    ]
+
+    assert compare(before, narrowed, litellm, md_catalog()) == {
+        "fixes": ["grok-q-6 input rate (ours 1.00)"],
+        "adds": [
+            "grok-q-20 no longer priced (was grok-q)",
+            "grok-q-6 no longer priced (was grok-q)",
+        ],
+    }
+    assert compare(before, extended, litellm, md_catalog()) == {
+        "fixes": ["grok-q-6 input rate (ours 1.00)"],
+        "adds": [],
+    }
+
+
 def test_baseline_exit_codes(run, tmp_path):
     litellm = {"gpt-a": ll_entry("openai", input_=2e-6), "gpt-b": ll_entry("openai")}
     baseline = tmp_path / "before.json"

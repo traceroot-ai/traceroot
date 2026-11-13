@@ -57,8 +57,10 @@ pointing at that report: the output lists the findings the edit fixes and any it
 A flagged rate the edit changes to another value the catalogs disagree with is listed
 as both. A Bedrock or OpenRouter ID the edit newly prices is an add when every catalog
 that lists that exact ID charges other rates, as Bedrock does for GovCloud and regional
-profiles. Pass the same saved --litellm and --modelsdev files to both runs, so only the
-price file differs between them.
+profiles. So is a dotted version's dash spelling that a row priced before the edit and
+none prices after it, such as grok-4-20 once a narrowed grok-4 row stops matching it.
+Pass the same saved --litellm and --modelsdev files to both runs, so only the price
+file differs between them.
 
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
@@ -527,6 +529,20 @@ def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) 
     return flags
 
 
+def priced_dash_spellings(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> dict:
+    """The row that prices each dotted model's dash spelling, such as grok-4-20 for
+    grok-4.20. No finding lists a dash spelling that no row prices, so --baseline compares
+    these to catch an edit that stops pricing one."""
+    priced = {}
+    for _, model in _live_text_models(catalogs, today):
+        if "." not in model or MINOR_MODELS.search(model):
+            continue
+        row = lookup(rows, _family(model))
+        if row is not None:
+            priced[_family(model)] = row["modelName"]
+    return dict(sorted(priced.items()))
+
+
 def find_missing(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
     """Live text models a catalog prices for one of our providers that no row matches."""
     missing = []
@@ -707,6 +723,7 @@ def build_report(
         "row_problems": find_row_problems(rows),
         "missing": find_missing(rows, catalogs, today),
         "long_context": find_long_context(rows, catalogs),
+        "dash_spellings": priced_dash_spellings(rows, catalogs, today),
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
     }
@@ -794,7 +811,8 @@ def compare_reports(
     saved before an edit to the price file. A host ID the baseline had no price for is
     also an add when rows now price it but every catalog that lists that exact ID gives
     other input or output rates, as Bedrock does for GovCloud and regional profiles. No
-    catalog lists a [1m] ID, so those are not checked here."""
+    catalog lists a [1m] ID, so those are not checked here. A dash spelling the baseline
+    priced is an add when no row prices it now."""
     before, after = finding_keys(baseline), finding_keys(report)
     adds = describe_all([key for key in after if key not in before])
     unpriced = {item["model"] for item in report["unpriced_ids"]}
@@ -816,6 +834,10 @@ def compare_reports(
                 f"{model_id} priced at {row['modelName']}'s rates, but the host lists "
                 + _join(listed)
             )
+    # Reports saved before dash spellings were recorded have none to compare.
+    for dashed, was in baseline.get("dash_spellings", {}).items():
+        if lookup(rows, dashed) is None:
+            adds.append(f"{dashed} no longer priced (was {was})")
     return {"fixes": describe_all([key for key in before if key not in after]), "adds": adds}
 
 
