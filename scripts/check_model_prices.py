@@ -54,8 +54,11 @@ says so and the run still succeeds.
 --baseline checks an edit to the price file before it goes into a pull request. Save a
 report with --json before the edit, edit the file, then run again with --baseline
 pointing at that report: the output lists the findings the edit fixes and any it adds.
-Pass the same saved --litellm and --modelsdev files to both runs, so only the price
-file differs between them.
+A flagged rate the edit changes to another value the catalogs disagree with is listed
+as both. A Bedrock or OpenRouter ID the edit newly prices is an add when every catalog
+that lists that exact ID charges other rates, as Bedrock does for GovCloud and regional
+profiles. Pass the same saved --litellm and --modelsdev files to both runs, so only the
+price file differs between them.
 
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
@@ -346,13 +349,9 @@ def index_modelsdev(data) -> dict[tuple[str, str], dict]:
         for model_id, model in listing["models"].items():
             if not isinstance(model, dict) or not isinstance(model.get("cost"), dict):
                 continue
-            rates: dict[str, float | None] = dict.fromkeys(FIELDS)
-            for field, src in MODELSDEV_FIELDS.items():
-                value = _number(model["cost"].get(src))
-                rates[field] = None if value is None else value / 1e6
             limit = model.get("limit")
             index[(provider, model_id)] = {
-                "rates": rates,
+                "rates": _modelsdev_rates(model["cost"]),
                 "text": _outputs_text(model),
                 "retired_from": _retired(model),
                 "context": _number(limit.get("context")) if isinstance(limit, dict) else None,
@@ -361,6 +360,15 @@ def index_modelsdev(data) -> dict[tuple[str, str], dict]:
             }
     _require_fields("models.dev", index, MODELSDEV_FIELDS)
     return index
+
+
+def _modelsdev_rates(cost: dict) -> dict[str, float | None]:
+    """A models.dev cost object as rates per token, converted from per million."""
+    rates: dict[str, float | None] = dict.fromkeys(FIELDS)
+    for field, src in MODELSDEV_FIELDS.items():
+        value = _number(cost.get(src))
+        rates[field] = None if value is None else value / 1e6
+    return rates
 
 
 def _outputs_text(model: dict) -> bool:
@@ -375,33 +383,46 @@ def _retired(model: dict) -> datetime | None:
 
 def index_hosted(litellm, modelsdev) -> dict[str, dict]:
     """The IDs other hosts serve our providers' models under, such as Bedrock's
-    us.anthropic.claude-sonnet-5-5, each with its host and whether it is a live text
-    model. Vertex AI's @default placeholder and OpenRouter's :free style variants are
-    not IDs a span carries, so they are left out."""
+    us.anthropic.claude-sonnet-5-5, each with its host, whether it is a live text model
+    and the rates each catalog lists for it. Vertex AI's @default placeholder and
+    OpenRouter's :free style variants are not IDs a span carries, so they are left out."""
     hosted: dict[str, dict] = {}
     for key, entry in litellm.items() if isinstance(litellm, dict) else ():
         host = LITELLM_HOSTS.get(entry.get("litellm_provider")) if isinstance(entry, dict) else None
         if host is None:
             continue
-        # Keys may carry routing segments, as in bedrock/us-gov-west-1/<model ID>.
+        # Keys may carry routing segments, as in bedrock/us-gov-west-1/<model ID>. That
+        # route prices the ID for one region, so a bare key for the same ID wins.
         model_id = key.rsplit("/", 1)[-1]
-        if not model_id.endswith("@default"):
-            hosted[model_id] = {
-                "host": host,
-                "text": entry.get("mode") in TEXT_MODES,
-                "retired_from": _day(entry.get("deprecation_date")),
-            }
+        if model_id.endswith("@default") or (model_id in hosted and key != model_id):
+            continue
+        hosted[model_id] = {
+            "host": host,
+            "text": entry.get("mode") in TEXT_MODES,
+            "retired_from": _day(entry.get("deprecation_date")),
+            "rates": {
+                "litellm": {field: _number(entry.get(src)) for field, src in LITELLM_FIELDS.items()}
+            },
+        }
     for key, host in MODELSDEV_HOSTS.items():
         listing = modelsdev.get(key) if isinstance(modelsdev, dict) else None
         models = listing.get("models") if isinstance(listing, dict) else None
         for model_id, model in models.items() if isinstance(models, dict) else ():
             # OpenRouter's ~vendor/model-latest aliases and :free or :thinking variants.
             variant = model_id.startswith("~") or (host == "OpenRouter" and ":" in model_id)
-            if isinstance(model, dict) and not variant:
-                hosted.setdefault(
-                    model_id,
-                    {"host": host, "text": _outputs_text(model), "retired_from": _retired(model)},
-                )
+            if not isinstance(model, dict) or variant:
+                continue
+            found = hosted.setdefault(
+                model_id,
+                {
+                    "host": host,
+                    "text": _outputs_text(model),
+                    "retired_from": _retired(model),
+                    "rates": {},
+                },
+            )
+            if isinstance(model.get("cost"), dict):
+                found["rates"]["modelsdev"] = _modelsdev_rates(model["cost"])
     return hosted
 
 
@@ -696,7 +717,8 @@ def finding_keys(report: dict) -> dict[tuple, dict]:
     two reports can be compared."""
     keys: dict[tuple, dict] = {}
     for item in report["flagged"]:
-        keys[("rate", item["model"], item["field"])] = item
+        # Our rate is part of the key: a flagged rate changed to another wrong one is new.
+        keys[("rate", item["model"], item["field"], item["ours"])] = item
     for item in report["unpriced_ids"]:
         # Which row prices it is part of the key: from no price to the wrong one is new.
         keys[("id", item["model"], item["priced_as"])] = item
@@ -712,10 +734,10 @@ def finding_keys(report: dict) -> dict[tuple, dict]:
 
 
 def describe(key: tuple) -> str:
-    """A finding key in a few words, e.g. "claude-x cache read rate"."""
+    """A finding key in a few words, e.g. "claude-x cache read rate (ours 0.10)"."""
     match key:
-        case ("rate", model, field):
-            return f"{model} {FIELD_LABELS[field]} rate"
+        case ("rate", model, field, ours):
+            return f"{model} {FIELD_LABELS[field]} rate (ours {_amount(ours)})"
         case ("id", model, None):
             return f"{model} not priced by its row"
         case ("id", model, priced_as):
@@ -733,16 +755,19 @@ def describe(key: tuple) -> str:
 
 def describe_all(keys: list[tuple]) -> list[str]:
     """Finding keys in a few words each, with one model's rates merged, e.g.
-    "claude-x input and cache read rates"."""
-    rates: dict[str, list[str]] = {}
+    "claude-x input and cache read rates (ours 1.00 and 0.10)"."""
+    rates: dict[str, list[tuple]] = {}
     others = []
     for key in keys:
         if key[0] == "rate":
-            rates.setdefault(key[1], []).append(FIELD_LABELS[key[2]])
+            rates.setdefault(key[1], []).append(key)
         else:
             others.append(describe(key))
     merged = [
-        f"{model} {_join(fields)} rate" + "s" * (len(fields) > 1) for model, fields in rates.items()
+        f"{model} {_join([FIELD_LABELS[key[2]] for key in found])} rate"
+        + "s" * (len(found) > 1)
+        + f" (ours {_join([_amount(key[3]) for key in found])})"
+        for model, found in rates.items()
     ]
     return merged + others
 
@@ -762,14 +787,36 @@ def load_baseline(path: Path) -> dict:
     return baseline
 
 
-def compare_reports(baseline: dict, report: dict) -> dict:
+def compare_reports(
+    baseline: dict, report: dict, rows: list[dict], hosted: dict[str, dict]
+) -> dict:
     """The findings this run fixes and adds compared with a baseline report, such as one
-    saved before an edit to the price file."""
+    saved before an edit to the price file. A host ID the baseline had no price for is
+    also an add when rows now price it but every catalog that lists that exact ID gives
+    other input or output rates, as Bedrock does for GovCloud and regional profiles. No
+    catalog lists a [1m] ID, so those are not checked here."""
     before, after = finding_keys(baseline), finding_keys(report)
-    return {
-        "fixes": describe_all([key for key in before if key not in after]),
-        "adds": describe_all([key for key in after if key not in before]),
-    }
+    adds = describe_all([key for key in after if key not in before])
+    unpriced = {item["model"] for item in report["unpriced_ids"]}
+    for item in baseline["unpriced_ids"]:
+        model_id = item["model"]
+        row = lookup(rows, model_id)
+        if item["priced_as"] or model_id in unpriced or row is None or model_id not in hosted:
+            continue
+        flags = _flag_rates(
+            row, item["provider"], model_id, hosted[model_id]["rates"], priced_as=None
+        )
+        listed = [
+            f"{FIELD_LABELS[flag['field']]} {_catalog_amount(flag)} (ours {_amount(flag['ours'])})"
+            for flag in flags
+            if flag["field"] in ("input", "output")
+        ]
+        if listed:
+            adds.append(
+                f"{model_id} priced at {row['modelName']}'s rates, but the host lists "
+                + _join(listed)
+            )
+    return {"fixes": describe_all([key for key in before if key not in after]), "adds": adds}
 
 
 def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]:
@@ -1713,7 +1760,7 @@ def main(argv: list[str]) -> int:
             rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
         )
         if args.baseline:
-            report["baseline"] = compare_reports(load_baseline(args.baseline), report)
+            report["baseline"] = compare_reports(load_baseline(args.baseline), report, rows, hosted)
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:

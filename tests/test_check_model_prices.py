@@ -96,6 +96,14 @@ def report_for(rows, litellm, modelsdev, min_compared=1):
     )
 
 
+def compare(before, after, litellm, modelsdev):
+    """What --baseline lists for an edit from the before rows to the after rows."""
+    hosted = index_hosted({**LITELLM_FILLER, **litellm}, modelsdev)
+    return check.compare_reports(
+        report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev), after, hosted
+    )
+
+
 def test_tolerance_boundary():
     assert not differs(1e-6, 1.029e-6)
     assert differs(1e-6, 1.031e-6)
@@ -719,8 +727,13 @@ def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
     assert [
         (pr["number"], pr["fixes"], pr["adds"], pr.get("error")) for pr in report["pull_requests"]
     ] == [
-        (11, ["deepseek-d input rate"], [], None),
-        (12, ["deepseek-d input rate", "gpt-new not priced"], ["gpt-new input rate"], None),
+        (11, ["deepseek-d input rate (ours 0.50)"], [], None),
+        (
+            12,
+            ["deepseek-d input rate (ours 0.50)", "gpt-new not priced"],
+            ["gpt-new input rate (ours 9.00)"],
+            None,
+        ),
         (13, [], [], "could not read it"),
     ]
     assert report["pull_requests"][0]["closes"] == [10]
@@ -734,7 +747,7 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
     assert "deepseek-d  input   0.50  → 1.00  #11, #12" in text
     assert "\n            output  1.00  → 2.00\n" in text
     assert "• *openai* (1): gpt-new (#12)" in text
-    assert "• #12 would add: gpt-new input rate" in text
+    assert "• #12 would add: gpt-new input rate (ours 9.00)" in text
     assert "• #13: could not read it" in text
     assert "checked 3 open pricing PRs" in text
 
@@ -752,7 +765,7 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
         f"• `deepseek-d` input $0.50 → $1.00: {pr(11)}, {pr(12)}",
         f"• `gpt-new` not priced: {pr(12)}",
         f"• :warning: {pr(13)}: could not read it",
-        f"• :warning: {pr(12)} would add: gpt-new input rate",
+        f"• :warning: {pr(12)} would add: gpt-new input rate (ours 9.00)",
     ]
     assert _block_text(blocks[4]) == "Checked 2 of 2 rows and 3 open pricing PRs"
 
@@ -954,29 +967,68 @@ def test_baseline_lists_what_an_edit_fixes_and_adds():
     ]
     litellm["claude-f-2-20260101"] = ll_entry("anthropic", input_=8e-6)
 
-    compared = check.compare_reports(
-        report_for(before, litellm, md_catalog()), report_for(after, litellm, md_catalog())
-    )
-
-    assert compared == {
-        "fixes": ["deepseek-d input rate", "claude-f-2-20260101 not priced"],
-        "adds": ["claude-f-2-20260101 input rate"],
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": ["deepseek-d input rate (ours 0.50)", "claude-f-2-20260101 not priced"],
+        "adds": ["claude-f-2-20260101 input rate (ours 1.00)"],
     }
 
 
 def test_an_id_that_goes_from_no_price_to_another_rows_price_is_added():
     litellm = {"claude-f": ll_entry("anthropic"), "us.anthropic.claude-f-2": ll_entry("bedrock")}
-    rows = [
+    before = [
         row("claude-f", "anthropic", pattern=r"(?i)^claude-f$"),
         row("claude-f-2", "anthropic", input_=8e-6),
     ]
-    before = report_for(rows, litellm, md_catalog())
-    rows[0]["matchPattern"] = r"(?i)^(us\.anthropic\.)?claude-f(-[\d-]+)?$"
+    after = [
+        row("claude-f", "anthropic", pattern=r"(?i)^(us\.anthropic\.)?claude-f(-[\d-]+)?$"),
+        before[1],
+    ]
 
-    assert check.compare_reports(before, report_for(rows, litellm, md_catalog())) == {
+    assert compare(before, after, litellm, md_catalog()) == {
         "fixes": ["us.anthropic.claude-f-2 not priced by its row"],
         "adds": ["us.anthropic.claude-f-2 priced as claude-f"],
     }
+
+
+def test_a_flagged_rate_changed_to_another_wrong_rate_is_added():
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", output=4e-6)}
+    before = [row("deepseek-d", "deepseek", output=1e-6)]
+    worse = [row("deepseek-d", "deepseek", output=1e-4)]
+    fixed = [row("deepseek-d", "deepseek", output=4e-6)]
+
+    assert compare(before, worse, litellm, md_catalog()) == {
+        "fixes": ["deepseek-d output rate (ours 1.00)"],
+        "adds": ["deepseek-d output rate (ours 100.00)"],
+    }
+    assert compare(before, fixed, litellm, md_catalog()) == {
+        "fixes": ["deepseek-d output rate (ours 1.00)"],
+        "adds": [],
+    }
+
+
+def test_a_host_id_newly_priced_below_the_hosts_rates_is_added():
+    # GovCloud and regional profiles bill more than the model's own rates. A GovCloud
+    # region's route lists the plain Bedrock ID at its price too; the bare key wins.
+    litellm = {
+        "claude-k-5": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2e-6, output=1e-5),
+        "us-gov.anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+        "bedrock/us-gov-west-1/anthropic.claude-k-5": ll_entry(
+            "bedrock", input_=2.4e-6, output=1.2e-5
+        ),
+    }
+    bedrock = {"in.anthropic.claude-k-5": md_model(input_=2.2e-6, output=1.1e-5)}
+    modelsdev = md_catalog(**{"amazon-bedrock": bedrock})
+    before = [row("claude-k-5", "anthropic", input_=2e-6, output=1e-5)]
+    pattern = r"(?i)^(((us-gov|in)\.)?anthropic\.)?claude-k-5$"
+    after = [row("claude-k-5", "anthropic", input_=2e-6, output=1e-5, pattern=pattern)]
+
+    assert compare(before, after, litellm, modelsdev)["adds"] == [
+        "in.anthropic.claude-k-5 priced at claude-k-5's rates, but the host lists "
+        "input 2.20 (ours 2.00) and output 11.00 (ours 10.00)",
+        "us-gov.anthropic.claude-k-5 priced at claude-k-5's rates, but the host lists "
+        "input 2.40 (ours 2.00) and output 12.00 (ours 10.00)",
+    ]
 
 
 def test_baseline_exit_codes(run, tmp_path):
@@ -989,12 +1041,12 @@ def test_baseline_exit_codes(run, tmp_path):
     fixed = [row("gpt-a", "openai", input_=2e-6), row("gpt-b", "openai")]
     code, _, report = run(fixed, litellm, md_catalog(), *args)
     assert code == 0
-    assert report["baseline"] == {"fixes": ["gpt-a input rate"], "adds": []}
+    assert report["baseline"] == {"fixes": ["gpt-a input rate (ours 1.00)"], "adds": []}
 
     broke = [row("gpt-a", "openai"), row("gpt-b", "openai", input_=9e-6)]
     code, _, report = run(broke, litellm, md_catalog(), *args)
     assert code == 2
-    assert report["baseline"]["adds"] == ["gpt-b input rate"]
+    assert report["baseline"]["adds"] == ["gpt-b input rate (ours 9.00)"]
 
     baseline.write_text(json.dumps({"date": DATE, "status": "failed", "error": "x"}))
     code, posted, _ = run(fixed, litellm, md_catalog(), *args)
