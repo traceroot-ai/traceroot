@@ -42,6 +42,28 @@ import {
   type ModelProviderResponse,
 } from "@/lib/api";
 
+function urlHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * The curated model list to offer for an adapter, or null for a free-text model ID.
+ * A Base URL on another host than the adapter's default points at a server (Ollama,
+ * vLLM, a proxy) whose model IDs the catalog can't know, so it is treated like the
+ * pass-through adapters. The same host with another path (e.g. Google's /v1beta)
+ * keeps the catalog.
+ */
+export function curatedModelsFor(adapter: string, baseUrl: string) {
+  const custom = baseUrl.trim();
+  const fallback = ADAPTER_DEFAULT_BASE_URL[adapter] ?? "";
+  if (custom && urlHost(custom) !== urlHost(fallback)) return null;
+  return ADAPTER_MODELS[adapter as LLMAdapter] ?? null;
+}
+
 interface ModelProvidersTabProps {
   workspaceId: string;
 }
@@ -259,7 +281,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   }
 
   function addCustomModel() {
-    const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
+    const curatedModels = curatedModelsFor(adapter, baseUrl);
     if (curatedModels) {
       const used = new Set(customModels);
       const ids = curatedModels.map((m) => m.id);
@@ -278,8 +300,15 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
   function updateCustomModel(index: number, value: string) {
     const updated = [...customModels];
+    const previous = updated[index];
     updated[index] = value;
     setCustomModels(updated);
+    // Protocol picks are keyed by model ID, so carry the row's pick over to the new ID.
+    if (previous !== value) {
+      setModelProtocols(({ [value]: _, ...rest }) =>
+        rest[previous] ? { ...rest, [value]: rest[previous] } : rest,
+      );
+    }
   }
 
   if (isLoading) {
@@ -328,7 +357,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl.trim() : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
 
-  const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
+  const curatedModelsForAdapter = adapter ? curatedModelsFor(adapter, baseUrl) : null;
   const isAddModelDisabled = curatedModelsForAdapter
     ? curatedModelsForAdapter.every((m) => customModels.includes(m.id))
     : false;
@@ -557,9 +586,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 {(() => {
                   const protocols = ADAPTER_AVAILABLE_PROTOCOLS[adapter];
                   const hasMultipleProtocols = protocols && protocols.length > 1;
-                  const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
+                  const curatedModels = curatedModelsFor(adapter, baseUrl);
+                  const suggestions = ADAPTER_MODELS[adapter as LLMAdapter];
 
-                  return customModels.map((model, i) => (
+                  const rows = customModels.map((model, i) => (
                     <div key={i} className="flex items-center gap-2">
                       {curatedModels ? (
                         <Select value={model} onValueChange={(v) => updateCustomModel(i, v)}>
@@ -584,6 +614,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       ) : (
                         <Input
                           value={model}
+                          list={suggestions ? "curated-model-ids" : undefined}
                           onChange={(e) => updateCustomModel(i, e.target.value)}
                           placeholder={
                             {
@@ -624,6 +655,19 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       </Button>
                     </div>
                   ));
+
+                  return (
+                    <>
+                      {rows}
+                      {!curatedModels && suggestions && (
+                        <datalist id="curated-model-ids">
+                          {suggestions.map((m) => (
+                            <option key={m.id} value={m.id} />
+                          ))}
+                        </datalist>
+                      )}
+                    </>
+                  );
                 })()}
 
                 {customModels.length === 0 && (
