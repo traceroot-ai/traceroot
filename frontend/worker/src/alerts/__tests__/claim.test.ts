@@ -23,6 +23,8 @@ const {
   recordAlertEvaluationFailure,
   readStoppedAlertCloses,
   recordAlertNotifyOutcome,
+  recordAlertPageDelivered,
+  clearAlertPageDelivered,
   restoreAlertPendingClose,
   revertAlertEmissionState,
   takeAlertPendingClose,
@@ -653,6 +655,54 @@ describe("a compensation that lands while the tick it raced is still at the eval
 
     expect(written).toBe(true);
     expect(store.row).toMatchObject({ severity: "OK", alertedAt: BOUNDARY });
+  });
+});
+
+describe("the delivered-page flag", () => {
+  const delivery = {
+    alertId: "alert-1",
+    emittedAt: new Date("2026-08-12T10:30:00.000Z"),
+    at: new Date("2026-08-12T10:30:04.000Z"),
+  };
+
+  it("is set at the delivery's instant, only while the row carries that emission", async () => {
+    await recordAlertPageDelivered(delivery);
+    // No severity: a gap that carries the page open moves the row to NO_DATA without
+    // ending the breach the channel saw, and the page must still count.
+    expect(updateMany.mock.calls[0][0]).toEqual({
+      where: { id: "alert-1", alertedAt: delivery.emittedAt },
+      data: { pageDeliveredAt: delivery.at },
+    });
+  });
+
+  it("is cleared only while the row is still that recovery", async () => {
+    await clearAlertPageDelivered(delivery);
+    // A recovery that settles late finds a newer breach's stamp and leaves its flag alone.
+    expect(updateMany.mock.calls[0][0]).toEqual({
+      where: { id: "alert-1", severity: "OK", alertedAt: delivery.emittedAt },
+      data: { pageDeliveredAt: null },
+    });
+  });
+
+  it("says so when the row has moved on, rather than look like a landed write", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    updateMany.mockResolvedValue({ count: 0 });
+
+    await recordAlertPageDelivered(delivery);
+    await clearAlertPageDelivered(delivery);
+
+    expect(info.mock.calls.map(([line]) => String(line))).toEqual([
+      expect.stringContaining("page delivery not recorded alert=alert-1"),
+      expect.stringContaining("page delivery not cleared alert=alert-1"),
+    ]);
+  });
+
+  it("never throws: the page it reports on was delivered either way", async () => {
+    updateMany.mockRejectedValue(new Error("pool exhausted"));
+
+    await expect(recordAlertPageDelivered(delivery)).resolves.toBeUndefined();
+    await expect(clearAlertPageDelivered(delivery)).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalledTimes(2);
   });
 });
 
