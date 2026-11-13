@@ -192,6 +192,53 @@ describe("Home page", () => {
     });
   });
 
+  it("never sends a starter prompt to a detector-only decision model", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.llmModels = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "my-openai",
+          adapter: "openai",
+          source: "byok",
+          models: [
+            { id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", supported: true },
+            { id: "gpt-6-luna", label: "gpt-6-luna", supported: true },
+          ],
+        },
+      ],
+    };
+    render(<HomePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Summarize today's sessions" }));
+    expect(mocks.handleSend).toHaveBeenCalledWith("Summarize today's sessions", {
+      model: "gpt-6-luna",
+      provider: "my-openai",
+      source: "byok",
+      adapter: "openai",
+    });
+  });
+
+  it("offers no starter prompts when the only model is a decision model", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.llmModels = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "my-openai",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", supported: true }],
+        },
+      ],
+    };
+    render(<HomePage />);
+
+    // The panel shows its no-models state instead of the greeting.
+    expect(screen.queryByRole("button", { name: "Summarize today's sessions" })).toBeNull();
+    expect(mocks.handleSend).not.toHaveBeenCalled();
+  });
+
   it("disables starter prompts until the model list has loaded", () => {
     render(<HomePage />);
     const chip = screen.getByRole("button", {

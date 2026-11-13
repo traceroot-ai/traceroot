@@ -22,7 +22,7 @@ OpenAI, Anthropic, DeepSeek, xAI, Moonshot (Kimi), Z.AI (GLM), Google Gemini, Op
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-cyber`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro`, `gpt-5`, `gpt-5-mini`, `o3` |
+| OpenAI | `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-luna-decisions`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-cyber`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro`, `gpt-5`, `gpt-5-mini`, `o3` |
 | Anthropic | `claude-fable-5-2`, `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-opus-4-5`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-haiku-4-5` |
 | Google Gemini | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-2.5-pro` |
 | DeepSeek | `deepseek-v4-pro`, `deepseek-flash`, `deepseek-v4-flash` |
@@ -32,6 +32,8 @@ OpenAI, Anthropic, DeepSeek, xAI, Moonshot (Kimi), Z.AI (GLM), Google Gemini, Op
 | TypeSafe AI | `jev-1.13.0`, `jev-1.14.0` |
 
 TypeSafe AI runs detectors only; it does not appear in the chat or RCA model pickers.
+
+`gpt-6-luna-decisions` is also detectors only. It judges traces with `gpt-6-luna` on the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions), which answers with a category and its probabilities instead of text, the same way Jev does. Runs, spans and costs are recorded as `gpt-6-luna`.
 
 **Note:** Azure OpenAI, AWS Bedrock, and OpenRouter accept free-text model IDs instead of using a curated catalog.
 

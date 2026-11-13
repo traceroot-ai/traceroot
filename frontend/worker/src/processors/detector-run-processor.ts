@@ -98,11 +98,14 @@ export interface ScanUsage {
   inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
+  /** See EvalResult.skipCostFallback. */
+  skipCostFallback?: boolean;
 }
 
 async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   if (
     usage.inferenceCost > 0 ||
+    usage.skipCostFallback ||
     !usage.inferenceModel ||
     usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
   ) {
@@ -268,6 +271,7 @@ async function runSingleDetector(params: {
     inferenceSource: result.inferenceSource,
     inferenceModel: result.inferenceModel,
     inferenceProvider: result.inferenceProvider,
+    skipCostFallback: result.skipCostFallback,
   };
 
   if (!result.identified) {

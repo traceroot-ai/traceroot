@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { isDecisionAdapter } from "@traceroot/core";
+import { isDecisionAdapter, isDecisionModelId } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
@@ -99,8 +99,12 @@ export function AiAssistantPanel({
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId && canInteract,
   });
-  // Decision models (TypeSafe) cannot run chat.
-  const chatProviders = llmModels?.byokProviders.filter((g) => !isDecisionAdapter(g.adapter)) ?? [];
+  // Decision models (a TypeSafe provider, or a detector-only alias on a chat
+  // provider such as gpt-6-luna-decisions) cannot run chat.
+  const chatProviders =
+    llmModels?.byokProviders
+      .filter((g) => !isDecisionAdapter(g.adapter))
+      .map((g) => ({ ...g, models: g.models.filter((m) => !isDecisionModelId(m.id)) })) ?? [];
   const hasModels =
     !llmModels ||
     llmModels.systemModels.some((g) => g.models.length > 0) ||

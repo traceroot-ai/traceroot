@@ -608,5 +608,64 @@ describe("ModelSelector", () => {
         adapter: "typesafe",
       });
     });
+
+    const withOpenAIDecisions = () => ({
+      byokProviders: [
+        {
+          provider: "my-openai",
+          adapter: "openai",
+          source: "byok" as const,
+          models: [
+            { id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", supported: true },
+            { id: "gpt-6-luna", label: "gpt-6-luna", supported: true },
+          ],
+        },
+      ],
+      systemModels: [],
+    });
+
+    it("hides the OpenAI decision alias on a chat provider but keeps gpt-6-luna", () => {
+      mocks.models = withOpenAIDecisions();
+
+      render(
+        <ModelSelector
+          value={{ model: "", provider: "", source: "system", adapter: "" }}
+          onChange={mocks.onChange}
+          workspaceId="workspace-1"
+        />,
+      );
+
+      // Listed first, the alias would otherwise be the auto-pick.
+      expect(mocks.onChange).toHaveBeenCalledWith({
+        model: "gpt-6-luna",
+        provider: "my-openai",
+        source: "byok",
+        adapter: "openai",
+      });
+      fireEvent.click(screen.getByRole("button"));
+      expect(screen.queryByText("gpt-6-luna-decisions")).toBeNull();
+    });
+
+    it("lists the OpenAI decision alias when allowDecisionModels is set", () => {
+      mocks.models = withOpenAIDecisions();
+
+      render(
+        <ModelSelector
+          value={{ model: "gpt-6-luna", provider: "my-openai", source: "byok", adapter: "openai" }}
+          onChange={mocks.onChange}
+          workspaceId="workspace-1"
+          allowDecisionModels
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.click(screen.getByText("gpt-6-luna-decisions"));
+      expect(mocks.onChange).toHaveBeenCalledWith({
+        model: "gpt-6-luna-decisions",
+        provider: "my-openai",
+        source: "byok",
+        adapter: "openai",
+      });
+    });
   });
 });

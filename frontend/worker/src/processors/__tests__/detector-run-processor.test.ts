@@ -290,6 +290,52 @@ describe("processTrace — finding + RCA", () => {
     });
   });
 
+  it("keeps a self-priced eval's zero cost instead of re-pricing its token counts", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Failure",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: "gpt-6-luna-decisions",
+        detectionProvider: "my-openai",
+        detectionSource: "byok",
+        enableRca: false,
+      },
+    ]);
+    // The Decisions eval could not price the call: output is free there, so
+    // list-pricing these counts would overcharge.
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 1000,
+      inferenceOutputTokens: 7,
+      inferenceSource: "byok",
+      inferenceModel: "gpt-6-luna",
+      inferenceProvider: "openai",
+      skipCostFallback: true,
+    });
+    mockCalculateCost.mockResolvedValue(0.0015);
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockCalculateCost).not.toHaveBeenCalled();
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          model: "gpt-6-luna",
+          provider: "openai",
+          inputTokens: 1000,
+          outputTokens: 7,
+          cost: 0,
+        }),
+      ],
+    });
+  });
+
   it("does not write detector AI usage when inference has no model attribution", async () => {
     mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
