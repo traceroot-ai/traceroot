@@ -30,6 +30,7 @@ vi.mock("next/navigation", () => ({
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Role } from "@traceroot/core";
+import { SettingsAccessGate } from "../../demo-access";
 import { GeneralTab } from "./GeneralTab";
 
 function renderTab() {
@@ -51,6 +52,36 @@ afterEach(() => {
 });
 
 describe("GeneralTab workspace delete dialog", () => {
+  it("saves a changed workspace name and disables saving an empty name", async () => {
+    renderTab();
+    const input = screen.getByPlaceholderText("Workspace name");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "  Renamed Workspace  " } });
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(save);
+    await waitFor(() => {
+      expect(mocks.updateWorkspace).toHaveBeenCalledWith("w1", "Renamed Workspace");
+    });
+  });
+
+  it("disables save and shows progress while a workspace rename is pending", async () => {
+    mocks.updateWorkspace.mockReturnValue(new Promise(() => {}));
+    renderTab();
+    fireEvent.change(screen.getByPlaceholderText("Workspace name"), {
+      target: { value: "Renamed Workspace" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
+    });
+    expect(mocks.updateWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it("pressing Enter with the exact workspace name triggers delete", async () => {
     renderTab();
 
@@ -113,5 +144,24 @@ describe("GeneralTab workspace delete dialog", () => {
     // Verify delete was called exactly once
     expect(mocks.deleteWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.deleteWorkspace).toHaveBeenCalledWith("w1");
+  });
+});
+
+describe("GeneralTab inside the demo viewer read-only gate", () => {
+  it("shows the workspace settings but disables every input and button", () => {
+    const qc = new QueryClient();
+    mocks.workspace.role = Role.VIEWER;
+    render(
+      <QueryClientProvider client={qc}>
+        <SettingsAccessGate access={{ mode: "read-only" }}>
+          <GeneralTab workspaceId="w1" />
+        </SettingsAccessGate>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByDisplayValue("Acme Corp")).toBeTruthy();
+    const controls = [...screen.queryAllByRole("textbox"), ...screen.queryAllByRole("button")];
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) expect(control.matches(":disabled")).toBe(true);
   });
 });

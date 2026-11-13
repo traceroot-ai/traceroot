@@ -17,6 +17,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -35,7 +36,9 @@ const ADAPTER_VALUES = [
 const createSchema = z.object({
   adapter: z.enum(ADAPTER_VALUES),
   provider: z.string().min(1).max(100), // user-defined label
-  apiKey: z.string().optional(), // not required for bedrock with default creds
+  // Trimmed, so a blank key fails the required check below. Not required for
+  // bedrock with default creds.
+  apiKey: z.string().trim().optional(),
   baseUrl: z.string().url().optional(),
   customModels: z.array(z.string().min(1)).default([]),
   withDefaultModels: z.boolean().default(true),
@@ -59,6 +62,9 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(authResult.user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
+  if (isDemoViewer(workspaceId, membershipResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },

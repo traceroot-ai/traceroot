@@ -23,7 +23,7 @@ function RowText({ row }: { row: AlertListRow }) {
   return (
     <>
       <span className="truncate text-xs font-medium text-foreground">{row.name}</span>
-      <span className="truncate text-[11px] text-muted-foreground">
+      <span className="truncate text-[12px] text-muted-foreground">
         {row.summary === null ? row.state : `${row.summary} · ${row.state}`}
       </span>
     </>
@@ -41,7 +41,7 @@ export function AlertListCard({ model }: { model: AlertListCardModel }) {
   return (
     <Card className="max-w-full overflow-hidden border-border bg-card">
       {model.rows.length === 0 ? (
-        <p className="px-2.5 py-2 text-[11px] text-muted-foreground">No alerts in this project.</p>
+        <p className="px-2.5 py-2 text-[12px] text-muted-foreground">No alerts in this project.</p>
       ) : (
         <ul className="divide-y divide-border/60">
           {model.rows.map((row) => (
@@ -51,7 +51,7 @@ export function AlertListCard({ model }: { model: AlertListCardModel }) {
                   <RowText row={row} />
                 </div>
               ) : (
-                <Link href={row.href} className={`${ROW_TEXT} rounded-sm hover:bg-accent/50`}>
+                <Link href={row.href} className={`${ROW_TEXT} rounded-sm hover:bg-muted`}>
                   <RowText row={row} />
                 </Link>
               )}
@@ -65,7 +65,7 @@ export function AlertListCard({ model }: { model: AlertListCardModel }) {
           {summary}
         </span>
         {model.capacity !== null && (
-          <span className="shrink-0 text-[11px] text-muted-foreground/70">
+          <span className="shrink-0 text-[12px] text-muted-foreground/70">
             {model.capacity.used} of {model.capacity.max} used
           </span>
         )}
@@ -76,7 +76,7 @@ export function AlertListCard({ model }: { model: AlertListCardModel }) {
                 <Link
                   href={model.href}
                   aria-label="Open alerts"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground"
                 >
                   <ExternalLink className="h-3 w-3" />
                 </Link>

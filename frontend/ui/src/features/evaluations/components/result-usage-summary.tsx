@@ -30,11 +30,11 @@ export function ResultUsageSummary({
   const hasJudge = usage.scorer.spanCount > 0;
 
   return (
-    <div className="w-full rounded-md border border-border bg-muted/20 px-2.5 py-2 text-[11px]">
+    <div className="w-full rounded-[2px] border border-border bg-background px-2.5 py-2 text-[12px] hover:bg-muted">
       <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
         {/* Candidate execution — the thing under test. */}
         <div>
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="mb-1 text-[12px] font-medium text-muted-foreground">
             Candidate execution
           </div>
           <Row label="Duration" value={fmtDuration(durationMs)} />
@@ -46,7 +46,7 @@ export function ResultUsageSummary({
         {/* Evaluation overhead — the judge's cost of grading, kept apart so it never
             colours the candidate's own cost. */}
         <div>
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="mb-1 text-[12px] font-medium text-muted-foreground">
             Evaluation overhead
           </div>
           {pending ? (

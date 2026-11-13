@@ -84,7 +84,7 @@ export function SelectAllHeaderCell({
   onToggle: () => void;
 }) {
   return (
-    <th className="w-8 border-r border-border/50 px-3 py-1.5 text-left">
+    <th className="w-8 border-r border-border px-3 py-1.5 text-left">
       <Checkbox
         checked={checked}
         indeterminate={indeterminate}
@@ -109,7 +109,7 @@ export function SelectRowCell({
   label: string;
 }) {
   return (
-    <td className="w-8 border-r border-border/50 px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+    <td className="w-8 border-r border-border px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
       <Checkbox
         checked={checked}
         indeterminate={indeterminate}
@@ -167,7 +167,7 @@ export function BulkActionBar({
       role="status"
       aria-live="polite"
       className={cn(
-        "flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5",
+        "flex items-center gap-2 border-b border-border px-3 py-1.5",
         count === 0 && "hidden",
         className,
       )}

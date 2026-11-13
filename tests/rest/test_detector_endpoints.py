@@ -96,6 +96,8 @@ class TestListDetectorRuns:
         assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
         assert body["data"][0]["run_id"] == "r1"
         assert body["data"][0]["signal_gave_up"] is False
+        page_query = " ".join(mock_ch.query.call_args_list[0].args[0].split())
+        assert "ORDER BY r.timestamp DESC, r.run_id DESC LIMIT" in page_query
 
     def test_flags_a_hit_signal_assignment_gave_up_on(self, client, mock_ch, secret):
         data = self._fake_data()

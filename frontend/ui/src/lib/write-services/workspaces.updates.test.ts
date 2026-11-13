@@ -253,6 +253,25 @@ describe("deleteWorkspace", () => {
     expect(tx.workspace.delete).not.toHaveBeenCalled();
   });
 
+  it("does not count the demo workspace as one of the caller's own", async () => {
+    vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
+    try {
+      mockAccess();
+      // The caller has their own workspace and the demo: only one of their own.
+      tx.workspaceMember.count.mockResolvedValue(1);
+      expect(await remove()).toEqual({
+        ok: false,
+        status: 409,
+        error: "Cannot delete your only workspace",
+      });
+      expect(tx.workspaceMember.count).toHaveBeenCalledWith({
+        where: { userId: "u1", workspaceId: { not: "ws-demo" } },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("hard-deletes, relying on the cascades, and reports the live projects that went with it", async () => {
     mockAccess();
     expect(await remove()).toEqual({

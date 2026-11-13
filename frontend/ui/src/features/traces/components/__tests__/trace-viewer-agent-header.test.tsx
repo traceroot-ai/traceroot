@@ -4,7 +4,7 @@ import { render, cleanup } from "@testing-library/react";
 
 const trace = {
   trace_id: "f".repeat(32),
-  name: "rca: Failure Detector",
+  name: "rca: Failure detector",
   source: "agent",
   trace_start_time: "2026-01-01T00:00:00Z",
   metadata: JSON.stringify({
@@ -16,7 +16,7 @@ const trace = {
     {
       span_id: "s1",
       parent_span_id: null,
-      name: "rca: Failure Detector",
+      name: "rca: Failure detector",
       span_kind: "AGENT",
       status: "OK",
       span_start_time: "2026-01-01T00:00:00Z",

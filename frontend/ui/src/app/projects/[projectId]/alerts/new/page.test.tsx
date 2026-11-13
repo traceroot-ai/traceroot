@@ -21,7 +21,7 @@ describe("NewAlertPage", () => {
 
   it("renders the page header", () => {
     render(<NewAlertPage />);
-    expect(screen.getByRole("heading", { name: "New Alert" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New alert" })).toBeTruthy();
   });
 
   it("renders the form with the route's project id", () => {

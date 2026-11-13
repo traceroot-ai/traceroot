@@ -34,11 +34,15 @@ Once created, the Default dashboard is fully user-owned. TraceRoot never re-seed
 
 Creating and editing dashboards or widgets requires MEMBER or ADMIN access. VIEWERs can read existing dashboards. See [workspace roles](/getting-started/concepts#roles).
 
+<Note>
+  Dashboard and widget creation routes require user session or CLI access authentication (`$TRACEROOT_TOKEN`). Project API keys (`tr-...`) are scoped to data ingestion and read queries; passing an API key to dashboard write endpoints returns `403 Forbidden`.
+</Note>
+
 ### Using the public API (cURL)
 
 ```bash
 curl -X POST https://app.traceroot.ai/api/v1/public/dashboards \
-  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Authorization: Bearer $TRACEROOT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
@@ -48,6 +52,8 @@ curl -X POST https://app.traceroot.ai/api/v1/public/dashboards \
 ```
 
 ### Using the CLI
+
+Run `traceroot dashboards create` (authenticated with your user account via `traceroot login`):
 
 ```bash
 traceroot dashboards create \

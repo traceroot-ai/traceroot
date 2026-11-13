@@ -125,9 +125,9 @@ afterEach(() => {
 
 describe("preview geometry", () => {
   // react-grid-layout's own arithmetic, for a grid at the reference width
-  // with its default ten-pixel margin and padding: this is what the real
+  // with its sixteen-pixel margin and padding: this is what the real
   // dashboard computes for the same layout, so the preview must match it.
-  const margin = 10;
+  const margin = 16;
   const colWidth = (REFERENCE_WIDTH - margin * (COLS - 1) - margin * 2) / COLS;
 
   it("derives the reference width from the grid's columns at the reference column width", () => {

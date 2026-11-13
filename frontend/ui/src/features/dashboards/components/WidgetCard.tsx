@@ -44,7 +44,7 @@ function QueryWidgetBody({
   );
 
   if (!spec) {
-    return <div className="p-2 text-[12px] text-red-600">Invalid widget spec — edit to fix</div>;
+    return <div className="p-2 text-[12px] text-danger">Invalid widget spec — edit to fix</div>;
   }
   // isPending (no data yet), not isLoading (pending AND fetching): while the
   // auth session is still resolving the query is disabled — not fetching — and
@@ -54,7 +54,7 @@ function QueryWidgetBody({
   }
   if (error) {
     return (
-      <div className="p-2 text-[12px] text-red-600">
+      <div className="p-2 text-[12px] text-danger">
         Query failed{error instanceof Error ? `: ${error.message}` : ""}
       </div>
     );
@@ -135,7 +135,7 @@ export function WidgetCard({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
-              className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
               aria-label="Widget options"
             >
               <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
@@ -143,7 +143,10 @@ export function WidgetCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {widget.type === "query" && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
-            <DropdownMenuItem onSelect={onDelete} className="text-red-600 focus:text-red-600">
+            <DropdownMenuItem
+              onSelect={onDelete}
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            >
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
