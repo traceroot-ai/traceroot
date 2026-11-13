@@ -67,6 +67,12 @@ it("does nothing for a user created through the admin plugin", async () => {
   for (const fn of everything) expect(fn).not.toHaveBeenCalled();
 });
 
+it("sends an AgentID sign-up no welcome email and no Slack post, but keeps demo access", async () => {
+  await onUserCreated(user, { path: "/callback/:id", provider: "agentid" });
+  for (const fn of everything) expect(fn).not.toHaveBeenCalled();
+  expect(ensureDemoMembership).toHaveBeenCalledWith("u1");
+});
+
 it("adds every new account to the demo workspace, admin-created ones too", async () => {
   await onUserCreated(user, { path: "/sign-up/email" });
   await onUserCreated(user, { path: "/admin/create-user" });

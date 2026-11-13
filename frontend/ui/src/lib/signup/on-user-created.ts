@@ -49,8 +49,9 @@ export async function onUserCreated(
   // Every account can look at the demo workspace, however it was created.
   const demo = ensureDemoMembership(user.id);
 
-  // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (!isSelfSignup(context)) {
+  // Staff-provisioned users are not sign-ups; agents sign up in bulk, so they
+  // get no welcome email or Slack post.
+  if (!isSelfSignup(context) || signupProvider(context) === "agentid") {
     await demo;
     return;
   }
