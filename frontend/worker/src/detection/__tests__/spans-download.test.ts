@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import http from "node:http";
+import { UnrecoverableError } from "bullmq";
 import type { AddressInfo } from "node:net";
 
 let server: http.Server;
@@ -44,5 +45,43 @@ describe("downloadSpansJsonl", () => {
 
     await expect(downloadSpansJsonl("p1", "t1")).rejects.toThrow("HTTP 500");
     expect(requests).toBe(1);
+  });
+
+  it.each([400, 401, 403, 404, 422, 408, 429, 500, 502, 503, 504])(
+    "classifies HTTP %s for the queue's retry policy",
+    async (status) => {
+      let requests = 0;
+      const { downloadSpansJsonl } = await serve((_req, res) => {
+        requests++;
+        res.statusCode = status;
+        res.end();
+      });
+      const attempt = downloadSpansJsonl("p1", "t1");
+      await expect(attempt).rejects.toThrow(`HTTP ${status}`);
+      if (status < 500 && status !== 408 && status !== 429) {
+        await expect(attempt).rejects.toBeInstanceOf(UnrecoverableError);
+      } else {
+        await expect(attempt).rejects.not.toBeInstanceOf(UnrecoverableError);
+      }
+      expect(requests).toBe(1);
+    },
+  );
+
+  it.each([403, 503])("classifies HTTP %s after stale-socket recovery", async (status) => {
+    let requests = 0;
+    const { downloadSpansJsonl } = await serve((req, res) => {
+      if (++requests === 1) return req.socket.destroy();
+      res.statusCode = status;
+      res.end();
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const attempt = downloadSpansJsonl("p1", "t1");
+    await expect(attempt).rejects.toThrow(`HTTP ${status}`);
+    if (status === 403) {
+      await expect(attempt).rejects.toBeInstanceOf(UnrecoverableError);
+    } else {
+      await expect(attempt).rejects.not.toBeInstanceOf(UnrecoverableError);
+    }
+    expect(requests).toBe(2);
   });
 });

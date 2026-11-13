@@ -36,7 +36,8 @@ vi.mock("bullmq", () => {
     add = mockQueueAdd;
   }
   class DelayedError extends Error {}
-  return { Worker: vi.fn(), Queue: MockQueue, DelayedError };
+  class UnrecoverableError extends Error {}
+  return { Worker: vi.fn(), Queue: MockQueue, DelayedError, UnrecoverableError };
 });
 
 vi.mock("@traceroot/core", () => ({
@@ -70,7 +71,7 @@ vi.mock("../../notifications/digest-schedule.js", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import { DelayedError } from "bullmq";
+import { DelayedError, UnrecoverableError } from "bullmq";
 import { handleDetectorRunJob, processTrace } from "../detector-run-processor.js";
 
 const BASE_JOB: DetectorRunJob = { traceId: "t1", detectorIds: ["d1"], projectId: "p1" };
@@ -166,6 +167,107 @@ describe("handleDetectorRunJob — quiescence gate", () => {
   it("throws (for BullMQ retry) when time-since-last-span fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 });
     await expect(handleDetectorRunJob(makeJob())).rejects.toThrow();
+  });
+});
+
+describe("handleDetectorRunJob — span-download failures", () => {
+  function failDownload(status: number) {
+    mockFetches(60_000);
+    const message = `Failed to download spans for trace t1: HTTP ${status}`;
+    mockDownloadSpans.mockRejectedValue(
+      status >= 400 && status < 500 && status !== 408 && status !== 429
+        ? new UnrecoverableError(message)
+        : new Error(message),
+    );
+  }
+
+  it.each([408, 429, 500, 502, 503, 504])(
+    "rejects HTTP %s downloads so BullMQ can retry before inference",
+    async (status) => {
+      failDownload(status);
+
+      const attempt = handleDetectorRunJob(makeJob());
+
+      await expect(attempt).rejects.toThrow(`HTTP ${status}`);
+      await expect(attempt).rejects.not.toBeInstanceOf(UnrecoverableError);
+      expect(mockWriteRun).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "failed", usedInference: false }),
+      );
+      expect(mockRunDetection).not.toHaveBeenCalled();
+      expect(mockWithSelfTrace).not.toHaveBeenCalled();
+      expect(mockWriteFinding).not.toHaveBeenCalled();
+      expect(mockPrisma.aIMessage.createMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([400, 401, 403, 404, 422])(
+    "marks HTTP %s downloads unrecoverable while preserving failed-run visibility",
+    async (status) => {
+      failDownload(status);
+
+      await expect(handleDetectorRunJob(makeJob())).rejects.toBeInstanceOf(UnrecoverableError);
+      expect(mockWriteRun).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "failed", usedInference: false }),
+      );
+      expect(mockRunDetection).not.toHaveBeenCalled();
+    },
+  );
+
+  it("propagates a transport failure from the download helper", async () => {
+    const error = new TypeError("connection reset");
+    mockFetches(60_000);
+    mockDownloadSpans.mockRejectedValue(error);
+
+    await expect(handleDetectorRunJob(makeJob())).rejects.toBe(error);
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+    expect(mockRunDetection).not.toHaveBeenCalled();
+  });
+
+  it("preserves the download error when failed-run persistence also fails", async () => {
+    failDownload(503);
+    mockWriteRun.mockRejectedValue(new Error("write unavailable"));
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+
+    await expect(handleDetectorRunJob(job)).rejects.toThrow("HTTP 503");
+
+    expect(mockWriteRun).toHaveBeenCalledTimes(2);
+    expect(mockRunDetection).not.toHaveBeenCalled();
+  });
+
+  it("evaluates once after recovery and updates the same failed run", async () => {
+    failDownload(503);
+    await expect(handleDetectorRunJob(makeJob())).rejects.toThrow("HTTP 503");
+    const failedRunId = mockWriteRun.mock.calls[0][0].runId;
+
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [] },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 10,
+      inferenceOutputTokens: 5,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "anthropic",
+    });
+
+    await handleDetectorRunJob(makeJob());
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockWriteRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        runId: failedRunId,
+        status: "completed",
+        usedInference: true,
+      }),
+    );
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -422,7 +524,7 @@ describe("processTrace — self-trace emission", () => {
     mockFetches(60_000);
     mockDownloadSpans.mockRejectedValue(new Error("Failed to download spans: HTTP 500"));
 
-    await processTrace("t1", "p1", ["d1"]);
+    await expect(processTrace("t1", "p1", ["d1"])).rejects.toThrow("HTTP 500");
 
     expect(mockWithSelfTrace).not.toHaveBeenCalled();
     expect(mockWriteRun).toHaveBeenCalledWith(
@@ -539,7 +641,7 @@ describe("processTrace — usage-meter classification", () => {
     mockFetches(60_000);
     mockDownloadSpans.mockRejectedValue(new Error("Failed to download spans: HTTP 500"));
 
-    await processTrace("t1", "p1", ["d1"]);
+    await expect(processTrace("t1", "p1", ["d1"])).rejects.toThrow("HTTP 500");
 
     expect(mockWriteRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed", usedInference: false }),
