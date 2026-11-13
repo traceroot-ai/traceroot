@@ -39,6 +39,7 @@ from worker import attachment_extraction
 from worker.attachment_extraction import (
     _MIN_IMAGE_BYTES,
     TRUNCATION_MARKER,
+    AttachmentExtractor,
     _could_be_image,
     _cut_to_size,
     _enforce_size_limit,
@@ -1797,6 +1798,7 @@ class TestProcessS3Traces:
         The count budget does not reset between chunk flushes.
         """
         run, ch, _, _ = ingest
+        monkeypatch.setattr("worker.ingest_tasks.SPAN_CHUNK_SIZE", 1)
         monkeypatch.setattr(
             settings,
             "attachments",
@@ -1828,8 +1830,43 @@ class TestProcessS3Traces:
         s3 = IngestS3(payload)
         run(s3)
 
+        # SPAN_CHUNK_SIZE=1 ensures two separate chunk flushes occur
+        assert len(ch.insert_spans_batch.call_args_list) == 2
         # Only the first image is stored; the second is omitted by the shared batch budget.
         assert s3.puts == [attachment_key(PROJECT, sha(img1))]
-        inserted = {s["span_id"]: s for s in ch.insert_spans_batch.call_args[0][0]}
+        inserted = {
+            s["span_id"]: s for c in ch.insert_spans_batch.call_args_list for s in c.args[0]
+        }
         assert ref_for(img1, "image/png") in inserted[self.ROOT]["output"]
         assert "[image omitted: more than 1 images in one batch" in inserted[self.CHILD]["output"]
+
+    def test_extractor_config_mismatch_raises(self):
+        """Passing mismatched config and extractor configurations raises ValueError."""
+        config1 = AttachmentSettings(max_image_bytes=1000)
+        config2 = AttachmentSettings(max_image_bytes=2000)
+        extractor = AttachmentExtractor(MagicMock(), PROJECT, config1)
+
+        with pytest.raises(ValueError, match="config must match the extractor configuration"):
+            extract_attachments(MagicMock(), PROJECT, [], [], config=config2, extractor=extractor)
+
+    def test_shared_extractor_returns_call_delta(self):
+        """extract_attachments returns the delta for that call, while extractor accumulates."""
+        s3 = FakeS3()
+        config = AttachmentSettings(enabled=True, project_ids="")
+        extractor = AttachmentExtractor(s3, PROJECT, config)
+        img1 = make_png(2, 2)
+        img2 = make_jpeg()
+
+        row1 = {"span_id": "1", "output": data_url(img1, "image/png")}
+        res1 = extract_attachments(s3, PROJECT, [], [row1], extractor=extractor)
+        assert res1.referenced == 1
+        assert res1.stored == 1
+        assert extractor.result.referenced == 1
+
+        row2 = {"span_id": "2", "output": data_url(img2, "image/jpeg")}
+        res2 = extract_attachments(s3, PROJECT, [], [row2], extractor=extractor)
+        # Delta for call 2 is 1 (not 2)
+        assert res2.referenced == 1
+        assert res2.stored == 1
+        # Cumulative on extractor is 2
+        assert extractor.result.referenced == 2

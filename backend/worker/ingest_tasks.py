@@ -432,9 +432,9 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         attachments_enabled = settings.attachments.applies_to(project_id)
         attachment_extractor = None
         if attachments_enabled:
-            from worker.attachment_extraction import _Extractor
+            from worker.attachment_extraction import AttachmentExtractor
 
-            attachment_extractor = _Extractor(s3_service, project_id, settings.attachments)
+            attachment_extractor = AttachmentExtractor(s3_service, project_id, settings.attachments)
 
         # 2. Stream-transform and insert spans in bounded-memory chunks.
         #
