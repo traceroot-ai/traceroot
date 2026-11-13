@@ -29,6 +29,7 @@ const DISPOSABLE_DOMAINS = new Set([
   "fakemail.net",
   "getairmail.com",
   "getnada.com",
+  "grr.la",
   "guerrillamail.biz",
   "guerrillamail.com",
   "guerrillamail.de",

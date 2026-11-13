@@ -180,7 +180,7 @@ describe("signup through real Better Auth handlers", () => {
 
   it.each([
     ["workspace.test", "EMAIL_DOMAIN_RESERVED"],
-    ["mailinator.com", "EMAIL_DOMAIN_DISPOSABLE"],
+    ["grr.la", "EMAIL_DOMAIN_DISPOSABLE"],
   ])("rejects Cloud email signup for %s before creating a user", async (domain, code) => {
     const { auth, created, database } = testAuth();
     const response = await auth.handler(
