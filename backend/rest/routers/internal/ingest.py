@@ -4,12 +4,14 @@ import gzip
 import logging
 import re
 import zlib
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from google.protobuf.message import DecodeError
 
 from db.clickhouse.client import get_clickhouse_client
+from db.project_ingestion import record_project_ingestion
 from rest.routers.internal.auth import verify_internal_secret
 from shared.otlp import decode_otlp_protobuf
 from worker.detector_transform import UnattributableSpanError, transform_detector_traces
@@ -86,6 +88,7 @@ async def _ingest(request: Request, fallback_project_id: str | None, source: str
     Returns:
         dict: ``{"ok": True}`` on success.
     """
+    received_at = datetime.now(UTC)
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty request body")
@@ -138,6 +141,7 @@ async def _ingest(request: Request, fallback_project_id: str | None, source: str
     ch = get_clickhouse_client()
     ch.insert_spans_batch(spans)
     ch.insert_traces_batch(traces)
+    record_project_ingestion({record["project_id"] for record in (*traces, *spans)}, received_at)
     return {"ok": True}
 
 

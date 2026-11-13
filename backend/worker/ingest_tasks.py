@@ -5,10 +5,11 @@ This module defines the async tasks that process trace data from S3 to ClickHous
 
 import json
 import logging
-import threading
 from collections import defaultdict
 from datetime import UTC, datetime
 
+from db.postgres import get_pg_pool as _get_pg_pool
+from db.project_ingestion import record_project_ingestion
 from shared.enums import SpanKind
 from worker.celery_app import app
 from worker.staged_batch import UndecodableBatchError, load_staged_batch
@@ -117,29 +118,6 @@ def _task_cost_by_trace(rows) -> dict[str, float]:
             total += float(cost)
         result[trace_id] = total
     return result
-
-
-_PG_POOL = None
-_PG_POOL_LOCK = threading.Lock()
-
-
-def _get_pg_pool():
-    """A lazily-created, thread-safe Postgres connection pool for the worker.
-
-    Cost derivation runs once per eval-bearing batch; opening a fresh
-    ``psycopg2.connect`` each time is pure connection churn. A small module-level
-    ``ThreadedConnectionPool`` reuses connections across batches within a worker process.
-    """
-    global _PG_POOL
-    if _PG_POOL is None:
-        with _PG_POOL_LOCK:
-            if _PG_POOL is None:
-                from psycopg2 import pool as _pg_pool
-
-                from shared.config import settings
-
-                _PG_POOL = _pg_pool.ThreadedConnectionPool(1, 8, settings.database_url)
-    return _PG_POOL
 
 
 def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
@@ -435,14 +413,14 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                 ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
+            if traces or spans:
+                record_project_ingestion({project_id}, version or datetime.now(UTC))
+
+            if spans:
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
                 #
-                # Gated on the batch actually containing evaluation spans. The batch
-                # already knows the answer in memory (otel_transform set is_evaluation
-                # from the span kind), so gating costs nothing — whereas calling
-                # unconditionally puts a Postgres connect + round trip on the main
-                # product's ingest hot path, per S3 object, per worker, only to learn
-                # "no eval results" for the >99% of batches that carry ordinary traces.
+                # The batch already identifies evaluation spans, so ordinary telemetry
+                # needs no result lookup or cost-derivation query.
                 eval_trace_ids = {s["trace_id"] for s in spans if s.get("is_evaluation")}
                 if eval_trace_ids:
                     try:
