@@ -11,6 +11,7 @@ write), and service-message parity on passthrough errors.
 
 import json
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -176,8 +177,81 @@ def test_get_signal_returns_resolved_at_and_merged_into_id():
         "status": "resolved",
         "resolved_at": "2026-10-14T08:00:00Z",
         "merged_into_id": None,
+        "recent_hits": [],
     }
     assert _sent(read) == {"projectId": "proj-A", "signalId": "sig-1"}
+
+
+DETAIL_UPSTREAM = {**SIGNAL_UPSTREAM, "resolvedAt": None, "mergedIntoId": None, "recentHits": []}
+
+
+def _get_signal(upstream):
+    _mock_key_auth()
+    read = respx.post(READ_URL).mock(return_value=Response(200, json={"signal": upstream}))
+    return _client().get("/api/v1/public/signals/sig-1", headers=KEY_HEADER), read
+
+
+@respx.mock
+def test_get_signal_returns_recent_hits_in_the_services_order():
+    """The service bounds, sorts and caps the hits; the public read keeps them as given."""
+    hits = [
+        {
+            "traceId": f"trace-{i:02d}",
+            "findingId": f"finding-{i:02d}",
+            "traceStartTime": f"2026-10-14T07:{59 - i:02d}:00.000Z",
+        }
+        for i in range(20)
+    ]
+
+    resp, read = _get_signal({**DETAIL_UPSTREAM, "recentHits": hits})
+
+    assert resp.status_code == 200
+    recent = resp.json()["recent_hits"]
+    assert recent[0] == {
+        "trace_id": "trace-00",
+        "finding_id": "finding-00",
+        "trace_start_time": "2026-10-14T07:59:00Z",
+    }
+    assert [h["trace_id"] for h in recent] == [f"trace-{i:02d}" for i in range(20)]
+    # The retention bound is the service's own: no window or cutoff is sent.
+    assert _sent(read) == {"projectId": "proj-A", "signalId": "sig-1"}
+
+
+@respx.mock
+def test_get_signal_returns_trace_start_times_with_a_utc_offset():
+    hit = {"traceId": "t", "findingId": "f", "traceStartTime": "2026-10-14T07:59:00.000Z"}
+
+    resp, _ = _get_signal({**DETAIL_UPSTREAM, "recentHits": [hit]})
+
+    assert resp.status_code == 200
+    start = datetime.fromisoformat(resp.json()["recent_hits"][0]["trace_start_time"])
+    assert start.utcoffset() == timedelta(0)
+
+
+@respx.mock
+def test_get_signal_reads_a_service_without_recent_hits_as_none():
+    """A web app deployed before the field leaves it out; the read still answers."""
+    upstream = {k: v for k, v in DETAIL_UPSTREAM.items() if k != "recentHits"}
+
+    resp, _ = _get_signal(upstream)
+
+    assert resp.status_code == 200
+    assert resp.json()["recent_hits"] == []
+
+
+@respx.mock
+def test_get_signal_fails_closed_on_malformed_recent_hits():
+    for recent_hits in [
+        None,
+        {},
+        "trace-1",
+        [{"traceId": "t", "findingId": "f"}],
+        [{"traceId": "t", "findingId": None, "traceStartTime": "2026-10-14T07:59:00.000Z"}],
+        [{"traceId": "t", "findingId": "f", "traceStartTime": "yesterday"}],
+    ]:
+        resp, _ = _get_signal({**DETAIL_UPSTREAM, "recentHits": recent_hits})
+        assert resp.status_code == 503, recent_hits
+        assert resp.json() == {"detail": "Signal service error"}
 
 
 @respx.mock

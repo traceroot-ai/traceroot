@@ -55,7 +55,7 @@ A signal keeps collecting new findings in every state. [Notifications](/detector
 Scripts can read signals and change their status through the public API:
 
 - `GET /api/v1/public/signals` lists the project's signals, newest first. Filter by `status` or `detector_id`. Merged signals are left out.
-- `GET /api/v1/public/signals/{signal_id}` returns one signal. A merged signal names the signal it moved to in `merged_into_id`.
+- `GET /api/v1/public/signals/{signal_id}` returns one signal, with up to 20 of the traces it hit most recently in `recent_hits`, latest trace start first. Each hit has its `trace_id`, `finding_id` and `trace_start_time`, and only traces inside your plan's retention window are listed. A merged signal names the signal it moved to in `merged_into_id`.
 - `PATCH /api/v1/public/signals/{signal_id}/status` resolves or reopens a signal. Resolving needs a `reason` (`fixed_elsewhere`, `fixed_by_pr`, `already_fixed_before` or `other`), and `other` also needs a `note`. Send `expected_status` to refuse the change when someone changed the status after you read it.
 
 The [traceroot CLI](/cli/get-started) does not have these signal commands yet.

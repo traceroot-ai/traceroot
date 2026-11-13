@@ -1145,7 +1145,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "get_signal",
     description:
-      "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals — never guess an id.",
+      "Fetch one signal by id, including when it was resolved and the traces it hit most recently. recent_hits lists up to 20 hits, latest trace start first, each with its trace_id, finding_id and trace_start_time; only traces that started inside the plan's retention window are listed, so each trace_id can be fetched with get_trace. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals — never guess an id.",
     method: "get",
     path: "/api/v1/public/signals/{signal_id}",
     inputSchema: {

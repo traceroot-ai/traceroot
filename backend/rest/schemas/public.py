@@ -675,15 +675,32 @@ class SignalSummary(BaseModel):
     rca_state: str | None = None
 
 
+class SignalHit(BaseModel):
+    """One trace a signal hit, with the finding its detector produced on it.
+
+    ``trace_start_time`` is when the trace started: the time the hits are sorted
+    and bounded on, and the one ``GET /api/v1/public/traces/{trace_id}`` checks
+    against the retention window.
+    """
+
+    trace_id: str
+    finding_id: str
+    trace_start_time: datetime
+
+
 class SignalDetail(SignalSummary):
-    """One signal, including when it was resolved and whether it was merged.
+    """One signal, including when it was resolved, whether it was merged and the
+    traces it hit most recently.
 
     A merged signal is still answered, with ``merged_into_id`` naming the signal
-    its findings moved to; lists leave merged signals out.
+    its findings moved to; lists leave merged signals out. ``recent_hits`` holds
+    up to 20 hits, latest trace start first, whose trace started inside the
+    plan's retention window, so each ``trace_id`` can be fetched.
     """
 
     resolved_at: datetime | None
     merged_into_id: str | None
+    recent_hits: list[SignalHit]
 
 
 class PublicSignalListResponse(BaseModel):

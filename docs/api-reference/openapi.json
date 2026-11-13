@@ -5175,7 +5175,7 @@
         "type": "object"
       },
       "SignalDetail": {
-        "description": "One signal, including when it was resolved and whether it was merged.\n\nA merged signal is still answered, with ``merged_into_id`` naming the signal\nits findings moved to; lists leave merged signals out.",
+        "description": "One signal, including when it was resolved, whether it was merged and the\ntraces it hit most recently.\n\nA merged signal is still answered, with ``merged_into_id`` naming the signal\nits findings moved to; lists leave merged signals out. ``recent_hits`` holds\nup to 20 hits, latest trace start first, whose trace started inside the\nplan's retention window, so each ``trace_id`` can be fetched.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -5233,6 +5233,13 @@
             ],
             "title": "Rca State"
           },
+          "recent_hits": {
+            "items": {
+              "$ref": "#/components/schemas/SignalHit"
+            },
+            "title": "Recent Hits",
+            "type": "array"
+          },
           "reopen_count": {
             "title": "Reopen Count",
             "type": "integer"
@@ -5279,9 +5286,35 @@
           "last_seen_at",
           "created_at",
           "resolved_at",
-          "merged_into_id"
+          "merged_into_id",
+          "recent_hits"
         ],
         "title": "SignalDetail",
+        "type": "object"
+      },
+      "SignalHit": {
+        "description": "One trace a signal hit, with the finding its detector produced on it.\n\n``trace_start_time`` is when the trace started: the time the hits are sorted\nand bounded on, and the one ``GET /api/v1/public/traces/{trace_id}`` checks\nagainst the retention window.",
+        "properties": {
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "trace_start_time": {
+            "format": "date-time",
+            "title": "Trace Start Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "finding_id",
+          "trace_start_time"
+        ],
+        "title": "SignalHit",
         "type": "object"
       },
       "SignalStatusRequest": {
@@ -12632,7 +12665,7 @@
           "Signals"
         ],
         "x-tool": {
-          "description": "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals \u2014 never guess an id.",
+          "description": "Fetch one signal by id, including when it was resolved and the traces it hit most recently. recent_hits lists up to 20 hits, latest trace start first, each with its trace_id, finding_id and trace_start_time; only traces that started inside the plan's retention window are listed, so each trace_id can be fetched with get_trace. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals \u2014 never guess an id.",
           "enabled": true,
           "name": "get_signal"
         }
