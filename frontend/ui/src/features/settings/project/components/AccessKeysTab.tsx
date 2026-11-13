@@ -101,10 +101,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const accessKeys = data?.access_keys || [];
 
   const envBlockContent = newKeyData
-    ? `TRACEROOT_API_KEY = "${newKeyData.key}"`
+    ? `TRACEROOT_API_KEY="${newKeyData.key}"`
     : accessKeys.length > 0
-      ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
-      : `TRACEROOT_API_KEY = "tr-..."`;
+      ? `TRACEROOT_API_KEY="${formatKeyHint(accessKeys[0].key_hint)}"`
+      : `TRACEROOT_API_KEY="tr-..."`;
 
   if (error instanceof ImpersonationError) {
     return (
