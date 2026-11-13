@@ -3,7 +3,8 @@ DeepSeek ReAct agent with tool use, streaming, and TraceRoot observability.
 
 DeepSeek's API is OpenAI-wire-compatible, so we use the official `openai`
 SDK with `base_url` pointed at DeepSeek and a DeepSeek model name
-(e.g. "deepseek-chat" for V3, "deepseek-reasoner" for R1).
+("deepseek-flash" or "deepseek-v4-pro"). Thinking mode is turned off on every
+request; see `_stream_completion`.
 TraceRoot's existing OpenAI integration captures the calls automatically —
 no extra wiring needed.
 
@@ -202,10 +203,9 @@ def _build_deepseek_client() -> openai.OpenAI:
 class ReActAgent:
     """ReAct-style agent that reasons and acts in a loop with streaming."""
 
-    # "deepseek-chat" = V3 (general-purpose, supports tool use).
-    # "deepseek-reasoner" = R1 (reasoning model with thinking tokens; not used here
-    # because its response shape needs different handling than the ReAct loop below).
-    def __init__(self, model: str = "deepseek-chat"):
+    # "deepseek-flash" = DeepSeek-V4.1-Flash; "deepseek-v4-pro" = DeepSeek-V4-Pro.
+    # Both support tool calling.
+    def __init__(self, model: str = "deepseek-flash"):
         self.client = _build_deepseek_client()
         self.model = model
         self.messages: list[dict] = [
@@ -238,6 +238,10 @@ class ReActAgent:
             tool_choice="auto",
             stream=True,
             stream_options={"include_usage": True},
+            # DeepSeek models think by default. In thinking mode, a request with
+            # `tools` must send back every earlier turn's `reasoning_content` or
+            # the API returns 400, and this loop keeps only `content`.
+            extra_body={"thinking": {"type": "disabled"}},
         )
 
         content = ""
