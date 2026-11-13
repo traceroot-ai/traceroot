@@ -8,10 +8,18 @@ function normalizeInstallationId(installationId: string): string {
   return normalized;
 }
 
+export interface InstallationTokenScope {
+  /** Repository names (without owner) the token may access. Omit for every repository of the installation. */
+  repositories?: string[];
+  /** Permission name to access level. Omit for every permission the installation grants. */
+  permissions?: Record<string, "read" | "write">;
+}
+
 export async function getInstallationToken(
   installationId: string,
   appId: string,
   privateKey: string,
+  scope?: InstallationTokenScope,
 ): Promise<{ token: string; expires_at: string }> {
   const safeInstallationId = normalizeInstallationId(installationId);
   const jwtToken = generateJWT(appId, privateKey.replace(/\\n/g, "\n"));
@@ -24,7 +32,9 @@ export async function getInstallationToken(
         Authorization: `Bearer ${jwtToken}`,
         Accept: "application/vnd.github.v3+json",
         "User-Agent": "TraceRoot",
+        ...(scope ? { "Content-Type": "application/json" } : {}),
       },
+      ...(scope ? { body: JSON.stringify(scope) } : {}),
     },
   );
 

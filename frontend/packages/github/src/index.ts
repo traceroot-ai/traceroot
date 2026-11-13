@@ -1,5 +1,10 @@
 export { generateJWT } from "./jwt";
-export { getInstallationToken, getInstallation, type GitHubInstallation } from "./auth";
+export {
+  getInstallationToken,
+  getInstallation,
+  type GitHubInstallation,
+  type InstallationTokenScope,
+} from "./auth";
 export {
   GITHUB_ACCESS_TOKEN_COOKIE,
   GITHUB_INSTALLATION_ID_COOKIE,

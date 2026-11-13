@@ -288,46 +288,6 @@ export async function reclaimOrphanedSandboxes(ownerId: string): Promise<string[
   return orphaned;
 }
 
-/**
- * Set up gh CLI in a Docker container and authenticate with a GitHub token.
- * Call this when the agent needs GitHub CLI access in the sandbox.
- */
-export async function setupGhCli(
-  executor: Executor,
-  githubToken: string,
-  githubUsername?: string,
-): Promise<void> {
-  // Install gh CLI if not present
-  await executor.exec(
-    `
-    type gh >/dev/null 2>&1 || {
-      apt-get update -qq
-      apt-get install -y -qq curl
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-      chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        | tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-      apt-get update -qq
-      apt-get install -y -qq gh
-    }
-  `,
-    { timeout: 120 },
-  );
-
-  // Authenticate gh CLI (write token to temp file, auth, then delete)
-  await executor.writeFile("/tmp/.gh_token", githubToken);
-  await executor.exec("gh auth login --with-token < /tmp/.gh_token && rm /tmp/.gh_token");
-
-  // Configure git identity for commits
-  const name = githubUsername || "TraceRoot Agent";
-  const email = githubUsername
-    ? `${githubUsername}@users.noreply.github.com`
-    : "agent@traceroot.ai";
-  await executor.exec(`git config --global user.name "${name}"`);
-  await executor.exec(`git config --global user.email "${email}"`);
-}
-
 function shellEscape(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
