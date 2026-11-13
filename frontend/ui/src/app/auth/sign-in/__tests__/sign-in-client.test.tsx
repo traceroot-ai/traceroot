@@ -129,4 +129,25 @@ describe("SignInClient", () => {
     // is treated as "no real callback" — so the link stays bare.
     expect(link.getAttribute("href")).toBe("/auth/sign-up");
   });
+
+  it("links Forgot? to the reset request page when email is set up", () => {
+    render(<SignInClient googleAuthConfigured={false} passwordResetEnabled />);
+    expect(screen.getByRole("link", { name: "Forgot?" }).getAttribute("href")).toBe(
+      "/auth/forgot-password",
+    );
+  });
+
+  // Without SMTP the reset email cannot go out, so the link would be a dead end.
+  it("hides Forgot? when email is not set up", () => {
+    render(<SignInClient googleAuthConfigured={false} />);
+    expect(screen.queryByRole("link", { name: "Forgot?" })).toBeNull();
+  });
+
+  it("shows progress and blocks a second submit while signing in", async () => {
+    mocks.signInEmail.mockReturnValue(new Promise(() => {}));
+    render(<SignInClient googleAuthConfigured={false} />);
+    fillAndSubmit();
+    const button = await screen.findByRole("button", { name: "Signing in..." });
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
 });

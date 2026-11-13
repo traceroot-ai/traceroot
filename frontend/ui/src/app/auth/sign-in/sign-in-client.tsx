@@ -29,9 +29,11 @@ type SignInForm = z.infer<typeof signInSchema>;
 
 type SignInContentProps = {
   googleAuthConfigured: boolean;
+  /** Only when SMTP is set up, since the reset link goes out by email. */
+  passwordResetEnabled?: boolean;
 };
 
-function SignInContent({ googleAuthConfigured }: SignInContentProps) {
+function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -107,7 +109,20 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
             />
           </AuthField>
 
-          <AuthField label="Password" error={errors.password?.message}>
+          <AuthField
+            label="Password"
+            error={errors.password?.message}
+            action={
+              passwordResetEnabled && (
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-[12px] text-brand hover:underline"
+                >
+                  Forgot?
+                </Link>
+              )
+            }
+          >
             <PasswordInput
               placeholder="********"
               className="h-8 text-[13px]"

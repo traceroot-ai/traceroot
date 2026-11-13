@@ -11,6 +11,7 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
+import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { isCloud } from "@/lib/server/cloud";
@@ -33,6 +34,14 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    // Not awaited: better-auth answers unknown emails without sending, so the
+    // response time must not depend on the SMTP round trip.
+    sendResetPassword: async ({ user, url }) => {
+      sendPasswordResetEmail({ to: user.email, resetUrl: url }).catch((error) =>
+        console.error("[auth] password reset email failed:", error),
+      );
+    },
+    revokeSessionsOnPasswordReset: true,
   },
 
   databaseHooks: {

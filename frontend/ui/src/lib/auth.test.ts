@@ -30,6 +30,12 @@ const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const sendPasswordResetEmailMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => undefined),
+);
+vi.mock("@/lib/email/send-password-reset-email", () => ({
+  sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
 vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
@@ -55,6 +61,10 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  emailAndPassword: {
+    sendResetPassword: (data: { user: { email: string }; url: string }) => Promise<void>;
+    revokeSessionsOnPasswordReset: boolean;
+  };
   databaseHooks: {
     user: {
       create: {
@@ -133,6 +143,41 @@ describe("auth options", () => {
     reject(error);
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
     spy.mockRestore();
+  });
+});
+
+describe("password reset", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("emails the reset link better-auth generated", async () => {
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "a@example.com" },
+      url: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+    expect(sendPasswordResetEmailMock).toHaveBeenCalledExactlyOnceWith({
+      to: "a@example.com",
+      resetUrl: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+  });
+
+  // An await here would make known emails answer slower than unknown ones.
+  it("resolves before the email is sent and logs a send failure", async () => {
+    let reject!: (error: Error) => void;
+    sendPasswordResetEmailMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      options.emailAndPassword.sendResetPassword({ user: { email: "b@example.com" }, url: "u" }),
+    ).resolves.toBeUndefined();
+    const error = new Error("smtp down");
+    reject(error);
+    await vi.waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("[auth] password reset email failed:", error),
+    );
+    spy.mockRestore();
+  });
+
+  it("signs out every session once the password changes", () => {
+    expect(options.emailAndPassword.revokeSessionsOnPasswordReset).toBe(true);
   });
 });
 
