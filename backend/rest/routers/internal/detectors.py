@@ -659,6 +659,13 @@ async def list_detector_window_summary(
             "(capped in SQL) for the digest LLM summary"
         ),
     ),
+    detector_ids: list[str] | None = Query(
+        None,
+        description=(
+            "Restrict the counts, and ``distinct_finding_count``, to these detectors. "
+            "Omit for every detector in the project."
+        ),
+    ),
 ):
     """Aggregate run/finding counts and the latest triggered trace per detector.
 
@@ -683,6 +690,15 @@ async def list_detector_window_summary(
 
     Detectors with no runs in the window are omitted; the frontend defaults
     absent entries to {findingCount: 0, runCount: 0}.
+
+    ``finding_count`` is per detector, but a finding is *shared*: one finding_id is
+    carried by the run of every detector that fired on its trace. Summing
+    ``finding_count`` across detectors therefore counts a shared finding once per
+    detector (3 co-triggering detectors -> one finding reads as 3). The response
+    also carries ``distinct_finding_count``, the number of distinct finding_ids
+    across the detectors counted, computed in the same scan via ``GROUPING SETS``
+    (a second pass would re-read the project's whole run history). Pass
+    ``detector_ids`` to count only a subset, e.g. the detectors a digest reports.
 
     When ``include_summaries`` is set, a second bounded query returns each
     detector's most recent per-detector judge summaries within the window:
@@ -711,12 +727,25 @@ async def list_detector_window_summary(
         params["end_before"] = to_utc_naive(end_before)
     window_clause = " AND ".join(window_conditions)
 
+    # The scope applies to the counts only. The summaries probe keeps the plain
+    # window: it is capped in SQL and is keyed by detector, so it needs no scope.
+    count_conditions = list(window_conditions)
+    count_params = dict(params)
+    if detector_ids is not None:
+        count_conditions.append("detector_id IN {detector_ids:Array(String)}")
+        count_params["detector_ids"] = detector_ids
+    count_where = " AND ".join(count_conditions)
+
     query = f"""
         SELECT
             detector_id,
+            grouping(detector_id)                                        AS is_total,
             count()                                                      AS run_count,
             countIf(latest_finding_id IS NOT NULL)                       AS finding_count,
-            argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL) AS latest_trace_id
+            argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL) AS latest_trace_id,
+            -- NULLs are skipped, so runs with no finding add nothing. On the
+            -- grand-total row this is the number of distinct findings.
+            uniqExact(latest_finding_id)                                 AS distinct_findings
         FROM (
             SELECT
                 detector_id,
@@ -730,14 +759,20 @@ async def list_detector_window_summary(
             WHERE project_id = {{project_id:String}}
             GROUP BY detector_id, run_id
         )
-        WHERE {window_clause}
-        GROUP BY detector_id
+        WHERE {count_where}
+        GROUP BY GROUPING SETS ((detector_id), ())
     """
 
-    result = ch.query(query, parameters=params)
+    result = ch.query(query, parameters=count_params)
     data: dict[str, dict] = {}
+    distinct_finding_count = 0
     for row in result.result_rows:
         row_dict = dict(zip(result.column_names, row))
+        # The () grouping set: one row over every detector counted. Tell it apart
+        # with grouping(), not by an empty detector_id.
+        if row_dict["is_total"]:
+            distinct_finding_count = int(row_dict["distinct_findings"])
+            continue
         # One representative trace today, shaped as a list so surfacing more
         # later (groupArray in the query) needs no contract change. "" (a
         # detector that ran but never fired) collapses to an empty list.
@@ -753,7 +788,7 @@ async def list_detector_window_summary(
             if detector_id in data:
                 data[detector_id]["sample_summaries"] = summaries
 
-    return {"data": data}
+    return {"data": data, "distinct_finding_count": distinct_finding_count}
 
 
 def _format_tz_offset(total_seconds: int) -> str:

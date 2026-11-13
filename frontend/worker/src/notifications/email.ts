@@ -105,7 +105,7 @@ export async function sendDigestAlertEmail(params: {
     // builder), so we never emit a blank/broken trace link.
     const latest = e.latestTraceId ? ` · latest ${e.latestTraceId.slice(0, 8)}` : "";
     textParts.push(
-      `- ${e.detectorName} — ${e.findingCount} ${findingNoun}${latest}`,
+      `- ${e.detectorName} — flagged ${e.findingCount} ${findingNoun}${latest}`,
       `  ${findingsUrlFor(e.detectorId)}`,
     );
   }
@@ -119,7 +119,7 @@ export async function sendDigestAlertEmail(params: {
       const latest = e.latestTraceId
         ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color: #888;">${escapeHtml(e.latestTraceId.slice(0, 8))}</a>`
         : "";
-      return `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="${findingsUrlFor(e.detectorId)}" style="color: #000; font-weight: 500;">${escapeHtml(e.detectorName)}</a> <span style="color: #888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
+      return `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="${findingsUrlFor(e.detectorId)}" style="color: #000; font-weight: 500;">${escapeHtml(e.detectorName)}</a> <span style="color: #888;">— flagged ${e.findingCount} ${findingNoun}${latest}</span></p>`;
     })
     .concat(
       omitted > 0
