@@ -197,7 +197,7 @@
   {
     "id": "tr-claude-opus-4-5",
     "modelName": "claude-opus-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]5(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]5(\\[1m\\])?(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -210,7 +210,7 @@
   {
     "id": "tr-claude-sonnet-4-5",
     "modelName": "claude-sonnet-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-sonnet(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4[.-]5(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -236,7 +236,7 @@
   {
     "id": "tr-claude-haiku-4-5",
     "modelName": "claude-haiku-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-haiku(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4[.-]5(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-haiku(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000001,
@@ -914,7 +914,7 @@
   {
     "id": "tr-claude-sonnet-4",
     "modelName": "claude-sonnet-4",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4(-0|-\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4(-\\d{8})?(-v\\d+:\\d+)?|claude-4-sonnet(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4(-0|-\\d{8})?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4(-\\d{8})?(-v\\d+:\\d+)?|claude-4-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,

@@ -770,6 +770,11 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-4-6-sonnet@20251015", "claude-sonnet-4-6"),
     ("claude-4-6-opus@20251015", "claude-opus-4-6"),
     ("claude-4-sonnet@20250514", "claude-sonnet-4"),
+    # Vertex AI — the IDs Agent Platform actually serves: Anthropic order, @date
+    ("claude-haiku-4-5@20251001", "claude-haiku-4-5"),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5"),
+    ("claude-opus-4-5@20251101", "claude-opus-4-5"),
+    ("claude-sonnet-4@20250514", "claude-sonnet-4"),
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
@@ -784,9 +789,9 @@ class TestClaudeBedrockAndVertexIds:
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
 
-        expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
-            f"{model_id} matched a different family than {expected_name}"
+        # Families can share rates (Sonnet 4 and 4.5), so compare the matched entry, not its price.
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched {price[MATCHED_MODEL_NAME]} instead of {expected_name}"
         )
 
     @pytest.mark.parametrize(
