@@ -7577,6 +7577,32 @@
         "title": "WidgetSpec",
         "type": "object"
       },
+      "WidgetSpecErrorResponse": {
+        "description": "A widget spec the query builder rejected, with the builder step at fault.",
+        "properties": {
+          "detail": {
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "step": {
+                "description": "The builder step that failed.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "step",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "WidgetSpecErrorResponse",
+        "type": "object"
+      },
       "WorkspaceListItem": {
         "description": "A workspace the authenticated user belongs to, with their role in it.",
         "properties": {
@@ -14389,11 +14415,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WidgetSpecErrorResponse"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation error"
+            "description": "Validation error: a malformed request, or a widget spec the builder rejected"
           },
           "503": {
             "content": {

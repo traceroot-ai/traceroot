@@ -36,6 +36,52 @@ def _error_response(description: str) -> dict[str, Any]:
     return {"description": description, "content": {"application/json": {"schema": _ERROR_SCHEMA}}}
 
 
+#: The one public route whose 422 is not only the string envelope. The shared widget
+#: handler turns a spec the builder rejects into `{"detail": {"step", "message"}}`
+#: (`WidgetSpecError`), so a client can show the failing builder step. A request body
+#: that fails ordinary validation on the same route still gets the string envelope.
+_WIDGET_QUERY_PATH = "/api/v1/public/widgets/query"
+_WIDGET_SPEC_ERROR_SCHEMA = {
+    "type": "object",
+    "title": "WidgetSpecErrorResponse",
+    "description": "A widget spec the query builder rejected, with the builder step at fault.",
+    "properties": {
+        "detail": {
+            "type": "object",
+            "properties": {
+                "step": {"type": "string", "description": "The builder step that failed."},
+                "message": {"type": "string"},
+            },
+            "required": ["step", "message"],
+        }
+    },
+    "required": ["detail"],
+}
+
+
+def _apply_widget_query_422(schema: dict[str, Any]) -> None:
+    """Document both shapes the widget query route can return for a 422."""
+    op = schema["paths"].get(_WIDGET_QUERY_PATH, {}).get("post")
+    if op is None or "422" not in op.get("responses", {}):
+        return
+    schema.setdefault("components", {}).setdefault("schemas", {})["WidgetSpecErrorResponse"] = (
+        copy.deepcopy(_WIDGET_SPEC_ERROR_SCHEMA)
+    )
+    op["responses"]["422"] = {
+        "description": "Validation error: a malformed request, or a widget spec the builder rejected",
+        "content": {
+            "application/json": {
+                "schema": {
+                    "oneOf": [
+                        _ERROR_SCHEMA,
+                        {"$ref": "#/components/schemas/WidgetSpecErrorResponse"},
+                    ]
+                }
+            }
+        },
+    }
+
+
 def _drop_unreferenced_schemas(schema: dict[str, Any], names: tuple[str, ...]) -> None:
     """Remove the named component schemas when nothing in the document refers to them."""
     components = schema.get("components", {}).get("schemas", {})
@@ -84,6 +130,7 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             if "422" in responses:
                 responses["422"] = _error_response("Validation error")
 
+    _apply_widget_query_422(schema)
     _drop_unreferenced_schemas(schema, ("HTTPValidationError", "ValidationError"))
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)

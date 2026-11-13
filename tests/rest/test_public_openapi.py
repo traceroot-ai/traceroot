@@ -1390,9 +1390,38 @@ def test_public_422_documents_the_string_envelope_the_api_returns():
             if response is None:
                 continue
             checked += 1
+            if path == "/api/v1/public/widgets/query":
+                continue  # two shapes; see the dedicated test below
             ref = response["content"]["application/json"]["schema"]["$ref"]
             assert ref == "#/components/schemas/ErrorResponse", f"{method.upper()} {path}: {ref}"
     assert checked > 20  # guard against the loop silently matching nothing
+
+
+def test_widget_query_422_documents_both_shapes_it_returns():
+    """POST /widgets/query returns the string envelope for a malformed request and
+    ``{"detail": {"step", "message"}}`` when the builder rejects the spec
+    (``WidgetSpecError``); a blanket string-only 422 would misdescribe the second."""
+    schema = _schema()
+    response = schema["paths"]["/api/v1/public/widgets/query"]["post"]["responses"]["422"]
+    one_of = response["content"]["application/json"]["schema"]["oneOf"]
+    assert {"$ref": "#/components/schemas/ErrorResponse"} in one_of
+    assert {"$ref": "#/components/schemas/WidgetSpecErrorResponse"} in one_of
+
+    spec_error = schema["components"]["schemas"]["WidgetSpecErrorResponse"]
+    detail = spec_error["properties"]["detail"]
+    assert detail["type"] == "object"
+    assert set(detail["required"]) == {"step", "message"}
+    assert spec_error["required"] == ["detail"]
+
+
+def test_widget_spec_error_schema_matches_what_the_handler_raises():
+    """The documented fields are the ones the handler puts in ``detail``."""
+    from rest.services.widget_query import WidgetSpecError
+
+    err = WidgetSpecError("breakdown", "bar display requires a breakdown dimension")
+    raised = {"step": err.step, "message": err.message}
+    documented = openapi_public._WIDGET_SPEC_ERROR_SCHEMA["properties"]["detail"]["properties"]
+    assert set(raised) == set(documented)
 
 
 def test_public_schema_drops_unused_fastapi_validation_models():
