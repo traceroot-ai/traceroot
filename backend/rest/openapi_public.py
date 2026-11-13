@@ -417,6 +417,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         # body. VIEWER and no approval match the other read operations; the
         # method is what forces a policy entry here at all.
         "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+        "readOnly": True,
     },
     "get_sql_schema": {
         "name": "get_sql_schema",
@@ -544,6 +545,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+        "readOnly": True,
     },
     "get_dashboard_data": {
         "name": "get_dashboard_data",
@@ -1047,8 +1049,21 @@ def _validate_curation_policy(
         ValueError: If a GET entry carries a ``policy`` key (the vocabulary is
             write-only), or if an enabled non-GET entry's ``policy`` is not a
             dict with exactly the keys ``{approvalClass, minRole, tenancy}``
-            and legal values.
+            and legal values, or if ``readOnly`` appears anywhere but as true
+            on a POST whose policy ``approvalClass`` is ``none``.
     """
+    if "readOnly" in entry:
+        policy = entry.get("policy")
+        if (
+            method != "post"
+            or entry["readOnly"] is not True
+            or not isinstance(policy, dict)
+            or policy.get("approvalClass") != "none"
+        ):
+            raise ValueError(
+                f"tool {method.upper()} {path} ({op_id}): readOnly is only legal as "
+                "true on a POST whose policy approvalClass is none"
+            )
     if method == "get":
         if "policy" in entry:
             raise ValueError(
