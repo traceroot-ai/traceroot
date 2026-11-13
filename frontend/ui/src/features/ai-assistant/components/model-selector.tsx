@@ -35,6 +35,7 @@ interface ModelSelectorProps {
   allowDecisionModels?: boolean;
   /** Render the trigger as a full-width form field instead of the inline chip. */
   field?: boolean;
+  disabled?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -49,6 +50,7 @@ export function ModelSelector({
   allowModelOnlyMatch = true,
   allowDecisionModels = false,
   field = false,
+  disabled = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -142,16 +144,18 @@ export function ModelSelector({
 
   return (
     <div className={cn("flex items-center", field && "w-full")}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open && !disabled} onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}>
         <PopoverTrigger asChild>
           <Button
+            disabled={disabled}
             variant={field ? "outline" : "ghost"}
             size="sm"
-            className={
+            className={cn(
+              "disabled:pointer-events-auto disabled:cursor-not-allowed",
               field
-                ? "h-7 w-full justify-between gap-1 px-3 text-[13px] font-normal"
-                : "h-7 gap-1 rounded-sm px-2 text-[12px] text-muted-foreground hover:text-foreground"
-            }
+                ? "h-7 w-full justify-between gap-1 px-3 text-[13px] font-normal disabled:hover:bg-background disabled:hover:text-foreground"
+                : "h-7 gap-1 rounded-sm px-2 text-[12px] text-muted-foreground hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+            )}
           >
             {selectedModel?.label ||
               value.model ||
