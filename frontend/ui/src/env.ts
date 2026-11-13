@@ -28,7 +28,10 @@ export const authSecret = () =>
 const serverSchema = z.object({
   BETTER_AUTH_SECRET: authSecret(),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
-  TRACEROOT_CLOUD_ENV: z.enum(["production", "staging"]).optional(),
+  TRACEROOT_CLOUD_ENV: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["production", "staging"]).optional(),
+  ),
   INTERNAL_API_SECRET: authSecret(),
   // Comma-separated CIDRs of proxies in front of this app, used to resolve the
   // real client address from x-forwarded-for. Blank means no trusted proxies
