@@ -514,7 +514,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.agent
     ports:
-      - "8100:8100"
+      - "127.0.0.1:8100:8100"
     # Shutdown tears down every sandbox container this instance owns. The 10s
     # default can expire mid-teardown, and anything still alive when SIGKILL
     # lands is leaked until the next start reconciles it.

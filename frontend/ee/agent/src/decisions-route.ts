@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { pendingDecisions, type DecisionAction } from "./pending-decisions.js";
+import { callerIdentity } from "./internal-auth.js";
 import { getSession } from "./session.js";
 
 const DECISION_ACTIONS = new Set<DecisionAction>(["create", "skip", "revise"]);
@@ -23,7 +24,8 @@ export const decisionsRoute = new Hono();
 decisionsRoute.post("/api/v1/projects/:projectId/sessions/:sessionId/decisions", async (c) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
 
   let body: unknown;
   try {

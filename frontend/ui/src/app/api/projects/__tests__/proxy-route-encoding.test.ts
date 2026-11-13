@@ -35,6 +35,13 @@ import {
 } from "../[projectId]/ai/sessions/[sessionId]/messages/route";
 import { POST as decisions } from "../[projectId]/ai/sessions/[sessionId]/decisions/route";
 
+const AGENT_ROUTES = new Set([
+  "delete session",
+  "session history",
+  "send message",
+  "session decisions",
+]);
+
 const routes = [
   { name: "findings", handler: findings, method: "GET", internal: true, suffix: "/findings" },
   {
@@ -125,9 +132,17 @@ describe.each(routes)("$name proxy URL", (route) => {
     expect(url.hash).toBe("");
     expect([...url.searchParams]).toEqual(route.internal ? [["project_id", "caller-project"]] : []);
     expect(new Request(input, init).method).toBe(route.method);
-    expect(new Headers(init.headers).get("X-Internal-Secret")).toBe(
-      route.internal ? "test-internal-secret" : null,
-    );
+    // The session routes call the agent service, which takes only calls that
+    // carry the same internal credential (its own, from the process env).
+    const expected = route.internal
+      ? "test-internal-secret"
+      : AGENT_ROUTES.has(route.name)
+        ? process.env.INTERNAL_API_SECRET
+        : null;
+    expect(new Headers(init.headers).get("X-Internal-Secret")).toBe(expected);
+    if (AGENT_ROUTES.has(route.name)) {
+      expect(new Headers(init.headers).get("x-user-id")).toBe("caller");
+    }
   });
 
   it.each([".", ".."])("rejects a dot segment before fetching: %s", async (id) => {
