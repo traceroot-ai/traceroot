@@ -8,13 +8,15 @@ vi.mock("@/lib/support/route-guard", () => ({
 }));
 
 const workspaceFindUniqueMock = vi.fn();
-const modelProviderUpsertMock = vi.fn();
+const modelProviderFindUniqueMock = vi.fn();
+const modelProviderCreateMock = vi.fn();
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
     workspace: { findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args) },
     modelProvider: {
-      upsert: (...args: unknown[]) => modelProviderUpsertMock(...args),
+      findUnique: (...args: unknown[]) => modelProviderFindUniqueMock(...args),
+      create: (...args: unknown[]) => modelProviderCreateMock(...args),
     },
   },
   Role: { ADMIN: "ADMIN" },
@@ -64,13 +66,18 @@ function makeParams() {
 
 beforeEach(() => {
   workspaceFindUniqueMock.mockReset();
-  modelProviderUpsertMock.mockReset();
+  modelProviderFindUniqueMock.mockReset();
+  modelProviderCreateMock.mockReset();
   requireAuthMock.mockReset();
   requireWorkspaceMembershipMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireWorkspaceMembershipMock.mockResolvedValue({ membership: { role: "ADMIN" } });
   workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "pro" });
-  modelProviderUpsertMock.mockImplementation(async (args: { create: unknown }) => args.create);
+  modelProviderFindUniqueMock.mockResolvedValue(null);
+  modelProviderCreateMock.mockImplementation(async (args: { data: unknown }) => ({
+    id: "mp-1",
+    ...(args.data as object),
+  }));
 });
 
 describe("POST model-providers", () => {
@@ -87,8 +94,69 @@ describe("POST model-providers", () => {
     );
 
     expect(res.status).toBe(201);
-    const { create } = modelProviderUpsertMock.mock.calls[0][0];
-    expect(create).toMatchObject({ adapter: "typesafe", keyCipher: "enc(ts-key)" });
+    const { data } = modelProviderCreateMock.mock.calls[0][0];
+    expect(data).toMatchObject({ adapter: "typesafe", keyCipher: "enc(ts-key)" });
+  });
+
+  it("creates a provider successfully when name is unique", async () => {
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        provider: "My OpenAI",
+        apiKey: "sk-proj-12345",
+      }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(201);
+    expect(modelProviderFindUniqueMock).toHaveBeenCalledWith({
+      where: {
+        workspaceId_provider: { workspaceId: "ws-1", provider: "My OpenAI" },
+      },
+    });
+    expect(modelProviderCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 Conflict when provider name already exists in the workspace", async () => {
+    modelProviderFindUniqueMock.mockResolvedValue({
+      id: "existing-1",
+      provider: "Existing Provider",
+    });
+
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        provider: "Existing Provider",
+        apiKey: "sk-proj-12345",
+      }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("A provider with this name already exists in this workspace");
+    expect(modelProviderCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 Conflict when database throws unique constraint error on create", async () => {
+    modelProviderFindUniqueMock.mockResolvedValue(null);
+    modelProviderCreateMock.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        provider: "Concurrent Provider",
+        apiKey: "sk-proj-12345",
+      }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("A provider with this name already exists in this workspace");
+    expect(modelProviderCreateMock).toHaveBeenCalledTimes(1);
   });
 
   it.each(["   ", "\u00a0"])("rejects a blank API key (%j) without saving it", async (blank) => {
@@ -99,6 +167,6 @@ describe("POST model-providers", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "API key is required" });
-    expect(modelProviderUpsertMock).not.toHaveBeenCalled();
+    expect(modelProviderCreateMock).not.toHaveBeenCalled();
   });
 });

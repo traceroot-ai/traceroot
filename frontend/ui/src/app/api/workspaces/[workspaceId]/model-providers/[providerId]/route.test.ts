@@ -8,12 +8,19 @@ vi.mock("@/lib/support/route-guard", () => ({
 }));
 
 const modelProviderFindFirstMock = vi.fn();
+const modelProviderDuplicateMock = vi.fn();
 const modelProviderUpdateMock = vi.fn();
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
     modelProvider: {
-      findFirst: (...args: unknown[]) => modelProviderFindFirstMock(...args),
+      findFirst: (args: { where?: { id?: unknown } }) => {
+        // Distinguish finding the existing record vs checking for duplicate names
+        if (typeof args.where?.id === "string") {
+          return modelProviderFindFirstMock(args);
+        }
+        return modelProviderDuplicateMock(args);
+      },
       update: (...args: unknown[]) => modelProviderUpdateMock(...args),
     },
   },
@@ -50,6 +57,7 @@ function makeParams() {
 
 beforeEach(() => {
   modelProviderFindFirstMock.mockReset();
+  modelProviderDuplicateMock.mockReset();
   modelProviderUpdateMock.mockReset();
   requireAuthMock.mockReset();
   requireWorkspaceMembershipMock.mockReset();
@@ -62,13 +70,14 @@ beforeEach(() => {
     provider: "Claude",
     config: null,
   });
+  modelProviderDuplicateMock.mockResolvedValue(null);
   modelProviderUpdateMock.mockImplementation(async (args: { data: unknown }) => args.data);
   // The handler tells the agent service to drop its cached provider config.
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 });
 
 describe("PATCH model-providers/[providerId]", () => {
-  it.each(["   ", " "])("rejects a blank API key (%j) without saving it", async (blank) => {
+  it.each(["   ", "\u00a0"])("rejects a blank API key (%j) without saving it", async (blank) => {
     const res = await PATCH(makeRequest({ apiKey: blank }), makeParams());
 
     expect(res.status).toBe(400);
@@ -84,5 +93,61 @@ describe("PATCH model-providers/[providerId]", () => {
       keyCipher: "enc(sk-new-key)",
       keyPreview: "mask(sk-new-key)",
     });
+  });
+
+  it("updates provider successfully when name is not changed", async () => {
+    modelProviderUpdateMock.mockResolvedValue({
+      id: "mp-1",
+      provider: "Claude",
+      adapter: "anthropic",
+      enabled: false,
+    });
+
+    const res = await PATCH(makeRequest({ enabled: false }), makeParams());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.enabled).toBe(false);
+    expect(modelProviderDuplicateMock).not.toHaveBeenCalled();
+    expect(modelProviderUpdateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates provider successfully when renamed to an unused name", async () => {
+    modelProviderUpdateMock.mockResolvedValue({
+      id: "mp-1",
+      provider: "New Claude Name",
+      adapter: "anthropic",
+    });
+
+    const res = await PATCH(makeRequest({ provider: "New Claude Name" }), makeParams());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.provider).toBe("New Claude Name");
+    expect(modelProviderDuplicateMock).toHaveBeenCalledTimes(1);
+    expect(modelProviderUpdateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 Conflict when renamed to an existing provider name in workspace", async () => {
+    modelProviderDuplicateMock.mockResolvedValue({
+      id: "mp-2",
+      provider: "Existing Other Provider",
+    });
+
+    const res = await PATCH(makeRequest({ provider: "Existing Other Provider" }), makeParams());
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("A provider with this name already exists in this workspace");
+    expect(modelProviderUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 Conflict when database throws unique constraint error on update", async () => {
+    modelProviderUpdateMock.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+
+    const res = await PATCH(makeRequest({ provider: "New Claude Name" }), makeParams());
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("A provider with this name already exists in this workspace");
+    expect(modelProviderUpdateMock).toHaveBeenCalledTimes(1);
   });
 });
