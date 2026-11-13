@@ -1790,3 +1790,46 @@ class TestProcessS3Traces:
         assert s3.heads == [] and s3.puts == []
         (span_row,) = ch.insert_spans_batch.call_args[0][0]
         assert span_row["input"] == '{"q": "plain"}'
+
+    def test_attachment_cap_is_enforced_across_chunks(self, ingest, monkeypatch):
+        """ATTACHMENT_MAX_IMAGES_PER_BATCH is enforced across all chunks and traces.
+
+        The count budget does not reset between chunk flushes.
+        """
+        run, ch, _, _ = ingest
+        monkeypatch.setattr(
+            settings,
+            "attachments",
+            AttachmentSettings(enabled=True, project_ids="", max_images_per_batch=1),
+        )
+        img1 = make_png(2, 2)
+        img2 = make_jpeg()
+        payload = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE,
+                    self.ROOT,
+                    name="root",
+                    attributes=[
+                        make_attr("traceroot.span.output", data_url(img1, "image/png")),
+                    ],
+                ),
+                make_span(
+                    self.TRACE,
+                    self.CHILD,
+                    name="child",
+                    parent_span_id_hex=self.ROOT,
+                    attributes=[
+                        make_attr("traceroot.span.output", data_url(img2, "image/jpeg")),
+                    ],
+                ),
+            ]
+        )
+        s3 = IngestS3(payload)
+        run(s3)
+
+        # Only the first image is stored; the second is omitted by the shared batch budget.
+        assert s3.puts == [attachment_key(PROJECT, sha(img1))]
+        inserted = {s["span_id"]: s for s in ch.insert_spans_batch.call_args[0][0]}
+        assert ref_for(img1, "image/png") in inserted[self.ROOT]["output"]
+        assert "[image omitted: more than 1 images in one batch" in inserted[self.CHILD]["output"]

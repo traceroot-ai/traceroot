@@ -204,11 +204,12 @@ class TestProcessS3TracesSwitch:
         for c in extract_spy.call_args_list:
             assert c.args[:2] == (mock_s3, project_id)
 
-        # Both the span row and the trace row contain the image, so put_object_if_absent
-        # is called twice with the identical key and content.
-        expected_put = call(attachment_key(project_id, digest), IMAGE, "image/png")
-        assert mock_s3.put_object_if_absent.call_count == 2
-        assert mock_s3.put_object_if_absent.call_args_list == [expected_put, expected_put]
+        # Both the span row and the trace row contain the image. Because the batch-level
+        # attachment extractor is shared across chunks and traces, the image is
+        # deduplicated and uploaded to S3 exactly once on first encounter.
+        mock_s3.put_object_if_absent.assert_called_once_with(
+            attachment_key(project_id, digest), IMAGE, "image/png"
+        )
         (span_row,) = _unversioned(mock_ch.insert_spans_batch.call_args.args[0])
         assert find_attachment_refs(span_row["input"]) == {digest}
         assert span_row["output"].endswith(TRUNCATION_MARKER.format(limit=SPAN_LIMIT))

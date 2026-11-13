@@ -136,6 +136,7 @@ def extract_attachments(
     traces: list[dict],
     spans: list[dict],
     config: AttachmentSettings | None = None,
+    extractor: "_Extractor | None" = None,
 ) -> AttachmentExtractionResult:
     """Replace the images in a batch's trace and span rows with attachment references.
 
@@ -150,6 +151,8 @@ def extract_attachments(
         traces: Trace rows from ``transform_otel_to_clickhouse``.
         spans: Span rows from ``transform_otel_to_clickhouse``.
         config: Limits to apply. Defaults to ``settings.attachments``.
+        extractor: Optional existing ``_Extractor`` instance to share budget and
+            deduplication state across multiple chunks or trace extraction calls.
 
     Returns:
         Counts of what was replaced, stored, omitted and cut.
@@ -158,9 +161,13 @@ def extract_attachments(
         Exception: Whatever storage raises. The rows may then be partly rewritten,
             so the caller must not insert them; retrying the batch is safe.
     """
-    if config is None:
-        config = settings.attachments
-    extractor = _Extractor(s3_service, project_id, config)
+    if extractor is None:
+        if config is None:
+            config = settings.attachments
+        extractor = _Extractor(s3_service, project_id, config)
+    elif config is None:
+        config = extractor._config
+
     for row in (*spans, *traces):
         for name in TEXT_FIELDS:
             value = row.get(name)
@@ -315,6 +322,10 @@ class _Extractor:
     def _omit(self, reason: str, byte_count: int) -> str:
         self.result.omitted += 1
         return f"[image omitted: {reason}, {byte_count} bytes]"
+
+
+#: Public alias for attachment extractor.
+AttachmentExtractor = _Extractor
 
 
 def _known_shape_image(node: dict) -> str | None:

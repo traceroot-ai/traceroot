@@ -41,6 +41,7 @@ def _flush_span_chunk(
     s3_service,
     project_id: str,
     attachments_enabled: bool,
+    attachment_extractor=None,
 ) -> None:
     """Insert one chunk of span records to ClickHouse and publish to the live view.
 
@@ -55,11 +56,13 @@ def _flush_span_chunk(
         s3_service: S3 service for attachment extraction.
         project_id: Project that owns the spans.
         attachments_enabled: Whether to run attachment extraction on this chunk.
+        attachment_extractor: Optional batch-level extractor sharing image budget
+            and deduplication state across chunks and traces.
     """
     if attachments_enabled:
         from worker.attachment_extraction import extract_attachments
 
-        extract_attachments(s3_service, project_id, [], chunk)
+        extract_attachments(s3_service, project_id, [], chunk, extractor=attachment_extractor)
 
     ch_client.insert_spans_batch(list(chunk))
     # Strip internal versioning before publishing — callers that monkeypatch
@@ -427,6 +430,11 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         # None falls back to the insert time; #2863 removes this by storing it on the object.
         version = datetime.fromisoformat(received_at) if received_at else None
         attachments_enabled = settings.attachments.applies_to(project_id)
+        attachment_extractor = None
+        if attachments_enabled:
+            from worker.attachment_extraction import _Extractor
+
+            attachment_extractor = _Extractor(s3_service, project_id, settings.attachments)
 
         # 2. Stream-transform and insert spans in bounded-memory chunks.
         #
@@ -477,6 +485,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                         s3_service,
                         project_id,
                         attachments_enabled,
+                        attachment_extractor=attachment_extractor,
                     )
                     total_spans += len(chunk)
                     chunk = []
@@ -501,6 +510,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                     s3_service,
                     project_id,
                     attachments_enabled,
+                    attachment_extractor=attachment_extractor,
                 )
                 total_spans += len(chunk)
                 chunk = []
@@ -543,7 +553,9 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
             if attachments_enabled:
                 from worker.attachment_extraction import extract_attachments
 
-                extract_attachments(s3_service, project_id, traces, [])
+                extract_attachments(
+                    s3_service, project_id, traces, [], extractor=attachment_extractor
+                )
 
             # Only insert a trace record if this batch contains the root span
             # OR the trace is genuinely new (no existing ClickHouse record).
