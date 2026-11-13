@@ -296,6 +296,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      jose:
+        specifier: 6.2.3
+        version: 6.2.3
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.0.0)
