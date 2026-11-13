@@ -226,8 +226,8 @@ class TestInsertSpansBatch:
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source, environment, is_evaluation and error_type added.
-        assert len(columns) == 28
+        # then source, environment, is_evaluation, error_type and tags added.
+        assert len(columns) == 29
         # Addressed by name, not position: `is_evaluation` extends the row, and a
         # positional assert would silently follow the wrong column.
         assert "is_evaluation" in columns
@@ -283,6 +283,7 @@ class TestInsertSpansBatch:
             "ch_update_time",
             "environment",
             "is_evaluation",
+            "tags",
         ]
 
     def test_optional_fields_none(self):
@@ -379,6 +380,31 @@ class TestInsertSpansBatch:
         source_idx = columns.index("source")
         assert rows[0][source_idx] == "detector"
         assert rows[1][source_idx] == "user"
+        assert all(len(row) == len(columns) for row in rows)
+
+    def test_tags_passthrough_and_default(self):
+        """Spans carry their tags through; spans without any write an empty array."""
+        mock_internal = MagicMock()
+        client = ClickHouseClient(mock_internal)
+
+        base = {
+            "trace_id": "trace-1",
+            "project_id": "proj-1",
+            "span_start_time": datetime(2024, 1, 15, 12, 0, 0),
+            "name": "s",
+            "span_kind": "SPAN",
+        }
+        client.insert_spans_batch(
+            [
+                {**base, "span_id": "span-1", "tags": ["prod", "v2"]},
+                {**base, "span_id": "span-2"},
+            ]
+        )
+
+        rows = mock_internal.insert.call_args[0][1]
+        columns = mock_internal.insert.call_args[1]["column_names"]
+        assert _value(rows[0], columns, "tags") == ["prod", "v2"]
+        assert _value(rows[1], columns, "tags") == []
         assert all(len(row) == len(columns) for row in rows)
 
 
