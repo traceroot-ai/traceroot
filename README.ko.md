@@ -169,7 +169,7 @@ make prod-lite
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 <details open>
-<summary>지원하는 프레임워크 및 모델 프로바이더</summary>
+<summary>지원하는 프레임워크, 모델 프로바이더 및 코딩 에이전트</summary>
 
 ### 에이전트 프레임워크
 
@@ -199,6 +199,14 @@ make prod-lite
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistral chat completions, 툴 호출, streaming response에 대한 instrumentation을 자동으로 수집합니다. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat Completions 및 Responses API에 대한 instrumentation을 자동으로 수집합니다. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDK의 OpenRouter base URL로 호환 tracing을 수집합니다. [Python](./examples/python/openrouter-tool-agent) 및 [TypeScript](./examples/typescript/openrouter) 예제를 참고하세요. |
+
+### 코딩 에이전트
+
+| 통합 | 지원 언어 | 설명 |
+| ----------- | -------- | ----------- |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | 플러그인 | traceroot 플러그인으로 Claude Code의 요청, 툴 호출, subagent, 토큰 사용량을 수집합니다. |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | 플러그인 | traceroot 플러그인으로 Codex의 turn, 툴 호출, subagent, 토큰 사용량을 실시간으로 수집합니다. |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | Extension | traceroot extension으로 대화형 pi CLI 세션의 turn, 툴 호출, 토큰 사용량을 수집합니다. |
 
 </details>
 

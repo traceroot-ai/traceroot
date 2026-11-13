@@ -19,9 +19,6 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "traceroot",
   description: "traceroot: the open-source platform that continuously improves your ai agents.",
-  icons: {
-    icon: "/images/favicon.ico",
-  },
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

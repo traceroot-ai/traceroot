@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
@@ -13,27 +13,33 @@ import { SectionLink } from "./SectionLink";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 import {
   ALL_LANGS,
+  INTEGRATION_GROUPS,
   INTEGRATIONS,
-  type IntegrationCategory,
   type IntegrationOption,
+  type IntegrationSetup,
   type Lang,
 } from "./integrations";
 
-/**
- * The two groups this tab's own picker shows: providers, and everything else.
- *
- * `StackSelector` calls the second group "Frameworks & SDKs", but this picker
- * keeps the labels the traces page has always shown, so the empty traces page
- * looks as it did.
- */
-const OWN_PICKER_GROUPS: {
-  key: string;
-  label: string;
-  includes: (category: IntegrationCategory) => boolean;
-}[] = [
-  { key: "provider", label: "Model providers", includes: (category) => category === "provider" },
-  { key: "framework", label: "Frameworks", includes: (category) => category !== "provider" },
-];
+// The traces page keeps the "Frameworks" label it has always shown.
+const OWN_PICKER_GROUPS = INTEGRATION_GROUPS.map((group) =>
+  group.category === "framework" ? { ...group, label: "Frameworks" } : group,
+);
+
+/** A step's heading, with the stack's docs link beside it when no picker sits above. */
+function StepHeading({ n, title, docs }: { n: number; title: string; docs?: IntegrationOption }) {
+  const heading = (
+    <p className="text-[13px] font-medium text-foreground">
+      {n}. {title}
+    </p>
+  );
+  if (!docs) return heading;
+  return (
+    <div className="flex items-center justify-between gap-3">
+      {heading}
+      <SectionLink href={docs.href}>View {docs.name} docs</SectionLink>
+    </div>
+  );
+}
 
 function LangTabs({
   lang,
@@ -75,14 +81,16 @@ function LangTabs({
 function OwnStackPicker({
   selected,
   onSelect,
+  step,
 }: {
   selected: IntegrationOption;
   onSelect: (id: string) => void;
+  step: number;
 }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] font-medium text-foreground">4. Select your integration</p>
+        <p className="text-[13px] font-medium text-foreground">{step}. Select your integration</p>
         <SectionLink href="https://github.com/traceroot-ai/traceroot/issues/new">
           Don&apos;t see yours? Request one
         </SectionLink>
@@ -93,11 +101,13 @@ function OwnStackPicker({
           as two separate choices. */}
       <div role="radiogroup" aria-label="Integration" className="space-y-3">
         {OWN_PICKER_GROUPS.map((group) => {
-          const items = INTEGRATIONS.filter((integration) => group.includes(integration.category));
+          const items = INTEGRATIONS.filter(
+            (integration) => integration.category === group.category,
+          );
           if (items.length === 0) return null;
 
           return (
-            <div key={group.key} className="space-y-1.5">
+            <div key={group.category} className="space-y-1.5">
               <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
               <div className="flex flex-wrap gap-2">
                 {items.map((integration) => (
@@ -126,6 +136,20 @@ function OwnStackPicker({
   );
 }
 
+function UnresolvedHostWarning({ variable, value }: { variable: string; value: string }) {
+  return (
+    <p className="text-[12px] text-muted-foreground">
+      This page cannot work out this deployment&apos;s API address, because{" "}
+      <code className="font-mono">{variable}</code> is set to{" "}
+      <code className="font-mono">{value}</code>. Set{" "}
+      <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself, or
+      your traces go to traceroot Cloud. Once <code className="font-mono">{variable}</code> is
+      corrected and the web app rebuilt, the address appears here: the value is built into the app
+      rather than read at startup.
+    </p>
+  );
+}
+
 /**
  * How the key reaches the application, and where its traces go.
  *
@@ -145,7 +169,7 @@ function OwnStackPicker({
  * TypeScript gets dotenv's `config()`, as setup writes it, rather than
  * `import "dotenv/config"`: a call can be given a `path` to the `.env` file.
  */
-function EnvironmentStep({ lang }: { lang: Lang }) {
+function EnvironmentStep({ n, lang }: { n: number; lang: Lang }) {
   const host = sdkHostUrl();
   const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
   const lines = ['export TRACEROOT_API_KEY="your_key_here"'];
@@ -153,18 +177,10 @@ function EnvironmentStep({ lang }: { lang: Lang }) {
 
   return (
     <div className="space-y-2">
-      <p className="text-[13px] font-medium text-foreground">3. Set environment variables</p>
+      <StepHeading n={n} title="Set environment variables" />
       <CodeBlock label="bash" value={lines.join("\n")} />
       {host.kind === "unresolved" ? (
-        <p className="text-[12px] text-muted-foreground">
-          This page cannot work out this deployment&apos;s API address, because{" "}
-          <code className="font-mono">{host.variable}</code> is set to{" "}
-          <code className="font-mono">{host.value}</code>. Set{" "}
-          <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself,
-          or your traces go to traceroot Cloud. Once{" "}
-          <code className="font-mono">{host.variable}</code> is corrected and the web app rebuilt,
-          the address appears here: the value is built into the app rather than read at startup.
-        </p>
+        <UnresolvedHostWarning variable={host.variable} value={host.value} />
       ) : hostUrl !== null ? (
         <p className="text-[12px] text-muted-foreground">
           <code className="font-mono">TRACEROOT_HOST_URL</code> points the SDK at this deployment;
@@ -192,6 +208,125 @@ function EnvironmentStep({ lang }: { lang: Lang }) {
   );
 }
 
+type NumberedStep = (n: number) => ReactNode;
+
+/** Numbers the steps after step 1, the key, which `ManualTab` renders for both paths. */
+function numbered(steps: NumberedStep[]) {
+  return steps.map((step, i) => <Fragment key={i}>{step(i + 2)}</Fragment>);
+}
+
+interface WalkthroughProps {
+  integration: IntegrationOption;
+  /** Set when the tab picks the stack itself, as a step of its own. */
+  onSelect?: (id: string) => void;
+}
+
+function PluginWalkthrough({
+  integration,
+  setup,
+  onSelect,
+}: WalkthroughProps & { setup: Extract<IntegrationSetup, { kind: "plugin" }> }) {
+  // Point the plugin at this deployment the same way EnvironmentStep does for the SDKs.
+  const host = sdkHostUrl();
+  const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
+  const config = setup.config(hostUrl);
+
+  return numbered([
+    (n) => (
+      <div className="space-y-2">
+        <StepHeading n={n} title="Install the plugin" />
+        <CodeBlock label="bash" value={setup.install(hostUrl)} />
+      </div>
+    ),
+    ...(onSelect
+      ? [(n: number) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />]
+      : []),
+    (n) => (
+      <div className="space-y-2">
+        <StepHeading n={n} title="Configure" />
+        <CodeBlock label={config.label} value={config.value} />
+        {host.kind === "unresolved" && (
+          <UnresolvedHostWarning variable={host.variable} value={host.value} />
+        )}
+      </div>
+    ),
+    (n) => (
+      <div className="space-y-2">
+        <StepHeading
+          n={n}
+          title={`Use ${integration.name} as usual`}
+          docs={onSelect ? undefined : integration}
+        />
+        <p className="text-[12px] text-muted-foreground">
+          Send a prompt in {integration.name} to send your first trace.
+        </p>
+      </div>
+    ),
+  ]);
+}
+
+function SdkWalkthrough({
+  integration,
+  setup,
+  onSelect,
+  lang,
+  onLangChange,
+}: WalkthroughProps & {
+  setup: Extract<IntegrationSetup, { kind: "sdk" }>;
+  lang: Lang;
+  onLangChange: (lang: Lang) => void;
+}) {
+  const availableLangs = ALL_LANGS.filter((l) => setup.languages[l]);
+  const resolvedLang = availableLangs.includes(lang) ? lang : availableLangs[0];
+  const example = resolvedLang !== undefined ? setup.languages[resolvedLang] : undefined;
+
+  if (!example || !resolvedLang) {
+    if (process.env.NODE_ENV !== "production") {
+      throw new Error(
+        `Integration "${integration.id}" has no languages defined. Check INTEGRATIONS in integrations.tsx.`,
+      );
+    }
+    return null;
+  }
+
+  const langTabs = (
+    <LangTabs lang={resolvedLang} onChange={onLangChange} availableLangs={availableLangs} />
+  );
+
+  return numbered([
+    (n) => (
+      <div className="space-y-2">
+        <StepHeading n={n} title="Install SDK" />
+        {langTabs}
+        <CodeBlock label="bash" value={example.installCommand} />
+      </div>
+    ),
+    (n) => <EnvironmentStep n={n} lang={resolvedLang} />,
+    ...(onSelect
+      ? [(n: number) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />]
+      : []),
+    (n) => (
+      <div className="space-y-2">
+        <StepHeading
+          n={n}
+          title={`Initialize traceroot for ${integration.name}`}
+          docs={onSelect ? undefined : integration}
+        />
+        {langTabs}
+        <CodeBlock label={resolvedLang} value={example.initSnippet} language={resolvedLang} />
+      </div>
+    ),
+    (n) => (
+      <div className="space-y-2">
+        <StepHeading n={n} title="Run your application" />
+        <p className="text-[12px] text-muted-foreground">
+          Make an LLM request through the code you instrumented to send your first trace.
+        </p>
+      </div>
+    ),
+  ]);
+}
+
 interface ManualTabProps {
   projectId: string;
   /**
@@ -206,17 +341,9 @@ interface ManualTabProps {
 }
 
 /**
- * Instrumenting by hand: the key, the install, the environment, the one call
- * that starts tracing, and running the application, which is what sends the
- * first trace. The external integrations follow unnumbered, as on the "Using
- * AI" tab, because a first trace does not need them.
- *
- * On the traces page the tab picks the stack itself, as step 4, and asks for
- * no model key. The model key is asked for during onboarding instead.
- *
- * Given an `integration`, the stack has been asked for above this section, so
- * the picker step drops out and the five left are renumbered. The docs link
- * then sits beside the snippet heading, since there is no picker to sit under.
+ * Instrumenting by hand, as an SDK walkthrough or, for a coding agent, a plugin one, each
+ * followed by the unnumbered external integrations. Without an `integration` the tab adds
+ * its own stack picker as a step; with one, the docs link moves beside a step heading.
  */
 export function ManualTab({ projectId, integration }: ManualTabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
@@ -228,71 +355,27 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
     integration ??
     INTEGRATIONS.find((candidate) => candidate.id === selectedIntegrationId) ??
     INTEGRATIONS[0];
-  const availableLangs = ALL_LANGS.filter((l) => selectedIntegration.languages[l]);
-  const resolvedLang = availableLangs.includes(lang) ? lang : availableLangs[0];
-  const config =
-    resolvedLang !== undefined ? selectedIntegration.languages[resolvedLang] : undefined;
-
-  if (!config || !resolvedLang) {
-    if (process.env.NODE_ENV !== "production") {
-      throw new Error(
-        `Integration "${selectedIntegration.id}" has no languages defined. Check INTEGRATIONS in integrations.tsx.`,
-      );
-    }
-    return null;
-  }
-
-  const ownsStack = !integration;
+  const { setup } = selectedIntegration;
+  const onSelect = integration ? undefined : setSelectedIntegrationId;
 
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">1. Create an API key</p>
+        <StepHeading n={1} title="Create an API key" />
         <ApiKeyBlock projectId={projectId} />
       </div>
 
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">2. Install SDK</p>
-        <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <CodeBlock label="bash" value={config.installCommand} />
-      </div>
-
-      <EnvironmentStep lang={resolvedLang} />
-
-      {ownsStack && (
-        <OwnStackPicker selected={selectedIntegration} onSelect={setSelectedIntegrationId} />
+      {setup.kind === "plugin" ? (
+        <PluginWalkthrough integration={selectedIntegration} setup={setup} onSelect={onSelect} />
+      ) : (
+        <SdkWalkthrough
+          integration={selectedIntegration}
+          setup={setup}
+          onSelect={onSelect}
+          lang={lang}
+          onLangChange={setLang}
+        />
       )}
-
-      <div className="space-y-2">
-        {ownsStack ? (
-          <p className="text-[13px] font-medium text-foreground">
-            5. Initialize traceroot for {selectedIntegration.name}
-          </p>
-        ) : (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[13px] font-medium text-foreground">
-              4. Initialize traceroot for {selectedIntegration.name}
-            </p>
-            {/* Kept beside the snippet it explains, and it moves with the
-                selection: the page the reader needs is the one for the stack
-                whose code is on screen. */}
-            <SectionLink href={selectedIntegration.href}>
-              View {selectedIntegration.name} docs
-            </SectionLink>
-          </div>
-        )}
-        <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <CodeBlock label={resolvedLang} value={config.initSnippet} language={resolvedLang} />
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">
-          {ownsStack ? "6. Run your application" : "5. Run your application"}
-        </p>
-        <p className="text-[12px] text-muted-foreground">
-          Make an LLM request through the code you instrumented to send your first trace.
-        </p>
-      </div>
 
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">External integrations</p>

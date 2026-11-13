@@ -13,7 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow, Role } from "@traceroot/core";
+import {
+  ALERT_WINDOWS,
+  DEFAULT_ALERT_WINDOW,
+  requiresExplicitHostedSource,
+  type AlertWindow,
+  Role,
+} from "@traceroot/core";
 import { updateProject } from "@/lib/api";
 import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import { useProject } from "@/features/projects/hooks";
@@ -168,6 +174,10 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
               value={agentModelSelection}
               onChange={setAgentModelSelection}
               workspaceId={project?.workspace_id}
+              allowModelOnlyMatch={
+                project?.rca_source === "system" ||
+                !requiresExplicitHostedSource(project?.rca_model)
+              }
               field
               disabled={!isAdmin}
             />

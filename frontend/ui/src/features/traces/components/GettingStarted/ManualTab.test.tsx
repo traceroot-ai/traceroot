@@ -60,12 +60,12 @@ afterEach(() => {
  * `NEXT_PUBLIC_API_URL` is read through `@/env.client`, which parses it once at
  * module load, so the stub has to be followed by a fresh import of the tab.
  */
-async function renderTabWith(env: { apiUrl: string; appUrl: string }) {
+async function renderTabWith(env: { apiUrl: string; appUrl: string }, integrationId = "openai") {
   vi.stubEnv("NEXT_PUBLIC_API_URL", env.apiUrl);
   vi.stubEnv("NEXT_PUBLIC_APP_URL", env.appUrl);
   vi.resetModules();
   const { ManualTab: Reloaded } = await import("./ManualTab");
-  return render(<Reloaded projectId="proj_1" integration={byId("openai")} />);
+  return render(<Reloaded projectId="proj_1" integration={byId(integrationId)} />);
 }
 
 /** The environment step's code block. */
@@ -327,6 +327,24 @@ describe("the environment step", () => {
     // The variable is inlined at build time, so correcting it alone changes
     // nothing on this page.
     expect(text).toContain("NEXT_PUBLIC_API_URL is corrected and the web app rebuilt");
+  });
+
+  it("points coding-agent plugins at this deployment", async () => {
+    const env = { apiUrl: "http://localhost:8000/api/v1", appUrl: "http://localhost:3000" };
+    const codex = await renderTabWith(env, "codex");
+    expect(codex.container.textContent).toContain('"host_url": "http://localhost:8000"');
+    cleanup();
+
+    const claude = await renderTabWith(env, "claude-code");
+    expect(claude.container.textContent).toContain(
+      'traceroot-observability@traceroot-claude-code-plugin --config TRACEROOT_HOST_URL="http://localhost:8000"',
+    );
+    expect(claude.container.textContent).not.toContain("export TRACEROOT_HOST_URL");
+  });
+
+  it("says the host still has to be set for a plugin when the API URL is not an origin", async () => {
+    const { container } = await renderTabWith({ apiUrl: "http://:8000", appUrl: "" }, "codex");
+    expect(container.textContent).toContain("Set TRACEROOT_HOST_URL to the API's origin yourself");
   });
 
   it("still sets the host when only the app URL is unusable and the API URL is absolute", async () => {
