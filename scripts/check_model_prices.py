@@ -4,9 +4,11 @@ Compares each row of frontend/packages/core/src/standard-model-prices.json with
 LiteLLM's model_prices_and_context_window.json and models.dev's api.json, and reports:
 
 - flagged prices: an input, output, cache read or cache write rate that differs from
-  ours by more than 3% in every catalog that lists the model under the same ID. A
-  catalog model that a row prices through its matchPattern, such as a newer version an
-  older row's pattern also matches, is compared with that row's rates;
+  ours by more than 3% in every catalog that lists the model under the same ID, or that
+  our row leaves out while every such catalog charges for it. A catalog model that a
+  row prices through its matchPattern, such as a newer version an older row's pattern
+  also matches, is compared with that row's rates, and so is the dash spelling of a
+  dotted version, such as gpt-5-5 for gpt-5.5, which gateways send;
 - missing models: text models a catalog prices for one of our providers that no row
   matches (exact model name first, then matchPattern, the order production uses),
   leaving out models either catalog marks as retired;
@@ -181,10 +183,13 @@ PRICING_PAGES = {
 }
 
 # Regex syntax Python accepts that JavaScript's RegExp rejects or reads differently, so
-# the UI drops the pattern or matches other IDs: Python's named groups, \A and \Z,
-# comments, atomic groups and possessive quantifiers. The leading (?i) is fine; the UI
+# the UI drops the pattern or matches other IDs: Python's named groups, \A, \Z and \z,
+# comments, atomic groups, possessive quantifiers, conditionals, {,n}, and inline flag
+# groups such as (?s), (?i:...) or a second (?i). One leading (?i) is fine; the UI
 # strips it.
-JS_INCOMPATIBLE = re.compile(r"\(\?P[<=>]|\\[AZ]|\(\?#|\(\?>|[*+?}]\+")
+JS_INCOMPATIBLE = re.compile(
+    r"\(\?P[<=>]|\\[AZz]|\(\?#|\(\?>|[*+?}]\+|\(\?\(|\{,\d*\}|(?!^\(\?i\))\(\?[-aiLmsux]+[:)]"
+)
 
 # --track: open pull requests that change the price file.
 GITHUB_REPO = "traceroot-ai/traceroot"
@@ -440,10 +445,11 @@ def _flag_rates(
     flags = []
     for field in FIELDS:
         ours = _number(row["prices"].get(field))
-        if ours is None:
-            continue
         theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}
-        if theirs and all(differs(ours, value) for value in theirs.values()):
+        # A rate our row leaves out or sets to null is flagged when every catalog that
+        # lists it charges for it: production bills those tokens at nothing, or a 1-hour
+        # cache write at the cacheWrite rate.
+        if theirs and all(differs(ours or 0.0, value) for value in theirs.values()):
             flags.append(
                 {
                     "model": model,
@@ -479,12 +485,24 @@ def _live_text_models(
 def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
     """Flags for catalog models that production prices through another row's
     matchPattern, compared with that row's rates. An older row's pattern can also match
-    a newer version at a different price, which a by-name comparison never sees."""
+    a newer version at a different price, which a by-name comparison never sees. So can
+    the dash spelling of a dotted version, such as gpt-5-5 for gpt-5.5, which gateways
+    send: a date group on the gpt-5 row's pattern also matches it."""
     flags = []
     for (provider, model), found in _live_text_models(catalogs, today).items():
         row = lookup(rows, model)
         if row is not None and row["modelName"].lower() != model.lower():
             flags += _flag_rates(row, provider, model, found, priced_as=row["modelName"])
+        # Dated snapshots and aliases would only repeat what the base model's spelling shows.
+        if "." not in model or MINOR_MODELS.search(model):
+            continue
+        # The provider-prefixed spelling is tried only when the bare one finds no other
+        # row, so each model is reported once.
+        for dashed in (_family(model), f"{provider}/{_family(model)}"):
+            other = lookup(rows, dashed)
+            if other is not None and other is not row:
+                flags += _flag_rates(other, provider, dashed, found, priced_as=other["modelName"])
+                break
     return flags
 
 
@@ -860,8 +878,11 @@ def _plural(count: int, word: str) -> str:
     return f"{count} {word}" if count == 1 else f"{count} {word}s"
 
 
-def _amount(per_token: float) -> str:
-    """A per-token rate as USD per million tokens, with at least two decimals."""
+def _amount(per_token: float | None) -> str:
+    """A per-token rate as USD per million tokens, with at least two decimals, or "none"
+    for a rate our row leaves out."""
+    if per_token is None:
+        return "none"
     text = f"{per_token * 1e6:.4g}"
     if "e" in text:
         text = f"{per_token * 1e6:.8f}".rstrip("0")

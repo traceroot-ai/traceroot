@@ -141,10 +141,31 @@ def test_null_and_missing_rates_are_skipped():
     assert report["flagged"] == []
 
 
-def test_our_null_cache_rate_is_not_compared():
-    rows = [row("gpt-a", "openai", cache_read=None)]
-    litellm = {"gpt-a": ll_entry("openai", cache_read=5e-7)}
-    assert report_for(rows, litellm, md_catalog())["flagged"] == []
+def test_our_missing_or_null_rate_is_flagged_when_the_catalogs_charge_for_it():
+    # Production bills a missing or null cache rate at nothing.
+    rows = [
+        row("gpt-a", "openai", cache_read=None),
+        row("gpt-b", "openai", cache_read=None),
+        row("kimi-n", "moonshot"),  # cacheWrite is null and cacheWrite1h left out
+    ]
+    litellm = {
+        "gpt-a": ll_entry("openai", cache_read=5e-7),
+        "gpt-b": ll_entry("openai", cache_read=0.0),  # no charge, so nothing is lost
+        "moonshot/kimi-n": ll_entry(
+            "moonshot",
+            cache_creation_input_token_cost=3e-6,
+            cache_creation_input_token_cost_above_1hr=6e-6,
+        ),
+    }
+    modelsdev = md_catalog(moonshotai={"kimi-n": md_model(cost={"cache_write": 3.0})})
+    report = report_for(rows, litellm, modelsdev)
+
+    assert [(f["model"], f["field"], f["ours"]) for f in report["flagged"]] == [
+        ("gpt-a", "cacheRead", None),
+        ("kimi-n", "cacheWrite", None),
+        ("kimi-n", "cacheWrite1h", None),
+    ]
+    assert "gpt-a   cache read      none  → 0.50" in format_report(report)
 
 
 def test_other_catalog_providers_are_ignored():
@@ -238,6 +259,29 @@ def test_models_priced_through_another_rows_pattern_are_compared_with_that_row()
         {"type": "link", "url": check.PRICING_PAGES["anthropic"], "text": "claude-f-2"},
         {"type": "text", "text": " (priced as claude-f)", "style": {"italic": True}},
     ]
+
+
+def test_a_dotted_versions_dash_spelling_is_compared_with_the_row_that_prices_it():
+    # Gateways send gpt-g-5 for gpt-g.5, and the gpt-g row's date group also matches it.
+    rows = [
+        row("gpt-g", "openai", pattern=r"(?i)^(openai\/)?gpt-g(-[\d-]+)?$"),
+        row("gpt-g.5", "openai", input_=5e-6, pattern=r"(?i)^(openai\/)?gpt-g\.5$"),
+        # This row takes both spellings, but not with the provider in front.
+        row("gpt-m", "openai", pattern=r"(?i)^(openai\/)?gpt-m(-[\d-]+)?$"),
+        row("gpt-m-2", "openai", input_=4e-6, pattern=r"(?i)^gpt-m[.-]2$"),
+    ]
+    litellm = {
+        "gpt-g.1": ll_entry("openai"),  # gpt-g-1 is priced as gpt-g, at the same rates
+        "gpt-g.5": ll_entry("openai", input_=5e-6),
+        "gpt-m.2": ll_entry("openai", input_=4e-6),
+    }
+    report = report_for(rows, litellm, md_catalog())
+
+    assert [(f["model"], f["field"], f["ours"], f["priced_as"]) for f in report["flagged"]] == [
+        ("gpt-g-5", "input", 1e-6, "gpt-g"),
+        ("openai/gpt-m-2", "input", 1e-6, "gpt-m"),
+    ]
+    assert "gpt-g-5 (priced as gpt-g)         input  1.00  → 5.00" in format_report(report)
 
 
 def test_cache_write_rates_are_compared():
@@ -407,6 +451,23 @@ def test_price_file_problems_are_found_without_a_catalog():
     assert format_report(report).startswith(
         f"*Model pricing audit, {DATE}*: prices match the catalogs, 6 price file problems"
     )
+
+
+def test_regex_syntax_javascript_reads_differently_is_flagged():
+    # The UI strips one leading (?i) and compiles the rest with JavaScript's RegExp.
+    rejected = [
+        r"(?i)^gpt-j\z",  # a literal z in JavaScript
+        r"(?i)(?i)^gpt-j$",
+        r"(?is)^gpt-j$",
+        r"(?i)^(?i:openai\/)?gpt-j$",
+        r"(?i)^(?-i:gpt)-j$",
+        r"(?i)^(openai\/)?(?(1)gpt|gpt)-j$",
+        r"(?i)^gpt-j(-\d{,8})?$",
+    ]
+    accepted = [r"(?i)^(?:openai\/)?gpt-j(?!-mini)(-\d{1,8})?$", r"^gpt-j$"]
+
+    assert [p for p in rejected if not check.JS_INCOMPATIBLE.search(p)] == []
+    assert [p for p in accepted if check.JS_INCOMPATIBLE.search(p)] == []
 
 
 def test_long_context_rates_are_listed():
