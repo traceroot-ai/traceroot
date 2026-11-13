@@ -8,7 +8,7 @@ describe("project navigation", () => {
       ["Detect", ["Detectors", "Signals", "Alerts"]],
       ["Verify", ["Datasets", "Evaluations"]],
     ]);
-    expect(NAV_HOME.label).toBe("Home");
+    expect(NAV_HOME.label).toBe("Agent");
   });
 
   it("covers every section exactly once", () => {
