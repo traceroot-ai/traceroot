@@ -289,6 +289,38 @@ function readWindow(from?: Date, to?: Date, now = new Date()) {
 }
 
 /**
+ * A signal's latest hits by trace start, newest first, then by run id, at most
+ * `limit` of them. `from` and `to` bound the trace start to [from, to); either
+ * can be left out. A hit without a trace start (a legacy or missing trace) is
+ * always left out: a descending sort in Postgres would put it first.
+ */
+export async function recentSignalHits(
+  db: Pick<PrismaClient, "signalHit">,
+  params: { signalId: string; from?: Date; to?: Date; limit: number },
+) {
+  const hits = await db.signalHit.findMany({
+    where: {
+      signalId: params.signalId,
+      traceStartTime: { not: null, gte: params.from, lt: params.to },
+    },
+    orderBy: [{ traceStartTime: "desc" }, { runId: "asc" }],
+    take: params.limit,
+    select: {
+      runId: true,
+      traceId: true,
+      findingId: true,
+      seenAt: true,
+      traceStartTime: true,
+      score: true,
+      criteriaVersion: true,
+      assignedAt: true,
+    },
+  });
+  // The filter above leaves out every hit without a trace start.
+  return hits as (Omit<(typeof hits)[number], "traceStartTime"> & { traceStartTime: Date })[];
+}
+
+/**
  * One signal with its criteria, canonical RCA, recent hits and status history.
  * A merged signal returns only where it went, so a caller can follow it.
  */
@@ -345,20 +377,11 @@ export async function getSignal(
   const window = readWindow(params.from, params.to, params.now);
   const tz = params.tz ?? "UTC";
   const [hits, events, names, series, analysed] = await Promise.all([
-    db.signalHit.findMany({
-      where: { signalId: signal.id, traceStartTime: { gte: window.from, lt: window.to } },
-      orderBy: [{ traceStartTime: "desc" }, { runId: "asc" }],
-      take: DETAIL_LIMIT,
-      select: {
-        runId: true,
-        traceId: true,
-        findingId: true,
-        seenAt: true,
-        traceStartTime: true,
-        score: true,
-        criteriaVersion: true,
-        assignedAt: true,
-      },
+    recentSignalHits(db, {
+      signalId: signal.id,
+      from: window.from,
+      to: window.to,
+      limit: DETAIL_LIMIT,
     }),
     db.signalStatusEvent.findMany({
       where: { signalId: signal.id },
