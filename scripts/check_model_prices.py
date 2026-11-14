@@ -65,6 +65,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -411,9 +412,11 @@ def index_hosted(litellm, modelsdev) -> dict[str, dict]:
 
 @functools.cache
 def _compile(pattern: str) -> re.Pattern[str] | None:
+    """The pattern as production reads it, or None when Python can't compile it,
+    including a repeat count too large or groups nested too deep."""
     try:
         return re.compile(pattern, re.IGNORECASE)
-    except re.error:
+    except (re.error, OverflowError, RecursionError):
         return None
 
 
@@ -777,27 +780,25 @@ def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]
     return merged + list(changed.values())
 
 
-def track(report: dict, prs: list[dict], evaluate) -> None:
+def track(report: dict, prs: list[dict]) -> None:
     """Name, on each finding, the open PRs that would clear it, and list what each PR
-    would fix and add. prs holds each PR's merged price file in "rows", or why it could
-    not be checked in "error"; evaluate builds a report from a price file."""
+    would fix and add. prs holds, for each PR, the report on the price file it would
+    leave on merge in "report", or why it could not be checked in "error". Findings are
+    marked only once every PR is compared, so a failure partway marks none."""
     before = finding_keys(report)
-    for item in before.values():
-        item["tracked_by"] = []
+    fixed_by: dict[tuple, list[int]] = {key: [] for key in before}
     checked = []
     for pr in prs:
         summary = {key: pr.get(key) for key in ("number", "title", "url", "draft", "closes")}
         if pr.get("error"):
             checked.append({**summary, "fixes": [], "adds": [], "error": pr["error"]})
             continue
-        try:
-            fixes, adds = changes(before, evaluate(validate_rows(pr["rows"])))
-        except CheckError as exc:
-            checked.append({**summary, "fixes": [], "adds": [], "error": str(exc)})
-            continue
+        fixes, adds = changes(before, pr["report"])
         for key in fixes:
-            before[key]["tracked_by"].append(pr["number"])
+            fixed_by[key].append(pr["number"])
         checked.append({**summary, "fixes": describe_all(fixes), "adds": adds})
+    for key, item in before.items():
+        item["tracked_by"] = fixed_by[key]
     report["pull_requests"] = checked
     report["tracking"] = "ok"
 
@@ -815,10 +816,18 @@ def _mentions(pull: dict, models: list[re.Pattern[str]]) -> bool:
     return bool(PRICING_WORDS.search(text)) or any(model.search(text) for model in models)
 
 
-def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | None) -> list[dict]:
-    """The open PRs in repo that change the price file, each with the price file it
-    would leave on merge. A PR is looked at when its title or body mentions pricing or a
-    model in the report; one whose files can't be read gets an "error" instead."""
+def fetch_pricing_prs(
+    repo: str,
+    rows: list[dict],
+    report: dict,
+    token: str | None,
+    evaluate: Callable[[list[dict]], dict],
+) -> list[dict]:
+    """The open PRs in repo that change the price file, each with the report evaluate
+    builds from the price file it would leave on merge. A PR is looked at when its title
+    or body mentions pricing or a model in the report. Anything that goes wrong with one
+    PR, from reading its files to checking its rows, gives that PR an "error" instead, so
+    only GitHub's rate limit stops the others."""
     pulls: list[dict] = []
     for page in range(1, MAX_PR_PAGES + 1):
         batch = _github(
@@ -857,11 +866,11 @@ def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | No
                 fetch_json(f"{GITHUB_RAW}/{repo}/{sha}/{PRICE_PATH}", MAX_PRICE_FILE_BYTES)
                 for sha in (base_sha, head)
             )
-            pr["rows"] = validate_rows(apply_pr(rows, base, after))
-        except (URLError, OSError, ValueError, KeyError, TypeError, CheckError) as exc:
+            pr["report"] = evaluate(validate_rows(apply_pr(rows, base, after)))
+        except Exception as exc:  # Any error with an open PR stays with that PR.
             if getattr(exc, "code", None) in (403, 429):
                 raise  # GitHub's rate limit: every later PR would fail the same way.
-            pr["error"] = f"could not read its price file ({type(exc).__name__})"
+            pr["error"] = f"could not check its price file ({type(exc).__name__})"
         prs.append(pr)
     return prs
 
@@ -1696,14 +1705,16 @@ def main(argv: list[str]) -> int:
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:
-                prs = fetch_pricing_prs(args.track, rows, report, token)
-                track(
+                prs = fetch_pricing_prs(
+                    args.track,
+                    rows,
                     report,
-                    prs,
+                    token,
                     lambda pr_rows: build_report(
                         pr_rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=0
                     ),
                 )
+                track(report, prs)
             except (URLError, OSError, ValueError, KeyError, TypeError) as exc:
                 # The findings stand without it: say PRs weren't checked, and carry on.
                 detail = getattr(exc, "code", None) or type(exc).__name__
