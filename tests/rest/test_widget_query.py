@@ -957,3 +957,36 @@ def test_additive_timeseries_metric_coalesces_fill_rows_to_zero():
     # Not a timeseries: no fill rows exist, so there is nothing to coalesce.
     sql, _ = compile_(make_spec(metric={"measure": "cost", "agg": "sum"}, display={"type": "bar"}))
     assert "ifNull(sum(cost), 0)" not in sql
+
+
+def test_scalar_sum_of_an_empty_window_is_zero():
+    """Alert evaluation reads the number shape. sum() of a Nullable column over
+    zero rows is NULL, and the worker turns that into NO_DATA, so a
+    dropped-to-zero rule never fires. A percentile of nothing stays NULL.
+    """
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "cost", "agg": "sum"},
+            display={"type": "number"},
+            breakdown=None,
+        )
+    )
+    assert "ifNull(sum(cost), 0) AS value" in sql
+
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "total_tokens", "agg": "sum"},
+            display={"type": "number"},
+            breakdown=None,
+        )
+    )
+    assert "ifNull(sum(total_tokens), 0) AS value" in sql
+
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "duration_ms", "agg": "p95"},
+            display={"type": "number"},
+            breakdown=None,
+        )
+    )
+    assert "ifNull(quantile" not in sql
