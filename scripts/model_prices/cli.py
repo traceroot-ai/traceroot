@@ -194,7 +194,8 @@ def main(argv: list[str]) -> int:
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}
-        text, payload, status = format_failure(date, reason), failure_payload(date, reason), 1
+        text, status = format_failure(date, reason), 1
+        payload = failure_payload(date, reason, args.report_url)
 
     if args.json:
         args.json.write_text(json.dumps(report, indent=2) + "\n")

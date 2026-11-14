@@ -292,5 +292,6 @@ def test_track_lists_the_host_rates_and_dash_spellings_a_pr_would_add(run):
         ["us-gov.anthropic.claude-k-5 not priced by its row"],
         [host, dash],
     )
-    progress = next(b for b in posted[0]["blocks"] if b.get("block_id") == "progress")
-    assert f"• :warning: #1 would add: `{host}`, `{dash}`" in _block_text(progress)
+    # Slack names the PR; the full report lists what it would add.
+    warning = next(b for b in posted[0]["blocks"] if b.get("block_id") == "pr_warnings")
+    assert "#1 would also add problems" in _block_text(warning)
