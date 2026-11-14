@@ -453,12 +453,15 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
 
 def test_long_lists_are_cut_at_a_whole_line_with_a_count():
     lines = [f"• row-{n}: 3 Bedrock" for n in range(40)]
-    text = check._fit("*Heading*", lines, 200)
+    text = check._fit("*Heading*", lines, 200, "the JSON report")
 
     assert len(text) <= 200
     assert text.startswith("*Heading*\n• row-0: 3 Bedrock\n")
     kept = text.count("• row-")
     assert text.endswith(f"\n…and {40 - kept} more in the JSON report")
+    # With no full list written, only the count.
+    text = check._fit("*Heading*", lines, 200)
+    assert text.endswith(f"\n…and {40 - text.count('• row-')} more")
     assert check._fit("*Heading*", lines[:2], 200) == "*Heading*\n" + "\n".join(lines[:2])
 
 
@@ -1035,12 +1038,13 @@ def test_github_rate_limit_stops_tracking(monkeypatch):
 def run(tmp_path, monkeypatch):
     """Run main() against sample data; returns (exit code, posted payloads, report). With
     heads, GitHub has an open pricing PR for each entry, branched from rows: its number,
-    and the price file at its head or the error reading the PR raises."""
+    and the price file at its head or the error reading the PR raises. With
+    write_json=False, the run writes no JSON report and the report returned is None."""
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
     posted = []
     monkeypatch.setattr(check, "post_to_slack", lambda _url, payload: posted.append(payload))
 
-    def _run(rows, litellm, modelsdev, *extra, heads=None):
+    def _run(rows, litellm, modelsdev, *extra, heads=None, write_json=True):
         if isinstance(litellm, dict):
             # Only the cache write rates, so a test can still remove any other field.
             filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
@@ -1077,9 +1081,9 @@ def run(tmp_path, monkeypatch):
         prices = tmp_path / "prices.json"
         prices.write_text(json.dumps(rows))
         out = tmp_path / "report.json"
-        argv = ["--post", "--prices", str(prices), "--json", str(out), *extra]
-        code = check.main(argv)
-        return code, posted, json.loads(out.read_text())
+        argv = ["--post", "--prices", str(prices), *extra]
+        code = check.main([*argv, "--json", str(out)] if write_json else argv)
+        return code, posted, json.loads(out.read_text()) if write_json else None
 
     return _run
 
@@ -1111,6 +1115,29 @@ def test_quiet_day_posts_a_heartbeat(run, tmp_path):
     assert "<https://pages.test/r|Full report>" in payload["blocks"][-1]["elements"][0]["text"]
     assert json.loads(saved.read_text()) == payload
     assert "Checked 1 of 1 rows" in (tmp_path / "report.html").read_text()
+
+
+def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, capsys):
+    rows = [row(f"gpt-{n}", "openai", input_=5e-7) for n in range(30)]
+    litellm = {f"gpt-{n}": ll_entry("openai") for n in range(30)}
+
+    def cut_lines(*extra, **kwargs):
+        """The terminal's and the Slack message's line on the rates left out of the table."""
+        _, posted, _ = run(rows, litellm, md_catalog(), "--min-compared", "1", *extra, **kwargs)
+        out = capsys.readouterr().out.splitlines()
+        blocks = posted[-1]["blocks"]
+        more = next(b for b in blocks if b.get("block_id") == "prices_more")
+        return next(line for line in out if line.startswith("…and")), _block_text(more)
+
+    assert cut_lines("--report-url", "https://pages.test/r") == (
+        "…and 10 more in the full report",
+        "…and 10 more rates in the full report",
+    )
+    assert cut_lines() == (
+        "…and 10 more in the JSON report",
+        "…and 10 more rates in the JSON report",
+    )
+    assert cut_lines(write_json=False) == ("…and 10 more", "…and 10 more rates")
 
 
 def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monkeypatch):

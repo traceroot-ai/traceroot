@@ -1103,12 +1103,18 @@ def _id_lines(report: dict, links) -> tuple[list[str], list[str]]:
     return lines, covered_lines
 
 
-def _fit(heading: str, lines: list[str], limit: int) -> str:
+def _in(more_in: str | None) -> str:
+    """Where the rest of a cut list can be read, e.g. " in the JSON report", or nothing
+    when this run wrote no full list."""
+    return f" in {more_in}" if more_in else ""
+
+
+def _fit(heading: str, lines: list[str], limit: int, more_in: str | None = None) -> str:
     """The heading and as many whole lines as fit in limit characters, then a count of
-    the rest."""
+    the rest and where to read them."""
     text = heading
     for index, line in enumerate(lines):
-        more = f"\n…and {len(lines) - index} more in the JSON report"
+        more = f"\n…and {len(lines) - index} more{_in(more_in)}"
         if len(text) + 1 + len(line) + len(more) > limit:
             return text + more
         text += "\n" + line
@@ -1185,8 +1191,9 @@ def _names(by_provider: dict[str, list[dict]], *, bullet: str, separator: str, l
     )
 
 
-def format_report(report: dict) -> str:
-    """The report as text for the terminal: what to fix first, then context."""
+def format_report(report: dict, more_in: str | None = None) -> str:
+    """The report as text for the terminal: what to fix first, then context. more_in
+    names where the rest of a cut list can be read, such as "the JSON report"."""
     flagged = report["flagged"]
     lines = [f"*Model pricing audit, {report['date']}*: {_status(report)}"]
 
@@ -1194,7 +1201,7 @@ def format_report(report: dict) -> str:
         lines += ["", "*Prices to check* (USD per 1M tokens, ours → catalogs)"]
         lines += _price_table(flagged, tracked=_tracked(report))
         if len(flagged) > MAX_FLAGGED_LINES:
-            lines.append(f"…and {len(flagged) - MAX_FLAGGED_LINES} more in the JSON report")
+            lines.append(f"…and {len(flagged) - MAX_FLAGGED_LINES} more{_in(more_in)}")
         pages = dict.fromkeys(
             (item["provider"], item["pricing_page"]) for item in flagged if item["pricing_page"]
         )
@@ -1430,10 +1437,11 @@ def _slack_footer(report: dict, report_url: str | None) -> str:
     return f"<{report_url}|Full report> · {checked}" if report_url else checked
 
 
-def build_payload(report: dict, report_url: str | None = None) -> dict:
+def build_payload(report: dict, report_url: str | None = None, more_in: str | None = None) -> dict:
     """The Slack message (Block Kit) for a completed run: what needs a fix and has no open
     PR, then what open PRs already fix. The full lists are in the report page, which also
-    links each PR; here they are plain numbers, since a GitHub link unfurls into a preview."""
+    links each PR; here they are plain numbers, since a GitHub link unfurls into a preview.
+    more_in names where the rest of a cut list can be read, such as "the full report"."""
     links = _pr_text
     flagged = _open(report["flagged"])
     needs = _needs_lines(report)
@@ -1449,7 +1457,7 @@ def build_payload(report: dict, report_url: str | None = None) -> dict:
             else (":red_circle: *Needs a fix*")
         )
         if not flagged:
-            text = _fit(heading, needs, SECTION_LIMIT)
+            text = _fit(heading, needs, SECTION_LIMIT, more_in)
             blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
         else:
             # The rates get a table, and the other bullets follow it.
@@ -1461,12 +1469,12 @@ def build_payload(report: dict, report_url: str | None = None) -> dict:
             blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(heading)})
             blocks.append(_price_table_block(flagged))
             if len(flagged) > MAX_FLAGGED_LINES:
-                more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates in the full report"
+                more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates{_in(more_in)}"
                 blocks.append(
                     {"type": "context", "block_id": "prices_more", "elements": [_mrkdwn(more)]}
                 )
             if needs:
-                text = _fit("", needs, SECTION_LIMIT).lstrip("\n")
+                text = _fit("", needs, SECTION_LIMIT, more_in).lstrip("\n")
                 blocks.append({"type": "section", "block_id": "needs_more", "text": _mrkdwn(text)})
     else:
         text = (
@@ -1476,7 +1484,8 @@ def build_payload(report: dict, report_url: str | None = None) -> dict:
         )
         blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
     if progress:
-        text = _fit(":large_yellow_circle: *In progress (open PRs)*", progress, SECTION_LIMIT)
+        heading = ":large_yellow_circle: *In progress (open PRs)*"
+        text = _fit(heading, progress, SECTION_LIMIT, more_in)
         blocks.append({"type": "section", "block_id": "progress", "text": _mrkdwn(text)})
     footer = _clip(_slack_footer(report, report_url), CONTEXT_LIMIT)
     blocks.append({"type": "context", "block_id": "footer", "elements": [_mrkdwn(footer)]})
@@ -1790,7 +1799,10 @@ def main(argv: list[str]) -> int:
                 # The findings stand without it: say PRs weren't checked, and carry on.
                 detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
-        text, payload, status = format_report(report), build_payload(report, args.report_url), 0
+        # A cut list points to the rest only where this run writes it.
+        more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
+        text = format_report(report, more_in)
+        payload, status = build_payload(report, args.report_url, more_in), 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}
