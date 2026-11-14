@@ -284,6 +284,6 @@ def load_source(source: str, label: str) -> Any:
     try:
         if source.startswith(("https://", "http://")):
             return fetch_json(source)
-        return json.loads(Path(source).read_text())
+        return json.loads(Path(source).read_text(encoding="utf-8"))
     except (URLError, OSError, ValueError) as exc:
         raise CheckError(f"could not load the {label} catalog ({type(exc).__name__})") from exc

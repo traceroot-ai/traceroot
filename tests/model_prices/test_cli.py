@@ -16,7 +16,14 @@ from scripts.model_prices import catalogs, cli, tracking
 from scripts.model_prices.catalogs import LITELLM_URL, MODELSDEV_URL, PRICE_PATH
 from scripts.model_prices.slack import post_to_slack
 from scripts.model_prices.tracking import GITHUB_API
-from tests.model_prices.samples import CACHE_WRITE_RATES, _block_text, ll_entry, md_catalog, row
+from tests.model_prices.samples import (
+    CACHE_WRITE_RATES,
+    LITELLM_FILLER,
+    _block_text,
+    ll_entry,
+    md_catalog,
+    row,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "check_model_prices.py"
@@ -384,3 +391,34 @@ def test_runs_as_a_plain_script():
     )
     assert result.returncode == 0, result.stderr
     assert "--post" in result.stdout
+
+
+def test_files_are_read_and_written_as_utf8_whatever_the_locale(tmp_path):
+    # An ASCII locale with Python's UTF-8 mode off, so only an explicit encoding works.
+    rows = [row("gpt-a", "openai"), row("gpt-ü", "openai", pattern="(?i)^gpt-u$")]
+    sources = {
+        "prices": rows,
+        "litellm": {**LITELLM_FILLER, "gpt-a": ll_entry("openai"), "gpt-ö": ll_entry("openai")},
+        "modelsdev": md_catalog(),
+    }
+    argv = ["--min-compared", "1"]
+    for name, data in sources.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        argv += [f"--{name}", str(path)]
+    for name in ("json", "html", "payload"):
+        argv += [f"--{name}", str(tmp_path / f"out.{name}")]
+    result = subprocess.run(
+        [sys.executable, "-S", "-X", "utf8=0", str(SCRIPT), *argv],
+        cwd=REPO_ROOT,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert [p["row"] for p in report["row_problems"]] == ["gpt-ü"]
+    assert [m["model"] for m in report["missing"]] == ["gpt-ö"]
+    for name in ("html", "payload"):
+        assert "gpt-ü" in (tmp_path / f"out.{name}").read_text(encoding="utf-8")

@@ -127,7 +127,7 @@ def main(argv: list[str]) -> int:
 
     date = datetime.now(UTC).date().isoformat()
     try:
-        rows = validate_rows(json.loads(args.prices.read_text()))
+        rows = validate_rows(json.loads(args.prices.read_text(encoding="utf-8")))
         litellm_data = load_source(args.litellm, "LiteLLM")
         modelsdev_data = load_source(args.modelsdev, "models.dev")
         litellm, modelsdev = index_litellm(litellm_data), index_modelsdev(modelsdev_data)
@@ -166,11 +166,13 @@ def main(argv: list[str]) -> int:
         payload = failure_payload(date, reason, args.report_url)
 
     if args.json:
-        args.json.write_text(json.dumps(report, indent=2) + "\n")
+        args.json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.html:
-        args.html.write_text(build_html(report))
+        args.html.write_text(build_html(report), encoding="utf-8")
     if args.payload:
-        args.payload.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        args.payload.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
     print(text)
     if args.post:
         try:
