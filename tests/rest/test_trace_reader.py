@@ -899,3 +899,58 @@ def test_aggregate_page_order_breaks_time_ties_by_id(method_name, page_order, re
     page_query = " ".join(client.query.call_args_list[0].args[0].split())
     assert page_order in page_query
     assert page_query.endswith(result_order)
+
+
+class TestDistinctValuesCache:
+    def test_two_writes_at_once_both_remain(self):
+        # Each write rebuilds the dict from the snapshot it takes under the lock.
+        # Joining the other writer before that snapshot is a timing guess: a slow
+        # writer lands after the first assignment and both projects survive even
+        # with the write lock removed. This waits until the second writer is
+        # blocked on the lock, then snapshots.
+        service, _ = _make_service(lambda *a, **kw: _rows([("gpt-4", 1)]))
+        stored: dict[str, object] = {}
+
+        class ContendedLock:
+            def __init__(self) -> None:
+                self._lock = threading.Lock()
+                self.waiter = threading.Event()
+
+            def __enter__(self):
+                if not self._lock.acquire(blocking=False):
+                    self.waiter.set()
+                    self._lock.acquire()
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self._lock.release()
+                return False
+
+        lock = ContendedLock()
+        service._distinct_lock = lock
+
+        def write_b() -> None:
+            try:
+                service.get_distinct_span_values("proj-b", "model_name")
+                stored["b"] = "ok"
+            except Exception as error:
+                stored["b"] = error
+
+        other = threading.Thread(target=write_b)
+
+        class SnapshotOnce(dict):
+            def items(self):
+                if not other.is_alive():
+                    other.start()
+                    waited = lock.waiter.wait(timeout=2)
+                    assert waited, "second writer never blocked on the cache lock"
+                return super().items()
+
+        service._distinct_cache = SnapshotOnce({("seed",): (time.time() + 30, [])})
+        service.get_distinct_span_values("proj-a", "model_name")
+        other.join(timeout=2)
+
+        projects = {key[1] for key in service._distinct_cache if len(key) > 1}
+        assert not other.is_alive()
+        assert stored.get("b") == "ok"
+        assert projects == {"proj-a", "proj-b"}

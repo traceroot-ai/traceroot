@@ -268,6 +268,23 @@ class TestPublicListTracesFilters:
         assert resp.status_code == 400
         mock_reader.list_traces.assert_not_called()
 
+    def test_clickhouse_list_runs_off_the_event_loop(self, client, mock_reader):
+        """A public list is the same synchronous scan the dashboard already takes off the loop."""
+        seen = {}
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+                seen["read"] = True
+            except RuntimeError:
+                seen["read"] = False
+            return {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}}
+
+        mock_reader.list_traces.side_effect = read
+        resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert seen["read"] is False
+
 
 class TestPublicListTraceFilterValues:
     def test_returns_distinct_values_scoped_to_project(self, client, mock_reader):
@@ -304,6 +321,22 @@ class TestPublicListTraceFilterValues:
         resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to list filter values"
+
+    def test_clickhouse_read_runs_off_the_event_loop(self, client, mock_reader):
+        seen = {}
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+                seen["read"] = True
+            except RuntimeError:
+                seen["read"] = False
+            return []
+
+        mock_reader.get_distinct_span_values.side_effect = read
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert seen["read"] is False
 
 
 class TestPublicGetTrace:

@@ -98,8 +98,13 @@ async def list_traces(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
+        # Built on the loop: the reader's lazy init is not thread-safe. The query itself
+        # is synchronous ClickHouse (a page plus a count), so it runs off the loop the
+        # same way the dashboard list does. REST is one worker; awaiting it inline stalls
+        # every other request.
         service = get_trace_reader_service()
-        result = service.list_traces(
+        result = await asyncio.to_thread(
+            service.list_traces,
             project_id=auth.project_id,
             limit=limit,
             start_after=start_after,
@@ -187,7 +192,8 @@ async def list_trace_filter_values(
         )
     try:
         service = get_trace_reader_service()
-        values = service.get_distinct_span_values(
+        values = await asyncio.to_thread(
+            service.get_distinct_span_values,
             project_id=auth.project_id,
             column=column.name,
             start_after=start_after,
