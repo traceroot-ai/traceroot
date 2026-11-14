@@ -83,7 +83,7 @@ from pathlib import Path
 from .catalogs import (
     LITELLM_URL,
     MODELSDEV_URL,
-    PRICE_FILE,
+    PRICE_PATH,
     CheckError,
     index_hosted,
     index_litellm,
@@ -98,6 +98,8 @@ from .slack import build_payload, failure_payload, post_to_slack
 from .text import format_failure, format_report
 from .tracking import GITHUB_REPO, fetch_pricing_prs, track
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
@@ -110,7 +112,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--payload", type=Path, metavar="PATH", help="also write the Slack message as JSON"
     )
-    parser.add_argument("--prices", type=Path, default=PRICE_FILE, help="our price file")
+    parser.add_argument("--prices", type=Path, default=ROOT / PRICE_PATH, help="our price file")
     parser.add_argument("--litellm", default=LITELLM_URL, metavar="URL_OR_PATH")
     parser.add_argument("--modelsdev", default=MODELSDEV_URL, metavar="URL_OR_PATH")
     parser.add_argument(

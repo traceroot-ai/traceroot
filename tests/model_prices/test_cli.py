@@ -78,14 +78,19 @@ def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, cap
     assert cut_lines(write_json=False) == ("…and 10 more", "…and 10 more rates")
 
 
-def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monkeypatch):
-    def offline(url, token):
+def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
+    def offline(url):
         raise URLError("offline")
 
-    monkeypatch.setattr(tracking, "_github", offline)
     rows = [row("gpt-a", "openai", input_=5e-7)]
     code, posted, report = run(
-        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1", "--track"
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--track",
+        github=offline,
     )
 
     assert code == 0
@@ -95,15 +100,20 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monk
     assert footer.endswith("open PRs not checked: GitHub could not be read (URLError)")
 
 
-def test_a_cut_off_pr_listing_still_reports(run, monkeypatch):
+def test_a_cut_off_pr_listing_still_reports(run):
     # A response cut off partway raises an error that is not an OSError.
-    def cut_off(url, token):
+    def cut_off(url):
         raise IncompleteRead(b"[{")
 
-    monkeypatch.setattr(tracking, "_github", cut_off)
     rows = [row("gpt-a", "openai", input_=5e-7)]
     code, posted, report = run(
-        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1", "--track"
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--track",
+        github=cut_off,
     )
 
     assert code == 0

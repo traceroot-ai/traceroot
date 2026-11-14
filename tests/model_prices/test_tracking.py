@@ -1,16 +1,22 @@
-"""Tests for --track: merging an open PR into the current price file, reading open PRs
-from GitHub, and naming the PRs that clear each finding."""
+"""Tests for --track: merging an open PR into the current price file, reading open PRs,
+and naming the PRs that clear each finding."""
 
+import io
 from urllib.error import HTTPError, URLError
 
 import pytest
 
-from scripts.model_prices import tracking
-from scripts.model_prices.catalogs import index_litellm, index_modelsdev
+from scripts.model_prices import catalogs, tracking
+from scripts.model_prices.catalogs import (
+    PRICE_PATH,
+    USER_AGENT,
+    index_litellm,
+    index_modelsdev,
+)
 from scripts.model_prices.checks import build_report
 from scripts.model_prices.tracking import (
+    GITHUB_API,
     MAX_PRICE_FILE_BYTES,
-    PRICE_PATH,
     apply_pr,
     fetch_pricing_prs,
 )
@@ -39,6 +45,17 @@ def test_a_pr_is_merged_by_its_own_row_changes():
         ("gpt-new", 1e-6),
         ("gpt-d", 1e-6),  # the PR's new row; gpt-c, which it removed, is gone
     ]
+
+
+def test_a_row_the_current_file_removed_stays_removed_though_the_pr_changed_it():
+    base = [row("gpt-a", "openai"), row("gpt-b", "openai")]
+    # Since the PR branched, the current file removed gpt-b, which the PR changed.
+    current = [row("gpt-a", "openai")]
+    head = [base[0], row("gpt-b", "openai", input_=7e-6), row("gpt-c", "openai")]
+
+    merged = apply_pr(current, base, head)
+
+    assert [r["modelName"] for r in merged] == ["gpt-a", "gpt-c"]
 
 
 def test_a_pr_changes_only_the_fields_it_changed_in_a_row():
@@ -115,7 +132,7 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
     ]
     calls = []
 
-    def fake_github(url, token):
+    def fake_github(url):
         calls.append(url)
         if "/pulls?" in url:
             return pulls
@@ -126,7 +143,9 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
             "files": [{"filename": name} for name in files],
         }
 
-    def fake_fetch(url, max_bytes=None):
+    def fake_fetch(url, max_bytes=None, headers=None):
+        if url.startswith(GITHUB_API):
+            return fake_github(url)
         assert max_bytes == MAX_PRICE_FILE_BYTES
         if "head4" in url:
             raise URLError("gone")
@@ -134,7 +153,6 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
             return [{**row("gpt-a", "openai"), "modelName": 5}]
         return [row("gpt-a", "openai", input_=2e-6)] if "head" in url else rows
 
-    monkeypatch.setattr(tracking, "_github", fake_github)
     monkeypatch.setattr(tracking, "fetch_json", fake_fetch)
     prs = fetch_pricing_prs("owner/repo", rows, report, None, lambda r: {"rows": r})
 
@@ -147,25 +165,38 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
     assert not any("pull/2" in url or "head2" in url for url in calls)
 
 
+NO_FINDINGS = {
+    key: []
+    for key in ("flagged", "unpriced_ids", "overlaps", "row_problems", "missing", "long_context")
+}
+
+
 def test_github_rate_limit_stops_tracking(monkeypatch):
-    def limited(url, token):
+    def limited(url, max_bytes=None, headers=None):
         if "/pulls?" in url:
             return [
                 {"number": 1, "title": "fix(pricing)", "base": {"sha": "b"}, "head": {"sha": "h"}}
             ]
         raise HTTPError(url, 403, "rate limited", {}, None)
 
-    monkeypatch.setattr(tracking, "_github", limited)
-    report = {
-        key: []
-        for key in (
-            "flagged",
-            "unpriced_ids",
-            "overlaps",
-            "row_problems",
-            "missing",
-            "long_context",
-        )
-    }
+    monkeypatch.setattr(tracking, "fetch_json", limited)
     with pytest.raises(HTTPError):
-        fetch_pricing_prs("owner/repo", [], report, None, lambda rows: {})
+        fetch_pricing_prs("owner/repo", [], NO_FINDINGS, None, lambda rows: {})
+
+
+@pytest.mark.parametrize("token", ["t0ken", None])
+def test_open_prs_are_read_with_the_token_and_the_apis_json_type(monkeypatch, token):
+    sent = []
+
+    def fake_urlopen(request, timeout):
+        sent.append(request)
+        return io.BytesIO(b"[]")
+
+    monkeypatch.setattr(catalogs, "urlopen", fake_urlopen)
+    fetch_pricing_prs("owner/repo", [], NO_FINDINGS, token, lambda rows: {})
+
+    [request] = sent
+    assert request.full_url == f"{GITHUB_API}/repos/owner/repo/pulls?state=open&per_page=100&page=1"
+    assert request.get_header("Accept") == "application/vnd.github+json"
+    assert request.get_header("Authorization") == (f"Bearer {token}" if token else None)
+    assert request.get_header("User-agent") == USER_AGENT

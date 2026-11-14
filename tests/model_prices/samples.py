@@ -8,12 +8,13 @@ from scripts.model_prices import catalogs, cli, tracking
 from scripts.model_prices.catalogs import (
     LITELLM_URL,
     MODELSDEV_URL,
+    PRICE_PATH,
     index_hosted,
     index_litellm,
     index_modelsdev,
 )
 from scripts.model_prices.checks import build_report
-from scripts.model_prices.tracking import PRICE_PATH, track
+from scripts.model_prices.tracking import GITHUB_API, track
 
 DATE = "2026-11-08"
 
@@ -123,19 +124,22 @@ def _track_one_pr(rows, litellm, pr_rows):
 def runner(tmp_path, monkeypatch):
     """Run main() against sample data; returns (exit code, posted payloads, report). With
     heads, GitHub has an open pricing PR for each entry, branched from rows: its number,
-    and the price file at its head or the error reading the PR raises. With
-    write_json=False, the run writes no JSON report and the report returned is None."""
+    and the price file at its head or the error reading the PR raises. With github, that
+    answers every GitHub API request instead. With write_json=False, the run writes no
+    JSON report and the report returned is None."""
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
     posted = []
     monkeypatch.setattr(cli, "post_to_slack", lambda _url, payload: posted.append(payload))
 
-    def _run(rows, litellm, modelsdev, *extra, heads=None, write_json=True):
+    def _run(rows, litellm, modelsdev, *extra, heads=None, github=None, write_json=True):
         if isinstance(litellm, dict):
             # Only the cache write rates, so a test can still remove any other field.
             filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
             litellm = {"cache-write-filler": filler, **litellm}
 
-        def fake_fetch(url, max_bytes=None):
+        def fake_fetch(url, max_bytes=None, headers=None):
+            if url.startswith(GITHUB_API):
+                return (github or fake_github)(url)
             if isinstance(litellm, Exception):
                 raise litellm
             if url in (LITELLM_URL, MODELSDEV_URL):
@@ -144,7 +148,7 @@ def runner(tmp_path, monkeypatch):
             # Through JSON, as GitHub serves it.
             return json.loads(json.dumps(rows if sha == "base" else heads[int(sha[4:])]))
 
-        def fake_github(url, token):
+        def fake_github(url):
             if "/pulls?" in url:
                 return [
                     {
@@ -162,8 +166,6 @@ def runner(tmp_path, monkeypatch):
 
         monkeypatch.setattr(catalogs, "fetch_json", fake_fetch)
         monkeypatch.setattr(tracking, "fetch_json", fake_fetch)
-        if heads is not None:
-            monkeypatch.setattr(tracking, "_github", fake_github)
         prices = tmp_path / "prices.json"
         prices.write_text(json.dumps(rows))
         out = tmp_path / "report.json"

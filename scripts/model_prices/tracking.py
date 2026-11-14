@@ -1,23 +1,19 @@
-"""--track: read the open pull requests that change the price file from GitHub, merge
-each into the current file, and name the PRs that clear each finding."""
+"""--track: read the open pull requests that change the price file, merge each into the
+current file, and name the PRs that clear each finding."""
 
 import contextlib
-import json
 import re
 import signal
 import threading
 from collections.abc import Callable, Iterator
-from typing import Any
-from urllib.request import Request, urlopen
 
-from .catalogs import TIMEOUT_SECONDS, USER_AGENT, fetch_json, validate_rows
+from .catalogs import PRICE_PATH, fetch_json, validate_rows
 from .findings import changes, describe_all, finding_keys
 
 # --track: open pull requests that change the price file.
 GITHUB_REPO = "traceroot-ai/traceroot"
 GITHUB_API = "https://api.github.com"
 GITHUB_RAW = "https://raw.githubusercontent.com"
-PRICE_PATH = "frontend/packages/core/src/standard-model-prices.json"
 MAX_PR_PAGES = 10
 
 # A PR's price file is read up to this size, about 25 times ours, so one huge file
@@ -51,7 +47,8 @@ def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]
     row the PR changes between its merge base and its head, only the keys and prices
     fields it changes are applied to the current row, so a branch that is behind leaves
     later changes to the current file alone. Rows the PR adds are added whole, and rows
-    it removes are removed."""
+    it removes are removed. A row the current file removed since the PR branched stays
+    removed, even when the PR changed it."""
     before = {row["id"]: row for row in base}
     after = {row["id"]: row for row in head}
     changed = {row_id: row for row_id, row in after.items() if before.get(row_id) != row}
@@ -67,7 +64,8 @@ def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]
             merged.append(_apply_changes(row, before[row["id"]], new))
         else:  # Added by the PR and, since it branched, by the current file too.
             merged.append(new)
-    return merged + list(changed.values())
+    # What is left is either new in the PR or removed from the current file since.
+    return merged + [row for row_id, row in changed.items() if row_id not in before]
 
 
 def track(report: dict, prs: list[dict]) -> None:
@@ -91,14 +89,6 @@ def track(report: dict, prs: list[dict]) -> None:
         item["tracked_by"] = fixed_by[key]
     report["pull_requests"] = checked
     report["tracking"] = "ok"
-
-
-def _github(url: str, token: str | None) -> Any:
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    with urlopen(Request(url, headers=headers), timeout=TIMEOUT_SECONDS) as response:
-        return json.load(response)
 
 
 class _TimeLimitError(Exception):
@@ -152,10 +142,13 @@ def fetch_pricing_prs(
     or body mentions pricing or a model in the report. Anything that goes wrong with one
     PR, from reading its files to checking its rows, gives that PR an "error" instead, so
     only GitHub's rate limit stops the others."""
+    github = {"Accept": "application/vnd.github+json"}
+    if token:
+        github["Authorization"] = f"Bearer {token}"
     pulls: list[dict] = []
     for page in range(1, MAX_PR_PAGES + 1):
-        batch = _github(
-            f"{GITHUB_API}/repos/{repo}/pulls?state=open&per_page=100&page={page}", token
+        batch = fetch_json(
+            f"{GITHUB_API}/repos/{repo}/pulls?state=open&per_page=100&page={page}", headers=github
         )
         pulls += batch
         if len(batch) < 100:
@@ -174,8 +167,8 @@ def fetch_pricing_prs(
         number, head = pull["number"], pull["head"]["sha"]
         pr = {"number": number, "title": pull.get("title"), "url": pull.get("html_url")}
         try:
-            compare = _github(
-                f"{GITHUB_API}/repos/{repo}/compare/{pull['base']['sha']}...{head}", token
+            compare = fetch_json(
+                f"{GITHUB_API}/repos/{repo}/compare/{pull['base']['sha']}...{head}", headers=github
             )
             if PRICE_PATH not in {changed["filename"] for changed in compare.get("files", [])}:
                 continue

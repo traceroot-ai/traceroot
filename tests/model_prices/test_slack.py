@@ -72,8 +72,10 @@ def test_slack_message_shows_what_needs_a_fix_in_a_few_lines():
     assert [c["text"] for c in cells[2]] == [" ", "output", "1.00", "4.00"]
 
     # Counts only: aliases and realtime models are left to the full report.
-    assert _block_text(blocks[3]) == "• *2 models aren't priced at all:* OpenAI 2"
-    assert _block_text(blocks[4]) == "<https://pages.test/r|Full report> · Checked 1 of 1 rows"
+    assert _block_text(blocks[3]) == "• *2 models not priced*: OpenAI 2"
+    assert _block_text(blocks[4]) == (
+        "<https://pages.test/r|Full report> · Checked 1 of 1 rows against LiteLLM and models.dev"
+    )
     assert "<!channel>" not in json.dumps(payload)
 
 
@@ -106,7 +108,7 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
     assert "• *openai* (1): gpt-new (#12)" in text
     assert "• #12 would add: gpt-new input rate (ours 9.00)" in text
     assert "• #13: could not read it" in text
-    assert "checked 3 open pricing PRs" in text
+    assert "_Checked 2 of 2 rows against LiteLLM and models.dev and 3 open pricing PRs._" in text
 
     blocks = build_payload(report)["blocks"]
     assert [b.get("block_id") for b in blocks] == [None, "needs", "prices", "progress", "footer"]
@@ -126,7 +128,9 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
         f"• :warning: {pr(13)}: could not read it",
         f"• :warning: {pr(12)} would add: `gpt-new input rate (ours 9.00)`",
     ]
-    assert _block_text(blocks[4]) == "Checked 2 of 2 rows and 3 open pricing PRs"
+    assert _block_text(blocks[4]) == (
+        "Checked 2 of 2 rows against LiteLLM and models.dev and 3 open pricing PRs"
+    )
 
 
 def _progress(report):
@@ -198,7 +202,7 @@ def test_a_catalog_id_cannot_pose_as_the_slack_messages_own_text():
 
     assert _block_text(needs).split("\n")[1] == (
         f"• *1 price file problem*, e.g. {shown} is matched by `gpt-z1` and `gpt-z2` at "
-        "different prices"
+        "different prices; the worker uses `gpt-z1`"
     )
     pr_rows = [rows[0], row("gpt-z", "openai", pattern=r"(?i)^gpt-z")]
     report = _track_one_pr(rows[:1], litellm, pr_rows)

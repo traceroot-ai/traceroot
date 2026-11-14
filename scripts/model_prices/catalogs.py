@@ -10,8 +10,8 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-ROOT = Path(__file__).resolve().parents[2]
-PRICE_FILE = ROOT / "frontend" / "packages" / "core" / "src" / "standard-model-prices.json"
+# Our price file, relative to the repository root.
+PRICE_PATH = "frontend/packages/core/src/standard-model-prices.json"
 LITELLM_URL = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 )
@@ -288,9 +288,12 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
     return hosted
 
 
-def fetch_json(url: str, max_bytes: int | None = None) -> Any:
-    """Fetch and parse JSON; with max_bytes, a larger file is a CheckError."""
-    request = Request(url, headers={"User-Agent": USER_AGENT})
+def fetch_json(
+    url: str, max_bytes: int | None = None, headers: dict[str, str] | None = None
+) -> Any:
+    """Fetch and parse JSON, sending headers too; with max_bytes, a larger file is a
+    CheckError."""
+    request = Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
         body = response.read() if max_bytes is None else response.read(max_bytes + 1)
     if max_bytes is not None and len(body) > max_bytes:
