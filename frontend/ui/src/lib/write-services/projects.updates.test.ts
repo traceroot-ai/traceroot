@@ -333,19 +333,23 @@ describe("updateProject", () => {
 
   it("maps a rename collision on the live-name index to 409 and rethrows a P2002 on any other target", async () => {
     mockAccess();
-    tx.project.update.mockRejectedValueOnce(prismaError("P2002", "uq_project_workspace_live_name"));
+    // Prisma reports the live-name index by its column list, not its name.
+    tx.project.update.mockRejectedValueOnce(prismaError("P2002", ["workspace_id", "name"]));
     expect(await runUpdate({ name: "Taken" })).toEqual({
       ok: false,
       status: 409,
       error: "A project with this name already exists",
     });
+    // The index name itself is still accepted, should a Prisma upgrade report it.
+    tx.project.update.mockRejectedValueOnce(prismaError("P2002", "uq_project_workspace_live_name"));
+    expect(await runUpdate({ name: "Taken" })).toMatchObject({ ok: false, status: 409 });
     tx.project.update.mockRejectedValueOnce(prismaError("P2002", ["projectId"]));
     await expect(
       runUpdate({ name: "Taken", alertEmails: ["a@example.com"] }),
     ).rejects.toMatchObject({ code: "P2002" });
     // A target that merely mentions "name" is some other constraint, not the
     // rename: the fields of a schema-level unique, say, or an index elsewhere.
-    for (const target of [["workspaceId", "name"], "uq_project_workspace_hostname", undefined]) {
+    for (const target of [["name"], "uq_project_workspace_hostname", undefined]) {
       tx.project.update.mockRejectedValueOnce(prismaError("P2002", target));
       await expect(runUpdate({ name: "Taken" })).rejects.toMatchObject({ code: "P2002" });
     }
