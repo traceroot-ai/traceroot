@@ -239,6 +239,37 @@ def test_a_host_id_newly_priced_at_its_hosts_input_and_output_rates_is_not_added
     }
 
 
+@pytest.mark.parametrize(
+    ("input_", "output", "adds"),
+    [
+        (
+            2e-6,
+            1e-5,
+            [
+                "us-gov.anthropic.claude-k-6 priced at us-gov.anthropic.claude-k-6's rates, "
+                "but the host lists input 2.40 (ours 2.00) and output 12.00 (ours 10.00)"
+            ],
+        ),
+        (2.4e-6, 1.2e-5, []),
+    ],
+    ids=["model-rates", "host-rates"],
+)
+def test_a_row_named_after_a_host_id_is_checked_against_the_host(input_, output, adds):
+    # No catalog lists the GovCloud ID under its row's provider, so only the host's
+    # rates can show that the row prices it wrong.
+    litellm = {
+        "claude-k-6": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "us-gov.anthropic.claude-k-6": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    }
+    before = [row("claude-k-6", "anthropic", input_=2e-6, output=1e-5)]
+    gov = row("us-gov.anthropic.claude-k-6", "anthropic", input_=input_, output=output)
+
+    assert compare(before, [*before, gov], litellm, md_catalog()) == {
+        "fixes": ["us-gov.anthropic.claude-k-6 not priced by its row"],
+        "adds": adds,
+    }
+
+
 def test_a_dash_spelling_that_loses_its_price_is_added():
     # Gateways send grok-q-20 for grok-q.20. The grok-q row's loose suffix prices it at
     # the right rate, and grok-q-6 at the wrong one. Narrowing grok-q leaves both unpriced

@@ -243,10 +243,14 @@ def find_unpriced_ids(
     rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
 ) -> list[dict]:
     """IDs a row should price that no row matches, so their spans record no cost, or that
-    another row with different rates matches, so they get the wrong price."""
+    another row with different rates matches, so they get the wrong price. A row named
+    exactly the ID prices it on purpose, so the ID counts as priced; for a host ID,
+    mispriced_host_ids compares that row's rates with the host's."""
     found = []
     for model_id, source, row in _variant_ids(rows, catalogs, hosted, today):
         priced_by = lookup(rows, model_id)
+        if priced_by is not None and priced_by["modelName"] == model_id:
+            continue
         if priced_by is None or (priced_by is not row and priced_by["prices"] != row["prices"]):
             found.append(
                 {
@@ -260,16 +264,22 @@ def find_unpriced_ids(
     return found
 
 
-def mispriced_host_ids(rows: list[dict], hosted: dict[str, dict], today: datetime) -> dict:
+def mispriced_host_ids(
+    rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
+) -> dict:
     """Each live host ID a row prices at an input or output rate that every catalog
     listing that exact ID disagrees with, as a row at the model's own rates does for
     Bedrock's GovCloud and regional profiles: the row, and each such rate. No finding
     lists these, so --baseline and --track compare them to catch an edit that newly
-    prices such an ID. A row's own modelName is compared with its provider instead."""
+    prices such an ID. A row named the ID that a catalog lists under the row's provider
+    is compared by name instead; one named after a GovCloud ID is compared here."""
     found = {}
     for model_id, entry in _live_hosted(hosted, today):
         row = lookup(rows, model_id)
-        if row is None or row["modelName"] == model_id:
+        if row is None:
+            continue
+        key = (row["provider"], row["modelName"])
+        if row["modelName"] == model_id and any(key in index for index in catalogs.values()):
             continue
         flags = _flag_rates(row, row["provider"], model_id, entry["rates"], priced_as=None)
         rates = [
@@ -396,7 +406,7 @@ def build_report(
         "missing": find_missing(rows, catalogs, today),
         "long_context": find_long_context(rows, catalogs),
         "dash_spellings": priced_dash_spellings(rows, catalogs, today),
-        "host_rates": mispriced_host_ids(rows, hosted, today),
+        "host_rates": mispriced_host_ids(rows, catalogs, hosted, today),
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
     }
