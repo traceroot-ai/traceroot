@@ -71,6 +71,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       trace_ttl_days: p.traceTtlDays,
       access_key_count: p._count.accessKeys,
       create_time: p.createTime,
+      last_ingested_at: p.lastIngestedAt,
     })),
     create_time: workspace.createTime,
     ...billing,

@@ -11,7 +11,7 @@ import { TR } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
 import { CreateProjectDialog } from "@/features/projects/components";
-import { useWorkspace } from "@/features/workspaces/hooks";
+import { ACTIVITY_REFRESH_INTERVAL_MS, useWorkspace } from "@/features/workspaces/hooks";
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -27,7 +27,10 @@ export default function ProjectsPage() {
   }, [user, router]);
 
   // Get workspace with projects
-  const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session);
+  const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session, {
+    refetchInterval: ACTIVITY_REFRESH_INTERVAL_MS,
+    refetchOnMount: "always",
+  });
 
   if (!user) {
     return null;
@@ -81,8 +84,8 @@ export default function ProjectsPage() {
                     {workspace?.is_demo ? "—" : formatDate(project.create_time)}
                   </td>
                   <td className="whitespace-nowrap px-3 text-muted-foreground">
-                    {!workspace?.is_demo && project.update_time
-                      ? formatDate(project.update_time)
+                    {!workspace?.is_demo && project.last_ingested_at
+                      ? formatDate(project.last_ingested_at)
                       : "—"}
                   </td>
                   <td className="px-2 text-right">

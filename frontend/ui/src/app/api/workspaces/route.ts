@@ -23,7 +23,7 @@ async function handleGET() {
         include: {
           projects: {
             where: { deleteTime: null },
-            select: { id: true, name: true },
+            select: { id: true, name: true, lastIngestedAt: true },
           },
           _count: {
             select: { members: true },
@@ -38,6 +38,10 @@ async function handleGET() {
   // the user's own. Its member count is every user, so it is not shown.
   const workspaces = sortDemoLast(memberships, (m) => m.workspace.id).map((m) => {
     const isDemo = isDemoWorkspace(m.workspace.id);
+    const lastIngestedAt = m.workspace.projects.reduce<Date | null>((latest, project) => {
+      const received = project.lastIngestedAt;
+      return received && (!latest || received > latest) ? received : latest;
+    }, null);
     return {
       id: m.workspace.id,
       name: m.workspace.name,
@@ -45,8 +49,9 @@ async function handleGET() {
       is_demo: isDemo,
       member_count: isDemo ? undefined : m.workspace._count.members,
       project_count: m.workspace.projects.length,
-      projects: m.workspace.projects,
+      projects: m.workspace.projects.map(({ id, name }) => ({ id, name })),
       create_time: m.workspace.createTime,
+      last_ingested_at: lastIngestedAt,
     };
   });
 

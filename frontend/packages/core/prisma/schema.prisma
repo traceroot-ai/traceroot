@@ -186,6 +186,7 @@ model Project {
   deleteTime   DateTime?            @map("delete_time") @db.Timestamp(6)
   createTime   DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime   DateTime             @default(now()) @map("update_time") @db.Timestamp(6)
+  lastIngestedAt DateTime?           @map("last_ingested_at") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
   rcaModel     String?              @map("rca_model") @db.VarChar
   rcaProvider  String?              @map("rca_provider") @db.VarChar
