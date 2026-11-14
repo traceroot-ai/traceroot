@@ -150,7 +150,10 @@ def main(argv: list[str]) -> int:
                 track(report, prs)
             except Exception as exc:
                 # The findings stand without it: say PRs weren't checked, and carry on.
-                detail = getattr(exc, "code", None) or type(exc).__name__
+                if isinstance(exc, CheckError):
+                    detail = str(exc)
+                else:
+                    detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
         # A cut list points to the rest only where this run writes it.
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None

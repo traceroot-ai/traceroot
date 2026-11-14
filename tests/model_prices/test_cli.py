@@ -175,6 +175,26 @@ def test_a_cut_off_pr_listing_still_reports(run):
     assert posted[0]["text"].endswith(": 1 model with prices to check")
 
 
+def test_more_open_prs_than_the_listing_reads_leaves_prs_not_checked(run, monkeypatch):
+    # The PRs past the last page read could fix a finding, so none is marked.
+    monkeypatch.setattr(tracking, "MAX_PR_PAGES", 2)
+    page = [{"number": n, "title": "docs: typo", "head": {"sha": "h"}} for n in range(100)]
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    code, _, report = run(
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--track",
+        github=lambda url: page,
+    )
+
+    assert code == 0
+    assert report["tracking"] == "GitHub could not be read (200 or more open PRs)"
+    assert "tracked_by" not in report["flagged"][0]
+
+
 TRACK = ("--min-compared", "1", "--track")
 UNCOMPILABLE = "gpt-x: matchPattern does not compile, so the row matches its exact name only"
 
