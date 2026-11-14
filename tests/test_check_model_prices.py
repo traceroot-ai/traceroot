@@ -970,6 +970,18 @@ def test_a_pr_that_stops_comparing_a_row_does_not_fix_what_its_pattern_prices():
     assert _track_one_pr(rows, litellm, [fixed])["flagged"][0]["tracked_by"] == [7]
 
 
+def test_a_pr_that_changes_a_flagged_rate_to_another_wrong_one_does_not_fix_it():
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", output=4e-6)}
+    rows = [row("deepseek-d", "deepseek", output=1e-6)]
+    report = _track_one_pr(rows, litellm, [row("deepseek-d", "deepseek", output=1e-4)])
+
+    assert report["flagged"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["deepseek-d output rate (ours 100.00)"])
+    # The flag stays in the message as needing a fix, so its header can't turn green.
+    assert build_payload(report)["text"].endswith(": 1 model with prices to check")
+
+
 def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
     litellm = {"gpt-a": ll_entry("openai", cache_read=5e-7)}
     fixed = [row("gpt-a", "openai", cache_read=5e-7)]
@@ -1408,7 +1420,7 @@ def test_baseline_lists_what_an_edit_fixes_and_adds():
     }
 
 
-def test_an_id_that_goes_from_no_price_to_another_rows_price_is_added():
+def test_an_id_that_goes_from_no_price_to_another_rows_price_is_added_not_fixed():
     litellm = {"claude-f": ll_entry("anthropic"), "us.anthropic.claude-f-2": ll_entry("bedrock")}
     before = [
         row("claude-f", "anthropic", pattern=r"(?i)^claude-f$"),
@@ -1420,19 +1432,19 @@ def test_an_id_that_goes_from_no_price_to_another_rows_price_is_added():
     ]
 
     assert compare(before, after, litellm, md_catalog()) == {
-        "fixes": ["us.anthropic.claude-f-2 not priced by its row"],
+        "fixes": [],
         "adds": ["us.anthropic.claude-f-2 priced as claude-f"],
     }
 
 
-def test_a_flagged_rate_changed_to_another_wrong_rate_is_added():
+def test_a_flagged_rate_changed_to_another_wrong_rate_is_added_not_fixed():
     litellm = {"deepseek/deepseek-d": ll_entry("deepseek", output=4e-6)}
     before = [row("deepseek-d", "deepseek", output=1e-6)]
     worse = [row("deepseek-d", "deepseek", output=1e-4)]
     fixed = [row("deepseek-d", "deepseek", output=4e-6)]
 
     assert compare(before, worse, litellm, md_catalog()) == {
-        "fixes": ["deepseek-d output rate (ours 1.00)"],
+        "fixes": [],
         "adds": ["deepseek-d output rate (ours 100.00)"],
     }
     assert compare(before, fixed, litellm, md_catalog()) == {

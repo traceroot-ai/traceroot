@@ -54,8 +54,8 @@ says so and the run still succeeds.
 --baseline checks an edit to the price file before it goes into a pull request. Save a
 report with --json before the edit, edit the file, then run again with --baseline
 pointing at that report: the output lists the findings the edit fixes and any it adds.
-A flagged rate the edit changes to another value the catalogs disagree with is listed
-as both. A Bedrock or OpenRouter ID the edit newly prices is an add when every catalog
+A flagged rate the edit changes to another value the catalogs disagree with is an add,
+not a fix. A Bedrock or OpenRouter ID the edit newly prices is an add when every catalog
 that lists that exact ID charges other rates, as Bedrock does for GovCloud and regional
 profiles. So is a dotted version's dash spelling that a row priced before the edit and
 none prices after it, such as grok-4-20 once a narrowed grok-4 row stops matching it.
@@ -777,14 +777,13 @@ def build_report(
 
 
 def finding_keys(report: dict) -> dict[tuple, dict]:
-    """Each finding by a key that stays the same from one price file to the next, so
-    two reports can be compared."""
+    """Each finding by a key: what it is about and, for a flagged rate or an unpriced
+    ID, the value it has, our rate or the row that prices the ID. An edit that changes
+    that value gives the finding a new key."""
     keys: dict[tuple, dict] = {}
     for item in report["flagged"]:
-        # Our rate is part of the key: a flagged rate changed to another wrong one is new.
         keys[("rate", item["model"], item["field"], item["ours"])] = item
     for item in report["unpriced_ids"]:
-        # Which row prices it is part of the key: from no price to the wrong one is new.
         keys[("id", item["model"], item["priced_as"])] = item
     for item in report["overlaps"]:
         keys[("overlap", item["model"])] = item
@@ -851,16 +850,31 @@ def _found_through(key: tuple, item: dict) -> str | None:
     return str(name)
 
 
+def _identity(key: tuple) -> tuple:
+    """A finding key without the value it has: a flagged rate by model and field, an
+    unpriced ID by the ID."""
+    match key[0]:
+        case "rate":
+            return key[:3]
+        case "id":
+            return key[:2]
+    return key
+
+
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     """The findings in report that the after report clears, and what it adds, in a few
-    words each. A finding found through a row is not cleared when the after report stops
-    comparing that row with any catalog, as when its provider changes to one no catalog
-    covers: that can hide the finding, so the row is an add instead."""
+    words each. A finding is cleared only when the after report has nothing about the
+    same rate or ID, and added when its key is new, so a flagged rate changed to another
+    wrong one, or an ID moved from no row to the wrong row, is an add and not a fix. A
+    finding found through a row is not cleared when the after report stops comparing
+    that row with any catalog, as when its provider changes to one no catalog covers:
+    that can hide the finding, so the row is an add instead."""
     before, after_keys = finding_keys(report), finding_keys(after)
     stopped = set(after["no_match"]) - set(report["no_match"])
     rows = {key: _found_through(key, item) for key, item in before.items()}
     hidden = [key for key in before if rows[key] in stopped]
-    fixes = [key for key in before if key not in after_keys and key not in hidden]
+    left = {_identity(key) for key in after_keys}
+    fixes = [key for key in before if _identity(key) not in left and key not in hidden]
     adds = describe_all([key for key in after_keys if key not in before])
     for row in dict.fromkeys(rows[key] for key in hidden):
         adds.append(f"{row} no longer compared with the catalogs")
