@@ -101,9 +101,8 @@ def report_for(rows, litellm, modelsdev, min_compared=1):
 
 def compare(before, after, litellm, modelsdev):
     """What --baseline lists for an edit from the before rows to the after rows."""
-    hosted = index_hosted({**LITELLM_FILLER, **litellm}, modelsdev)
     return check.compare_reports(
-        report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev), after, hosted
+        report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev)
     )
 
 
@@ -1381,6 +1380,42 @@ def test_an_open_prs_price_file_gets_a_time_limit(run, monkeypatch):
     assert signal.getsignal(signal.SIGALRM) is handler
 
 
+def test_track_lists_the_host_rates_and_dash_spellings_a_pr_would_add(run):
+    litellm = {
+        "xai/grok-q": ll_entry("xai"),
+        "xai/grok-q.20": ll_entry("xai"),
+        "claude-k-5": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "us-gov.anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    }
+    rows = [
+        row("grok-q", "xai", pattern=r"(?i)^(xai\/)?grok-q(-[\d-]+)?$"),
+        row("grok-q.20", "xai", pattern=r"(?i)^(xai\/)?grok-q\.20$"),
+        row("claude-k-5", "anthropic", input_=2e-6, output=1e-5),
+    ]
+    # The PR narrows grok-q, which stops pricing grok-q-20, and prices the GovCloud ID.
+    own = r"(?i)^(us-gov\.anthropic\.)?claude-k-5$"
+    pr_rows = [
+        row("grok-q", "xai", pattern=r"(?i)^(xai\/)?grok-q(-\d{4})?$"),
+        rows[1],
+        row("claude-k-5", "anthropic", input_=2e-6, output=1e-5, pattern=own),
+    ]
+    code, posted, report = run(rows, litellm, md_catalog(), *TRACK, heads={1: pr_rows})
+
+    host = (
+        "us-gov.anthropic.claude-k-5 priced at claude-k-5's rates, but the host lists "
+        "input 2.40 (ours 2.00) and output 12.00 (ours 10.00)"
+    )
+    dash = "grok-q-20 no longer priced (was grok-q)"
+    assert code == 0
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == (
+        ["us-gov.anthropic.claude-k-5 not priced by its row"],
+        [host, dash],
+    )
+    progress = next(b for b in posted[0]["blocks"] if b.get("block_id") == "progress")
+    assert f"• :warning: #1 would add: `{host}`, `{dash}`" in _block_text(progress)
+
+
 def test_a_rate_limit_partway_through_the_prs_marks_no_finding_as_in_a_pr(run):
     # Findings are marked only once every PR is checked, so none is hidden from the
     # message while the footer says open PRs were not checked.
@@ -1493,6 +1528,73 @@ def test_a_host_id_newly_priced_below_the_hosts_rates_is_added():
     ]
 
 
+def test_fixing_a_rate_adds_nothing_for_a_host_id_its_row_already_priced():
+    # The row already prices its GovCloud ID below the host's rates. Fixing the row's
+    # output rate changes ours for that ID too, but the edit does not price it anew.
+    litellm = {
+        "claude-k-5": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "us-gov.anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    }
+    pattern = r"(?i)^(us-gov\.anthropic\.)?claude-k-5$"
+    before = [row("claude-k-5", "anthropic", input_=2e-6, output=2e-5, pattern=pattern)]
+    after = [row("claude-k-5", "anthropic", input_=2e-6, output=1e-5, pattern=pattern)]
+
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": ["claude-k-5 output rate (ours 20.00)"],
+        "adds": [],
+    }
+
+
+def test_a_new_row_that_prices_host_ids_below_the_hosts_rates_is_added():
+    # A row for a model no row priced, whose pattern also takes Bedrock's regional and
+    # GovCloud profiles, prices them at the model's own rates.
+    litellm = {
+        "claude-a": ll_entry("anthropic"),
+        "claude-k-6": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "us.anthropic.claude-k-6": ll_entry("bedrock_converse", input_=2.2e-6, output=1.1e-5),
+        "us-gov.anthropic.claude-k-6": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    }
+    before = [row("claude-a", "anthropic")]
+    pattern = r"(?i)^(((us|us-gov)\.)?anthropic\.)?claude-k-6$"
+    after = [*before, row("claude-k-6", "anthropic", input_=2e-6, output=1e-5, pattern=pattern)]
+
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": ["claude-k-6 not priced"],
+        "adds": [
+            "us-gov.anthropic.claude-k-6 priced at claude-k-6's rates, but the host lists "
+            "input 2.40 (ours 2.00) and output 12.00 (ours 10.00)",
+            "us.anthropic.claude-k-6 priced at claude-k-6's rates, but the host lists "
+            "input 2.20 (ours 2.00) and output 11.00 (ours 10.00)",
+        ],
+    }
+
+
+def test_an_id_moved_off_a_wrong_row_to_its_own_below_the_hosts_rates_is_added():
+    litellm = {
+        "claude-k-5": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "claude-j": ll_entry("anthropic", input_=9e-6),
+        "us-gov.anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    }
+    wrong = r"(?i)^(claude-j|us-gov\.anthropic\.claude-k-5)$"
+    before = [
+        row("claude-k-5", "anthropic", input_=2e-6, output=1e-5),
+        row("claude-j", "anthropic", input_=9e-6, pattern=wrong),
+    ]
+    own = r"(?i)^(us-gov\.anthropic\.)?claude-k-5$"
+    after = [
+        row("claude-k-5", "anthropic", input_=2e-6, output=1e-5, pattern=own),
+        row("claude-j", "anthropic", input_=9e-6),
+    ]
+
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": ["us-gov.anthropic.claude-k-5 priced as claude-j"],
+        "adds": [
+            "us-gov.anthropic.claude-k-5 priced at claude-k-5's rates, but the host lists "
+            "input 2.40 (ours 2.00) and output 12.00 (ours 10.00)"
+        ],
+    }
+
+
 def test_a_dash_spelling_that_loses_its_price_is_added():
     # Gateways send grok-q-20 for grok-q.20. The grok-q row's loose suffix prices it at
     # the right rate, and grok-q-6 at the wrong one. Narrowing grok-q leaves both unpriced
@@ -1550,9 +1652,10 @@ def test_baseline_exit_codes(run, tmp_path):
     assert "the baseline report is not from a completed run" in posted[-1]["text"]
 
 
-@pytest.mark.parametrize("key", ["dash_spellings", "date"])
+@pytest.mark.parametrize("key", ["dash_spellings", "host_rates", "date"])
 def test_a_baseline_from_another_version_fails_the_run(run, tmp_path, key):
-    # Without its dash spellings, an edit that stops pricing one would pass unseen.
+    # Without its dash spellings or host rates, an edit that stops pricing a dash
+    # spelling, or prices a host ID at the wrong rate, would pass unseen.
     litellm = {"gpt-a": ll_entry("openai")}
     rows = [row("gpt-a", "openai")]
     saved = report_for(rows, litellm, md_catalog())

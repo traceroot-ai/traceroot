@@ -55,10 +55,11 @@ says so and the run still succeeds.
 report with --json before the edit, edit the file, then run again with --baseline
 pointing at that report: the output lists the findings the edit fixes and any it adds.
 A flagged rate the edit changes to another value the catalogs disagree with is an add,
-not a fix. A Bedrock or OpenRouter ID the edit newly prices is an add when every catalog
-that lists that exact ID charges other rates, as Bedrock does for GovCloud and regional
-profiles. So is a dotted version's dash spelling that a row priced before the edit and
-none prices after it, such as grok-4-20 once a narrowed grok-4 row stops matching it.
+not a fix. A Bedrock, Vertex AI or OpenRouter ID that a row newly prices is an add when
+every catalog that lists that exact ID charges other input or output rates, as Bedrock
+does for GovCloud and regional profiles. So is a dotted version's dash spelling that a
+row priced before the edit and none prices after it, such as grok-4-20 once a narrowed
+grok-4 row stops matching it. --track lists the same adds for each open PR.
 Pass the same saved --litellm and --modelsdev files to both runs, so only the price
 file differs between them. For the same reason, the second run judges which models are
 retired as of the baseline report's date, and reports that date.
@@ -577,8 +578,8 @@ def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) 
 
 def priced_dash_spellings(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> dict:
     """The row that prices each dotted model's dash spelling, such as grok-4-20 for
-    grok-4.20. No finding lists a dash spelling that no row prices, so --baseline compares
-    these to catch an edit that stops pricing one."""
+    grok-4.20. No finding lists a dash spelling that no row prices, so --baseline and
+    --track compare these to catch an edit that stops pricing one."""
     priced = {}
     for _, model in _live_text_models(catalogs, today):
         if "." not in model or MINOR_MODELS.search(model):
@@ -609,6 +610,18 @@ def _family(model_id: str) -> str:
     return model_id.lower().replace(".", "-")
 
 
+def _live_hosted(hosted: dict[str, dict], today: datetime) -> list[tuple[str, dict]]:
+    """The host IDs of live text models, sorted, leaving out the kinds of model the
+    missing-models list leaves out."""
+    return [
+        (model_id, entry)
+        for model_id, entry in sorted(hosted.items())
+        if (entry["retired_from"] is None or entry["retired_from"] > today)
+        and entry["text"]
+        and not IGNORED_MODELS.search(model_id)
+    ]
+
+
 def _variant_ids(
     rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
 ) -> list[tuple[str, str, dict]]:
@@ -617,10 +630,7 @@ def _variant_ids(
     catalog gives it a context window of 1M tokens or more."""
     by_family = {_family(row["modelName"]): row for row in rows}
     variants = []
-    for model_id, entry in sorted(hosted.items()):
-        retired = entry["retired_from"] is not None and entry["retired_from"] <= today
-        if retired or not entry["text"] or IGNORED_MODELS.search(model_id):
-            continue
+    for model_id, entry in _live_hosted(hosted, today):
         base = HOST_SUFFIX.sub("", HOST_PREFIX.sub("", model_id.rsplit("/", 1)[-1]))
         row = by_family.get(_family(base))
         if row is not None and model_id != row["modelName"]:
@@ -654,6 +664,28 @@ def find_unpriced_ids(
                     "priced_as": priced_by and priced_by["modelName"],
                 }
             )
+    return found
+
+
+def mispriced_host_ids(rows: list[dict], hosted: dict[str, dict], today: datetime) -> dict:
+    """Each live host ID a row prices at an input or output rate that every catalog
+    listing that exact ID disagrees with, as a row at the model's own rates does for
+    Bedrock's GovCloud and regional profiles: the row, and each such rate. No finding
+    lists these, so --baseline and --track compare them to catch an edit that newly
+    prices such an ID. A row's own modelName is compared with its provider instead."""
+    found = {}
+    for model_id, entry in _live_hosted(hosted, today):
+        row = lookup(rows, model_id)
+        if row is None or row["modelName"] == model_id:
+            continue
+        flags = _flag_rates(row, row["provider"], model_id, entry["rates"], priced_as=None)
+        rates = [
+            {key: flag[key] for key in ("field", "ours", "litellm", "modelsdev")}
+            for flag in flags
+            if flag["field"] in ("input", "output")
+        ]
+        if rates:
+            found[model_id] = {"row": row["modelName"], "rates": rates}
     return found
 
 
@@ -771,6 +803,7 @@ def build_report(
         "missing": find_missing(rows, catalogs, today),
         "long_context": find_long_context(rows, catalogs),
         "dash_spellings": priced_dash_spellings(rows, catalogs, today),
+        "host_rates": mispriced_host_ids(rows, hosted, today),
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
     }
@@ -868,7 +901,9 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     wrong one, or an ID moved from no row to the wrong row, is an add and not a fix. A
     finding found through a row is not cleared when the after report stops comparing
     that row with any catalog, as when its provider changes to one no catalog covers:
-    that can hide the finding, so the row is an add instead."""
+    that can hide the finding, so the row is an add instead. Two changes no finding
+    shows are adds too: a host ID priced at rates its host disagrees with by a row that
+    did not price it so before, and a dash spelling a row priced before and none after."""
     before, after_keys = finding_keys(report), finding_keys(after)
     stopped = set(after["no_match"]) - set(report["no_match"])
     rows = {key: _found_through(key, item) for key, item in before.items()}
@@ -878,6 +913,18 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     adds = describe_all([key for key in after_keys if key not in before])
     for row in dict.fromkeys(rows[key] for key in hidden):
         adds.append(f"{row} no longer compared with the catalogs")
+    for model_id, found in after["host_rates"].items():
+        if report["host_rates"].get(model_id, {}).get("row") != found["row"]:
+            listed = [
+                f"{FIELD_LABELS[r['field']]} {_catalog_amount(r)} (ours {_amount(r['ours'])})"
+                for r in found["rates"]
+            ]
+            adds.append(
+                f"{model_id} priced at {found['row']}'s rates, but the host lists {_join(listed)}"
+            )
+    for dashed, was in report["dash_spellings"].items():
+        if dashed not in after["dash_spellings"]:
+            adds.append(f"{dashed} no longer priced (was {was})")
     return fixes, adds
 
 
@@ -892,47 +939,20 @@ def load_baseline(path: Path) -> dict:
     try:
         finding_keys(baseline)
         datetime.fromisoformat(baseline["date"])
-        # Without its dash spellings, an edit that stops pricing one would pass unseen.
-        if not isinstance(baseline["dash_spellings"], dict):
-            raise TypeError("dash_spellings is not an object")
+        # Without these, an edit that stops pricing a dash spelling, or prices a host
+        # ID at the wrong rate, would pass unseen.
+        for key in ("dash_spellings", "host_rates"):
+            if not isinstance(baseline[key], dict):
+                raise TypeError(f"{key} is not an object")
     except (KeyError, TypeError, ValueError) as exc:
         raise CheckError("the baseline report was written by a different version") from exc
     return baseline
 
 
-def compare_reports(
-    baseline: dict, report: dict, rows: list[dict], hosted: dict[str, dict]
-) -> dict:
+def compare_reports(baseline: dict, report: dict) -> dict:
     """The findings this run fixes and adds compared with a baseline report, such as one
-    saved before an edit to the price file. A host ID the baseline had no price for is
-    also an add when rows now price it but every catalog that lists that exact ID gives
-    other input or output rates, as Bedrock does for GovCloud and regional profiles. No
-    catalog lists a [1m] ID, so those are not checked here. A dash spelling the baseline
-    priced is an add when no row prices it now, as is a flagged row no catalog compares
-    now."""
+    saved before an edit to the price file."""
     fixes, adds = changes(baseline, report)
-    unpriced = {item["model"] for item in report["unpriced_ids"]}
-    for item in baseline["unpriced_ids"]:
-        model_id = item["model"]
-        row = lookup(rows, model_id)
-        if item["priced_as"] or model_id in unpriced or row is None or model_id not in hosted:
-            continue
-        flags = _flag_rates(
-            row, item["provider"], model_id, hosted[model_id]["rates"], priced_as=None
-        )
-        listed = [
-            f"{FIELD_LABELS[flag['field']]} {_catalog_amount(flag)} (ours {_amount(flag['ours'])})"
-            for flag in flags
-            if flag["field"] in ("input", "output")
-        ]
-        if listed:
-            adds.append(
-                f"{model_id} priced at {row['modelName']}'s rates, but the host lists "
-                + _join(listed)
-            )
-    for dashed, was in baseline["dash_spellings"].items():
-        if lookup(rows, dashed) is None:
-            adds.append(f"{dashed} no longer priced (was {was})")
     return {"fixes": describe_all(fixes), "adds": adds}
 
 
@@ -1956,7 +1976,7 @@ def main(argv: list[str]) -> int:
             rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
         )
         if baseline is not None:
-            report["baseline"] = compare_reports(baseline, report, rows, hosted)
+            report["baseline"] = compare_reports(baseline, report)
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:
