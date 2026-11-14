@@ -7,6 +7,8 @@ Covers ``GET /traces/filter-fields`` (registry serialization),
 dependencies — no ClickHouse needed.
 """
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -350,6 +352,60 @@ class TestGetDistinctSpanValues:
         for i in range(DISCOVERY_CACHE_MAX + 50):
             svc.get_distinct_span_values(project_id=f"p{i}", column="model_name")
         assert len(svc._discovery_cache) <= DISCOVERY_CACHE_MAX
+
+    def test_two_writes_at_once_both_remain(self, monkeypatch):
+        # Each write rebuilds the dict from the snapshot it takes under the lock.
+        # Waiting for the other writer to finish before that snapshot is a timing
+        # guess: a slow writer lands after the first assignment and both keys
+        # survive even with the lock removed. This waits until the second writer
+        # is blocked on the lock, then snapshots.
+        mock_client = MagicMock()
+        svc = self._service(monkeypatch, mock_client)
+        stored: dict[str, object] = {}
+
+        class ContendedLock:
+            def __init__(self) -> None:
+                self._lock = threading.Lock()
+                self.waiter = threading.Event()
+
+            def __enter__(self):
+                if not self._lock.acquire(blocking=False):
+                    self.waiter.set()
+                    self._lock.acquire()
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self._lock.release()
+                return False
+
+        lock = ContendedLock()
+        svc._discovery_lock = lock
+
+        def write_b() -> None:
+            try:
+                svc._cache_put(("b",), [{"value": "b", "count": 1}])
+                stored["b"] = "ok"
+            except Exception as error:
+                stored["b"] = error
+
+        other = threading.Thread(target=write_b)
+
+        class SnapshotOnce(dict):
+            def items(self):
+                if not other.is_alive():
+                    other.start()
+                    waited = lock.waiter.wait(timeout=2)
+                    assert waited, "second writer never blocked on the cache lock"
+                return super().items()
+
+        svc._discovery_cache = SnapshotOnce({("seed",): (time.monotonic() + 30, [])})
+        svc._cache_put(("a",), [{"value": "a", "count": 1}])
+        other.join(timeout=2)
+
+        assert not other.is_alive()
+        assert stored.get("b") == "ok"
+        assert ("a",) in svc._discovery_cache
+        assert ("b",) in svc._discovery_cache
 
 
 class TestGetDistinctTraceValues:
