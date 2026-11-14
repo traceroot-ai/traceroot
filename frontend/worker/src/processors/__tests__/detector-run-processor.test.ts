@@ -282,7 +282,9 @@ describe("processTrace — finding + RCA", () => {
 
     await processTrace("t1", "p1", ["d1"]);
 
-    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500, 0, 0, 0);
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500, 0, 0, 0, {
+      longContext: false,
+    });
     expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
@@ -295,6 +297,39 @@ describe("processTrace — finding + RCA", () => {
         }),
       ],
     });
+  });
+
+  it("uses the long card when the eval says the counts are one call", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: "glm-5.2",
+        detectionProvider: "zai",
+        detectionSource: "byok",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceSingleCall: true,
+      inferenceInputTokens: 150_000,
+      inferenceOutputTokens: 10,
+      inferenceSource: "byok",
+      inferenceModel: "glm-5.2",
+      inferenceProvider: "zai",
+    });
+    mockCalculateCost.mockResolvedValue(0.02);
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 150_000, 10, 0, 0, 0);
   });
 
   it("does not price a sum the eval already priced per attempt", async () => {

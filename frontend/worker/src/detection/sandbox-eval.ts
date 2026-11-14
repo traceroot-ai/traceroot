@@ -42,6 +42,8 @@ export interface EvalResult {
   inferenceCost: number;
   /** True once a zero provider cost was priced per attempt, so a later fallback must not price the sum. */
   inferenceCatalogPriced?: boolean;
+  /** The token counts are one call, so the fallback may use the long card. */
+  inferenceSingleCall?: boolean;
   inferenceCacheReadTokens?: number;
   inferenceCacheWriteTokens?: number;
   /** 1-hour cache writes, a subset of inferenceCacheWriteTokens. */

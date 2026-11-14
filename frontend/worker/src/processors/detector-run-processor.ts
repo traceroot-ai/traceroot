@@ -109,6 +109,8 @@ export interface ScanUsage {
   inferenceProvider: string | null;
   /** The eval already priced each attempt. Do not price the summed counts. */
   inferenceCatalogPriced?: boolean;
+  /** These counts are one call. A sum must stay on the short card. */
+  inferenceSingleCall?: boolean;
   inferenceCacheReadTokens?: number;
   inferenceCacheWriteTokens?: number;
   inferenceCacheWrite1hTokens?: number;
@@ -128,17 +130,27 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   }
 
   try {
-    // Jev reports one call and leaves the cost at 0. Those counts are that call,
-    // so the long card applies. A sandbox sum is priced per attempt before it
-    // gets here and sets inferenceCatalogPriced.
-    const fallback = await calculateCost(
-      usage.inferenceModel,
-      usage.inferenceInputTokens,
-      usage.inferenceOutputTokens,
-      cacheRead,
-      cacheWrite,
-      cacheWrite1h,
-    );
+    // Anything still unpriced here is a sum, unless the eval said it was one call.
+    // Two short attempts must not become one long prompt when the per-attempt
+    // lookup failed and this fallback is the retry.
+    const fallback = usage.inferenceSingleCall
+      ? await calculateCost(
+          usage.inferenceModel,
+          usage.inferenceInputTokens,
+          usage.inferenceOutputTokens,
+          cacheRead,
+          cacheWrite,
+          cacheWrite1h,
+        )
+      : await calculateCost(
+          usage.inferenceModel,
+          usage.inferenceInputTokens,
+          usage.inferenceOutputTokens,
+          cacheRead,
+          cacheWrite,
+          cacheWrite1h,
+          { longContext: false },
+        );
     return fallback > 0 ? fallback : usage.inferenceCost;
   } catch (err) {
     console.error(
@@ -297,6 +309,7 @@ async function runSingleDetector(params: {
     inferenceModel: result.inferenceModel,
     inferenceProvider: result.inferenceProvider,
     inferenceCatalogPriced: result.inferenceCatalogPriced,
+    inferenceSingleCall: result.inferenceSingleCall,
     inferenceCacheReadTokens: result.inferenceCacheReadTokens,
     inferenceCacheWriteTokens: result.inferenceCacheWriteTokens,
     inferenceCacheWrite1hTokens: result.inferenceCacheWrite1hTokens,
