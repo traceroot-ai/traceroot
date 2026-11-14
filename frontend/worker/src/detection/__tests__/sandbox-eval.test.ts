@@ -6,13 +6,17 @@ const {
   mockFetchProviderConfig,
   mockFindByokKey,
   mockIsSystemModelId,
+  mockCalculateCost,
 } = vi.hoisted(() => ({
   mockComplete: vi.fn(),
   mockResolvePiModel: vi.fn(),
   mockFetchProviderConfig: vi.fn(),
   mockFindByokKey: vi.fn().mockResolvedValue(null),
   mockIsSystemModelId: vi.fn(),
+  mockCalculateCost: vi.fn(async () => 0),
 }));
+
+vi.mock("@traceroot/core", () => ({ calculateCost: mockCalculateCost }));
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
@@ -758,6 +762,51 @@ describe("runDetectionForTrace", () => {
       expect(result.identified).toBe(true);
       expect(result.inferenceCost).toBeCloseTo(0.004, 6);
       expect(result.inferenceSource).toBe("system");
+    });
+
+    it("prices each zero-cost attempt on its own counts", async () => {
+      mockCalculateCost.mockResolvedValueOnce(0.01).mockResolvedValueOnce(0.02);
+      const tokens = (input: number, cacheRead = 0) => ({
+        input,
+        output: 10,
+        cacheRead,
+        cacheWrite: 0,
+        totalTokens: input + 10,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      });
+      mockComplete
+        .mockResolvedValueOnce({
+          content: [{ type: "text", text: "ignoring instructions" }],
+          usage: tokens(20_000, 5_000),
+          stopReason: "stop",
+          model: "claude-haiku-5-5",
+        })
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "toolCall",
+              name: "submit_result",
+              arguments: { identified: false, summary: "clean", data: {} },
+            },
+          ],
+          usage: tokens(30_000),
+          stopReason: "toolUse",
+          model: "claude-haiku-5-5",
+        });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockCalculateCost.mock.calls.map((call) => [call[1], call[3]])).toEqual([
+        [20_000, 5_000],
+        [30_000, 0],
+      ]);
+      expect(result.inferenceCost).toBeCloseTo(0.03, 6);
+      expect(result.inferenceCatalogPriced).toBe(true);
     });
 
     it("captures BYOK source attribution with positive cost", async () => {

@@ -140,6 +140,8 @@ export function createChatModels(apiKey: string, usage: ModelUsage[]): Assignmen
           isByok: false,
           inputTokens: response.usage?.input ?? 0,
           outputTokens: response.usage?.output ?? 0,
+          cacheReadTokens: response.usage?.cacheRead ?? 0,
+          cacheWriteTokens: response.usage?.cacheWrite ?? 0,
           cost: response.usage?.cost?.total ?? 0,
         });
         if (response.stopReason === "error") {

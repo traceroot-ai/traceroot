@@ -526,7 +526,13 @@ async function recordUsage(db: RoundDb, workspaceId: string, usage: ModelUsage[]
   const priced = await Promise.all(
     usage.map(async (u) => {
       if (u.cost > 0) return u;
-      const cost = await calculateCost(u.model, u.inputTokens, u.outputTokens).catch(() => 0);
+      const cost = await calculateCost(
+        u.model,
+        u.inputTokens,
+        u.outputTokens,
+        u.cacheReadTokens ?? 0,
+        u.cacheWriteTokens ?? 0,
+      ).catch(() => 0);
       return { ...u, cost };
     }),
   );

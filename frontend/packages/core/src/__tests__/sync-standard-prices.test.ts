@@ -4,7 +4,11 @@ const upsert = vi.hoisted(() =>
   vi.fn(async (args: { create: { id: string } }) => ({ id: args.create.id })),
 );
 const count = vi.hoisted(() => vi.fn(async () => 0));
-const createMany = vi.hoisted(() => vi.fn(async () => ({ count: 0 })));
+const createMany = vi.hoisted(() =>
+  vi.fn(async (_args: { data: { modelId: string; usageType: string; price: number }[] }) => ({
+    count: 0,
+  })),
+);
 
 vi.mock("../lib/prisma", () => ({
   prisma: {
@@ -58,9 +62,7 @@ describe("syncStandardPrices", () => {
 
     // The update path deletes the old rows and writes them back with createMany.
     // Checking only the nested create would miss a regression that dropped the long rows there.
-    const written = createMany.mock.calls.flatMap(
-      (call) => (call[0] as { data: { modelId: string; usageType: string }[] }).data,
-    );
+    const written = createMany.mock.calls.flatMap((call) => call[0].data);
     const haikuRows = written.filter((row) => row.modelId === "tr-claude-haiku-5-5");
     expect(haikuRows.map((row) => row.usageType)).toEqual(
       expect.arrayContaining(["input_long", "cacheWrite1h_long"]),

@@ -107,11 +107,14 @@ export interface ScanUsage {
   inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
+  /** The eval already priced each attempt. Do not price the summed counts. */
+  inferenceCatalogPriced?: boolean;
 }
 
 async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   if (
     usage.inferenceCost > 0 ||
+    usage.inferenceCatalogPriced ||
     !usage.inferenceModel ||
     usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
   ) {
@@ -119,16 +122,13 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   }
 
   try {
-    // The sandbox adds tokens across attempts and does not keep each call.
-    // Stay on the base card rather than treating that sum as one long prompt.
+    // Jev reports one call and leaves the cost at 0. Those counts are that call,
+    // so the long card applies. A sandbox sum is priced per attempt before it
+    // gets here and sets inferenceCatalogPriced.
     const fallback = await calculateCost(
       usage.inferenceModel,
       usage.inferenceInputTokens,
       usage.inferenceOutputTokens,
-      0,
-      0,
-      0,
-      { longContext: false },
     );
     return fallback > 0 ? fallback : usage.inferenceCost;
   } catch (err) {
@@ -281,6 +281,7 @@ async function runSingleDetector(params: {
     inferenceSource: result.inferenceSource,
     inferenceModel: result.inferenceModel,
     inferenceProvider: result.inferenceProvider,
+    inferenceCatalogPriced: result.inferenceCatalogPriced,
   };
 
   if (!result.identified) {

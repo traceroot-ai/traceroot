@@ -1410,6 +1410,65 @@ class TestLongContextTiers:
         assert at == pytest.approx(90_000 * 0.0000001 + 10_000 * 0.000000125)
         assert over == pytest.approx(90_000 * 0.0000005 + 10_001 * 0.000000625)
 
+    def test_load_cache_nests_long_rows_and_keeps_a_zero_rate(self, monkeypatch):
+        from decimal import Decimal
+
+        rows = [
+            (
+                "claude-haiku-5-5",
+                "(?i)^claude-haiku-5-5$",
+                Decimal("1.1"),
+                100_000,
+                "input",
+                Decimal("0.0000001"),
+            ),
+            (
+                "claude-haiku-5-5",
+                "(?i)^claude-haiku-5-5$",
+                Decimal("1.1"),
+                100_000,
+                "input_long",
+                Decimal("0"),
+            ),
+            ("claude-haiku-4-5", "(?i)^claude-haiku-4-5$", None, None, "output", 0.000005),
+        ]
+
+        class _Cursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchall(self):
+                return rows
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        class _Conn:
+            def cursor(self):
+                return _Cursor()
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("worker.tokens.pricing.psycopg2.connect", lambda _url: _Conn())
+        monkeypatch.setattr("worker.tokens.pricing._cache", None)
+        from worker.tokens import pricing
+
+        try:
+            loaded = pricing._load_cache()
+        finally:
+            pricing._cache = None
+        haiku = next(entry for entry in loaded if entry["model_name"] == "claude-haiku-5-5")
+        older = next(entry for entry in loaded if entry["model_name"] == "claude-haiku-4-5")
+        assert haiku["prices"]["input"] == pytest.approx(0.0000001)
+        assert haiku["long_context"] == {"threshold": 100_000, "prices": {"input": 0.0}}
+        assert "input_long" not in haiku["prices"]
+        assert "long_context" not in older
+        assert older["prices"]["output"] == pytest.approx(0.000005)
+
     def test_a_zero_long_rate_is_used_and_a_zero_threshold_is_real(self):
         from worker.tokens.buckets import TokenBuckets
         from worker.tokens.pricing import cost_from_buckets

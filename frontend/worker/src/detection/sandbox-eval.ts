@@ -1,3 +1,4 @@
+import { calculateCost } from "@traceroot/core";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 // complete() goes through the tracing wrapper: inside a detector self-trace
 // scope the call is recorded as a real LLM span; otherwise pure passthrough.
@@ -37,8 +38,10 @@ export interface EvalResult {
   summary: string;
   data: Record<string, unknown>;
   error?: string;
-  /** Sum of `response.usage.cost.total` (USD) across attempts; 0 on early-exit error paths. */
+  /** Sum of per-attempt costs (USD). A zero provider cost is priced on that attempt's own counts. */
   inferenceCost: number;
+  /** True once a zero provider cost was priced per attempt, so a later fallback must not price the sum. */
+  inferenceCatalogPriced?: boolean;
   /** Sum of `response.usage.input` tokens across attempts. */
   inferenceInputTokens: number;
   /** Sum of `response.usage.output` tokens across attempts. */
@@ -256,6 +259,7 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   let inferenceOutputTokens = 0;
   let inferenceModel: string | null = null;
   let inferenceProvider: string | null = null;
+  let inferenceCatalogPriced = false;
 
   // Per-attempt cap, read at call time so the deployed value is honored.
   const timeoutMs = parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS);
@@ -288,9 +292,27 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         break;
       }
 
-      inferenceCost += response.usage?.cost?.total ?? 0;
-      inferenceInputTokens += response.usage?.input ?? 0;
-      inferenceOutputTokens += response.usage?.output ?? 0;
+      const attemptUsage = response.usage;
+      const reported = attemptUsage?.cost?.total ?? 0;
+      const attemptInput = attemptUsage?.input ?? 0;
+      const attemptOutput = attemptUsage?.output ?? 0;
+      const attemptCacheRead = attemptUsage?.cacheRead ?? 0;
+      const attemptCacheWrite = attemptUsage?.cacheWrite ?? 0;
+      inferenceInputTokens += attemptInput;
+      inferenceOutputTokens += attemptOutput;
+      if (reported > 0) {
+        inferenceCost += reported;
+      } else if (attemptInput || attemptOutput || attemptCacheRead || attemptCacheWrite) {
+        // This attempt's own counts. The sum across attempts is not one long prompt.
+        inferenceCatalogPriced = true;
+        inferenceCost += await calculateCost(
+          response.model ?? model.id,
+          attemptInput,
+          attemptOutput,
+          attemptCacheRead,
+          attemptCacheWrite,
+        ).catch(() => 0);
+      }
       inferenceModel = response.model ?? inferenceModel;
       inferenceProvider = response.provider ?? inferenceProvider;
 
@@ -306,6 +328,7 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
           inferenceCost,
           inferenceInputTokens,
           inferenceOutputTokens,
+          inferenceCatalogPriced,
           inferenceSource: source,
           inferenceModel,
           inferenceProvider,
@@ -350,13 +373,16 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
     }
   }
 
-  return errorResult(
-    lastError ?? "LLM did not call submit_result after retry",
-    source,
-    inferenceCost,
-    inferenceInputTokens,
-    inferenceOutputTokens,
-    inferenceModel,
-    inferenceProvider,
-  );
+  return {
+    ...errorResult(
+      lastError ?? "LLM did not call submit_result after retry",
+      source,
+      inferenceCost,
+      inferenceInputTokens,
+      inferenceOutputTokens,
+      inferenceModel,
+      inferenceProvider,
+    ),
+    inferenceCatalogPriced,
+  };
 }

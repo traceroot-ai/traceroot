@@ -485,6 +485,8 @@ describe("runAssignmentRound", () => {
             isByok: false,
             inputTokens: 20_000,
             outputTokens: 0,
+            cacheReadTokens: 15_000,
+            cacheWriteTokens: 1_000,
             cost: 0,
           });
           return { title: "T", covers: "T", excludes: "" };
@@ -495,7 +497,10 @@ describe("runAssignmentRound", () => {
     });
     await runAssignmentRound(roundDeps, "p", "d");
     const luna = mockCalculateCost.mock.calls.filter((call) => call[0] === "gpt-5.6-luna");
-    expect(luna.map((call) => call[1])).toEqual([20_000, 20_000]);
+    expect(luna.map((call) => [call[1], call[3], call[4]])).toEqual([
+      [20_000, 0, 0],
+      [20_000, 15_000, 1_000],
+    ]);
     const chat = aiRows.find((row) => row.model === "gpt-5.6-luna")!;
     expect(chat.inputTokens).toBe(40_000);
     expect(chat.cost).toBeCloseTo(0.04);

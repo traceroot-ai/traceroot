@@ -282,9 +282,7 @@ describe("processTrace — finding + RCA", () => {
 
     await processTrace("t1", "p1", ["d1"]);
 
-    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500, 0, 0, 0, {
-      longContext: false,
-    });
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500);
     expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
@@ -294,6 +292,48 @@ describe("processTrace — finding + RCA", () => {
           inputTokens: 1000,
           outputTokens: 500,
           cost: 0.0015,
+        }),
+      ],
+    });
+  });
+
+  it("does not price a sum the eval already priced per attempt", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: "glm-5.2",
+        detectionProvider: "zai",
+        detectionSource: "byok",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 40_000,
+      inferenceOutputTokens: 20,
+      inferenceCatalogPriced: true,
+      inferenceSource: "byok",
+      inferenceModel: "glm-5.2",
+      inferenceProvider: "zai",
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockCalculateCost).not.toHaveBeenCalled();
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          model: "glm-5.2",
+          inputTokens: 40_000,
+          outputTokens: 20,
+          cost: 0,
         }),
       ],
     });
