@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from worker.tokens.pricing import calculate_cost, get_model_price
+from worker.tokens.pricing import (
+    _REGIONAL_PREFIXES,
+    _REGIONAL_PROFILE,
+    calculate_cost,
+    get_model_price,
+)
 
 MATCHED_MODEL_NAME = "__matched_model_name"
 
@@ -51,6 +56,7 @@ def real_cache() -> list[dict]:
         {
             "model_name": entry["modelName"],
             "match_pattern": entry["matchPattern"],
+            "regional_premium": entry.get("regionalPremium"),
             "prices": {
                 **entry["prices"],
                 MATCHED_MODEL_NAME: entry["modelName"],
@@ -737,6 +743,15 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("apac.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    # Japan, Australia, and India profiles. Same price row as us/eu/apac/global.
+    # Issue #2938; the India prefix was added on the issue after the report.
+    ("jp.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("au.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("in.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("jp.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("au.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("jp.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+    ("in.anthropic.claude-opus-5", "claude-opus-5"),
     # Bedrock — no CRIS prefix
     ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
@@ -785,7 +800,13 @@ class TestClaudeBedrockAndVertexIds:
         assert "input" in price and "output" in price
 
         expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
+        expected_input = expected["prices"]["input"]
+        # A regional profile of a 4.5+ card is 1.1x the catalogue rate. Comparing
+        # the raw card would call that a family miss.
+        premium = expected.get("regional_premium")
+        if premium and _REGIONAL_PROFILE.match(model_id):
+            expected_input *= premium
+        assert price["input"] == pytest.approx(expected_input), (
             f"{model_id} matched a different family than {expected_name}"
         )
 
@@ -833,6 +854,99 @@ class TestClaudeBedrockAndVertexIds:
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
+
+
+# Regional Bedrock profiles (us/eu/apac/jp/au/in) for Claude 4.5 and later are
+# billed at 1.1x the global endpoint. global. and a bare id stay on the card.
+# India is the same kind of profile as Japan and Australia.
+_RATE_KEYS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
+# Claude 4.5 and later. Opus 4.1 / Sonnet 4 and the fast cards stay at the base rate.
+_PREMIUM_MODELS = frozenset(
+    {
+        "claude-fable-5",
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-5",
+        "claude-sonnet-4-6",
+        "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-5-5",
+        "claude-haiku-4-5",
+    }
+)
+
+
+class TestBedrockRegionalPremium:
+    @pytest.mark.parametrize(
+        "model_id,expected_name",
+        [
+            ("us.anthropic.claude-sonnet-4-6", "claude-sonnet-4-6"),
+            ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+        ],
+    )
+    def test_later_sonnet_resolves_to_its_own_row_in_name_order(
+        self, real_cache, model_id, expected_name
+    ):
+        # The worker loads rows ORDER BY model_name. claude-sonnet-4 sorts before
+        # 4.5 and 4.6, so a pattern wide enough to match those ids would put
+        # the premium on the wrong card.
+        ordered = sorted(real_cache, key=lambda entry: entry["model_name"])
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            price = get_model_price(model_id)
+        assert price is not None
+        assert price[MATCHED_MODEL_NAME] == expected_name
+
+    @pytest.mark.parametrize("prefix", _REGIONAL_PREFIXES)
+    def test_regional_profile_is_ten_percent_over_global(self, real_cache, prefix):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            base = get_model_price("global.anthropic.claude-sonnet-4-6")
+            regional = get_model_price(f"{prefix}.anthropic.claude-sonnet-4-6")
+        assert base is not None and regional is not None
+        for key in _RATE_KEYS:
+            assert regional[key] == pytest.approx(base[key] * 1.1), key
+
+    def test_global_bare_and_sonnet_4_stay_on_the_card(self, real_cache):
+        sonnet46 = next(e for e in real_cache if e["model_name"] == "claude-sonnet-4-6")
+        sonnet4 = next(e for e in real_cache if e["model_name"] == "claude-sonnet-4")
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            global_price = get_model_price("global.anthropic.claude-sonnet-4-6")
+            bare = get_model_price("claude-sonnet-4-6")
+            old = get_model_price("us.anthropic.claude-sonnet-4-20250514-v1:0")
+        assert global_price["input"] == sonnet46["prices"]["input"]
+        assert bare["input"] == sonnet46["prices"]["input"]
+        assert old["input"] == sonnet4["prices"]["input"]
+
+    def test_us_sonnet_4_6_input_is_the_published_regional_rate(self, real_cache):
+        # $3/MTok global input, plus the 10% regional premium: $3.30/MTok.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price("us.anthropic.claude-sonnet-4-6")
+        assert price is not None
+        assert price["input"] == pytest.approx(3.3e-6)
+
+    def test_catalogue_region_prefixes_match_the_premium_constant(self):
+        # A prefix in a pattern that the constant does not list is billed at
+        # the global rate and nothing fails. global. is in the patterns and
+        # must stay off the premium.
+        allowed = set(_REGIONAL_PREFIXES) | {"global"}
+        seen = set()
+        group = re.compile(r"\(((?:[a-z]+\\\.\|)+[a-z]+\\\.)\)")
+        for entry in _standard_price_entries():
+            for match in group.finditer(entry["matchPattern"]):
+                for part in match.group(1).split("|"):
+                    prefix = part.replace("\\.", "")
+                    assert prefix in allowed, (entry["modelName"], prefix)
+                    if prefix != "global":
+                        seen.add(prefix)
+        assert seen == set(_REGIONAL_PREFIXES)
+
+    def test_premium_flag_is_only_on_claude_4_5_and_later(self):
+        for entry in _standard_price_entries():
+            if entry["modelName"] in _PREMIUM_MODELS:
+                assert entry.get("regionalPremium") == 1.1, entry["modelName"]
+            else:
+                assert "regionalPremium" not in entry, entry["modelName"]
 
 
 # ---------------------------------------------------------------------------

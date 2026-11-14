@@ -14,6 +14,8 @@ import {
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
+import { REGIONAL_PREFIXES } from "../model-pricing/lookup.ts";
+import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
 // cacheWrite1h = 2x input.
@@ -168,6 +170,54 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   it("still returns null for a model the pattern genuinely does not cover", async () => {
     const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
+  });
+});
+
+describe("getModelPricing — Bedrock regional premium", () => {
+  const row = {
+    modelName: "claude-sonnet-4-6",
+    matchPattern:
+      "(?i)^(claude-sonnet-4-6|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)anthropic\\.claude-sonnet-4-6)$",
+    regionalPremium: 1.1,
+    prices: [
+      { usageType: "input", price: 0.000003 },
+      { usageType: "output", price: 0.000015 },
+      { usageType: "cacheRead", price: 0.0000003 },
+      { usageType: "cacheWrite", price: 0.00000375 },
+      { usageType: "cacheWrite1h", price: 0.000006 },
+    ],
+  };
+
+  it("prices a regional profile at 1.1x and leaves global and the bare id on the card", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([row]);
+    const global = await lookup("global.anthropic.claude-sonnet-4-6");
+    const bare = await lookup("claude-sonnet-4-6");
+    const regional = await lookup("jp.anthropic.claude-sonnet-4-6");
+    expect(global?.input).toBeCloseTo(0.000003, 12);
+    expect(bare?.input).toBeCloseTo(0.000003, 12);
+    expect(regional?.input).toBeCloseTo(0.0000033, 12);
+    expect(regional?.output).toBeCloseTo(0.0000165, 12);
+    expect(regional?.cacheRead).toBeCloseTo(0.00000033, 12);
+    expect(regional?.cacheWrite).toBeCloseTo(0.000004125, 12);
+    expect(regional?.cacheWrite1h).toBeCloseTo(0.0000066, 12);
+  });
+});
+
+describe("regional prefix list", () => {
+  it("matches every region prefix in the catalogue and leaves global off the premium", () => {
+    const group = /\(((?:[a-z]+\\\.\|)+[a-z]+\\\.)\)/g;
+    const allowed = new Set<string>([...REGIONAL_PREFIXES, "global"]);
+    const seen = new Set<string>();
+    for (const entry of standardModels) {
+      for (const match of entry.matchPattern.matchAll(group)) {
+        for (const part of match[1].split("|")) {
+          const prefix = part.replace(/\\\./g, "");
+          expect(allowed.has(prefix)).toBe(true);
+          if (prefix !== "global") seen.add(prefix);
+        }
+      }
+    }
+    expect([...seen].sort()).toEqual([...REGIONAL_PREFIXES].sort());
   });
 });
 
