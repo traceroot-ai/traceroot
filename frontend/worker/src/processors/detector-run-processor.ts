@@ -109,14 +109,20 @@ export interface ScanUsage {
   inferenceProvider: string | null;
   /** The eval already priced each attempt. Do not price the summed counts. */
   inferenceCatalogPriced?: boolean;
+  inferenceCacheReadTokens?: number;
+  inferenceCacheWriteTokens?: number;
+  inferenceCacheWrite1hTokens?: number;
 }
 
 async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
+  const cacheRead = usage.inferenceCacheReadTokens ?? 0;
+  const cacheWrite = usage.inferenceCacheWriteTokens ?? 0;
+  const cacheWrite1h = usage.inferenceCacheWrite1hTokens ?? 0;
   if (
     usage.inferenceCost > 0 ||
     usage.inferenceCatalogPriced ||
     !usage.inferenceModel ||
-    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
+    usage.inferenceInputTokens + usage.inferenceOutputTokens + cacheRead + cacheWrite <= 0
   ) {
     return usage.inferenceCost;
   }
@@ -129,6 +135,9 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
       usage.inferenceModel,
       usage.inferenceInputTokens,
       usage.inferenceOutputTokens,
+      cacheRead,
+      cacheWrite,
+      cacheWrite1h,
     );
     return fallback > 0 ? fallback : usage.inferenceCost;
   } catch (err) {
@@ -156,7 +165,13 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
  * denominator) when its latest version completed OR used inference.
  */
 function recordedInferenceUsage(usage: ScanUsage): boolean {
-  return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
+  return (
+    usage.inferenceInputTokens +
+      usage.inferenceOutputTokens +
+      (usage.inferenceCacheReadTokens ?? 0) +
+      (usage.inferenceCacheWriteTokens ?? 0) >
+    0
+  );
 }
 
 interface SingleDetectorOutcome {
@@ -282,6 +297,9 @@ async function runSingleDetector(params: {
     inferenceModel: result.inferenceModel,
     inferenceProvider: result.inferenceProvider,
     inferenceCatalogPriced: result.inferenceCatalogPriced,
+    inferenceCacheReadTokens: result.inferenceCacheReadTokens,
+    inferenceCacheWriteTokens: result.inferenceCacheWriteTokens,
+    inferenceCacheWrite1hTokens: result.inferenceCacheWrite1hTokens,
   };
 
   if (!result.identified) {

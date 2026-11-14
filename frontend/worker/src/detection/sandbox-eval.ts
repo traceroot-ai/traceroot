@@ -42,6 +42,10 @@ export interface EvalResult {
   inferenceCost: number;
   /** True once a zero provider cost was priced per attempt, so a later fallback must not price the sum. */
   inferenceCatalogPriced?: boolean;
+  inferenceCacheReadTokens?: number;
+  inferenceCacheWriteTokens?: number;
+  /** 1-hour cache writes, a subset of inferenceCacheWriteTokens. */
+  inferenceCacheWrite1hTokens?: number;
   /** Sum of `response.usage.input` tokens across attempts. */
   inferenceInputTokens: number;
   /** Sum of `response.usage.output` tokens across attempts. */
@@ -260,6 +264,9 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   let inferenceModel: string | null = null;
   let inferenceProvider: string | null = null;
   let inferenceCatalogPriced = false;
+  let inferenceCacheReadTokens = 0;
+  let inferenceCacheWriteTokens = 0;
+  let inferenceCacheWrite1hTokens = 0;
 
   // Per-attempt cap, read at call time so the deployed value is honored.
   const timeoutMs = parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS);
@@ -298,20 +305,30 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
       const attemptOutput = attemptUsage?.output ?? 0;
       const attemptCacheRead = attemptUsage?.cacheRead ?? 0;
       const attemptCacheWrite = attemptUsage?.cacheWrite ?? 0;
+      const attemptCacheWrite1h = attemptUsage?.cacheWrite1h ?? 0;
       inferenceInputTokens += attemptInput;
       inferenceOutputTokens += attemptOutput;
+      inferenceCacheReadTokens += attemptCacheRead;
+      inferenceCacheWriteTokens += attemptCacheWrite;
+      inferenceCacheWrite1hTokens += attemptCacheWrite1h;
       if (reported > 0) {
         inferenceCost += reported;
       } else if (attemptInput || attemptOutput || attemptCacheRead || attemptCacheWrite) {
         // This attempt's own counts. The sum across attempts is not one long prompt.
-        inferenceCatalogPriced = true;
-        inferenceCost += await calculateCost(
-          response.model ?? model.id,
-          attemptInput,
-          attemptOutput,
-          attemptCacheRead,
-          attemptCacheWrite,
-        ).catch(() => 0);
+        // A failed lookup leaves the flag unset so the processor can price the call.
+        try {
+          inferenceCost += await calculateCost(
+            response.model ?? model.id,
+            attemptInput,
+            attemptOutput,
+            attemptCacheRead,
+            attemptCacheWrite,
+            attemptCacheWrite1h,
+          );
+          inferenceCatalogPriced = true;
+        } catch {
+          // Leave inferenceCatalogPriced as it was.
+        }
       }
       inferenceModel = response.model ?? inferenceModel;
       inferenceProvider = response.provider ?? inferenceProvider;
@@ -329,6 +346,9 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
           inferenceInputTokens,
           inferenceOutputTokens,
           inferenceCatalogPriced,
+          inferenceCacheReadTokens,
+          inferenceCacheWriteTokens,
+          inferenceCacheWrite1hTokens,
           inferenceSource: source,
           inferenceModel,
           inferenceProvider,
@@ -384,5 +404,8 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
       inferenceProvider,
     ),
     inferenceCatalogPriced,
+    inferenceCacheReadTokens,
+    inferenceCacheWriteTokens,
+    inferenceCacheWrite1hTokens,
   };
 }

@@ -282,7 +282,7 @@ describe("processTrace — finding + RCA", () => {
 
     await processTrace("t1", "p1", ["d1"]);
 
-    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500);
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500, 0, 0, 0);
     expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
@@ -530,6 +530,20 @@ describe("processTrace — usage-meter classification", () => {
 
     expect(mockWriteRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed", usedInference: true }),
+    );
+  });
+
+  it("marks a cache-only run as inference-using", async () => {
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      inferenceCacheReadTokens: 900,
+      inferenceCacheWriteTokens: 100,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed", usedInference: true }),
     );
   });
 
