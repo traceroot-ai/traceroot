@@ -341,7 +341,7 @@ def index_litellm(data: object) -> dict[tuple[str, str], dict]:
     for key, entry in data.items():
         if key == "sample_spec" or not isinstance(entry, dict):
             continue
-        litellm_provider = entry.get("litellm_provider")
+        litellm_provider = str(entry.get("litellm_provider"))
         provider = LITELLM_PROVIDERS.get(litellm_provider)
         if provider is None:
             continue
@@ -409,7 +409,11 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
     not IDs a span carries, so they are left out."""
     hosted: dict[str, dict] = {}
     for key, entry in litellm.items() if isinstance(litellm, dict) else ():
-        host = LITELLM_HOSTS.get(entry.get("litellm_provider")) if isinstance(entry, dict) else None
+        host = (
+            LITELLM_HOSTS.get(str(entry.get("litellm_provider")))
+            if isinstance(entry, dict)
+            else None
+        )
         if host is None:
             continue
         # Keys may carry routing segments, as in bedrock/us-gov-west-1/<model ID>.
@@ -647,7 +651,8 @@ def find_row_problems(rows: list[dict]) -> list[dict]:
         for field, rate in rates.items():
             if rate is not None and not 0 <= rate <= MAX_RATE:
                 found.append(f"{FIELD_LABELS[field]} rate is outside $0-$1,000 per 1M tokens")
-        if rates["cacheRead"] is not None and rates["cacheRead"] > rates["input"]:
+        cache_read, input_ = rates["cacheRead"], rates["input"]
+        if cache_read is not None and input_ is not None and cache_read > input_:
             found.append("cache read rate is above the input rate")
         problems += [{"row": name, "problem": problem} for problem in found]
     return problems
@@ -782,12 +787,14 @@ def _found_through(key: tuple, item: dict) -> str | None:
     rate is about, or the row an unpriced ID belongs to. None for the other findings."""
     match key[0]:
         case "rate":
-            return item["priced_as"] or item["model"]
+            name = item["priced_as"] or item["model"]
         case "long_context":
-            return item["model"]
+            name = item["model"]
         case "id":
-            return item["row"]
-    return None
+            name = item["row"]
+        case _:
+            return None
+    return str(name)
 
 
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
@@ -995,7 +1002,7 @@ def _priced_as(item: dict) -> str:
 
 
 def _pr_text(numbers: list[int]) -> str:
-    """Open PRs as plain text, e.g. "#2902, #2948"."""
+    """Open PRs as plain text, e.g. "#12, #34"."""
     return ", ".join(f"#{number}" for number in numbers)
 
 
@@ -1200,7 +1207,7 @@ def _count(by_provider: dict[str, list[dict]]) -> int:
 
 
 def _names(by_provider: dict[str, list[dict]]) -> str:
-    """Model names grouped by provider, e.g. "• *openai* (2): gpt-a, gpt-b (#2952)"."""
+    """Model names grouped by provider, e.g. "• *openai* (2): gpt-a, gpt-b (#12)"."""
 
     def name(item: dict) -> str:
         prs = item.get("tracked_by")
@@ -1263,7 +1270,9 @@ def _mrkdwn(text: str) -> dict:
 def _cell(text: str, *, url: str | None = None, bold: bool = False, note: str = "") -> dict:
     """A table cell: rich text, so it can be bold, a link or carry an italic note, with
     no mrkdwn parsing."""
-    element = {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
+    element: dict[str, Any] = (
+        {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
+    )
     if bold:
         element["style"] = {"bold": True}
     elements = [element]
@@ -1403,13 +1412,13 @@ def _progress_lines(report: dict) -> list[str]:
             lines.append(f"• {models} {_join(fields)}: {_pr_text(list(prs))}")
     ids = [item for item in report["unpriced_ids"] if item.get("tracked_by")]
     if ids:
-        prs = sorted({number for item in ids for number in item["tracked_by"]})
+        numbers = sorted({number for item in ids for number in item["tracked_by"]})
         rows = {item["row"] for item in ids}
-        lines.append(f"• {_sources(ids)} IDs of {_plural(len(rows), 'model')}: {_pr_text(prs)}")
+        lines.append(f"• {_sources(ids)} IDs of {_plural(len(rows), 'model')}: {_pr_text(numbers)}")
     problems = [i for i in report["row_problems"] + report["overlaps"] if i.get("tracked_by")]
     if problems:
-        prs = sorted({number for item in problems for number in item["tracked_by"]})
-        lines.append(f"• {_plural(len(problems), 'price file problem')}: {_pr_text(prs)}")
+        numbers = sorted({number for item in problems for number in item["tracked_by"]})
+        lines.append(f"• {_plural(len(problems), 'price file problem')}: {_pr_text(numbers)}")
     for item in report["missing"]:
         if item.get("tracked_by"):
             lines.append(f"• {_code(item['model'])} not priced: {_pr_text(item['tracked_by'])}")
