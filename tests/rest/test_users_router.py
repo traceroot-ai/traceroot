@@ -1,5 +1,6 @@
 """Unit tests for user query endpoints."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -92,6 +93,23 @@ class TestListUsers:
         assert data["data"][0]["total_input_tokens"] == 500
         assert data["data"][0]["total_output_tokens"] == 1000
         assert data["data"][0]["total_cost"] == 0.03
+
+    def test_list_reads_off_the_event_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                ran_on_loop.append(False)
+            else:
+                ran_on_loop.append(True)
+            return {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}}
+
+        mock_trace_reader.list_users.side_effect = read
+        response = client.get("/api/v1/projects/test-project/users")
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
 
     def test_input_output_tokens_and_cost_null(self, client, mock_trace_reader):
         mock_trace_reader.list_users.return_value = {

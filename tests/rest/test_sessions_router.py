@@ -1,5 +1,6 @@
 """Unit tests for session query endpoints."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -187,6 +188,23 @@ class TestListSessions:
         assert data[0]["session_id"] == "sess-a"
         assert data[1]["trace_count"] == 3
 
+    def test_list_reads_off_the_event_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                ran_on_loop.append(False)
+            else:
+                ran_on_loop.append(True)
+            return {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}}
+
+        mock_trace_reader.list_sessions.side_effect = read
+        response = client.get("/api/v1/projects/test-project/sessions")
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
 
 class TestGetSession:
     def test_200(self, client, mock_trace_reader):
@@ -242,6 +260,34 @@ class TestGetSession:
         mock_trace_reader.get_session.side_effect = Exception("ClickHouse down")
         response = client.get("/api/v1/projects/test-project/sessions/sess-1")
         assert response.status_code == 500
+
+    def test_get_reads_off_the_event_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+
+        def read(**_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                ran_on_loop.append(False)
+            else:
+                ran_on_loop.append(True)
+            return {
+                "session_id": "sess-1",
+                "traces": [],
+                "user_ids": [],
+                "trace_count": 0,
+                "first_trace_time": datetime(2024, 1, 15, 10, 0, 0),
+                "last_trace_time": datetime(2024, 1, 15, 10, 0, 0),
+                "duration_ms": 0.0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost": 0.0,
+            }
+
+        mock_trace_reader.get_session.side_effect = read
+        response = client.get("/api/v1/projects/test-project/sessions/sess-1")
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
 
     def test_traces_ordered_chronologically(self, client, mock_trace_reader):
         mock_trace_reader.get_session.return_value = {
