@@ -737,6 +737,15 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("apac.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    # Japan, Australia, and India profiles. Same price row as us/eu/apac/global.
+    # Issue #2938; the India prefix was added on the issue after the report.
+    ("jp.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("au.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("in.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("jp.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("au.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("jp.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+    ("in.anthropic.claude-opus-5", "claude-opus-5"),
     # Bedrock — no CRIS prefix
     ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
