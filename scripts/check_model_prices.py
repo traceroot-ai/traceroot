@@ -436,10 +436,12 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
         )
         if host is None:
             continue
-        # Keys may carry routing segments, as in bedrock/us-gov-west-1/<model ID>. That
-        # route prices the ID for one region, so a bare key for the same ID wins.
+        # Keys may carry a provider prefix and a route, as in bedrock/us-gov-west-1/<model
+        # ID>. A route prices the ID for one region or plan, so a key without one, such as
+        # <model ID> or bedrock/<model ID>, wins over it, wherever the catalog lists it.
         model_id = key.rsplit("/", 1)[-1]
-        if model_id.endswith("@default") or (model_id in hosted and key != model_id):
+        routed = key.count("/") > 1
+        if model_id.endswith("@default") or (model_id in hosted and routed):
             continue
         hosted[model_id] = {
             "host": host,

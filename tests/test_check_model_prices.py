@@ -150,6 +150,31 @@ def test_a_bare_litellm_key_wins_over_a_provider_prefixed_one():
         assert index[("deepseek", "deepseek-d")]["rates"]["input"] == 1e-6
 
 
+def test_a_host_ids_key_without_a_region_wins_over_its_region_routes():
+    # LiteLLM lists an ID's region routes before its key with no region, which is bare
+    # or carries only the provider prefix.
+    litellm = {
+        "bedrock/ap-northeast-1/moonshotai.kimi-k2-thinking": ll_entry(
+            "bedrock", input_=7.3e-7, output=3.03e-6
+        ),
+        "bedrock/moonshotai.kimi-k2-thinking": ll_entry("bedrock", input_=6e-7, output=2.5e-6),
+        "bedrock/ap-south-1/moonshotai.kimi-k2-thinking": ll_entry(
+            "bedrock", input_=7.1e-7, output=2.94e-6
+        ),
+        "bedrock/us-gov-west-1/anthropic.claude-k-5": ll_entry(
+            "bedrock", input_=2.4e-6, output=1.2e-5
+        ),
+        "anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2e-6, output=1e-5),
+        "bedrock/eu-west-3/anthropic.claude-k-5": ll_entry("bedrock", input_=2.6e-6, output=1.3e-5),
+    }
+    hosted = index_hosted(litellm, md_catalog())
+
+    assert {
+        model_id: (entry["rates"]["litellm"]["input"], entry["rates"]["litellm"]["output"])
+        for model_id, entry in hosted.items()
+    } == {"moonshotai.kimi-k2-thinking": (6e-7, 2.5e-6), "anthropic.claude-k-5": (2e-6, 1e-5)}
+
+
 def test_null_and_missing_rates_are_skipped():
     rows = [row("claude-b", "anthropic", cache_read=1e-7)]
     litellm = {"claude-b": ll_entry("anthropic", cache_read=None)}
@@ -1592,6 +1617,28 @@ def test_an_id_moved_off_a_wrong_row_to_its_own_below_the_hosts_rates_is_added()
             "us-gov.anthropic.claude-k-5 priced at claude-k-5's rates, but the host lists "
             "input 2.40 (ours 2.00) and output 12.00 (ours 10.00)"
         ],
+    }
+
+
+def test_a_host_id_newly_priced_at_its_hosts_input_and_output_rates_is_not_added():
+    # Only a host's input and output rates are compared with the row that prices its ID.
+    litellm = {
+        "claude-k-5": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "us.anthropic.claude-k-5": ll_entry(
+            "bedrock_converse",
+            input_=2e-6,
+            output=1e-5,
+            cache_read=2e-7,
+            cache_creation_input_token_cost=2.5e-6,
+        ),
+    }
+    before = [row("claude-k-5", "anthropic", input_=2e-6, output=1e-5)]
+    pattern = r"(?i)^(us\.anthropic\.)?claude-k-5$"
+    after = [row("claude-k-5", "anthropic", input_=2e-6, output=1e-5, pattern=pattern)]
+
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": ["us.anthropic.claude-k-5 not priced by its row"],
+        "adds": [],
     }
 
 
