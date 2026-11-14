@@ -777,6 +777,26 @@ def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
     assert report["pull_requests"][0]["closes"] == [10]
 
 
+def test_a_pr_that_stops_comparing_a_flagged_row_does_not_fix_it():
+    # A provider no catalog covers hides the row's flags rather than fixing them.
+    rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6)]
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6, output=2e-6)}
+    catalogs = (index_litellm({**LITELLM_FILLER, **litellm}), index_modelsdev(md_catalog()))
+
+    def evaluate(pr_rows):
+        return build_report(pr_rows, *catalogs, date=DATE, min_compared=0)
+
+    report = evaluate(rows)
+    track(report, [{"number": 7, "rows": [{**rows[0], "provider": "typesafe"}]}], evaluate)
+
+    assert [(f["field"], f["tracked_by"]) for f in report["flagged"]] == [
+        ("input", []),
+        ("output", []),
+    ]
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["deepseek-d no longer compared with the catalogs"])
+
+
 def test_tracked_prs_show_in_the_report_and_the_slack_table():
     report = _tracked_report()
     text = format_report(report)

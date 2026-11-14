@@ -804,6 +804,21 @@ def describe_all(keys: list[tuple]) -> list[str]:
     return merged + others
 
 
+def changes(before: dict[tuple, dict], after: dict) -> tuple[list[tuple], list[str]]:
+    """The findings in before (from finding_keys) that the after report clears, and what
+    it adds, in a few words each. A rate or long-context finding is not cleared when its
+    row is no longer compared with any catalog, as when its provider changes to one no
+    catalog covers: that hides the finding, so the row is an add instead."""
+    after_keys = finding_keys(after)
+    uncompared = set(after["no_match"])
+    hidden = [key for key in before if key[0] in ("rate", "long_context") and key[1] in uncompared]
+    fixes = [key for key in before if key not in after_keys and key not in hidden]
+    adds = describe_all([key for key in after_keys if key not in before])
+    for model in dict.fromkeys(key[1] for key in hidden):
+        adds.append(f"{model} no longer compared with the catalogs")
+    return fixes, adds
+
+
 def load_baseline(path: Path) -> dict:
     """A report saved by --json from a completed run. Anything else fails the run."""
     try:
@@ -885,14 +900,12 @@ def track(report: dict, prs: list[dict], evaluate) -> None:
             checked.append({**summary, "fixes": [], "adds": [], "error": pr["error"]})
             continue
         try:
-            after = finding_keys(evaluate(validate_rows(pr["rows"])))
+            fixes, adds = changes(before, evaluate(validate_rows(pr["rows"])))
         except CheckError as exc:
             checked.append({**summary, "fixes": [], "adds": [], "error": str(exc)})
             continue
-        fixes = [key for key in before if key not in after]
         for key in fixes:
             before[key]["tracked_by"].append(pr["number"])
-        adds = describe_all([key for key in after if key not in before])
         checked.append({**summary, "fixes": describe_all(fixes), "adds": adds})
     report["pull_requests"] = checked
     report["tracking"] = "ok"
