@@ -181,7 +181,7 @@ def index_litellm(data: object) -> dict[tuple[str, str], dict]:
             continue
         tiers = [int(m[1]) * 1000 for m in map(LITELLM_LONG_CONTEXT.match, entry) if m]
         index[(provider, model_id)] = {
-            "rates": {field: _number(entry.get(src)) for field, src in LITELLM_FIELDS.items()},
+            "rates": _litellm_rates(entry),
             "text": entry.get("mode") in TEXT_MODES,
             "retired_from": _day(entry.get("deprecation_date")),
             "context": _number(entry.get("max_input_tokens")),
@@ -189,6 +189,11 @@ def index_litellm(data: object) -> dict[tuple[str, str], dict]:
         }
     _require_fields("LiteLLM", index, LITELLM_FIELDS)
     return index
+
+
+def _litellm_rates(entry: dict) -> dict[str, float | None]:
+    """A LiteLLM entry's rates per token."""
+    return {field: _number(entry.get(src)) for field, src in LITELLM_FIELDS.items()}
 
 
 def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
@@ -262,9 +267,7 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
             "host": host,
             "text": entry.get("mode") in TEXT_MODES,
             "retired_from": _day(entry.get("deprecation_date")),
-            "rates": {
-                "litellm": {field: _number(entry.get(src)) for field, src in LITELLM_FIELDS.items()}
-            },
+            "rates": {"litellm": _litellm_rates(entry)},
         }
     for key, host in MODELSDEV_HOSTS.items():
         listing = modelsdev.get(key) if isinstance(modelsdev, dict) else None

@@ -145,6 +145,19 @@ def _live_text_models(
     return {key: rates for key, rates in sorted(found.items()) if key not in retired}
 
 
+def _dotted_models(
+    catalogs: dict[str, dict], today: datetime
+) -> dict[tuple[str, str], dict[str, dict]]:
+    """The live text models with a dotted version, such as gpt-5.5, whose dash spelling
+    gateways send, with their rates by catalog. Dated snapshots and aliases are left
+    out: they would only repeat what the base model's spelling shows."""
+    return {
+        (provider, model): found
+        for (provider, model), found in _live_text_models(catalogs, today).items()
+        if "." in model and not MINOR_MODELS.search(model)
+    }
+
+
 def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
     """Flags for catalog models that production prices through another row's
     matchPattern, compared with that row's rates. An older row's pattern can also match
@@ -152,12 +165,12 @@ def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) 
     the dash spelling of a dotted version, such as gpt-5-5 for gpt-5.5, which gateways
     send: a date group on the gpt-5 row's pattern also matches it."""
     flags = []
+    dotted = _dotted_models(catalogs, today)
     for (provider, model), found in _live_text_models(catalogs, today).items():
         row = lookup(rows, model)
         if row is not None and row["modelName"] != model:
             flags += _flag_rates(row, provider, model, found, priced_as=row["modelName"])
-        # Dated snapshots and aliases would only repeat what the base model's spelling shows.
-        if "." not in model or MINOR_MODELS.search(model):
+        if (provider, model) not in dotted:
             continue
         # The provider-prefixed spelling is tried only when the bare one finds no other
         # row, so each model is reported once.
@@ -174,9 +187,7 @@ def priced_dash_spellings(rows: list[dict], catalogs: dict[str, dict], today: da
     grok-4.20. No finding lists a dash spelling that no row prices, so --baseline and
     --track compare these to catch an edit that stops pricing one."""
     priced = {}
-    for _, model in _live_text_models(catalogs, today):
-        if "." not in model or MINOR_MODELS.search(model):
-            continue
+    for _, model in _dotted_models(catalogs, today):
         row = lookup(rows, _family(model))
         if row is not None:
             priced[_family(model)] = row["modelName"]
