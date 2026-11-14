@@ -818,11 +818,10 @@ def _tracked_report():
     fix_input = [row("deepseek-d", "deepseek", input_=1e-6, output=1e-6), rows[1]]
     adds_new = [*fix_input, row("gpt-new", "openai", input_=9e-6)]
     prs = [
-        {"number": 11, "url": "https://github.test/pull/11", "closes": [10]},
-        {"number": 12, "url": "https://github.test/pull/12", "draft": True},
+        {"number": 11, "url": "https://github.test/pull/11", "report": evaluate(fix_input)},
+        {"number": 12, "url": "https://github.test/pull/12", "report": evaluate(adds_new)},
         {"number": 13, "url": "https://github.test/pull/13", "error": "could not read it"},
     ]
-    prs[0]["report"], prs[1]["report"] = evaluate(fix_input), evaluate(adds_new)
     report = evaluate(rows)
     track(report, prs)
     return report
@@ -843,7 +842,6 @@ def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
         (12, ["deepseek-d input rate", "gpt-new not priced"], ["gpt-new input rate"], None),
         (13, [], [], "could not read it"),
     ]
-    assert report["pull_requests"][0]["closes"] == [10]
 
 
 def test_a_pr_that_stops_comparing_a_flagged_row_does_not_fix_it():
@@ -1062,14 +1060,13 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
             "title": title,
             "body": body,
             "html_url": f"https://github.test/pull/{number}",
-            "draft": False,
             "base": {"sha": f"base{number}"},
             "head": {"sha": f"head{number}"},
             "files": list(files),
         }
 
     pulls = [
-        pull(1, "fix(pricing): gpt-a input rate", "Fixes #9"),
+        pull(1, "fix(pricing): gpt-a input rate"),
         pull(2, "docs: typo"),
         pull(3, "chore: bump gpt-a in examples", files=("README.md",)),
         pull(4, "fix(pricing): broken branch"),
@@ -1102,10 +1099,9 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
 
     # PR 2 neither mentions pricing nor a flagged model; PR 3 doesn't touch the file.
     assert [pr["number"] for pr in prs] == [1, 4, 5]
-    assert prs[0]["closes"] == [9]
     assert prs[0]["report"]["rows"][0]["prices"]["input"] == 2e-6
     assert prs[1]["error"] == "could not check its price file (URLError)"
-    # A row this run can't evaluate makes the PR unreadable instead of failing the run.
+    # A row this run can't evaluate gives the PR an error instead of failing the run.
     assert prs[2]["error"] == "could not check its price file (CheckError)"
     assert not any("pull/2" in url or "head2" in url for url in calls)
 
