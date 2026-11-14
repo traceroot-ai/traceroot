@@ -6,7 +6,8 @@ dependency, no I/O, no side effects.
 
 Policy summary
 --------------
-1.  Empty / whitespace-only / comment-only SQL is rejected.
+1.  Empty / whitespace-only / comment-only SQL is rejected.  A byte order mark
+    counts as whitespace.
 2.  SQL must parse under the ClickHouse dialect; parse errors are rejected.
     The message gives the line and column of the error, never any of the SQL.
     Input that opens with a plain word (a typo such as ``selec * from spans``)
@@ -19,6 +20,9 @@ Policy summary
     operations, DDL, and control statements are rejected.  Input that does not
     open with a statement keyword (a typo such as ``selec x``) is rejected with
     "must start with SELECT or WITH" instead of the SELECT-only message.
+    Either "must start with" message says when the first word holds a
+    non-ASCII character (a byte order mark, a zero-width space, full-width
+    letters), since that word can read as SELECT without being one.
 5.  Every ``exp.Table`` node must reference a bare whitelisted public table name
     (``spans`` or ``traces``), or a CTE alias defined in the same query.
     Rejected: table functions, database/catalog-qualified names, internal view
@@ -56,7 +60,7 @@ import sqlglot
 import sqlglot.expressions as exp
 from sqlglot.dialects.dialect import Dialect
 from sqlglot.optimizer.scope import build_scope
-from sqlglot.tokens import TokenType
+from sqlglot.tokens import Token, TokenType
 
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import PUBLIC_TABLES
@@ -289,8 +293,8 @@ def _parse_error_position(exc: Exception) -> str:
     return f" near line {line}, column {col}"
 
 
-def _first_token(sql: str) -> TokenType | None:
-    """Return the type of the token the parser opens the statement with.
+def _first_token(sql: str) -> Token | None:
+    """Return the token the parser opens the statement with.
 
     ``None`` if there is no such token or tokenizing fails.
     """
@@ -298,7 +302,7 @@ def _first_token(sql: str) -> TokenType | None:
         tokens = sqlglot.tokenize(sql, read="clickhouse")
         # The parser drops leading ``;``, so the statement opens after them. ``;`` is
         # a STATEMENT_PARSERS key too, so reading it would pass any input as a statement.
-        return next((t.token_type for t in tokens if t.token_type is not TokenType.SEMICOLON), None)
+        return next((t for t in tokens if t.token_type is not TokenType.SEMICOLON), None)
     except Exception:
         return None
 
@@ -320,12 +324,27 @@ def _opens_with_statement_keyword(sql: str) -> bool:
         # WITH is dispatched through the expression parser, not STATEMENT_PARSERS,
         # so ``WITH t AS (...) DELETE ...`` must not be told to start with WITH.
         return (
-            first is TokenType.WITH
-            or first in _CLICKHOUSE.parser_class.STATEMENT_PARSERS
-            or first in _CLICKHOUSE.tokenizer_class.COMMANDS
+            first.token_type is TokenType.WITH
+            or first.token_type in _CLICKHOUSE.parser_class.STATEMENT_PARSERS
+            or first.token_type in _CLICKHOUSE.tokenizer_class.COMMANDS
         )
     except Exception:
         return True
+
+
+def _start_with_message(first: Token | None) -> str:
+    """Return the "must start with SELECT or WITH" message for a statement opening with *first*.
+
+    A byte order mark, a zero-width space or full-width letters make a first word
+    that reads as SELECT but is not one, so for a word with a non-ASCII character
+    in it the message says so instead of contradicting what its author sees.
+    """
+    if first is not None and first.token_type is TokenType.VAR and not first.text.isascii():
+        return (
+            "SQL statement must start with SELECT or WITH; its first word contains "
+            "a non-ASCII character, such as an invisible byte order mark"
+        )
+    return "SQL statement must start with SELECT or WITH"
 
 
 def is_blocked_function(node: exp.Expression) -> bool:
@@ -355,8 +374,9 @@ def validate(sql: str) -> exp.Query:
     policy violation.  The message never echoes the raw SQL, a ``project_id``,
     or internal view names.
     """
-    # 1. Reject empty / whitespace-only.
-    if not sql or not sql.strip():
+    # 1. Reject empty / whitespace-only. str.strip keeps a byte order mark, which
+    #    an editor can save into an otherwise empty file, so drop it first.
+    if not sql or not sql.replace("\ufeff", "").strip():
         raise SqlValidationError("SQL statement must not be empty")
 
     # 2. Parse as ClickHouse dialect; any parse error is a validation failure.
@@ -370,8 +390,9 @@ def validate(sql: str) -> exp.Query:
         # A misspelt first word followed by a query body (`selec * from spans`)
         # fails here, and the position would point past the typo. No query opens
         # with a plain word, so it gets the same message as `selec x`.
-        if _first_token(sql) is TokenType.VAR:
-            raise SqlValidationError("SQL statement must start with SELECT or WITH") from exc
+        first = _first_token(sql)
+        if first is not None and first.token_type is TokenType.VAR:
+            raise SqlValidationError(_start_with_message(first)) from exc
         raise SqlValidationError(
             f"SQL statement could not be parsed{_parse_error_position(exc)}"
         ) from exc
@@ -395,7 +416,7 @@ def validate(sql: str) -> exp.Query:
     #    that writes are not permitted points them the wrong way.
     if not isinstance(tree, exp.Query):
         if not _opens_with_statement_keyword(sql):
-            raise SqlValidationError("SQL statement must start with SELECT or WITH")
+            raise SqlValidationError(_start_with_message(_first_token(sql)))
         raise SqlValidationError(
             "Only SELECT statements are allowed; write operations and DDL are not permitted"
         )

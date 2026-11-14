@@ -375,6 +375,40 @@ def test_a_failing_statement_table_lookup_falls_back_to_the_select_only_message(
     assert "Only SELECT statements are allowed" in _message("selec x")
 
 
+# A file saved with a byte order mark, or SQL pasted with a zero-width space or
+# full-width letters, opens with what reads as SELECT. The tokenizer takes that
+# first word as a plain one, so the message names the character instead of
+# contradicting what its author sees.
+NON_ASCII_FIRST_WORD_CASES = [
+    pytest.param("\ufeffSELECT 1 FROM spans", id="bom-before-query"),
+    pytest.param("\ufeffSELECT x", id="bom-before-bare-expression"),
+    pytest.param("-- note\n\ufeffSELECT 1 FROM spans", id="bom-after-comment"),
+    pytest.param("SELECT\u200b1 FROM spans", id="zero-width-space"),
+    pytest.param("\uff33\uff25\uff2c\uff25\uff23\uff34 1", id="full-width-select"),
+    pytest.param("s\u00e9lect x", id="accented-typo"),
+]
+
+
+@pytest.mark.parametrize("sql", NON_ASCII_FIRST_WORD_CASES)
+def test_a_non_ascii_first_word_is_named_in_the_start_with_message(sql: str) -> None:
+    assert _message(sql) == (
+        "SQL statement must start with SELECT or WITH; its first word contains "
+        "a non-ASCII character, such as an invisible byte order mark"
+    )
+
+
+# Only an unquoted first word can be a misspelt keyword.
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param('"s\u00e9lect" x', id="quoted-name"),
+        pytest.param("'caf\u00e9'", id="string-literal"),
+    ],
+)
+def test_a_quoted_non_ascii_opening_keeps_the_plain_start_with_message(sql: str) -> None:
+    assert _message(sql) == "SQL statement must start with SELECT or WITH"
+
+
 class _OddParseError(sqlglot.errors.ParseError):
     def __init__(self, errors: object) -> None:
         super().__init__("odd")
@@ -419,6 +453,13 @@ def test_a_non_parse_error_never_contributes_a_position(
     ],
 )
 def test_comment_only_input_is_empty(sql: str) -> None:
+    assert _message(sql) == "SQL statement must not be empty"
+
+
+# str.strip keeps a byte order mark, which an editor can save into an otherwise
+# empty file.
+@pytest.mark.parametrize("sql", ["\ufeff", "\ufeff\n", " \ufeff\t\ufeff "])
+def test_a_byte_order_mark_alone_is_empty(sql: str) -> None:
     assert _message(sql) == "SQL statement must not be empty"
 
 
