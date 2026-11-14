@@ -14,7 +14,14 @@ import pytest
 
 from scripts.model_prices import catalogs, cli, tracking
 from scripts.model_prices.slack import post_to_slack
-from tests.model_prices.samples import _block_text, ll_entry, md_catalog, row, runner
+from tests.model_prices.samples import (
+    LITELLM_FILLER,
+    _block_text,
+    ll_entry,
+    md_catalog,
+    row,
+    runner,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "check_model_prices.py"
@@ -121,6 +128,26 @@ def test_a_cut_off_pr_listing_still_reports(run):
     assert report["tracking"] == "GitHub could not be read (IncompleteRead)"
     assert "tracked_by" not in report["flagged"][0]
     assert posted[0]["text"].endswith(": 1 model with prices to check")
+
+
+def test_more_open_prs_than_the_listing_reads_leaves_prs_not_checked(run, monkeypatch):
+    # The PRs past the last page read could fix a finding, so none is marked.
+    monkeypatch.setattr(tracking, "MAX_PR_PAGES", 2)
+    page = [{"number": n, "title": "docs: typo", "head": {"sha": "h"}} for n in range(100)]
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    code, _, report = run(
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--track",
+        github=lambda url: page,
+    )
+
+    assert code == 0
+    assert report["tracking"] == "GitHub could not be read (200 or more open PRs)"
+    assert "tracked_by" not in report["flagged"][0]
 
 
 TRACK = ("--min-compared", "1", "--track")
@@ -312,3 +339,34 @@ def test_runs_as_a_plain_script():
     )
     assert result.returncode == 0, result.stderr
     assert "--post" in result.stdout
+
+
+def test_files_are_read_and_written_as_utf8_whatever_the_locale(tmp_path):
+    # An ASCII locale with Python's UTF-8 mode off, so only an explicit encoding works.
+    rows = [row("gpt-a", "openai"), row("gpt-ü", "openai", pattern="(?i)^gpt-u$")]
+    sources = {
+        "prices": rows,
+        "litellm": {**LITELLM_FILLER, "gpt-a": ll_entry("openai"), "gpt-ö": ll_entry("openai")},
+        "modelsdev": md_catalog(),
+    }
+    argv = ["--min-compared", "1"]
+    for name, data in sources.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        argv += [f"--{name}", str(path)]
+    for name in ("json", "html", "payload"):
+        argv += [f"--{name}", str(tmp_path / f"out.{name}")]
+    result = subprocess.run(
+        [sys.executable, "-S", "-X", "utf8=0", str(SCRIPT), *argv],
+        cwd=REPO_ROOT,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert [p["row"] for p in report["row_problems"]] == ["gpt-ü"]
+    assert [m["model"] for m in report["missing"]] == ["gpt-ö"]
+    for name in ("html", "payload"):
+        assert "gpt-ü" in (tmp_path / f"out.{name}").read_text(encoding="utf-8")

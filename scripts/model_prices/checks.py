@@ -3,7 +3,6 @@ flagged rates, missing models, model IDs a row misses, overlapping patterns, pro
 the file itself and long-context rates."""
 
 import functools
-import json
 import re
 from datetime import datetime
 
@@ -53,7 +52,10 @@ PRICING_PAGES = {
 # groups such as (?s), (?i:...) or a second (?i). One leading (?i) is fine; the UI
 # strips it.
 JS_INCOMPATIBLE = re.compile(
-    r"\(\?P[<=>]|\\[AZz]|\(\?#|\(\?>|[*+?}]\+|\(\?\(|\{,\d*\}|(?!^\(\?i\))\(\?[-aiLmsux]+[:)]"
+    r"\(\?P[<=>]|\\[AZz]|\(\?#|\(\?>|\(\?\(|\{,\d*\}|(?!^\(\?i\))\(\?[-aiLmsux]+[:)]"
+    # A possessive quantifier such as *+ or {2}+, unless an odd number of backslashes
+    # escapes its first character, as in \++.
+    r"|(?:^|[^\\])(?:\\\\)*[*+?}]\+"
 )
 
 # Missing models shown in small type under the main list: -latest aliases, dated
@@ -94,6 +96,14 @@ def lookup(rows: list[dict], model_id: str) -> dict | None:
     return next((row for row in _by_name(rows) if _matches(row, model_id)), None)
 
 
+def billed_rates(prices: dict) -> dict[str, float]:
+    """The rates production bills a row's prices at: a missing or null rate as 0, and a
+    1-hour cache write with no nonzero rate of its own at the cacheWrite rate."""
+    rates = {field: _number(prices.get(field)) or 0.0 for field in FIELDS}
+    rates["cacheWrite1h"] = rates["cacheWrite1h"] or rates["cacheWrite"]
+    return rates
+
+
 def differs(ours: float, theirs: float, tolerance: float = TOLERANCE) -> bool:
     """True when two rates differ by more than tolerance, relative to the larger."""
     return abs(ours - theirs) > tolerance * max(abs(ours), abs(theirs))
@@ -104,15 +114,12 @@ def _flag_rates(
 ) -> list[dict]:
     """A flag for each of the row's rates that every catalog listing model disagrees with."""
     flags = []
+    # A rate our row leaves out or sets to null is compared as production bills it.
+    billed = billed_rates(row["prices"])
     for field in FIELDS:
         ours = _number(row["prices"].get(field))
         theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}
-        # A rate our row leaves out or sets to null is compared as production bills it:
-        # those tokens at nothing, or a 1-hour cache write at the cacheWrite rate.
-        billed = ours or 0.0
-        if field == "cacheWrite1h" and not ours:
-            billed = _number(row["prices"]["cacheWrite"]) or 0.0
-        if theirs and all(differs(billed, value) for value in theirs.values()):
+        if theirs and all(differs(billed[field], value) for value in theirs.values()):
             flags.append(
                 {
                     "model": model,
@@ -254,7 +261,7 @@ def find_unpriced_ids(
     rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
 ) -> list[dict]:
     """IDs a row should price that no row matches, so their spans record no cost, or that
-    another row with different rates matches, so they get the wrong price. A row named
+    another row billed at different rates matches, so they get the wrong price. A row named
     exactly a host ID prices it on purpose, so the ID counts as priced: mispriced_host_ids
     compares that row's rates with the host's. No catalog lists a [1m] ID, so a row named
     one prices it right only at the model's own rates."""
@@ -264,7 +271,7 @@ def find_unpriced_ids(
         priced_by = lookup(rows, model_id)
         if model_id in checked and priced_by is not None and priced_by["modelName"] == model_id:
             continue
-        if priced_by is None or (priced_by is not row and priced_by["prices"] != row["prices"]):
+        if priced_by is None or billed_rates(priced_by["prices"]) != billed_rates(row["prices"]):
             found.append(
                 {
                     "model": model_id,
@@ -317,7 +324,7 @@ def find_overlaps(
     overlaps = []
     for model_id in sorted(candidates - names):
         matched = [row for row in _by_name(rows) if _matches(row, model_id)]
-        prices = {json.dumps(row["prices"], sort_keys=True) for row in matched}
+        prices = {tuple(billed_rates(row["prices"]).values()) for row in matched}
         if len(matched) > 1 and len(prices) > 1:
             overlaps.append({"model": model_id, "rows": [row["modelName"] for row in matched]})
     return overlaps

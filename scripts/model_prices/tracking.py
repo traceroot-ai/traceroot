@@ -7,7 +7,7 @@ import signal
 import threading
 from collections.abc import Callable, Iterator
 
-from .catalogs import PRICE_PATH, fetch_json, validate_rows
+from .catalogs import PRICE_PATH, CheckError, fetch_json, validate_rows
 from .findings import changes, describe_all, finding_keys
 
 # --track: open pull requests that change the price file.
@@ -141,7 +141,8 @@ def fetch_pricing_prs(
     builds from the price file it would leave on merge. A PR is looked at when its title
     or body mentions pricing or a model in the report. Anything that goes wrong with one
     PR, from reading its files to checking its rows, gives that PR an "error" instead, so
-    only GitHub's rate limit stops the others."""
+    only GitHub's rate limit stops the others. More open PRs than MAX_PR_PAGES pages
+    hold is a CheckError."""
     github = {"Accept": "application/vnd.github+json"}
     if token:
         github["Authorization"] = f"Bearer {token}"
@@ -153,6 +154,8 @@ def fetch_pricing_prs(
         pulls += batch
         if len(batch) < 100:
             break
+    else:  # The PRs past the last page read could fix a finding.
+        raise CheckError(f"{len(pulls)} or more open PRs")
     names = {
         value
         for item in finding_keys(report).values()

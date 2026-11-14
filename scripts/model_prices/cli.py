@@ -157,7 +157,7 @@ def main(argv: list[str]) -> int:
             # Retire models as of the baseline's date, so one retired since then does
             # not read as a fix: only the price file differs between the two reports.
             date = baseline["date"]
-        rows = validate_rows(json.loads(args.prices.read_text()))
+        rows = validate_rows(json.loads(args.prices.read_text(encoding="utf-8")))
         litellm_data = load_source(args.litellm, "LiteLLM")
         modelsdev_data = load_source(args.modelsdev, "models.dev")
         litellm, modelsdev = index_litellm(litellm_data), index_modelsdev(modelsdev_data)
@@ -183,7 +183,10 @@ def main(argv: list[str]) -> int:
                 track(report, prs)
             except Exception as exc:
                 # The findings stand without it: say PRs weren't checked, and carry on.
-                detail = getattr(exc, "code", None) or type(exc).__name__
+                if isinstance(exc, CheckError):
+                    detail = str(exc)
+                else:
+                    detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
         # A cut list points to the rest only where this run writes it.
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
@@ -198,11 +201,13 @@ def main(argv: list[str]) -> int:
         payload = failure_payload(date, reason, args.report_url)
 
     if args.json:
-        args.json.write_text(json.dumps(report, indent=2) + "\n")
+        args.json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.html:
-        args.html.write_text(build_html(report))
+        args.html.write_text(build_html(report), encoding="utf-8")
     if args.payload:
-        args.payload.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        args.payload.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
     print(text)
     if args.post:
         try:
