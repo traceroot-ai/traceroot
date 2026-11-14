@@ -189,6 +189,9 @@ GITHUB_API = "https://api.github.com"
 GITHUB_RAW = "https://raw.githubusercontent.com"
 PRICE_PATH = "frontend/packages/core/src/standard-model-prices.json"
 MAX_PR_PAGES = 10
+# A PR's price file is read up to this size, about 25 times ours, so one huge file
+# can't stall the run.
+MAX_PRICE_FILE_BYTES = 1_000_000
 # A PR is checked when its title or body mentions pricing or a model in the report.
 PRICING_WORDS = re.compile(r"pric", re.IGNORECASE)
 CLOSES_ISSUE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE)
@@ -837,10 +840,11 @@ def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | No
             if PRICE_PATH not in {changed["filename"] for changed in compare.get("files", [])}:
                 continue
             base_sha = compare["merge_base_commit"]["sha"]
-            base = fetch_json(f"{GITHUB_RAW}/{repo}/{base_sha}/{PRICE_PATH}")
-            pr["rows"] = validate_rows(
-                apply_pr(rows, base, fetch_json(f"{GITHUB_RAW}/{repo}/{head}/{PRICE_PATH}"))
+            base, after = (
+                fetch_json(f"{GITHUB_RAW}/{repo}/{sha}/{PRICE_PATH}", MAX_PRICE_FILE_BYTES)
+                for sha in (base_sha, head)
             )
+            pr["rows"] = validate_rows(apply_pr(rows, base, after))
         except (URLError, OSError, ValueError, KeyError, TypeError, CheckError) as exc:
             if getattr(exc, "code", None) in (403, 429):
                 raise  # GitHub's rate limit: every later PR would fail the same way.
@@ -1594,10 +1598,14 @@ def failure_payload(date: str, reason: str) -> dict:
     }
 
 
-def fetch_json(url: str):
+def fetch_json(url: str, max_bytes: int | None = None):
+    """Fetch and parse JSON; with max_bytes, a larger file is a CheckError."""
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-        return json.load(response)
+        body = response.read() if max_bytes is None else response.read(max_bytes + 1)
+    if max_bytes is not None and len(body) > max_bytes:
+        raise CheckError(f"{url} is over {max_bytes} bytes")
+    return json.loads(body)
 
 
 def load_source(source: str, label: str):

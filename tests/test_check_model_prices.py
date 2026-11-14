@@ -7,6 +7,7 @@ all-clear, when a format changes.
 Every test uses small inline samples. None reads the real price file or the network.
 """
 
+import io
 import json
 import subprocess
 import sys
@@ -891,7 +892,8 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
             "files": [{"filename": name} for name in files],
         }
 
-    def fake_fetch(url):
+    def fake_fetch(url, max_bytes=None):
+        assert max_bytes == check.MAX_PRICE_FILE_BYTES
         if "head4" in url:
             raise URLError("gone")
         if "head5" in url:
@@ -910,6 +912,15 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
     # A row this run can't evaluate makes the PR unreadable instead of failing the run.
     assert prs[2]["error"] == "could not read its price file (CheckError)"
     assert not any("pull/2" in url or "head2" in url for url in calls)
+
+
+def test_a_price_file_over_the_size_limit_is_not_read(monkeypatch):
+    # An open PR's price file is capped, so one huge file can't stall the run.
+    monkeypatch.setattr(check, "urlopen", lambda request, timeout: io.BytesIO(b"[   ]"))
+
+    with pytest.raises(CheckError, match="over 4 bytes"):
+        check.fetch_json("https://raw.test/prices.json", max_bytes=4)
+    assert check.fetch_json("https://raw.test/prices.json", max_bytes=5) == []
 
 
 def test_a_row_name_that_is_not_text_fails_validation():
