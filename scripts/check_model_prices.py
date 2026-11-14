@@ -265,11 +265,15 @@ def _day(value) -> datetime | None:
         return None
 
 
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
 def _escape(text: str) -> str:
-    """Escape the characters Slack reads as markup, and keep the text on one line.
-    Model IDs come from public catalogs and row names from open PRs, so an ID such as
-    <!channel> must not become a mention, nor a name start a line of its own."""
-    text = " ".join(text.splitlines())
+    """Escape the characters Slack reads as markup, and keep the text on one line with
+    no control characters. Model IDs come from public catalogs and row names from open
+    PRs, so an ID such as <!channel> must not become a mention, a name must not start a
+    line of its own, and nothing may reach the terminal as an escape sequence."""
+    text = CONTROL_CHARS.sub(" ", " ".join(text.splitlines()))
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -286,6 +290,9 @@ def validate_rows(data) -> list[dict]:
         for key in ("id", "modelName", "matchPattern", "provider", "prices"):
             if key not in row:
                 raise CheckError(f"price file row {name} has no {key}")
+        for key in ("id", "modelName", "matchPattern", "provider"):
+            if not isinstance(row[key], str):
+                raise CheckError(f"price file row #{index} has a non-text {key}")
         if not isinstance(row["prices"], dict):
             raise CheckError(f"price file row {name} has no prices object")
         prices = row["prices"]
@@ -940,10 +947,10 @@ def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | No
                 continue
             base_sha = compare["merge_base_commit"]["sha"]
             base = fetch_json(f"{GITHUB_RAW}/{repo}/{base_sha}/{PRICE_PATH}")
-            pr["rows"] = apply_pr(
-                rows, base, fetch_json(f"{GITHUB_RAW}/{repo}/{head}/{PRICE_PATH}")
+            pr["rows"] = validate_rows(
+                apply_pr(rows, base, fetch_json(f"{GITHUB_RAW}/{repo}/{head}/{PRICE_PATH}"))
             )
-        except (URLError, OSError, ValueError, KeyError, TypeError) as exc:
+        except (URLError, OSError, ValueError, KeyError, TypeError, CheckError) as exc:
             if getattr(exc, "code", None) in (403, 429):
                 raise  # GitHub's rate limit: every later PR would fail the same way.
             pr["error"] = f"could not read its price file ({type(exc).__name__})"
