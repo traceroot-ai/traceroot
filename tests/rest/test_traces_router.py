@@ -639,6 +639,47 @@ class TestRetentionGate:
         )
         assert response.status_code == 200
 
+    def test_get_span_io_403_when_root_missing_and_earliest_span_outside_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        """A trace whose root span never arrived is judged by its earliest span, so a
+        missing root does not let expired span I/O through."""
+        mock_trace_reader.get_trace_start_time.return_value = None
+        mock_trace_reader.get_trace_earliest_span_time.return_value = datetime(2020, 1, 1)
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/old-trace/spans/span-1/io"
+        )
+        assert response.status_code == 403
+        mock_trace_reader.get_span_io.assert_not_called()
+        mock_trace_reader.get_trace_earliest_span_time.assert_called_once_with(
+            "test-project", "old-trace"
+        )
+
+    def test_get_span_io_200_when_root_missing_and_earliest_span_in_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        mock_trace_reader.get_trace_start_time.return_value = None
+        mock_trace_reader.get_trace_earliest_span_time.return_value = _now_naive() - timedelta(
+            days=1
+        )
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+
+    def test_get_span_io_skips_fallback_when_root_present(
+        self, free_plan_client, mock_trace_reader
+    ):
+        mock_trace_reader.get_trace_start_time.return_value = _now_naive() - timedelta(days=1)
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+        mock_trace_reader.get_trace_earliest_span_time.assert_not_called()
+
 
 class TestRetentionGateEnterprise:
     """Enterprise plan has no retention limit — uses the main client fixture (enterprise)."""

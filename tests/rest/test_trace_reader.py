@@ -797,6 +797,17 @@ class TestCustomerTraceEarliestSpanTime:
         assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
         assert client.query.call_count == 2
 
+    def test_unscoped_read_counts_internal_spans(self):
+        """Span I/O and live read a trace without a source filter, so their retention
+        fallback must not skip internal spans either."""
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        query = " ".join(client.query.call_args.args[0].split())
+        assert "minOrNull(span_start_time)" in query
+        assert "source" not in query
+        assert "ORDER BY ch_update_time DESC LIMIT 1 BY span_id" in query
+
 
 class TestCustomerSpanIo:
     def test_reads_a_customer_span_only(self):
