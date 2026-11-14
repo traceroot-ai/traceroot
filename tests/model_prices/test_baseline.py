@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from scripts.model_prices.findings import compare_reports
+from scripts.model_prices.findings import changes, describe_all
 from tests.model_prices.samples import (
     DATE,
     _block_text,
@@ -26,9 +26,10 @@ def run(tmp_path, monkeypatch):
 
 def compare(before, after, litellm, modelsdev):
     """What --baseline lists for an edit from the before rows to the after rows."""
-    return compare_reports(
+    fixes, adds = changes(
         report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev)
     )
+    return {"fixes": describe_all(fixes), "adds": adds}
 
 
 def test_baseline_lists_what_an_edit_fixes_and_adds():

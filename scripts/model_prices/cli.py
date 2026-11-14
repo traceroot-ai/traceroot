@@ -93,7 +93,7 @@ from .catalogs import (
     validate_rows,
 )
 from .checks import MIN_COMPARED, build_report
-from .findings import compare_reports, load_baseline
+from .findings import changes, describe_all, load_baseline
 from .page import build_html
 from .slack import build_payload, failure_payload, post_to_slack
 from .text import format_failure, format_report
@@ -165,7 +165,8 @@ def main(argv: list[str]) -> int:
             rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
         )
         if baseline is not None:
-            report["baseline"] = compare_reports(baseline, report)
+            fixes, adds = changes(baseline, report)
+            report["baseline"] = {"fixes": describe_all(fixes), "adds": adds}
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:

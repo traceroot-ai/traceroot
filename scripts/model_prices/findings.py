@@ -169,10 +169,3 @@ def load_baseline(path: Path) -> dict:
     except (KeyError, TypeError, ValueError) as exc:
         raise CheckError("the baseline report was written by a different version") from exc
     return baseline
-
-
-def compare_reports(baseline: dict, report: dict) -> dict:
-    """The findings this run fixes and adds compared with a baseline report, such as one
-    saved before an edit to the price file."""
-    fixes, adds = changes(baseline, report)
-    return {"fixes": describe_all(fixes), "adds": adds}
