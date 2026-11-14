@@ -1691,6 +1691,33 @@ def test_baseline_compares_at_the_baseline_reports_date(run, tmp_path):
     assert report["baseline"] == {"fixes": [], "adds": []}
 
 
+def test_baseline_lists_each_add_on_its_own_line(run, tmp_path, capsys):
+    # Adds are checked line by line against the kinds allowed, such as a rate a new row
+    # leaves out, so one model's rates are not merged into one line.
+    litellm = {
+        "gpt-a": ll_entry("openai"),
+        "claude-x": ll_entry(
+            "anthropic", cache_read=3e-7, cache_creation_input_token_cost_above_1hr=6e-6
+        ),
+    }
+    before = [row("gpt-a", "openai")]
+    baseline = tmp_path / "before.json"
+    baseline.write_text(json.dumps(report_for(before, litellm, md_catalog())))
+    after = [*before, row("claude-x", "anthropic", cache_read=8e-7)]
+
+    code, _, report = run(
+        after, litellm, md_catalog(), "--min-compared", "1", "--baseline", str(baseline)
+    )
+
+    adds = ["claude-x cache read rate (ours 0.80)", "claude-x cache write 1h rate (ours none)"]
+    assert code == 2
+    assert report["baseline"] == {"fixes": ["claude-x not priced"], "adds": adds}
+    listed = "\n".join(f"• {add}" for add in adds)
+    assert (
+        f"*Compared with the baseline, this file adds* (2)\n{listed}\n" in capsys.readouterr().out
+    )
+
+
 def test_baseline_shows_first_in_the_text_report():
     report = report_for([row("gpt-a", "openai")], {"gpt-a": ll_entry("openai")}, md_catalog())
     report["baseline"] = {"fixes": ["gpt-z input rate"], "adds": []}

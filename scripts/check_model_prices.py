@@ -895,8 +895,9 @@ def _identity(key: tuple) -> tuple:
 
 
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
-    """The findings in report that the after report clears, and what it adds, in a few
-    words each. A finding is cleared only when the after report has nothing about the
+    """The findings in report that the after report clears, and what it adds, each add
+    in a few words on a line of its own, so adds can be checked one by one against the
+    kinds allowed. A finding is cleared only when the after report has nothing about the
     same rate or ID, and added when its key is new, so a flagged rate changed to another
     wrong one, or an ID moved from no row to the wrong row, is an add and not a fix. A
     finding found through a row is not cleared when the after report stops comparing
@@ -910,7 +911,7 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     hidden = [key for key in before if rows[key] in stopped]
     left = {_identity(key) for key in after_keys}
     fixes = [key for key in before if _identity(key) not in left and key not in hidden]
-    adds = describe_all([key for key in after_keys if key not in before])
+    adds = [describe(key) for key in after_keys if key not in before]
     for row in dict.fromkeys(rows[key] for key in hidden):
         adds.append(f"{row} no longer compared with the catalogs")
     for model_id, found in after["host_rates"].items():
