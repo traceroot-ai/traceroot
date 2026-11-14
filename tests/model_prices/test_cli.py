@@ -13,9 +13,9 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from scripts.model_prices import catalogs, cli, tracking
-from scripts.model_prices.catalogs import LITELLM_URL, MODELSDEV_URL
+from scripts.model_prices.catalogs import LITELLM_URL, MODELSDEV_URL, PRICE_PATH
 from scripts.model_prices.slack import post_to_slack
-from scripts.model_prices.tracking import PRICE_PATH
+from scripts.model_prices.tracking import GITHUB_API
 from tests.model_prices.samples import CACHE_WRITE_RATES, _block_text, ll_entry, md_catalog, row
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -26,19 +26,22 @@ SCRIPT = REPO_ROOT / "scripts" / "check_model_prices.py"
 def run(tmp_path, monkeypatch):
     """Run main() against sample data; returns (exit code, posted payloads, report). With
     heads, GitHub has an open pricing PR for each entry, branched from rows: its number,
-    and the price file at its head or the error reading the PR raises. With
-    write_json=False, the run writes no JSON report and the report returned is None."""
+    and the price file at its head or the error reading the PR raises. With github, that
+    answers every GitHub API request instead. With write_json=False, the run writes no
+    JSON report and the report returned is None."""
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
     posted = []
     monkeypatch.setattr(cli, "post_to_slack", lambda _url, payload: posted.append(payload))
 
-    def _run(rows, litellm, modelsdev, *extra, heads=None, write_json=True):
+    def _run(rows, litellm, modelsdev, *extra, heads=None, github=None, write_json=True):
         if isinstance(litellm, dict):
             # Only the cache write rates, so a test can still remove any other field.
             filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
             litellm = {"cache-write-filler": filler, **litellm}
 
-        def fake_fetch(url, max_bytes=None):
+        def fake_fetch(url, max_bytes=None, headers=None):
+            if url.startswith(GITHUB_API):
+                return (github or fake_github)(url)
             if isinstance(litellm, Exception):
                 raise litellm
             if url in (LITELLM_URL, MODELSDEV_URL):
@@ -47,7 +50,7 @@ def run(tmp_path, monkeypatch):
             # Through JSON, as GitHub serves it.
             return json.loads(json.dumps(rows if sha == "base" else heads[int(sha[4:])]))
 
-        def fake_github(url, token):
+        def fake_github(url):
             if "/pulls?" in url:
                 return [
                     {
@@ -65,8 +68,6 @@ def run(tmp_path, monkeypatch):
 
         monkeypatch.setattr(catalogs, "fetch_json", fake_fetch)
         monkeypatch.setattr(tracking, "fetch_json", fake_fetch)
-        if heads is not None:
-            monkeypatch.setattr(tracking, "_github", fake_github)
         prices = tmp_path / "prices.json"
         prices.write_text(json.dumps(rows))
         out = tmp_path / "report.json"
@@ -129,14 +130,19 @@ def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, cap
     assert cut_lines(write_json=False) == ("…and 10 more", "…and 10 more rates")
 
 
-def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monkeypatch):
-    def offline(url, token):
+def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
+    def offline(url):
         raise URLError("offline")
 
-    monkeypatch.setattr(tracking, "_github", offline)
     rows = [row("gpt-a", "openai", input_=5e-7)]
     code, posted, report = run(
-        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1", "--track"
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--track",
+        github=offline,
     )
 
     assert code == 0
@@ -146,15 +152,20 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monk
     assert footer.endswith("open PRs not checked: GitHub could not be read (URLError)")
 
 
-def test_a_cut_off_pr_listing_still_reports(run, monkeypatch):
+def test_a_cut_off_pr_listing_still_reports(run):
     # A response cut off partway raises an error that is not an OSError.
-    def cut_off(url, token):
+    def cut_off(url):
         raise IncompleteRead(b"[{")
 
-    monkeypatch.setattr(tracking, "_github", cut_off)
     rows = [row("gpt-a", "openai", input_=5e-7)]
     code, posted, report = run(
-        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1", "--track"
+        rows,
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--track",
+        github=cut_off,
     )
 
     assert code == 0

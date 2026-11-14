@@ -2,9 +2,12 @@
 not only the daily check."""
 
 import json
+from pathlib import Path
 
-from scripts.model_prices.catalogs import PRICE_FILE, validate_rows
+from scripts.model_prices.catalogs import PRICE_PATH, validate_rows
 from scripts.model_prices.checks import find_row_problems
+
+PRICE_FILE = Path(__file__).resolve().parents[2] / PRICE_PATH
 
 
 def test_the_real_price_file_has_no_row_problems():
