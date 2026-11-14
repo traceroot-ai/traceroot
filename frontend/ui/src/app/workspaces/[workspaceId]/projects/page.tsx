@@ -11,7 +11,7 @@ import { TR } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
 import { CreateProjectDialog } from "@/features/projects/components";
-import { useWorkspace } from "@/features/workspaces/hooks";
+import { ACTIVITY_REFRESH_INTERVAL_MS, useWorkspace } from "@/features/workspaces/hooks";
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -28,7 +28,7 @@ export default function ProjectsPage() {
 
   // Get workspace with projects
   const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session, {
-    refetchInterval: 30_000,
+    refetchInterval: ACTIVITY_REFRESH_INTERVAL_MS,
     refetchOnMount: "always",
   });
 

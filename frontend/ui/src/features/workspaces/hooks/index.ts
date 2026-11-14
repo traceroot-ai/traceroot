@@ -5,6 +5,9 @@ import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { getWorkspaces, getWorkspace } from "@/lib/api";
 import type { Workspace, WorkspaceWithProjects } from "@/types/api";
 
+// Refresh ingestion dates while a workspace or project table is visible.
+export const ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
+
 /**
  * Hook for fetching all workspaces for the current user
  */

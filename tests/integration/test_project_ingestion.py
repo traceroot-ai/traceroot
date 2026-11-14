@@ -13,8 +13,8 @@ import pytest
 from psycopg2 import sql
 from psycopg2.pool import ThreadedConnectionPool
 
-from db.project_ingestion import record_project_ingestion
 from tests.fixtures.otel_payloads import make_otel_payload, make_span
+from worker import ingest_tasks
 from worker.ingest_tasks import process_s3_traces
 
 DATABASE = os.environ.get("PROJECT_INGESTION_TEST_DATABASE_URL")
@@ -47,7 +47,7 @@ def pg(monkeypatch):
         cursor.execute("UPDATE projects SET delete_time = now() WHERE id = 'deleted'")
     connection.commit()
     pool.putconn(connection)
-    monkeypatch.setattr("db.project_ingestion.get_pg_pool", lambda: pool)
+    monkeypatch.setattr("worker.ingest_tasks._get_pg_pool", lambda: pool)
 
     def read():
         conn = pool.getconn()
@@ -71,10 +71,10 @@ def test_migration_leaves_unknown_dates_null(pg):
 
 
 def test_updates_are_project_scoped_monotonic_and_ignore_deleted_projects(pg):
-    record_project_ingestion("p1", T0 + timedelta(seconds=5))
-    record_project_ingestion("p1", T0)
+    ingest_tasks._record_project_ingestion("p1", T0 + timedelta(seconds=5))
+    ingest_tasks._record_project_ingestion("p1", T0)
     for project_id in ("p2", "deleted", "missing"):
-        record_project_ingestion(project_id, T0)
+        ingest_tasks._record_project_ingestion(project_id, T0)
     assert pg() == {
         "p1": datetime(2026, 11, 13, 12, 0, 5),
         "p2": datetime(2026, 11, 13, 12, 0),
@@ -87,29 +87,28 @@ def test_concurrent_snapshots_keep_the_latest_receive_time(pg):
     with ThreadPoolExecutor(max_workers=8) as executor:
         list(
             executor.map(
-                lambda n: record_project_ingestion("p1", T0 + timedelta(seconds=n)), offsets
+                lambda n: ingest_tasks._record_project_ingestion("p1", T0 + timedelta(seconds=n)),
+                offsets,
             )
         )
     assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 7)
 
 
 def test_activity_write_times_out_on_a_locked_project_and_recovers(pg):
-    from db.project_ingestion import get_pg_pool
-
-    pool = get_pg_pool()
+    pool = ingest_tasks._get_pg_pool()
     blocker = pool.getconn()
     try:
         with blocker.cursor() as cursor:
             cursor.execute("SELECT id FROM projects WHERE id = 'p1' FOR UPDATE")
         started = time.monotonic()
         with pytest.raises(psycopg2.errors.QueryCanceled, match="statement timeout"):
-            record_project_ingestion("p1", T0)
+            ingest_tasks._record_project_ingestion("p1", T0)
         assert time.monotonic() - started < 10
     finally:
         blocker.rollback()
         pool.putconn(blocker)
     assert pg()["p1"] is None
-    record_project_ingestion("p1", T0)
+    ingest_tasks._record_project_ingestion("p1", T0)
     assert pg()["p1"] == datetime(2026, 11, 13, 12, 0)
     connection = pool.getconn()
     try:
@@ -122,9 +121,7 @@ def test_activity_write_times_out_on_a_locked_project_and_recovers(pg):
 
 
 def test_migration_fails_fast_behind_an_active_table_reader(pg):
-    from db.project_ingestion import get_pg_pool
-
-    pool = get_pg_pool()
+    pool = ingest_tasks._get_pg_pool()
     blocker, migrator = pool.getconn(), pool.getconn()
     try:
         with blocker.cursor() as cursor:

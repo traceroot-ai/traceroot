@@ -5,7 +5,19 @@ These are cross-module utilities — both `services/trace_reader.py` and
 spot rather than as private symbols inside any one caller.
 """
 
-from shared.datetime_utils import to_utc_naive as to_utc_naive
+from datetime import UTC, datetime
+
+
+def to_utc_naive(dt: datetime) -> datetime:
+    """Convert datetime to UTC naive datetime for ClickHouse comparison.
+
+    ClickHouse `DateTime64` parameters expect timezone-naive values; FastAPI's
+    auto-parser hands us aware values when the client passes an offset/Z suffix.
+    Drop the offset after normalizing to UTC.
+    """
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC).replace(tzinfo=None)
+    return dt
 
 
 def escape_ilike(value: str) -> str:

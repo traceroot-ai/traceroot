@@ -11,10 +11,7 @@ import { TR } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
-import { useWorkspaces } from "@/features/workspaces/hooks";
-
-// Refresh ingestion dates while this page is visible.
-const WORKSPACE_REFRESH_MS = 30_000;
+import { ACTIVITY_REFRESH_INTERVAL_MS, useWorkspaces } from "@/features/workspaces/hooks";
 
 export default function WorkspacesPage() {
   const router = useRouter();
@@ -29,7 +26,7 @@ export default function WorkspacesPage() {
 
   // Get all workspaces
   const { data: workspaces, isLoading } = useWorkspaces(!!session, {
-    refetchInterval: WORKSPACE_REFRESH_MS,
+    refetchInterval: ACTIVITY_REFRESH_INTERVAL_MS,
     refetchOnMount: "always",
   });
 

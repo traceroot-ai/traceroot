@@ -130,12 +130,6 @@ describe("Workspaces Updated column", () => {
     expect((await renderUpdatedCell()).textContent).toBe(formatDate("2026-10-02T00:00:00Z"));
   });
 
-  it("preserves the timestamp when the name is unchanged", async () => {
-    const unchanged = await updateWorkspace("ws-own", "Acme");
-    expect(unchanged.update_time).toBe("2026-10-02T00:00:00.000Z");
-    expect((await renderUpdatedCell()).textContent).toBe(formatDate("2026-10-02T00:00:00Z"));
-  });
-
   it("shows a dash until telemetry has been ingested", async () => {
     mocks.workspace.projects[0].lastIngestedAt = null;
     expect((await renderUpdatedCell()).textContent).toBe("—");

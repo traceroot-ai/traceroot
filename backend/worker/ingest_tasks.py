@@ -5,11 +5,11 @@ This module defines the async tasks that process trace data from S3 to ClickHous
 
 import json
 import logging
+import threading
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from db.postgres import get_pg_pool as _get_pg_pool
-from db.project_ingestion import record_project_ingestion
+from rest.sql_utils import to_utc_naive
 from shared.enums import SpanKind
 from worker.celery_app import app
 from worker.staged_batch import UndecodableBatchError, load_staged_batch
@@ -118,6 +118,72 @@ def _task_cost_by_trace(rows) -> dict[str, float]:
             total += float(cost)
         result[trace_id] = total
     return result
+
+
+_PG_POOL = None
+_PG_POOL_LOCK = threading.Lock()
+
+
+def _get_pg_pool():
+    """A lazily-created, thread-safe Postgres connection pool for the worker.
+
+    Cost derivation runs once per eval-bearing batch; opening a fresh
+    ``psycopg2.connect`` each time is pure connection churn. A small module-level
+    ``ThreadedConnectionPool`` reuses connections across batches within a worker process.
+    """
+    global _PG_POOL
+    if _PG_POOL is None:
+        with _PG_POOL_LOCK:
+            if _PG_POOL is None:
+                from psycopg2 import pool as _pg_pool
+
+                from shared.config import settings
+
+                _PG_POOL = _pg_pool.ThreadedConnectionPool(
+                    1, 8, settings.database_url, connect_timeout=5
+                )
+    return _PG_POOL
+
+
+def _record_project_ingestion(project_id: str, received_at: datetime) -> None:
+    """Advance a project's ingestion time without regressing on retries or older batches.
+
+    The caller handles failures as advisory bookkeeping; this function owns transaction cleanup.
+
+    Args:
+        project_id (str): The project whose customer telemetry was successfully stored.
+        received_at (datetime): Server receive time of the batch, in UTC.
+
+    Returns:
+        None: The timestamp has been committed.
+    """
+    # Prisma stores these dates as UTC timestamp-without-time-zone values.
+    timestamp = to_utc_naive(received_at)
+    pool = _get_pg_pool()
+    conn = pool.getconn()
+    broken = False
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                    SET LOCAL statement_timeout = '5s';
+                    UPDATE projects
+                    SET last_ingested_at = %s
+                    WHERE id = %s AND delete_time IS NULL
+                      AND (last_ingested_at IS NULL OR last_ingested_at < %s)
+                """,
+                (timestamp, project_id, timestamp),
+            )
+        conn.commit()
+    except Exception:
+        broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        pool.putconn(conn, close=broken)
 
 
 def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
@@ -413,11 +479,14 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
                 ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
-            if spans:
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
                 #
-                # The batch already identifies evaluation spans, so ordinary telemetry
-                # needs no result lookup or cost-derivation query.
+                # Gated on the batch actually containing evaluation spans. The batch
+                # already knows the answer in memory (otel_transform set is_evaluation
+                # from the span kind), so gating costs nothing — whereas calling
+                # unconditionally puts a Postgres connect + round trip on the main
+                # product's ingest hot path, per S3 object, per worker, only to learn
+                # "no eval results" for the >99% of batches that carry ordinary traces.
                 eval_trace_ids = {s["trace_id"] for s in spans if s.get("is_evaluation")}
                 if eval_trace_ids:
                     try:
@@ -446,7 +515,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         if traces or spans:
             # Record advisory activity after detection and live publication.
             try:
-                record_project_ingestion(project_id, version or datetime.now(UTC))
+                _record_project_ingestion(project_id, version or datetime.now(UTC))
             except Exception:
                 logger.error(
                     "Failed to record ingestion time for project %s from %s",
