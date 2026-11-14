@@ -1,0 +1,96 @@
+---
+title: Detectors and Findings from the Terminal
+sidebarTitle: Detectors and Findings
+description: Read findings, and create, change, or delete detectors with the traceroot CLI
+---
+
+Read what your [detectors](/detectors/introduction) found with any credential, and manage the detectors with [a browser login](/cli/authentication#browser-login-and-api-keys).
+
+## Read detectors
+
+```bash
+traceroot detectors list --since 7d
+traceroot detectors get <detector-id>
+```
+
+`detectors list` takes `--limit`, plus `--since`, `--from`, and `--to`. These filter on when the detector was created, not when it last ran. `detectors get` shows the full configuration.
+
+## Read findings
+
+```bash
+traceroot findings list --since 24h --detector <detector>
+traceroot findings get <finding-id>
+traceroot findings get --trace <trace-id>
+```
+
+`findings list` takes `--limit`, `--since`, `--from`, `--to`, `--detector` (an ID, name, or template), and `--trace`. Time flags take the same values as [`traces list`](/cli/traces#list-traces).
+
+`findings get` takes a finding ID or `--trace`, not both.
+
+## Create a detector
+
+```bash
+traceroot detectors create --name "Failed tasks" --template task --sample-rate 100
+```
+
+`--name` and `--template` are required. Creating a name that already exists in the project returns that detector unchanged.
+
+| Flag | Meaning |
+| :- | :- |
+| `--template` | `failure`, `hallucination`, `logic`, `task`, or `safety` use standard instructions. `blank` needs `--prompt` |
+| `--prompt` | Instructions, stored as written. They replace the template's standard instructions |
+| `--sample-rate` | Share of matching traces to check, 0 to 100. Default: 25 |
+| `--trigger-conditions` | JSON array of `{field, op, value}` that limits which traces it checks |
+| `--output-schema` | JSON array of output fields |
+| `--detection-source` | `system` or `byok` |
+| `--detection-model`, `--detection-provider` | The judge model. One your workspace can't run is refused |
+| `--enabled`, `--enable-rca` | Switches, with no value |
+
+Trigger conditions take `=` or `!=` on `model_name` and `environment`; `>`, `>=`, `<`, `<=`, or `=` on `cost`, `total_tokens`, `duration_ms`, and `errors`; and `=` or `contains` on `metadata`, with a `key`.
+
+Nested fields are easier in a file:
+
+```json detector.json
+{
+  "name": "Production task failures",
+  "template": "task",
+  "sample_rate": 100,
+  "trigger_conditions": [
+    { "field": "environment", "op": "=", "value": "production" }
+  ]
+}
+```
+
+```bash
+traceroot detectors create --from-file detector.json
+```
+
+[Send a JSON body](/cli/scripting#send-a-json-body) covers files and stdin.
+
+## Change a detector
+
+```bash
+traceroot detectors update <detector-id> --sample-rate 50
+```
+
+Send only what changes. `--trigger-conditions` and `--output-schema` replace the whole array, and `[]` removes the trigger. The template can't change.
+
+`--enabled` and `--enable-rca` take no value, so they can only turn something on. To turn one off, use a file:
+
+```json off.json
+{ "enabled": false }
+```
+
+```bash
+traceroot detectors update <detector-id> --from-file off.json
+```
+
+Turning a detector back on doesn't check past traces.
+
+## Delete a detector
+
+```bash
+traceroot detectors delete <detector-id> --reason "Replaced by the task detector"
+```
+
+The delete is permanent, and needs a [`--reason`](/cli/scripting#shared-flags). The detector's findings stay readable.

@@ -125,7 +125,20 @@
             "group": "CLI",
             "pages": [
               "cli/get-started",
-              "cli/sql"
+              "cli/authentication",
+              "cli/scripting",
+              {
+                "group": "Commands",
+                "expanded": true,
+                "pages": [
+                  "cli/traces",
+                  "cli/detectors-and-findings",
+                  "cli/alerts",
+                  "cli/dashboards-and-widgets",
+                  "cli/workspaces-and-projects",
+                  "cli/sql"
+                ]
+              }
             ]
           },
           {

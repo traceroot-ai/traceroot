@@ -1,16 +1,12 @@
 ---
-title: From the Terminal
+title: Evaluations from the Terminal
+sidebarTitle: From the Terminal
 description: Read datasets, evaluations, and runs with the traceroot CLI
 ---
 
 The [traceroot CLI](/cli/get-started) reads the evaluation data the web app shows — your datasets, the versions you published, and the runs that scored them — without leaving the terminal where the eval ran.
 
-```bash
-npm install -g traceroot-cli
-traceroot login                 # or use a project API key
-```
-
-A project API key is already scoped to one project. A browser login identifies you rather than a project, so pass `--project <id>` (or set `TRACEROOT_PROJECT_ID`) — `traceroot projects list` shows the ids.
+[Get Started](/cli/get-started#install) covers installing the CLI and signing in. A project API key reads its own project. After a browser login, pass `--project <id>` or set `TRACEROOT_PROJECT_ID`, as in [Choose a project](/cli/authentication#choose-a-project).
 
 ## Find a run
 
@@ -81,7 +77,7 @@ traceroot evals runs get run_… --json > run.json
 traceroot evals runs list --status failed --json | jq -r '.runs[].evaluation_run_id'
 ```
 
-Commands exit `0` on success and with a class-specific code otherwise — `2` usage, `3` auth, `4` not found, `5` network — so a script can retry a blip and give up on a missing run without parsing prose.
+[Exit codes](/cli/scripting#exit-codes) lists what each code means, so a script can retry a network failure (5) and stop on a missing run (4) without parsing the message.
 
 ## Two things to know about the output
 

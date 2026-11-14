@@ -1,0 +1,59 @@
+---
+title: Traces from the Terminal
+sidebarTitle: Traces
+description: List, read, and export traces with the traceroot CLI
+---
+
+Find [traces](/tracing/overview), read one with its spans, and export one to disk.
+
+## List traces
+
+```bash
+traceroot traces list --since 1h --limit 20
+```
+
+Traces come newest first. `--limit` defaults to 50, up to 200, and there's no paging flag. Traces from evaluation runs aren't listed.
+
+| Flag | Meaning |
+| :- | :- |
+| `--since <duration>` | A window ending now: a whole number and `s`, `m`, `h`, `d`, or `w`, such as `30m` or `7d` |
+| `--from <timestamp>` | Traces started at or after this time |
+| `--to <timestamp>` | Traces started before this time |
+
+`--since` can't be combined with `--from` or `--to`. With no time flag, you get the newest traces your plan's retention allows.
+
+`--from` and `--to` take ISO 8601, such as `2026-06-23T14:31:02Z` or `2026-06-23T14:31:02-06:00`. A bare date means midnight UTC, and a time with no offset is read as UTC. They also take a quoted time copied from the `STARTED` column, such as `"2026-06-23 14:31:02 MDT"`, in your local time zone.
+
+To filter by name, model, or environment, use [SQL](/cli/sql).
+
+## Read one trace
+
+```bash
+traceroot traces get <trace-id>
+traceroot traces get <trace-id> --fields full --json
+```
+
+Without `--json`, this prints the trace's header, any detector finding, its span tree, and a link to the web app.
+
+`--fields` chooses what the request returns. Separate groups with commas, as in `--fields io,metadata`. An unknown group exits 2.
+
+| Value | Includes |
+| :- | :- |
+| `core` | Tree, timing, and status. Always included |
+| `usage` | Tokens and cost. The API returns these with or without it |
+| `io` | Each span's input and output |
+| `metadata` | Each span's metadata |
+| `skeleton` | `core,usage`, the default for `traces get` |
+| `full` | Everything, the default for `traces export` |
+
+So by default, `traces get --json` leaves span `input`, `output`, and `metadata` as `null`.
+
+## Export a trace
+
+```bash
+traceroot traces export <trace-id> --output ./my-trace
+```
+
+This writes `trace.json`, `spans.json`, `git_context.json`, and `manifest.json`, plus `finding.json` if a detector flagged the trace. Pass `--fields` to export less.
+
+Without `--output`, it creates `trace_<trace-id>_<timestamp>` in the current directory. If the directory isn't empty, the command exits 1, unless you pass `--force` to overwrite it.

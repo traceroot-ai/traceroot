@@ -1,0 +1,70 @@
+---
+title: Alerts from the Terminal
+sidebarTitle: Alerts
+description: Read, create, change, pause, and delete alerts with the traceroot CLI
+---
+
+Read threshold [alerts](/alerts/overview) with any credential, and create, change, pause, or delete them with [a browser login](/cli/authentication#browser-login-and-api-keys). Alerts notify through Slack, so [connect Slack](/alerts/overview#slack-notifications) to the workspace to receive them.
+
+## Read alerts
+
+```bash
+traceroot alerts list --search latency
+traceroot alerts get <alert-id>
+```
+
+`alerts list` takes `--search` (a case-insensitive match on the name), `--limit` (50 by default, up to 200), and `--page` (from 0). `alerts get` shows the full rule and its evaluation state.
+
+## Create an alert
+
+Put the rule in a file:
+
+```json rule.json
+{
+  "name": "p95 latency over 2 seconds",
+  "view": "SPANS",
+  "measure": "latency",
+  "aggregation": "p95",
+  "window": "10m",
+  "threshold_operator": ">",
+  "threshold": 2000,
+  "renotify": { "mode": "OFF" }
+}
+```
+
+```bash
+traceroot alerts create --from-file rule.json
+```
+
+Every field here is required. `filters` and `no_data_mode` are optional. To repeat notifications, set `renotify` to `{ "mode": "EVERY", "interval_minutes": 60 }`.
+
+These fields also have flags: `--name`, `--view`, `--measure`, `--aggregation`, `--window`, `--threshold-operator`, `--threshold`, `--filters`, and `--renotify`. A flag overrides the same field in the file. CLI 0.6.1 refuses `--no-data-mode`, so set `no_data_mode` in the file.
+
+[Rule Reference](/alerts/rule-reference) lists every measure, aggregation, window, and filter, and the limits. [Send a JSON body](/cli/scripting#send-a-json-body) covers files and stdin. Creating the same rule twice makes two alerts. `alerts list` shows each alert's ID.
+
+## Change an alert
+
+```bash
+traceroot alerts update <alert-id> --threshold 1500
+```
+
+Send only what changes. The result is checked against the stored rule, so a new aggregation has to fit the stored measure. `--filters` and `--renotify` take JSON, and `--filters` replaces the whole list.
+
+Changing the measure, aggregation, filters, window, operator, threshold, or no-data mode [starts the rule fresh](/alerts/rule-reference#starting-fresh). Changing the name or renotify doesn't, though renotify restarts a [parked](/alerts/rule-reference#statuses) alert. The response's `state_reset` and `page_cleared` report what happened.
+
+## Pause or resume
+
+```bash
+traceroot alerts status <alert-id> --status PAUSED
+traceroot alerts status <alert-id> --status ACTIVE
+```
+
+Pausing keeps the severity the alert stopped at. Resuming starts it fresh. Setting the status it already has changes nothing. A parked alert can't be paused, and trying exits 1; resume it instead.
+
+## Delete an alert
+
+```bash
+traceroot alerts delete <alert-id> --reason "Replaced by a stricter rule"
+```
+
+The delete is permanent, and needs a [`--reason`](/cli/scripting#shared-flags). An open alert is discarded rather than resolved, and the response's `page_cleared` says when one was.
