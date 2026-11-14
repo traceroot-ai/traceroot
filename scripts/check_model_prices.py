@@ -225,7 +225,7 @@ MINOR_MODELS = re.compile(
 # What the model-ID section lists, for both the terminal and Slack.
 ID_HEADING = (
     "IDs a model has on Bedrock, Vertex AI or OpenRouter, or with [1m], that its row's "
-    "matchPattern misses, so their spans record no cost"
+    "matchPattern misses, so their spans record no cost or another model's price"
 )
 # Provider names as people write them, for counts in the Slack message.
 PROVIDER_NAMES = {
@@ -266,8 +266,10 @@ def _day(value) -> datetime | None:
 
 
 def _escape(text: str) -> str:
-    """Escape the characters Slack reads as markup. Model IDs come from public
-    catalogs, so an ID such as <!channel> must not become a mention."""
+    """Escape the characters Slack reads as markup, and keep the text on one line.
+    Model IDs come from public catalogs and row names from open PRs, so an ID such as
+    <!channel> must not become a mention, nor a name start a line of its own."""
+    text = " ".join(text.splitlines())
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -470,10 +472,12 @@ def _flag_rates(
     for field in FIELDS:
         ours = _number(row["prices"].get(field))
         theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}
-        # A rate our row leaves out or sets to null is flagged when every catalog that
-        # lists it charges for it: production bills those tokens at nothing, or a 1-hour
-        # cache write at the cacheWrite rate.
-        if theirs and all(differs(ours or 0.0, value) for value in theirs.values()):
+        # A rate our row leaves out or sets to null is compared as production bills it:
+        # those tokens at nothing, or a 1-hour cache write at the cacheWrite rate.
+        billed = ours or 0.0
+        if field == "cacheWrite1h" and not ours:
+            billed = _number(row["prices"]["cacheWrite"]) or 0.0
+        if theirs and all(differs(billed, value) for value in theirs.values()):
             flags.append(
                 {
                     "model": model,
@@ -515,7 +519,7 @@ def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) 
     flags = []
     for (provider, model), found in _live_text_models(catalogs, today).items():
         row = lookup(rows, model)
-        if row is not None and row["modelName"].lower() != model.lower():
+        if row is not None and row["modelName"] != model:
             flags += _flag_rates(row, provider, model, found, priced_as=row["modelName"])
         # Dated snapshots and aliases would only repeat what the base model's spelling shows.
         if "." not in model or MINOR_MODELS.search(model):
@@ -1069,7 +1073,7 @@ def _example(ids: list[str]) -> str:
 
 
 def _id_lines(report: dict, links) -> tuple[list[str], list[str]]:
-    """Model IDs with no price, as (lines for IDs no open PR fixes, one per row, e.g.
+    """Model IDs not priced by their row, as (lines for IDs no open PR fixes, one per row, e.g.
     "• claude-x: 7 Bedrock, 1 OpenRouter, [1m], e.g. `us.anthropic.claude-x`"; lines
     naming the rows whose IDs each set of open PRs fixes)."""
     groups: dict[str, dict] = {}
@@ -1209,7 +1213,8 @@ def format_report(report: dict) -> str:
             lines.append(f"Pricing pages: {links}")
 
     if report["unpriced_ids"]:
-        heading = f"*Model IDs with no price* ({len(report['unpriced_ids'])}): {ID_HEADING}"
+        count = len(report["unpriced_ids"])
+        heading = f"*Model IDs not priced by their row* ({count}): {ID_HEADING}"
         open_ids, covered = _id_lines(report, _pr_text)
         lines += ["", heading, *open_ids, *covered]
     problems = _problem_lines(report, _pr_text)
@@ -1370,7 +1375,8 @@ def _progress_lines(report: dict, links) -> list[str]:
         )
         if len(items) == 1:
             item = items[0]
-            change = f"${_amount(item['ours'])} → ${_catalog_amount(item)}"
+            ours = "none" if item["ours"] is None else f"${_amount(item['ours'])}"
+            change = f"{ours} → ${_catalog_amount(item)}"
             lines.append(f"• {models} {FIELD_LABELS[item['field']]} {change}: {links(list(prs))}")
         else:
             fields = list(dict.fromkeys(FIELD_LABELS[i["field"]] for i in items))
@@ -1408,8 +1414,11 @@ def _summary(report: dict) -> str:
         models = dict.fromkeys(item["model"] for item in flagged)
         parts.append(f"{_plural(len(models), 'model')} with prices to check")
     ids = _open(report["unpriced_ids"])
-    if ids:
-        parts.append(f"{_plural(len(ids), 'model ID')} with no price")
+    unpriced = [item for item in ids if not item["priced_as"]]
+    if unpriced:
+        parts.append(f"{_plural(len(unpriced), 'model ID')} with no price")
+    if len(ids) > len(unpriced):
+        parts.append(f"{_plural(len(ids) - len(unpriced), 'model ID')} priced as another model")
     problems = _open(report["row_problems"] + report["overlaps"])
     if problems:
         parts.append(_plural(len(problems), "price file problem"))
@@ -1568,10 +1577,11 @@ def build_html(report: dict) -> str:
             ],
         ),
         _html_table(
-            "Model IDs with no price",
+            "Model IDs not priced by their row",
             "The same model under another name: the ID a span carries when the model is "
             "called through Bedrock, Vertex AI or OpenRouter, or with [1m]. The row exists, "
-            "but its matchPattern misses this ID, so these spans record no cost.",
+            "but its matchPattern misses this ID, so these spans record no cost, or another "
+            "model's price when a different row's pattern matches it.",
             ["Row", "Model ID", "From", "Priced as", "Open PRs"],
             [
                 [
@@ -1683,7 +1693,7 @@ def failure_payload(date: str, reason: str) -> dict:
     text = f":warning: {_escape(reason)}. Nothing was compared, so this is not an all-clear."
     title = f"Model pricing audit FAILED · {date}"
     return {
-        "text": f"Model pricing audit FAILED, {date}: {reason}",
+        "text": f"Model pricing audit FAILED, {date}: {_escape(reason)}",
         "blocks": [
             {"type": "header", "text": {"type": "plain_text", "text": _clip(title, HEADER_LIMIT)}},
             {"type": "section", "text": _mrkdwn(_clip(text, SECTION_LIMIT))},
@@ -1816,8 +1826,9 @@ def main(argv: list[str]) -> int:
     if args.post:
         try:
             post_to_slack(webhook, payload)
-        except (URLError, OSError) as exc:
-            # Never echo the webhook URL: report only the error type and status.
+        except Exception as exc:
+            # Never echo the webhook URL: report only the error type and status. Any
+            # exception counts, as a malformed URL raises one whose message holds it.
             detail = getattr(exc, "code", None) or type(exc).__name__
             print(f"Slack post failed ({detail})", file=sys.stderr)
             return 1
