@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import threading
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
@@ -1274,6 +1275,23 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monk
     assert "flagged" in report and report["flagged"][0]["model"] == "gpt-a"
     footer = posted[0]["blocks"][-1]["elements"][0]["text"]
     assert footer.endswith("open PRs not checked: GitHub could not be read (URLError)")
+
+
+def test_a_cut_off_pr_listing_still_reports(run, monkeypatch):
+    # A response cut off partway raises an error that is not an OSError.
+    def cut_off(url, token):
+        raise IncompleteRead(b"[{")
+
+    monkeypatch.setattr(check, "_github", cut_off)
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    code, posted, report = run(
+        rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1", "--track"
+    )
+
+    assert code == 0
+    assert report["tracking"] == "GitHub could not be read (IncompleteRead)"
+    assert "tracked_by" not in report["flagged"][0]
+    assert posted[0]["text"].endswith(": 1 model with prices to check")
 
 
 TRACK = ("--min-compared", "1", "--track")

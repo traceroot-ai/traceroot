@@ -1834,7 +1834,7 @@ def main(argv: list[str]) -> int:
                     ),
                 )
                 track(report, prs)
-            except (URLError, OSError, ValueError, KeyError, TypeError) as exc:
+            except Exception as exc:
                 # The findings stand without it: say PRs weren't checked, and carry on.
                 detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
