@@ -227,6 +227,7 @@
               "integrations/openai",
               "integrations/openai-compatible",
               "integrations/openrouter",
+              "integrations/opper",
               "integrations/typesafe"
             ]
           },
