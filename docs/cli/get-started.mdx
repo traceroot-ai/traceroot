@@ -115,6 +115,30 @@ traceroot traces export <trace-id> --output ./my-trace
 
 [Traces](/cli/traces) covers time filters, field groups, and the exported files.
 
+## Command reference
+
+Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
+
+| Command | What it does |
+| :-- | :-- |
+| `setup` | Connect this repository to traceroot and see your first trace. See [Tracing](/tracing/get-started). |
+| `setup doctor` | Diagnose a setup that did not complete. Flag: `--service <path>`. |
+| `doctor` | Check credentials, the repository, environment, and skills. |
+| `login` | Sign in through your browser and save the session; with `--api-key`, validate and save a project API key instead. |
+| `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
+| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
+| `traces get <id>` | Show one trace: header, span tree, duration, and web app link. `--json` leaves span I/O `null`; add `--fields full` to include it. |
+| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
+| `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
+| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
+| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
+| `datasets versions get <version-id>` | Show one version and a page of its cases. Flag: `--limit <n>` — 200 by default, up to 1000. |
+| `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
+| `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
+| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
+| `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
+| `sql schema` | List every table and column available to read-only SQL. |
+
 ## Next steps
 
 | To | Go to |
@@ -128,4 +152,3 @@ traceroot traces export <trace-id> --output ./my-trace
 | Query spans and traces | [Read-only SQL](/cli/sql) |
 | Read evaluations and datasets | [Evaluations from the Terminal](/evals/cli) |
 | Use the CLI in scripts and CI | [Scripting and CI](/cli/scripting) |
-| See every command | [All Commands](/cli/reference) |

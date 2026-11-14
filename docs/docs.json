@@ -131,7 +131,6 @@
                 "group": "Commands",
                 "expanded": true,
                 "pages": [
-                  "cli/reference",
                   "cli/traces",
                   "cli/detectors-and-findings",
                   "cli/alerts",
