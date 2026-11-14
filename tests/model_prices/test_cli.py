@@ -370,3 +370,15 @@ def test_files_are_read_and_written_as_utf8_whatever_the_locale(tmp_path):
     assert [m["model"] for m in report["missing"]] == ["gpt-ö"]
     for name in ("html", "payload"):
         assert "gpt-ü" in (tmp_path / f"out.{name}").read_text(encoding="utf-8")
+
+    # A baseline report saved with its non-ASCII names as they are reads the same way.
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    again = subprocess.run(
+        [sys.executable, "-S", "-X", "utf8=0", str(SCRIPT), *argv, "--baseline", str(baseline)],
+        cwd=REPO_ROOT,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert again.returncode == 0, again.stdout + again.stderr

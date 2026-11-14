@@ -155,7 +155,7 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
 def load_baseline(path: Path) -> dict:
     """A report saved by --json from a completed run. Anything else fails the run."""
     try:
-        baseline = json.loads(path.read_text())
+        baseline = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise CheckError(f"could not read the baseline report ({type(exc).__name__})") from exc
     if not isinstance(baseline, dict) or baseline.get("status") != "ok":
