@@ -135,7 +135,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
               projects and data.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <p className="mb-2 text-sm text-muted-foreground">
               Type{" "}
               <span className="font-mono font-semibold text-foreground">{workspace?.name}</span> to

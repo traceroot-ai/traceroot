@@ -136,7 +136,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               Send an invitation to a new member. They will receive an email to join this workspace.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div>
               <label className="mb-2 block text-sm font-medium">Email</label>
               <Input
@@ -185,7 +185,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             <DialogTitle>Change Role</DialogTitle>
             <DialogDescription>Update the member&apos;s role in this workspace.</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <label className="mb-2 block text-sm font-medium">Role</label>
             <Select
               value={editingMember?.role || Role.MEMBER}
