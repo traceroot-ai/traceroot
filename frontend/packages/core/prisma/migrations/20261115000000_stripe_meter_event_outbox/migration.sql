@@ -41,6 +41,9 @@ CREATE UNIQUE INDEX "uq_stripe_meter_event_workspace_meter_period_target"
 CREATE INDEX "ix_stripe_meter_event_pending"
     ON "stripe_meter_events"("workspace_id", "meter", "period_start", "status");
 
+CREATE INDEX "ix_stripe_meter_event_recovery"
+    ON "stripe_meter_events"("status", "last_attempt_at", "create_time");
+
 CREATE INDEX "ix_stripe_meter_event_reconciliation"
     ON "stripe_meter_events"("status", "ambiguous_since");
 

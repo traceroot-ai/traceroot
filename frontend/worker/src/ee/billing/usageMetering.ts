@@ -33,7 +33,12 @@ import {
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
-import { submitUsageMeterEvent } from "./meterEventOutbox.js";
+import {
+  MeterEventReconciliationError,
+  recoverPendingUsageMeterEvents,
+  submitUsageMeterEvent,
+  type UsageMeter,
+} from "./meterEventOutbox.js";
 
 const FAR_FUTURE_END = new Date("2100-01-01T00:00:00Z");
 
@@ -60,6 +65,44 @@ function getLastReportedUnitsForPeriod(
   if (previousPeriodStart === periodStart) return units;
   if (preserveUnstampedLegacyValue && previousPeriodStart === null) return units;
   return 0;
+}
+
+async function reportMeterCheckpoint(args: {
+  workspaceId: string;
+  customerId: string;
+  meter: UsageMeter;
+  periodStart: Date;
+  totalUnits: number;
+  lastReportedUnits: number;
+  stripeClient: Stripe;
+}): Promise<{ reportedUnits: number; unexpectedError: unknown | null }> {
+  const { workspaceId, meter, periodStart, totalUnits, lastReportedUnits } = args;
+  if (totalUnits <= lastReportedUnits) {
+    return { reportedUnits: lastReportedUnits, unexpectedError: null };
+  }
+
+  try {
+    const confirmedUnits = await submitUsageMeterEvent({
+      ...args,
+      now: new Date(),
+    });
+    return {
+      reportedUnits:
+        confirmedUnits === null ? lastReportedUnits : Math.max(lastReportedUnits, confirmedUnits),
+      unexpectedError: null,
+    };
+  } catch (error) {
+    const message =
+      `[Billing] Meter submission failed: workspace=${workspaceId}, meter=${meter}, ` +
+      `period=${periodStart.toISOString()}`;
+    if (error instanceof MeterEventReconciliationError) {
+      console.warn(message, error);
+      return { reportedUnits: lastReportedUnits, unexpectedError: null };
+    }
+
+    console.error(message, error);
+    return { reportedUnits: lastReportedUnits, unexpectedError: error };
+  }
 }
 
 /**
@@ -96,6 +139,14 @@ export async function runBillingJob(): Promise<void> {
       stripeClient = getStripe();
     } catch {
       console.warn("[Billing] Stripe not configured, skipping Stripe updates");
+    }
+
+    if (stripeClient) {
+      try {
+        await recoverPendingUsageMeterEvents(stripeClient, now);
+      } catch (error) {
+        console.error("[Billing] Pending Stripe meter event recovery stage failed:", error);
+      }
     }
 
     for (const workspace of workspaces) {
@@ -401,6 +452,7 @@ async function processWorkspace(
   console.log(
     `[Billing] Stripe check: isFreePlan=${isFreePlan}, subscriptionId=${!!workspace.billingSubscriptionId}, customerId=${!!workspace.billingCustomerId}, stripeClient=${!!ctx.stripeClient}`,
   );
+  const meterSubmissionErrors: unknown[] = [];
   if (
     !isFreePlan &&
     workspace.billingSubscriptionId &&
@@ -470,29 +522,18 @@ async function processWorkspace(
         `lastReported=${lastReportedUnits}, delta=${deltaUnits}`,
     );
 
-    if (deltaUnits > 0) {
-      const reportedUnits = await submitUsageMeterEvent({
-        workspaceId: workspace.id,
-        customerId: workspace.billingCustomerId,
-        meter: "ai_usage",
-        periodStart: start,
-        totalUnits: totalBillableUnits,
-        lastReportedUnits,
-        stripeClient: ctx.stripeClient,
-        now: new Date(),
-      });
-      if (reportedUnits !== null) {
-        (updateData.currentUsage as any).ai.lastReportedUnits = reportedUnits;
-        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
-      } else {
-        (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
-        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      // Preserve last reported values
-      (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
-      (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
-    }
+    const aiCheckpoint = await reportMeterCheckpoint({
+      workspaceId: workspace.id,
+      customerId: workspace.billingCustomerId,
+      meter: "ai_usage",
+      periodStart: start,
+      totalUnits: totalBillableUnits,
+      lastReportedUnits,
+      stripeClient: ctx.stripeClient,
+    });
+    (updateData.currentUsage as any).ai.lastReportedUnits = aiCheckpoint.reportedUnits;
+    (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
+    if (aiCheckpoint.unexpectedError) meterSubmissionErrors.push(aiCheckpoint.unexpectedError);
 
     // 5c. Report RCA run overage to Stripe (separate meter / Stripe product)
     const includedRcaRuns = RCA_RUN_QUOTAS[plan].included;
@@ -527,28 +568,18 @@ async function processWorkspace(
         `lastReported=${lastReportedRcaUnits}, delta=${deltaRcaUnits}`,
     );
 
-    if (deltaRcaUnits > 0) {
-      const reportedUnits = await submitUsageMeterEvent({
-        workspaceId: workspace.id,
-        customerId: workspace.billingCustomerId,
-        meter: "rca_usage",
-        periodStart: start,
-        totalUnits: totalRcaBillableUnits,
-        lastReportedUnits: lastReportedRcaUnits,
-        stripeClient: ctx.stripeClient,
-        now: new Date(),
-      });
-      if (reportedUnits !== null) {
-        (updateData.currentUsage as any).rca.lastReportedUnits = reportedUnits;
-        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-      } else {
-        (updateData.currentUsage as any).rca.lastReportedUnits = lastReportedRcaUnits;
-        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      (updateData.currentUsage as any).rca.lastReportedUnits = lastReportedRcaUnits;
-      (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
-    }
+    const rcaCheckpoint = await reportMeterCheckpoint({
+      workspaceId: workspace.id,
+      customerId: workspace.billingCustomerId,
+      meter: "rca_usage",
+      periodStart: start,
+      totalUnits: totalRcaBillableUnits,
+      lastReportedUnits: lastReportedRcaUnits,
+      stripeClient: ctx.stripeClient,
+    });
+    (updateData.currentUsage as any).rca.lastReportedUnits = rcaCheckpoint.reportedUnits;
+    (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
+    if (rcaCheckpoint.unexpectedError) meterSubmissionErrors.push(rcaCheckpoint.unexpectedError);
 
     // 5d. Report managed detector inference token usage (1.05× pass-through).
     //
@@ -584,27 +615,19 @@ async function processWorkspace(
         `totalUnits=${detectorTotalUnits}, lastReported=${detectorLastReportedUnits}, delta=${detectorDeltaUnits}`,
     );
 
-    if (detectorDeltaUnits > 0) {
-      const reportedUnits = await submitUsageMeterEvent({
-        workspaceId: workspace.id,
-        customerId: workspace.billingCustomerId,
-        meter: "detector_usage",
-        periodStart: start,
-        totalUnits: detectorTotalUnits,
-        lastReportedUnits: detectorLastReportedUnits,
-        stripeClient: ctx.stripeClient,
-        now: new Date(),
-      });
-      if (reportedUnits !== null) {
-        (updateData.currentUsage as any).detector.lastReportedUnits = reportedUnits;
-        (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-      } else {
-        (updateData.currentUsage as any).detector.lastReportedUnits = detectorLastReportedUnits;
-        (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      (updateData.currentUsage as any).detector.lastReportedUnits = detectorLastReportedUnits;
-      (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
+    const detectorCheckpoint = await reportMeterCheckpoint({
+      workspaceId: workspace.id,
+      customerId: workspace.billingCustomerId,
+      meter: "detector_usage",
+      periodStart: start,
+      totalUnits: detectorTotalUnits,
+      lastReportedUnits: detectorLastReportedUnits,
+      stripeClient: ctx.stripeClient,
+    });
+    (updateData.currentUsage as any).detector.lastReportedUnits = detectorCheckpoint.reportedUnits;
+    (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
+    if (detectorCheckpoint.unexpectedError) {
+      meterSubmissionErrors.push(detectorCheckpoint.unexpectedError);
     }
   }
 
@@ -640,6 +663,13 @@ async function processWorkspace(
         error,
       );
     }
+  }
+
+  if (meterSubmissionErrors.length > 0) {
+    throw new AggregateError(
+      meterSubmissionErrors,
+      `Meter submissions failed for workspace ${workspace.id}`,
+    );
   }
 
   console.log(

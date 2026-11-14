@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   rcaCount: vi.fn(),
   usageDetails: vi.fn(),
   submitMeterEvent: vi.fn(),
+  recoverMeterEvents: vi.fn(),
+  MeterEventReconciliationError: class MeterEventReconciliationError extends Error {},
 }));
 
 vi.mock("@traceroot/core", () => ({
@@ -53,6 +55,8 @@ vi.mock("../usageNotifications.js", () => ({
 }));
 vi.mock("../meterEventOutbox.js", () => ({
   submitUsageMeterEvent: mocks.submitMeterEvent,
+  recoverPendingUsageMeterEvents: mocks.recoverMeterEvents,
+  MeterEventReconciliationError: mocks.MeterEventReconciliationError,
 }));
 vi.mock("stripe", () => ({
   default: class StripeMock {
@@ -127,6 +131,7 @@ beforeEach(() => {
     },
   });
   mocks.submitMeterEvent.mockResolvedValue(1_000);
+  mocks.recoverMeterEvents.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -135,7 +140,16 @@ afterEach(() => {
 });
 
 describe("billing checkpoint updates after outbox submission", () => {
-  it("advances the AI checkpoint only to the cumulative units confirmed by the outbox", async () => {
+  it("stores only the 500 units confirmed when total usage is 1,000", async () => {
+    const operationOrder: string[] = [];
+    mocks.recoverMeterEvents.mockImplementation(async () => {
+      operationOrder.push("recover");
+    });
+    mocks.submitMeterEvent.mockImplementation(async () => {
+      operationOrder.push("submit");
+      return 500;
+    });
+
     await runBillingJob();
 
     expect(mocks.submitMeterEvent).toHaveBeenCalledWith(
@@ -146,31 +160,130 @@ describe("billing checkpoint updates after outbox submission", () => {
       }),
     );
     expect(workspace.currentUsage.ai).toMatchObject({
-      lastReportedUnits: 1_000,
+      lastReportedUnits: 500,
       lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
     });
+    expect(workspace.currentUsage.ai?.lastReportedUnits).not.toBe(1_000);
+    expect(operationOrder).toEqual(["recover", "submit"]);
   });
 
-  it("preserves the checkpoint when delivery is not confirmed, then skips an already-reported delta", async () => {
+  it("preserves the prior checkpoint when delivery returns null", async () => {
     workspace.currentUsage = {
       ai: {
         lastReportedUnits: 250,
         lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
       },
     };
-    mocks.submitMeterEvent.mockResolvedValueOnce(null).mockResolvedValue(1_000);
+    mocks.submitMeterEvent.mockResolvedValue(null);
 
     await runBillingJob();
     expect(workspace.currentUsage.ai).toMatchObject({
       lastReportedUnits: 250,
       lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
     });
+  });
+
+  it("persists the workspace and preserves the checkpoint when submission throws", async () => {
+    workspace.currentUsage = {
+      ai: {
+        lastReportedUnits: 250,
+        lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
+      },
+    };
+    workspace.ingestionBlocked = true;
+    workspace.aiBlocked = true;
+    mocks.submitMeterEvent.mockRejectedValue(new Error("database unavailable"));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await runBillingJob();
     expect(workspace.currentUsage.ai).toMatchObject({
-      lastReportedUnits: 1_000,
+      lastReportedUnits: 250,
       lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
     });
+    expect(mocks.updateWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.updateWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ currentUsage: expect.any(Object), aiBlocked: false }),
+      }),
+    );
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining("workspace=ws-1, meter=ai_usage, period="),
+      expect.any(Error),
+    );
+    expect(errorLog).toHaveBeenCalledWith(
+      "[Billing] Error processing workspace ws-1:",
+      expect.any(AggregateError),
+    );
+  });
+
+  it("isolates an expected reconciliation failure and continues another meter", async () => {
+    workspace.currentUsage = {
+      ai: { lastReportedUnits: 250, lastReportedPeriodStart: "2026-11-01T00:00:00.000Z" },
+    };
+    mocks.rcaCount.mockResolvedValue(101);
+    mocks.submitMeterEvent.mockImplementation(async ({ meter }: { meter: string }) => {
+      if (meter === "ai_usage") {
+        throw new mocks.MeterEventReconciliationError("manual reconciliation required");
+      }
+      return 500;
+    });
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runBillingJob();
+
     expect(mocks.submitMeterEvent).toHaveBeenCalledTimes(2);
+    expect(workspace.currentUsage.ai).toMatchObject({ lastReportedUnits: 250 });
+    expect(workspace.currentUsage.rca).toMatchObject({ lastReportedUnits: 500 });
+    expect(mocks.updateWorkspace).toHaveBeenCalledTimes(1);
+    expect(warnLog).toHaveBeenCalledWith(
+      expect.stringContaining("workspace=ws-1, meter=ai_usage, period="),
+      expect.any(mocks.MeterEventReconciliationError),
+    );
+  });
+
+  it("isolates an RCA exception while AI and detector checkpoints advance", async () => {
+    workspace.currentUsage = {
+      ai: { lastReportedUnits: 200, lastReportedPeriodStart: "2026-11-01T00:00:00.000Z" },
+      rca: { lastReportedUnits: 300, lastReportedPeriodStart: "2026-11-01T00:00:00.000Z" },
+      detector: { lastReportedUnits: 4, lastReportedPeriodStart: "2026-11-01T00:00:00.000Z" },
+    };
+    mocks.rcaCount.mockResolvedValue(101);
+    mocks.usageDetails.mockResolvedValue({
+      traces: 0,
+      spans: 0,
+      detectorRuns: 200,
+      bySource: {
+        user: { traces: 0, spans: 0 },
+        detector: { traces: 0, spans: 0 },
+        agent: { traces: 0, spans: 0 },
+      },
+    });
+    mocks.messageAggregate.mockImplementation(
+      async ({ where }: { where: { kind: string; isByok: boolean } }) => ({
+        _count: { id: 0 },
+        _sum: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cost: where.kind === "detector" && !where.isByok ? 0.2 : 0,
+        },
+      }),
+    );
+    mocks.submitMeterEvent.mockImplementation(async ({ meter }: { meter: string }) => {
+      if (meter === "rca_usage") throw new Error("RCA outbox unavailable");
+      return meter === "ai_usage" ? 500 : 11;
+    });
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runBillingJob();
+
+    expect(mocks.submitMeterEvent).toHaveBeenCalledTimes(3);
+    expect(workspace.currentUsage.ai).toMatchObject({ lastReportedUnits: 500 });
+    expect(workspace.currentUsage.rca).toMatchObject({ lastReportedUnits: 300 });
+    expect(workspace.currentUsage.detector).toMatchObject({ lastReportedUnits: 11 });
+    expect(mocks.updateWorkspace).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining("workspace=ws-1, meter=rca_usage, period="),
+      expect.any(Error),
+    );
   });
 });

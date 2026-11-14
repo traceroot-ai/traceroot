@@ -33,7 +33,29 @@ const mocks = vi.hoisted(() => {
     RECONCILIATION_REQUIRED: "RECONCILIATION_REQUIRED",
   };
   let eventSequence = 0;
-  let transactionTail = Promise.resolve();
+  const lockTails = new Map<string, Promise<void>>();
+  const requestedLockKeys: string[] = [];
+  let enforceAdvisoryLocks = true;
+  let blockedLock:
+    | { key: string; entered: () => void; enteredPromise: Promise<void>; release: () => void }
+    | undefined;
+  let pendingReadBarrier:
+    | { workspaceId: string; count: number; promise: Promise<void>; release: () => void }
+    | undefined;
+
+  async function acquireLock(key: string): Promise<() => void> {
+    const previous = lockTails.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    lockTails.set(key, tail);
+    await previous;
+    return () => {
+      release();
+      if (lockTails.get(key) === tail) lockTails.delete(key);
+    };
+  }
 
   function matches(event: StoredEvent, where: Record<string, unknown>): boolean {
     return Object.entries(where).every(([key, expected]) => {
@@ -74,6 +96,17 @@ const mocks = vi.hoisted(() => {
       where: Record<string, unknown>;
       orderBy?: Record<string, "asc" | "desc">;
     }): Promise<StoredEvent | null> {
+      const status = where.status as { in?: string[] } | undefined;
+      if (
+        pendingReadBarrier &&
+        where.workspaceId === pendingReadBarrier.workspaceId &&
+        status?.in?.includes(statuses.PENDING)
+      ) {
+        const barrier = pendingReadBarrier;
+        barrier.count++;
+        if (barrier.count === 2) barrier.release();
+        await barrier.promise;
+      }
       const selected = events.filter((event) => matches(event, where));
       if (orderBy) {
         const [field, direction] = Object.entries(orderBy)[0]!;
@@ -89,7 +122,62 @@ const mocks = vi.hoisted(() => {
       }
       return selected[0] ? structuredClone(selected[0]) : null;
     },
+    async findMany({
+      where,
+      orderBy,
+      take,
+    }: {
+      where: Record<string, unknown>;
+      orderBy?: Record<string, unknown>[];
+      take: number;
+      select?: Record<string, boolean>;
+    }): Promise<Pick<StoredEvent, "id" | "workspaceId" | "meter" | "periodStart">[]> {
+      const selected = events.filter((event) => matches(event, where));
+      for (const ordering of [...(orderBy ?? [])].reverse()) {
+        const [field, rawDirection] = Object.entries(ordering)[0]!;
+        const direction =
+          typeof rawDirection === "object" && rawDirection !== null
+            ? (rawDirection as { sort: "asc" | "desc" }).sort
+            : rawDirection;
+        selected.sort((a, b) => {
+          const first = a[field as keyof StoredEvent];
+          const second = b[field as keyof StoredEvent];
+          const comparison =
+            first === null || second === null
+              ? first === second
+                ? 0
+                : first === null
+                  ? (rawDirection as { nulls?: "first" | "last" }).nulls === "first"
+                    ? -1
+                    : 1
+                  : (rawDirection as { nulls?: "first" | "last" }).nulls === "first"
+                    ? 1
+                    : -1
+              : first instanceof Date && second instanceof Date
+                ? first.getTime() - second.getTime()
+                : String(first).localeCompare(String(second));
+          return direction === "asc" ? comparison : -comparison;
+        });
+      }
+      return selected.slice(0, take).map(({ id, workspaceId, meter, periodStart }) => ({
+        id,
+        workspaceId,
+        meter,
+        periodStart,
+      }));
+    },
     async create({ data }: { data: Record<string, unknown> }): Promise<StoredEvent> {
+      if (
+        events.some(
+          (event) =>
+            event.workspaceId === data.workspaceId &&
+            event.meter === data.meter &&
+            event.periodStart.getTime() === (data.periodStart as Date).getTime() &&
+            event.cumulativeUnits === data.cumulativeUnits,
+        )
+      ) {
+        throw new Error("unique meter event target constraint");
+      }
       const created: StoredEvent = {
         ...(data as Omit<
           StoredEvent,
@@ -154,19 +242,24 @@ const mocks = vi.hoisted(() => {
   const prisma = {
     stripeMeterEvent: delegate,
     async $transaction<T>(callback: (tx: unknown) => Promise<T>): Promise<T> {
-      const previous = transactionTail;
-      let release!: () => void;
-      transactionTail = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      await previous;
+      let release: (() => void) | undefined;
       try {
         return await callback({
-          $executeRaw: async () => 1,
+          $executeRaw: async (_strings: TemplateStringsArray, lockKey: string) => {
+            requestedLockKeys.push(lockKey);
+            if (enforceAdvisoryLocks) {
+              release = await acquireLock(lockKey);
+              if (blockedLock?.key === lockKey) {
+                blockedLock.entered();
+                await blockedLock.enteredPromise;
+              }
+            }
+            return 1;
+          },
           stripeMeterEvent: delegate,
         });
       } finally {
-        release();
+        release?.();
       }
     },
   };
@@ -175,10 +268,37 @@ const mocks = vi.hoisted(() => {
     events,
     statuses,
     prisma,
+    requestedLockKeys,
+    blockNextTwoPendingReads(workspaceId: string) {
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      pendingReadBarrier = { workspaceId, count: 0, promise, release };
+    },
+    disableAdvisoryLockEnforcement() {
+      enforceAdvisoryLocks = false;
+    },
+    blockTransactionOnLock(key: string) {
+      let entered!: () => void;
+      let release!: () => void;
+      const enteredPromise = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      blockedLock = { key, entered, enteredPromise: gate, release };
+      return { entered: enteredPromise, release };
+    },
     reset() {
       events.length = 0;
       eventSequence = 0;
-      transactionTail = Promise.resolve();
+      lockTails.clear();
+      requestedLockKeys.length = 0;
+      enforceAdvisoryLocks = true;
+      blockedLock = undefined;
+      pendingReadBarrier = undefined;
     },
   };
 });
@@ -188,7 +308,11 @@ vi.mock("@traceroot/core", () => ({
   StripeMeterEventStatus: mocks.statuses,
 }));
 
-import { submitUsageMeterEvent, type UsageMeter } from "../meterEventOutbox.js";
+import {
+  recoverPendingUsageMeterEvents,
+  submitUsageMeterEvent,
+  type UsageMeter,
+} from "../meterEventOutbox.js";
 
 const PERIOD_START = new Date("2026-11-01T00:00:00.000Z");
 const NOW = new Date("2026-11-15T12:34:56.789Z");
@@ -401,6 +525,54 @@ describe("Stripe meter event outbox", () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(mocks.events).toHaveLength(1);
     expect(mocks.events[0]!.status).toBe("SUBMITTED");
+    expect(mocks.requestedLockKeys).toEqual([
+      `ws-1:ai_usage:${PERIOD_START.toISOString()}`,
+      `ws-1:ai_usage:${PERIOD_START.toISOString()}`,
+    ]);
+  });
+
+  it("allows different workspace, meter, and period locks to proceed independently", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const firstLock = `ws-1:ai_usage:${PERIOD_START.toISOString()}`;
+    const blocked = mocks.blockTransactionOnLock(firstLock);
+    const first = submitUsageMeterEvent(args({ stripeClient: stripeClient(create) }));
+    await blocked.entered;
+    let independent: Promise<number | null>[] = [];
+    try {
+      independent = [
+        submitUsageMeterEvent(args({ workspaceId: "ws-2", stripeClient: stripeClient(create) })),
+        submitUsageMeterEvent(args({ meter: "rca_usage", stripeClient: stripeClient(create) })),
+        submitUsageMeterEvent(
+          args({
+            periodStart: new Date("2026-12-01T00:00:00.000Z"),
+            stripeClient: stripeClient(create),
+          }),
+        ),
+      ];
+      expect(mocks.requestedLockKeys).toContain("ws-2:ai_usage:2026-11-01T00:00:00.000Z");
+      expect(mocks.requestedLockKeys).toContain("ws-1:rca_usage:2026-11-01T00:00:00.000Z");
+      expect(mocks.requestedLockKeys).toContain("ws-1:ai_usage:2026-12-01T00:00:00.000Z");
+    } finally {
+      blocked.release();
+    }
+    await Promise.all([first, ...independent]);
+  });
+
+  // Disabling the mock's key lock models a removed/nonfunctional production
+  // advisory lock; concurrent snapshots then race at the unique constraint.
+  it("fails its concurrency negative control when advisory-lock enforcement is removed", async () => {
+    mocks.disableAdvisoryLockEnforcement();
+    mocks.blockNextTwoPendingReads("ws-1");
+    const create = vi.fn().mockResolvedValue({});
+    const request = args({ stripeClient: stripeClient(create) });
+
+    const outcomes = await Promise.allSettled([
+      submitUsageMeterEvent(request),
+      submitUsageMeterEvent(request),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+    expect(mocks.events).toHaveLength(1);
   });
 
   it("moves an old ambiguous event to reconciliation instead of resending it", async () => {
@@ -476,6 +648,141 @@ describe("Stripe meter event outbox", () => {
       ),
     ).toBe(1_000);
     expect(mocks.events).toHaveLength(0);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("recovers a previous-period pending event using its original immutable payload", async () => {
+    const create = vi.fn().mockRejectedValueOnce(new Error("worker restart")).mockResolvedValue({});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await submitUsageMeterEvent(
+      args({
+        periodStart: new Date("2026-10-01T00:00:00.000Z"),
+        totalUnits: 700,
+        customerId: "cus_old",
+        stripeClient: stripeClient(create),
+      }),
+    );
+    const pendingEvent = structuredClone(mocks.events[0]!);
+    const originalPayload = eventParams(create)[0];
+    create.mockClear();
+    create.mockResolvedValue({});
+
+    await recoverPendingUsageMeterEvents(stripeClient(create), NOW);
+
+    expect(mocks.events[0]).toMatchObject({
+      id: pendingEvent.id,
+      identifier: pendingEvent.identifier,
+      workspaceId: "ws-1",
+      meter: "ai_usage",
+      periodStart: new Date("2026-10-01T00:00:00.000Z"),
+      cumulativeUnits: 700,
+      customerId: "cus_old",
+      units: 700,
+      eventTimestamp: pendingEvent.eventTimestamp,
+      status: "SUBMITTED",
+    });
+    expect(eventParams(create)[0]).toEqual(originalPayload);
+  });
+
+  it("keeps new-period usage isolated from a recovered previous-period event", async () => {
+    const create = vi.fn().mockRejectedValueOnce(new Error("worker restart")).mockResolvedValue({});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await submitUsageMeterEvent(
+      args({
+        periodStart: new Date("2026-10-01T00:00:00.000Z"),
+        totalUnits: 700,
+        stripeClient: stripeClient(create),
+      }),
+    );
+
+    await recoverPendingUsageMeterEvents(stripeClient(create), NOW);
+    const currentPeriodUnits = await submitUsageMeterEvent(
+      args({
+        periodStart: new Date("2026-12-01T00:00:00.000Z"),
+        totalUnits: 300,
+        stripeClient: stripeClient(create),
+        now: new Date("2026-12-03T00:00:00.000Z"),
+      }),
+    );
+
+    expect(currentPeriodUnits).toBe(300);
+    expect(mocks.events).toHaveLength(2);
+    expect(mocks.events[1]).toMatchObject({
+      periodStart: new Date("2026-12-01T00:00:00.000Z"),
+      cumulativeUnits: 300,
+      units: 300,
+    });
+  });
+
+  it("returns only recovered cumulative units when the newer delta fails", async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("worker restart"))
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error("new delta timed out"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const request = args({ totalUnits: 500, stripeClient: stripeClient(create) });
+    expect(await submitUsageMeterEvent(request)).toBeNull();
+
+    await recoverPendingUsageMeterEvents(stripeClient(create), new Date(NOW.getTime() + 60_000));
+    const confirmedUnits = await submitUsageMeterEvent(
+      args({
+        totalUnits: 1_000,
+        lastReportedUnits: 0,
+        stripeClient: stripeClient(create),
+        now: new Date(NOW.getTime() + 120_000),
+      }),
+    );
+
+    expect(confirmedUnits).toBe(500);
+    expect(mocks.events).toHaveLength(2);
+    expect(mocks.events[0]!.status).toBe("SUBMITTED");
+    expect(mocks.events[1]).toMatchObject({
+      cumulativeUnits: 1_000,
+      units: 500,
+      status: "PENDING",
+    });
+  });
+
+  it("recovers a pending event with a stale claim after a worker crash", async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("worker interrupted"))
+      .mockResolvedValue({});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await submitUsageMeterEvent(args({ stripeClient: stripeClient(create) }));
+    const event = mocks.events[0]!;
+    const identifier = event.identifier;
+    event.claimToken = "crashed-worker";
+    event.claimedAt = new Date(NOW.getTime() - 6 * 60 * 1000);
+    create.mockClear();
+    create.mockResolvedValue({});
+
+    await recoverPendingUsageMeterEvents(stripeClient(create), NOW);
+
+    expect(event.status).toBe("SUBMITTED");
+    expect(event.identifier).toBe(identifier);
+    expect(event.attemptCount).toBe(2);
+    expect(eventParams(create)[0]!.identifier).toBe(identifier);
+  });
+
+  it("does not resend a previous-period event requiring reconciliation", async () => {
+    const create = vi.fn().mockRejectedValue(new Error("timed out"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await submitUsageMeterEvent(
+      args({
+        periodStart: new Date("2026-10-01T00:00:00.000Z"),
+        stripeClient: stripeClient(create),
+      }),
+    );
+    const event = mocks.events[0]!;
+    event.ambiguousSince = new Date(NOW.getTime() - 24 * 60 * 60 * 1000);
+    event.status = "RECONCILIATION_REQUIRED";
+    create.mockClear();
+
+    await recoverPendingUsageMeterEvents(stripeClient(create), NOW);
+
+    expect(event.status).toBe("RECONCILIATION_REQUIRED");
     expect(create).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 
 const STRIPE_IDENTIFIER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_LEASE_MS = 5 * 60 * 1000;
+const RECOVERY_BATCH_SIZE = 100;
 
 export type UsageMeter = "ai_usage" | "rca_usage" | "detector_usage";
 
@@ -23,6 +24,13 @@ const meterEventNames: Record<UsageMeter, string> = {
   rca_usage: "rca_usage",
   detector_usage: "detector_usage",
 };
+
+export class MeterEventReconciliationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MeterEventReconciliationError";
+  }
+}
 
 function stripeErrorCode(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
@@ -119,12 +127,39 @@ export async function submitUsageMeterEvent({
     return Math.max(lastReportedUnits, latestSubmitted?.cumulativeUnits ?? 0);
   }
 
+  const confirmedUnits = await deliverPendingMeterEvent(event.id, stripeClient, now);
+  if (confirmedUnits !== null) return confirmedUnits;
+
+  const latestSubmitted = await prisma.stripeMeterEvent.findFirst({
+    where: {
+      workspaceId,
+      meter,
+      periodStart,
+      status: StripeMeterEventStatus.SUBMITTED,
+    },
+    orderBy: { cumulativeUnits: "desc" },
+  });
+  const previouslyConfirmedUnits = Math.max(
+    lastReportedUnits,
+    latestSubmitted?.cumulativeUnits ?? 0,
+  );
+  return previouslyConfirmedUnits > lastReportedUnits ? previouslyConfirmedUnits : null;
+}
+
+async function deliverPendingMeterEvent(
+  eventId: string,
+  stripeClient: Stripe,
+  now: Date,
+): Promise<number | null> {
+  const event = await prisma.stripeMeterEvent.findUnique({ where: { id: eventId } });
+  if (!event || event.status === StripeMeterEventStatus.SUBMITTED) {
+    return event?.cumulativeUnits ?? null;
+  }
   if (event.status === StripeMeterEventStatus.RECONCILIATION_REQUIRED) {
-    throw new Error(
-      `Stripe meter event ${event.identifier} for ${workspaceId}/${meter} requires reconciliation`,
+    throw new MeterEventReconciliationError(
+      `Stripe meter event ${event.identifier} for ${event.workspaceId}/${event.meter} requires reconciliation`,
     );
   }
-
   if (
     event.ambiguousSince &&
     now.getTime() - event.ambiguousSince.getTime() >= STRIPE_IDENTIFIER_WINDOW_MS
@@ -152,8 +187,8 @@ export async function submitUsageMeterEvent({
       if (current?.status === StripeMeterEventStatus.SUBMITTED) return current.cumulativeUnits;
       if (current?.status === StripeMeterEventStatus.PENDING) return null;
     }
-    throw new Error(
-      `Stripe meter event ${event.identifier} for ${workspaceId}/${meter} requires reconciliation after the identifier window`,
+    throw new MeterEventReconciliationError(
+      `Stripe meter event ${event.identifier} for ${event.workspaceId}/${event.meter} requires reconciliation after the identifier window`,
     );
   }
 
@@ -225,7 +260,7 @@ export async function submitUsageMeterEvent({
       data: failureData,
     });
     console.error(
-      `[Billing] Stripe meter event failed: workspace=${workspaceId}, meter=${meter}, identifier=${event.identifier}, code=${stripeErrorCode(error)}`,
+      `[Billing] Stripe meter event failed: workspace=${event.workspaceId}, meter=${event.meter}, period=${event.periodStart.toISOString()}, identifier=${event.identifier}, code=${stripeErrorCode(error)}`,
     );
     return null;
   }
@@ -256,4 +291,39 @@ export async function submitUsageMeterEvent({
   }
 
   return event.cumulativeUnits;
+}
+
+/**
+ * Retry a bounded batch of pending outbox events before the billing job reads
+ * current-period usage. Each delivery uses the event's persisted payload and
+ * atomic claim, without touching workspace checkpoints.
+ */
+export async function recoverPendingUsageMeterEvents(
+  stripeClient: Stripe,
+  now: Date,
+): Promise<void> {
+  const pendingEvents = await prisma.stripeMeterEvent.findMany({
+    where: {
+      status: StripeMeterEventStatus.PENDING,
+      OR: [{ claimToken: null }, { claimedAt: { lte: new Date(now.getTime() - CLAIM_LEASE_MS) } }],
+    },
+    orderBy: [
+      { lastAttemptAt: { sort: "asc", nulls: "first" } },
+      { createTime: "asc" },
+      { id: "asc" },
+    ],
+    take: RECOVERY_BATCH_SIZE,
+    select: { id: true, workspaceId: true, meter: true, periodStart: true },
+  });
+
+  for (const event of pendingEvents) {
+    try {
+      await deliverPendingMeterEvent(event.id, stripeClient, now);
+    } catch (error) {
+      console.error(
+        `[Billing] Pending Stripe meter event recovery failed: workspace=${event.workspaceId}, meter=${event.meter}, period=${event.periodStart.toISOString()}`,
+        error,
+      );
+    }
+  }
 }
