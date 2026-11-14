@@ -171,6 +171,25 @@ def test_our_missing_or_null_rate_is_flagged_when_the_catalogs_charge_for_it():
     assert "gpt-a   cache read      none  → 0.50" in format_report(report)
 
 
+def test_a_catalogs_non_finite_rate_counts_as_absent():
+    # JSON parsers accept NaN and Infinity, and read 1e999 as infinity.
+    rows = [row("gpt-a", "openai"), row("gpt-b", "openai")]
+    litellm = {
+        "gpt-a": ll_entry("openai", input_=json.loads("1e999")),
+        "gpt-b": ll_entry("openai", input_=2e-6),
+    }
+    modelsdev = md_catalog(
+        openai={"gpt-a": md_model(input_=2e-6), "gpt-b": md_model(input_=json.loads("NaN"))}
+    )
+    report = report_for(rows, litellm, modelsdev)
+
+    # The other catalog decides, and it disagrees with ours.
+    assert [(f["model"], f["field"], f["litellm"], f["modelsdev"]) for f in report["flagged"]] == [
+        ("gpt-a", "input", None, pytest.approx(2e-6)),
+        ("gpt-b", "input", pytest.approx(2e-6), None),
+    ]
+
+
 def test_other_catalog_providers_are_ignored():
     rows = [row("gemini-c", "google")]
     litellm = {
@@ -589,6 +608,14 @@ def test_price_file_format_change_fails():
     no_input = {**good, "prices": {**good["prices"], "input": None}}
     with pytest.raises(CheckError, match=r"prices\.input"):
         validate_rows([no_input])
+
+
+@pytest.mark.parametrize(
+    "rate", [float("nan"), float("inf"), 10**400], ids=["nan", "infinity", "too-large-for-a-float"]
+)
+def test_a_rate_that_is_not_a_finite_number_fails_validation(rate):
+    with pytest.raises(CheckError, match=r"non-numeric prices\.input"):
+        validate_rows([row("gpt-a", "openai", input_=rate)])
 
 
 def test_catalog_field_missing_everywhere_fails():

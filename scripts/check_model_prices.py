@@ -63,6 +63,7 @@ import contextlib
 import functools
 import html
 import json
+import math
 import os
 import re
 import signal
@@ -245,10 +246,15 @@ class CheckError(Exception):
 
 
 def _number(value):
-    """A rate as a float, or None when it is absent or not a number."""
+    """A rate as a float, or None when it is absent, not a number, or not finite: JSON
+    can hold NaN, Infinity and integers too large for a float."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _day(value) -> datetime | None:
