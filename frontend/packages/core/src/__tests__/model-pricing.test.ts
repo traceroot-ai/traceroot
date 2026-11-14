@@ -70,6 +70,11 @@ describe("calculateCostFromPricing — cache-write 1-hour portion", () => {
     expect(cost).toBeCloseTo(1000 * CLAUDE.input + 500 * CLAUDE.output, 12);
   });
 
+  it("prices cache reads at the cacheRead rate", () => {
+    const cost = calculateCostFromPricing(CLAUDE, 0, 0, 1000);
+    expect(cost).toBeCloseTo(1000 * CLAUDE.cacheRead!, 12);
+  });
+
   it("clamps negative counts to zero (mirrors the worker)", () => {
     const cost = calculateCostFromPricing(CLAUDE, -100, -50, -10, -900, -1);
     expect(cost).toBe(0);
