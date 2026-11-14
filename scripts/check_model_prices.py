@@ -72,6 +72,7 @@ import threading
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -244,7 +245,7 @@ class CheckError(Exception):
     """A condition that must fail the run loudly instead of reporting all clear."""
 
 
-def _number(value):
+def _number(value: object) -> float | None:
     """A rate as a float, or None when it is absent, not a number, or not finite: JSON
     can hold NaN, Infinity and integers too large for a float."""
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -256,7 +257,7 @@ def _number(value):
     return number if math.isfinite(number) else None
 
 
-def _day(value) -> datetime | None:
+def _day(value: object) -> datetime | None:
     """A catalog date such as 2026-11-08, or None when it is absent or unreadable."""
     if not isinstance(value, str):
         return None
@@ -290,7 +291,7 @@ def _code(text: str) -> str:
     return f"`{_escape(text).replace('`', BACKTICK)}`"
 
 
-def validate_rows(data) -> list[dict]:
+def validate_rows(data: object) -> list[dict]:
     """Check our price file's shape. Any missing key fails the run, as does a
     non-numeric input or output; cache rates may be null for models without them, and
     cacheWrite1h may be left out."""
@@ -331,7 +332,7 @@ def _require_fields(catalog: str, index: dict, source_fields: dict[str, str]) ->
             raise CheckError(f"no {catalog} model has {source}")
 
 
-def index_litellm(data) -> dict[tuple[str, str], dict]:
+def index_litellm(data: object) -> dict[tuple[str, str], dict]:
     """Map (our provider, model ID) to rates per token. Keys may carry a provider
     prefix, such as gemini/ or xai/, which is stripped to get the model ID."""
     if not isinstance(data, dict):
@@ -362,7 +363,7 @@ def index_litellm(data) -> dict[tuple[str, str], dict]:
     return index
 
 
-def index_modelsdev(data) -> dict[tuple[str, str], dict]:
+def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
     """Map (our provider, model ID) to rates per token, converted from per million."""
     if not isinstance(data, dict):
         raise CheckError("the models.dev catalog is not a JSON object")
@@ -401,7 +402,7 @@ def _retired(model: dict) -> datetime | None:
     return datetime.min if model.get("status") == "deprecated" else None
 
 
-def index_hosted(litellm, modelsdev) -> dict[str, dict]:
+def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
     """The IDs other hosts serve our providers' models under, such as Bedrock's
     us.anthropic.claude-sonnet-5-5, each with its host and whether it is a live text
     model. Vertex AI's @default placeholder and OpenRouter's :free style variants are
@@ -866,7 +867,7 @@ def track(report: dict, prs: list[dict]) -> None:
     report["tracking"] = "ok"
 
 
-def _github(url: str, token: str | None):
+def _github(url: str, token: str | None) -> Any:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -1531,7 +1532,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; } code { font-si
 """
 
 
-def _h(text) -> str:
+def _h(text: object) -> str:
     return html.escape(str(text))
 
 
@@ -1723,7 +1724,7 @@ def failure_payload(date: str, reason: str) -> dict:
     }
 
 
-def fetch_json(url: str, max_bytes: int | None = None):
+def fetch_json(url: str, max_bytes: int | None = None) -> Any:
     """Fetch and parse JSON; with max_bytes, a larger file is a CheckError."""
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
@@ -1733,7 +1734,7 @@ def fetch_json(url: str, max_bytes: int | None = None):
     return json.loads(body)
 
 
-def load_source(source: str, label: str):
+def load_source(source: str, label: str) -> Any:
     """Load a catalog from a URL or a local file. Any failure fails the run."""
     try:
         if source.startswith(("https://", "http://")):
