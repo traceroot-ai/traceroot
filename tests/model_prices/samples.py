@@ -14,6 +14,7 @@ from scripts.model_prices.catalogs import (
     index_modelsdev,
 )
 from scripts.model_prices.checks import build_report
+from scripts.model_prices.findings import changes, describe_all
 from scripts.model_prices.tracking import GITHUB_API, track
 
 DATE = "2026-11-08"
@@ -77,6 +78,14 @@ def report_for(rows, litellm, modelsdev, min_compared=1):
         hosted=index_hosted(litellm, modelsdev),
         min_compared=min_compared,
     )
+
+
+def compare(before, after, litellm, modelsdev):
+    """What --baseline lists for an edit from the before rows to the after rows."""
+    fixes, adds = changes(
+        report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev)
+    )
+    return {"fixes": describe_all(fixes), "adds": adds}
 
 
 def _block_text(block):
