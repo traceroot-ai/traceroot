@@ -1193,3 +1193,45 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+def test_the_price_check_picks_the_row_the_worker_prices_with(real_cache):
+    # scripts/model_prices repeats get_model_price's row lookup to check the price file,
+    # so both must pick the same row for every kind of ID.
+    from scripts.model_prices.checks import lookup
+
+    ids = [
+        # Exact names, one an earlier row's pattern also matches, and one in another case.
+        "gpt-5.5",
+        "claude-sonnet-5-5",
+        "claude-sonnet-4-5",
+        "gemini-2.5-pro",
+        "GPT-5.5",
+        # Pattern matches: a provider prefix, a date, [1m].
+        "openai/gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-4o-2024-08-06",
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-6[1m]",
+        # Dash spellings of a dotted version, and the reverse.
+        "gpt-5-5",
+        "claude-sonnet-5.5",
+        # IDs other hosts serve a model under.
+        "anthropic/claude-sonnet-4.5",
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "deepseek/deepseek-v4-pro",
+        "eu.anthropic.claude-sonnet-5-5",
+        # An unknown ID.
+        "not-a-model",
+    ]
+    # The worker reads rows ordered by model name.
+    cache = sorted(real_cache, key=lambda entry: entry["model_name"])
+    with patch("worker.tokens.pricing._load_cache", lambda: cache):
+        worker = {
+            model_id: (get_model_price(model_id) or {}).get(MATCHED_MODEL_NAME) for model_id in ids
+        }
+    rows = _standard_price_entries()
+    script = {model_id: (lookup(rows, model_id) or {}).get("modelName") for model_id in ids}
+
+    assert script == worker
+    assert sum(name is not None for name in worker.values()) > len(ids) // 2
