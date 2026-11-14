@@ -1452,8 +1452,10 @@ def _summary(report: dict) -> str:
         parts.append(f"{_plural(len(missing), 'model')} not priced")
     if parts:
         return ", ".join(parts)
+    # Aliases, snapshots, realtime and search models are not counted here, so the line
+    # speaks only of what needs a fix.
     in_prs = any(item.get("tracked_by") for item in finding_keys(report).values())
-    return "everything found is in an open PR" if in_prs else "prices match the catalogs"
+    return "nothing needs a fix that isn't in an open PR" if in_prs else "prices match the catalogs"
 
 
 def _slack_footer(report: dict, report_url: str | None) -> str:
@@ -1508,7 +1510,7 @@ def build_payload(report: dict, report_url: str | None = None, more_in: str | No
         text = (
             ":large_green_circle: *Nothing needs a fix that isn't in an open PR*"
             if progress
-            else ":large_green_circle: *Prices match the catalogs, and every model ID is priced*"
+            else ":large_green_circle: *Prices match the catalogs*"
         )
         blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
     if progress:

@@ -967,12 +967,32 @@ def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
     assert "• `gpt-a` cache read none → $0.50: #7" in _progress(report)
 
 
-def test_the_notification_says_when_everything_found_is_in_an_open_pr():
+def test_the_notification_says_when_every_fix_is_in_an_open_pr():
     litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
     report = _track_one_pr([row("gpt-a", "openai")], litellm, [row("gpt-a", "openai", input_=2e-6)])
 
     assert build_payload(report)["text"] == (
-        f"Model pricing audit, {DATE}: everything found is in an open PR"
+        f"Model pricing audit, {DATE}: nothing needs a fix that isn't in an open PR"
+    )
+
+
+def test_the_slack_message_claims_only_what_it_counted():
+    # Aliases, snapshots, realtime and search models are left to the full report, so the
+    # message can't say every model ID is priced, or everything found is in a PR.
+    litellm = {
+        "gpt-a": ll_entry("openai"),
+        "gpt-a-latest": ll_entry("openai"),
+        "gpt-realtime-a": ll_entry("openai", mode="realtime"),
+    }
+    report = report_for([row("gpt-a", "openai")], litellm, md_catalog())
+    assert [item["model"] for item in report["missing"]] == ["gpt-a-latest", "gpt-realtime-a"]
+    blocks = build_payload(report)["blocks"]
+    assert _block_text(blocks[1]) == ":large_green_circle: *Prices match the catalogs*"
+
+    flagged = [row("gpt-a", "openai", input_=5e-7)]
+    payload = build_payload(_track_one_pr(flagged, litellm, [row("gpt-a", "openai")]))
+    assert payload["text"] == (
+        f"Model pricing audit, {DATE}: nothing needs a fix that isn't in an open PR"
     )
 
 
@@ -1212,7 +1232,7 @@ def test_quiet_day_posts_a_heartbeat(run, tmp_path):
     [payload] = posted
     assert payload["text"] == f"Model pricing audit, {report['date']}: prices match the catalogs"
     assert payload["blocks"][1]["text"]["text"] == (
-        ":large_green_circle: *Prices match the catalogs, and every model ID is priced*"
+        ":large_green_circle: *Prices match the catalogs*"
     )
     assert "<https://pages.test/r|Full report>" in payload["blocks"][-1]["elements"][0]["text"]
     assert json.loads(saved.read_text()) == payload
