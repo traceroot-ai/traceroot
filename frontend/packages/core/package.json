@@ -59,7 +59,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.3",
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "^7.10.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
