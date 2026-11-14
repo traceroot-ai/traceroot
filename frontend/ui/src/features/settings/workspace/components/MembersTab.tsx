@@ -168,7 +168,15 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               <p className="text-sm text-destructive">{inviteMutation.error.message}</p>
             )}
           </div>
-          <DialogFooter className="sm:justify-center">
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowInviteMember(false)}
+              disabled={inviteMutation.isPending}
+            >
+              Cancel
+            </Button>
             <Button
               onClick={handleInviteMember}
               disabled={!newMemberEmail.trim() || inviteMutation.isPending}
@@ -205,7 +213,15 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter className="sm:justify-center">
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingMember(null)}
+              disabled={updateRoleMutation.isPending}
+            >
+              Cancel
+            </Button>
             <Button onClick={handleUpdateRole} disabled={updateRoleMutation.isPending}>
               {updateRoleMutation.isPending ? "Saving..." : "Save"}
             </Button>
