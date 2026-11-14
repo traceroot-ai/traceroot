@@ -409,7 +409,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh]">
           <DialogHeader>
             <DialogTitle>{editProvider ? "Edit provider" : "Add provider"}</DialogTitle>
             <DialogDescription>
