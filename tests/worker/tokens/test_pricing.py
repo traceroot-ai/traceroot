@@ -752,6 +752,9 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
+    # Sonnet 4.6 — [1m] variant (Claude Code's 1M-context model id)
+    ("claude-sonnet-4-6[1m]", "claude-sonnet-4-6"),
+    ("anthropic/claude-sonnet-4-6[1m]", "claude-sonnet-4-6"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
@@ -859,6 +862,7 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("claude-opus-4.6", "claude-opus-4-6"),
     ("claude-opus-4.5", "claude-opus-4-5"),
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
+    ("claude-sonnet-4.6[1m]", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
     ("claude-haiku-4.5", "claude-haiku-4-5"),
     # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
