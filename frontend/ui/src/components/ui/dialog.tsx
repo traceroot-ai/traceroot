@@ -37,7 +37,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-4 shadow-[0_4px_12px_rgba(11,16,21,0.08)] duration-200 sm:rounded-[2px]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border bg-background p-4 shadow-[0_4px_12px_rgba(11,16,21,0.08)] duration-200 sm:rounded-[2px]",
         className,
       )}
       {...props}
@@ -55,7 +55,7 @@ DialogContent.displayName = DialogPrimitive.Content.displayName;
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "-mx-4 -mt-4 flex min-h-11 flex-col justify-center space-y-0.5 border-b border-border px-4 py-2 pr-12 text-left",
+      "-mx-4 -mt-4 flex min-h-11 flex-col justify-center space-y-0.5 border-b border-border px-4 py-3 pr-12 text-left",
       className,
     )}
     {...props}
@@ -66,7 +66,7 @@ DialogHeader.displayName = "DialogHeader";
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "-mx-4 -mb-4 flex flex-col-reverse border-t border-border px-4 py-3 sm:flex-row sm:justify-end sm:space-x-2",
+      "-mx-4 -mb-4 flex flex-col-reverse gap-2 border-t border-border px-4 py-3 sm:flex-row sm:justify-end",
       className,
     )}
     {...props}
@@ -80,7 +80,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("pr-8 text-[15px] font-medium leading-none tracking-tight", className)}
+    className={cn("pr-8 text-[15px] font-medium leading-5 tracking-tight", className)}
     {...props}
   />
 ));

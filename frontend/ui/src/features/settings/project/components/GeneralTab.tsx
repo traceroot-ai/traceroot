@@ -138,7 +138,7 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
               <span className="font-semibold">{project?.name}</span>&quot; and all associated data.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <p className="mb-2 text-sm text-muted-foreground">
               Type <span className="font-mono font-semibold text-foreground">{project?.name}</span>{" "}
               to confirm:

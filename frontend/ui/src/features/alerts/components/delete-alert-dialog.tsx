@@ -71,7 +71,7 @@ export function DeleteAlertDialog({
 
         {error && <p className="text-[12px] text-destructive">{error.message}</p>}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter>
           <Button
             type="button"
             variant="outline"
