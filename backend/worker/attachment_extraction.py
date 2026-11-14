@@ -136,6 +136,7 @@ def extract_attachments(
     traces: list[dict],
     spans: list[dict],
     config: AttachmentSettings | None = None,
+    extractor: "_Extractor | None" = None,
 ) -> AttachmentExtractionResult:
     """Replace the images in a batch's trace and span rows with attachment references.
 
@@ -150,6 +151,8 @@ def extract_attachments(
         traces: Trace rows from ``transform_otel_to_clickhouse``.
         spans: Span rows from ``transform_otel_to_clickhouse``.
         config: Limits to apply. Defaults to ``settings.attachments``.
+        extractor: Optional existing ``_Extractor`` instance to share budget and
+            deduplication state across multiple chunks or trace extraction calls.
 
     Returns:
         Counts of what was replaced, stored, omitted and cut.
@@ -158,9 +161,20 @@ def extract_attachments(
         Exception: Whatever storage raises. The rows may then be partly rewritten,
             so the caller must not insert them; retrying the batch is safe.
     """
-    if config is None:
-        config = settings.attachments
-    extractor = _Extractor(s3_service, project_id, config)
+    if extractor is None:
+        if config is None:
+            config = settings.attachments
+        extractor = _Extractor(s3_service, project_id, config)
+    elif config is None:
+        config = extractor._config
+    elif config != extractor._config:
+        raise ValueError("config must match the extractor configuration")
+
+    initial_referenced = extractor.result.referenced
+    initial_stored = extractor.result.stored
+    initial_omitted = extractor.result.omitted
+    initial_truncated = extractor.result.truncated
+
     for row in (*spans, *traces):
         for name in TEXT_FIELDS:
             value = row.get(name)
@@ -171,19 +185,24 @@ def extract_attachments(
         if _enforce_size_limit(row, config.max_span_bytes):
             extractor.result.truncated += 1
 
-    result = extractor.result
-    if result.referenced or result.omitted or result.truncated:
+    call_result = AttachmentExtractionResult(
+        referenced=extractor.result.referenced - initial_referenced,
+        stored=extractor.result.stored - initial_stored,
+        omitted=extractor.result.omitted - initial_omitted,
+        truncated=extractor.result.truncated - initial_truncated,
+    )
+    if call_result.referenced or call_result.omitted or call_result.truncated:
         logger.info(
             "Attachments for project %s: %d image(s) referenced (%d newly stored), "
             "%d omitted, %d row(s) cut to %d bytes",
             project_id,
-            result.referenced,
-            result.stored,
-            result.omitted,
-            result.truncated,
+            call_result.referenced,
+            call_result.stored,
+            call_result.omitted,
+            call_result.truncated,
             config.max_span_bytes,
         )
-    return result
+    return call_result
 
 
 class _Extractor:
@@ -315,6 +334,10 @@ class _Extractor:
     def _omit(self, reason: str, byte_count: int) -> str:
         self.result.omitted += 1
         return f"[image omitted: {reason}, {byte_count} bytes]"
+
+
+#: Public alias for attachment extractor.
+AttachmentExtractor = _Extractor
 
 
 def _known_shape_image(node: dict) -> str | None:
