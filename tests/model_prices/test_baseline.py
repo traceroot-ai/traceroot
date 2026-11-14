@@ -8,6 +8,7 @@ import pytest
 from tests.model_prices.samples import (
     DATE,
     _block_text,
+    _track_one_pr,
     compare,
     ll_entry,
     md_catalog,
@@ -81,6 +82,26 @@ def test_a_flagged_rate_changed_to_another_wrong_rate_is_added_not_fixed():
         "fixes": ["deepseek-d output rate (ours 1.00)"],
         "adds": [],
     }
+
+
+def test_a_row_named_after_a_1m_id_prices_it_right_only_at_its_models_rates():
+    # No catalog lists [1m] IDs, so nothing else checks a row named one.
+    litellm = {"claude-l": ll_entry("anthropic", max_input_tokens=1_000_000)}
+    before = [row("claude-l", "anthropic")]
+    pattern = r"(?i)^claude-l\[1m\]$"
+    free = row("claude-l[1m]", "anthropic", input_=0, output=0, cache_read=0, pattern=pattern)
+    same = row("claude-l[1m]", "anthropic", pattern=pattern)
+
+    assert compare(before, [*before, free], litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": ["claude-l[1m] priced as claude-l[1m]"],
+    }
+    assert compare(before, [*before, same], litellm, md_catalog()) == {
+        "fixes": ["claude-l[1m] not priced by its row"],
+        "adds": [],
+    }
+    [pr] = _track_one_pr(before, litellm, [*before, free])["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["claude-l[1m] priced as claude-l[1m]"])
 
 
 def test_an_edit_that_stops_comparing_a_flagged_row_is_added():

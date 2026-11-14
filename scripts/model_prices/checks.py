@@ -255,12 +255,14 @@ def find_unpriced_ids(
 ) -> list[dict]:
     """IDs a row should price that no row matches, so their spans record no cost, or that
     another row with different rates matches, so they get the wrong price. A row named
-    exactly the ID prices it on purpose, so the ID counts as priced; for a host ID,
-    mispriced_host_ids compares that row's rates with the host's."""
+    exactly a host ID prices it on purpose, so the ID counts as priced: mispriced_host_ids
+    compares that row's rates with the host's. No catalog lists a [1m] ID, so a row named
+    one prices it right only at the model's own rates."""
     found = []
+    checked = {model_id for model_id, _ in _live_hosted(hosted, today)}
     for model_id, source, row in _variant_ids(rows, catalogs, hosted, today):
         priced_by = lookup(rows, model_id)
-        if priced_by is not None and priced_by["modelName"] == model_id:
+        if model_id in checked and priced_by is not None and priced_by["modelName"] == model_id:
             continue
         if priced_by is None or (priced_by is not row and priced_by["prices"] != row["prices"]):
             found.append(
