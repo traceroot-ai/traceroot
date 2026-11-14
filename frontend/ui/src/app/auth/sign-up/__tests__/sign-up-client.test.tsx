@@ -115,7 +115,7 @@ describe("SignUpPage", () => {
     env.AUTH_GOOGLE_CLIENT_ID = "test-client";
     env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
     render(<SignUpPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
 
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
     const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };
@@ -177,5 +177,14 @@ describe("SignUpPage", () => {
     render(<SignUpPage />);
     const link = screen.getByRole("link", { name: "Sign in" });
     expect(link.getAttribute("href")).toBe("/auth/sign-in");
+  });
+
+  it("shows progress and blocks a second submit while creating the account", async () => {
+    mocks.signUpEmail.mockReturnValue(new Promise(() => {}));
+    render(<SignUpPage />);
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    const button = await screen.findByRole("button", { name: "Creating account..." });
+    expect(button.hasAttribute("disabled")).toBe(true);
   });
 });

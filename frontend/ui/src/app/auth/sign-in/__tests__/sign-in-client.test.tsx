@@ -55,7 +55,7 @@ function fillAndSubmit() {
 describe("SignInClient", () => {
   it("titles the card with the product name", () => {
     render(<SignInClient googleAuthConfigured={false} />);
-    expect(screen.getByRole("heading", { name: "Sign in to traceroot" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Welcome back" })).toBeTruthy();
   });
 
   it("carries the callback to the sign-up link so a new user finishes the round-trip", () => {
@@ -90,7 +90,7 @@ describe("SignInClient", () => {
     mocks.signInSocial.mockResolvedValue({ error: null });
 
     render(<SignInClient googleAuthConfigured={true} />);
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
 
     await waitFor(() =>
       expect(mocks.signInSocial).toHaveBeenCalledWith({
@@ -128,5 +128,26 @@ describe("SignInClient", () => {
     // safeCallbackUrl collapses the off-origin value to the "/" fallback, which
     // is treated as "no real callback" — so the link stays bare.
     expect(link.getAttribute("href")).toBe("/auth/sign-up");
+  });
+
+  it("links Forgot? to the reset request page when email is set up", () => {
+    render(<SignInClient googleAuthConfigured={false} passwordResetEnabled />);
+    expect(screen.getByRole("link", { name: "Forgot?" }).getAttribute("href")).toBe(
+      "/auth/forgot-password",
+    );
+  });
+
+  // Without SMTP the reset email cannot go out, so the link would be a dead end.
+  it("hides Forgot? when email is not set up", () => {
+    render(<SignInClient googleAuthConfigured={false} />);
+    expect(screen.queryByRole("link", { name: "Forgot?" })).toBeNull();
+  });
+
+  it("shows progress and blocks a second submit while signing in", async () => {
+    mocks.signInEmail.mockReturnValue(new Promise(() => {}));
+    render(<SignInClient googleAuthConfigured={false} />);
+    fillAndSubmit();
+    const button = await screen.findByRole("button", { name: "Signing in..." });
+    expect(button.hasAttribute("disabled")).toBe(true);
   });
 });
