@@ -405,8 +405,8 @@ def test_baseline_compares_at_the_baseline_reports_date(run, tmp_path):
 
 
 def test_baseline_lists_each_add_on_its_own_line(run, tmp_path, capsys):
-    # Adds are checked line by line against the kinds allowed, such as a rate a new row
-    # leaves out, so one model's rates are not merged into one line.
+    # Each add, such as a rate a new row leaves out, is checked on its own, so one
+    # model's rates are not merged into one line.
     litellm = {
         "gpt-a": ll_entry("openai"),
         "claude-x": ll_entry(

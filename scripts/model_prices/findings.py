@@ -113,16 +113,16 @@ def _row_names(report: dict) -> set[str]:
 
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     """The findings in report that the after report clears, and what it adds, each add
-    in a few words on a line of its own, so adds can be checked one by one against the
-    kinds allowed. A finding is cleared only when the after report has nothing about the
-    same rate or ID, and added when its key is new, so a flagged rate changed to another
-    wrong one, or an ID moved from no row to the wrong row, is an add and not a fix. A
-    finding found through a row is not cleared when the after report stops comparing
-    that row with any catalog, as when its provider changes to one no catalog covers, or
-    no longer has the row: that hides the finding, so the row is an add instead. Two
-    changes no finding shows are adds too: a host ID newly priced at rates its host
-    disagrees with (see _host_rates_added), and a dash spelling a row priced before and
-    none prices after."""
+    in a few words on a line of its own, so each can be checked on its own. A finding is
+    cleared only when the after report has nothing about the same rate or ID, and added
+    when its key is new, so a flagged rate changed to another wrong one, or an ID moved
+    from no row to the wrong row, is an add and not a fix. A finding found through a row
+    is not cleared when the after report stops comparing that row with any catalog, as
+    when its provider changes to one no catalog covers, or no longer has the row: that
+    hides the finding, so the row is an add instead. Two changes no finding shows are
+    adds too: a host ID newly priced at rates its host disagrees with (see
+    _host_rates_added), and a dash spelling a row priced before and none prices
+    after."""
     before, after_keys = finding_keys(report), finding_keys(after)
     removed = _row_names(report) - _row_names(after)
     stopped = (set(after["no_match"]) - set(report["no_match"])) | removed

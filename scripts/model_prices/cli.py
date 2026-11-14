@@ -133,7 +133,8 @@ def main(argv: list[str]) -> int:
         type=Path,
         metavar="REPORT",
         help="list what this price file fixes and adds compared with a report saved by "
-        "--json; exit 2 if it adds anything",
+        "--json; exit 2 if it adds anything, as even a correct new row does when a catalog "
+        "bills its model more above a prompt size (a long-context add)",
     )
     parser.add_argument(
         "--track",
