@@ -73,14 +73,20 @@ Standard library only, so it runs on any Python 3.11+ without installing anythin
 """
 
 import argparse
+import contextlib
 import functools
 import html
 import json
+import math
 import os
 import re
+import signal
 import sys
+import threading
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -206,9 +212,11 @@ MAX_PR_PAGES = 10
 # A PR's price file is read up to this size, about 25 times ours, so one huge file
 # can't stall the run.
 MAX_PRICE_FILE_BYTES = 1_000_000
+# A PR's patterns can backtrack for hours on a long catalog ID. A whole report is checked
+# in well under a second, so this limit only stops such a pattern.
+PR_CHECK_SECONDS = 10
 # A PR is checked when its title or body mentions pricing or a model in the report.
 PRICING_WORDS = re.compile(r"pric", re.IGNORECASE)
-CLOSES_ISSUE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE)
 
 # Rows in the Slack price table; the JSON report has every flag.
 MAX_FLAGGED_LINES = 20
@@ -251,14 +259,19 @@ class CheckError(Exception):
     """A condition that must fail the run loudly instead of reporting all clear."""
 
 
-def _number(value):
-    """A rate as a float, or None when it is absent or not a number."""
+def _number(value: object) -> float | None:
+    """A rate as a float, or None when it is absent, not a number, or not finite: JSON
+    can hold NaN, Infinity and integers too large for a float."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
-def _day(value) -> datetime | None:
+def _day(value: object) -> datetime | None:
     """A catalog date such as 2026-11-08, or None when it is absent or unreadable."""
     if not isinstance(value, str):
         return None
@@ -280,7 +293,19 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def validate_rows(data) -> list[dict]:
+# Looks like a backtick, but does not end Slack code.
+BACKTICK = "\u02cb"
+
+
+def _code(text: str) -> str:
+    """Text from a catalog or an open PR, such as a model ID, as Slack inline code. Slack
+    renders no bold, italics, strikethrough, emoji or links inside code, so the text
+    can't pose as the message's own; a backtick in it, which would end the code, becomes
+    a look-alike."""
+    return f"`{_escape(text).replace('`', BACKTICK)}`"
+
+
+def validate_rows(data: object) -> list[dict]:
     """Check our price file's shape. Any missing key fails the run, as does a
     non-numeric input or output; cache rates may be null for models without them, and
     cacheWrite1h may be left out."""
@@ -321,7 +346,7 @@ def _require_fields(catalog: str, index: dict, source_fields: dict[str, str]) ->
             raise CheckError(f"no {catalog} model has {source}")
 
 
-def index_litellm(data) -> dict[tuple[str, str], dict]:
+def index_litellm(data: object) -> dict[tuple[str, str], dict]:
     """Map (our provider, model ID) to rates per token. Keys may carry a provider
     prefix, such as gemini/ or xai/, which is stripped to get the model ID."""
     if not isinstance(data, dict):
@@ -330,7 +355,7 @@ def index_litellm(data) -> dict[tuple[str, str], dict]:
     for key, entry in data.items():
         if key == "sample_spec" or not isinstance(entry, dict):
             continue
-        litellm_provider = entry.get("litellm_provider")
+        litellm_provider = str(entry.get("litellm_provider"))
         provider = LITELLM_PROVIDERS.get(litellm_provider)
         if provider is None:
             continue
@@ -352,7 +377,7 @@ def index_litellm(data) -> dict[tuple[str, str], dict]:
     return index
 
 
-def index_modelsdev(data) -> dict[tuple[str, str], dict]:
+def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
     """Map (our provider, model ID) to rates per token, converted from per million."""
     if not isinstance(data, dict):
         raise CheckError("the models.dev catalog is not a JSON object")
@@ -396,14 +421,18 @@ def _retired(model: dict) -> datetime | None:
     return datetime.min if model.get("status") == "deprecated" else None
 
 
-def index_hosted(litellm, modelsdev) -> dict[str, dict]:
+def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
     """The IDs other hosts serve our providers' models under, such as Bedrock's
     us.anthropic.claude-sonnet-5-5, each with its host, whether it is a live text model
     and the rates each catalog lists for it. Vertex AI's @default placeholder and
     OpenRouter's :free style variants are not IDs a span carries, so they are left out."""
     hosted: dict[str, dict] = {}
     for key, entry in litellm.items() if isinstance(litellm, dict) else ():
-        host = LITELLM_HOSTS.get(entry.get("litellm_provider")) if isinstance(entry, dict) else None
+        host = (
+            LITELLM_HOSTS.get(str(entry.get("litellm_provider")))
+            if isinstance(entry, dict)
+            else None
+        )
         if host is None:
             continue
         # Keys may carry routing segments, as in bedrock/us-gov-west-1/<model ID>. That
@@ -443,9 +472,11 @@ def index_hosted(litellm, modelsdev) -> dict[str, dict]:
 
 @functools.cache
 def _compile(pattern: str) -> re.Pattern[str] | None:
+    """The pattern as production reads it, or None when Python can't compile it,
+    including a repeat count too large or groups nested too deep."""
     try:
         return re.compile(pattern, re.IGNORECASE)
-    except re.error:
+    except (re.error, OverflowError, RecursionError):
         return None
 
 
@@ -666,7 +697,8 @@ def find_row_problems(rows: list[dict]) -> list[dict]:
         for field, rate in rates.items():
             if rate is not None and not 0 <= rate <= MAX_RATE:
                 found.append(f"{FIELD_LABELS[field]} rate is outside $0-$1,000 per 1M tokens")
-        if rates["cacheRead"] is not None and rates["cacheRead"] > rates["input"]:
+        cache_read, input_ = rates["cacheRead"], rates["input"]
+        if cache_read is not None and input_ is not None and cache_read > input_:
             found.append("cache read rate is above the input rate")
         problems += [{"row": name, "problem": problem} for problem in found]
     return problems
@@ -804,18 +836,34 @@ def describe_all(keys: list[tuple]) -> list[str]:
     return merged + others
 
 
-def changes(before: dict[tuple, dict], after: dict) -> tuple[list[tuple], list[str]]:
-    """The findings in before (from finding_keys) that the after report clears, and what
-    it adds, in a few words each. A rate or long-context finding is not cleared when its
-    row is no longer compared with any catalog, as when its provider changes to one no
-    catalog covers: that hides the finding, so the row is an add instead."""
-    after_keys = finding_keys(after)
-    uncompared = set(after["no_match"])
-    hidden = [key for key in before if key[0] in ("rate", "long_context") and key[1] in uncompared]
+def _found_through(key: tuple, item: dict) -> str | None:
+    """The row a finding was found through: the row whose rates a flag or long-context
+    rate is about, or the row an unpriced ID belongs to. None for the other findings."""
+    match key[0]:
+        case "rate":
+            name = item["priced_as"] or item["model"]
+        case "long_context":
+            name = item["model"]
+        case "id":
+            name = item["row"]
+        case _:
+            return None
+    return str(name)
+
+
+def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
+    """The findings in report that the after report clears, and what it adds, in a few
+    words each. A finding found through a row is not cleared when the after report stops
+    comparing that row with any catalog, as when its provider changes to one no catalog
+    covers: that can hide the finding, so the row is an add instead."""
+    before, after_keys = finding_keys(report), finding_keys(after)
+    stopped = set(after["no_match"]) - set(report["no_match"])
+    rows = {key: _found_through(key, item) for key, item in before.items()}
+    hidden = [key for key in before if rows[key] in stopped]
     fixes = [key for key in before if key not in after_keys and key not in hidden]
     adds = describe_all([key for key in after_keys if key not in before])
-    for model in dict.fromkeys(key[1] for key in hidden):
-        adds.append(f"{model} no longer compared with the catalogs")
+    for row in dict.fromkeys(rows[key] for key in hidden):
+        adds.append(f"{row} no longer compared with the catalogs")
     return fixes, adds
 
 
@@ -848,7 +896,7 @@ def compare_reports(
     catalog lists a [1m] ID, so those are not checked here. A dash spelling the baseline
     priced is an add when no row prices it now, as is a flagged row no catalog compares
     now."""
-    fixes, adds = changes(finding_keys(baseline), report)
+    fixes, adds = changes(baseline, report)
     unpriced = {item["model"] for item in report["unpriced_ids"]}
     for item in baseline["unpriced_ids"]:
         model_id = item["model"]
@@ -874,44 +922,68 @@ def compare_reports(
     return {"fixes": describe_all(fixes), "adds": adds}
 
 
+def _apply_changes(current: dict, base: dict, head: dict) -> dict:
+    """current with what changed from base to head: a key head sets to another value
+    takes head's value, a key head drops is removed, and prices change field by field."""
+    merged = dict(current)
+    for key in dict.fromkeys([*base, *head]):
+        if key not in head:
+            merged.pop(key, None)
+        elif key == "prices" and all(isinstance(r.get(key), dict) for r in (current, base, head)):
+            merged[key] = _apply_changes(current[key], base[key], head[key])
+        elif key not in base or base[key] != head[key]:
+            merged[key] = head[key]
+    return merged
+
+
 def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]:
-    """The price file with a PR merged: the rows the PR adds, changes or removes between
-    its merge base and its head, applied to the current rows by id. A branch that is
-    behind leaves later changes to the current file alone."""
+    """The price file with a PR merged, as git merges changes that don't overlap: of each
+    row the PR changes between its merge base and its head, only the keys and prices
+    fields it changes are applied to the current row, so a branch that is behind leaves
+    later changes to the current file alone. Rows the PR adds are added whole, and rows
+    it removes are removed."""
     before = {row["id"]: row for row in base}
     after = {row["id"]: row for row in head}
     changed = {row_id: row for row_id, row in after.items() if before.get(row_id) != row}
     removed = before.keys() - after.keys()
-    merged = [changed.pop(row["id"], row) for row in rows if row["id"] not in removed]
+    merged = []
+    for row in rows:
+        if row["id"] in removed:
+            continue
+        new = changed.pop(row["id"], None)
+        if new is None:
+            merged.append(row)
+        elif row["id"] in before:
+            merged.append(_apply_changes(row, before[row["id"]], new))
+        else:  # Added by the PR and, since it branched, by the current file too.
+            merged.append(new)
     return merged + list(changed.values())
 
 
-def track(report: dict, prs: list[dict], evaluate) -> None:
+def track(report: dict, prs: list[dict]) -> None:
     """Name, on each finding, the open PRs that would clear it, and list what each PR
-    would fix and add. prs holds each PR's merged price file in "rows", or why it could
-    not be checked in "error"; evaluate builds a report from a price file."""
+    would fix and add. prs holds, for each PR, the report on the price file it would
+    leave on merge in "report", or why it could not be checked in "error". Findings are
+    marked only once every PR is compared, so a failure partway marks none."""
     before = finding_keys(report)
-    for item in before.values():
-        item["tracked_by"] = []
+    fixed_by: dict[tuple, list[int]] = {key: [] for key in before}
     checked = []
     for pr in prs:
-        summary = {key: pr.get(key) for key in ("number", "title", "url", "draft", "closes")}
+        summary = {key: pr.get(key) for key in ("number", "title", "url")}
         if pr.get("error"):
             checked.append({**summary, "fixes": [], "adds": [], "error": pr["error"]})
             continue
-        try:
-            fixes, adds = changes(before, evaluate(validate_rows(pr["rows"])))
-        except CheckError as exc:
-            checked.append({**summary, "fixes": [], "adds": [], "error": str(exc)})
-            continue
+        fixes, adds = changes(report, pr["report"])
         for key in fixes:
-            before[key]["tracked_by"].append(pr["number"])
+            fixed_by[key].append(pr["number"])
         checked.append({**summary, "fixes": describe_all(fixes), "adds": adds})
+    for key, item in before.items():
+        item["tracked_by"] = fixed_by[key]
     report["pull_requests"] = checked
     report["tracking"] = "ok"
 
 
-def _github(url: str, token: str | None):
+def _github(url: str, token: str | None) -> Any:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -919,15 +991,53 @@ def _github(url: str, token: str | None):
         return json.load(response)
 
 
+class _TimeLimitError(Exception):
+    """Checking one open PR's price file ran over PR_CHECK_SECONDS."""
+
+
+@contextlib.contextmanager
+def _time_limit(seconds: float) -> Iterator[None]:
+    """Raise _TimeLimitError when the block runs over seconds. Python's regex engine checks
+    for signals, so SIGALRM stops a pattern that backtracks. Without setitimer, as on
+    Windows, or off the main thread, the block runs with no limit."""
+    if (
+        not hasattr(signal, "setitimer")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def expire(_signum: int, _frame: object) -> None:
+        raise _TimeLimitError
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+
 def _mentions(pull: dict, models: list[re.Pattern[str]]) -> bool:
     text = f"{pull.get('title') or ''}\n{pull.get('body') or ''}"
     return bool(PRICING_WORDS.search(text)) or any(model.search(text) for model in models)
 
 
-def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | None) -> list[dict]:
-    """The open PRs in repo that change the price file, each with the price file it
-    would leave on merge. A PR is looked at when its title or body mentions pricing or a
-    model in the report; one whose files can't be read gets an "error" instead."""
+def fetch_pricing_prs(
+    repo: str,
+    rows: list[dict],
+    report: dict,
+    token: str | None,
+    evaluate: Callable[[list[dict]], dict],
+) -> list[dict]:
+    """The open PRs in repo that change the price file, each with the report evaluate
+    builds from the price file it would leave on merge. A PR is looked at when its title
+    or body mentions pricing or a model in the report. Anything that goes wrong with one
+    PR, from reading its files to checking its rows, gives that PR an "error" instead, so
+    only GitHub's rate limit stops the others."""
     pulls: list[dict] = []
     for page in range(1, MAX_PR_PAGES + 1):
         batch = _github(
@@ -948,13 +1058,7 @@ def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | No
         if not _mentions(pull, models):
             continue
         number, head = pull["number"], pull["head"]["sha"]
-        pr = {
-            "number": number,
-            "title": pull.get("title"),
-            "url": pull.get("html_url"),
-            "draft": bool(pull.get("draft")),
-            "closes": sorted({int(n) for n in CLOSES_ISSUE.findall(pull.get("body") or "")}),
-        }
+        pr = {"number": number, "title": pull.get("title"), "url": pull.get("html_url")}
         try:
             compare = _github(
                 f"{GITHUB_API}/repos/{repo}/compare/{pull['base']['sha']}...{head}", token
@@ -966,11 +1070,14 @@ def fetch_pricing_prs(repo: str, rows: list[dict], report: dict, token: str | No
                 fetch_json(f"{GITHUB_RAW}/{repo}/{sha}/{PRICE_PATH}", MAX_PRICE_FILE_BYTES)
                 for sha in (base_sha, head)
             )
-            pr["rows"] = validate_rows(apply_pr(rows, base, after))
-        except (URLError, OSError, ValueError, KeyError, TypeError, CheckError) as exc:
+            with _time_limit(PR_CHECK_SECONDS):
+                pr["report"] = evaluate(validate_rows(apply_pr(rows, base, after)))
+        except _TimeLimitError:
+            pr["error"] = f"its price file took over {PR_CHECK_SECONDS} seconds to check"
+        except Exception as exc:  # Any error with an open PR stays with that PR.
             if getattr(exc, "code", None) in (403, 429):
                 raise  # GitHub's rate limit: every later PR would fail the same way.
-            pr["error"] = f"could not read its price file ({type(exc).__name__})"
+            pr["error"] = f"could not check its price file ({type(exc).__name__})"
         prs.append(pr)
     return prs
 
@@ -1004,7 +1111,7 @@ def _priced_as(item: dict) -> str:
 
 
 def _pr_text(numbers: list[int]) -> str:
-    """Open PRs as plain text, e.g. "#2902, #2948"."""
+    """Open PRs as plain text, e.g. "#12, #34"."""
     return ", ".join(f"#{number}" for number in numbers)
 
 
@@ -1030,8 +1137,9 @@ def _price_table(flagged: list[dict], *, tracked: bool) -> list[str]:
     for model, field, ours, theirs, prs in cells:
         last = f"{theirs:<{widths[3]}}  {prs}".rstrip() if show_prs else theirs
         rows.append(f"{model:<{widths[0]}}  {field:<{widths[1]}}  {ours:<{widths[2]}}  → {last}")
-    # Pad first, then escape: Slack shows the escaped text unescaped, so columns stay aligned.
-    return ["```", *(_escape(line) for line in rows), "```"]
+    # Pad first, then escape: Slack shows the escaped text unescaped, so columns stay
+    # aligned. A backtick could end the code block, so it becomes a look-alike.
+    return ["```", *(_escape(line).replace("`", BACKTICK) for line in rows), "```"]
 
 
 def _with_prs(text: str, items: list[dict], report: dict) -> str:
@@ -1096,7 +1204,7 @@ def _example(ids: list[str]) -> str:
     return min(ids, key=lambda model_id: (not model_id.startswith("us."), model_id))
 
 
-def _id_lines(report: dict, links) -> tuple[list[str], list[str]]:
+def _id_lines(report: dict) -> tuple[list[str], list[str]]:
     """Model IDs not priced by their row, as (lines for IDs no open PR fixes, one per row, e.g.
     "• claude-x: 7 Bedrock, 1 OpenRouter, [1m], e.g. `us.anthropic.claude-x`"; lines
     naming the rows whose IDs each set of open PRs fixes)."""
@@ -1126,25 +1234,31 @@ def _id_lines(report: dict, links) -> tuple[list[str], list[str]]:
             parts.append("[1m]")
         lines.append(f"• {_escape(row)}: {_escape(', '.join(parts + group['wrong']))}")
     covered_lines = [
-        f"• _Open PR_ {links(list(prs))}: {_escape(', '.join(sorted(rows)))}"
+        f"• _Open PR_ {_pr_text(list(prs))}: {_escape(', '.join(sorted(rows)))}"
         for prs, rows in sorted(covered.items())
     ]
     return lines, covered_lines
 
 
-def _fit(heading: str, lines: list[str], limit: int) -> str:
+def _in(more_in: str | None) -> str:
+    """Where the rest of a cut list can be read, e.g. " in the JSON report", or nothing
+    when this run wrote no full list."""
+    return f" in {more_in}" if more_in else ""
+
+
+def _fit(heading: str, lines: list[str], limit: int, more_in: str | None = None) -> str:
     """The heading and as many whole lines as fit in limit characters, then a count of
-    the rest."""
+    the rest and where to read them."""
     text = heading
     for index, line in enumerate(lines):
-        more = f"\n…and {len(lines) - index} more in the JSON report"
+        more = f"\n…and {len(lines) - index} more{_in(more_in)}"
         if len(text) + 1 + len(line) + len(more) > limit:
             return text + more
         text += "\n" + line
     return text
 
 
-def _problem_lines(report: dict, links) -> list[str]:
+def _problem_lines(report: dict) -> list[str]:
     """Row problems and overlapping patterns, one line each."""
     lines = []
     for item in report["row_problems"]:
@@ -1154,7 +1268,7 @@ def _problem_lines(report: dict, links) -> list[str]:
         text = f"{item['model']} is matched by {rows} at different prices"
         lines.append((f"• {_escape(text)}; the worker uses {_escape(item['rows'][0])}", item))
     return [
-        f"{line} · {links(item['tracked_by'])}" if item.get("tracked_by") else line
+        f"{line} · {_pr_text(item['tracked_by'])}" if item.get("tracked_by") else line
         for line, item in lines
     ]
 
@@ -1167,16 +1281,16 @@ def _long_context_line(report: dict) -> str:
     return f"*{heading}* ({len(report['long_context'])}): {_escape(models)}"
 
 
-def _pr_warnings(report: dict, links) -> list[str]:
+def _pr_warnings(report: dict) -> list[str]:
     """Open PRs that would add a problem, or whose price file couldn't be checked."""
     warnings = []
     for pr in report.get("pull_requests", []):
         if pr.get("error"):
-            warnings.append(f"{links([pr['number']])}: {_escape(pr['error'])}")
+            warnings.append(f"{_pr_text([pr['number']])}: {_escape(pr['error'])}")
         elif pr["adds"]:
             added = _escape(", ".join(pr["adds"][:5]))
             more = f" and {len(pr['adds']) - 5} more" if len(pr["adds"]) > 5 else ""
-            warnings.append(f"{links([pr['number']])} would add: {added}{more}")
+            warnings.append(f"{_pr_text([pr['number']])} would add: {added}{more}")
     return warnings
 
 
@@ -1201,21 +1315,22 @@ def _count(by_provider: dict[str, list[dict]]) -> int:
     return sum(len(items) for items in by_provider.values())
 
 
-def _names(by_provider: dict[str, list[dict]], *, bullet: str, separator: str, links) -> str:
-    """Model names grouped by provider, e.g. "• *openai* (2): gpt-a, gpt-b (#2952)"."""
+def _names(by_provider: dict[str, list[dict]]) -> str:
+    """Model names grouped by provider, e.g. "• *openai* (2): gpt-a, gpt-b (#12)"."""
 
     def name(item: dict) -> str:
         prs = item.get("tracked_by")
-        return f"{_escape(item['model'])} ({links(prs)})" if prs else _escape(item["model"])
+        return f"{_escape(item['model'])} ({_pr_text(prs)})" if prs else _escape(item["model"])
 
-    return separator.join(
-        f"{bullet}*{_escape(provider)}* ({len(items)}): {', '.join(map(name, items))}"
+    return "\n".join(
+        f"• *{_escape(provider)}* ({len(items)}): {', '.join(map(name, items))}"
         for provider, items in sorted(by_provider.items())
     )
 
 
-def format_report(report: dict) -> str:
-    """The report as text for the terminal: what to fix first, then context."""
+def format_report(report: dict, more_in: str | None = None) -> str:
+    """The report as text for the terminal: what to fix first, then context. more_in
+    names where the rest of a cut list can be read, such as "the JSON report"."""
     flagged = report["flagged"]
     lines = [f"*Model pricing audit, {report['date']}*: {_status(report)}"]
     if "baseline" in report:
@@ -1228,7 +1343,7 @@ def format_report(report: dict) -> str:
         lines += ["", "*Prices to check* (USD per 1M tokens, ours → catalogs)"]
         lines += _price_table(flagged, tracked=_tracked(report))
         if len(flagged) > MAX_FLAGGED_LINES:
-            lines.append(f"…and {len(flagged) - MAX_FLAGGED_LINES} more in the JSON report")
+            lines.append(f"…and {len(flagged) - MAX_FLAGGED_LINES} more{_in(more_in)}")
         pages = dict.fromkeys(
             (item["provider"], item["pricing_page"]) for item in flagged if item["pricing_page"]
         )
@@ -1239,23 +1354,22 @@ def format_report(report: dict) -> str:
     if report["unpriced_ids"]:
         count = len(report["unpriced_ids"])
         heading = f"*Model IDs not priced by their row* ({count}): {ID_HEADING}"
-        open_ids, covered = _id_lines(report, _pr_text)
+        open_ids, covered = _id_lines(report)
         lines += ["", heading, *open_ids, *covered]
-    problems = _problem_lines(report, _pr_text)
+    problems = _problem_lines(report)
     if problems:
         lines += ["", f"*Price file problems* ({len(problems)})", *problems]
 
     # Every missing name appears, one line per provider, so none is cut from the report.
     main, minor = _split_missing(report["missing"])
     if main:
-        body = _names(main, bullet="• ", separator="\n", links=_pr_text)
-        lines += ["", f"*Not priced* ({_count(main)})", body]
+        lines += ["", f"*Not priced* ({_count(main)})", _names(main)]
     if minor:
         heading = f"*Also not priced: aliases, snapshots, realtime and search* ({_count(minor)})"
-        lines += ["", heading, _names(minor, bullet="• ", separator="\n", links=_pr_text)]
+        lines += ["", heading, _names(minor)]
     if report["long_context"]:
         lines += ["", _long_context_line(report)]
-    warnings = _pr_warnings(report, _pr_text)
+    warnings = _pr_warnings(report)
     if warnings:
         lines += ["", "*Open PRs to check*", *(f"• {warning}" for warning in warnings)]
 
@@ -1270,7 +1384,9 @@ def _mrkdwn(text: str) -> dict:
 def _cell(text: str, *, url: str | None = None, bold: bool = False, note: str = "") -> dict:
     """A table cell: rich text, so it can be bold, a link or carry an italic note, with
     no mrkdwn parsing."""
-    element = {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
+    element: dict[str, Any] = (
+        {"type": "link", "url": url, "text": text} if url else {"type": "text", "text": text}
+    )
     if bold:
         element["style"] = {"bold": True}
     elements = [element]
@@ -1343,10 +1459,13 @@ def _main_missing(items: list[dict]) -> list[dict]:
     return [item for item in items if not MINOR_MODELS.search(item["model"])]
 
 
-def _problem_text(item: dict) -> str:
+def _problem_text(item: dict, name: Callable[[str], str] = str) -> str:
+    """A row problem or overlap in a few words, with each row name or model ID passed
+    through name."""
     if "problem" in item:
-        return f"{item['row']}: {item['problem']}"
-    return f"{item['model']} is matched by {_join(item['rows'])} at different prices"
+        return f"{name(item['row'])}: {item['problem']}"
+    rows = _join([name(row) for row in item["rows"]])
+    return f"{name(item['model'])} is matched by {rows} at different prices"
 
 
 def _needs_lines(report: dict) -> list[str]:
@@ -1358,7 +1477,7 @@ def _needs_lines(report: dict) -> list[str]:
         rows = {item["row"] for item in unpriced}
         verb = "records" if len(unpriced) == 1 else "record"
         hosted = [item["model"] for item in unpriced if item["source"] != "1M context"]
-        example = f" Example: `{_escape(_example(hosted))}`" if hosted else ""
+        example = f" Example: {_code(_example(hosted))}" if hosted else ""
         lines.append(
             f"• *{_plural(len(unpriced), 'model ID')} {verb} no cost.* These are the "
             f"{_sources(unpriced)} IDs of {_plural(len(rows), 'model')} we already price: "
@@ -1369,13 +1488,13 @@ def _needs_lines(report: dict) -> list[str]:
         verb = "gets" if len(wrong) == 1 else "get"
         lines.append(
             f"• *{_plural(len(wrong), 'model ID')} {verb} another model's price*, e.g. "
-            f"`{_escape(wrong[0]['model'])}` is priced as `{_escape(wrong[0]['priced_as'])}`"
+            f"{_code(wrong[0]['model'])} is priced as {_code(wrong[0]['priced_as'])}"
         )
     problems = _open(report["row_problems"] + report["overlaps"])
     if problems:
         lines.append(
             f"• *{_plural(len(problems), 'price file problem')}*, e.g. "
-            f"{_escape(_problem_text(problems[0]))}"
+            f"{_problem_text(problems[0], _code)}"
         )
     missing = _main_missing(_open(report["missing"]))
     if missing:
@@ -1386,7 +1505,7 @@ def _needs_lines(report: dict) -> list[str]:
     return lines
 
 
-def _progress_lines(report: dict, links) -> list[str]:
+def _progress_lines(report: dict) -> list[str]:
     """Findings open PRs fix, grouped by PR, then PRs that would add a problem."""
     lines = []
     rates: dict[tuple[int, ...], list[dict]] = {}
@@ -1394,39 +1513,39 @@ def _progress_lines(report: dict, links) -> list[str]:
         if item.get("tracked_by"):
             rates.setdefault(tuple(item["tracked_by"]), []).append(item)
     for prs, items in rates.items():
-        models = ", ".join(
-            f"`{_escape(model)}`" for model in dict.fromkeys(i["model"] for i in items)
-        )
+        models = ", ".join(_code(model) for model in dict.fromkeys(i["model"] for i in items))
         if len(items) == 1:
             item = items[0]
             ours = "none" if item["ours"] is None else f"${_amount(item['ours'])}"
             change = f"{ours} → ${_catalog_amount(item)}"
-            lines.append(f"• {models} {FIELD_LABELS[item['field']]} {change}: {links(list(prs))}")
+            lines.append(
+                f"• {models} {FIELD_LABELS[item['field']]} {change}: {_pr_text(list(prs))}"
+            )
         else:
             fields = list(dict.fromkeys(FIELD_LABELS[i["field"]] for i in items))
-            lines.append(f"• {models} {_join(fields)}: {links(list(prs))}")
+            lines.append(f"• {models} {_join(fields)}: {_pr_text(list(prs))}")
     ids = [item for item in report["unpriced_ids"] if item.get("tracked_by")]
     if ids:
-        prs = sorted({number for item in ids for number in item["tracked_by"]})
+        numbers = sorted({number for item in ids for number in item["tracked_by"]})
         rows = {item["row"] for item in ids}
-        lines.append(f"• {_sources(ids)} IDs of {_plural(len(rows), 'model')}: {links(prs)}")
+        lines.append(f"• {_sources(ids)} IDs of {_plural(len(rows), 'model')}: {_pr_text(numbers)}")
     problems = [i for i in report["row_problems"] + report["overlaps"] if i.get("tracked_by")]
     if problems:
-        prs = sorted({number for item in problems for number in item["tracked_by"]})
-        lines.append(f"• {_plural(len(problems), 'price file problem')}: {links(prs)}")
+        numbers = sorted({number for item in problems for number in item["tracked_by"]})
+        lines.append(f"• {_plural(len(problems), 'price file problem')}: {_pr_text(numbers)}")
     for item in report["missing"]:
         if item.get("tracked_by"):
-            lines.append(f"• `{_escape(item['model'])}` not priced: {links(item['tracked_by'])}")
+            lines.append(f"• {_code(item['model'])} not priced: {_pr_text(item['tracked_by'])}")
     adds: dict[tuple[str, ...], list[int]] = {}
     for pr in report.get("pull_requests", []):
         if pr.get("error"):
-            lines.append(f"• :warning: {links([pr['number']])}: {_escape(pr['error'])}")
+            lines.append(f"• :warning: {_pr_text([pr['number']])}: {_escape(pr['error'])}")
         elif pr["adds"]:
             adds.setdefault(tuple(pr["adds"]), []).append(pr["number"])
     for added, numbers in adds.items():
         more = f" and {len(added) - 3} more" if len(added) > 3 else ""
-        what = _escape(", ".join(added[:3])) + more
-        lines.append(f"• :warning: {links(numbers)} would add: {what}")
+        what = ", ".join(map(_code, added[:3])) + more
+        lines.append(f"• :warning: {_pr_text(numbers)} would add: {what}")
     return lines
 
 
@@ -1451,8 +1570,10 @@ def _summary(report: dict) -> str:
         parts.append(f"{_plural(len(missing), 'model')} not priced")
     if parts:
         return ", ".join(parts)
+    # Aliases, snapshots, realtime and search models are not counted here, so the line
+    # speaks only of what needs a fix.
     in_prs = any(item.get("tracked_by") for item in finding_keys(report).values())
-    return "everything found is in an open PR" if in_prs else "prices match the catalogs"
+    return "nothing needs a fix that isn't in an open PR" if in_prs else "prices match the catalogs"
 
 
 def _slack_footer(report: dict, report_url: str | None) -> str:
@@ -1464,14 +1585,14 @@ def _slack_footer(report: dict, report_url: str | None) -> str:
     return f"<{report_url}|Full report> · {checked}" if report_url else checked
 
 
-def build_payload(report: dict, report_url: str | None = None) -> dict:
+def build_payload(report: dict, report_url: str | None = None, more_in: str | None = None) -> dict:
     """The Slack message (Block Kit) for a completed run: what needs a fix and has no open
     PR, then what open PRs already fix. The full lists are in the report page, which also
-    links each PR; here they are plain numbers, since a GitHub link unfurls into a preview."""
-    links = _pr_text
+    links each PR; here they are plain numbers, since a GitHub link unfurls into a preview.
+    more_in names where the rest of a cut list can be read, such as "the full report"."""
     flagged = _open(report["flagged"])
     needs = _needs_lines(report)
-    progress = _progress_lines(report, links) if _tracked(report) else []
+    progress = _progress_lines(report) if _tracked(report) else []
     title = f"Model pricing audit · {report['date']}"
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": _clip(title, HEADER_LIMIT)}}
@@ -1483,7 +1604,7 @@ def build_payload(report: dict, report_url: str | None = None) -> dict:
             else (":red_circle: *Needs a fix*")
         )
         if not flagged:
-            text = _fit(heading, needs, SECTION_LIMIT)
+            text = _fit(heading, needs, SECTION_LIMIT, more_in)
             blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
         else:
             # The rates get a table, and the other bullets follow it.
@@ -1495,22 +1616,23 @@ def build_payload(report: dict, report_url: str | None = None) -> dict:
             blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(heading)})
             blocks.append(_price_table_block(flagged))
             if len(flagged) > MAX_FLAGGED_LINES:
-                more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates in the full report"
+                more = f"…and {len(flagged) - MAX_FLAGGED_LINES} more rates{_in(more_in)}"
                 blocks.append(
                     {"type": "context", "block_id": "prices_more", "elements": [_mrkdwn(more)]}
                 )
             if needs:
-                text = _fit("", needs, SECTION_LIMIT).lstrip("\n")
+                text = _fit("", needs, SECTION_LIMIT, more_in).lstrip("\n")
                 blocks.append({"type": "section", "block_id": "needs_more", "text": _mrkdwn(text)})
     else:
         text = (
             ":large_green_circle: *Nothing needs a fix that isn't in an open PR*"
             if progress
-            else ":large_green_circle: *Prices match the catalogs, and every model ID is priced*"
+            else ":large_green_circle: *Prices match the catalogs*"
         )
         blocks.append({"type": "section", "block_id": "needs", "text": _mrkdwn(text)})
     if progress:
-        text = _fit(":large_yellow_circle: *In progress (open PRs)*", progress, SECTION_LIMIT)
+        heading = ":large_yellow_circle: *In progress (open PRs)*"
+        text = _fit(heading, progress, SECTION_LIMIT, more_in)
         blocks.append({"type": "section", "block_id": "progress", "text": _mrkdwn(text)})
     footer = _clip(_slack_footer(report, report_url), CONTEXT_LIMIT)
     blocks.append({"type": "context", "block_id": "footer", "elements": [_mrkdwn(footer)]})
@@ -1533,7 +1655,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; } code { font-si
 """
 
 
-def _h(text) -> str:
+def _h(text: object) -> str:
     return html.escape(str(text))
 
 
@@ -1725,7 +1847,7 @@ def failure_payload(date: str, reason: str) -> dict:
     }
 
 
-def fetch_json(url: str, max_bytes: int | None = None):
+def fetch_json(url: str, max_bytes: int | None = None) -> Any:
     """Fetch and parse JSON; with max_bytes, a larger file is a CheckError."""
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
@@ -1735,7 +1857,7 @@ def fetch_json(url: str, max_bytes: int | None = None):
     return json.loads(body)
 
 
-def load_source(source: str, label: str):
+def load_source(source: str, label: str) -> Any:
     """Load a catalog from a URL or a local file. Any failure fails the run."""
     try:
         if source.startswith(("https://", "http://")):
@@ -1824,19 +1946,24 @@ def main(argv: list[str]) -> int:
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:
-                prs = fetch_pricing_prs(args.track, rows, report, token)
-                track(
+                prs = fetch_pricing_prs(
+                    args.track,
+                    rows,
                     report,
-                    prs,
+                    token,
                     lambda pr_rows: build_report(
                         pr_rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=0
                     ),
                 )
+                track(report, prs)
             except (URLError, OSError, ValueError, KeyError, TypeError) as exc:
                 # The findings stand without it: say PRs weren't checked, and carry on.
                 detail = getattr(exc, "code", None) or type(exc).__name__
                 report["tracking"] = f"GitHub could not be read ({detail})"
-        text, payload = format_report(report), build_payload(report, args.report_url)
+        # A cut list points to the rest only where this run writes it.
+        more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
+        text = format_report(report, more_in)
+        payload = build_payload(report, args.report_url, more_in)
         # With --baseline, a finding the edit adds fails the check.
         status = 2 if report.get("baseline", {}).get("adds") else 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.

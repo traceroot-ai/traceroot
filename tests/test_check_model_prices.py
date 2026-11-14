@@ -9,6 +9,7 @@ Every test uses small inline samples. None reads the real price file or the netw
 
 import io
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -141,6 +142,15 @@ def test_one_catalog_is_enough_when_the_other_lacks_the_model():
     ]
 
 
+def test_a_bare_litellm_key_wins_over_a_provider_prefixed_one():
+    rates = {"deepseek-d": 1e-6, "deepseek/deepseek-d": 9e-6}
+    # Whichever key comes first in the catalog.
+    for keys in (rates, reversed(rates)):
+        litellm = {key: ll_entry("deepseek", input_=rates[key]) for key in keys}
+        index = index_litellm({**LITELLM_FILLER, **litellm})
+        assert index[("deepseek", "deepseek-d")]["rates"]["input"] == 1e-6
+
+
 def test_null_and_missing_rates_are_skipped():
     rows = [row("claude-b", "anthropic", cache_read=1e-7)]
     litellm = {"claude-b": ll_entry("anthropic", cache_read=None)}
@@ -176,6 +186,25 @@ def test_our_missing_or_null_rate_is_flagged_when_the_catalogs_charge_for_it():
         ("kimi-n", "cacheWrite1h", None),
     ]
     assert "gpt-a   cache read      none  → 0.50" in format_report(report)
+
+
+def test_a_catalogs_non_finite_rate_counts_as_absent():
+    # JSON parsers accept NaN and Infinity, and read 1e999 as infinity.
+    rows = [row("gpt-a", "openai"), row("gpt-b", "openai")]
+    litellm = {
+        "gpt-a": ll_entry("openai", input_=json.loads("1e999")),
+        "gpt-b": ll_entry("openai", input_=2e-6),
+    }
+    modelsdev = md_catalog(
+        openai={"gpt-a": md_model(input_=2e-6), "gpt-b": md_model(input_=json.loads("NaN"))}
+    )
+    report = report_for(rows, litellm, modelsdev)
+
+    # The other catalog decides, and it disagrees with ours.
+    assert [(f["model"], f["field"], f["litellm"], f["modelsdev"]) for f in report["flagged"]] == [
+        ("gpt-a", "input", None, pytest.approx(2e-6)),
+        ("gpt-b", "input", pytest.approx(2e-6), None),
+    ]
 
 
 def test_other_catalog_providers_are_ignored():
@@ -439,14 +468,36 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
     ) in needs
 
 
+def test_an_id_another_row_prices_the_same_is_not_flagged():
+    rows = [
+        row("claude-k-5", "anthropic"),
+        row("claude-j", "anthropic", pattern=r"(?i)^(claude-j|us\.anthropic\.claude-k-5)$"),
+    ]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "us.anthropic.claude-k-5": ll_entry("bedrock_converse"),
+    }
+    # claude-j's pattern takes claude-k-5's Bedrock ID, at the same prices.
+    assert report_for(rows, litellm, md_catalog())["unpriced_ids"] == []
+
+    rows[1]["prices"]["input"] = 9e-6
+    found = report_for(rows, litellm, md_catalog())["unpriced_ids"]
+    assert [(i["model"], i["priced_as"]) for i in found] == [
+        ("us.anthropic.claude-k-5", "claude-j")
+    ]
+
+
 def test_long_lists_are_cut_at_a_whole_line_with_a_count():
     lines = [f"• row-{n}: 3 Bedrock" for n in range(40)]
-    text = check._fit("*Heading*", lines, 200)
+    text = check._fit("*Heading*", lines, 200, "the JSON report")
 
     assert len(text) <= 200
     assert text.startswith("*Heading*\n• row-0: 3 Bedrock\n")
     kept = text.count("• row-")
     assert text.endswith(f"\n…and {40 - kept} more in the JSON report")
+    # With no full list written, only the count.
+    text = check._fit("*Heading*", lines, 200)
+    assert text.endswith(f"\n…and {40 - text.count('• row-')} more")
     assert check._fit("*Heading*", lines[:2], 200) == "*Heading*\n" + "\n".join(lines[:2])
 
 
@@ -598,6 +649,14 @@ def test_price_file_format_change_fails():
         validate_rows([no_input])
 
 
+@pytest.mark.parametrize(
+    "rate", [float("nan"), float("inf"), 10**400], ids=["nan", "infinity", "too-large-for-a-float"]
+)
+def test_a_rate_that_is_not_a_finite_number_fails_validation(rate):
+    with pytest.raises(CheckError, match=r"non-numeric prices\.input"):
+        validate_rows([row("gpt-a", "openai", input_=rate)])
+
+
 def test_catalog_field_missing_everywhere_fails():
     renamed = {"gpt-a": {**ll_entry("openai"), "input_cost_per_token": None}}
     with pytest.raises(CheckError, match="input_cost_per_token"):
@@ -730,6 +789,28 @@ def test_a_pr_is_merged_by_its_own_row_changes():
     ]
 
 
+def test_a_pr_changes_only_the_fields_it_changed_in_a_row():
+    # The PR branched when both rates were wrong. The current file has since fixed the
+    # cache read rate, and the PR fixes the input rate and drops the 1-hour cache write.
+    base = [row("deepseek-d", "deepseek", input_=5e-7, cache_read=1e-8)]
+    base[0]["prices"]["cacheWrite1h"] = 2e-6
+    current = [row("deepseek-d", "deepseek", input_=5e-7, cache_read=1e-7)]
+    current[0]["prices"]["cacheWrite1h"] = 2e-6
+    head = [row("deepseek-d", "deepseek", input_=1e-6, cache_read=1e-8)]
+
+    merged = apply_pr(current, base, head)
+
+    assert merged[0]["prices"] == {
+        "input": 1e-6,
+        "output": 2e-6,
+        "cacheRead": 1e-7,
+        "cacheWrite": None,
+    }
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6, cache_read=1e-7)}
+    [pr] = _track_one_pr(current, litellm, merged)["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == (["deepseek-d input rate (ours 0.50)"], [])
+
+
 def _tracked_report():
     rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6), row("gpt-a", "openai")]
     litellm = {
@@ -745,12 +826,12 @@ def _tracked_report():
     fix_input = [row("deepseek-d", "deepseek", input_=1e-6, output=1e-6), rows[1]]
     adds_new = [*fix_input, row("gpt-new", "openai", input_=9e-6)]
     prs = [
-        {"number": 11, "url": "https://github.test/pull/11", "rows": fix_input, "closes": [10]},
-        {"number": 12, "url": "https://github.test/pull/12", "rows": adds_new, "draft": True},
+        {"number": 11, "url": "https://github.test/pull/11", "report": evaluate(fix_input)},
+        {"number": 12, "url": "https://github.test/pull/12", "report": evaluate(adds_new)},
         {"number": 13, "url": "https://github.test/pull/13", "error": "could not read it"},
     ]
     report = evaluate(rows)
-    track(report, prs, evaluate)
+    track(report, prs)
     return report
 
 
@@ -774,7 +855,6 @@ def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
         ),
         (13, [], [], "could not read it"),
     ]
-    assert report["pull_requests"][0]["closes"] == [10]
 
 
 def test_a_pr_that_stops_comparing_a_flagged_row_does_not_fix_it():
@@ -787,7 +867,7 @@ def test_a_pr_that_stops_comparing_a_flagged_row_does_not_fix_it():
         return build_report(pr_rows, *catalogs, date=DATE, min_compared=0)
 
     report = evaluate(rows)
-    track(report, [{"number": 7, "rows": [{**rows[0], "provider": "typesafe"}]}], evaluate)
+    track(report, [{"number": 7, "report": evaluate([{**rows[0], "provider": "typesafe"}])}])
 
     assert [(f["field"], f["tracked_by"]) for f in report["flagged"]] == [
         ("input", []),
@@ -825,7 +905,7 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
         f"• `deepseek-d` input $0.50 → $1.00: {pr(11)}, {pr(12)}",
         f"• `gpt-new` not priced: {pr(12)}",
         f"• :warning: {pr(13)}: could not read it",
-        f"• :warning: {pr(12)} would add: gpt-new input rate (ours 9.00)",
+        f"• :warning: {pr(12)} would add: `gpt-new input rate (ours 9.00)`",
     ]
     assert _block_text(blocks[4]) == "Checked 2 of 2 rows and 3 open pricing PRs"
 
@@ -838,13 +918,56 @@ def _track_one_pr(rows, litellm, pr_rows):
         return build_report(rows, *catalogs, date=DATE, min_compared=0)
 
     report = evaluate(rows)
-    track(report, [{"number": 7, "rows": pr_rows}], evaluate)
+    track(report, [{"number": 7, "report": evaluate(pr_rows)}])
     return report
 
 
 def _progress(report):
     blocks = build_payload(report)["blocks"]
     return _block_text(next(b for b in blocks if b.get("block_id") == "progress")).split("\n")
+
+
+def test_a_pr_that_stops_comparing_a_row_does_not_fix_its_1m_id():
+    # The [1m] ID is expected only while a catalog lists the row's model with 1M tokens.
+    rows = [row("claude-l", "anthropic")]
+    litellm = {"claude-l": ll_entry("anthropic", max_input_tokens=1_000_000)}
+    report = _track_one_pr(rows, litellm, [{**rows[0], "provider": "typesafe"}])
+
+    assert report["unpriced_ids"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["claude-l no longer compared with the catalogs"])
+
+
+def test_a_pr_that_stops_comparing_a_row_does_not_fix_its_long_context_rate():
+    rows = [row("gpt-r", "openai")]
+    litellm = {"gpt-r": ll_entry("openai", input_cost_per_token_above_272k_tokens=2e-6)}
+    report = _track_one_pr(rows, litellm, [{**rows[0], "provider": "typesafe"}])
+
+    assert report["long_context"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["gpt-r no longer compared with the catalogs"])
+
+
+def test_a_pr_that_stops_comparing_a_row_does_not_fix_what_its_pattern_prices():
+    pattern = r"(?i)^claude-f(-[\d-]+)?$"
+    rows = [row("claude-f", "anthropic", input_=1e-5, pattern=pattern)]
+    litellm = {
+        "claude-f": ll_entry("anthropic", input_=1e-5),
+        "claude-f-2": ll_entry("anthropic", input_=8e-6),
+    }
+    moved = row("claude-f", "typesafe", input_=8e-6, pattern=pattern)
+    report = _track_one_pr(rows, litellm, [moved])
+
+    assert [(f["model"], f["priced_as"], f["tracked_by"]) for f in report["flagged"]] == [
+        ("claude-f-2", "claude-f", [])
+    ]
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["claude-f no longer compared with the catalogs"])
+
+    # A row no catalog listed to begin with is not hidden by the PR, so its fix counts.
+    del litellm["claude-f"]
+    fixed = row("claude-f", "anthropic", input_=8e-6, pattern=pattern)
+    assert _track_one_pr(rows, litellm, [fixed])["flagged"][0]["tracked_by"] == [7]
 
 
 def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
@@ -855,6 +978,35 @@ def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
     assert "• `gpt-a` cache read none → $0.50: #7" in _progress(report)
 
 
+def test_the_notification_says_when_every_fix_is_in_an_open_pr():
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    report = _track_one_pr([row("gpt-a", "openai")], litellm, [row("gpt-a", "openai", input_=2e-6)])
+
+    assert build_payload(report)["text"] == (
+        f"Model pricing audit, {DATE}: nothing needs a fix that isn't in an open PR"
+    )
+
+
+def test_the_slack_message_claims_only_what_it_counted():
+    # Aliases, snapshots, realtime and search models are left to the full report, so the
+    # message can't say every model ID is priced, or everything found is in a PR.
+    litellm = {
+        "gpt-a": ll_entry("openai"),
+        "gpt-a-latest": ll_entry("openai"),
+        "gpt-realtime-a": ll_entry("openai", mode="realtime"),
+    }
+    report = report_for([row("gpt-a", "openai")], litellm, md_catalog())
+    assert [item["model"] for item in report["missing"]] == ["gpt-a-latest", "gpt-realtime-a"]
+    blocks = build_payload(report)["blocks"]
+    assert _block_text(blocks[1]) == ":large_green_circle: *Prices match the catalogs*"
+
+    flagged = [row("gpt-a", "openai", input_=5e-7)]
+    payload = build_payload(_track_one_pr(flagged, litellm, [row("gpt-a", "openai")]))
+    assert payload["text"] == (
+        f"Model pricing audit, {DATE}: nothing needs a fix that isn't in an open PR"
+    )
+
+
 def test_a_prs_row_name_cannot_add_a_line_to_the_slack_message():
     rows = [row("gpt-a", "openai")]
     forged = row("x\n:large_green_circle: *All clear*", "openai", pattern=r"^nothing$")
@@ -862,9 +1014,31 @@ def test_a_prs_row_name_cannot_add_a_line_to_the_slack_message():
 
     assert _progress(report) == [
         ":large_yellow_circle: *In progress (open PRs)*",
-        "• :warning: #7 would add: x :large_green_circle: *All clear*: matchPattern does not "
-        "match the row's own modelName",
+        "• :warning: #7 would add: `x :large_green_circle: *All clear*: matchPattern does not "
+        "match the row's own modelName`",
     ]
+
+
+def test_a_catalog_id_cannot_pose_as_the_slack_messages_own_text():
+    # Slack renders no bold, emoji or links inside code, so names show as code, and a
+    # backtick, which would end the code, shows as a look-alike.
+    spoof = "gpt-z` :large_green_circle: *Prices match the catalogs*"
+    shown = "`gpt-z\u02cb :large_green_circle: *Prices match the catalogs*`"
+    rows = [
+        row("gpt-a", "openai"),
+        row("gpt-z1", "openai", pattern=r"(?i)^gpt-z"),
+        row("gpt-z2", "openai", input_=2e-6, pattern=r"(?i)^gpt-z"),
+    ]
+    litellm = {"gpt-a": ll_entry("openai"), spoof: ll_entry("openai")}
+    needs = build_payload(report_for(rows, litellm, md_catalog()))["blocks"][1]
+
+    assert _block_text(needs).split("\n")[1] == (
+        f"• *1 price file problem*, e.g. {shown} is matched by `gpt-z1` and `gpt-z2` at "
+        "different prices"
+    )
+    pr_rows = [rows[0], row("gpt-z", "openai", pattern=r"(?i)^gpt-z")]
+    report = _track_one_pr(rows[:1], litellm, pr_rows)
+    assert _progress(report)[1] == f"• {shown} not priced: #7"
 
 
 def test_the_full_report_page_lists_every_finding():
@@ -899,14 +1073,13 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
             "title": title,
             "body": body,
             "html_url": f"https://github.test/pull/{number}",
-            "draft": False,
             "base": {"sha": f"base{number}"},
             "head": {"sha": f"head{number}"},
             "files": list(files),
         }
 
     pulls = [
-        pull(1, "fix(pricing): gpt-a input rate", "Fixes #9"),
+        pull(1, "fix(pricing): gpt-a input rate"),
         pull(2, "docs: typo"),
         pull(3, "chore: bump gpt-a in examples", files=("README.md",)),
         pull(4, "fix(pricing): broken branch"),
@@ -935,15 +1108,14 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
 
     monkeypatch.setattr(check, "_github", fake_github)
     monkeypatch.setattr(check, "fetch_json", fake_fetch)
-    prs = check.fetch_pricing_prs("owner/repo", rows, report, token=None)
+    prs = check.fetch_pricing_prs("owner/repo", rows, report, None, lambda r: {"rows": r})
 
     # PR 2 neither mentions pricing nor a flagged model; PR 3 doesn't touch the file.
     assert [pr["number"] for pr in prs] == [1, 4, 5]
-    assert prs[0]["closes"] == [9]
-    assert prs[0]["rows"][0]["prices"]["input"] == 2e-6
-    assert prs[1]["error"] == "could not read its price file (URLError)"
-    # A row this run can't evaluate makes the PR unreadable instead of failing the run.
-    assert prs[2]["error"] == "could not read its price file (CheckError)"
+    assert prs[0]["report"]["rows"][0]["prices"]["input"] == 2e-6
+    assert prs[1]["error"] == "could not check its price file (URLError)"
+    # A row this run can't evaluate gives the PR an error instead of failing the run.
+    assert prs[2]["error"] == "could not check its price file (CheckError)"
     assert not any("pull/2" in url or "head2" in url for url in calls)
 
 
@@ -987,7 +1159,7 @@ def test_github_rate_limit_stops_tracking(monkeypatch):
         )
     }
     with pytest.raises(HTTPError):
-        check.fetch_pricing_prs("owner/repo", [], report, token=None)
+        check.fetch_pricing_prs("owner/repo", [], report, None, lambda rows: {})
 
 
 # --- the command line: main() with the network and Slack replaced ---------------
@@ -995,29 +1167,54 @@ def test_github_rate_limit_stops_tracking(monkeypatch):
 
 @pytest.fixture
 def run(tmp_path, monkeypatch):
-    """Run main() against sample data; returns (exit code, posted payloads, report)."""
+    """Run main() against sample data; returns (exit code, posted payloads, report). With
+    heads, GitHub has an open pricing PR for each entry, branched from rows: its number,
+    and the price file at its head or the error reading the PR raises. With
+    write_json=False, the run writes no JSON report and the report returned is None."""
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
     posted = []
     monkeypatch.setattr(check, "post_to_slack", lambda _url, payload: posted.append(payload))
 
-    def _run(rows, litellm, modelsdev, *extra):
+    def _run(rows, litellm, modelsdev, *extra, heads=None, write_json=True):
         if isinstance(litellm, dict):
             # Only the cache write rates, so a test can still remove any other field.
             filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
             litellm = {"cache-write-filler": filler, **litellm}
 
-        def fake_fetch(url):
+        def fake_fetch(url, max_bytes=None):
             if isinstance(litellm, Exception):
                 raise litellm
-            return litellm if url == check.LITELLM_URL else modelsdev
+            if url in (check.LITELLM_URL, check.MODELSDEV_URL):
+                return litellm if url == check.LITELLM_URL else modelsdev
+            sha = url.split("/")[5]
+            # Through JSON, as GitHub serves it.
+            return json.loads(json.dumps(rows if sha == "base" else heads[int(sha[4:])]))
+
+        def fake_github(url, token):
+            if "/pulls?" in url:
+                return [
+                    {
+                        "number": number,
+                        "title": "fix(pricing): rates",
+                        "base": {"sha": "base"},
+                        "head": {"sha": f"head{number}"},
+                    }
+                    for number in heads
+                ]
+            head = heads[int(url.rsplit("head", 1)[1])]
+            if isinstance(head, Exception):
+                raise head
+            return {"merge_base_commit": {"sha": "base"}, "files": [{"filename": check.PRICE_PATH}]}
 
         monkeypatch.setattr(check, "fetch_json", fake_fetch)
+        if heads is not None:
+            monkeypatch.setattr(check, "_github", fake_github)
         prices = tmp_path / "prices.json"
         prices.write_text(json.dumps(rows))
         out = tmp_path / "report.json"
-        argv = ["--post", "--prices", str(prices), "--json", str(out), *extra]
-        code = check.main(argv)
-        return code, posted, json.loads(out.read_text())
+        argv = ["--post", "--prices", str(prices), *extra]
+        code = check.main([*argv, "--json", str(out)] if write_json else argv)
+        return code, posted, json.loads(out.read_text()) if write_json else None
 
     return _run
 
@@ -1044,11 +1241,34 @@ def test_quiet_day_posts_a_heartbeat(run, tmp_path):
     [payload] = posted
     assert payload["text"] == f"Model pricing audit, {report['date']}: prices match the catalogs"
     assert payload["blocks"][1]["text"]["text"] == (
-        ":large_green_circle: *Prices match the catalogs, and every model ID is priced*"
+        ":large_green_circle: *Prices match the catalogs*"
     )
     assert "<https://pages.test/r|Full report>" in payload["blocks"][-1]["elements"][0]["text"]
     assert json.loads(saved.read_text()) == payload
     assert "Checked 1 of 1 rows" in (tmp_path / "report.html").read_text()
+
+
+def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, capsys):
+    rows = [row(f"gpt-{n}", "openai", input_=5e-7) for n in range(30)]
+    litellm = {f"gpt-{n}": ll_entry("openai") for n in range(30)}
+
+    def cut_lines(*extra, **kwargs):
+        """The terminal's and the Slack message's line on the rates left out of the table."""
+        _, posted, _ = run(rows, litellm, md_catalog(), "--min-compared", "1", *extra, **kwargs)
+        out = capsys.readouterr().out.splitlines()
+        blocks = posted[-1]["blocks"]
+        more = next(b for b in blocks if b.get("block_id") == "prices_more")
+        return next(line for line in out if line.startswith("…and")), _block_text(more)
+
+    assert cut_lines("--report-url", "https://pages.test/r") == (
+        "…and 10 more in the full report",
+        "…and 10 more rates in the full report",
+    )
+    assert cut_lines() == (
+        "…and 10 more in the JSON report",
+        "…and 10 more rates in the JSON report",
+    )
+    assert cut_lines(write_json=False) == ("…and 10 more", "…and 10 more rates")
 
 
 def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monkeypatch):
@@ -1066,6 +1286,99 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, monk
     assert "flagged" in report and report["flagged"][0]["model"] == "gpt-a"
     footer = posted[0]["blocks"][-1]["elements"][0]["text"]
     assert footer.endswith("open PRs not checked: GitHub could not be read (URLError)")
+
+
+TRACK = ("--min-compared", "1", "--track")
+UNCOMPILABLE = "gpt-x: matchPattern does not compile, so the row matches its exact name only"
+
+
+def _run_with_two_prs(run, second_head):
+    """main() with --track on one row, gpt-a, whose input rate is flagged: open PR #1
+    fixes it, and PR #2's head has second_head as its price file, or raises it when read."""
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    heads = {1: [row("gpt-a", "openai")], 2: second_head}
+    return run(rows, {"gpt-a": ll_entry("openai")}, md_catalog(), *TRACK, heads=heads)
+
+
+@pytest.mark.parametrize(
+    ("bad_row", "adds", "error"),
+    [
+        pytest.param(
+            row("gpt-x", "openai", pattern="^gpt-x{4294967296}$"),
+            [UNCOMPILABLE],
+            "",
+            id="repeat-count-too-large",
+        ),
+        pytest.param(
+            row("gpt-x", "openai", pattern="(" * 3000 + "gpt-x" + ")" * 3000),
+            [UNCOMPILABLE],
+            "",
+            id="groups-nested-too-deep",
+        ),
+        pytest.param(
+            row("gpt-x", "openai", input_=10**400),
+            [],
+            "could not check its price file (",
+            id="rate-too-large-for-a-float",
+        ),
+    ],
+)
+def test_one_open_prs_bad_row_cannot_fail_the_run(run, bad_row, adds, error):
+    code, _, report = _run_with_two_prs(run, [row("gpt-a", "openai", input_=5e-7), bad_row])
+
+    assert code == 0
+    assert report["tracking"] == "ok"
+    assert report["flagged"][0]["tracked_by"] == [1]
+    [_, pr] = report["pull_requests"]
+    assert pr["adds"] == adds
+    assert pr.get("error", "").startswith(error)
+
+
+def test_a_failure_checking_one_pr_is_reported_on_that_pr_alone(run, monkeypatch):
+    # Whatever goes wrong while checking a PR's rows, the other PRs still count.
+    build_report = check.build_report
+
+    def failing(rows, *args, **kwargs):
+        if any(r["modelName"] == "gpt-x" for r in rows):
+            raise ValueError("unexpected")
+        return build_report(rows, *args, **kwargs)
+
+    monkeypatch.setattr(check, "build_report", failing)
+    second = [row("gpt-a", "openai", input_=5e-7), row("gpt-x", "openai")]
+    code, _, report = _run_with_two_prs(run, second)
+
+    assert code == 0
+    assert report["tracking"] == "ok"
+    assert report["flagged"][0]["tracked_by"] == [1]
+    assert report["pull_requests"][1]["error"] == "could not check its price file (ValueError)"
+
+
+def test_an_open_prs_price_file_gets_a_time_limit(run, monkeypatch):
+    # A pattern that backtracks on a long catalog ID would otherwise stall the run.
+    monkeypatch.setattr(check, "PR_CHECK_SECONDS", 0.2, raising=False)
+    handler = signal.getsignal(signal.SIGALRM)
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    litellm = {"gpt-a": ll_entry("openai"), "a" * 26 + "b": ll_entry("openai")}
+    heads = {1: [row("gpt-a", "openai")], 2: [*rows, row("gpt-x", "openai", pattern="^(a+)+$")]}
+    code, _, report = run(rows, litellm, md_catalog(), *TRACK, heads=heads)
+
+    assert code == 0
+    assert report["flagged"][0]["tracked_by"] == [1]
+    assert report["pull_requests"][1]["error"] == "its price file took over 0.2 seconds to check"
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    assert signal.getsignal(signal.SIGALRM) is handler
+
+
+def test_a_rate_limit_partway_through_the_prs_marks_no_finding_as_in_a_pr(run):
+    # Findings are marked only once every PR is checked, so none is hidden from the
+    # message while the footer says open PRs were not checked.
+    limited = HTTPError("https://api.test", 429, "", {}, None)
+    code, posted, report = _run_with_two_prs(run, limited)
+
+    assert code == 0
+    assert report["tracking"] == "GitHub could not be read (429)"
+    assert not report["flagged"][0].get("tracked_by")
+    assert posted[0]["text"].endswith(": 1 model with prices to check")
 
 
 def test_baseline_lists_what_an_edit_fixes_and_adds():
