@@ -8,7 +8,7 @@ from scripts.model_prices.catalogs import CheckError
 from scripts.model_prices.checks import JS_INCOMPATIBLE, PRICING_PAGES, differs, lookup
 from scripts.model_prices.page import build_html
 from scripts.model_prices.slack import build_payload
-from scripts.model_prices.text import ID_HEADING, format_report
+from scripts.model_prices.text import format_report
 from tests.model_prices.samples import (
     DATE,
     _block_text,
@@ -314,26 +314,29 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         ("us-gov.anthropic.claude-k-5-v1:0", "claude-k-5", "Bedrock", None),
         ("us.anthropic.claude-k-5", "claude-k-5", "Bedrock", None),
     ]
+    # Each kind of ID is a section named as the summary counts it, in every format.
+    summary = "4 model IDs with no price, 1 model ID priced as another model"
     text = format_report(report)
-    assert f"*Model IDs not priced by their row* (5): {ID_HEADING}" in text
-    assert "<h2>Model IDs not priced by their row (5)</h2>" in build_html(report)
-    assert build_payload(report)["text"].endswith(
-        ": 4 model IDs with no price, 1 model ID priced as another model"
-    )
+    assert text.startswith(f"*Model pricing audit, {DATE}*: {summary}\n")
+    assert "\n*Model IDs with no price* (4): " in text
+    assert "\n*Model IDs priced as another model* (1): " in text
+    page = build_html(report)
+    assert "<h2>Model IDs with no price (4)</h2>" in page
+    assert "<h2>Model IDs priced as another model (1)</h2>" in page
+    assert build_payload(report)["text"].endswith(f": {summary}")
     # One example per row, preferring a US Bedrock profile.
-    assert "• claude-k-5: 1 Vertex AI, 2 Bedrock, e.g. `us.anthropic.claude-k-5`" in text
-    assert (
-        "• claude-k-5-1: 1 OpenRouter, e.g. `anthropic/claude-k-5.1`, "
-        "`eu.anthropic.claude-k-5-1` is priced as claude-j"
-    ) in text
+    assert "• claude-k-5: 1 Vertex AI, 2 Bedrock, e.g. `us.anthropic.claude-k-5`\n" in text
+    assert "• claude-k-5-1: 1 OpenRouter, e.g. `anthropic/claude-k-5.1`\n" in text
+    assert "• claude-k-5-1: eu.anthropic.claude-k-5-1 is priced as claude-j\n" in text
     needs = _block_text(build_payload(report)["blocks"][1])
     assert (
-        "• *4 model IDs record no cost.* These are the Bedrock, Vertex AI and OpenRouter IDs "
-        "of 2 models we already price: Anthropic 4. Example: `us.anthropic.claude-k-5`"
+        "• *4 model IDs with no price*, so their spans record no cost. These are the Bedrock, "
+        "Vertex AI and OpenRouter IDs of 2 models we already price: Anthropic 4. Example: "
+        "`us.anthropic.claude-k-5`"
     ) in needs
     assert (
-        "• *1 model ID gets another model's price*, e.g. `eu.anthropic.claude-k-5-1` is "
-        "priced as `claude-j`"
+        "• *1 model ID priced as another model*, e.g. `claude-k-5-1`: "
+        "`eu.anthropic.claude-k-5-1` is priced as `claude-j`"
     ) in needs
 
 
@@ -401,7 +404,7 @@ def test_price_file_problems_are_found_without_a_catalog():
         ("gpt-q", "cache read rate is above the input rate"),
     ]
     assert format_report(report).startswith(
-        f"*Model pricing audit, {DATE}*: prices match the catalogs, 6 price file problems"
+        f"*Model pricing audit, {DATE}*: 6 price file problems\n"
     )
 
 
@@ -439,7 +442,9 @@ def test_long_context_rates_are_listed():
         ("gpt-r", 272_000),
         ("gemini-t", 200_000),
     ]
-    assert "(2): gpt-r over 272K, gemini-t over 200K" in format_report(report)
+    text = format_report(report)
+    assert "\n*Long-context rates* (2): " in text
+    assert "\ngpt-r over 272K, gemini-t over 200K\n" in text
 
 
 def test_retired_models_are_not_missing():

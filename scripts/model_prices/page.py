@@ -1,10 +1,18 @@
 """The full report as a self-contained web page."""
 
 import html
+from collections.abc import Callable
 
-from .catalogs import FIELD_LABELS
-from .checks import MINOR_MODELS
-from .text import PROVIDER_NAMES, _amount, _catalog_amount, _plural, _problem_text, _tracked
+from .text import (
+    NOT_ALL_CLEAR,
+    PROVIDER_NAMES,
+    Section,
+    _problem_text,
+    _rate_rows,
+    _tracked,
+    footer,
+    sections,
+)
 
 HTML_STYLE = """
 :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff;
@@ -53,50 +61,24 @@ def _html_table(heading: str, note: str, columns: list[str], rows: list[list[str
     )
 
 
-def build_html(report: dict) -> str:
-    """The full report as a self-contained web page: every finding, with the open PRs
-    that fix it. The Slack message summarizes it and links here."""
-    title = f"Model pricing audit · {report['date']}"
-    if report["status"] != "ok":
-        body = (
-            f"<h1>{_h(title)}</h1><p><strong>The check failed:</strong> "
-            f"{_h(report['error'])}. Nothing was compared, so this is not an all-clear.</p>"
-        )
-        return _html_page(title, body)
-    urls = {pr["number"]: pr.get("url") for pr in report.get("pull_requests", [])}
-    tracked = _tracked(report)
-
-    def prs(item: dict) -> str:
-        return _html_prs(item.get("tracked_by", []), urls) if tracked else "not checked"
-
-    sections = [
-        _html_table(
-            "Prices to check",
-            "Rates that differ by more than 3% from every catalog that lists the model, in "
-            "USD per 1M tokens. Confirm on the provider's page before changing a row.",
-            ["Model", "Priced by row", "Rate", "#Ours", "#Catalogs", "Open PRs"],
-            [
+def _columns(section: Section, prs: Callable[[dict], str]) -> tuple[list[str], list[list[str]]]:
+    """A section's table: its column titles, and a row of escaped cells per finding."""
+    items = section.items
+    match section.key:
+        case "prices":
+            return ["Model", "Priced by row", "Rate", "#Ours", "#Catalogs", "Open PRs"], [
                 [
                     f'<a href="{_h(i["pricing_page"])}">{_h(i["model"])}</a>'
                     if i["pricing_page"]
                     else _h(i["model"]),
                     _h(i.get("priced_as") or i["model"]),
-                    _h(FIELD_LABELS[i["field"]]),
-                    _h(_amount(i["ours"])),
-                    _h(_catalog_amount(i)),
+                    *map(_h, rate),
                     prs(i),
                 ]
-                for i in report["flagged"]
-            ],
-        ),
-        _html_table(
-            "Model IDs not priced by their row",
-            "The same model under another name: the ID a span carries when the model is "
-            "called through Bedrock, Vertex AI or OpenRouter, or with [1m]. The row exists, "
-            "but its matchPattern misses this ID, so these spans record no cost, or another "
-            "model's price when a different row's pattern matches it.",
-            ["Row", "Model ID", "From", "Priced as", "Open PRs"],
-            [
+                for _, i, rate in _rate_rows(items, limit=None)
+            ]
+        case "ids" | "wrong":
+            return ["Row", "Model ID", "From", "Priced as", "Open PRs"], [
                 [
                     _h(i["row"]),
                     f"<code>{_h(i['model'])}</code>",
@@ -104,85 +86,66 @@ def build_html(report: dict) -> str:
                     _h(i["priced_as"] or "no row"),
                     prs(i),
                 ]
-                for i in report["unpriced_ids"]
-            ],
-        ),
-        _html_table(
-            "Price file problems",
-            "Found in the price file itself, including rows no catalog lists.",
-            ["Row or ID", "Problem", "Open PRs"],
-            [
-                [_h(i.get("row") or i["model"]), _h(_problem_text(i).split(": ", 1)[-1]), prs(i)]
-                for i in report["row_problems"] + report["overlaps"]
-            ],
-        ),
-        _html_table(
-            "Models not priced",
-            "Models a catalog prices for one of our providers that no row matches at all, so "
-            "spans that use them record no cost. Variants are -latest aliases, dated "
-            "snapshots, and realtime and search models.",
-            ["Provider", "Model", "Kind", "Listed in", "Open PRs"],
-            [
+                for i in items
+            ]
+        case "problems":
+            return ["Row or ID", "Problem", "Open PRs"], [
+                [_h(i.get("row") or i["model"]), _h(i.get("problem") or _problem_text(i)), prs(i)]
+                for i in items
+            ]
+        case "missing" | "variants":
+            return ["Provider", "Model", "Listed in", "Open PRs"], [
                 [
                     _h(PROVIDER_NAMES.get(i["provider"], i["provider"])),
                     f"<code>{_h(i['model'])}</code>",
-                    "variant" if MINOR_MODELS.search(i["model"]) else "model",
                     _h(", ".join(i["in"])),
                     prs(i),
                 ]
-                for i in sorted(
-                    report["missing"],
-                    key=lambda i: (bool(MINOR_MODELS.search(i["model"])), i["provider"]),
-                )
-            ],
-        ),
-        _html_table(
-            "Long-context rates",
-            "Models a catalog charges more for above a prompt size. The price file has one "
-            "rate per token type, so longer prompts are recorded at the lower rate.",
-            ["Model", "Provider", "#Higher rate above"],
-            [
+                for i in items
+            ]
+        case _:  # long_context
+            return ["Model", "Provider", "#Higher rate above"], [
                 [
                     _h(i["model"]),
                     _h(PROVIDER_NAMES.get(i["provider"], i["provider"])),
                     f"{i['above'] // 1000}K tokens",
                 ]
-                for i in report["long_context"]
-            ],
-        ),
-        _html_table(
-            "Open pricing PRs",
-            "Each PR's row changes applied to the current price file and checked again.",
-            ["PR", "Title", "Fixes", "Would add"],
-            [
-                [
-                    _html_prs([pr["number"]], urls),
-                    _h(pr.get("title") or ""),
-                    _h(pr.get("error") or "; ".join(pr["fixes"]) or "—"),
-                    _h("; ".join(pr["adds"]) or "—"),
-                ]
-                for pr in report.get("pull_requests", [])
-            ],
-        ),
+                for i in items
+            ]
+
+
+def build_html(report: dict) -> str:
+    """The full report as a self-contained web page: every finding, with the open PRs
+    that fix it. The Slack message summarizes it and links here."""
+    title = f"Model pricing audit · {report['date']}"
+    if report["status"] != "ok":
+        failed = f"<strong>The check failed:</strong> {_h(report['error'])}. {NOT_ALL_CLEAR}"
+        return _html_page(title, f"<h1>{_h(title)}</h1><p>{failed}</p>")
+    urls = {pr["number"]: pr.get("url") for pr in report.get("pull_requests", [])}
+
+    def prs(item: dict) -> str:
+        return _html_prs(item.get("tracked_by", []), urls) if _tracked(report) else "not checked"
+
+    tables = [_html_table(s.title, s.note, *_columns(s, prs)) for s in sections(report)]
+    pulls = [
+        [
+            _html_prs([pr["number"]], urls),
+            _h(pr.get("title") or ""),
+            _h(pr.get("error") or "; ".join(pr["fixes"]) or "—"),
+            _h("; ".join(pr["adds"]) or "—"),
+        ]
+        for pr in report.get("pull_requests", [])
     ]
-    checked = (
-        f"Checked {report['compared']} of {report['total']} rows against LiteLLM and models.dev"
+    note = "Each PR's row changes applied to the current price file and checked again."
+    tables.append(
+        _html_table("Open pricing PRs", note, ["PR", "Title", "Fixes", "Would add"], pulls)
     )
-    if tracked:
-        checked += f", and {_plural(len(report['pull_requests']), 'open pricing PR')}"
-    elif report.get("tracking"):
-        checked += f". Open PRs not checked: {report['tracking']}"
-    not_compared = ", ".join(report["no_match"])
-    body = (
-        f"<h1>{_h(title)}</h1><p class='note'>{_h(checked)}.</p>"
-        + "".join(sections)
-        + (
+    body = f"<h1>{_h(title)}</h1><p class='note'>{_h(footer(report))}.</p>" + "".join(tables)
+    if report["no_match"]:
+        body += (
             f"<h2>Not compared ({len(report['no_match'])})</h2><p class='note'>Rows neither "
-            f"catalog lists under the same ID.</p><p>{_h(not_compared)}</p>"
-            if report["no_match"]
-            else ""
+            f"catalog lists under the same ID.</p><p>{_h(', '.join(report['no_match']))}</p>"
         )
-    )
     return _html_page(title, body)
 
 
