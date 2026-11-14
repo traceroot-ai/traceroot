@@ -11,21 +11,19 @@ description: How the traceroot CLI picks its credential, project, and host, and 
 | List workspaces and projects | Yes | No |
 | Create, change, or delete workspaces, projects, detectors, alerts, dashboards, or widgets | Yes, if your [role](/getting-started/concepts#roles) allows it | No |
 
-A refused command exits 3. `TRACEROOT_TOKEN` holds a session token and acts like a browser login. [API authentication](/api-reference/authentication#session-token-and-cli-access-token) covers where one comes from.
+A refused command exits 3. `TRACEROOT_TOKEN` holds a session token and acts like a browser login, unless its value starts with `tr-` or `tr_`, which makes it an API key. [API authentication](/api-reference/authentication#session-token-and-cli-access-token) covers where a session token comes from.
 
 ## What login does
 
-`traceroot login` acts on whichever credential wins [the order below](#which-credential-is-used):
+`traceroot login` opens a browser sign-in only when no other credential [wins](#which-credential-is-used). In a repository `setup` has configured, a key in `./.env` or `./.traceroot/config.json` usually wins, so `login` may not open a browser. To sign in through the browser anyway, run `login` from a directory with neither file, with `TRACEROOT_API_KEY` unset. The session then applies to that host from any directory.
 
 | Winning credential | What `login` does |
 | :- | :- |
-| None, or `TRACEROOT_TOKEN` | Runs the browser sign-in and saves the session |
-| A key from `--api-key`, `--env-file`, `TRACEROOT_API_KEY`, or `./.env` | Checks the key, then saves it and the host to `./.traceroot/config.json`. No browser |
+| None, or a session token in `TRACEROOT_TOKEN` | Runs the browser sign-in and saves the session |
+| A key from `--api-key`, `--env-file`, `TRACEROOT_API_KEY`, or `./.env`, or a `tr-` or `tr_` value in `TRACEROOT_TOKEN` | Checks the key, then saves it and the host to `./.traceroot/config.json`. No browser |
 | A saved session, or a key in `./.traceroot/config.json` | Says you're already logged in. In a terminal, it asks whether to sign in again. Otherwise it exits 0 and changes nothing, unless a saved session has stopped working, which starts a new sign-in |
 
-Naming a host with `--host`, `--env-file`, or `TRACEROOT_HOST_URL` skips the third row.
-
-So in a repository `setup` has configured, `login` may not open a browser. To sign in anyway, run it from a directory with no `./.env` or `./.traceroot/config.json`, with `TRACEROOT_API_KEY` unset. The session then applies to that host from any directory.
+Naming a host with `--host` or `TRACEROOT_HOST_URL`, in the environment or in `--env-file`, skips that last row: a saved key is checked against the new host, and otherwise the browser sign-in runs.
 
 `traceroot status` shows who the credential belongs to and where it came from.
 
@@ -62,7 +60,7 @@ A browser login needs a project for project data, or the command exits 2. Highes
 
 `traceroot projects list` shows the IDs, and `traceroot status` shows the project in use.
 
-The CLI reads `./.traceroot/config.json` and `./.env` from the current directory only. So after a browser-login `setup`, reads work from the directory you ran it in. Anywhere else, pass `--project`.
+The CLI reads `./.traceroot/config.json` and `./.env` from the current directory only, unless `TRACEROOT_CONFIG_PATH` names another config file. So after a browser-login `setup`, reads work from the directory you ran it in. Anywhere else, pass `--project`.
 
 An API key names its own project, so read commands ignore all of these under a key, `--project` included. `setup` is different: its `--project` takes a name or ID and looks it up, which needs a browser login, so don't combine it with a key.
 
@@ -87,19 +85,19 @@ See [Self-hosted traceroot](/tracing/get-started#self-hosted-traceroot).
 | `TRACEROOT_AUTH_URL` | Auth host |
 | `TRACEROOT_PROJECT_ID` | Project for a browser login |
 | `TRACEROOT_TIMEOUT_MS` | Request timeout. `--timeout` outranks it |
-| `TRACEROOT_CONFIG_PATH` | Config file path |
-| `TRACEROOT_CREDENTIALS_PATH` | Credentials file path |
-| `XDG_CONFIG_HOME` | Base directory for the credentials file |
+| `TRACEROOT_CONFIG_PATH` | Config file to use instead of `./.traceroot/config.json` |
+| `TRACEROOT_CREDENTIALS_PATH` | Credentials file to use instead of `~/.config/traceroot/credentials.json` |
+| `XDG_CONFIG_HOME` | Moves the credentials file to `$XDG_CONFIG_HOME/traceroot/credentials.json`. `TRACEROOT_CREDENTIALS_PATH` outranks it |
 | `CODEX_HOME` | Where Codex skills go. Default: `~/.codex` |
 | `CI` | Unless empty or `false`, `setup` never prompts |
 | `NO_COLOR`, `FORCE_COLOR` | Turn color off or on. `NO_COLOR` wins |
 
 ## Files
 
-| File | Holds | Written by |
+| Default path | Holds | Written by |
 | :- | :- | :- |
 | `~/.config/traceroot/credentials.json` | A session per host | `login`, `setup` |
 | `./.traceroot/config.json` | `api_key`, `host_url`, `project_id` | `login`, `setup` |
 | `./.env` | `TRACEROOT_API_KEY`, `TRACEROOT_HOST_URL`, `TRACEROOT_AUTH_URL`, `TRACEROOT_PROJECT_ID` | You, or `setup`, which writes the key and host |
 
-The CLI keeps the first two at mode `0600` and git-ignores `.traceroot/`. `--env-file` reads what `./.env` does, plus `TRACEROOT_TOKEN`. When a `.env.local` exists, `setup` writes there instead, and the CLI doesn't read that file.
+The [path variables](#environment-variables) move the first two, and the CLI keeps them at mode `0600` and git-ignores `.traceroot/`. `--env-file` reads what `./.env` does, plus `TRACEROOT_TOKEN`. When a `.env.local` exists, `setup` writes there instead, and the CLI doesn't read that file.

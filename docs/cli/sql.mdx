@@ -77,7 +77,7 @@ ORDER BY total_cost DESC
 
 ## Query with the API
 
-Send a project API key as a bearer token to `POST /api/v1/public/sql`. A session token or CLI access token also works with the `project_id` query parameter. After a browser login, `traceroot sql --project <id>` exchanges the session for a short-lived access token and sends that:
+Send a project API key as a bearer token to `POST /api/v1/public/sql`:
 
 ```bash
 curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
@@ -89,6 +89,8 @@ curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
     "max_rows": 1000
   }'
 ```
+
+A [session token or CLI access token](/api-reference/authentication#session-token-and-cli-access-token) works too, with the `project_id` query parameter.
 
 A successful response contains column names and types, row values in the same order, the returned row count, truncation state, elapsed time, and any read statistics supplied by ClickHouse:
 

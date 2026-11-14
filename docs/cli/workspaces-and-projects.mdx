@@ -6,7 +6,7 @@ description: List, create, change, and delete workspaces and projects with the t
 
 These commands act on your account, so they need a browser login or `TRACEROOT_TOKEN`, not a project API key, and your [role](/getting-started/concepts#roles) decides what you can change.
 
-## List
+## List workspaces and projects
 
 ```bash
 traceroot workspaces list
@@ -15,7 +15,7 @@ traceroot projects list --workspace-id <workspace-id>
 
 `--workspace-id` is optional. Without it, `projects list` shows every project you can access.
 
-## Create
+## Create a workspace or project
 
 ```bash
 traceroot workspaces create --name "Research"
@@ -24,7 +24,7 @@ traceroot projects create --workspace-id <workspace-id> --name "Support agent" -
 
 You administer a workspace you create. Creating a project takes MEMBER or higher. Either command returns the existing one if the name is already yours: a workspace you administer, or a project in that workspace. `--trace-ttl-days` is optional, from 1 to 365.
 
-## Update
+## Change a workspace or project
 
 ```bash
 traceroot workspaces update <workspace-id> --name "Research team"
@@ -33,14 +33,14 @@ traceroot projects update <project-id> --name "Support bot" --trace-ttl-days 90
 
 Both take ADMIN. To return a project's retention to the plan default, send `{ "trace_ttl_days": null }` with `--from-file`. A name already in use exits 1.
 
-## Delete
+## Delete a workspace or project
 
 ```bash
 traceroot projects delete <project-id> --reason "Service retired"
 traceroot workspaces delete <workspace-id> --name "Research team" --reason "Team merged"
 ```
 
-Both take ADMIN, and `--reason`, 3 to 500 characters, recorded in the audit log.
+Both take ADMIN and a [`--reason`](/cli/scripting#shared-flags).
 
 Deleting a project removes it from every list and read, and its API keys stop working. Its data stays for the retention window.
 

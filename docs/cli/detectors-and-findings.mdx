@@ -35,10 +35,10 @@ traceroot detectors create --name "Failed tasks" --template task --sample-rate 1
 
 `--name` and `--template` are required. Creating a name that already exists in the project returns that detector unchanged.
 
-| Flag | Takes |
+| Flag | Meaning |
 | :- | :- |
 | `--template` | `failure`, `hallucination`, `logic`, `task`, or `safety` use standard instructions. `blank` needs `--prompt` |
-| `--prompt` | Instructions, stored as written. They replace a template's |
+| `--prompt` | Instructions, stored as written. They replace the template's standard instructions |
 | `--sample-rate` | Share of matching traces to check, 0 to 100. Default: 25 |
 | `--trigger-conditions` | JSON array of `{field, op, value}` that limits which traces it checks |
 | `--output-schema` | JSON array of output fields |
@@ -65,7 +65,7 @@ Nested fields are easier in a file:
 traceroot detectors create --from-file detector.json
 ```
 
-[Send a JSON body](/cli/scripting#send-a-json-body) covers what's checked, and where.
+[Send a JSON body](/cli/scripting#send-a-json-body) covers files and stdin.
 
 ## Change a detector
 
@@ -93,4 +93,4 @@ Turning a detector back on doesn't check past traces.
 traceroot detectors delete <detector-id> --reason "Replaced by the task detector"
 ```
 
-`--reason` is required, 3 to 500 characters, and recorded in the audit log. The delete is permanent, and the detector's findings stay readable.
+The delete is permanent, and needs a [`--reason`](/cli/scripting#shared-flags). The detector's findings stay readable.

@@ -29,6 +29,22 @@ A project API key also sets the project. Without a key, run `npx -y traceroot-cl
 
 Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to `.traceroot/prompts/setup-instrument.md` rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one. After the task is done and the application has run, rerun the same setup command with `--resume`, such as `npx -y traceroot-cli@latest setup --no-input --resume`, to get a link to the first trace. [Exit codes](/cli/scripting#exit-codes) lists what each code means, and [Coding agents](/getting-started/coding-agents#set-up-tracing) has these steps as a prompt.
 
+### Setup flags
+
+| Flag | Meaning |
+| :- | :- |
+| `--agent <agent>` | Coding agent to run: `claude` or `codex`. For another agent, use `--no-instrument` |
+| `--language <language>` | Language to instrument: `python` or `typescript` |
+| `--service <path>` | The service to instrument, in a monorepo |
+| `--project <name-or-id>` | Project to send traces to |
+| `--handoff <code>` | One-time sign-in code from the traceroot web app |
+| `--no-browser` | Sign in by pasting an API key instead of using a browser |
+| `--no-instrument` | Write the instrumentation task instead of running an agent |
+| `--manual` | Print instructions instead of running or writing a task |
+| `--resume` | Continue from the saved checkpoint |
+| `--no-input` | Never prompt. A missing answer exits with the flag to pass |
+| `--trace-timeout <seconds>` | How long to wait for the first trace. Default: 120 |
+
 ## Install
 
 Every command also runs through `npx`, as above. To keep the `traceroot` command, install the CLI globally:
@@ -115,6 +131,21 @@ traceroot traces export <trace-id> --output ./my-trace
 
 [Traces](/cli/traces) covers time filters, field groups, and the exported files.
 
+## Diagnose and add skills
+
+```bash
+traceroot doctor
+traceroot setup doctor --service ./api
+traceroot instrument --agent claude --print
+traceroot skills install traceroot-instrument-repo --agent claude --dry-run
+```
+
+`doctor` checks credentials, traceroot files, the repository, the environment, and the installed skills. `setup doctor` diagnoses a setup that didn't complete. Both take `--service <path>` in a monorepo, and exit 1 when a check fails.
+
+`instrument` writes a prompt for a coding agent to add traceroot, without editing your code. `setup` is the usual route. It takes `--agent` (`claude`, `codex`, or `generic`), `--print` to write the prompt to stdout, `--output <path>`, and `--force` to overwrite an existing prompt.
+
+`skills list` shows the skills bundled with the CLI and where they're installed. `skills install` copies one into an agent's skill directory, and takes `--agent`, `--force`, and `--dry-run` to show what it would write. [Coding agents](/getting-started/coding-agents#skills) lists the skills to use.
+
 ## Command reference
 
 Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
@@ -139,16 +170,25 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
 | `sql schema` | List every table and column available to read-only SQL. |
 
+## Output and exit codes
+
+[Scripting and CI](/cli/scripting) covers [JSON output](/cli/scripting#json-output), [exit codes](/cli/scripting#exit-codes), and the [flags most commands share](/cli/scripting#shared-flags).
+
 ## Next steps
 
-| To | Go to |
-| :- | :- |
-| Fix a stopped setup | [Troubleshoot](/tracing/get-started#troubleshoot) |
-| Read and export traces | [Traces](/cli/traces) |
-| Read findings and manage detectors | [Detectors and Findings](/cli/detectors-and-findings) |
-| Manage alerts | [Alerts](/cli/alerts) |
-| Read and change dashboards | [Dashboards and Widgets](/cli/dashboards-and-widgets) |
-| Manage workspaces and projects | [Workspaces and Projects](/cli/workspaces-and-projects) |
-| Query spans and traces | [Read-only SQL](/cli/sql) |
-| Read evaluations and datasets | [Evaluations from the Terminal](/evals/cli) |
-| Use the CLI in scripts and CI | [Scripting and CI](/cli/scripting) |
+Each command group has its own page under **Commands**, starting with [Traces](/cli/traces).
+
+<CardGroup cols={2}>
+  <Card title="Authentication and Configuration" icon="key" href="/cli/authentication">
+    Which credential, project, and host the CLI uses.
+  </Card>
+  <Card title="Scripting and CI" icon="terminal" href="/cli/scripting">
+    JSON output, exit codes, and JSON request bodies.
+  </Card>
+  <Card title="Evaluations from the Terminal" icon="flask" href="/evals/cli">
+    Read datasets, evaluations, and past runs.
+  </Card>
+  <Card title="Troubleshoot setup" icon="wrench" href="/tracing/get-started#troubleshoot">
+    Fix a setup that stopped before the first trace.
+  </Card>
+</CardGroup>
