@@ -1128,6 +1128,21 @@ def test_a_flagged_rate_changed_to_another_wrong_rate_is_added():
     }
 
 
+def test_an_edit_that_stops_comparing_a_flagged_row_is_added():
+    # A provider no catalog covers hides the row's flag rather than fixing it.
+    litellm = {
+        "deepseek/deepseek-d": ll_entry("deepseek", output=4e-6),
+        "claude-f": ll_entry("anthropic"),
+    }
+    before = [row("deepseek-d", "deepseek", output=1e-6), row("claude-f", "anthropic")]
+    after = [row("deepseek-d", "typesafe", output=1e-6), before[1]]
+
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": ["deepseek-d no longer compared with the catalogs"],
+    }
+
+
 def test_a_host_id_newly_priced_below_the_hosts_rates_is_added():
     # GovCloud and regional profiles bill more than the model's own rates. A GovCloud
     # region's route lists the plain Bedrock ID at its price too; the bare key wins.

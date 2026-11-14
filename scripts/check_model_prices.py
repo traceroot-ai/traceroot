@@ -846,9 +846,9 @@ def compare_reports(
     also an add when rows now price it but every catalog that lists that exact ID gives
     other input or output rates, as Bedrock does for GovCloud and regional profiles. No
     catalog lists a [1m] ID, so those are not checked here. A dash spelling the baseline
-    priced is an add when no row prices it now."""
-    before, after = finding_keys(baseline), finding_keys(report)
-    adds = describe_all([key for key in after if key not in before])
+    priced is an add when no row prices it now, as is a flagged row no catalog compares
+    now."""
+    fixes, adds = changes(finding_keys(baseline), report)
     unpriced = {item["model"] for item in report["unpriced_ids"]}
     for item in baseline["unpriced_ids"]:
         model_id = item["model"]
@@ -871,7 +871,7 @@ def compare_reports(
     for dashed, was in baseline["dash_spellings"].items():
         if lookup(rows, dashed) is None:
             adds.append(f"{dashed} no longer priced (was {was})")
-    return {"fixes": describe_all([key for key in before if key not in after]), "adds": adds}
+    return {"fixes": describe_all(fixes), "adds": adds}
 
 
 def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]:
