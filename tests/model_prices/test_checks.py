@@ -162,10 +162,15 @@ def test_models_priced_through_another_rows_pattern_are_compared_with_that_row()
     ]
     assert report["flagged"][0]["pricing_page"] == PRICING_PAGES["anthropic"]
     assert "claude-f-2 (priced as claude-f)  input" in format_report(report)
-    table = next(b for b in build_payload(report)["blocks"] if b["type"] == "table")
+    blocks = build_payload(report)["blocks"]
+    assert _block_text(blocks[1]).endswith(
+        "• *1 model with prices to check.* 1 of them falls under an older model's row, "
+        "e.g. `claude-f-2` under `claude-f`."
+    )
+    table = next(b for b in blocks if b["type"] == "table")
     assert table["rows"][1][0]["elements"][0]["elements"] == [
-        {"type": "link", "url": PRICING_PAGES["anthropic"], "text": "claude-f-2"},
-        {"type": "text", "text": " (priced as claude-f)", "style": {"italic": True}},
+        {"type": "text", "text": "claude-f-2", "style": {"code": True}},
+        {"type": "text", "text": " input", "style": {"italic": True}},
     ]
 
 
@@ -330,9 +335,8 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
     assert "• claude-k-5-1: eu.anthropic.claude-k-5-1 is priced as claude-j\n" in text
     needs = _block_text(build_payload(report)["blocks"][1])
     assert (
-        "• *4 model IDs with no price*, so their spans record no cost. These are the Bedrock, "
-        "Vertex AI and OpenRouter IDs of 2 models we already price: Anthropic 4. Example: "
-        "`us.anthropic.claude-k-5`"
+        "• *4 model IDs with no price:* Bedrock, Vertex AI and OpenRouter IDs of 2 models we "
+        "price, e.g. `us.anthropic.claude-k-5`"
     ) in needs
     assert (
         "• *1 model ID priced as another model*, e.g. `claude-k-5-1`: "

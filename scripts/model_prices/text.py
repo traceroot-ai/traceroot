@@ -9,8 +9,7 @@ from dataclasses import dataclass
 from .catalogs import FIELD_LABELS
 from .checks import MINOR_MODELS
 
-# Rates in the terminal's and Slack's price tables; the page and the JSON report have
-# every flag.
+# Rates in the terminal's price table; the page and the JSON report have every flag.
 MAX_FLAGGED_LINES = 20
 # Provider names as people write them.
 PROVIDER_NAMES = {
@@ -201,10 +200,11 @@ def _amount(per_token: float | None) -> str:
     return f"{whole}.{fraction.ljust(2, '0')}"
 
 
-def _catalog_amount(item: dict) -> str:
-    """The catalogs' rate, or the range they span when they disagree with each other."""
+def _catalog_amount(item: dict, amount: Callable[[float | None], str] = _amount) -> str:
+    """The catalogs' rate, or the range they span when they disagree with each other,
+    each written by amount."""
     values = sorted(item[name] for name in ("litellm", "modelsdev") if item[name] is not None)
-    low, high = _amount(values[0]), _amount(values[-1])
+    low, high = amount(values[0]), amount(values[-1])
     return low if low == high else f"{low}-{high}"
 
 

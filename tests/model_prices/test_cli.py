@@ -119,15 +119,16 @@ def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, cap
         more = next(b for b in blocks if b.get("block_id") == "prices_more")
         return next(line for line in out if line.startswith("…and")), _block_text(more)
 
+    # The terminal lists 20 rates, and Slack's table 15 models.
     assert cut_lines("--report-url", "https://pages.test/r") == (
         "…and 10 more in the full report",
-        "…and 10 more rates in the full report",
+        "…and 15 more models in the full report",
     )
     assert cut_lines() == (
         "…and 10 more in the JSON report",
-        "…and 10 more rates in the JSON report",
+        "…and 15 more models in the JSON report",
     )
-    assert cut_lines(write_json=False) == ("…and 10 more", "…and 10 more rates")
+    assert cut_lines(write_json=False) == ("…and 10 more", "…and 15 more models")
 
 
 def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
@@ -298,15 +299,20 @@ def test_a_rate_limit_partway_through_the_prs_marks_no_finding_as_in_a_pr(run):
 def test_format_change_exits_nonzero_and_posts_a_failure(run):
     rows = [row("gpt-a", "openai")]
     renamed = {"gpt-a": {**ll_entry("openai"), "input_cost_per_token": None}}
-    code, posted, report = run(rows, renamed, md_catalog(), "--min-compared", "1")
+    code, posted, report = run(
+        rows, renamed, md_catalog(), "--min-compared", "1", "--report-url", "https://pages.test/r"
+    )
 
     assert code == 1
     assert report["status"] == "failed"
     [payload] = posted
     assert payload["text"].startswith(f"Model pricing audit FAILED, {report['date']}: ")
     assert "input_cost_per_token" in payload["text"]
-    assert payload["blocks"][0]["text"]["text"] == f"Model pricing audit FAILED · {report['date']}"
+    assert payload["blocks"][0]["text"]["text"] == f"Model pricing audit failed · {report['date']}"
     assert "not an all-clear" in payload["blocks"][1]["text"]["text"]
+    assert _block_text(payload["blocks"][2]) == (
+        "The <https://pages.test/r|full report> still shows the last completed run."
+    )
 
 
 def test_too_few_rows_compared_exits_nonzero(run):

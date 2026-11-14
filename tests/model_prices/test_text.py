@@ -7,6 +7,7 @@ from scripts.model_prices.text import _escape, format_report
 from tests.model_prices.samples import (
     DATE,
     _track_one_pr,
+    _tracked_report,
     ll_entry,
     md_catalog,
     md_model,
@@ -72,6 +73,18 @@ def test_price_table_groups_rates_by_model_and_shows_catalog_ranges():
     assert text.index("*Prices to check*") < text.index("_Checked 1 of 1 rows")
 
 
+def test_tracked_prs_show_in_the_terminal_report():
+    text = format_report(_tracked_report())
+
+    assert "1 model with prices to check (1 with an open PR)" in text
+    assert "deepseek-d  input   0.50  → 1.00  #11, #12" in text
+    assert "\n            output  1.00  → 2.00\n" in text
+    assert "• *openai* (1): gpt-new (#12)" in text
+    assert "• #12 would add: gpt-new input rate" in text
+    assert "• #13: could not read it" in text
+    assert "_Checked 2 of 2 rows against LiteLLM and models.dev and 3 open pricing PRs._" in text
+
+
 def test_escape_drops_terminal_control_characters():
     # Row names come from open PRs, and the terminal prints the same text as Slack.
     assert _escape("gpt-\x1b]52;c;eA==\x07a\nb") == "gpt- ]52;c;eA== a b"
@@ -90,7 +103,7 @@ def test_every_format_counts_what_its_words_say():
     )
     # The message counts only what no open PR fixes, and says so.
     assert build_payload(report)["text"] == (
-        f"Model pricing audit, {DATE}, no PR yet: 1 model not priced"
+        f"Model pricing audit, {DATE}, no open PR: 1 model not priced"
     )
     page = build_html(report)
     assert "<h2>Models not priced (2)</h2>" in page

@@ -76,36 +76,52 @@ def _block_text(block):
 
 
 def _tracked_report():
+    """deepseek-d's input and output rates are off and gpt-new is not priced. Open PR #11
+    fixes the input rate, #12 also prices gpt-new, but at another rate than the catalog's,
+    and #13 could not be read."""
     rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6), row("gpt-a", "openai")]
     litellm = {
         "deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6, output=2e-6),
         "gpt-a": ll_entry("openai"),
         "gpt-new": ll_entry("openai"),
     }
-    catalogs = (index_litellm({**LITELLM_FILLER, **litellm}), index_modelsdev(md_catalog()))
-
-    def evaluate(pr_rows):
-        return build_report(pr_rows, *catalogs, date=DATE, min_compared=0)
-
     fix_input = [row("deepseek-d", "deepseek", input_=1e-6, output=1e-6), rows[1]]
     adds_new = [*fix_input, row("gpt-new", "openai", input_=9e-6)]
-    prs = [
-        {"number": 11, "url": "https://github.test/pull/11", "report": evaluate(fix_input)},
-        {"number": 12, "url": "https://github.test/pull/12", "report": evaluate(adds_new)},
-        {"number": 13, "url": "https://github.test/pull/13", "error": "could not read it"},
-    ]
+    return _track_prs(rows, litellm, {11: fix_input, 12: adds_new, 13: "could not read it"})
+
+
+def _track_prs(rows, litellm, heads, modelsdev=None):
+    """The report for rows, with an open PR for each entry in heads: its number, and the
+    rows of its price file, or the error checking it gave as text. Each PR has a URL."""
+    litellm, modelsdev = {**LITELLM_FILLER, **litellm}, modelsdev or md_catalog()
+    catalogs = (index_litellm(litellm), index_modelsdev(modelsdev))
+    hosted = index_hosted(litellm, modelsdev)
+
+    def evaluate(rows):
+        return build_report(rows, *catalogs, date=DATE, hosted=hosted, min_compared=0)
+
     report = evaluate(rows)
+    prs = []
+    for number, head in heads.items():
+        found = {"error": head} if isinstance(head, str) else {"report": evaluate(head)}
+        prs.append({"number": number, "url": f"https://github.test/pull/{number}", **found})
     track(report, prs)
     return report
 
 
 def _track_one_pr(rows, litellm, pr_rows):
     """The report for rows, with one open PR, #7, whose price file is pr_rows."""
-    catalogs = (index_litellm({**LITELLM_FILLER, **litellm}), index_modelsdev(md_catalog()))
+    return _track_prs(rows, litellm, {7: pr_rows})
 
-    def evaluate(rows):
-        return build_report(rows, *catalogs, date=DATE, min_compared=0)
 
-    report = evaluate(rows)
-    track(report, [{"number": 7, "report": evaluate(pr_rows)}])
-    return report
+def _table_rows(table):
+    """A Slack table's rows as the text of each cell."""
+    return [
+        [
+            cell["text"]
+            if cell["type"] == "raw_text"
+            else "".join(e["text"] for part in cell["elements"] for e in part["elements"])
+            for cell in table_row
+        ]
+        for table_row in table["rows"]
+    ]
