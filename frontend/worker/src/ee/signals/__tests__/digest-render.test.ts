@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@traceroot/core", () => ({
+  EMAIL_COLORS: {
+    ink: "#0B1015",
+    muted: "#5F646B",
+    border: "#DFDFDF",
+    surface: "#F4F4F6",
+    white: "#FFFFFF",
+    accent: "#14B8B0",
+  },
   escapeHtml: (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
   renderEmailCard: (p: { title: string; bodyHtml: string; buttonUrl: string }) =>
     `<card title="${p.title}" button="${p.buttonUrl}">${p.bodyHtml}</card>`,

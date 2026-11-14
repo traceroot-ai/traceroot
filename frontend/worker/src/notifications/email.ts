@@ -6,7 +6,7 @@ import {
   traceUrl,
   type DigestEntry,
 } from "@traceroot/slack";
-import { escapeHtml, renderEmailCard, type UsageMeter } from "@traceroot/core";
+import { EMAIL_COLORS as C, escapeHtml, renderEmailCard, type UsageMeter } from "@traceroot/core";
 
 const SMTP_URL = process.env.TRACEROOT_SMTP_URL;
 const SMTP_FROM = process.env.TRACEROOT_SMTP_MAIL_FROM || "noreply@traceroot.ai";
@@ -111,20 +111,27 @@ export async function sendDigestAlertEmail(params: {
   }
   if (omitted > 0) textParts.push(`+${omitted} more detector${omitted === 1 ? "" : "s"}`);
 
+  // One table row per detector: name (links to its findings) with the latest
+  // trace underneath, and the finding count right-aligned so the list scans
+  // like a table. Rows are separated by hairlines rather than boxed.
   const htmlRows = shown
-    .map((e) => {
+    .map((e, i) => {
       const findingNoun = e.findingCount === 1 ? "finding" : "findings";
       // Trace IDs come from SDK-submitted telemetry, so escape the displayed
       // prefix like the detector name; the href is already URL-encoded.
       const latest = e.latestTraceId
-        ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color: #888;">${escapeHtml(e.latestTraceId.slice(0, 8))}</a>`
+        ? `<br/><span style="color: ${C.muted}; font-size: 12px;">Latest trace <a href="${traceUrlFor(e.latestTraceId)}" style="color: ${C.muted}; font-family: 'Geist Mono', SFMono-Regular, Menlo, Consolas, monospace;">${escapeHtml(e.latestTraceId.slice(0, 8))}</a></span>`
         : "";
-      return `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="${findingsUrlFor(e.detectorId)}" style="color: #000; font-weight: 500;">${escapeHtml(e.detectorName)}</a> <span style="color: #888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
+      const rule = i === 0 ? "" : `border-top: 1px solid ${C.border};`;
+      return `<tr>
+              <td style="padding: 12px 16px; ${rule} font-size: 14px; line-height: 1.5;"><a href="${findingsUrlFor(e.detectorId)}" style="color: ${C.ink}; font-weight: 600; text-decoration: none;">${escapeHtml(e.detectorName)}</a>${latest}</td>
+              <td align="right" style="padding: 12px 16px; ${rule} white-space: nowrap; vertical-align: top; font-size: 14px; line-height: 1.5;"><strong style="color: ${C.ink};">${e.findingCount}</strong> <span style="color: ${C.muted};">${findingNoun}</span></td>
+            </tr>`;
     })
     .concat(
       omitted > 0
         ? [
-            `<p style="margin: 6px 0; color: #888; font-size: 14px; line-height: 1.6;">+${omitted} more detector${omitted === 1 ? "" : "s"}</p>`,
+            `<tr><td colspan="2" style="padding: 12px 16px; border-top: 1px solid ${C.border}; color: ${C.muted}; font-size: 13px;">+${omitted} more detector${omitted === 1 ? "" : "s"}</td></tr>`,
           ]
         : [],
     )
@@ -136,8 +143,8 @@ export async function sendDigestAlertEmail(params: {
     bodyHtml: `
       <!-- Body -->
       <tr>
-        <td style="padding: 0 40px 8px 40px; text-align: center;">
-          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6;">
+        <td style="padding: 0 40px 4px 40px;">
+          <p style="margin: 0; color: ${C.ink}; font-size: 15px; line-height: 1.6;">
             <strong>${total} ${noun}</strong> in project <strong>${safeProjectName}</strong>.
           </p>
         </td>
@@ -145,16 +152,22 @@ export async function sendDigestAlertEmail(params: {
 
       <!-- Window subline -->
       <tr>
-        <td style="padding: 0 40px 24px 40px; text-align: center;">
-          <p style="margin: 0; color: #888; font-size: 12px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
+        <td style="padding: 0 40px 24px 40px;">
+          <p style="margin: 0; color: ${C.muted}; font-size: 13px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
         </td>
       </tr>${
         summaryText
           ? `
       <!-- AI summary -->
       <tr>
-        <td style="padding: 0 40px 20px 40px;">
-          <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6;">${escapeHtml(summaryText)}</p>
+        <td style="padding: 0 40px 24px 40px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: ${C.surface}; border-left: 3px solid ${C.accent};">
+            <tr>
+              <td style="padding: 14px 16px;">
+                <p style="margin: 0; color: ${C.ink}; font-size: 14px; line-height: 1.6;">${escapeHtml(summaryText)}</p>
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>`
           : ""
@@ -163,12 +176,8 @@ export async function sendDigestAlertEmail(params: {
       <!-- Per-detector rows -->
       <tr>
         <td style="padding: 0 40px 32px 40px;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
-            <tr>
-              <td style="padding: 12px 16px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid ${C.border}; border-radius: 6px; border-collapse: separate;">
 ${htmlRows}
-              </td>
-            </tr>
           </table>
         </td>
       </tr>`,
@@ -337,7 +346,7 @@ function buildUsageQuotaHtml(params: {
       <!-- Body -->
       <tr>
         <td style="padding: 0 40px 24px 40px;">
-          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
+          <p style="margin: 0; color: ${C.ink}; font-size: 15px; line-height: 1.6;">
             ${
               kind === "warning"
                 ? `<strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free plan ${meterLabel} (${pctStr}) — ${remainingStr} remaining.`
@@ -351,10 +360,10 @@ function buildUsageQuotaHtml(params: {
            pause at the limit (warning, regular weight). -->
       <tr>
         <td style="padding: 0 40px 24px 40px;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: ${C.surface}; border-left: 3px solid ${C.accent};">
             <tr>
-              <td style="padding: 12px 16px;">
-                <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6; text-align: center;">
+              <td style="padding: 14px 16px;">
+                <p style="margin: 0; color: ${C.ink}; font-size: 14px; line-height: 1.6;">
                   ${kind === "blocked" ? `<strong>${consequence}</strong>` : consequence}
                 </p>
               </td>
@@ -366,7 +375,7 @@ function buildUsageQuotaHtml(params: {
       <!-- CTA note -->
       <tr>
         <td style="padding: 0 40px 32px 40px;">
-          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
+          <p style="margin: 0; color: ${C.ink}; font-size: 15px; line-height: 1.6;">
             ${cta}
           </p>
         </td>

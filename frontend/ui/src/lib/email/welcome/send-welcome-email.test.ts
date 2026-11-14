@@ -12,7 +12,14 @@ const core = vi.hoisted(() => ({
 }));
 vi.mock("@traceroot/core/email", () => core);
 const prisma = vi.hoisted(() => ({ emailSend: {} }));
-vi.mock("@traceroot/core", () => ({ prisma, escapeHtml: (s: string) => s }));
+vi.mock("@traceroot/core", () => ({
+  prisma,
+  escapeHtml: (s: string) => s,
+  EMAIL_COLORS: { ink: "#0B1015", muted: "#5F646B" },
+  EMAIL_FONT_STACK: "sans-serif",
+  EMAIL_LOGO_URL: "https://example.com/logo.png",
+  EMAIL_PIXEL_WORDMARK_URL: "https://example.com/pixel.png",
+}));
 
 import { sendWelcomeEmail } from "./send-welcome-email";
 

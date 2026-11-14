@@ -31,7 +31,7 @@ export function optOutLine(url: string): string {
 }
 
 /** Inline link style; mail clients keep inline styles but drop stylesheets. */
-export const LINK_STYLE = 'style="color:#2563eb;text-decoration:none"';
+export const LINK_STYLE = 'style="color:#0B1015;text-decoration:underline"';
 
 /** Same sentence with "let us know" as the link; `url` must already be safe for an attribute. */
 export function optOutLineHtml(url: string): string {
