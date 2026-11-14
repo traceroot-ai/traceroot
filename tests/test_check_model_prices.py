@@ -876,6 +876,7 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
         pull(2, "docs: typo"),
         pull(3, "chore: bump gpt-a in examples", files=("README.md",)),
         pull(4, "fix(pricing): broken branch"),
+        pull(5, "fix(pricing): gpt-a odd row"),
     ]
     calls = []
 
@@ -893,6 +894,8 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
     def fake_fetch(url):
         if "head4" in url:
             raise URLError("gone")
+        if "head5" in url:
+            return [{**row("gpt-a", "openai"), "modelName": 5}]
         return [row("gpt-a", "openai", input_=2e-6)] if "head" in url else rows
 
     monkeypatch.setattr(check, "_github", fake_github)
@@ -900,11 +903,23 @@ def test_fetch_pricing_prs_reads_each_pricing_prs_price_file(monkeypatch):
     prs = check.fetch_pricing_prs("owner/repo", rows, report, token=None)
 
     # PR 2 neither mentions pricing nor a flagged model; PR 3 doesn't touch the file.
-    assert [pr["number"] for pr in prs] == [1, 4]
+    assert [pr["number"] for pr in prs] == [1, 4, 5]
     assert prs[0]["closes"] == [9]
     assert prs[0]["rows"][0]["prices"]["input"] == 2e-6
     assert prs[1]["error"] == "could not read its price file (URLError)"
+    # A row this run can't evaluate makes the PR unreadable instead of failing the run.
+    assert prs[2]["error"] == "could not read its price file (CheckError)"
     assert not any("pull/2" in url or "head2" in url for url in calls)
+
+
+def test_a_row_name_that_is_not_text_fails_validation():
+    with pytest.raises(check.CheckError, match="row #0 has a non-text modelName"):
+        check.validate_rows([{**row("gpt-a", "openai"), "modelName": 5}])
+
+
+def test_escape_drops_terminal_control_characters():
+    # Row names come from open PRs, and the terminal prints the same text as Slack.
+    assert check._escape("gpt-\x1b]52;c;eA==\x07a\nb") == "gpt- ]52;c;eA== a b"
 
 
 def test_github_rate_limit_stops_tracking(monkeypatch):
