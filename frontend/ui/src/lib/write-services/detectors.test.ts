@@ -187,6 +187,44 @@ describe("createDetector", () => {
     });
   });
 
+  it.each([
+    [
+      [{ name: "x", type: "banana" }],
+      "output field 1 type must be one of: string, number, boolean",
+    ],
+    [
+      [
+        { name: "x", type: "string" },
+        { name: "x", type: "number" },
+      ],
+      'output field 2 repeats the name "x"',
+    ],
+    [[null], "output field 1 must be an object"],
+    [["severity"], "output field 1 must be an object"],
+    [[{ type: "string" }], "output field 1 requires a non-empty name"],
+    [[{ name: "  ", type: "string" }], "output field 1 requires a non-empty name"],
+    [[{ name: "constructor", type: "string" }], 'output field 1 name "constructor" is reserved'],
+  ])("rejects outputSchema=%j with 400 and creates nothing", async (outputSchema, error) => {
+    mockAccess();
+    const r = await run({ outputSchema });
+    expect(r).toEqual({ ok: false, status: 400, error });
+    expect(tx.detector.create).not.toHaveBeenCalled();
+  });
+
+  it("stores a valid outputSchema as given", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    const outputSchema = [
+      { name: "severity", type: "string" },
+      { name: "count", type: "number" },
+      { name: "flagged", type: "boolean" },
+    ];
+    const r = await run({ outputSchema });
+    expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    expect(tx.detector.create.mock.calls[0][0].data.outputSchema).toEqual(outputSchema);
+  });
+
   it("surfaces the trigger validator's message for a non-array payload", async () => {
     mockAccess();
     const r = await run({ triggerConditions: "cost > 5" });

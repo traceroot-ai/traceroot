@@ -174,6 +174,44 @@ describe("POST .../detectors — trigger conditions", () => {
   });
 });
 
+describe("POST .../detectors — output schema", () => {
+  it("stores a schema the worker can type", async () => {
+    const outputSchema = [
+      { name: "severity", type: "string" },
+      { name: "count", type: "number" },
+    ];
+    const res = await POST(makeRequest(validBody({ outputSchema })), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data.outputSchema).toEqual(outputSchema);
+  });
+
+  it.each([
+    [
+      [{ name: "x", type: "banana" }],
+      "output field 1 type must be one of: string, number, boolean",
+    ],
+    [
+      [
+        { name: "x", type: "string" },
+        { name: "x", type: "number" },
+      ],
+      'output field 2 repeats the name "x"',
+    ],
+    [[null], "output field 1 must be an object"],
+    [["severity"], "output field 1 must be an object"],
+    [[{ type: "string" }], "output field 1 requires a non-empty name"],
+    [[{ name: " ", type: "string" }], "output field 1 requires a non-empty name"],
+    [[{ name: "prototype", type: "string" }], 'output field 1 name "prototype" is reserved'],
+  ])("rejects outputSchema=%j with 400 instead of storing it", async (outputSchema, error) => {
+    const res = await POST(makeRequest(validBody({ outputSchema })), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error });
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST .../detectors — detection model", () => {
   it("does not read the workspace's models for the default choice", async () => {
     const res = await POST(makeRequest(validBody()), makeParams());

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { OUTPUT_FIELD_TYPES, RESERVED_FIELD_NAMES } from "@traceroot/core/detector-output-schema";
 import { buildSubmitResultTool } from "../submit-result-tool.js";
 
 // TypeBox produces JSON-schema-shaped objects at runtime; tests inspect via this loose shape.
@@ -65,5 +66,63 @@ describe("buildSubmitResultTool", () => {
     ]);
     const dataProps = asSchema(tool.parameters).properties?.data?.properties ?? {};
     expect(Object.keys(dataProps)).toEqual(["ok"]);
+  });
+
+  it("skips stored entries with no usable name instead of throwing", () => {
+    // A stored schema can predate the write path's validation; it is JSON, not the declared type.
+    const stored = [
+      null,
+      "severity",
+      5,
+      ["category", "string"],
+      { type: "number" },
+      { name: null, type: "string" },
+      { name: "ok", type: "string" },
+    ];
+    const tool = buildSubmitResultTool(stored);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties ?? {};
+    expect(Object.keys(dataProps)).toEqual(["ok"]);
+  });
+
+  it("skips a stored entry whose name is blank, as the write path rejects it", () => {
+    const tool = buildSubmitResultTool([
+      { name: "", type: "string" },
+      { name: "   ", type: "string" },
+      { name: "\t\n", type: "number" },
+      { name: "ok", type: "string" },
+    ]);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties ?? {};
+    expect(Object.keys(dataProps)).toEqual(["ok"]);
+  });
+
+  it("still screens an unknown or missing type as a string", () => {
+    const tool = buildSubmitResultTool([{ name: "kind", type: "banana" }, { name: "note" }]);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties;
+    expect(dataProps?.kind?.type).toBe("string");
+    expect(dataProps?.note?.type).toBe("string");
+  });
+
+  it.each(OUTPUT_FIELD_TYPES)("builds a %s field for a type the write path accepts", (type) => {
+    const tool = buildSubmitResultTool([{ name: "field", type }]);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties;
+    expect(dataProps?.field?.type).toBe(type);
+  });
+
+  it.each([...RESERVED_FIELD_NAMES])("drops %s, a name the write path reserves", (name) => {
+    const tool = buildSubmitResultTool([
+      { name, type: "string" },
+      { name: "ok", type: "string" },
+    ]);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties ?? {};
+    expect(Object.keys(dataProps)).toEqual(["ok"]);
+  });
+
+  it("keeps the last declaration of a name a stored schema repeats", () => {
+    const tool = buildSubmitResultTool([
+      { name: "x", type: "string" },
+      { name: "x", type: "number" },
+    ]);
+    const dataProps = asSchema(tool.parameters).properties?.data?.properties;
+    expect(dataProps?.x?.type).toBe("number");
   });
 });

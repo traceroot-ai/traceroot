@@ -1,5 +1,6 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
+import { isUsableFieldName } from "@traceroot/core/detector-output-schema";
 
 export interface SubmitResultInput {
   identified: boolean;
@@ -7,19 +8,10 @@ export interface SubmitResultInput {
   data: Record<string, unknown>;
 }
 
-// Reject user-supplied output schema field names that would mutate Object.prototype
-// or be silently ignored after `Object.create(null)`. The `outputSchema` array is
-// detector-author input; treat it as untrusted.
-const UNSAFE_FIELD_NAMES = new Set(["__proto__", "prototype", "constructor"]);
-
-function isSafeFieldName(name: string): boolean {
-  return name.length > 0 && !UNSAFE_FIELD_NAMES.has(name);
-}
-
-function fieldToSchema(field: { name: string; type: string }): TSchema {
-  const description = `User-defined field: ${field.name}`;
-  if (field.type === "number") return Type.Number({ description });
-  if (field.type === "boolean") return Type.Boolean({ description });
+function fieldToSchema(name: string, type: unknown): TSchema {
+  const description = `User-defined field: ${name}`;
+  if (type === "number") return Type.Number({ description });
+  if (type === "boolean") return Type.Boolean({ description });
   return Type.String({ description });
 }
 
@@ -33,13 +25,15 @@ function fieldToSchema(field: { name: string; type: string }): TSchema {
  * this) — at the schema level we keep it optional so models don't fabricate
  * empty objects on clean traces.
  */
-export function buildSubmitResultTool(
-  outputSchemaFields: Array<{ name: string; type: string }>,
-): Tool {
+export function buildSubmitResultTool(outputSchemaFields: ReadonlyArray<unknown>): Tool {
   const dataProps = Object.create(null) as Record<string, TSchema>;
   for (const field of outputSchemaFields) {
-    if (!isSafeFieldName(field.name)) continue;
-    dataProps[field.name] = fieldToSchema(field);
+    // A stored schema can predate the write path's validation: an entry that is
+    // not an object or has no name is skipped, since throwing here would fail
+    // every scan of the detector.
+    const { name, type } = (field ?? {}) as { name?: unknown; type?: unknown };
+    if (!isUsableFieldName(name)) continue;
+    dataProps[name] = fieldToSchema(name, type);
   }
 
   const parameters = Type.Object(
