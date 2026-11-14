@@ -27,6 +27,7 @@ from scripts.check_model_prices import (
     index_litellm,
     index_modelsdev,
     lookup,
+    post_to_slack,
     track,
     validate_rows,
 )
@@ -284,6 +285,17 @@ def test_a_dotted_versions_dash_spelling_is_compared_with_the_row_that_prices_it
     assert "gpt-g-5 (priced as gpt-g)         input  1.00  → 5.00" in format_report(report)
 
 
+def test_a_catalog_id_that_differs_only_in_case_is_compared_with_the_row_that_prices_it():
+    # The exact-name match is case-sensitive, so GPT-U is priced through gpt-u's pattern.
+    rows = [row("gpt-u", "openai")]
+    litellm = {"GPT-U": ll_entry("openai", input_=2e-6)}
+    report = report_for(rows, litellm, md_catalog(), min_compared=0)
+
+    assert [(f["model"], f["field"], f["priced_as"]) for f in report["flagged"]] == [
+        ("GPT-U", "input", "gpt-u")
+    ]
+
+
 def test_cache_write_rates_are_compared():
     rows = [row("claude-w", "anthropic")]
     rows[0]["prices"].update(cacheWrite=1.25e-6, cacheWrite1h=2e-6)
@@ -304,6 +316,27 @@ def test_cache_write_rates_are_compared():
         ("claude-w", "cacheWrite", 1.25e-6)
     ]
     assert "claude-w  cache write  1.25  → 2.50" in format_report(report)
+
+
+def test_a_row_without_a_1h_cache_write_rate_is_compared_at_its_cache_write_rate():
+    # Production bills a 1-hour cache write at the cacheWrite rate when a row has none.
+    same = row("claude-x", "anthropic")
+    same["prices"]["cacheWrite"] = 2e-6
+    lower = row("claude-y", "anthropic")
+    lower["prices"]["cacheWrite"] = 1.25e-6
+    litellm = {
+        name: ll_entry(
+            "anthropic",
+            cache_creation_input_token_cost=rate,
+            cache_creation_input_token_cost_above_1hr=2e-6,
+        )
+        for name, rate in (("claude-x", 2e-6), ("claude-y", 1.25e-6))
+    }
+    report = report_for([same, lower], litellm, md_catalog())
+
+    assert [(f["model"], f["field"], f["ours"]) for f in report["flagged"]] == [
+        ("claude-y", "cacheWrite1h", None)
+    ]
 
 
 def test_lookup_tries_patterns_in_model_name_order():
@@ -375,7 +408,11 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         ("us.anthropic.claude-k-5", "claude-k-5", "Bedrock", None),
     ]
     text = format_report(report)
-    assert f"*Model IDs with no price* (5): {check.ID_HEADING}" in text
+    assert f"*Model IDs not priced by their row* (5): {check.ID_HEADING}" in text
+    assert "<h2>Model IDs not priced by their row (5)</h2>" in check.build_html(report)
+    assert build_payload(report)["text"].endswith(
+        ": 4 model IDs with no price, 1 model ID priced as another model"
+    )
     # One example per row, preferring a US Bedrock profile.
     assert "• claude-k-5: 1 Vertex AI, 2 Bedrock, e.g. `us.anthropic.claude-k-5`" in text
     assert (
@@ -759,6 +796,43 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
     assert _block_text(blocks[4]) == "Checked 2 of 2 rows and 3 open pricing PRs"
 
 
+def _track_one_pr(rows, litellm, pr_rows):
+    """The report for rows, with one open PR, #7, whose price file is pr_rows."""
+    catalogs = (index_litellm({**LITELLM_FILLER, **litellm}), index_modelsdev(md_catalog()))
+
+    def evaluate(rows):
+        return build_report(rows, *catalogs, date=DATE, min_compared=0)
+
+    report = evaluate(rows)
+    track(report, [{"number": 7, "rows": pr_rows}], evaluate)
+    return report
+
+
+def _progress(report):
+    blocks = build_payload(report)["blocks"]
+    return _block_text(next(b for b in blocks if b.get("block_id") == "progress")).split("\n")
+
+
+def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
+    litellm = {"gpt-a": ll_entry("openai", cache_read=5e-7)}
+    fixed = [row("gpt-a", "openai", cache_read=5e-7)]
+    report = _track_one_pr([row("gpt-a", "openai", cache_read=None)], litellm, fixed)
+
+    assert "• `gpt-a` cache read none → $0.50: #7" in _progress(report)
+
+
+def test_a_prs_row_name_cannot_add_a_line_to_the_slack_message():
+    rows = [row("gpt-a", "openai")]
+    forged = row("x\n:large_green_circle: *All clear*", "openai", pattern=r"^nothing$")
+    report = _track_one_pr(rows, {"gpt-a": ll_entry("openai")}, [*rows, forged])
+
+    assert _progress(report) == [
+        ":large_yellow_circle: *In progress (open PRs)*",
+        "• :warning: #7 would add: x :large_green_circle: *All clear*: matchPattern does not "
+        "match the row's own modelName",
+    ]
+
+
 def test_the_full_report_page_lists_every_finding():
     report = _tracked_report()
     report["missing"].append({"model": "<b>x</b>", "provider": "openai", "in": ["litellm"]})
@@ -949,6 +1023,13 @@ def test_format_change_exits_nonzero_and_posts_a_failure(run):
     assert "not an all-clear" in payload["blocks"][1]["text"]["text"]
 
 
+def test_a_failure_reason_is_escaped_in_the_notification_text_too():
+    payload = check.failure_payload(DATE, "price file row <!channel> has no modelName")
+
+    assert "<!channel>" not in json.dumps(payload)
+    assert payload["text"].endswith(": price file row &lt;!channel&gt; has no modelName")
+
+
 def test_too_few_rows_compared_exits_nonzero(run):
     rows = [row("gpt-a", "openai")]
     code, posted, _ = run(rows, {"gpt-a": ll_entry("openai")}, md_catalog())
@@ -970,6 +1051,21 @@ def test_post_without_webhook_fails_before_fetching(tmp_path, monkeypatch, capsy
 
     assert check.main(["--post", "--prices", str(tmp_path / "unused.json")]) == 1
     assert "SLACK_WEBHOOK_URL" in capsys.readouterr().err
+
+
+def test_a_malformed_webhook_url_fails_without_printing_it(run, monkeypatch, capsys):
+    # The real post: a URL with no scheme raises ValueError before any request is sent.
+    monkeypatch.setattr(check, "post_to_slack", post_to_slack)
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "hooks.example.test/T/B/secret")
+    code, _, report = run(
+        [row("gpt-a", "openai")], {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1"
+    )
+
+    assert code == 1
+    assert report["status"] == "ok"
+    output = capsys.readouterr()
+    assert "Slack post failed (ValueError)" in output.err
+    assert "secret" not in output.out + output.err
 
 
 def test_slack_post_sends_the_payload_as_json(monkeypatch):
