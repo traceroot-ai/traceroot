@@ -12,6 +12,7 @@ import json
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
@@ -1338,6 +1339,34 @@ def test_a_failure_checking_one_pr_is_reported_on_that_pr_alone(run, monkeypatch
     assert report["tracking"] == "ok"
     assert report["flagged"][0]["tracked_by"] == [1]
     assert report["pull_requests"][1]["error"] == "could not check its price file (ValueError)"
+
+
+@pytest.mark.parametrize("where", ["no-setitimer", "worker-thread"])
+def test_an_open_pr_is_not_checked_where_its_time_limit_cannot_be_set(run, monkeypatch, where):
+    # Without SIGALRM a backtracking pattern could run forever, so the PR is not run.
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    heads = {1: [row("gpt-a", "openai")]}
+    if where == "no-setitimer":
+        monkeypatch.delattr(check.signal, "setitimer")
+        code, _, report = run(
+            rows, {"gpt-a": ll_entry("openai")}, md_catalog(), *TRACK, heads=heads
+        )
+    else:
+        results = []
+        worker = threading.Thread(
+            target=lambda: results.append(
+                run(rows, {"gpt-a": ll_entry("openai")}, md_catalog(), *TRACK, heads=heads)
+            )
+        )
+        worker.start()
+        worker.join()
+        [(code, _, report)] = results
+
+    assert code == 0
+    assert report["flagged"][0]["tracked_by"] == []
+    assert report["pull_requests"][0]["error"] == (
+        "its price file was not checked: no time limit can be set here"
+    )
 
 
 def test_an_open_prs_price_file_gets_a_time_limit(run, monkeypatch):

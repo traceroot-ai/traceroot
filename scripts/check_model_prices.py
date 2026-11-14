@@ -886,17 +886,21 @@ class _TimeLimitError(Exception):
     """Checking one open PR's price file ran over PR_CHECK_SECONDS."""
 
 
+class _NoTimeLimitError(Exception):
+    """No time limit can be set here, so an open PR's patterns are not run."""
+
+
 @contextlib.contextmanager
 def _time_limit(seconds: float) -> Iterator[None]:
     """Raise _TimeLimitError when the block runs over seconds. Python's regex engine checks
     for signals, so SIGALRM stops a pattern that backtracks. Without setitimer, as on
-    Windows, or off the main thread, the block runs with no limit."""
+    Windows, or off the main thread, it raises _NoTimeLimitError instead of running the
+    block with no limit."""
     if (
         not hasattr(signal, "setitimer")
         or threading.current_thread() is not threading.main_thread()
     ):
-        yield
-        return
+        raise _NoTimeLimitError
 
     def expire(_signum: int, _frame: object) -> None:
         raise _TimeLimitError
@@ -965,6 +969,8 @@ def fetch_pricing_prs(
                 pr["report"] = evaluate(validate_rows(apply_pr(rows, base, after)))
         except _TimeLimitError:
             pr["error"] = f"its price file took over {PR_CHECK_SECONDS} seconds to check"
+        except _NoTimeLimitError:
+            pr["error"] = "its price file was not checked: no time limit can be set here"
         except Exception as exc:  # Any error with an open PR stays with that PR.
             if getattr(exc, "code", None) in (403, 429):
                 raise  # GitHub's rate limit: every later PR would fail the same way.
