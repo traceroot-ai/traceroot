@@ -723,6 +723,28 @@ def test_a_pr_is_merged_by_its_own_row_changes():
     ]
 
 
+def test_a_pr_changes_only_the_fields_it_changed_in_a_row():
+    # The PR branched when both rates were wrong. The current file has since fixed the
+    # cache read rate, and the PR fixes the input rate and drops the 1-hour cache write.
+    base = [row("deepseek-d", "deepseek", input_=5e-7, cache_read=1e-8)]
+    base[0]["prices"]["cacheWrite1h"] = 2e-6
+    current = [row("deepseek-d", "deepseek", input_=5e-7, cache_read=1e-7)]
+    current[0]["prices"]["cacheWrite1h"] = 2e-6
+    head = [row("deepseek-d", "deepseek", input_=1e-6, cache_read=1e-8)]
+
+    merged = apply_pr(current, base, head)
+
+    assert merged[0]["prices"] == {
+        "input": 1e-6,
+        "output": 2e-6,
+        "cacheRead": 1e-7,
+        "cacheWrite": None,
+    }
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6, cache_read=1e-7)}
+    [pr] = _track_one_pr(current, litellm, merged)["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == (["deepseek-d input rate"], [])
+
+
 def _tracked_report():
     rows = [row("deepseek-d", "deepseek", input_=5e-7, output=1e-6), row("gpt-a", "openai")]
     litellm = {

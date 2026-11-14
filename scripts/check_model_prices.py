@@ -774,15 +774,41 @@ def changes(before: dict[tuple, dict], after: dict) -> tuple[list[tuple], list[s
     return fixes, adds
 
 
+def _apply_changes(current: dict, base: dict, head: dict) -> dict:
+    """current with what changed from base to head: a key head sets to another value
+    takes head's value, a key head drops is removed, and prices change field by field."""
+    merged = dict(current)
+    for key in dict.fromkeys([*base, *head]):
+        if key not in head:
+            merged.pop(key, None)
+        elif key == "prices" and all(isinstance(r.get(key), dict) for r in (current, base, head)):
+            merged[key] = _apply_changes(current[key], base[key], head[key])
+        elif key not in base or base[key] != head[key]:
+            merged[key] = head[key]
+    return merged
+
+
 def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]:
-    """The price file with a PR merged: the rows the PR adds, changes or removes between
-    its merge base and its head, applied to the current rows by id. A branch that is
-    behind leaves later changes to the current file alone."""
+    """The price file with a PR merged, as git merges changes that don't overlap: of each
+    row the PR changes between its merge base and its head, only the keys and prices
+    fields it changes are applied to the current row, so a branch that is behind leaves
+    later changes to the current file alone. Rows the PR adds are added whole, and rows
+    it removes are removed."""
     before = {row["id"]: row for row in base}
     after = {row["id"]: row for row in head}
     changed = {row_id: row for row_id, row in after.items() if before.get(row_id) != row}
     removed = before.keys() - after.keys()
-    merged = [changed.pop(row["id"], row) for row in rows if row["id"] not in removed]
+    merged = []
+    for row in rows:
+        if row["id"] in removed:
+            continue
+        new = changed.pop(row["id"], None)
+        if new is None:
+            merged.append(row)
+        elif row["id"] in before:
+            merged.append(_apply_changes(row, before[row["id"]], new))
+        else:  # Added by the PR and, since it branched, by the current file too.
+            merged.append(new)
     return merged + list(changed.values())
 
 
