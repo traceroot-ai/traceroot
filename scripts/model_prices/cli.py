@@ -55,7 +55,8 @@ says so and the run still succeeds.
 report with --json before the edit, edit the file, then run again with --baseline
 pointing at that report: the output lists the findings the edit fixes and any it adds.
 A flagged rate the edit changes to another value the catalogs disagree with is an add,
-not a fix. A Bedrock, Vertex AI or OpenRouter ID that a row newly prices is an add when
+not a fix. So is a row with a finding that the edit deletes, or stops comparing by
+changing its provider to one no catalog covers: that hides the finding. A Bedrock, Vertex AI or OpenRouter ID that a row newly prices is an add when
 every catalog that lists that exact ID charges other input or output rates, as Bedrock
 does for GovCloud and regional profiles. So is a dotted version's dash spelling that a
 row priced before the edit and none prices after it, such as grok-4-20 once a narrowed

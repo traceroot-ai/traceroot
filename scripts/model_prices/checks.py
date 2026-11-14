@@ -370,9 +370,9 @@ def build_report(
     hosted = hosted or {}
     today = datetime.fromisoformat(date)
     flagged: list[dict] = []
+    compared: list[str] = []
     no_match: list[str] = []
     unmapped: set[str] = set()
-    compared = 0
     for row in rows:
         provider, model = row["provider"], row["modelName"]
         if provider not in OUR_PROVIDERS:
@@ -387,18 +387,18 @@ def build_report(
         if not found:
             no_match.append(model)
             continue
-        compared += 1
+        compared.append(model)
         flagged += _flag_rates(row, provider, model, found, priced_as=None)
-    if compared < min_compared:
+    if len(compared) < min_compared:
         raise CheckError(
-            f"only {compared} of {len(rows)} rows matched a catalog, below the floor of "
+            f"only {len(compared)} of {len(rows)} rows matched a catalog, below the floor of "
             f"{min_compared}; a catalog's model IDs or format may have changed"
         )
     return {
         "date": date,
         "status": "ok",
         "total": len(rows),
-        "compared": compared,
+        "compared": len(compared),
         "flagged": flagged + find_shadowed(rows, catalogs, today),
         "unpriced_ids": find_unpriced_ids(rows, catalogs, hosted, today),
         "overlaps": find_overlaps(rows, catalogs, hosted, today),
@@ -407,6 +407,7 @@ def build_report(
         "long_context": find_long_context(rows, catalogs),
         "dash_spellings": priced_dash_spellings(rows, catalogs, today),
         "host_rates": mispriced_host_ids(rows, catalogs, hosted, today),
+        "compared_rows": compared,
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
     }

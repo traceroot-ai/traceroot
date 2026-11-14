@@ -106,6 +106,42 @@ def test_an_edit_that_stops_comparing_a_flagged_row_is_added():
     }
 
 
+@pytest.mark.parametrize(
+    ("model", "extra"),
+    [
+        ("gpt-q-audio", {}),
+        ("gpt-q", {"mode": "audio_speech"}),
+        ("gpt-q-old", {"deprecation_date": "2026-01-01"}),
+    ],
+    ids=["ignored", "not-text", "retired"],
+)
+def test_deleting_a_flagged_row_is_added_not_fixed(model, extra):
+    # The missing models leave these out, so nothing else would show the row is gone.
+    litellm = {"gpt-a": ll_entry("openai"), model: ll_entry("openai", input_=4e-6, **extra)}
+    before = [row("gpt-a", "openai"), row(model, "openai")]
+
+    assert compare(before, before[:1], litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": [f"{model} row removed"],
+    }
+
+
+def test_deleting_a_row_with_no_finding_adds_only_what_its_absence_shows():
+    # gpt-b shows as not priced. The missing models leave the audio model out, and its
+    # row had nothing to fix, so its deletion lists nothing.
+    litellm = {
+        "gpt-a": ll_entry("openai"),
+        "gpt-b": ll_entry("openai"),
+        "gpt-q-audio": ll_entry("openai"),
+    }
+    before = [row("gpt-a", "openai"), row("gpt-b", "openai"), row("gpt-q-audio", "openai")]
+
+    assert compare(before, before[:1], litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": ["gpt-b not priced"],
+    }
+
+
 def test_a_host_id_newly_priced_below_the_hosts_rates_is_added():
     # GovCloud and regional profiles bill more than the model's own rates. A GovCloud
     # region's route lists the plain Bedrock ID at its price too; the bare key wins.
@@ -327,10 +363,11 @@ def test_baseline_exit_codes(run, tmp_path):
     assert "the baseline report is not from a completed run" in posted[-1]["text"]
 
 
-@pytest.mark.parametrize("key", ["dash_spellings", "host_rates", "date"])
+@pytest.mark.parametrize("key", ["dash_spellings", "host_rates", "compared_rows", "date"])
 def test_a_baseline_from_another_version_fails_the_run(run, tmp_path, key):
-    # Without its dash spellings or host rates, an edit that stops pricing a dash
-    # spelling, or prices a host ID at the wrong rate, would pass unseen.
+    # Without its dash spellings, host rates or compared rows, an edit that stops pricing
+    # a dash spelling, prices a host ID at the wrong rate, or deletes a flagged row,
+    # would pass unseen.
     litellm = {"gpt-a": ll_entry("openai")}
     rows = [row("gpt-a", "openai")]
     saved = report_for(rows, litellm, md_catalog())

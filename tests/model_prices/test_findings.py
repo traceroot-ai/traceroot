@@ -89,3 +89,13 @@ def test_a_pr_that_changes_a_flagged_rate_to_another_wrong_one_does_not_fix_it()
     assert (pr["fixes"], pr["adds"]) == ([], ["deepseek-d output rate (ours 100.00)"])
     # The flag stays in the message as needing a fix, so its header can't turn green.
     assert build_payload(report)["text"].endswith(": 1 model with prices to check")
+
+
+def test_a_pr_that_deletes_a_flagged_row_does_not_fix_it():
+    litellm = {"gpt-a": ll_entry("openai"), "gpt-q-audio": ll_entry("openai", input_=4e-6)}
+    rows = [row("gpt-a", "openai"), row("gpt-q-audio", "openai")]
+    report = _track_one_pr(rows, litellm, rows[:1])
+
+    assert report["flagged"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["gpt-q-audio row removed"])

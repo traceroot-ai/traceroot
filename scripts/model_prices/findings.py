@@ -106,6 +106,11 @@ def _host_rates_added(before: dict | None, after: dict) -> bool:
     return moved and any((rate["field"], rate["ours"]) not in rates for rate in after["rates"])
 
 
+def _row_names(report: dict) -> set[str]:
+    """Every row in the price file a report is on, compared with a catalog or not."""
+    return {*report["compared_rows"], *report["no_match"]}
+
+
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     """The findings in report that the after report clears, and what it adds, each add
     in a few words on a line of its own, so adds can be checked one by one against the
@@ -113,19 +118,22 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     same rate or ID, and added when its key is new, so a flagged rate changed to another
     wrong one, or an ID moved from no row to the wrong row, is an add and not a fix. A
     finding found through a row is not cleared when the after report stops comparing
-    that row with any catalog, as when its provider changes to one no catalog covers:
-    that can hide the finding, so the row is an add instead. Two changes no finding
-    shows are adds too: a host ID newly priced at rates its host disagrees with (see
-    _host_rates_added), and a dash spelling a row priced before and none prices after."""
+    that row with any catalog, as when its provider changes to one no catalog covers, or
+    no longer has the row: that hides the finding, so the row is an add instead. Two
+    changes no finding shows are adds too: a host ID newly priced at rates its host
+    disagrees with (see _host_rates_added), and a dash spelling a row priced before and
+    none prices after."""
     before, after_keys = finding_keys(report), finding_keys(after)
-    stopped = set(after["no_match"]) - set(report["no_match"])
+    removed = _row_names(report) - _row_names(after)
+    stopped = (set(after["no_match"]) - set(report["no_match"])) | removed
     rows = {key: _found_through(key, item) for key, item in before.items()}
     hidden = [key for key in before if rows[key] in stopped]
     left = {_identity(key) for key in after_keys}
     fixes = [key for key in before if _identity(key) not in left and key not in hidden]
     adds = [describe(key) for key in after_keys if key not in before]
     for row in dict.fromkeys(rows[key] for key in hidden):
-        adds.append(f"{row} no longer compared with the catalogs")
+        gone = "row removed" if row in removed else "no longer compared with the catalogs"
+        adds.append(f"{row} {gone}")
     for model_id, found in after["host_rates"].items():
         if not _host_rates_added(report["host_rates"].get(model_id), found):
             continue
@@ -153,11 +161,11 @@ def load_baseline(path: Path) -> dict:
     try:
         finding_keys(baseline)
         datetime.fromisoformat(baseline["date"])
-        # Without these, an edit that stops pricing a dash spelling, or prices a host
-        # ID at the wrong rate, would pass unseen.
-        for key in ("dash_spellings", "host_rates"):
-            if not isinstance(baseline[key], dict):
-                raise TypeError(f"{key} is not an object")
+        # Without these, an edit that stops pricing a dash spelling, prices a host ID at
+        # the wrong rate, or deletes a flagged row, would pass unseen.
+        for key, kind in (("dash_spellings", dict), ("host_rates", dict), ("compared_rows", list)):
+            if not isinstance(baseline[key], kind):
+                raise TypeError(f"{key} is not a {kind.__name__}")
     except (KeyError, TypeError, ValueError) as exc:
         raise CheckError("the baseline report was written by a different version") from exc
     return baseline
