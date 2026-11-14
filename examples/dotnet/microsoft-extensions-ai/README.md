@@ -19,7 +19,7 @@ travel_concierge.run       AGENT
 
 ## Setup
 
-You need the [.NET 8 SDK](https://dotnet.microsoft.com/download) or later and a `TRACEROOT_API_KEY`.
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) or later and a `TRACEROOT_API_KEY`.
 
 ```bash
 export TRACEROOT_API_KEY=...
@@ -62,5 +62,7 @@ These fail without any error in the app's console output:
    `Experimental.Microsoft.Extensions.AI` (or whatever `sourceName` you pass to
    `UseOpenTelemetry`).
 
-Message contents are only recorded when `EnableSensitiveData = true`. Leave it off if
-prompts and tool arguments must not leave the process.
+Message contents are only recorded when `EnableSensitiveData = true`. This example sets
+it to `true` in `Program.cs`, so prompts, model replies, and tool arguments and results
+are sent to TraceRoot as-is. Set it to `false` (or remove the `configure` argument) to
+keep them in process; spans, model names, and token counts are still recorded.
