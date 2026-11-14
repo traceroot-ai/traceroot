@@ -4,7 +4,7 @@ Bedrock's GovCloud and regional profiles at the model's own rates: what --baseli
 
 import pytest
 
-from tests.model_prices.samples import compare, ll_entry, md_catalog, md_model, row
+from tests.model_prices.samples import _track_one_pr, compare, ll_entry, md_catalog, md_model, row
 
 
 def test_a_host_id_newly_priced_below_the_hosts_rates_is_added():
@@ -168,4 +168,36 @@ def test_a_row_named_after_a_host_id_is_checked_against_the_host(input_, output,
     assert compare(before, [*before, gov], litellm, md_catalog()) == {
         "fixes": ["us-gov.anthropic.claude-k-6 not priced by its row"],
         "adds": adds,
+    }
+
+
+def test_a_rate_change_on_a_row_no_catalog_compares_is_checked_against_the_host():
+    # The GovCloud row's input is already below the host's. Only the host's rates show
+    # that setting its output to 0 makes it worse, as no catalog compares the row.
+    litellm = {
+        "claude-k-6": ll_entry("anthropic", input_=2e-6, output=1e-5),
+        "us-gov.anthropic.claude-k-6": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    }
+    model = row("claude-k-6", "anthropic", input_=2e-6, output=1e-5)
+    before = [model, row("us-gov.anthropic.claude-k-6", "anthropic", input_=2e-6, output=1.2e-5)]
+    zeroed = [model, row("us-gov.anthropic.claude-k-6", "anthropic", input_=2e-6, output=0)]
+    fixed = [model, row("us-gov.anthropic.claude-k-6", "anthropic", input_=2.4e-6, output=1.2e-5)]
+    add = (
+        "us-gov.anthropic.claude-k-6 priced at us-gov.anthropic.claude-k-6's rates, "
+        "but the host lists input 2.40 (ours 2.00) and output 12.00 (ours 0.00)"
+    )
+
+    assert compare(before, zeroed, litellm, md_catalog()) == {"fixes": [], "adds": [add]}
+    assert compare(before, fixed, litellm, md_catalog()) == {"fixes": [], "adds": []}
+    [pr] = _track_one_pr(before, litellm, zeroed)["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], [add])
+
+    # A row a catalog compares shows the change in its own flags, so its host IDs are
+    # not listed again.
+    own = r"(?i)^(us-gov\.anthropic\.)?claude-k-6$"
+    priced = [row("claude-k-6", "anthropic", input_=2e-6, output=1e-5, pattern=own)]
+    broke = [row("claude-k-6", "anthropic", input_=2e-6, output=0, pattern=own)]
+    assert compare(priced, broke, litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": ["claude-k-6 output rate (ours 0.00)"],
     }

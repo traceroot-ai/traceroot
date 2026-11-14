@@ -94,16 +94,17 @@ def _identity(key: tuple) -> tuple:
     return key
 
 
-def _host_rates_added(before: dict | None, after: dict) -> bool:
+def _host_rates_added(before: dict | None, after: dict, compared: set[str]) -> bool:
     """Whether a host ID's entry in host_rates after an edit is new, given its entry
     before, or None: no row priced the ID at rates its host disagrees with, or another
-    row did at other rates. A change to the same row's rates is judged by that row's own
-    flags, and a row that takes the ID over at the same rates leaves its price as it was."""
+    row did at other rates, or the same row did at other rates and no catalog compares
+    it. A change to a compared row's rates is judged by that row's own flags, and a row
+    that takes the ID over at the same rates leaves its price as it was."""
     if before is None:
         return True
     rates = {(rate["field"], rate["ours"]) for rate in before["rates"]}
-    moved = before["row"] != after["row"]
-    return moved and any((rate["field"], rate["ours"]) not in rates for rate in after["rates"])
+    changed = any((rate["field"], rate["ours"]) not in rates for rate in after["rates"])
+    return changed and (before["row"] != after["row"] or after["row"] not in compared)
 
 
 def _row_names(report: dict) -> set[str]:
@@ -134,8 +135,9 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     for row in dict.fromkeys(rows[key] for key in hidden):
         gone = "row removed" if row in removed else "no longer compared with the catalogs"
         adds.append(f"{row} {gone}")
+    compared = set(after["compared_rows"])
     for model_id, found in after["host_rates"].items():
-        if not _host_rates_added(report["host_rates"].get(model_id), found):
+        if not _host_rates_added(report["host_rates"].get(model_id), found, compared):
             continue
         listed = [
             f"{FIELD_LABELS[r['field']]} {_catalog_amount(r)} (ours {_amount(r['ours'])})"
