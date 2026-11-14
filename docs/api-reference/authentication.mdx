@@ -34,7 +34,7 @@ Both identify you rather than a project. Sign in with the [CLI](/cli/authenticat
 traceroot login
 ```
 
-With no API key configured, this runs a browser login and stores a session token in `~/.config/traceroot/credentials.json`. You can send that session token as the bearer directly.
+Unless an API key or a saved session [wins](/cli/authentication#what-login-does), this runs a browser login and stores a session token in `~/.config/traceroot/credentials.json`. You can send that session token as the bearer directly.
 
 The CLI itself sends a short-lived access token instead. To mint one, exchange the session token at the web app:
 

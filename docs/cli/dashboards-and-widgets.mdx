@@ -38,7 +38,7 @@ Creating a name that already exists in the project returns that dashboard. `dash
 
 ## Create and change widgets
 
-A widget's `--type` is `query`, a chart, or `trace_feed`, a list of recent traces. Its `--spec` is JSON in the matching form: `view`, `filters`, `metric`, `breakdown`, and `display` for `query`, and `filters` and `limit` for `trace_feed`.
+A widget's `--type` is `query` for a chart, or `trace_feed` for a list of recent traces. Its `--spec` is JSON in the matching form: `view`, `filters`, `metric`, `breakdown`, and `display` for `query`, and `filters` and `limit` for `trace_feed`.
 
 An existing widget of the same type is the best model. Read its stored spec, edit it, and pass it back:
 
@@ -50,11 +50,11 @@ traceroot widgets update <widget-id> --from-file widget.json
 
 Every `widgets create` adds a new widget. On `widgets update`, a spec replaces the whole spec and must be in the widget's form, because the type can't change. To change `display_config` on an update, send it with `--from-file`; `null` resets it.
 
-## Delete
+## Delete widgets and dashboards
 
 ```bash
 traceroot widgets delete <widget-id> --reason "Duplicate of the latency chart"
 traceroot dashboards delete <dashboard-id> --reason "Replaced by the latency dashboard"
 ```
 
-`--reason` is required, 3 to 500 characters, and recorded in the audit log. Deleting a dashboard deletes its widgets. A project's last dashboard can't be deleted, and trying exits 1.
+Each delete needs a [`--reason`](/cli/scripting#shared-flags). Deleting a dashboard deletes its widgets. A project's last dashboard can't be deleted, and trying exits 1.

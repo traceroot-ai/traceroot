@@ -4,7 +4,7 @@ sidebarTitle: Alerts
 description: Read, create, change, pause, and delete alerts with the traceroot CLI
 ---
 
-Read threshold [alerts](/alerts/overview) with any credential, and create, change, pause, or delete them with [a browser login](/cli/authentication#browser-login-and-api-keys).
+Read threshold [alerts](/alerts/overview) with any credential, and create, change, pause, or delete them with [a browser login](/cli/authentication#browser-login-and-api-keys). Alerts notify through Slack, so [connect Slack](/alerts/overview#slack-notifications) to the workspace to receive them.
 
 ## Read alerts
 
@@ -38,9 +38,9 @@ traceroot alerts create --from-file rule.json
 
 Every field here is required. `filters` and `no_data_mode` are optional. To repeat notifications, set `renotify` to `{ "mode": "EVERY", "interval_minutes": 60 }`.
 
-Each field except `no_data_mode` also has a flag: `--name`, `--view`, `--measure`, `--aggregation`, `--window`, `--threshold-operator`, `--threshold`, `--filters`, and `--renotify`. A flag overrides the same field in the file.
+These fields also have flags: `--name`, `--view`, `--measure`, `--aggregation`, `--window`, `--threshold-operator`, `--threshold`, `--filters`, and `--renotify`. A flag overrides the same field in the file. CLI 0.6.1 refuses `--no-data-mode`, so set `no_data_mode` in the file.
 
-[Rule Reference](/alerts/rule-reference) lists every measure, aggregation, window, and filter, and the limits. [Send a JSON body](/cli/scripting#send-a-json-body) covers what's checked, and where. Creating the same rule twice makes two alerts. `alerts list` shows each alert's ID.
+[Rule Reference](/alerts/rule-reference) lists every measure, aggregation, window, and filter, and the limits. [Send a JSON body](/cli/scripting#send-a-json-body) covers files and stdin. Creating the same rule twice makes two alerts. `alerts list` shows each alert's ID.
 
 ## Change an alert
 
@@ -67,4 +67,4 @@ Pausing keeps the severity the alert stopped at. Resuming starts it fresh. Setti
 traceroot alerts delete <alert-id> --reason "Replaced by a stricter rule"
 ```
 
-`--reason` is required, 3 to 500 characters, and recorded in the audit log. The delete is permanent. An open alert is discarded rather than resolved, and the response's `page_cleared` says when one was.
+The delete is permanent, and needs a [`--reason`](/cli/scripting#shared-flags). An open alert is discarded rather than resolved, and the response's `page_cleared` says when one was.

@@ -1,6 +1,6 @@
 ---
 title: Scripting and CI
-description: JSON output, exit codes, and JSON request bodies for scripts and CI
+description: JSON output, exit codes, JSON request bodies, and shared flags for scripts and CI
 ---
 
 ## Run in CI
@@ -22,7 +22,7 @@ echo "$findings" | jq -e '.count == 0'
 
 A failed CLI call stops the script with the CLI's own [exit code](#exit-codes), so you can tell an auth failure (3) from a network failure (5). `jq -e` exits 1 when there are findings.
 
-`--env-file <path>` reads settings from a file, and outranks the environment. `--timeout <ms>` sets the per-request timeout. An API key can't [list workspaces or projects, or change resources](/cli/authentication#browser-login-and-api-keys). For `setup`, see [Run without prompts](/cli/get-started#run-without-prompts).
+An API key can't [list workspaces or projects, or change resources](/cli/authentication#browser-login-and-api-keys). For those, store a [session token](/api-reference/authentication#session-token-and-cli-access-token) as a secret and set `TRACEROOT_TOKEN` to it. It acts as your account, needs a [project](/cli/authentication#choose-a-project) like a browser login, and stops working after 7 days without use. For `setup`, see [Run without prompts](/cli/get-started#run-without-prompts).
 
 ## JSON output
 
@@ -49,15 +49,15 @@ traceroot traces get <trace-id> --json 2>&1 >/dev/null | jq -r '.error.code'
 
 | Exit code | JSON `code` | Meaning |
 | :- | :- | :- |
-| 0 | | Success. For `setup`, also check for the link: it can exit 0 when it's paused, hasn't seen a trace yet, or you declined a question |
-| 1 | `internal` | Internal error, a failed `doctor` check, any other HTTP error (such as 409 or a 5xx), or a non-empty export directory or existing prompt file without `--force` |
+| 0 | | Success |
+| 1 | `internal` | Internal error, a failed `doctor` check, a file in the way without `--force`, or another HTTP error, such as 409 or a 5xx |
 | 2 | `usage` | Usage error, including a missing `--project` after a browser login, or HTTP 400 or 422 |
 | 3 | `auth` | Not authenticated, or not allowed (HTTP 401 or 403) |
 | 4 | `not_found` | Not found (HTTP 404) |
 | 5 | `network` | Network error, timeout, or rate limit (HTTP 429), retry |
 | 130 | | Interrupted |
 
-`setup` also uses these:
+`setup` can exit 0 when it's paused, hasn't seen a trace yet, or you declined a question, so check for the link. It also uses these:
 
 | Exit code | Meaning |
 | :- | :- |
@@ -77,6 +77,29 @@ traceroot alerts create --from-file rule.json --threshold 2000
 jq '.threshold = 2000' rule.json | traceroot alerts create --from-file -
 ```
 
-Before sending anything, the CLI checks for a JSON object, known top-level fields, required fields, and allowed values in top-level fields with a fixed list. The server checks the rest, including value types and nested fields. Either refusal exits 2.
+A body with a missing, unknown, or invalid field exits 2.
 
 Under a browser login, your [chosen project](/cli/authentication#choose-a-project) fills in `project_id`, unless the file or `--project-id` sets it. An API key can't make these writes, even with `--project-id`.
+
+## Shared flags
+
+Every command takes these:
+
+| Flag | Meaning |
+| :- | :- |
+| `--api-key <key>` | API key to use. It outranks every other [credential](/cli/authentication#which-credential-is-used) |
+| `--env-file <path>` | `.env` file to read settings from. They outrank the environment |
+| `--host <url>`, `--auth-host <url>` | [Another host](/cli/authentication#use-another-host) for the API and for sign-in |
+| `--project <id>` | [Project](/cli/authentication#choose-a-project) for a browser login |
+| `--json` | [JSON output](#json-output) |
+| `--timeout <ms>` | Per-request timeout. Default: 30000 |
+
+Many commands also take these:
+
+| Flag | Taken by | Meaning |
+| :- | :- | :- |
+| `--from-file <path>` | Every create, update, status change, and delete | The fields as one [JSON body](#send-a-json-body) |
+| `--project-id <id>` | Detector, alert, dashboard, and widget commands, except `detectors list` | The project to act on. It outranks your [chosen project](/cli/authentication#choose-a-project), and must match an API key's project |
+| `--limit <n>` | List commands, and `datasets versions get` | How many to return. Each command's page gives the default and maximum |
+| `--since`, `--from`, `--to` | `traces list`, `detectors list`, `findings list` | A time window, as in [List traces](/cli/traces#list-traces) |
+| `--reason <text>` | Every delete | Why, 3 to 500 characters, recorded in the audit log. Required |
