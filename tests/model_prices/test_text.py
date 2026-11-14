@@ -108,3 +108,14 @@ def test_every_format_counts_what_its_words_say():
     page = build_html(report)
     assert "<h2>Models not priced (2)</h2>" in page
     assert "<h2>Also not priced: aliases, snapshots, realtime and search (1)</h2>" in page
+
+
+def test_baseline_shows_first_in_the_text_report():
+    report = report_for([row("gpt-a", "openai")], {"gpt-a": ll_entry("openai")}, md_catalog())
+    report["baseline"] = {"fixes": ["gpt-z input rate"], "adds": []}
+    text = format_report(report)
+
+    assert (
+        "\n\n*Compared with the baseline, this file fixes* (1)\n• gpt-z input rate"
+        "\n\n*Compared with the baseline, this file adds* (0)\n• nothing\n"
+    ) in text

@@ -77,7 +77,7 @@ def test_a_pr_changes_only_the_fields_it_changed_in_a_row():
     }
     litellm = {"deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6, cache_read=1e-7)}
     [pr] = _track_one_pr(current, litellm, merged)["pull_requests"]
-    assert (pr["fixes"], pr["adds"]) == (["deepseek-d input rate"], [])
+    assert (pr["fixes"], pr["adds"]) == (["deepseek-d input rate (ours 0.50)"], [])
 
 
 def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
@@ -91,8 +91,13 @@ def test_track_names_the_prs_that_clear_each_finding_and_what_they_add():
     assert [
         (pr["number"], pr["fixes"], pr["adds"], pr.get("error")) for pr in report["pull_requests"]
     ] == [
-        (11, ["deepseek-d input rate"], [], None),
-        (12, ["deepseek-d input rate", "gpt-new not priced"], ["gpt-new input rate"], None),
+        (11, ["deepseek-d input rate (ours 0.50)"], [], None),
+        (
+            12,
+            ["deepseek-d input rate (ours 0.50)", "gpt-new not priced"],
+            ["gpt-new input rate (ours 9.00)"],
+            None,
+        ),
         (13, [], [], "could not read it"),
     ]
 

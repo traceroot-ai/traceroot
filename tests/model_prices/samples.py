@@ -1,10 +1,21 @@
 """Small inline samples of the price file and both catalogs, and helpers that build
-reports from them, shared by the price check tests. None reads the real price file or
-the network."""
+reports from them or run main() on them, shared by the price check tests. None reads the
+real price file or the network."""
 
-from scripts.model_prices.catalogs import index_hosted, index_litellm, index_modelsdev
+import json
+
+from scripts.model_prices import catalogs, cli, tracking
+from scripts.model_prices.catalogs import (
+    LITELLM_URL,
+    MODELSDEV_URL,
+    PRICE_PATH,
+    index_hosted,
+    index_litellm,
+    index_modelsdev,
+)
 from scripts.model_prices.checks import build_report
-from scripts.model_prices.tracking import track
+from scripts.model_prices.findings import changes, describe_all
+from scripts.model_prices.tracking import GITHUB_API, track
 
 DATE = "2026-11-08"
 
@@ -69,6 +80,14 @@ def report_for(rows, litellm, modelsdev, min_compared=1):
     )
 
 
+def compare(before, after, litellm, modelsdev):
+    """What --baseline lists for an edit from the before rows to the after rows."""
+    fixes, adds = changes(
+        report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev)
+    )
+    return {"fixes": describe_all(fixes), "adds": adds}
+
+
 def _block_text(block):
     if block["type"] == "context":
         return " ".join(element["text"] for element in block["elements"])
@@ -112,6 +131,61 @@ def _track_prs(rows, litellm, heads, modelsdev=None):
 def _track_one_pr(rows, litellm, pr_rows):
     """The report for rows, with one open PR, #7, whose price file is pr_rows."""
     return _track_prs(rows, litellm, {7: pr_rows})
+
+
+def runner(tmp_path, monkeypatch):
+    """Run main() against sample data; returns (exit code, posted payloads, report). With
+    heads, GitHub has an open pricing PR for each entry, branched from rows: its number,
+    and the price file at its head or the error reading the PR raises. With github, that
+    answers every GitHub API request instead. With write_json=False, the run writes no
+    JSON report and the report returned is None."""
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
+    posted = []
+    monkeypatch.setattr(cli, "post_to_slack", lambda _url, payload: posted.append(payload))
+
+    def _run(rows, litellm, modelsdev, *extra, heads=None, github=None, write_json=True):
+        if isinstance(litellm, dict):
+            # Only the cache write rates, so a test can still remove any other field.
+            filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
+            litellm = {"cache-write-filler": filler, **litellm}
+
+        def fake_fetch(url, max_bytes=None, headers=None):
+            if url.startswith(GITHUB_API):
+                return (github or fake_github)(url)
+            if isinstance(litellm, Exception):
+                raise litellm
+            if url in (LITELLM_URL, MODELSDEV_URL):
+                return litellm if url == LITELLM_URL else modelsdev
+            sha = url.split("/")[5]
+            # Through JSON, as GitHub serves it.
+            return json.loads(json.dumps(rows if sha == "base" else heads[int(sha[4:])]))
+
+        def fake_github(url):
+            if "/pulls?" in url:
+                return [
+                    {
+                        "number": number,
+                        "title": "fix(pricing): rates",
+                        "base": {"sha": "base"},
+                        "head": {"sha": f"head{number}"},
+                    }
+                    for number in heads
+                ]
+            head = heads[int(url.rsplit("head", 1)[1])]
+            if isinstance(head, Exception):
+                raise head
+            return {"merge_base_commit": {"sha": "base"}, "files": [{"filename": PRICE_PATH}]}
+
+        monkeypatch.setattr(catalogs, "fetch_json", fake_fetch)
+        monkeypatch.setattr(tracking, "fetch_json", fake_fetch)
+        prices = tmp_path / "prices.json"
+        prices.write_text(json.dumps(rows))
+        out = tmp_path / "report.json"
+        argv = ["--post", "--prices", str(prices), *extra]
+        code = cli.main([*argv, "--json", str(out)] if write_json else argv)
+        return code, posted, json.loads(out.read_text()) if write_json else None
+
+    return _run
 
 
 def _table_rows(table):

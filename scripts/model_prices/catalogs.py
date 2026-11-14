@@ -181,7 +181,7 @@ def index_litellm(data: object) -> dict[tuple[str, str], dict]:
             continue
         tiers = [int(m[1]) * 1000 for m in map(LITELLM_LONG_CONTEXT.match, entry) if m]
         index[(provider, model_id)] = {
-            "rates": {field: _number(entry.get(src)) for field, src in LITELLM_FIELDS.items()},
+            "rates": _litellm_rates(entry),
             "text": entry.get("mode") in TEXT_MODES,
             "retired_from": _day(entry.get("deprecation_date")),
             "context": _number(entry.get("max_input_tokens")),
@@ -189,6 +189,11 @@ def index_litellm(data: object) -> dict[tuple[str, str], dict]:
         }
     _require_fields("LiteLLM", index, LITELLM_FIELDS)
     return index
+
+
+def _litellm_rates(entry: dict) -> dict[str, float | None]:
+    """A LiteLLM entry's rates per token."""
+    return {field: _number(entry.get(src)) for field, src in LITELLM_FIELDS.items()}
 
 
 def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
@@ -203,13 +208,9 @@ def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
         for model_id, model in listing["models"].items():
             if not isinstance(model, dict) or not isinstance(model.get("cost"), dict):
                 continue
-            rates: dict[str, float | None] = dict.fromkeys(FIELDS)
-            for field, src in MODELSDEV_FIELDS.items():
-                value = _number(model["cost"].get(src))
-                rates[field] = None if value is None else value / 1e6
             limit = model.get("limit")
             index[(provider, model_id)] = {
-                "rates": rates,
+                "rates": _modelsdev_rates(model["cost"]),
                 "text": _outputs_text(model),
                 "retired_from": _retired(model),
                 "context": _number(limit.get("context")) if isinstance(limit, dict) else None,
@@ -218,6 +219,15 @@ def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
             }
     _require_fields("models.dev", index, MODELSDEV_FIELDS)
     return index
+
+
+def _modelsdev_rates(cost: dict) -> dict[str, float | None]:
+    """A models.dev cost object as rates per token, converted from per million."""
+    rates: dict[str, float | None] = dict.fromkeys(FIELDS)
+    for field, src in MODELSDEV_FIELDS.items():
+        value = _number(cost.get(src))
+        rates[field] = None if value is None else value / 1e6
+    return rates
 
 
 def _outputs_text(model: dict) -> bool:
@@ -232,10 +242,11 @@ def _retired(model: dict) -> datetime | None:
 
 def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
     """The IDs other hosts serve our providers' models under, such as Bedrock's
-    us.anthropic.claude-sonnet-5-5, each with its host and whether it is a live text
-    model. Vertex AI's @default placeholder and OpenRouter's :free style variants are
-    not IDs a span carries, so they are left out."""
+    us.anthropic.claude-sonnet-5-5, each with its host, whether it is a live text model
+    and the rates each catalog lists for it. Vertex AI's @default placeholder and
+    OpenRouter's :free style variants are not IDs a span carries, so they are left out."""
     hosted: dict[str, dict] = {}
+    ranks: dict[str, int] = {}
     for key, entry in litellm.items() if isinstance(litellm, dict) else ():
         host = (
             LITELLM_HOSTS.get(str(entry.get("litellm_provider")))
@@ -244,25 +255,39 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
         )
         if host is None:
             continue
-        # Keys may carry routing segments, as in bedrock/us-gov-west-1/<model ID>.
+        # Keys may carry a provider prefix and a route, as in bedrock/us-gov-west-1/<model
+        # ID>. A route prices the ID for one region or plan, so the bare <model ID> wins,
+        # then bedrock/<model ID>, then a route, wherever the catalog lists each.
         model_id = key.rsplit("/", 1)[-1]
-        if not model_id.endswith("@default"):
-            hosted[model_id] = {
-                "host": host,
-                "text": entry.get("mode") in TEXT_MODES,
-                "retired_from": _day(entry.get("deprecation_date")),
-            }
+        rank = min(key.count("/"), 2)
+        if model_id.endswith("@default") or rank >= ranks.get(model_id, 3):
+            continue
+        ranks[model_id] = rank
+        hosted[model_id] = {
+            "host": host,
+            "text": entry.get("mode") in TEXT_MODES,
+            "retired_from": _day(entry.get("deprecation_date")),
+            "rates": {"litellm": _litellm_rates(entry)},
+        }
     for key, host in MODELSDEV_HOSTS.items():
         listing = modelsdev.get(key) if isinstance(modelsdev, dict) else None
         models = listing.get("models") if isinstance(listing, dict) else None
         for model_id, model in models.items() if isinstance(models, dict) else ():
             # OpenRouter's ~vendor/model-latest aliases and :free or :thinking variants.
             variant = model_id.startswith("~") or (host == "OpenRouter" and ":" in model_id)
-            if isinstance(model, dict) and not variant:
-                hosted.setdefault(
-                    model_id,
-                    {"host": host, "text": _outputs_text(model), "retired_from": _retired(model)},
-                )
+            if not isinstance(model, dict) or variant:
+                continue
+            found = hosted.setdefault(
+                model_id,
+                {
+                    "host": host,
+                    "text": _outputs_text(model),
+                    "retired_from": _retired(model),
+                    "rates": {},
+                },
+            )
+            if isinstance(model.get("cost"), dict):
+                found["rates"]["modelsdev"] = _modelsdev_rates(model["cost"])
     return hosted
 
 

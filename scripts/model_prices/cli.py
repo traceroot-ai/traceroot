@@ -39,6 +39,7 @@ provider's pricing page, listed with each flag, before changing the price file.
   python3 scripts/check_model_prices.py --payload msg.json   # write the Slack message
   python3 scripts/check_model_prices.py --track              # name the PRs that fix each
   python3 scripts/check_model_prices.py --html report.html   # write the full report page
+  python3 scripts/check_model_prices.py --baseline before.json  # check an edit to the file
 
 --post sends a short Block Kit message to the Slack incoming webhook in
 SLACK_WEBHOOK_URL: what needs a fix and has no open PR, then what open PRs already fix.
@@ -50,10 +51,25 @@ a URL or a local file, so a saved catalog snapshot can be replayed. --track read
 GitHub, with GITHUB_TOKEN or GH_TOKEN when set; if GitHub can't be read, the report
 says so and the run still succeeds.
 
+--baseline checks an edit to the price file before it goes into a pull request. Save a
+report with --json before the edit, edit the file, then run again with --baseline
+pointing at that report: the output lists the findings the edit fixes and any it adds.
+A flagged rate the edit changes to another value the catalogs disagree with is an add,
+not a fix. So is a row with a finding that the edit deletes, or stops comparing by
+changing its provider to one no catalog covers: that hides the finding. A Bedrock, Vertex AI or OpenRouter ID that a row newly prices is an add when
+every catalog that lists that exact ID charges other input or output rates, as Bedrock
+does for GovCloud and regional profiles. So is a dotted version's dash spelling that a
+row priced before the edit and none prices after it, such as grok-4-20 once a narrowed
+grok-4 row stops matching it. --track lists the same adds for each open PR.
+Pass the same saved --litellm and --modelsdev files to both runs, so only the price
+file differs between them. For the same reason, the second run judges which models are
+retired as of the baseline report's date, and reports that date.
+
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
-compared, or the Slack post failed. A failed run posts a failure alert when it can,
-never an all-clear.
+compared, the --baseline report could not be read, or the Slack post failed. 2 with
+--baseline when the price file adds a finding the baseline report does not have. A
+failed run posts a failure alert when it can, never an all-clear.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
@@ -77,6 +93,7 @@ from .catalogs import (
     validate_rows,
 )
 from .checks import MIN_COMPARED, build_report
+from .findings import changes, describe_all, load_baseline
 from .page import build_html
 from .slack import build_payload, failure_payload, post_to_slack
 from .text import format_failure, format_report
@@ -112,6 +129,14 @@ def main(argv: list[str]) -> int:
         "--report-url", metavar="URL", help="link the Slack message to the full report here"
     )
     parser.add_argument(
+        "--baseline",
+        type=Path,
+        metavar="REPORT",
+        help="list what this price file fixes and adds compared with a report saved by "
+        "--json; exit 2 if it adds anything, as even a correct new row does when a catalog "
+        "bills its model more above a prompt size (a long-context add)",
+    )
+    parser.add_argument(
         "--track",
         nargs="?",
         const=GITHUB_REPO,
@@ -127,6 +152,11 @@ def main(argv: list[str]) -> int:
 
     date = datetime.now(UTC).date().isoformat()
     try:
+        baseline = load_baseline(args.baseline) if args.baseline else None
+        if baseline is not None:
+            # Retire models as of the baseline's date, so one retired since then does
+            # not read as a fix: only the price file differs between the two reports.
+            date = baseline["date"]
         rows = validate_rows(json.loads(args.prices.read_text(encoding="utf-8")))
         litellm_data = load_source(args.litellm, "LiteLLM")
         modelsdev_data = load_source(args.modelsdev, "models.dev")
@@ -135,6 +165,9 @@ def main(argv: list[str]) -> int:
         report = build_report(
             rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
         )
+        if baseline is not None:
+            fixes, adds = changes(baseline, report)
+            report["baseline"] = {"fixes": describe_all(fixes), "adds": adds}
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:
@@ -158,7 +191,9 @@ def main(argv: list[str]) -> int:
         # A cut list points to the rest only where this run writes it.
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
         text = format_report(report, more_in)
-        payload, status = build_payload(report, args.report_url, more_in), 0
+        payload = build_payload(report, args.report_url, more_in)
+        # With --baseline, a finding the edit adds fails the check.
+        status = 2 if report.get("baseline", {}).get("adds") else 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}

@@ -10,6 +10,7 @@ from scripts.model_prices import catalogs
 from scripts.model_prices.catalogs import (
     CheckError,
     fetch_json,
+    index_hosted,
     index_litellm,
     index_modelsdev,
     validate_rows,
@@ -31,6 +32,43 @@ def test_a_bare_litellm_key_wins_over_a_provider_prefixed_one():
         litellm = {key: ll_entry("deepseek", input_=rates[key]) for key in keys}
         index = index_litellm({**LITELLM_FILLER, **litellm})
         assert index[("deepseek", "deepseek-d")]["rates"]["input"] == 1e-6
+
+
+def test_a_host_ids_key_without_a_region_wins_over_its_region_routes():
+    # LiteLLM lists an ID's region routes before its key with no region, which is bare
+    # or carries only the provider prefix.
+    litellm = {
+        "bedrock/ap-northeast-1/moonshotai.kimi-k2-thinking": ll_entry(
+            "bedrock", input_=7.3e-7, output=3.03e-6
+        ),
+        "bedrock/moonshotai.kimi-k2-thinking": ll_entry("bedrock", input_=6e-7, output=2.5e-6),
+        "bedrock/ap-south-1/moonshotai.kimi-k2-thinking": ll_entry(
+            "bedrock", input_=7.1e-7, output=2.94e-6
+        ),
+        "bedrock/us-gov-west-1/anthropic.claude-k-5": ll_entry(
+            "bedrock", input_=2.4e-6, output=1.2e-5
+        ),
+        "anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2e-6, output=1e-5),
+        "bedrock/eu-west-3/anthropic.claude-k-5": ll_entry("bedrock", input_=2.6e-6, output=1.3e-5),
+    }
+    hosted = index_hosted(litellm, md_catalog())
+
+    assert {
+        model_id: (entry["rates"]["litellm"]["input"], entry["rates"]["litellm"]["output"])
+        for model_id, entry in hosted.items()
+    } == {"moonshotai.kimi-k2-thinking": (6e-7, 2.5e-6), "anthropic.claude-k-5": (2e-6, 1e-5)}
+
+
+@pytest.mark.parametrize("bare_first", [True, False], ids=["bare-first", "prefixed-first"])
+def test_a_host_ids_bare_key_wins_over_its_provider_prefixed_key(bare_first):
+    keys = {
+        "anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2e-6, output=1e-5),
+        "bedrock/anthropic.claude-k-5": ll_entry("bedrock", input_=2.2e-6, output=1.1e-5),
+    }
+    litellm = dict(keys.items() if bare_first else reversed(keys.items()))
+    rates = index_hosted(litellm, md_catalog())["anthropic.claude-k-5"]["rates"]["litellm"]
+
+    assert (rates["input"], rates["output"]) == (2e-6, 1e-5)
 
 
 def test_a_catalogs_non_finite_rate_counts_as_absent():

@@ -13,16 +13,14 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from scripts.model_prices import catalogs, cli, tracking
-from scripts.model_prices.catalogs import LITELLM_URL, MODELSDEV_URL, PRICE_PATH
 from scripts.model_prices.slack import post_to_slack
-from scripts.model_prices.tracking import GITHUB_API
 from tests.model_prices.samples import (
-    CACHE_WRITE_RATES,
     LITELLM_FILLER,
     _block_text,
     ll_entry,
     md_catalog,
     row,
+    runner,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -31,58 +29,8 @@ SCRIPT = REPO_ROOT / "scripts" / "check_model_prices.py"
 
 @pytest.fixture
 def run(tmp_path, monkeypatch):
-    """Run main() against sample data; returns (exit code, posted payloads, report). With
-    heads, GitHub has an open pricing PR for each entry, branched from rows: its number,
-    and the price file at its head or the error reading the PR raises. With github, that
-    answers every GitHub API request instead. With write_json=False, the run writes no
-    JSON report and the report returned is None."""
-    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.test/T/B/x")
-    posted = []
-    monkeypatch.setattr(cli, "post_to_slack", lambda _url, payload: posted.append(payload))
-
-    def _run(rows, litellm, modelsdev, *extra, heads=None, github=None, write_json=True):
-        if isinstance(litellm, dict):
-            # Only the cache write rates, so a test can still remove any other field.
-            filler = {"litellm_provider": "openai", "mode": "embedding", **CACHE_WRITE_RATES}
-            litellm = {"cache-write-filler": filler, **litellm}
-
-        def fake_fetch(url, max_bytes=None, headers=None):
-            if url.startswith(GITHUB_API):
-                return (github or fake_github)(url)
-            if isinstance(litellm, Exception):
-                raise litellm
-            if url in (LITELLM_URL, MODELSDEV_URL):
-                return litellm if url == LITELLM_URL else modelsdev
-            sha = url.split("/")[5]
-            # Through JSON, as GitHub serves it.
-            return json.loads(json.dumps(rows if sha == "base" else heads[int(sha[4:])]))
-
-        def fake_github(url):
-            if "/pulls?" in url:
-                return [
-                    {
-                        "number": number,
-                        "title": "fix(pricing): rates",
-                        "base": {"sha": "base"},
-                        "head": {"sha": f"head{number}"},
-                    }
-                    for number in heads
-                ]
-            head = heads[int(url.rsplit("head", 1)[1])]
-            if isinstance(head, Exception):
-                raise head
-            return {"merge_base_commit": {"sha": "base"}, "files": [{"filename": PRICE_PATH}]}
-
-        monkeypatch.setattr(catalogs, "fetch_json", fake_fetch)
-        monkeypatch.setattr(tracking, "fetch_json", fake_fetch)
-        prices = tmp_path / "prices.json"
-        prices.write_text(json.dumps(rows))
-        out = tmp_path / "report.json"
-        argv = ["--post", "--prices", str(prices), *extra]
-        code = cli.main([*argv, "--json", str(out)] if write_json else argv)
-        return code, posted, json.loads(out.read_text()) if write_json else None
-
-    return _run
+    """Run main() against sample data, as runner describes."""
+    return runner(tmp_path, monkeypatch)
 
 
 def test_quiet_day_posts_a_heartbeat(run, tmp_path):
@@ -422,3 +370,15 @@ def test_files_are_read_and_written_as_utf8_whatever_the_locale(tmp_path):
     assert [m["model"] for m in report["missing"]] == ["gpt-ö"]
     for name in ("html", "payload"):
         assert "gpt-ü" in (tmp_path / f"out.{name}").read_text(encoding="utf-8")
+
+    # A baseline report saved with its non-ASCII names as they are reads the same way.
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    again = subprocess.run(
+        [sys.executable, "-S", "-X", "utf8=0", str(SCRIPT), *argv, "--baseline", str(baseline)],
+        cwd=REPO_ROOT,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert again.returncode == 0, again.stdout + again.stderr

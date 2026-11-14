@@ -356,6 +356,11 @@ def format_report(report: dict, more_in: str | None = None) -> str:
     """The report as text for the terminal: what to fix first, then context. more_in
     names where the rest of a cut list can be read, such as "the JSON report"."""
     lines = [f"*Model pricing audit, {report['date']}*: {summary(report)}"]
+    if "baseline" in report:
+        for word in ("fixes", "adds"):
+            found = report["baseline"][word]
+            listed = "\n".join(f"• {_escape(item)}" for item in found) or "• nothing"
+            lines += ["", f"*Compared with the baseline, this file {word}* ({len(found)})", listed]
     for section in sections(report):
         if section.items:
             lines += ["", f"*{section.title}* ({len(section.items)}): {section.note}"]

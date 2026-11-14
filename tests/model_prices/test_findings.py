@@ -1,8 +1,10 @@
 """Tests for comparing two reports: a PR that stops comparing a row hides its findings
-rather than clearing them."""
+rather than clearing them, and one that changes a flagged rate to another wrong rate
+does not clear it."""
 
 from scripts.model_prices.catalogs import index_litellm, index_modelsdev
 from scripts.model_prices.checks import build_report
+from scripts.model_prices.slack import build_payload
 from scripts.model_prices.tracking import track
 from tests.model_prices.samples import (
     DATE,
@@ -75,3 +77,25 @@ def test_a_pr_that_stops_comparing_a_row_does_not_fix_what_its_pattern_prices():
     del litellm["claude-f"]
     fixed = row("claude-f", "anthropic", input_=8e-6, pattern=pattern)
     assert _track_one_pr(rows, litellm, [fixed])["flagged"][0]["tracked_by"] == [7]
+
+
+def test_a_pr_that_changes_a_flagged_rate_to_another_wrong_one_does_not_fix_it():
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", output=4e-6)}
+    rows = [row("deepseek-d", "deepseek", output=1e-6)]
+    report = _track_one_pr(rows, litellm, [row("deepseek-d", "deepseek", output=1e-4)])
+
+    assert report["flagged"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["deepseek-d output rate (ours 100.00)"])
+    # The flag stays in the message as needing a fix, so its header can't turn green.
+    assert build_payload(report)["text"].endswith(": 1 model with prices to check")
+
+
+def test_a_pr_that_deletes_a_flagged_row_does_not_fix_it():
+    litellm = {"gpt-a": ll_entry("openai"), "gpt-q-audio": ll_entry("openai", input_=4e-6)}
+    rows = [row("gpt-a", "openai"), row("gpt-q-audio", "openai")]
+    report = _track_one_pr(rows, litellm, rows[:1])
+
+    assert report["flagged"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["gpt-q-audio row removed"])
