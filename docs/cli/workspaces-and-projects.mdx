@@ -1,0 +1,163 @@
+---
+title: Workspaces & Projects
+description: Manage organizational workspaces and project boundaries
+---
+
+Workspaces and projects define the multi-tenant organizational structure of TraceRoot:
+- **Workspaces**: Contain users, billing, and global permissions.
+- **Projects**: Contain traces, detectors, alerts, and dashboards. Project API keys (`tr-...`) authenticate directly to a single project.
+
+Workspace and project management commands require **user authentication** via browser login (`traceroot login`).
+
+## Workspaces
+
+### `traceroot workspaces list`
+
+List all workspaces accessible to your user account.
+
+```bash
+traceroot workspaces list [options]
+```
+
+```bash
+traceroot workspaces list
+```
+
+```text
+NAME                   ROLE   WORKSPACE ID
+Acme Corp Engineering  ADMIN  3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31
+Personal Workspace     OWNER  b2f47c08-91d6-4e53-a7c1-5048f3b9e216
+```
+
+### `traceroot workspaces create`
+
+Create a new organizational workspace.
+
+```bash
+traceroot workspaces create --from-file <path> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--from-file <path>` | string | Path to JSON file (or `-` for stdin) |
+| `--name <string>` | string | Name of the new workspace |
+
+```bash
+traceroot workspaces create --name "AI Platform Team"
+```
+
+### `traceroot workspaces update <id>`
+
+Rename a workspace you administer.
+
+```bash
+traceroot workspaces update <workspace-id> [options]
+```
+
+```bash
+traceroot workspaces update 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 --name "Core AI Engineering"
+```
+
+### `traceroot workspaces delete <id>`
+
+Permanently delete a workspace and all nested projects, traces, detectors, and alerts. This action is irreversible.
+
+```bash
+traceroot workspaces delete <workspace-id> --name <current-name> --reason <text>
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--name <string>` | string | *(Required)* The current name of the workspace, typed as confirmation |
+| `--reason <text>` | string | *(Required)* Audit explanation for deletion |
+
+```bash
+traceroot workspaces delete 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 \
+  --name "Core AI Engineering" \
+  --reason "Team reorganized under Enterprise workspace"
+```
+
+## Projects
+
+### `traceroot projects list`
+
+List the projects you can access across all your workspaces. The value in the `PROJECT ID` column is what you supply to `--project` or `TRACEROOT_PROJECT_ID`.
+
+```bash
+traceroot projects list [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--workspace-id <id>` | string | Filter projects belonging to a specific workspace |
+| `--json` | boolean | Output raw JSON records |
+
+```bash
+# List all accessible projects
+traceroot projects list
+
+# List projects within a single workspace
+traceroot projects list --workspace-id 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31
+```
+
+```text
+NAME            WORKSPACE              PROJECT ID
+Support Bot     Acme Corp Engineering  fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40
+Coding Copilot  Acme Corp Engineering  7c91b8e4-52a7-4f3d-8b10-9d6e4a1c3f27
+```
+
+### `traceroot projects create`
+
+Create a new project within a workspace.
+
+```bash
+traceroot projects create --from-file <path> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--from-file <path>` | string | Path to JSON file (or `-` for stdin) |
+| `--name <string>` | string | Project display name |
+| `--workspace-id <id>` | string | Target workspace ID |
+
+```bash
+traceroot projects create \
+  --workspace-id 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 \
+  --name "Financial Analysis Agent"
+```
+
+### `traceroot projects update <id>`
+
+Update project settings, such as the display name or trace retention policy (requires workspace `ADMIN`).
+
+```bash
+traceroot projects update <project-id> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--from-file <path>` | string | Path to JSON file with updated attributes |
+| `--name <string>` | string | New project name |
+| `--trace-ttl-days <n>` | number | Retention window for traces in days |
+
+```bash
+# Set retention policy to 90 days
+traceroot projects update fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40 --trace-ttl-days 90
+```
+
+### `traceroot projects delete <id>`
+
+Delete a project (soft delete). The project drops out of lists and reads, its API keys immediately stop authenticating, and its data is retained until the project's trace retention window expires.
+
+```bash
+traceroot projects delete <project-id> --reason <text>
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--reason <text>` | string | *(Required)* Justification recorded in the audit log |
+
+```bash
+traceroot projects delete fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40 \
+  --reason "Decommissioned experiment"
+```
