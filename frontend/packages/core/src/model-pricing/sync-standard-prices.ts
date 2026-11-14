@@ -6,6 +6,19 @@ interface StandardModelEntry {
   modelName: string;
   matchPattern: string;
   provider: string;
+  // Set on Claude 4.5+ cards. Applied to regional Bedrock ids, not to global.
+  regionalPremium?: number;
+  // Present when a prompt over thresholdTokens is billed on a second rate card.
+  longContext?: {
+    thresholdTokens: number;
+    prices: {
+      input?: number | null;
+      output?: number | null;
+      cacheRead?: number | null;
+      cacheWrite?: number | null;
+      cacheWrite1h?: number | null;
+    };
+  };
   prices: {
     input: number;
     output: number;
@@ -40,6 +53,13 @@ export async function syncStandardPrices(): Promise<void> {
         priceRows.push({ usageType, price });
       }
     }
+    if (entry.longContext) {
+      for (const [usageType, price] of Object.entries(entry.longContext.prices)) {
+        if (price != null) {
+          priceRows.push({ usageType: `${usageType}_long`, price });
+        }
+      }
+    }
 
     // Wrap in transaction to avoid a race window where prices are deleted but not yet recreated
     await prisma.$transaction(async (tx) => {
@@ -50,6 +70,8 @@ export async function syncStandardPrices(): Promise<void> {
           modelName: entry.modelName,
           matchPattern: entry.matchPattern,
           provider: entry.provider,
+          regionalPremium: entry.regionalPremium ?? null,
+          longContextThreshold: entry.longContext?.thresholdTokens ?? null,
           prices: {
             create: priceRows.map((r) => ({
               usageType: r.usageType,
@@ -60,6 +82,8 @@ export async function syncStandardPrices(): Promise<void> {
         update: {
           matchPattern: entry.matchPattern,
           provider: entry.provider,
+          regionalPremium: entry.regionalPremium ?? null,
+          longContextThreshold: entry.longContext?.thresholdTokens ?? null,
           prices: {
             deleteMany: {},
           },

@@ -6,13 +6,26 @@ const {
   mockFetchProviderConfig,
   mockFindByokKey,
   mockIsSystemModelId,
+  mockCalculateCost,
 } = vi.hoisted(() => ({
   mockComplete: vi.fn(),
   mockResolvePiModel: vi.fn(),
   mockFetchProviderConfig: vi.fn(),
   mockFindByokKey: vi.fn().mockResolvedValue(null),
   mockIsSystemModelId: vi.fn(),
+  mockCalculateCost: vi.fn(
+    async (
+      _model: string,
+      _input = 0,
+      _output = 0,
+      _cacheRead = 0,
+      _cacheWrite = 0,
+      _cacheWrite1h = 0,
+    ) => 0,
+  ),
 }));
+
+vi.mock("@traceroot/core", () => ({ calculateCost: mockCalculateCost }));
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
@@ -758,6 +771,122 @@ describe("runDetectionForTrace", () => {
       expect(result.identified).toBe(true);
       expect(result.inferenceCost).toBeCloseTo(0.004, 6);
       expect(result.inferenceSource).toBe("system");
+    });
+
+    it("prices each zero-cost attempt on its own counts", async () => {
+      mockCalculateCost.mockResolvedValueOnce(0.01).mockResolvedValueOnce(0.02);
+      const tokens = (input: number, cacheRead = 0) => ({
+        input,
+        output: 10,
+        cacheRead,
+        cacheWrite: 0,
+        totalTokens: input + 10,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      });
+      mockComplete
+        .mockResolvedValueOnce({
+          content: [{ type: "text", text: "ignoring instructions" }],
+          usage: tokens(20_000, 5_000),
+          stopReason: "stop",
+          model: "claude-haiku-5-5",
+        })
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "toolCall",
+              name: "submit_result",
+              arguments: { identified: false, summary: "clean", data: {} },
+            },
+          ],
+          usage: tokens(30_000),
+          stopReason: "toolUse",
+          model: "claude-haiku-5-5",
+        });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockCalculateCost.mock.calls.map((call) => [call[1], call[3], call[5]])).toEqual([
+        [20_000, 5_000, 0],
+        [30_000, 0, 0],
+      ]);
+      expect(result.inferenceCost).toBeCloseTo(0.03, 6);
+      expect(result.inferenceCatalogPriced).toBe(true);
+      expect(result.inferenceCacheReadTokens).toBe(5_000);
+    });
+
+    it("prices a 1-hour cache write and a cache-only attempt", async () => {
+      mockCalculateCost.mockResolvedValueOnce(0.04);
+      mockComplete.mockResolvedValueOnce({
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "clean", data: {} },
+          },
+        ],
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 800,
+          cacheWrite1h: 800,
+          totalTokens: 800,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "toolUse",
+        model: "claude-haiku-5-5",
+      });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockCalculateCost).toHaveBeenCalledWith("claude-haiku-5-5", 0, 0, 0, 800, 800);
+      expect(result.inferenceCacheWriteTokens).toBe(800);
+      expect(result.inferenceCacheWrite1hTokens).toBe(800);
+      expect(result.inferenceInputTokens).toBe(0);
+      expect(result.inferenceOutputTokens).toBe(0);
+    });
+
+    it("leaves the catalog flag unset when the lookup fails", async () => {
+      mockCalculateCost.mockRejectedValueOnce(new Error("pricing db down"));
+      mockComplete.mockResolvedValueOnce({
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "clean", data: {} },
+          },
+        ],
+        usage: {
+          input: 1_000,
+          output: 10,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 1_010,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "toolUse",
+        model: "claude-haiku-5-5",
+      });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.inferenceCatalogPriced).toBe(false);
+      expect(result.inferenceCost).toBe(0);
     });
 
     it("captures BYOK source attribution with positive cost", async () => {

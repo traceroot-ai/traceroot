@@ -44,6 +44,19 @@ describe("UsageAccumulator", () => {
     expect(mocks.calculateCost).not.toHaveBeenCalled();
   });
 
+  it("prices each unpriced call on its own counts instead of the sum", async () => {
+    mocks.calculateCost.mockResolvedValueOnce(0.02).mockResolvedValueOnce(0.02);
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 20_000, output: 0 }));
+    acc.onEvent(messageEnd({ input: 20_000, output: 0 }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(mocks.calculateCost).toHaveBeenNthCalledWith(1, "test-model", 20_000, 0, 0, 0);
+    expect(mocks.calculateCost).toHaveBeenNthCalledWith(2, "test-model", 20_000, 0, 0, 0);
+    expect(usage?.inputTokens).toBe(40_000);
+    expect(usage?.cost).toBeCloseTo(0.04);
+  });
+
   it("falls back to the pricing table when the stream reports zero cost", async () => {
     const acc = new UsageAccumulator();
     acc.onEvent(messageEnd({ input: 10, output: 5, cacheRead: 2, cacheWrite: 1 }));

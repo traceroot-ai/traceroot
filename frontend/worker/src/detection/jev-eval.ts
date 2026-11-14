@@ -107,8 +107,9 @@ export async function runJevDetection(params: {
       confidence: label.confidence,
       gate,
     },
-    // Priced from the token counts by the calculateCost fallback.
+    // One call. The processor fallback may use the long card for these counts.
     inferenceCost: 0,
+    inferenceSingleCall: true,
     inferenceInputTokens: result.usage.inputTokens,
     inferenceOutputTokens: result.usage.outputTokens,
     inferenceSource: "byok",

@@ -521,8 +521,23 @@ function updatePool(
  * of the kinds billing aggregates, so these calls are recorded, not charged.
  */
 async function recordUsage(db: RoundDb, workspaceId: string, usage: ModelUsage[]): Promise<void> {
+  // Price a call that reported no cost before summing. The sum of ten short
+  // prompts is not one long prompt.
+  const priced = await Promise.all(
+    usage.map(async (u) => {
+      if (u.cost > 0) return u;
+      const cost = await calculateCost(
+        u.model,
+        u.inputTokens,
+        u.outputTokens,
+        u.cacheReadTokens ?? 0,
+        u.cacheWriteTokens ?? 0,
+      ).catch(() => 0);
+      return { ...u, cost };
+    }),
+  );
   const byModel = new Map<string, ModelUsage>();
-  for (const u of usage) {
+  for (const u of priced) {
     const key = `${u.model}|${u.provider}|${u.isByok}`;
     const sum = byModel.get(key);
     if (sum) {
@@ -535,25 +550,20 @@ async function recordUsage(db: RoundDb, workspaceId: string, usage: ModelUsage[]
   }
   if (byModel.size === 0) return;
   try {
-    const rows = await Promise.all(
-      [...byModel.values()].map(async (u) => ({
-        workspaceId,
-        sessionId: null,
-        kind: "signal-assignment",
-        turnKind: "detector" as const,
-        role: "assistant",
-        content: "",
-        model: u.model,
-        provider: u.provider,
-        isByok: u.isByok,
-        inputTokens: u.inputTokens,
-        outputTokens: u.outputTokens,
-        cost:
-          u.cost > 0
-            ? u.cost
-            : await calculateCost(u.model, u.inputTokens, u.outputTokens).catch(() => 0),
-      })),
-    );
+    const rows = [...byModel.values()].map((u) => ({
+      workspaceId,
+      sessionId: null,
+      kind: "signal-assignment",
+      turnKind: "detector" as const,
+      role: "assistant",
+      content: "",
+      model: u.model,
+      provider: u.provider,
+      isByok: u.isByok,
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cost: u.cost,
+    }));
     await db.aIMessage.createMany({ data: rows });
   } catch (err) {
     console.error(`[Signals] failed to record model usage for workspace ${workspaceId}:`, err);

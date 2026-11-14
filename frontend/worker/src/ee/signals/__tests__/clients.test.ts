@@ -164,6 +164,8 @@ describe("chat models", () => {
         isByok: false,
         inputTokens: 100,
         outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         cost: 0,
       },
     ]);

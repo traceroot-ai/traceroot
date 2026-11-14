@@ -26,6 +26,9 @@ export interface ModelUsage {
   inputTokens: number;
   outputTokens: number;
   cost: number;
+  /** Cache tokens on this call. They count toward the long-context threshold. */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export interface ChatAssignAnswer {
