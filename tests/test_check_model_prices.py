@@ -1570,6 +1570,25 @@ def test_fixing_a_rate_adds_nothing_for_a_host_id_its_row_already_priced():
     }
 
 
+def test_a_host_id_another_row_takes_over_at_the_same_rates_is_not_added():
+    # A row split off a broader one prices that row's host IDs at the same rates, so
+    # what their spans record does not change.
+    litellm = {
+        "claude-s-4": ll_entry("anthropic", input_=3e-6, output=1.5e-5),
+        "claude-s-4-6": ll_entry("anthropic", input_=3e-6, output=1.5e-5),
+        "us.anthropic.claude-s-4-6": ll_entry("bedrock_converse", input_=3.3e-6, output=1.65e-5),
+    }
+    broad = r"(?i)^((us\.)?anthropic\.)?claude-s-4(-[\d-]+)?$"
+    before = [row("claude-s-4", "anthropic", input_=3e-6, output=1.5e-5, pattern=broad)]
+    split = r"(?i)^((us\.)?anthropic\.)?claude-s-4-6$"
+    after = [
+        row("claude-s-4", "anthropic", input_=3e-6, output=1.5e-5),
+        row("claude-s-4-6", "anthropic", input_=3e-6, output=1.5e-5, pattern=split),
+    ]
+
+    assert compare(before, after, litellm, md_catalog()) == {"fixes": [], "adds": []}
+
+
 def test_a_new_row_that_prices_host_ids_below_the_hosts_rates_is_added():
     # A row for a model no row priced, whose pattern also takes Bedrock's regional and
     # GovCloud profiles, prices them at the model's own rates.

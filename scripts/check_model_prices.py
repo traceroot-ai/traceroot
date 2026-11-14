@@ -896,6 +896,18 @@ def _identity(key: tuple) -> tuple:
     return key
 
 
+def _host_rates_added(before: dict | None, after: dict) -> bool:
+    """Whether a host ID's entry in host_rates after an edit is new, given its entry
+    before, or None: no row priced the ID at rates its host disagrees with, or another
+    row did at other rates. A change to the same row's rates is judged by that row's own
+    flags, and a row that takes the ID over at the same rates leaves its price as it was."""
+    if before is None:
+        return True
+    rates = {(rate["field"], rate["ours"]) for rate in before["rates"]}
+    moved = before["row"] != after["row"]
+    return moved and any((rate["field"], rate["ours"]) not in rates for rate in after["rates"])
+
+
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     """The findings in report that the after report clears, and what it adds, each add
     in a few words on a line of its own, so adds can be checked one by one against the
@@ -905,8 +917,8 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     finding found through a row is not cleared when the after report stops comparing
     that row with any catalog, as when its provider changes to one no catalog covers:
     that can hide the finding, so the row is an add instead. Two changes no finding
-    shows are adds too: a host ID priced at rates its host disagrees with by a row that
-    did not price it so before, and a dash spelling a row priced before and none after."""
+    shows are adds too: a host ID newly priced at rates its host disagrees with (see
+    _host_rates_added), and a dash spelling a row priced before and none prices after."""
     before, after_keys = finding_keys(report), finding_keys(after)
     stopped = set(after["no_match"]) - set(report["no_match"])
     rows = {key: _found_through(key, item) for key, item in before.items()}
@@ -917,14 +929,15 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     for row in dict.fromkeys(rows[key] for key in hidden):
         adds.append(f"{row} no longer compared with the catalogs")
     for model_id, found in after["host_rates"].items():
-        if report["host_rates"].get(model_id, {}).get("row") != found["row"]:
-            listed = [
-                f"{FIELD_LABELS[r['field']]} {_catalog_amount(r)} (ours {_amount(r['ours'])})"
-                for r in found["rates"]
-            ]
-            adds.append(
-                f"{model_id} priced at {found['row']}'s rates, but the host lists {_join(listed)}"
-            )
+        if not _host_rates_added(report["host_rates"].get(model_id), found):
+            continue
+        listed = [
+            f"{FIELD_LABELS[r['field']]} {_catalog_amount(r)} (ours {_amount(r['ours'])})"
+            for r in found["rates"]
+        ]
+        adds.append(
+            f"{model_id} priced at {found['row']}'s rates, but the host lists {_join(listed)}"
+        )
     for dashed, was in report["dash_spellings"].items():
         if dashed not in after["dash_spellings"]:
             adds.append(f"{dashed} no longer priced (was {was})")
