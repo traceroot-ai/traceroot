@@ -60,7 +60,8 @@ that lists that exact ID charges other rates, as Bedrock does for GovCloud and r
 profiles. So is a dotted version's dash spelling that a row priced before the edit and
 none prices after it, such as grok-4-20 once a narrowed grok-4 row stops matching it.
 Pass the same saved --litellm and --modelsdev files to both runs, so only the price
-file differs between them.
+file differs between them. For the same reason, the second run judges which models are
+retired as of the baseline report's date, and reports that date.
 
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
@@ -799,7 +800,11 @@ def load_baseline(path: Path) -> dict:
         raise CheckError("the baseline report is not from a completed run")
     try:
         finding_keys(baseline)
-    except (KeyError, TypeError) as exc:
+        datetime.fromisoformat(baseline["date"])
+        # Without its dash spellings, an edit that stops pricing one would pass unseen.
+        if not isinstance(baseline["dash_spellings"], dict):
+            raise TypeError("dash_spellings is not an object")
+    except (KeyError, TypeError, ValueError) as exc:
         raise CheckError("the baseline report was written by a different version") from exc
     return baseline
 
@@ -834,8 +839,7 @@ def compare_reports(
                 f"{model_id} priced at {row['modelName']}'s rates, but the host lists "
                 + _join(listed)
             )
-    # Reports saved before dash spellings were recorded have none to compare.
-    for dashed, was in baseline.get("dash_spellings", {}).items():
+    for dashed, was in baseline["dash_spellings"].items():
         if lookup(rows, dashed) is None:
             adds.append(f"{dashed} no longer priced (was {was})")
     return {"fixes": describe_all([key for key in before if key not in after]), "adds": adds}
@@ -1764,6 +1768,11 @@ def main(argv: list[str]) -> int:
 
     date = datetime.now(UTC).date().isoformat()
     try:
+        baseline = load_baseline(args.baseline) if args.baseline else None
+        if baseline is not None:
+            # Retire models as of the baseline's date, so one retired since then does
+            # not read as a fix: only the price file differs between the two reports.
+            date = baseline["date"]
         rows = validate_rows(json.loads(args.prices.read_text()))
         litellm_data = load_source(args.litellm, "LiteLLM")
         modelsdev_data = load_source(args.modelsdev, "models.dev")
@@ -1772,8 +1781,8 @@ def main(argv: list[str]) -> int:
         report = build_report(
             rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
         )
-        if args.baseline:
-            report["baseline"] = compare_reports(load_baseline(args.baseline), report, rows, hosted)
+        if baseline is not None:
+            report["baseline"] = compare_reports(baseline, report, rows, hosted)
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
             try:

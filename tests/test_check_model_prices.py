@@ -1090,6 +1090,44 @@ def test_baseline_exit_codes(run, tmp_path):
     assert "the baseline report is not from a completed run" in posted[-1]["text"]
 
 
+@pytest.mark.parametrize("key", ["dash_spellings", "date"])
+def test_a_baseline_from_another_version_fails_the_run(run, tmp_path, key):
+    # Without its dash spellings, an edit that stops pricing one would pass unseen.
+    litellm = {"gpt-a": ll_entry("openai")}
+    rows = [row("gpt-a", "openai")]
+    saved = report_for(rows, litellm, md_catalog())
+    del saved[key]
+    baseline = tmp_path / "before.json"
+    baseline.write_text(json.dumps(saved))
+
+    code, posted, _ = run(
+        rows, litellm, md_catalog(), "--min-compared", "1", "--baseline", str(baseline)
+    )
+
+    assert code == 1
+    assert "the baseline report was written by a different version" in posted[-1]["text"]
+
+
+def test_baseline_compares_at_the_baseline_reports_date(run, tmp_path):
+    # gpt-old retires after the baseline was saved. Checked at today's date it would drop
+    # out of the missing models and read as a fix the price file never made.
+    litellm = {
+        "gpt-a": ll_entry("openai"),
+        "gpt-old": ll_entry("openai", deprecation_date="2026-11-09"),
+    }
+    rows = [row("gpt-a", "openai")]
+    baseline = tmp_path / "before.json"
+    baseline.write_text(json.dumps(report_for(rows, litellm, md_catalog())))
+
+    code, _, report = run(
+        rows, litellm, md_catalog(), "--min-compared", "1", "--baseline", str(baseline)
+    )
+
+    assert code == 0
+    assert report["date"] == DATE
+    assert report["baseline"] == {"fixes": [], "adds": []}
+
+
 def test_baseline_shows_first_in_the_text_report():
     report = report_for([row("gpt-a", "openai")], {"gpt-a": ll_entry("openai")}, md_catalog())
     report["baseline"] = {"fixes": ["gpt-z input rate"], "adds": []}
