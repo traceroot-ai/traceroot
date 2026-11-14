@@ -92,8 +92,8 @@ Save a run and upload it afterwards, for when the run happens somewhere without 
 `EvalRunResult` is what the process that ran the eval holds. Once the run has reported, the [CLI](/evals/cli) reads it back from anywhere — including a run somebody else started.
 
 ```bash
-traceroot evals runs list --evaluation-id ev_…   # find the run id
-traceroot evals runs get run_…                   # counts, per-scorer means, cost and duration
+traceroot evals runs list --evaluation-id <evaluation-id>   # find the run id
+traceroot evals runs get <run-id>   # counts, per-scorer means, cost and duration
 ```
 
 ## Next steps
