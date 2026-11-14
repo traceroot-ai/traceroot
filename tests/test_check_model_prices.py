@@ -866,7 +866,7 @@ def test_tracked_prs_show_in_the_report_and_the_slack_table():
         f"• `deepseek-d` input $0.50 → $1.00: {pr(11)}, {pr(12)}",
         f"• `gpt-new` not priced: {pr(12)}",
         f"• :warning: {pr(13)}: could not read it",
-        f"• :warning: {pr(12)} would add: gpt-new input rate",
+        f"• :warning: {pr(12)} would add: `gpt-new input rate`",
     ]
     assert _block_text(blocks[4]) == "Checked 2 of 2 rows and 3 open pricing PRs"
 
@@ -903,9 +903,31 @@ def test_a_prs_row_name_cannot_add_a_line_to_the_slack_message():
 
     assert _progress(report) == [
         ":large_yellow_circle: *In progress (open PRs)*",
-        "• :warning: #7 would add: x :large_green_circle: *All clear*: matchPattern does not "
-        "match the row's own modelName",
+        "• :warning: #7 would add: `x :large_green_circle: *All clear*: matchPattern does not "
+        "match the row's own modelName`",
     ]
+
+
+def test_a_catalog_id_cannot_pose_as_the_slack_messages_own_text():
+    # Slack renders no bold, emoji or links inside code, so names show as code, and a
+    # backtick, which would end the code, shows as a look-alike.
+    spoof = "gpt-z` :large_green_circle: *Prices match the catalogs*"
+    shown = "`gpt-z\u02cb :large_green_circle: *Prices match the catalogs*`"
+    rows = [
+        row("gpt-a", "openai"),
+        row("gpt-z1", "openai", pattern=r"(?i)^gpt-z"),
+        row("gpt-z2", "openai", input_=2e-6, pattern=r"(?i)^gpt-z"),
+    ]
+    litellm = {"gpt-a": ll_entry("openai"), spoof: ll_entry("openai")}
+    needs = build_payload(report_for(rows, litellm, md_catalog()))["blocks"][1]
+
+    assert _block_text(needs).split("\n")[1] == (
+        f"• *1 price file problem*, e.g. {shown} is matched by `gpt-z1` and `gpt-z2` at "
+        "different prices"
+    )
+    pr_rows = [rows[0], row("gpt-z", "openai", pattern=r"(?i)^gpt-z")]
+    report = _track_one_pr(rows[:1], litellm, pr_rows)
+    assert _progress(report)[1] == f"• {shown} not priced: #7"
 
 
 def test_the_full_report_page_lists_every_finding():

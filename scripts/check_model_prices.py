@@ -279,6 +279,18 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# Looks like a backtick, but does not end Slack code.
+BACKTICK = "\u02cb"
+
+
+def _code(text: str) -> str:
+    """Text from a catalog or an open PR, such as a model ID, as Slack inline code. Slack
+    renders no bold, italics, strikethrough, emoji or links inside code, so the text
+    can't pose as the message's own; a backtick in it, which would end the code, becomes
+    a look-alike."""
+    return f"`{_escape(text).replace('`', BACKTICK)}`"
+
+
 def validate_rows(data) -> list[dict]:
     """Check our price file's shape. Any missing key fails the run, as does a
     non-numeric input or output; cache rates may be null for models without them, and
@@ -1001,8 +1013,9 @@ def _price_table(flagged: list[dict], *, tracked: bool) -> list[str]:
     for model, field, ours, theirs, prs in cells:
         last = f"{theirs:<{widths[3]}}  {prs}".rstrip() if show_prs else theirs
         rows.append(f"{model:<{widths[0]}}  {field:<{widths[1]}}  {ours:<{widths[2]}}  → {last}")
-    # Pad first, then escape: Slack shows the escaped text unescaped, so columns stay aligned.
-    return ["```", *(_escape(line) for line in rows), "```"]
+    # Pad first, then escape: Slack shows the escaped text unescaped, so columns stay
+    # aligned. A backtick could end the code block, so it becomes a look-alike.
+    return ["```", *(_escape(line).replace("`", BACKTICK) for line in rows), "```"]
 
 
 def _with_prs(text: str, items: list[dict], report: dict) -> str:
@@ -1316,10 +1329,13 @@ def _main_missing(items: list[dict]) -> list[dict]:
     return [item for item in items if not MINOR_MODELS.search(item["model"])]
 
 
-def _problem_text(item: dict) -> str:
+def _problem_text(item: dict, name: Callable[[str], str] = str) -> str:
+    """A row problem or overlap in a few words, with each row name or model ID passed
+    through name."""
     if "problem" in item:
-        return f"{item['row']}: {item['problem']}"
-    return f"{item['model']} is matched by {_join(item['rows'])} at different prices"
+        return f"{name(item['row'])}: {item['problem']}"
+    rows = _join([name(row) for row in item["rows"]])
+    return f"{name(item['model'])} is matched by {rows} at different prices"
 
 
 def _needs_lines(report: dict) -> list[str]:
@@ -1331,7 +1347,7 @@ def _needs_lines(report: dict) -> list[str]:
         rows = {item["row"] for item in unpriced}
         verb = "records" if len(unpriced) == 1 else "record"
         hosted = [item["model"] for item in unpriced if item["source"] != "1M context"]
-        example = f" Example: `{_escape(_example(hosted))}`" if hosted else ""
+        example = f" Example: {_code(_example(hosted))}" if hosted else ""
         lines.append(
             f"• *{_plural(len(unpriced), 'model ID')} {verb} no cost.* These are the "
             f"{_sources(unpriced)} IDs of {_plural(len(rows), 'model')} we already price: "
@@ -1342,13 +1358,13 @@ def _needs_lines(report: dict) -> list[str]:
         verb = "gets" if len(wrong) == 1 else "get"
         lines.append(
             f"• *{_plural(len(wrong), 'model ID')} {verb} another model's price*, e.g. "
-            f"`{_escape(wrong[0]['model'])}` is priced as `{_escape(wrong[0]['priced_as'])}`"
+            f"{_code(wrong[0]['model'])} is priced as {_code(wrong[0]['priced_as'])}"
         )
     problems = _open(report["row_problems"] + report["overlaps"])
     if problems:
         lines.append(
             f"• *{_plural(len(problems), 'price file problem')}*, e.g. "
-            f"{_escape(_problem_text(problems[0]))}"
+            f"{_problem_text(problems[0], _code)}"
         )
     missing = _main_missing(_open(report["missing"]))
     if missing:
@@ -1367,9 +1383,7 @@ def _progress_lines(report: dict, links) -> list[str]:
         if item.get("tracked_by"):
             rates.setdefault(tuple(item["tracked_by"]), []).append(item)
     for prs, items in rates.items():
-        models = ", ".join(
-            f"`{_escape(model)}`" for model in dict.fromkeys(i["model"] for i in items)
-        )
+        models = ", ".join(_code(model) for model in dict.fromkeys(i["model"] for i in items))
         if len(items) == 1:
             item = items[0]
             ours = "none" if item["ours"] is None else f"${_amount(item['ours'])}"
@@ -1389,7 +1403,7 @@ def _progress_lines(report: dict, links) -> list[str]:
         lines.append(f"• {_plural(len(problems), 'price file problem')}: {links(prs)}")
     for item in report["missing"]:
         if item.get("tracked_by"):
-            lines.append(f"• `{_escape(item['model'])}` not priced: {links(item['tracked_by'])}")
+            lines.append(f"• {_code(item['model'])} not priced: {links(item['tracked_by'])}")
     adds: dict[tuple[str, ...], list[int]] = {}
     for pr in report.get("pull_requests", []):
         if pr.get("error"):
@@ -1398,7 +1412,7 @@ def _progress_lines(report: dict, links) -> list[str]:
             adds.setdefault(tuple(pr["adds"]), []).append(pr["number"])
     for added, numbers in adds.items():
         more = f" and {len(added) - 3} more" if len(added) > 3 else ""
-        what = _escape(", ".join(added[:3])) + more
+        what = ", ".join(map(_code, added[:3])) + more
         lines.append(f"• :warning: {links(numbers)} would add: {what}")
     return lines
 
