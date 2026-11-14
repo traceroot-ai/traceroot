@@ -428,6 +428,7 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
     and the rates each catalog lists for it. Vertex AI's @default placeholder and
     OpenRouter's :free style variants are not IDs a span carries, so they are left out."""
     hosted: dict[str, dict] = {}
+    ranks: dict[str, int] = {}
     for key, entry in litellm.items() if isinstance(litellm, dict) else ():
         host = (
             LITELLM_HOSTS.get(str(entry.get("litellm_provider")))
@@ -437,12 +438,13 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
         if host is None:
             continue
         # Keys may carry a provider prefix and a route, as in bedrock/us-gov-west-1/<model
-        # ID>. A route prices the ID for one region or plan, so a key without one, such as
-        # <model ID> or bedrock/<model ID>, wins over it, wherever the catalog lists it.
+        # ID>. A route prices the ID for one region or plan, so the bare <model ID> wins,
+        # then bedrock/<model ID>, then a route, wherever the catalog lists each.
         model_id = key.rsplit("/", 1)[-1]
-        routed = key.count("/") > 1
-        if model_id.endswith("@default") or (model_id in hosted and routed):
+        rank = min(key.count("/"), 2)
+        if model_id.endswith("@default") or rank >= ranks.get(model_id, 3):
             continue
+        ranks[model_id] = rank
         hosted[model_id] = {
             "host": host,
             "text": entry.get("mode") in TEXT_MODES,

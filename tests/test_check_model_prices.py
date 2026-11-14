@@ -175,6 +175,18 @@ def test_a_host_ids_key_without_a_region_wins_over_its_region_routes():
     } == {"moonshotai.kimi-k2-thinking": (6e-7, 2.5e-6), "anthropic.claude-k-5": (2e-6, 1e-5)}
 
 
+@pytest.mark.parametrize("bare_first", [True, False], ids=["bare-first", "prefixed-first"])
+def test_a_host_ids_bare_key_wins_over_its_provider_prefixed_key(bare_first):
+    keys = {
+        "anthropic.claude-k-5": ll_entry("bedrock_converse", input_=2e-6, output=1e-5),
+        "bedrock/anthropic.claude-k-5": ll_entry("bedrock", input_=2.2e-6, output=1.1e-5),
+    }
+    litellm = dict(keys.items() if bare_first else reversed(keys.items()))
+    rates = index_hosted(litellm, md_catalog())["anthropic.claude-k-5"]["rates"]["litellm"]
+
+    assert (rates["input"], rates["output"]) == (2e-6, 1e-5)
+
+
 def test_null_and_missing_rates_are_skipped():
     rows = [row("claude-b", "anthropic", cache_read=1e-7)]
     litellm = {"claude-b": ll_entry("anthropic", cache_read=None)}
