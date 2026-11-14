@@ -292,3 +292,20 @@ def test_npm_scoped_traceroot_emitters_are_known_no_warning(caplog):
         )
     assert b == TokenBuckets(input_uncached=0, output=224, cache_read=0, cache_write=3326)
     assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
+def test_dotnet_microsoft_extensions_ai_scope_is_known_no_warning(caplog):
+    # .NET apps traced through Microsoft.Extensions.AI's UseOpenTelemetry() emit
+    # chat spans under the "Experimental.Microsoft.Extensions.AI" scope (matched
+    # case-insensitively). It follows the GenAI semconv usage attributes, so it
+    # should price without the unknown-emitter warning.
+    with caplog.at_level(logging.WARNING):
+        b = normalize_token_usage(
+            "Experimental.Microsoft.Extensions.AI",
+            input_tokens=171,
+            output_tokens=29,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    assert b == TokenBuckets(input_uncached=171, output=29, cache_read=0, cache_write=0)
+    assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
