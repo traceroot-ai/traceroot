@@ -59,13 +59,16 @@ Standard library only, so it runs on any Python 3.11+ without installing anythin
 """
 
 import argparse
+import contextlib
 import functools
 import html
 import json
 import os
 import re
+import signal
 import sys
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -193,6 +196,9 @@ MAX_PR_PAGES = 10
 # A PR's price file is read up to this size, about 25 times ours, so one huge file
 # can't stall the run.
 MAX_PRICE_FILE_BYTES = 1_000_000
+# A PR's patterns can backtrack for hours on a long catalog ID. A whole report is checked
+# in well under a second, so this limit only stops such a pattern.
+PR_CHECK_SECONDS = 10
 # A PR is checked when its title or body mentions pricing or a model in the report.
 PRICING_WORDS = re.compile(r"pric", re.IGNORECASE)
 CLOSES_ISSUE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE)
@@ -811,6 +817,36 @@ def _github(url: str, token: str | None):
         return json.load(response)
 
 
+class _TimeLimitError(Exception):
+    """Checking one open PR's price file ran over PR_CHECK_SECONDS."""
+
+
+@contextlib.contextmanager
+def _time_limit(seconds: float) -> Iterator[None]:
+    """Raise _TimeLimitError when the block runs over seconds. Python's regex engine checks
+    for signals, so SIGALRM stops a pattern that backtracks. Without setitimer, as on
+    Windows, or off the main thread, the block runs with no limit."""
+    if (
+        not hasattr(signal, "setitimer")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def expire(_signum: int, _frame: object) -> None:
+        raise _TimeLimitError
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+
 def _mentions(pull: dict, models: list[re.Pattern[str]]) -> bool:
     text = f"{pull.get('title') or ''}\n{pull.get('body') or ''}"
     return bool(PRICING_WORDS.search(text)) or any(model.search(text) for model in models)
@@ -866,7 +902,10 @@ def fetch_pricing_prs(
                 fetch_json(f"{GITHUB_RAW}/{repo}/{sha}/{PRICE_PATH}", MAX_PRICE_FILE_BYTES)
                 for sha in (base_sha, head)
             )
-            pr["report"] = evaluate(validate_rows(apply_pr(rows, base, after)))
+            with _time_limit(PR_CHECK_SECONDS):
+                pr["report"] = evaluate(validate_rows(apply_pr(rows, base, after)))
+        except _TimeLimitError:
+            pr["error"] = f"its price file took over {PR_CHECK_SECONDS} seconds to check"
         except Exception as exc:  # Any error with an open PR stays with that PR.
             if getattr(exc, "code", None) in (403, 429):
                 raise  # GitHub's rate limit: every later PR would fail the same way.

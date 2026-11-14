@@ -9,6 +9,7 @@ Every test uses small inline samples. None reads the real price file or the netw
 
 import io
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -1143,6 +1144,22 @@ def test_a_failure_checking_one_pr_is_reported_on_that_pr_alone(run, monkeypatch
     assert report["tracking"] == "ok"
     assert report["flagged"][0]["tracked_by"] == [1]
     assert report["pull_requests"][1]["error"] == "could not check its price file (ValueError)"
+
+
+def test_an_open_prs_price_file_gets_a_time_limit(run, monkeypatch):
+    # A pattern that backtracks on a long catalog ID would otherwise stall the run.
+    monkeypatch.setattr(check, "PR_CHECK_SECONDS", 0.2, raising=False)
+    handler = signal.getsignal(signal.SIGALRM)
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    litellm = {"gpt-a": ll_entry("openai"), "a" * 26 + "b": ll_entry("openai")}
+    heads = {1: [row("gpt-a", "openai")], 2: [*rows, row("gpt-x", "openai", pattern="^(a+)+$")]}
+    code, _, report = run(rows, litellm, md_catalog(), *TRACK, heads=heads)
+
+    assert code == 0
+    assert report["flagged"][0]["tracked_by"] == [1]
+    assert report["pull_requests"][1]["error"] == "its price file took over 0.2 seconds to check"
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    assert signal.getsignal(signal.SIGALRM) is handler
 
 
 def test_a_rate_limit_partway_through_the_prs_marks_no_finding_as_in_a_pr(run):
