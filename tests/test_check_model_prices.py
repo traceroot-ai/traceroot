@@ -888,6 +888,39 @@ def _progress(report):
     return _block_text(next(b for b in blocks if b.get("block_id") == "progress")).split("\n")
 
 
+def test_a_pr_that_stops_comparing_a_row_does_not_fix_its_1m_id():
+    # The [1m] ID is expected only while a catalog lists the row's model with 1M tokens.
+    rows = [row("claude-l", "anthropic")]
+    litellm = {"claude-l": ll_entry("anthropic", max_input_tokens=1_000_000)}
+    report = _track_one_pr(rows, litellm, [{**rows[0], "provider": "typesafe"}])
+
+    assert report["unpriced_ids"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["claude-l no longer compared with the catalogs"])
+
+
+def test_a_pr_that_stops_comparing_a_row_does_not_fix_what_its_pattern_prices():
+    pattern = r"(?i)^claude-f(-[\d-]+)?$"
+    rows = [row("claude-f", "anthropic", input_=1e-5, pattern=pattern)]
+    litellm = {
+        "claude-f": ll_entry("anthropic", input_=1e-5),
+        "claude-f-2": ll_entry("anthropic", input_=8e-6),
+    }
+    moved = row("claude-f", "typesafe", input_=8e-6, pattern=pattern)
+    report = _track_one_pr(rows, litellm, [moved])
+
+    assert [(f["model"], f["priced_as"], f["tracked_by"]) for f in report["flagged"]] == [
+        ("claude-f-2", "claude-f", [])
+    ]
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["claude-f no longer compared with the catalogs"])
+
+    # A row no catalog listed to begin with is not hidden by the PR, so its fix counts.
+    del litellm["claude-f"]
+    fixed = row("claude-f", "anthropic", input_=8e-6, pattern=pattern)
+    assert _track_one_pr(rows, litellm, [fixed])["flagged"][0]["tracked_by"] == [7]
+
+
 def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
     litellm = {"gpt-a": ll_entry("openai", cache_read=5e-7)}
     fixed = [row("gpt-a", "openai", cache_read=5e-7)]

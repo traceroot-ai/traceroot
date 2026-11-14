@@ -777,18 +777,32 @@ def describe_all(keys: list[tuple]) -> list[str]:
     return merged + others
 
 
-def changes(before: dict[tuple, dict], after: dict) -> tuple[list[tuple], list[str]]:
-    """The findings in before (from finding_keys) that the after report clears, and what
-    it adds, in a few words each. A rate or long-context finding is not cleared when its
-    row is no longer compared with any catalog, as when its provider changes to one no
-    catalog covers: that hides the finding, so the row is an add instead."""
-    after_keys = finding_keys(after)
-    uncompared = set(after["no_match"])
-    hidden = [key for key in before if key[0] in ("rate", "long_context") and key[1] in uncompared]
+def _found_through(key: tuple, item: dict) -> str | None:
+    """The row a finding was found through: the row whose rates a flag or long-context
+    rate is about, or the row an unpriced ID belongs to. None for the other findings."""
+    match key[0]:
+        case "rate":
+            return item["priced_as"] or item["model"]
+        case "long_context":
+            return item["model"]
+        case "id":
+            return item["row"]
+    return None
+
+
+def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
+    """The findings in report that the after report clears, and what it adds, in a few
+    words each. A finding found through a row is not cleared when the after report stops
+    comparing that row with any catalog, as when its provider changes to one no catalog
+    covers: that can hide the finding, so the row is an add instead."""
+    before, after_keys = finding_keys(report), finding_keys(after)
+    stopped = set(after["no_match"]) - set(report["no_match"])
+    rows = {key: _found_through(key, item) for key, item in before.items()}
+    hidden = [key for key in before if rows[key] in stopped]
     fixes = [key for key in before if key not in after_keys and key not in hidden]
     adds = describe_all([key for key in after_keys if key not in before])
-    for model in dict.fromkeys(key[1] for key in hidden):
-        adds.append(f"{model} no longer compared with the catalogs")
+    for row in dict.fromkeys(rows[key] for key in hidden):
+        adds.append(f"{row} no longer compared with the catalogs")
     return fixes, adds
 
 
@@ -843,7 +857,7 @@ def track(report: dict, prs: list[dict]) -> None:
         if pr.get("error"):
             checked.append({**summary, "fixes": [], "adds": [], "error": pr["error"]})
             continue
-        fixes, adds = changes(before, pr["report"])
+        fixes, adds = changes(report, pr["report"])
         for key in fixes:
             fixed_by[key].append(pr["number"])
         checked.append({**summary, "fixes": describe_all(fixes), "adds": adds})
