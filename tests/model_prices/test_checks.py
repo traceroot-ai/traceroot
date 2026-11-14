@@ -429,6 +429,15 @@ def test_regex_syntax_javascript_reads_differently_is_flagged():
     assert [p for p in accepted if JS_INCOMPATIBLE.search(p)] == []
 
 
+def test_a_plus_after_an_escaped_character_is_not_a_possessive_quantifier():
+    # \++ is one or more "+"; \\++ is one or more "\", repeated possessively.
+    possessive = [r"(?i)^gpt-j\d++$", r"(?i)^gpt\\++j$"]
+    escaped = [r"(?i)^gpt\++j$", r"(?i)^gpt\\\++j$", r"(?i)^gpt-j\{2\}+$"]
+
+    assert [p for p in possessive if not JS_INCOMPATIBLE.search(p)] == []
+    assert [p for p in escaped if JS_INCOMPATIBLE.search(p)] == []
+
+
 def test_long_context_rates_are_listed():
     rows = [row("gpt-r", "openai"), row("gpt-s", "openai"), row("gemini-t", "google")]
     litellm = {

@@ -53,7 +53,10 @@ PRICING_PAGES = {
 # groups such as (?s), (?i:...) or a second (?i). One leading (?i) is fine; the UI
 # strips it.
 JS_INCOMPATIBLE = re.compile(
-    r"\(\?P[<=>]|\\[AZz]|\(\?#|\(\?>|[*+?}]\+|\(\?\(|\{,\d*\}|(?!^\(\?i\))\(\?[-aiLmsux]+[:)]"
+    r"\(\?P[<=>]|\\[AZz]|\(\?#|\(\?>|\(\?\(|\{,\d*\}|(?!^\(\?i\))\(\?[-aiLmsux]+[:)]"
+    # A possessive quantifier such as *+ or {2}+, unless an odd number of backslashes
+    # escapes its first character, as in \++.
+    r"|(?:^|[^\\])(?:\\\\)*[*+?}]\+"
 )
 
 # Missing models shown in small type under the main list: -latest aliases, dated
