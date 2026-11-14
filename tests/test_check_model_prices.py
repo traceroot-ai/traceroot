@@ -134,6 +134,15 @@ def test_one_catalog_is_enough_when_the_other_lacks_the_model():
     ]
 
 
+def test_a_bare_litellm_key_wins_over_a_provider_prefixed_one():
+    rates = {"deepseek-d": 1e-6, "deepseek/deepseek-d": 9e-6}
+    # Whichever key comes first in the catalog.
+    for keys in (rates, reversed(rates)):
+        litellm = {key: ll_entry("deepseek", input_=rates[key]) for key in keys}
+        index = index_litellm({**LITELLM_FILLER, **litellm})
+        assert index[("deepseek", "deepseek-d")]["rates"]["input"] == 1e-6
+
+
 def test_null_and_missing_rates_are_skipped():
     rows = [row("claude-b", "anthropic", cache_read=1e-7)]
     litellm = {"claude-b": ll_entry("anthropic", cache_read=None)}
@@ -449,6 +458,25 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         "• *1 model ID gets another model's price*, e.g. `eu.anthropic.claude-k-5-1` is "
         "priced as `claude-j`"
     ) in needs
+
+
+def test_an_id_another_row_prices_the_same_is_not_flagged():
+    rows = [
+        row("claude-k-5", "anthropic"),
+        row("claude-j", "anthropic", pattern=r"(?i)^(claude-j|us\.anthropic\.claude-k-5)$"),
+    ]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "us.anthropic.claude-k-5": ll_entry("bedrock_converse"),
+    }
+    # claude-j's pattern takes claude-k-5's Bedrock ID, at the same prices.
+    assert report_for(rows, litellm, md_catalog())["unpriced_ids"] == []
+
+    rows[1]["prices"]["input"] = 9e-6
+    found = report_for(rows, litellm, md_catalog())["unpriced_ids"]
+    assert [(i["model"], i["priced_as"]) for i in found] == [
+        ("us.anthropic.claude-k-5", "claude-j")
+    ]
 
 
 def test_long_lists_are_cut_at_a_whole_line_with_a_count():
@@ -899,6 +927,16 @@ def test_a_pr_that_stops_comparing_a_row_does_not_fix_its_1m_id():
     assert (pr["fixes"], pr["adds"]) == ([], ["claude-l no longer compared with the catalogs"])
 
 
+def test_a_pr_that_stops_comparing_a_row_does_not_fix_its_long_context_rate():
+    rows = [row("gpt-r", "openai")]
+    litellm = {"gpt-r": ll_entry("openai", input_cost_per_token_above_272k_tokens=2e-6)}
+    report = _track_one_pr(rows, litellm, [{**rows[0], "provider": "typesafe"}])
+
+    assert report["long_context"][0]["tracked_by"] == []
+    [pr] = report["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], ["gpt-r no longer compared with the catalogs"])
+
+
 def test_a_pr_that_stops_comparing_a_row_does_not_fix_what_its_pattern_prices():
     pattern = r"(?i)^claude-f(-[\d-]+)?$"
     rows = [row("claude-f", "anthropic", input_=1e-5, pattern=pattern)]
@@ -927,6 +965,15 @@ def test_a_rate_our_row_leaves_out_shows_as_none_in_the_progress_line():
     report = _track_one_pr([row("gpt-a", "openai", cache_read=None)], litellm, fixed)
 
     assert "• `gpt-a` cache read none → $0.50: #7" in _progress(report)
+
+
+def test_the_notification_says_when_everything_found_is_in_an_open_pr():
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    report = _track_one_pr([row("gpt-a", "openai")], litellm, [row("gpt-a", "openai", input_=2e-6)])
+
+    assert build_payload(report)["text"] == (
+        f"Model pricing audit, {DATE}: everything found is in an open PR"
+    )
 
 
 def test_a_prs_row_name_cannot_add_a_line_to_the_slack_message():
