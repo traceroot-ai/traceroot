@@ -47,7 +47,8 @@ def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]
     row the PR changes between its merge base and its head, only the keys and prices
     fields it changes are applied to the current row, so a branch that is behind leaves
     later changes to the current file alone. Rows the PR adds are added whole, and rows
-    it removes are removed."""
+    it removes are removed. A row the current file removed since the PR branched stays
+    removed, even when the PR changed it."""
     before = {row["id"]: row for row in base}
     after = {row["id"]: row for row in head}
     changed = {row_id: row for row_id, row in after.items() if before.get(row_id) != row}
@@ -63,7 +64,8 @@ def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]
             merged.append(_apply_changes(row, before[row["id"]], new))
         else:  # Added by the PR and, since it branched, by the current file too.
             merged.append(new)
-    return merged + list(changed.values())
+    # What is left is either new in the PR or removed from the current file since.
+    return merged + [row for row_id, row in changed.items() if row_id not in before]
 
 
 def track(report: dict, prs: list[dict]) -> None:

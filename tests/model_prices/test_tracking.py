@@ -47,6 +47,17 @@ def test_a_pr_is_merged_by_its_own_row_changes():
     ]
 
 
+def test_a_row_the_current_file_removed_stays_removed_though_the_pr_changed_it():
+    base = [row("gpt-a", "openai"), row("gpt-b", "openai")]
+    # Since the PR branched, the current file removed gpt-b, which the PR changed.
+    current = [row("gpt-a", "openai")]
+    head = [base[0], row("gpt-b", "openai", input_=7e-6), row("gpt-c", "openai")]
+
+    merged = apply_pr(current, base, head)
+
+    assert [r["modelName"] for r in merged] == ["gpt-a", "gpt-c"]
+
+
 def test_a_pr_changes_only_the_fields_it_changed_in_a_row():
     # The PR branched when both rates were wrong. The current file has since fixed the
     # cache read rate, and the PR fixes the input rate and drops the 1-hour cache write.
