@@ -79,19 +79,40 @@ const meterEventDelegate = vi.hoisted(() => {
 
   function sortEvents(
     events: FakeMeterEvent[],
-    orderBy?: Record<string, "asc" | "desc"> | Record<string, unknown>[],
+    orderBy?: Record<string, unknown> | Record<string, unknown>[],
   ): FakeMeterEvent[] {
     if (!orderBy) return events;
     const orders = Array.isArray(orderBy) ? orderBy : [orderBy];
     for (const order of [...orders].reverse()) {
-      const [field, direction] = Object.entries(order)[0]!;
+      const [field, rawDirection] = Object.entries(order)[0]!;
+      const direction =
+        typeof rawDirection === "object" && rawDirection !== null
+          ? (rawDirection as { sort: "asc" | "desc" }).sort
+          : rawDirection;
+      const nulls =
+        typeof rawDirection === "object" && rawDirection !== null
+          ? (rawDirection as { nulls?: "first" | "last" }).nulls
+          : undefined;
       events.sort((left, right) => {
         const first = left[field as keyof FakeMeterEvent];
         const second = right[field as keyof FakeMeterEvent];
+        if (first === null || second === null) {
+          if (first === second) return 0;
+          const nullsFirst = nulls ?? (direction === "desc" ? "first" : "last");
+          return first === null
+            ? nullsFirst === "first"
+              ? -1
+              : 1
+            : nullsFirst === "first"
+              ? 1
+              : -1;
+        }
         const compare =
           first instanceof Date && second instanceof Date
             ? first.getTime() - second.getTime()
-            : String(first).localeCompare(String(second));
+            : typeof first === "number" && typeof second === "number"
+              ? first - second
+              : String(first).localeCompare(String(second));
         return direction === "desc" ? -compare : compare;
       });
     }
@@ -104,7 +125,7 @@ const meterEventDelegate = vi.hoisted(() => {
       orderBy,
     }: {
       where: Record<string, unknown>;
-      orderBy?: Record<string, "asc" | "desc">;
+      orderBy?: Record<string, unknown>;
     }) {
       const events = sortEvents(
         mocks.meterEvents.filter((event) => matches(event, where)),
@@ -331,6 +352,67 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("checkpoint test outbox ordering", () => {
+  it("models nested NULL ordering and numeric cumulative-unit ordering", async () => {
+    const periodStart = new Date("2026-11-01T00:00:00.000Z");
+    const makeEvent = (
+      id: string,
+      status: string,
+      cumulativeUnits: number,
+      lastAttemptAt: Date | null,
+    ): FakeMeterEvent => ({
+      id,
+      workspaceId: "ws-1",
+      meter: "ai_usage",
+      periodStart,
+      cumulativeUnits,
+      eventName: "ai_usage",
+      identifier: id,
+      customerId: "cus_123",
+      units: cumulativeUnits,
+      eventTimestamp: periodStart,
+      status,
+      attemptCount: lastAttemptAt ? 1 : 0,
+      firstAttemptAt: lastAttemptAt,
+      ambiguousSince: null,
+      lastAttemptAt,
+      lastErrorCode: null,
+      claimToken: null,
+      claimedAt: null,
+      submittedAt: null,
+      createTime: periodStart,
+      updateTime: periodStart,
+    });
+
+    mocks.meterEvents.push(
+      makeEvent("attempted", "PENDING", 900, new Date("2026-11-02T00:00:00.000Z")),
+      makeEvent("never-attempted", "PENDING", 1_000, null),
+      makeEvent("submitted-900", "SUBMITTED", 900, null),
+      makeEvent("submitted-1000", "SUBMITTED", 1_000, null),
+    );
+
+    const pending = await meterEventDelegate.findMany({
+      where: {
+        status: "PENDING",
+        OR: [{ claimToken: null }, { claimedAt: { lte: new Date("2026-11-03T00:00:00.000Z") } }],
+      },
+      orderBy: [
+        { lastAttemptAt: { sort: "asc", nulls: "first" } },
+        { createTime: "asc" },
+        { id: "asc" },
+      ],
+      take: 10,
+    });
+    const latestSubmitted = await meterEventDelegate.findFirst({
+      where: { status: "SUBMITTED" },
+      orderBy: { cumulativeUnits: "desc" },
+    });
+
+    expect(pending.map(({ id }) => id)).toEqual(["never-attempted", "attempted"]);
+    expect(latestSubmitted?.cumulativeUnits).toBe(1_000);
+  });
 });
 
 describe("billing checkpoint updates after outbox submission", () => {
