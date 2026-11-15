@@ -1,5 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+interface FakeMeterEvent {
+  id: string;
+  workspaceId: string;
+  meter: string;
+  periodStart: Date;
+  cumulativeUnits: number;
+  eventName: string;
+  identifier: string;
+  customerId: string;
+  units: number;
+  eventTimestamp: Date;
+  status: string;
+  attemptCount: number;
+  firstAttemptAt: Date | null;
+  ambiguousSince: Date | null;
+  lastAttemptAt: Date | null;
+  lastErrorCode: string | null;
+  claimToken: string | null;
+  claimedAt: Date | null;
+  submittedAt: Date | null;
+  createTime: Date;
+  updateTime: Date;
+}
+
 const mocks = vi.hoisted(() => ({
   findManyWorkspaces: vi.fn(),
   updateWorkspace: vi.fn(),
@@ -11,8 +35,168 @@ const mocks = vi.hoisted(() => ({
   usageDetails: vi.fn(),
   submitMeterEvent: vi.fn(),
   recoverMeterEvents: vi.fn(),
+  meterEvents: [] as FakeMeterEvent[],
+  meterEventId: 0,
+  stripeMeterEventCreate: vi.fn(),
+  statuses: {
+    PENDING: "PENDING",
+    SUBMITTED: "SUBMITTED",
+    RECONCILIATION_REQUIRED: "RECONCILIATION_REQUIRED",
+  },
   MeterEventReconciliationError: class MeterEventReconciliationError extends Error {},
 }));
+
+const meterEventDelegate = vi.hoisted(() => {
+  function matches(event: FakeMeterEvent, where: Record<string, unknown>): boolean {
+    return Object.entries(where).every(([key, expected]) => {
+      if (key === "OR") {
+        return (expected as Record<string, unknown>[]).some((condition) =>
+          matches(event, condition),
+        );
+      }
+      if (
+        key === "status" &&
+        typeof expected === "object" &&
+        expected !== null &&
+        "in" in expected
+      ) {
+        return (expected as { in: string[] }).in.includes(event.status);
+      }
+      if (key === "periodStart" && expected instanceof Date) {
+        return event.periodStart.getTime() === expected.getTime();
+      }
+      if (
+        key === "claimedAt" &&
+        typeof expected === "object" &&
+        expected !== null &&
+        "lte" in expected
+      ) {
+        return event.claimedAt !== null && event.claimedAt <= (expected as { lte: Date }).lte;
+      }
+      return event[key as keyof FakeMeterEvent] === expected;
+    });
+  }
+
+  function sortEvents(
+    events: FakeMeterEvent[],
+    orderBy?: Record<string, "asc" | "desc"> | Record<string, unknown>[],
+  ): FakeMeterEvent[] {
+    if (!orderBy) return events;
+    const orders = Array.isArray(orderBy) ? orderBy : [orderBy];
+    for (const order of [...orders].reverse()) {
+      const [field, direction] = Object.entries(order)[0]!;
+      events.sort((left, right) => {
+        const first = left[field as keyof FakeMeterEvent];
+        const second = right[field as keyof FakeMeterEvent];
+        const compare =
+          first instanceof Date && second instanceof Date
+            ? first.getTime() - second.getTime()
+            : String(first).localeCompare(String(second));
+        return direction === "desc" ? -compare : compare;
+      });
+    }
+    return events;
+  }
+
+  const delegate = {
+    async findFirst({
+      where,
+      orderBy,
+    }: {
+      where: Record<string, unknown>;
+      orderBy?: Record<string, "asc" | "desc">;
+    }) {
+      const events = sortEvents(
+        mocks.meterEvents.filter((event) => matches(event, where)),
+        orderBy,
+      );
+      return structuredClone(events[0] ?? null);
+    },
+    async findMany({
+      where,
+      orderBy,
+      take,
+    }: {
+      where: Record<string, unknown>;
+      orderBy?: Record<string, unknown>[];
+      take: number;
+      select?: Record<string, boolean>;
+    }) {
+      return sortEvents(
+        mocks.meterEvents.filter((event) => matches(event, where)),
+        orderBy,
+      )
+        .slice(0, take)
+        .map(({ id, workspaceId, meter, periodStart }) => ({
+          id,
+          workspaceId,
+          meter,
+          periodStart,
+        }));
+    },
+    async findUnique({ where }: { where: Record<string, unknown> }) {
+      return structuredClone(mocks.meterEvents.find((event) => matches(event, where)) ?? null);
+    },
+    async create({ data }: { data: Record<string, unknown> }) {
+      const now = new Date();
+      const event: FakeMeterEvent = {
+        ...(data as Omit<
+          FakeMeterEvent,
+          | "id"
+          | "status"
+          | "attemptCount"
+          | "firstAttemptAt"
+          | "ambiguousSince"
+          | "lastAttemptAt"
+          | "lastErrorCode"
+          | "claimToken"
+          | "claimedAt"
+          | "submittedAt"
+          | "createTime"
+          | "updateTime"
+        >),
+        id: `outbox-${++mocks.meterEventId}`,
+        status: mocks.statuses.PENDING,
+        attemptCount: 0,
+        firstAttemptAt: null,
+        ambiguousSince: null,
+        lastAttemptAt: null,
+        lastErrorCode: null,
+        claimToken: null,
+        claimedAt: null,
+        submittedAt: null,
+        createTime: now,
+        updateTime: now,
+      };
+      mocks.meterEvents.push(event);
+      return structuredClone(event);
+    },
+    async updateMany({
+      where,
+      data,
+    }: {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }) {
+      const event = mocks.meterEvents.find((candidate) => matches(candidate, where));
+      if (!event) return { count: 0 };
+      for (const [key, value] of Object.entries(data)) {
+        if (
+          key === "attemptCount" &&
+          typeof value === "object" &&
+          value !== null &&
+          "increment" in value
+        ) {
+          event.attemptCount += (value as { increment: number }).increment;
+        } else {
+          (event as unknown as Record<string, unknown>)[key] = value;
+        }
+      }
+      return { count: 1 };
+    },
+  };
+  return delegate;
+});
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
@@ -27,7 +211,14 @@ vi.mock("@traceroot/core", () => ({
       groupBy: mocks.messageGroupBy,
       findMany: mocks.messagesForCost,
     },
+    stripeMeterEvent: meterEventDelegate,
+    $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        $executeRaw: async () => 1,
+        stripeMeterEvent: meterEventDelegate,
+      }),
   },
+  StripeMeterEventStatus: mocks.statuses,
   USAGE_CONFIG: { includedUnits: 50_000 },
   PlanType: {
     FREE: "free",
@@ -64,7 +255,7 @@ vi.mock("stripe", () => ({
       retrieve: vi.fn().mockResolvedValue({ items: { data: [] } }),
     };
     subscriptionItems = { update: vi.fn() };
-    billing = { meterEvents: { create: vi.fn() } };
+    billing = { meterEvents: { create: mocks.stripeMeterEventCreate } };
   },
 }));
 
@@ -105,6 +296,8 @@ let workspace: ReturnType<typeof makeWorkspace>;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_mock");
+  mocks.meterEvents.length = 0;
+  mocks.meterEventId = 0;
   workspace = makeWorkspace();
   mocks.findManyWorkspaces.mockImplementation(async () => [structuredClone(workspace)]);
   mocks.updateWorkspace.mockImplementation(async ({ data }) => {
@@ -130,6 +323,7 @@ beforeEach(() => {
       agent: { traces: 0, spans: 0 },
     },
   });
+  mocks.stripeMeterEventCreate.mockResolvedValue({});
   mocks.submitMeterEvent.mockResolvedValue(1_000);
   mocks.recoverMeterEvents.mockResolvedValue(undefined);
 });
@@ -179,6 +373,62 @@ describe("billing checkpoint updates after outbox submission", () => {
     await runBillingJob();
     expect(workspace.currentUsage.ai).toMatchObject({
       lastReportedUnits: 250,
+      lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
+    });
+  });
+
+  it("recovers the same pending event on the next billing-job run", async () => {
+    const { recoverPendingUsageMeterEvents, submitUsageMeterEvent } =
+      await vi.importActual<typeof import("../meterEventOutbox.js")>("../meterEventOutbox.js");
+    mocks.recoverMeterEvents.mockImplementation(recoverPendingUsageMeterEvents);
+    mocks.submitMeterEvent.mockImplementation(submitUsageMeterEvent);
+    workspace.currentUsage = {
+      ai: {
+        lastReportedUnits: 250,
+        lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
+      },
+    };
+    mocks.stripeMeterEventCreate
+      .mockRejectedValueOnce(new Error("request timed out"))
+      .mockResolvedValueOnce({});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runBillingJob();
+
+    expect(workspace.currentUsage.ai).toMatchObject({ lastReportedUnits: 250 });
+    expect(mocks.meterEvents).toHaveLength(1);
+    const [persistedEvent] = mocks.meterEvents;
+    expect(persistedEvent).toMatchObject({
+      workspaceId: "ws-1",
+      meter: "ai_usage",
+      cumulativeUnits: 1_000,
+      eventName: "ai_usage",
+      customerId: "cus_123",
+      units: 750,
+      status: "PENDING",
+    });
+    const firstRequest = mocks.stripeMeterEventCreate.mock.calls[0][0];
+    expect(firstRequest).toMatchObject({
+      event_name: "ai_usage",
+      payload: { stripe_customer_id: "cus_123", value: "750" },
+      identifier: persistedEvent.identifier,
+      timestamp: Math.floor(persistedEvent.eventTimestamp.getTime() / 1000),
+    });
+
+    await runBillingJob();
+
+    expect(mocks.recoverMeterEvents).toHaveBeenCalledTimes(2);
+    expect(mocks.stripeMeterEventCreate).toHaveBeenCalledTimes(2);
+    expect(mocks.meterEvents).toHaveLength(1);
+    expect(mocks.meterEvents[0]).toMatchObject({
+      id: persistedEvent.id,
+      identifier: persistedEvent.identifier,
+      eventTimestamp: persistedEvent.eventTimestamp,
+      status: "SUBMITTED",
+    });
+    expect(mocks.stripeMeterEventCreate.mock.calls[1][0]).toEqual(firstRequest);
+    expect(workspace.currentUsage.ai).toMatchObject({
+      lastReportedUnits: 1_000,
       lastReportedPeriodStart: "2026-11-01T00:00:00.000Z",
     });
   });

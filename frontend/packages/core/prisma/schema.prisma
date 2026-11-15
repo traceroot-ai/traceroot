@@ -174,7 +174,7 @@ model StripeMeterEvent {
 
   @@unique([workspaceId, meter, periodStart, cumulativeUnits], map: "uq_stripe_meter_event_workspace_meter_period_target")
   @@index([workspaceId, meter, periodStart, status], map: "ix_stripe_meter_event_pending")
-  @@index([status, lastAttemptAt, createTime], map: "ix_stripe_meter_event_recovery")
+  @@index([status, lastAttemptAt(sort: Asc, nulls: First), createTime, id], map: "ix_stripe_meter_event_recovery")
   @@index([status, ambiguousSince], map: "ix_stripe_meter_event_reconciliation")
   @@map("stripe_meter_events")
 }
