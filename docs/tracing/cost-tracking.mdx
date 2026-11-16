@@ -215,4 +215,4 @@ Some providers bill in credits, and a credit's dollar price depends on your plan
 
 #### Time used
 
-Some tools bill by time, such as a remote browser billed per minute. Time the session and multiply by your price per minute. This is an estimate: the provider bills from its own usage records, which can run a little longer. [TinyFish](/integrations/tinyfish) browser sessions work this way.
+Some tools bill by time, such as a remote browser billed per minute. Time the session and multiply by your price per minute, and report it in a `finally` block so a failed session is still billed. This is an estimate: the provider bills from its own usage records, which can run a little longer. [TinyFish](/integrations/tinyfish) browser sessions work this way.
