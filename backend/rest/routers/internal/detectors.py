@@ -3,12 +3,15 @@
 Every read is secret-gated and scoped by project id.
 """
 
+import json
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
@@ -87,6 +90,12 @@ class DetectorRunPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     finding_id: str | None = Field(default=None, alias="findingId")
     status: str
+    # True when the eval recorded inference usage for this run version (the
+    # model was reached and billed, whatever the final status). The usage meter
+    # counts a run when its latest version completed OR used inference; see
+    # migration 016. Omitted/false covers failures before any model call and
+    # pre-migration rows.
+    used_inference: bool = Field(default=False, alias="usedInference")
     # True when the worker emitted a self-trace for this run (set optimistically
     # at emit time); gates the runs-tab link to the run's own trace.
     self_traced: bool = Field(default=False, alias="selfTraced")
@@ -147,6 +156,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "trace_id",
         "finding_id",
         "status",
+        "used_inference",
         "self_traced",
     ]
     vals = [
@@ -156,6 +166,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "{trace_id:String}",
         "{finding_id:Nullable(String)}",
         "{status:String}",
+        "{used_inference:Bool}",
         "{self_traced:Bool}",
     ]
     params = {
@@ -165,6 +176,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "trace_id": body.trace_id,
         "finding_id": body.finding_id,
         "status": body.status,
+        "used_inference": body.used_inference,
         "self_traced": body.self_traced,
     }
     _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
@@ -309,7 +321,7 @@ async def list_detector_runs(
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE {where_clause}
-        ORDER BY r.timestamp DESC
+        ORDER BY r.timestamp DESC, r.run_id DESC
         LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
     """
     data_params = {**params, "limit": limit, "offset": offset}
@@ -342,12 +354,11 @@ async def list_detector_runs(
     "/traces/{trace_id}/spans-jsonl",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def get_spans_jsonl(trace_id: str, project_id: str):
-    """Return all spans for a trace as newline-delimited JSON."""
-    import json
+def get_spans_jsonl(trace_id: str, project_id: str):
+    """Return all spans for a trace as newline-delimited JSON.
 
-    from fastapi.responses import PlainTextResponse
-
+    A plain ``def``, so FastAPI runs the query and encoding in its thread pool.
+    """
     ch = get_clickhouse_client()
     # Dedup ReplacingMergeTree rows without FINAL (FINAL scans all parts and
     # defeats the trace_id-first sort key / no-IO projection): keep the latest
@@ -368,8 +379,6 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     def _default(obj):
         if hasattr(obj, "isoformat"):
             return obj.isoformat()
-        from decimal import Decimal
-
         if isinstance(obj, Decimal):
             return float(obj)
         raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")

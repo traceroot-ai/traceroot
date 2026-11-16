@@ -45,6 +45,8 @@ app.conf.update(
         "visibility_timeout": 3600,  # 1 hour - time before unacked task is requeued
     },
     # Performance
+    # Pinned: Celery otherwise starts one process per host CPU; .env.example gives the sizing.
+    worker_concurrency=settings.worker.concurrency,
     worker_prefetch_multiplier=4,  # Prefetch 4 tasks per worker process
     # Serialization (JSON for debuggability)
     task_serializer="json",

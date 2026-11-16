@@ -79,7 +79,7 @@ export function ListPagination({
   const hasRange = from <= total;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2.5">
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2">
       <div className="text-[12px] text-muted-foreground">
         {hasRange && `Showing ${from}–${to} of ${total}`}
       </div>
@@ -102,8 +102,8 @@ export function ListPagination({
                 <button
                   key={value}
                   className={cn(
-                    "w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors",
-                    limit === value ? "bg-muted" : "hover:bg-muted/50",
+                    "h-7 w-full rounded-[2px] px-2 text-left text-[13px] transition-colors",
+                    limit === value ? "bg-accent" : "hover:bg-muted",
                   )}
                   onClick={() => {
                     onLimitChange(value);
@@ -132,7 +132,7 @@ export function ListPagination({
             }}
             className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
-          <span className="text-[12px] text-muted-foreground">of {totalPages}</span>
+          <span className="min-w-[3.25rem] text-[12px] text-muted-foreground">of {totalPages}</span>
         </div>
         <div className="flex items-center gap-0.5">
           <Button

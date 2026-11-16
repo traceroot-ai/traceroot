@@ -120,7 +120,7 @@ export function NotificationsSection({
 
   return (
     <SectionBox label="Notify">
-      <div className="p-3">
+      <div className="p-4">
         <FieldLabel>When a window has no data</FieldLabel>
         <Select
           value={noDataMode}
@@ -131,18 +131,18 @@ export function NotificationsSection({
           </SelectTrigger>
           <SelectContent>
             {ALERT_NO_DATA_MODES.map((mode) => (
-              <SelectItem key={mode} value={mode} className="text-[12px]">
+              <SelectItem key={mode} value={mode}>
                 {ALERT_NO_DATA_MODE_LABELS[mode]}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
           {ALERT_NO_DATA_MODE_HINTS[noDataMode]}
         </p>
       </div>
-      <div className="p-3">
-        <div className="flex flex-col gap-3">
+      <div className="p-4">
+        <div className="flex flex-col gap-4">
           <div>
             <FieldLabel>Renotify</FieldLabel>
             <Select
@@ -164,12 +164,8 @@ export function NotificationsSection({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="OFF" className="text-[12px]">
-                  Off (alert only on transitions)
-                </SelectItem>
-                <SelectItem value="EVERY" className="text-[12px]">
-                  Re-alert at a regular interval
-                </SelectItem>
+                <SelectItem value="OFF">Off (alert only on transitions)</SelectItem>
+                <SelectItem value="EVERY">Re-alert at a regular interval</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -184,7 +180,7 @@ export function NotificationsSection({
         </div>
       </div>
       {/* The name is how the alert identifies itself in the Slack message. */}
-      <div className="p-3">
+      <div className="p-4">
         <FieldLabel>Name</FieldLabel>
         <Input
           value={name}
@@ -196,7 +192,7 @@ export function NotificationsSection({
           className={CONTROL_SIZE}
         />
       </div>
-      <div className="p-3">
+      <div className="p-4">
         <FieldLabel>Integration</FieldLabel>
         {isProjectError ? (
           <p className="text-[12px] text-destructive">
@@ -217,7 +213,7 @@ export function NotificationsSection({
           Alerts post to the Slack channel connected to this workspace.
         </p>
         {isSlackConnected && !slack?.channel && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[12px] text-muted-foreground">
             Alerts need a channel. Select one in workspace settings.
           </p>
         )}

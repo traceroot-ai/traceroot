@@ -36,6 +36,8 @@ interface ConditionSectionProps {
   aggregation: AlertAggregation;
   operator: AlertOperator;
   threshold: string;
+  /** Why the API would refuse this threshold on the measure, shown under the row. */
+  thresholdProblem?: string | null;
   window: AlertWindow;
   onMeasureChange: (measureId: string) => void;
   onAggregationChange: (aggregation: AlertAggregation) => void;
@@ -58,6 +60,7 @@ export function ConditionSection({
   aggregation,
   operator,
   threshold,
+  thresholdProblem,
   window,
   onMeasureChange,
   onAggregationChange,
@@ -74,7 +77,7 @@ export function ConditionSection({
       {/* Scoped here rather than at the app root, matching how the repo mounts
           tooltip providers. Context still reaches the portalled dropdown. */}
       <TooltipProvider delayDuration={150}>
-        <div className="flex flex-col gap-2 p-3">
+        <div className="flex flex-col gap-2 p-4">
           <div className="flex items-center gap-1.5">
             <Select
               value={aggregation}
@@ -91,7 +94,7 @@ export function ConditionSection({
               </SelectTrigger>
               <SelectContent>
                 {validAggregations.map((a) => (
-                  <SelectItem key={a} value={a} className="text-[12px]">
+                  <SelectItem key={a} value={a}>
                     {a}
                   </SelectItem>
                 ))}
@@ -113,24 +116,25 @@ export function ConditionSection({
               its own line and the threshold keeps a width it can be typed in. */}
           <div className="flex flex-wrap items-center gap-1.5">
             <Select value={operator} onValueChange={(o) => onOperatorChange(o as AlertOperator)}>
-              <SelectTrigger className={cn(CONTROL_SIZE, "w-14 shrink-0")} aria-label="operator">
+              <SelectTrigger className={cn(CONTROL_SIZE, "w-20 shrink-0")} aria-label="operator">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {ALERT_OPERATORS.map((o) => (
-                  <SelectItem key={o} value={o} className="text-[12px]">
+                  <SelectItem key={o} value={o}>
                     {ALERT_OPERATOR_LABELS[o]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {/* The unit lives inside the field's border so it reads as part of
-                the value. A bare input, not NumberField: that one refuses
-                negatives, and a threshold may be one. */}
+                the value. A bare input, not NumberField: that one drops a
+                minus sign without a word, while a negative threshold is
+                refused below with the reason. */}
             <div
               className={cn(
                 CONTROL_SIZE,
-                "flex min-w-[5.5rem] flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-2 shadow-sm focus-within:ring-1 focus-within:ring-ring",
+                "flex min-w-[5.5rem] flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-2 focus-within:ring-1 focus-within:ring-ring",
               )}
             >
               {unit?.prefix && (
@@ -161,7 +165,7 @@ export function ConditionSection({
                 </SelectTrigger>
                 <SelectContent>
                   {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
-                    <SelectItem key={w} value={w} className="text-[12px]">
+                    <SelectItem key={w} value={w}>
                       {w}
                     </SelectItem>
                   ))}
@@ -169,6 +173,11 @@ export function ConditionSection({
               </Select>
             </div>
           </div>
+          {thresholdProblem && (
+            <p role="alert" className="text-[12px] text-destructive">
+              {thresholdProblem}
+            </p>
+          )}
         </div>
       </TooltipProvider>
     </SectionBox>

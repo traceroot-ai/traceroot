@@ -1,3 +1,4 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import type { NextRequest } from "next/server";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { requireAuth, requireProjectAccess } from "@/lib/auth-helpers";
@@ -20,6 +21,16 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const denied = demoAgentWriteDenied(
+    accessResult.project.workspaceId,
+    accessResult.membership.role,
+  );
+  if (denied) return denied;
+
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (sessionId === "." || sessionId === "..") {
+    return Response.json({ error: "Invalid session ID" }, { status: 400 });
+  }
 
   const body = await request.json().catch(() => null);
   if (body === null || typeof body !== "object") {
@@ -30,7 +41,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   }
 
   const res = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}/decisions`,
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/decisions`,
     {
       method: "POST",
       headers: {

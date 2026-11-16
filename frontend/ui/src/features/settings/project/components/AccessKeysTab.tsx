@@ -116,9 +116,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex items-center gap-1.5">
-          <h2 className="text-lg font-semibold">Project API Keys</h2>
+          <h2 className="text-[15px] font-medium">Project API Keys</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
         <AddButton
@@ -132,19 +132,19 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       </div>
 
       <div className="border">
-        <div className="flex items-center justify-between border-b px-4 py-2">
-          <span className="text-xs text-muted-foreground">.env</span>
-          <CopyButton value={envBlockContent} className="h-6 w-6" />
+        <div className="flex h-9 items-center justify-between border-b px-4">
+          <span className="text-[13px] font-medium">.env</span>
+          <CopyButton value={envBlockContent} className="h-7 w-7" />
         </div>
-        <div className="bg-muted px-4 py-3 font-mono text-xs">
+        <div className="bg-muted px-4 py-2.5 font-mono text-[12px]">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
         </div>
       </div>
 
       {newKeyData && (
-        <div className="border border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950">
+        <div className="border border-success-border bg-success-soft">
           <div className="px-4 py-3">
-            <p className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">
+            <p className="mb-2 text-xs font-medium text-success">
               New API key created! Copy it now - you won&apos;t see it again.
             </p>
             <div className="mb-2 flex items-center gap-2">
@@ -165,7 +165,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
             <DialogDescription>
-              Create a new API key to authenticate with the TraceRoot SDK.
+              Create a new API key to authenticate with the traceroot SDK.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -294,9 +294,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             No API keys yet. Create one to start using the SDK.
           </div>
         ) : (
-          <table className="w-full text-[13px]">
+          <table className="data-table w-full">
             <thead>
-              <tr className="border-b bg-muted/30 text-left">
+              <tr className="border-b text-left">
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Name</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Key</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Created</th>
@@ -308,7 +308,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </thead>
             <tbody>
               {accessKeys.map((key: AccessKey) => (
-                <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted">
                   <td className="px-3 py-2">
                     <button
                       onClick={() => {
@@ -321,7 +321,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <code className="bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+                    <code className="bg-muted px-1.5 py-0.5 font-mono text-[12px]">
                       {formatKeyHint(key.key_hint)}
                     </code>
                   </td>

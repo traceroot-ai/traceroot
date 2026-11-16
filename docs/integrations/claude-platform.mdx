@@ -61,6 +61,10 @@ Claude Managed Agents sessions are grouped by `anthropic.session.id` (or `gen_ai
 
 ### Accurate Token & Cost Accounting
 
+> [!WARNING]
+> **Do not enable both Client SDK tracing and Claude Console OTLP destination for the same traffic.**
+> If your application already traces Anthropic calls using client-side SDK instrumentation (such as `@anthropic-ai/sdk` with OpenTelemetry or TraceRoot SDK) and you also configure the Claude Console OTLP export destination for the same workspace/traffic, spans from both emitters will be recorded and token counts and costs will be double-counted. Use either Claude Console OTLP export or client SDK tracing for a given environment or traffic stream.
+
 TraceRoot automatically deduplicates token metrics across Claude Platform's nested span levels:
 - In Messages API exports, parent `anthropic.messages.create` (SERVER) spans aggregate and defer pricing to their child `anthropic.model_request` spans, preventing double-counting.
 - SDK-only tracing (`anthropic.messages.create` CLIENT) preserves its token usage and cost calculation.

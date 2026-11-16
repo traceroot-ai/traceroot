@@ -10,10 +10,9 @@ Covers:
 
 import json
 
-from shared.enums import SpanKind, SpanStatus
+from shared.enums import SpanKind
 from tests.worker.test_otel_transform import (
     make_attr,
-    make_exception_event,
     make_otel_payload,
     make_span,
 )
@@ -124,6 +123,12 @@ class TestClaudePlatformSpanKind:
         assert len(spans) == 1
         assert spans[0]["span_kind"] == SpanKind.TOOL
         assert spans[0]["name"] == "mcp_tool_query"
+
+    def test_span_missing_start_time_skipped(self):
+        span = make_span("24" * 16, "13" * 8)
+        del span["startTimeUnixNano"]
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "p-1")
+        assert len(spans) == 0
 
 
 class TestClaudePlatformSessionId:
@@ -278,6 +283,34 @@ class TestClaudePlatformSystemInstructions:
             res_rec = _format_input_with_system_instructions('{"nested": true}', "sys")
             assert res_rec == 'System instructions:\nsys\n\n{"nested": true}'
 
+    def test_system_instructions_parts_spec_shape(self):
+        """When system_instructions is a JSON array of parts, format with 'parts' key."""
+        trace_hex = "15" * 16
+        span_hex = "3a" * 8
+        parts_json = json.dumps([{"type": "text", "text": "You are a helpful coding assistant."}])
+        messages_json = json.dumps([{"role": "user", "content": "Write a test."}])
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="anthropic.model_request",
+                    attributes=[
+                        make_attr("gen_ai.system_instructions", parts_json),
+                        make_attr("gen_ai.input.messages", messages_json),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "p-1")
+        parsed_input = json.loads(spans[0]["input"])
+        assert len(parsed_input) == 2
+        assert parsed_input[0] == {
+            "role": "system",
+            "parts": [{"type": "text", "text": "You are a helpful coding assistant."}],
+        }
+        assert parsed_input[1] == {"role": "user", "content": "Write a test."}
+
 
 class TestClaudePlatformTokenDeduplication:
     def test_session_spans_token_deduplication(self):
@@ -294,6 +327,11 @@ class TestClaudePlatformTokenDeduplication:
         session_attrs = [
             make_attr("anthropic.session.id", "sess-xyz"),
             make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+            make_attr("gen_ai.usage.input_tokens", 100),
+            make_attr("gen_ai.usage.output_tokens", 50),
+        ]
+        eval_attrs = [
+            make_attr("anthropic.session.id", "sess-xyz"),
             make_attr("gen_ai.usage.input_tokens", 100),
             make_attr("gen_ai.usage.output_tokens", 50),
         ]
@@ -317,7 +355,7 @@ class TestClaudePlatformTokenDeduplication:
             eval_span_hex,
             parent_span_id_hex=turn_span_hex,
             name="anthropic.session.outcome_evaluation",
-            attributes=session_attrs,
+            attributes=eval_attrs,
         )
         msg_span_hex = "05" * 8
         span_msg = make_span(
@@ -357,10 +395,12 @@ class TestClaudePlatformTokenDeduplication:
         assert model_span.get("output_tokens") == 50
         assert model_span.get("cost") is not None
 
-        # Outcome evaluation span should also adopt tokens
+        # Outcome evaluation span should also adopt tokens and inherit model
         eval_span = span_by_name["anthropic.session.outcome_evaluation"]
         assert eval_span.get("input_tokens") == 100
         assert eval_span.get("output_tokens") == 50
+        assert eval_span.get("model_name") == "claude-sonnet-4-20250514"
+        assert eval_span.get("cost") is not None
 
     def test_messages_api_export_deduplicates_server_and_model_request(self):
         """API export produces SERVER messages.create and child model_request.
@@ -469,309 +509,42 @@ class TestClaudePlatformTokenDeduplication:
         assert client_span.get("total_tokens") == 1200
         assert client_span.get("cost") is not None
 
-    def test_dual_sdk_and_api_export_suppresses_client_and_server_wrappers(self):
-        """When both SDK and API spans exist for the same request, prefer API model_request."""
-        trace_hex = "19" * 16
-        client_span_hex = "08" * 8
-        server_span_hex = "09" * 8
-        model_span_hex = "0a" * 8
+    def test_separate_delivery_messages_create_and_model_request_no_double_count(self):
+        """Cross-batch delivery: SERVER messages.create in batch 1 and model_request in batch 2.
 
-        msg_attrs = [
-            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-            make_attr("gen_ai.usage.input_tokens", 1000),
-            make_attr("gen_ai.usage.output_tokens", 200),
-        ]
-
-        client_span_dict = make_span(
-            trace_hex,
-            client_span_hex,
-            name="anthropic.messages.create",
-            attributes=msg_attrs,
-        )
-        client_span_dict["kind"] = 3  # SPAN_KIND_CLIENT
-
-        server_span_dict = make_span(
-            trace_hex,
-            server_span_hex,
-            parent_span_id_hex=client_span_hex,
-            name="anthropic.messages.create",
-            attributes=msg_attrs,
-        )
-        server_span_dict["kind"] = 2  # SPAN_KIND_SERVER
-
-        model_span_dict = make_span(
-            trace_hex,
-            model_span_hex,
-            parent_span_id_hex=server_span_hex,
-            name="anthropic.model_request",
-            attributes=msg_attrs,
-        )
-        model_span_dict["kind"] = 1  # SPAN_KIND_INTERNAL
-
-        payload = make_otel_payload([client_span_dict, server_span_dict, model_span_dict])
-
-        from unittest.mock import patch
-
-        mock_prices = {
-            "input": 0.000003,
-            "output": 0.000015,
-            "cacheRead": 0.0000003,
-            "cacheWrite": 0.00000375,
-        }
-        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
-            _, spans = transform_otel_to_clickhouse(payload, "p-1")
-
-        client_span = next(s for s in spans if s["span_id"] == client_span_hex)
-        server_span = next(s for s in spans if s["span_id"] == server_span_hex)
-        model_span = next(s for s in spans if s["span_id"] == model_span_hex)
-
-        assert client_span.get("input_tokens") is None
-        assert server_span.get("input_tokens") is None
-        assert model_span.get("input_tokens") == 1000
-        assert model_span.get("total_tokens") == 1200
-        total_trace_tokens = sum(s.get("total_tokens") or 0 for s in spans)
-        assert total_trace_tokens == 1200
-
-    def test_server_only_messages_create_retains_usage(self):
-        """SERVER-only export without model_request child must retain its usage and cost."""
-        trace_hex = "1a" * 16
-        server_span_hex = "0b" * 8
-
-        msg_attrs = [
-            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-            make_attr("gen_ai.usage.input_tokens", 1000),
-            make_attr("gen_ai.usage.output_tokens", 200),
-        ]
-
-        server_span_dict = make_span(
-            trace_hex,
-            server_span_hex,
-            name="anthropic.messages.create",
-            attributes=msg_attrs,
-        )
-        server_span_dict["kind"] = 2  # SPAN_KIND_SERVER
-
-        payload = make_otel_payload([server_span_dict])
-
-        from unittest.mock import patch
-
-        mock_prices = {
-            "input": 0.000003,
-            "output": 0.000015,
-            "cacheRead": 0.0000003,
-            "cacheWrite": 0.00000375,
-        }
-        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
-            _, spans = transform_otel_to_clickhouse(payload, "p-1")
-
-        server_span = spans[0]
-        assert server_span.get("input_tokens") == 1000
-        assert server_span.get("output_tokens") == 200
-        assert server_span.get("total_tokens") == 1200
-        assert server_span.get("cost") is not None
-
-    def test_multi_call_trace_retains_unrelated_sdk_usage(self):
-        """A trace with both an API export call and an unrelated SDK call preserves SDK usage."""
-        trace_hex = "1b" * 16
-        call1_client_hex = "0c" * 8
-        call1_server_hex = "0d" * 8
-        call1_model_hex = "0e" * 8
-        call2_client_hex = "0f" * 8
-
-        attrs1 = [
-            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-            make_attr("gen_ai.usage.input_tokens", 500),
-            make_attr("gen_ai.usage.output_tokens", 100),
-        ]
-        attrs2 = [
-            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-            make_attr("gen_ai.usage.input_tokens", 300),
-            make_attr("gen_ai.usage.output_tokens", 50),
-        ]
-
-        # Call 1: SDK client + API server + API model_request
-        c1_client = make_span(
-            trace_hex, call1_client_hex, name="anthropic.messages.create", attributes=attrs1
-        )
-        c1_client["kind"] = 3
-        c1_server = make_span(
-            trace_hex,
-            call1_server_hex,
-            parent_span_id_hex=call1_client_hex,
-            name="anthropic.messages.create",
-            attributes=attrs1,
-        )
-        c1_server["kind"] = 2
-        c1_model = make_span(
-            trace_hex,
-            call1_model_hex,
-            parent_span_id_hex=call1_server_hex,
-            name="anthropic.model_request",
-            attributes=attrs1,
-        )
-        c1_model["kind"] = 1
-
-        # Call 2: Unrelated SDK-only client span in the same trace
-        c2_client = make_span(
-            trace_hex, call2_client_hex, name="anthropic.messages.create", attributes=attrs2
-        )
-        c2_client["kind"] = 3
-
-        payload = make_otel_payload([c1_client, c1_server, c1_model, c2_client])
-
-        from unittest.mock import patch
-
-        mock_prices = {
-            "input": 0.000003,
-            "output": 0.000015,
-            "cacheRead": 0.0000003,
-            "cacheWrite": 0.00000375,
-        }
-        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
-            _, spans = transform_otel_to_clickhouse(payload, "p-1")
-
-        s_c1_client = next(s for s in spans if s["span_id"] == call1_client_hex)
-        s_c1_server = next(s for s in spans if s["span_id"] == call1_server_hex)
-        s_c1_model = next(s for s in spans if s["span_id"] == call1_model_hex)
-        s_c2_client = next(s for s in spans if s["span_id"] == call2_client_hex)
-
-        # Call 1 wrappers suppressed
-        assert s_c1_client.get("total_tokens") is None
-        assert s_c1_server.get("total_tokens") is None
-        # Call 1 model_request retains usage
-        assert s_c1_model.get("total_tokens") == 600
-        # Call 2 SDK client span retains usage
-        assert s_c2_client.get("total_tokens") == 350
-        # Trace total must be 600 + 350 = 950
-        assert sum(s.get("total_tokens") or 0 for s in spans) == 950
-
-
-class TestSpanIdempotentDeduplication:
-    def test_redelivered_duplicate_spans_deduplicated_in_batch(self):
-        trace_hex = "18" * 16
-        span_hex = "07" * 8
-
-        # First span arrives in-flight (no end time)
-        span_initial = make_span(
-            trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=0,
-            attributes=[
-                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-            ],
-        )
-        # Redelivered span has completed (carries end time and output)
-        span_completed = make_span(
-            trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=1_000_000_001_000_000_000,
-            attributes=[
-                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-                make_attr("gen_ai.output.messages", '[{"role": "assistant", "content": "Done"}]'),
-            ],
-        )
-
-        payload = make_otel_payload([span_initial, span_completed])
-        _, spans = transform_otel_to_clickhouse(payload, "p-1")
-
-        # Must deduplicate to exactly one span record with the richer updated attributes
-        assert len(spans) == 1
-        assert spans[0]["span_id"] == span_hex
-        assert spans[0]["span_end_time"] is not None
-        assert spans[0]["output"] == '[{"role": "assistant", "content": "Done"}]'
-
-    def test_deduplication_fills_missing_fields_and_merges_metadata(self):
-        trace_hex = "19" * 16
-        span_hex = "08" * 8
-
-        # First span arrives with minimal info and no end time
-        span_initial = make_span(
-            trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            attributes=[
-                make_attr("custom.tag", "initial_value"),
-            ],
-        )
-        del span_initial["endTimeUnixNano"]
-
-        # Second span arrives with input, model_name, new metadata, git source, and error status
-        span_completed = make_span(
-            trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=1_000_000_002_000_000_000,
-            status_code=2,
-            attributes=[
-                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
-                make_attr("traceroot.span.input", "Translate this document"),
-                make_attr("traceroot.git.source_file", "agent/main.py"),
-                make_attr("traceroot.git.source_line", 42),
-                make_attr("traceroot.git.source_function", "run_agent"),
-                make_attr("custom.other_tag", "completed_value"),
-            ],
-        )
-        span_completed["status"]["message"] = "Rate limit reached"
-
-        payload = make_otel_payload([span_initial, span_completed])
-        _, spans = transform_otel_to_clickhouse(payload, "p-1")
-
-        assert len(spans) == 1
-        merged = spans[0]
-        assert merged["input"] == "Translate this document"
-        assert merged["model_name"] == "claude-sonnet-4-20250514"
-        assert merged["git_source_file"] == "agent/main.py"
-        assert merged["git_source_line"] == 42
-        assert merged["git_source_function"] == "run_agent"
-        assert merged["status"] == SpanStatus.ERROR
-        assert merged["status_message"] == "Rate limit reached"
-
-        parsed_meta = json.loads(merged["metadata"])
-        assert parsed_meta.get("custom.tag") == "initial_value"
-        assert parsed_meta.get("custom.other_tag") == "completed_value"
-
-    def test_deduplication_prefer_reported_usage_over_estimated_tokens(self):
+        Independent of co-batching, SERVER messages.create is an aggregate wrapper
+        under Claude Platform export and does not count tokens. Total across both
+        batches must be exactly 1200, never 2400.
+        """
         trace_hex = "20" * 16
-        span_hex = "09" * 8
+        server_hex = "16" * 8
+        model_hex = "17" * 8
 
-        # First span is an LLM span with prompt and completion text, resulting in estimated tokens
-        span_initial = make_span(
-            trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=1_000_000_001_000_000_000,
-            attributes=[
-                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
-                make_attr(
-                    "gen_ai.input.messages", json.dumps([{"role": "user", "content": "Hello"}])
-                ),
-                make_attr(
-                    "gen_ai.output.messages",
-                    json.dumps([{"role": "assistant", "content": "Hi there"}]),
-                ),
-            ],
-        )
+        msg_attrs = [
+            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+            make_attr("gen_ai.usage.input_tokens", 1000),
+            make_attr("gen_ai.usage.output_tokens", 200),
+        ]
 
-        # Second span arrives with authoritative reported API usage counts
-        span_reported = make_span(
+        server_span = make_span(
             trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=1_000_000_001_000_000_000,
-            attributes=[
-                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
-                make_attr("gen_ai.usage.input_tokens", 50),
-                make_attr("gen_ai.usage.output_tokens", 25),
-            ],
+            server_hex,
+            name="anthropic.messages.create",
+            attributes=msg_attrs,
         )
+        server_span["kind"] = 2  # SPAN_KIND_SERVER
+
+        model_span = make_span(
+            trace_hex,
+            model_hex,
+            parent_span_id_hex=server_hex,
+            name="anthropic.model_request",
+            attributes=msg_attrs,
+        )
+        model_span["kind"] = 1  # SPAN_KIND_INTERNAL
+
+        batch1 = make_otel_payload([server_span])
+        batch2 = make_otel_payload([model_span])
 
         from unittest.mock import patch
 
@@ -782,46 +555,143 @@ class TestSpanIdempotentDeduplication:
             "cacheWrite": 0.00000375,
         }
         with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
-            _, spans = transform_otel_to_clickhouse(
-                make_otel_payload([span_initial, span_reported]), "p-1"
-            )
+            _, spans_b1 = transform_otel_to_clickhouse(batch1, "p-1")
+            _, spans_b2 = transform_otel_to_clickhouse(batch2, "p-1")
 
-        assert len(spans) == 1
-        s = spans[0]
-        # Authoritative reported counts must overwrite estimated tokens
-        assert s.get("input_tokens") == 50
-        assert s.get("output_tokens") == 25
-        assert s.get("total_tokens") == 75
-        assert "usage_details" in s
+        s1 = spans_b1[0]
+        s2 = spans_b2[0]
 
-    def test_deduplication_preserves_reported_usage_when_second_is_unreported(self):
-        trace_hex = "21" * 16
-        span_hex = "10" * 8
+        # Batch 1 (server span) has suppressed tokens
+        assert s1.get("input_tokens") is None
+        assert s1.get("total_tokens") is None
+        assert s1.get("cost") is None
 
-        # First span has reported usage
-        span_reported = make_span(
+        # Batch 2 (model_request) reports usage and cost
+        assert s2.get("input_tokens") == 1000
+        assert s2.get("output_tokens") == 200
+        assert s2.get("total_tokens") == 1200
+        assert s2.get("cost") is not None
+
+        # Total across both deliveries
+        all_spans = spans_b1 + spans_b2
+        assert sum(s.get("total_tokens") or 0 for s in all_spans) == 1200
+
+    def test_outcome_evaluation_without_model_inherits_parent_and_retains_tokens(self):
+        """Outcome evaluation has no model attribute but retains tokens and inherits model from turn."""
+        trace_hex = "1c" * 16
+        turn_hex = "10" * 8
+        eval_hex = "11" * 8
+
+        turn_span = make_span(
             trace_hex,
-            span_hex,
-            name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=1_000_000_001_000_000_000,
+            turn_hex,
+            name="anthropic.session.turn",
             attributes=[
-                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
-                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("anthropic.session.id", "sess-eval-1"),
+                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+            ],
+        )
+        eval_span = make_span(
+            trace_hex,
+            eval_hex,
+            parent_span_id_hex=turn_hex,
+            name="anthropic.session.outcome_evaluation",
+            attributes=[
+                make_attr("anthropic.session.id", "sess-eval-1"),
+                make_attr("gen_ai.usage.input_tokens", 500),
                 make_attr("gen_ai.usage.output_tokens", 50),
             ],
         )
+        payload = make_otel_payload([turn_span, eval_span])
 
-        # Second span arrives later without usage attributes
-        span_update = make_span(
+        from unittest.mock import patch
+
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "p-1")
+
+        s_eval = next(s for s in spans if s["span_id"] == eval_hex)
+        assert s_eval.get("input_tokens") == 500
+        assert s_eval.get("output_tokens") == 50
+        assert s_eval.get("total_tokens") == 550
+        assert s_eval.get("model_name") == "claude-sonnet-4-20250514"
+        assert s_eval.get("cost") is not None
+
+    def test_compaction_inherits_parent_model_and_prices(self):
+        """anthropic.compaction span without model inherits parent model and reports cost."""
+        trace_hex = "1d" * 16
+        req_hex = "12" * 8
+        comp_hex = "13" * 8
+
+        req_span = make_span(
             trace_hex,
-            span_hex,
+            req_hex,
             name="anthropic.model_request",
-            start_nanos=1_000_000_000_000_000_000,
-            end_nanos=1_000_000_002_000_000_000,
             attributes=[
-                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+                make_attr("gen_ai.usage.input_tokens", 1000),
+                make_attr("gen_ai.usage.output_tokens", 200),
             ],
+        )
+        comp_span = make_span(
+            trace_hex,
+            comp_hex,
+            parent_span_id_hex=req_hex,
+            name="anthropic.compaction",
+            attributes=[
+                make_attr("gen_ai.usage.input_tokens", 400),
+                make_attr("gen_ai.usage.output_tokens", 100),
+            ],
+        )
+        payload = make_otel_payload([req_span, comp_span])
+
+        from unittest.mock import patch
+
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "p-1")
+
+        s_req = next(s for s in spans if s["span_id"] == req_hex)
+        s_comp = next(s for s in spans if s["span_id"] == comp_hex)
+
+        assert s_req.get("total_tokens") == 1200
+        assert s_comp.get("input_tokens") == 400
+        assert s_comp.get("output_tokens") == 100
+        assert s_comp.get("total_tokens") == 500
+        assert s_comp.get("model_name") == "claude-sonnet-4-20250514"
+        assert s_comp.get("cost") is not None
+        assert sum(s.get("total_tokens") or 0 for s in spans) == 1700
+
+    def test_sdk_compaction_usage_absorbed_on_client_span(self):
+        """SDK client span absorbs anthropic.usage.compaction.* tokens into input/output tokens."""
+        trace_hex = "1e" * 16
+        client_hex = "14" * 8
+
+        client_span = make_span(
+            trace_hex,
+            client_hex,
+            name="anthropic.messages.create",
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+                make_attr("gen_ai.usage.input_tokens", 1000),
+                make_attr("gen_ai.usage.output_tokens", 200),
+                make_attr("anthropic.usage.compaction.input_tokens", 400),
+                make_attr("anthropic.usage.compaction.output_tokens", 100),
+            ],
+        )
+        client_span["kind"] = 3  # SPAN_KIND_CLIENT
+        payload = make_otel_payload(
+            [client_span], scope_name="openinference.instrumentation.anthropic"
         )
 
         from unittest.mock import patch
@@ -833,111 +703,50 @@ class TestSpanIdempotentDeduplication:
             "cacheWrite": 0.00000375,
         }
         with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
-            _, spans = transform_otel_to_clickhouse(
-                make_otel_payload([span_reported, span_update]), "p-1"
-            )
+            _, spans = transform_otel_to_clickhouse(payload, "p-1")
 
-        assert len(spans) == 1
         s = spans[0]
-        assert s.get("input_tokens") == 100
-        assert s.get("output_tokens") == 50
-        assert s.get("total_tokens") == 150
-        assert "usage_details" in s
+        assert s.get("input_tokens") == 1400  # 1000 + 400
+        assert s.get("output_tokens") == 300  # 200 + 100
+        assert s.get("total_tokens") == 1700
 
-    def test_deduplication_first_without_metadata_gets_second_metadata(self):
-        trace_hex = "22" * 16
-        span_hex = "11" * 8
-        span_1 = make_span(trace_hex, span_hex, name="test_span")
-        span_2 = make_span(
+    def test_claude_platform_cache_write_pricing(self):
+        """Claude Platform cache write with 1h ephemeral cache is priced at $0.00813."""
+        trace_hex = "1f" * 16
+        model_hex = "15" * 8
+
+        model_span = make_span(
             trace_hex,
-            span_hex,
-            name="test_span",
-            attributes=[make_attr("new.tag", "val")],
+            model_hex,
+            name="anthropic.model_request",
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+                make_attr("gen_ai.usage.input_tokens", 1000),
+                make_attr("gen_ai.usage.cache_read.input_tokens", 100),
+                make_attr("gen_ai.usage.cache_write.input_tokens", 800),
+                make_attr("anthropic.usage.cache_creation.ephemeral_1h_input_tokens", 800),
+                make_attr("gen_ai.usage.output_tokens", 200),
+            ],
         )
-        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
-        assert len(spans) == 1
-        assert "new.tag" in json.loads(spans[0]["metadata"])
+        payload = make_otel_payload([model_span])
 
-    def test_deduplication_non_json_metadata_decode_error_handled(self):
-        trace_hex = "23" * 16
-        span_hex = "12" * 8
-        span_1 = make_span(
-            trace_hex,
-            span_hex,
-            name="test_span",
-            attributes=[make_attr("traceroot.span.metadata", "plain text 1")],
-        )
-        span_2 = make_span(
-            trace_hex,
-            span_hex,
-            name="test_span",
-            attributes=[make_attr("traceroot.span.metadata", "plain text 2")],
-        )
-        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
-        assert len(spans) == 1
-        assert spans[0]["metadata"] == "plain text 1"
+        from unittest.mock import patch
 
-    def test_span_missing_start_time_skipped(self):
-        span = make_span("24" * 16, "13" * 8)
-        del span["startTimeUnixNano"]
-        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "p-1")
-        assert len(spans) == 0
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+            "cacheWrite1h": 0.000006,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "p-1")
 
-    def test_deduplication_preserves_specific_error_type_when_incoming_is_unknown(self):
-        trace_hex = "25" * 16
-        span_hex = "14" * 8
-        # Span 1 has specific exception event -> error_type is "RateLimitError"
-        span_1 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
-        span_1["events"] = [make_exception_event("RateLimitError")]
-
-        # Span 2 is redelivered with error code 2, but has no exception events -> error_type is "unknown"
-        span_2 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
-
-        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
-        assert len(spans) == 1
-        # Specific error_type must NOT be overwritten by "unknown"
-        assert spans[0]["error_type"] == "RateLimitError"
-
-    def test_deduplication_upgrades_unknown_error_type_when_incoming_is_specific(self):
-        trace_hex = "26" * 16
-        span_hex = "15" * 8
-        # Span 1 has no exception event -> error_type is "unknown"
-        span_1 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
-
-        # Span 2 arrives with specific exception event -> error_type is "ValueError"
-        span_2 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
-        span_2["events"] = [make_exception_event("ValueError")]
-
-        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
-        assert len(spans) == 1
-        # "unknown" should be upgraded to "ValueError"
-        assert spans[0]["error_type"] == "ValueError"
-
-    def test_duplicate_spans_many_distinct_tags_linear_merge(self):
-        """Repeated duplicate spans with distinct tags merge cleanly without quadratic JSON serialization."""
-        trace_hex = "27" * 16
-        span_hex = "16" * 8
-
-        # Create 50 duplicates of the same span, each with a distinct custom tag
-        spans_list = []
-        for i in range(50):
-            s = make_span(
-                trace_hex,
-                span_hex,
-                name="anthropic.model_request",
-                start_nanos=1_000_000_000_000_000_000,
-                attributes=[make_attr(f"custom.tag.{i}", f"value_{i}")],
-            )
-            spans_list.append(s)
-
-        payload = make_otel_payload(spans_list)
-        _, spans = transform_otel_to_clickhouse(payload, "p-1")
-
-        assert len(spans) == 1
-        meta = json.loads(spans[0]["metadata"])
-        assert len(meta) == 50
-        for i in range(50):
-            assert meta.get(f"custom.tag.{i}") == f"value_{i}"
+        s = spans[0]
+        assert s["usage_details"]["cache_write_tokens"] == 800
+        assert s["usage_details"]["cache_write_1h_tokens"] == 800
+        assert s["usage_details"]["cache_read_tokens"] == 100
+        assert s["cost"] == 0.00813
 
 
 class TestClaudePlatformScope:

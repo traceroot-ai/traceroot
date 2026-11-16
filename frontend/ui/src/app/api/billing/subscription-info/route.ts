@@ -1,6 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestSession } from "@/lib/request-session";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 import { prisma, getStripeOrThrow, mapPriceIdToPlan } from "@traceroot/core";
 
 export interface SubscriptionInfo {
@@ -28,10 +29,14 @@ async function handleGET(req: NextRequest) {
         id: workspaceId,
         members: { some: { userId: session.user.id } },
       },
+      include: { members: { where: { userId: session.user.id }, select: { role: true } } },
     });
 
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+    if (isDemoViewer(workspace.id, workspace.members[0]?.role ?? "")) {
+      return NextResponse.json({ error: DEMO_VIEWER_FORBIDDEN }, { status: 403 });
     }
 
     // No subscription = free plan, no extra info needed

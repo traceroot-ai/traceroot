@@ -79,46 +79,54 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">General</h2>
+      <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
+        <h2 className="text-[15px] font-medium">General</h2>
         <p className="text-[13px] text-muted-foreground">
           Manage your project settings and preferences
         </p>
       </div>
 
-      <div className="border p-4">
-        <h3 className="text-[13px] font-medium">Rename project</h3>
-        <p className="mt-1 text-[12px] text-muted-foreground">
-          Update the name of your project. Changes will take effect immediately.
-        </p>
-        <div className="mt-3 flex gap-2">
-          <Input
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            placeholder="Project name"
-            className="h-7 max-w-xs text-[13px]"
-          />
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={handleSave}
-            disabled={
-              updateMutation.isPending || projectName === project?.name || !projectName.trim()
-            }
-          >
-            {updateMutation.isPending ? "Saving..." : "Save"}
-          </Button>
+      <div className="border">
+        <div className="flex h-9 items-center border-b px-4">
+          <h3 className="text-[13px] font-medium">Rename project</h3>
+        </div>
+        <div className="p-4">
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Update the name of your project. Changes will take effect immediately.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Input
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Project name"
+              className="h-8 max-w-xs text-[13px]"
+            />
+            <Button
+              size="sm"
+              className="h-8 text-[13px]"
+              onClick={handleSave}
+              disabled={
+                updateMutation.isPending || projectName === project?.name || !projectName.trim()
+              }
+            >
+              {updateMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="border p-4">
-        <h3 className="text-[13px] font-medium">Delete project</h3>
-        <p className="mt-1 text-[12px] text-muted-foreground">
-          Permanently delete this project and all of its data. This action cannot be undone.
-        </p>
-        <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3 h-7 text-[12px]">
-          Delete project
-        </DeleteButton>
+      <div className="border">
+        <div className="flex h-9 items-center border-b px-4">
+          <h3 className="text-[13px] font-medium">Delete project</h3>
+        </div>
+        <div className="p-4">
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Permanently delete this project and all of its data. This action cannot be undone.
+          </p>
+          <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3 h-7 text-[12px]">
+            Delete project
+          </DeleteButton>
+        </div>
       </div>
 
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

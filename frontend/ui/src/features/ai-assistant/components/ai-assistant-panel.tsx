@@ -13,15 +13,17 @@ import { SessionHistory } from "./session-history";
 import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
+import { DEMO_AGENT_SEND_DENIED } from "../constants";
 import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
   projectId?: string;
   onClose: () => void;
   /**
-   * Compact chrome mode (smaller header / buttons / icons) for use inside the
-   * trace or session viewer where vertical space is tighter. Mirrors upstream's
-   * pre-decoupling `AiChatOverlay` styling. Default (false) matches the
+   * Compact chrome mode (smaller icons) for use inside the trace or session
+   * viewer where vertical space is tighter. The header height (h-11) and
+   * button size are the same in both modes. Default (false) matches the
    * project-wide right rail used in AppLayout.
    */
   compact?: boolean;
@@ -66,19 +68,15 @@ export function AiAssistantPanel({
   // border runs edge to edge like every other section header; only the
   // content below it (messages, empty state, input) is centered in the
   // max-width column.
+  const { readOnly, loading: accessLoading } = useDemoAgentAccess(projectId);
+  const canInteract = !readOnly && !accessLoading;
   const rootCls =
     variant === "page"
       ? "flex h-full w-full flex-col bg-background"
       : "flex h-full flex-col border-l border-border bg-background";
-  // The page header is a slim toolbar, the same height as a sidebar nav row
-  // (py-2 + 13px text = 36px), since the page already has the app header
-  // above it; the rail keeps its taller chrome.
-  const headerCls = compact
-    ? "flex h-10 items-center gap-1 border-b bg-muted/30 px-3"
-    : variant === "page"
-      ? "flex h-9 items-center gap-1 border-b px-3"
-      : "flex h-14 items-center gap-1 border-b px-3";
-  const btnCls = compact ? "h-7 w-7 shrink-0 p-0" : "h-8 w-8 shrink-0";
+  // Every variant shares the same slim h-11 header, matching the app header height.
+  const headerCls = "flex h-11 items-center gap-1 border-b px-4";
+  const btnCls = "h-7 w-7 shrink-0 p-0";
   const iconCls = compact ? "h-3.5 w-3.5" : "h-4 w-4";
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -99,7 +97,7 @@ export function AiAssistantPanel({
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && canInteract,
   });
   // Decision models (TypeSafe) cannot run chat.
   const chatProviders = llmModels?.byokProviders.filter((g) => !isDecisionAdapter(g.adapter)) ?? [];
@@ -155,15 +153,19 @@ export function AiAssistantPanel({
     <div className={rootCls}>
       {/* Header */}
       <div className={headerCls}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={btnCls}
-          title="New session"
-          onClick={handleNewSession}
-        >
-          <Plus className={iconCls} />
-        </Button>
+        {/* On the full page the session controls sit at the right edge. */}
+        {variant === "page" && <div className="flex-1" />}
+        {canInteract && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={btnCls}
+            title="New session"
+            onClick={handleNewSession}
+          >
+            <Plus className={iconCls} />
+          </Button>
+        )}
         <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -188,10 +190,11 @@ export function AiAssistantPanel({
               projectId={projectId ?? ""}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
+              readOnly={!canInteract}
             />
           </PopoverContent>
         </Popover>
-        <div className="flex-1" />
+        {variant !== "page" && <div className="flex-1" />}
         {variant === "rail" && (
           <Button variant="ghost" size="icon" className={btnCls} onClick={handleCloseClick}>
             <X className={iconCls} />
@@ -209,14 +212,14 @@ export function AiAssistantPanel({
         }
       >
         {/* Unsupported model warning */}
-        {unsupportedModels.length > 0 && (
-          <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-[12px] dark:border-yellow-900 dark:bg-yellow-950">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" />
+        {canInteract && unsupportedModels.length > 0 && (
+          <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-[12px]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <div>
-              <p className="font-medium text-yellow-800 dark:text-yellow-200">
+              <p className="font-medium text-warning">
                 Unsupported model{unsupportedModels.length > 1 ? "s" : ""} detected
               </p>
-              <p className="mt-0.5 text-yellow-700 dark:text-yellow-300">
+              <p className="mt-0.5 text-warning">
                 {unsupportedModels.map((m) => m.id).join(", ")}{" "}
                 {unsupportedModels.length > 1 ? "are" : "is"} no longer in the supported model list.
                 Update in{" "}
@@ -233,10 +236,10 @@ export function AiAssistantPanel({
         )}
 
         {/* Messages */}
-        {!hasModels ? (
+        {!readOnly && !hasModels ? (
           <div className="flex flex-1 items-center justify-center px-6">
             <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
-              <AlertTriangle className="h-8 w-8 text-yellow-500" />
+              <AlertTriangle className="h-8 w-8 text-warning" />
               <p className="text-[13px] font-medium">No LLM models available</p>
               <p className="text-[12px] text-muted-foreground">
                 To use the AI assistant, configure a system API key (e.g. Anthropic, OpenAI) in your
@@ -255,8 +258,8 @@ export function AiAssistantPanel({
           // m-auto (not items/justify-center) so that when the region is
           // shorter than the content, the top stays reachable by scrolling
           // instead of clipping outside the scroll container.
-          <div className="flex flex-1 overflow-y-auto px-6">
-            <div className="m-auto py-6">{emptyState}</div>
+          <div className="flex flex-1 overflow-y-auto px-4">
+            <div className="m-auto w-full py-6">{emptyState}</div>
           </div>
         ) : (
           <MessageList
@@ -276,7 +279,7 @@ export function AiAssistantPanel({
         {/* A parked proposal is decided here, at the composer, not on its
             card: create/skip are the reply. Keyed by the decision so a
             superseding proposal re-arms the buttons in place. */}
-        {pendingDecision !== null && (
+        {canInteract && pendingDecision !== null && (
           <PendingDecisionBar
             key={pendingDecision.decisionId}
             decision={pendingDecision}
@@ -284,12 +287,15 @@ export function AiAssistantPanel({
           />
         )}
 
-        {/* Input */}
+        {/* Input. It stays mounted while the demo access check runs, so the
+            layout does not jump, but it is disabled until we know whether
+            the visitor is read-only. */}
         <MessageInput
           onSend={handleSend}
           modelSelection={modelSelection}
           onModelChange={setModelSelection}
-          disabled={!projectId || !hasModels}
+          disabled={accessLoading || !projectId || (!readOnly && !hasModels)}
+          blockedReason={readOnly ? DEMO_AGENT_SEND_DENIED : undefined}
           workspaceId={workspaceId}
           // While a proposal awaits a decision, a typed reply revises it —
           // except a delete, which a reply skips; the bar says so instead.
@@ -299,10 +305,11 @@ export function AiAssistantPanel({
               : undefined
           }
           actions={
+            canInteract &&
             isStreaming && (
               <button
                 onClick={handleAbort}
-                className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
                 title="Stop generation"
               >
                 <Square className="h-3 w-3 fill-current" />

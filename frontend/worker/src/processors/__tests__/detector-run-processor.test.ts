@@ -13,7 +13,9 @@ const {
   mockCalculateCost,
   mockWithSelfTrace,
   mockEnqueueSignalHits,
+  mockDownloadSpans,
 } = vi.hoisted(() => ({
+  mockDownloadSpans: vi.fn(),
   mockEnqueueSignalHits: vi.fn(),
   mockRunDetection: vi.fn(),
   mockWriteRun: vi.fn(),
@@ -55,6 +57,7 @@ vi.mock("../../detection/clickhouse-writer.js", () => ({
   writeDetectorRun: mockWriteRun,
   writeDetectorFinding: mockWriteFinding,
 }));
+vi.mock("../../detection/spans-download.js", () => ({ downloadSpansJsonl: mockDownloadSpans }));
 vi.mock("../../detection/self-trace-emitter.js", () => ({
   withSelfTrace: mockWithSelfTrace,
 }));
@@ -72,17 +75,13 @@ import { handleDetectorRunJob, processTrace } from "../detector-run-processor.js
 
 const BASE_JOB: DetectorRunJob = { traceId: "t1", detectorIds: ["d1"], projectId: "p1" };
 
-/** Make the time-since-last-span fetch report `ms` of quiet; spans-jsonl returns `spans`. */
+/** Make the time-since-last-span fetch report `ms` of quiet; the spans download returns `spans`. */
 function mockFetches(ms: number, spans = "") {
-  mockFetch.mockImplementation((url: string) => {
-    if (String(url).includes("/time-since-last-span")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ time_since_last_span_ms: ms }),
-      });
-    }
-    return Promise.resolve({ ok: true, text: () => Promise.resolve(spans) });
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ time_since_last_span_ms: ms }),
   });
+  mockDownloadSpans.mockResolvedValue(spans);
 }
 
 function makeJob(over: Partial<Job<DetectorRunJob>> = {}): Job<DetectorRunJob> {
@@ -139,11 +138,8 @@ describe("handleDetectorRunJob — quiescence gate", () => {
     const job = makeJob();
     await handleDetectorRunJob(job);
     expect(job.moveToDelayed).not.toHaveBeenCalled();
-    // processTrace ran → it downloaded spans-jsonl
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining("/spans-jsonl"),
-      expect.anything(),
-    );
+    // processTrace ran → it downloaded the spans
+    expect(mockDownloadSpans).toHaveBeenCalledWith("p1", "t1");
   });
 
   it("re-delays to exactly EVALUATOR_DELAY after the last span when not quiet", async () => {
@@ -157,10 +153,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
     expect(at).toBeGreaterThanOrEqual(before + remaining);
     expect(at).toBeLessThan(before + remaining + 2_000);
     // did NOT evaluate
-    expect(mockFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/spans-jsonl"),
-      expect.anything(),
-    );
+    expect(mockDownloadSpans).not.toHaveBeenCalled();
   });
 
   it("returns without fetching when the job has no detector ids", async () => {
@@ -426,15 +419,8 @@ describe("processTrace — self-trace emission", () => {
   });
 
   it("does not start a self-trace when the spans download fails before any run", async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (String(url).includes("/time-since-last-span")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ time_since_last_span_ms: 60_000 }),
-        });
-      }
-      return Promise.resolve({ ok: false, status: 500 });
-    });
+    mockFetches(60_000);
+    mockDownloadSpans.mockRejectedValue(new Error("Failed to download spans: HTTP 500"));
 
     await processTrace("t1", "p1", ["d1"]);
 
@@ -442,6 +428,139 @@ describe("processTrace — self-trace emission", () => {
     expect(mockWriteRun).toHaveBeenCalledWith(
       expect.not.objectContaining({ selfTraced: expect.anything() }),
     );
+  });
+});
+
+describe("processTrace — usage-meter classification", () => {
+  const DETECTOR = {
+    id: "d1",
+    name: "Slow",
+    prompt: "p",
+    outputSchema: [],
+    detectionModel: "m",
+    detectionProvider: "anthropic",
+    detectionSource: "system",
+    enableRca: false,
+  };
+  const BASE_RESULT = {
+    identified: false,
+    summary: "clean",
+    data: {},
+    inferenceCost: 0,
+    inferenceInputTokens: 0,
+    inferenceOutputTokens: 0,
+    inferenceSource: "system",
+    inferenceModel: "m",
+    inferenceProvider: "anthropic",
+  };
+
+  beforeEach(() => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([DETECTOR]);
+  });
+
+  it("marks a failed run that recorded tokens as inference-using", async () => {
+    // The eval reached the model, burned calls, then failed (e.g. no
+    // submit_result). The scan consumed quota even though it failed.
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      summary: "Analysis failed",
+      error: "No submit_result tool call",
+      inferenceInputTokens: 900,
+      inferenceOutputTokens: 120,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: true }),
+    );
+  });
+
+  it("marks a clean run that recorded tokens as inference-using", async () => {
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      inferenceInputTokens: 500,
+      inferenceOutputTokens: 40,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed", usedInference: true }),
+    );
+  });
+
+  it("leaves a pre-model failure out of the meter even when it names a provider", async () => {
+    // Missing API key / unknown model: an error that names a provider or model
+    // without tokens is not a billed call.
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      summary: "Analysis failed",
+      error: 'No API key configured for provider "anthropic"',
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("does not infer usage from a positive cost without tokens", async () => {
+    // Token counts are the evidence a model was reached; cost alone is not.
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      summary: "Analysis failed",
+      error: "provider overloaded",
+      inferenceCost: 0.01,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("leaves a thrown eval out of the meter", async () => {
+    mockRunDetection.mockRejectedValue(new Error("boom"));
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("leaves a spans-download failure out of the meter", async () => {
+    mockFetches(60_000);
+    mockDownloadSpans.mockRejectedValue(new Error("Failed to download spans: HTTP 500"));
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", usedInference: false }),
+    );
+  });
+
+  it("carries usage onto the triggered run write", async () => {
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      identified: true,
+      summary: "found it",
+      inferenceInputTokens: 700,
+      inferenceOutputTokens: 60,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    const triggeredWrite = mockWriteRun.mock.calls
+      .map((c) => c[0])
+      .find((w) => w.findingId !== null);
+    expect(triggeredWrite?.usedInference).toBe(true);
   });
 });
 

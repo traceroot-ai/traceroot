@@ -3,7 +3,7 @@ title: Authentication
 description: Which credential each API route accepts, and how to get one
 ---
 
-Every request to the TraceRoot API sends a credential as a bearer token:
+Every request to the traceroot API sends a credential as a bearer token:
 
 ```bash
 curl "https://app.traceroot.ai/api/v1/public/traces?limit=10" \
@@ -22,7 +22,7 @@ The API accepts three kinds of credential. Which ones a route takes depends on w
 
 ### Project API key
 
-Create a key in your project's settings in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard. The full key is shown once, when you create it, so store it somewhere safe.
+Create a key in your project's settings in [traceroot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard. The full key is shown once, when you create it, so store it somewhere safe.
 
 A key belongs to one project, so requests made with it need no `project_id`. If you send one anyway, it must match the key's project, or the request fails with `400`.
 
@@ -84,7 +84,7 @@ The SDKs send traces and evaluation results with a project API key. These routes
 | `400` | `project_id` is missing on a read with a user credential, or does not match the API key's project. |
 | `401` | The `Authorization` header is missing or malformed, the credential is invalid, expired or revoked, or a user credential was sent to a route that accepts only a project API key. |
 | `403` | An API key was sent to a route that needs a user login, or you have no access to the project. |
-| `503` | TraceRoot could not verify the credential. Retry the request. |
+| `503` | traceroot could not verify the credential. Retry the request. |
 
 ## Self-hosted
 
