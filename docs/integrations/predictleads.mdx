@@ -1,0 +1,141 @@
+---
+title: PredictLeads
+description: Record the cost of PredictLeads lookups on their tool spans
+---
+
+Record what each [PredictLeads](https://predictleads.com) company lookup costs next to your LLM spend. Every lookup becomes a tool span with its domain, the company data, latency and dollar cost, and the cost counts toward the trace total.
+
+<Note>
+  traceroot does not auto-instrument PredictLeads and does not know your plan's price. You trace the lookup with `observe` and report its cost yourself, and traceroot stores the cost you report. See [Tool and API calls](/tracing/cost-tracking#tool-and-api-calls) for how reported costs add up.
+</Note>
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot httpx
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
+
+Reporting a cost requires `traceroot` 0.5.0 or later, or `@traceroot-ai/traceroot` 0.7.0 or later.
+
+## Set up
+
+Initialize traceroot once at startup. No integration flag is needed: the `observe` wrapper in the next step traces the lookup.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+
+    traceroot.initialize()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+PredictLeads charges a fixed price per request, set by your plan. To record it:
+
+1. Wrap the lookup in a function traced as a tool span (`type="tool"`).
+2. Check that the request succeeded; PredictLeads does not bill a rejected one.
+3. Report your price per call with `update_current_span(cost=...)` (`updateCurrentSpan` in TypeScript) while that span is open.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+
+    import httpx
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_CALL = 0.04  # your plan's price per request
+    HEADERS = {
+        "X-Api-Key": os.environ["PREDICTLEADS_API_KEY"],
+        "X-Api-Token": os.environ["PREDICTLEADS_API_TOKEN"],
+    }
+
+    @observe(name="company_lookup", type="tool")
+    def company_lookup(domain: str):
+        response = httpx.get(f"https://predictleads.com/api/v3/companies/{domain}", headers=HEADERS)
+        if response.is_success:
+            update_current_span(cost=PRICE_PER_CALL)
+        return response.json()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_CALL = 0.04; // your plan's price per request
+    const headers = {
+      'X-Api-Key': process.env.PREDICTLEADS_API_KEY!,
+      'X-Api-Token': process.env.PREDICTLEADS_API_TOKEN!,
+    };
+
+    async function companyLookup(domain: string) {
+      return observe({ name: 'company_lookup', type: 'tool' }, async (d: string) => {
+        const response = await fetch(`https://predictleads.com/api/v3/companies/${d}`, { headers });
+        if (response.ok) updateCurrentSpan({ cost: PRICE_PER_CALL });
+        return response.json();
+      }, domain);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Call `company_lookup` from your agent like any other function. Its span nests under the span that called it, and its cost adds to that trace's total.
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `company_lookup` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Input | The domain passed to `company_lookup` |
+| Output | The company data returned |
+| Cost | Your price per call, in USD |
+| Latency | Request duration |
+
+## Limitations
+
+- PredictLeads bills a lookup that returns no data yet, so report the cost on every successful response.
+- A retry is another call and gets its own cost.
+- Report the cost on the tool span only. A total reported on a parent span whose child spans are also priced counts the cost twice.
+
+## Run the example
+
+The Usage code is the complete example. To see how this billing pattern compares with others, read Cost Tracking.
+
+<Card title="Fixed price per call" icon="chart-line" href="/tracing/cost-tracking#fixed-price-per-call">
+  Report your price on each billed call
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how traceroot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

@@ -122,4 +122,4 @@ All framework/provider integration pages under `docs/integrations/` follow a sta
 8. **Next steps (`## Next steps`)**:
    Provide at least two internal documentation links (such as the SDK reference and cost tracking).
 
-Coding agent pages link the plugin repository in Run the example.
+Coding agent pages link the plugin repository in Run the example. Tool and API pages, where the Usage code is the whole example, link their billing pattern in Cost tracking instead.

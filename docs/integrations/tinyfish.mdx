@@ -1,0 +1,151 @@
+---
+title: TinyFish
+description: Record the cost of TinyFish browser sessions on their tool spans
+---
+
+Record what each [TinyFish](https://tinyfish.ai) remote browser session costs next to your LLM spend. Every session becomes a tool span with its URL, result, duration and dollar cost, and the cost counts toward the trace total.
+
+<Note>
+  traceroot does not auto-instrument TinyFish and does not know your rate. You trace the session with `observe` and report its cost yourself, and traceroot stores the cost you report. See [Tool and API calls](/tracing/cost-tracking#tool-and-api-calls) for how reported costs add up.
+</Note>
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot httpx
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
+
+Reporting a cost requires `traceroot` 0.5.0 or later, or `@traceroot-ai/traceroot` 0.7.0 or later.
+
+## Set up
+
+Initialize traceroot once at startup. No integration flag is needed: the `observe` wrapper in the next step traces the session.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+
+    traceroot.initialize()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+TinyFish bills remote browsers by the minute and returns no price, so you estimate the cost from the session's length. To record it:
+
+1. Wrap the session in a function traced as a tool span (`type="tool"`).
+2. Time the session from creation to close.
+3. Multiply the minutes by your price per minute and report it with `update_current_span(cost=...)` (`updateCurrentSpan` in TypeScript) before the span closes. A `finally` block reports it even when the session fails.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import time
+
+    import httpx
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_MINUTE = 0.002  # your price per browser minute
+    API = "https://api.browser.tinyfish.ai"
+    HEADERS = {"X-API-Key": os.environ["TINYFISH_API_KEY"]}
+
+    @observe(name="browse", type="tool")
+    def browse(url: str):
+        start = time.monotonic()
+        session = httpx.post(API, headers=HEADERS, json={"url": url}, timeout=60).json()
+        try:
+            ...  # drive the browser through session["cdp_url"]
+        finally:
+            minutes = (time.monotonic() - start) / 60
+            update_current_span(cost=minutes * PRICE_PER_MINUTE)
+            httpx.delete(f"{API}/{session['session_id']}", headers=HEADERS)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_MINUTE = 0.002; // your price per browser minute
+    const API = 'https://api.browser.tinyfish.ai';
+    const headers = { 'X-API-Key': process.env.TINYFISH_API_KEY!, 'Content-Type': 'application/json' };
+
+    async function browse(url: string) {
+      return observe({ name: 'browse', type: 'tool' }, async (u: string) => {
+        const start = performance.now();
+        const session = await (await fetch(API, { method: 'POST', headers, body: JSON.stringify({ url: u }) })).json();
+        try {
+          // drive the browser through session.cdp_url
+        } finally {
+          const minutes = (performance.now() - start) / 60000;
+          updateCurrentSpan({ cost: minutes * PRICE_PER_MINUTE });
+          await fetch(`${API}/${session.session_id}`, { method: 'DELETE', headers });
+        }
+      }, url);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Call `browse` from your agent like any other function. Its span nests under the span that called it, and its cost adds to that trace's total.
+
+<Frame caption="Browser minutes at the per-minute rate on the tool span">
+  <img src="/images/tool_cost_time_used_v1.png" alt="Span details for a tinyfish_open_page tool span with a cost of 0.000092, the page URL input and the loaded page title output" />
+</Frame>
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `browse` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Input | The URL passed to `browse` |
+| Output | The function's return value |
+| Cost | Session minutes × your price per minute, in USD |
+| Latency | Session duration |
+
+## Limitations
+
+- The cost is an estimate: TinyFish bills from its own usage records, which can run a little longer.
+- Report the cost on the tool span only. A total reported on a parent span whose child spans are also priced counts the cost twice.
+
+## Run the example
+
+The Usage code is the complete example. To see how this billing pattern compares with others, read Cost Tracking.
+
+<Card title="Time used" icon="chart-line" href="/tracing/cost-tracking#time-used">
+  Report session time at the provider's time rate
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how traceroot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

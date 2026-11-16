@@ -41,7 +41,7 @@ export const IntegrationGrid = ({ cols = 3, children }) => (
   </div>
 );
 
-traceroot integrates with popular LLM providers, agent frameworks and coding agents via auto-instrumentation — every call is captured as a span with no code changes beyond initialization.
+traceroot integrates with popular LLM providers, agent frameworks and coding agents via auto-instrumentation — every call is captured as a span with no code changes beyond initialization. For paid tools and APIs, you report each call's cost on its own span.
 
 Don't see your integration? [Request one on GitHub](https://github.com/traceroot-ai/traceroot/issues/new).
 
@@ -217,6 +217,33 @@ Trace your coding agent's own sessions with traceroot's plugins and extensions.
     logoDark="../logo/integrations/pi-dark.svg"
     title="pi CLI"
     href="/integrations/pi-cli"
+  />
+</IntegrationGrid>
+
+## Tools and APIs
+
+Report what paid tools and APIs cost on their own spans.
+
+<IntegrationGrid cols={3}>
+  <IntegrationCard
+    logo="../logo/integrations/exa.png"
+    title="Exa"
+    href="/integrations/exa"
+  />
+  <IntegrationCard
+    logo="../logo/integrations/predictleads.png"
+    title="PredictLeads"
+    href="/integrations/predictleads"
+  />
+  <IntegrationCard
+    logo="../logo/integrations/tavily.svg"
+    title="Tavily"
+    href="/integrations/tavily"
+  />
+  <IntegrationCard
+    logo="../logo/integrations/tinyfish.png"
+    title="TinyFish"
+    href="/integrations/tinyfish"
   />
 </IntegrationGrid>
 
