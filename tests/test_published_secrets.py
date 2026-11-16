@@ -1173,11 +1173,20 @@ def test_rotation_stops_when_the_key_in_effect_is_not_in_env(rotation):
     assert not log.exists(), "the database must not be touched"
 
 
-def test_rotation_proceeds_when_the_environment_agrees_with_env(rotation):
-    work, _, _, run = rotation
-    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+def test_rotation_stops_even_when_the_environment_value_matches_env(rotation):
+    """Compose would keep using the environment's copy after .env changed, so the services
+    could no longer read what was re-encrypted."""
+    work, log, _, run = rotation
+    before = f"ENCRYPTION_KEY={_OLD_KEY}\n"
+    (work / ".env").write_text(before)
 
-    assert run(extra_env={"ENCRYPTION_KEY": _OLD_KEY}).returncode == 0
+    result = run(extra_env={"ENCRYPTION_KEY": _OLD_KEY})
+
+    assert result.returncode != 0
+    assert "environment" in result.stderr
+    assert (work / ".env").read_text() == before
+    assert not log.exists(), "the database must not be touched"
+    assert run.db.read_text() == _OLD_KEY
 
 
 @pytest.mark.parametrize("value", ["${OTHER_KEY}", "short", "zz" * 32, "ab" * 33])
@@ -1263,15 +1272,43 @@ def test_simultaneous_rotations_admit_exactly_one(rotation):
             assert "another key rotation is running" in err or "nothing left" in err, err
 
 
-def test_a_lock_left_by_a_process_that_is_gone_does_not_block_rotation(rotation):
-    work, _, _, run = rotation
-    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+def _plant_lock(work: Path, pid: str) -> Path:
     lock = work / _STATE / "lock"
     lock.mkdir(parents=True, mode=0o700)
     (work / _STATE).chmod(0o700)
-    (lock / "pid").write_text("999999\n")
+    (lock / "pid").write_text(f"{pid}\n")
+    return lock
 
-    assert run().returncode == 0
+
+def test_a_lock_left_by_a_process_that_is_gone_is_not_cleared_automatically(rotation):
+    """Two runs could both judge the same lock stale and both take it; an operator removes it."""
+    work, log, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    lock = _plant_lock(work, "999999")
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "another key rotation is running" in result.stderr
+    assert "remove" in result.stderr and ".env.encryption-key.d/lock" in result.stderr
+    assert lock.exists() and not log.exists()
+
+    shutil.rmtree(lock)
+    assert run().returncode == 0, "removing the lock lets rotation run"
+
+
+def test_simultaneous_rotations_that_all_see_a_stale_lock_all_stay_out(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    _plant_lock(work, "999999")
+
+    procs = [run.start() for _ in range(6)]
+    codes = [(p.communicate(timeout=60), p.returncode)[1] for p in procs]
+
+    assert all(code != 0 for code in codes)
+    assert not run.runs.exists(), "no rotation may reach the database"
+    assert run.db.read_text() == _OLD_KEY
+    assert _values(work / ".env")["ENCRYPTION_KEY"] == _OLD_KEY
 
 
 def test_a_lock_held_by_a_running_process_blocks_rotation(rotation):

@@ -47,7 +47,8 @@ cd "$ROOT/$STATE_NAME" 2>/dev/null || die "$STATE_NAME must be a directory. Remo
 private_to_me . 700 ||
 	die "$STATE_NAME must be owned by you with mode 700. Remove it and run again."
 
-# One rotation at a time. mkdir is atomic; a lock left by a process that is gone is cleared.
+# One rotation at a time. mkdir is atomic. A lock left behind by a run that was killed is
+# never cleared automatically: two runs could each judge it stale and both take it.
 LOCK_HELD=
 release_lock() {
 	[ -z "$LOCK_HELD" ] || rm -rf lock
@@ -57,11 +58,9 @@ trap 'exit 1' INT TERM HUP
 if ! mkdir lock 2>/dev/null; then
 	owner=$(cat lock/pid 2>/dev/null || true)
 	if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-		rm -rf lock
-		mkdir lock 2>/dev/null || die "another key rotation is running. Wait for it to finish."
-	else
-		die "another key rotation is running${owner:+ (process $owner)}. Wait for it to finish, or remove $STATE_NAME/lock if none is."
+		die "another key rotation is running, or one was stopped before it finished (process $owner is no longer running). If none is running, remove $STATE_NAME/lock and run again."
 	fi
+	die "another key rotation is running${owner:+ (process $owner)}. Wait for it to finish, or remove $STATE_NAME/lock if none is."
 fi
 LOCK_HELD=1
 echo $$ >lock/pid
@@ -77,10 +76,10 @@ case "$current" in
 esac
 [ "${#current}" -eq 64 ] || die "ENCRYPTION_KEY in .env is not a 64-character hex key, so it cannot be rotated safely."
 
-# Docker Compose prefers a value in the environment over .env. If one is set, .env is not
-# where the key in effect lives, and rewriting it would not change what the services use.
-if [ -n "${ENCRYPTION_KEY:-}" ] && [ "$ENCRYPTION_KEY" != "$current" ]; then
-	die "ENCRYPTION_KEY is set in your environment and differs from .env. Docker Compose uses the environment value, so the key could not be changed in .env. Unset it and run again."
+# Docker Compose prefers a value in the environment over .env, whether or not it matches
+# .env today. Rewriting .env cannot change what the services use, so stop before the database.
+if [ -n "${ENCRYPTION_KEY:-}" ]; then
+	die "ENCRYPTION_KEY is set in your environment. Docker Compose uses that value instead of .env, so the services would keep the old key after the rotation. Unset it (and keep the key in .env) and run again."
 fi
 [ -w "$ENV_FILE" ] && [ -w "$ROOT" ] || die "cannot update .env, so the key was not changed."
 
