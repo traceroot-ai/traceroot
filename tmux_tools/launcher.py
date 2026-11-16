@@ -166,8 +166,8 @@ def _write_private(path: Path, text: str) -> None:
     """Replace ``path`` with ``text`` through a private temporary file in the same directory.
 
     The temporary file is created exclusively with mode 0600 and renamed over the target,
-    so the new content is never readable by others and a link planted at the target is
-    replaced rather than followed.
+    so the new content is never readable by others and a link at the target is replaced
+    rather than followed.
     """
     fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.tmp.", dir=path.parent)
     try:

@@ -837,7 +837,7 @@ case "$*" in *"run "*)
         n=0; while [ ! -e "$FAKE_BLOCK_DIR/release" ] && [ $n -lt 200 ]; do sleep 0.1; n=$((n+1)); done
     fi
     if [ -n "$FAKE_SWAP_STATE_DIR" ]; then
-        mv .env.encryption-key.d moved-state && mkdir attacker && ln -s attacker .env.encryption-key.d
+        mv .env.encryption-key.d moved-state && mkdir replacement && ln -s replacement .env.encryption-key.d
     fi
     [ -n "$FAKE_DOCKER_FAIL" ] && exit 1
     [ "$(cat "$FAKE_DB")" = "$OLD_ENCRYPTION_KEY" ] || { echo "rows open with neither key" >&2; exit 1; }
@@ -1031,7 +1031,7 @@ def _plant_state(work: Path, kind: str) -> None:
     "kind", ["dir_is_symlink", "dir_is_open", "pending_is_symlink", "pending_is_open"]
 )
 def test_rotation_refuses_a_state_location_others_could_have_prepared(rotation, kind):
-    """A planted pending key would choose the new key; a planted directory could read the old."""
+    """The new and previous keys are only kept in a directory this user alone controls."""
     work, log, _, run = rotation
     before = f"ENCRYPTION_KEY={_OLD_KEY}\n"
     (work / ".env").write_text(before)
@@ -1048,7 +1048,7 @@ def test_rotation_refuses_a_state_location_others_could_have_prepared(rotation, 
 def test_a_link_at_the_old_backup_name_is_never_written_through(rotation):
     work, _, _, run = rotation
     (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
-    target = work / "attacker-readable"
+    target = work / "unrelated-file"
     target.write_text("")
     (work / ".env.encryption-key.previous").symlink_to(target)
 
@@ -1310,13 +1310,13 @@ def test_replacing_the_state_directory_mid_run_does_not_redirect_the_saved_key(r
     result = run(extra_env={"FAKE_SWAP_STATE_DIR": "1"})
 
     assert result.returncode == 0, result.stderr
-    attacker = work / "attacker"
-    assert list(attacker.iterdir()) == [], "nothing may be written to the replacement"
+    replacement = work / "replacement"
+    assert list(replacement.iterdir()) == [], "nothing may be written to the replacement"
     kept = list((work / "moved-state").glob("previous-*"))
     assert [p.read_text().strip() for p in kept] == [_OLD_KEY]
 
 
-def test_a_planted_backup_name_is_not_written_through(rotation):
+def test_an_existing_backup_name_is_never_followed_or_overwritten(rotation):
     """Even inside the private directory, an existing name is never followed or overwritten."""
     work, _, _, run = rotation
     (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
@@ -1324,7 +1324,7 @@ def test_a_planted_backup_name_is_not_written_through(rotation):
     state.mkdir(mode=0o700)
     target = work / "elsewhere"
     target.write_text("")
-    # Whatever second the script picks, a link under that name must not be followed.
+    # Whatever second the script picks, a link already under that name is not followed.
     now = datetime.datetime.now()
     for offset in range(-2, 40):
         stamp = (now + datetime.timedelta(seconds=offset)).strftime("%Y%m%d%H%M%S")
