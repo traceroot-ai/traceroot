@@ -42,7 +42,7 @@ Open your project in [traceroot Cloud](https://app.traceroot.ai), select **Detec
 
 ## Template output fields
 
-Every template except **Blank** also defines the fields the judge fills in when it reports a finding. They are the finding's structured output, next to its one-sentence summary, and the judge supplies them only when `identified` is true.
+For detectors judged by a chat model (such as models from OpenAI, Anthropic, or Gemini), every template except **Blank** defines the fields the judge fills in when it reports a finding. They are the finding's structured output, next to its one-sentence summary, and the judge supplies them through tool calling only when `identified` is true.
 
 | Template | ID | Output fields |
 |---|---|---|
@@ -53,7 +53,11 @@ Every template except **Blank** also defines the fields the judge fills in when 
 | Safety | `safety` | `risk_level`, `issue_type` |
 | Blank | `blank` | none |
 
-Each of these fields holds a string.
+On this chat-model path, each of these template fields holds a string. On clean traces (`identified` is false), the judge omits these fields.
+
+<Note>
+  Decision models such as TypeSafe Jev bypass template output schemas and return a distinct structured shape (`category`, `probabilities`, `confidence`, `gate`) on every run — see [Judge with TypeSafe AI](#judge-with-typesafe-ai).
+</Note>
 
 <Warning>
   **Task Completion** inverts `identified`: a finding means the task was **not** completed, in part or at all. A trace where the agent did complete the task answers `identified` false and records no finding.
@@ -93,6 +97,35 @@ The categories are the template's failure modes, not its name.
 | Blank | `problem` |
 
 Every template except **Blank** also offers `other`, for a real problem that none of its categories fits. It reads as *unlisted problem* in the summary.
+
+### Jev output shape
+
+Because Jev is a decision model rather than a conversational LLM, it bypasses the template's `outputSchema` and always returns a structured object with numeric scores on every run — both when a finding is identified and on clean traces:
+
+```json
+{
+  "gate": 0.82,
+  "category": "ungrounded_claim",
+  "probabilities": {
+    "ungrounded_claim": 0.82,
+    "contradicted_claim": 0.12,
+    "other": 0.04,
+    "none": 0.02
+  },
+  "confidence": 0.82
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `gate` | `number` | The probability (between `0.0` and `1.0`) that the trace exhibits the problem described by the detector prompt. When `gate >= 0.5`, `identified` is true and a finding is recorded. |
+| `category` | `string \| null` | The most likely failure mode category from the template. Set to `null` if the gate triggered but the label choice was `none` (category unclear). |
+| `probabilities` | `object` | Key-value mapping of all candidate categories to their individual numeric probabilities (`0.0` to `1.0`). |
+| `confidence` | `number` | The classification confidence score for the selected category. |
+
+On clean runs where `gate < 0.5` (`identified` is false), Jev still returns this full object with the measured gate probability and category distribution.
+
+### Summaries
 
 Jev writes no rationale, so its summaries follow a fixed shape. A finding names its most likely category and the runner-up:
 
