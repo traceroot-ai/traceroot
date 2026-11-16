@@ -63,7 +63,7 @@ Exa returns the dollar cost of each request in `costDollars`. To record it:
 
     exa = Exa()  # reads EXA_API_KEY
 
-    @observe(name="web_search", type="tool")
+    @observe(name="exa_search", type="tool")
     def web_search(query: str):
         response = exa.search(query, num_results=3)
         if response.cost_dollars:
@@ -79,7 +79,7 @@ Exa returns the dollar cost of each request in `costDollars`. To record it:
     const exa = new Exa(process.env.EXA_API_KEY);
 
     async function webSearch(query: string) {
-      return observe({ name: 'web_search', type: 'tool' }, async (q: string) => {
+      return observe({ name: 'exa_search', type: 'tool' }, async (q: string) => {
         const response = await exa.search(q, { numResults: 3 });
         if (response.costDollars) updateCurrentSpan({ cost: response.costDollars.total });
         return response;
@@ -98,7 +98,7 @@ Call `web_search` from your agent like any other function. Its span nests under 
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `web_search` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see an `exa_search` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -113,15 +113,6 @@ Run your code and confirm the trace arrives:
 ## Limitations
 
 - A response without `costDollars` records no cost on the span.
-- Report the cost on the tool span only. A total reported on a parent span whose child spans are also priced counts the cost twice.
-
-## Run the example
-
-The Usage code is the complete example. To see how this billing pattern compares with others, read Cost Tracking.
-
-<Card title="Price in the response" icon="chart-line" href="/tracing/cost-tracking#price-in-the-response">
-  Report the price a provider returns with each request
-</Card>
 
 ## Next steps
 
@@ -129,7 +120,7 @@ The Usage code is the complete example. To see how this billing pattern compares
   <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
     Explore the full Python SDK reference and instrumentation options.
   </Card>
-  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
-    Learn how traceroot calculates token costs and tracks model spend.
+  <Card title="Price in the response" icon="chart-line" href="/tracing/cost-tracking#price-in-the-response">
+    Report the price a provider returns with each request
   </Card>
 </CardGroup>

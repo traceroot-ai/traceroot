@@ -119,15 +119,6 @@ Run your code and confirm the trace arrives:
 
 - PredictLeads bills a lookup that returns no data yet, so report the cost on every successful response.
 - A retry is another call and gets its own cost.
-- Report the cost on the tool span only. A total reported on a parent span whose child spans are also priced counts the cost twice.
-
-## Run the example
-
-The Usage code is the complete example. To see how this billing pattern compares with others, read Cost Tracking.
-
-<Card title="Fixed price per call" icon="chart-line" href="/tracing/cost-tracking#fixed-price-per-call">
-  Report your price on each billed call
-</Card>
 
 ## Next steps
 
@@ -135,7 +126,7 @@ The Usage code is the complete example. To see how this billing pattern compares
   <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
     Explore the full Python SDK reference and instrumentation options.
   </Card>
-  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
-    Learn how traceroot calculates token costs and tracks model spend.
+  <Card title="Fixed price per call" icon="chart-line" href="/tracing/cost-tracking#fixed-price-per-call">
+    Report your price on each billed call
   </Card>
 </CardGroup>

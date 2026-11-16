@@ -197,11 +197,11 @@ A paid tool or API call takes a cost the same way, with no model or token usage 
 | [Price in the response](#price-in-the-response) | The price from the response | [Exa](/integrations/exa) |
 | [Fixed price per call](#fixed-price-per-call) | Your price per call | [PredictLeads](/integrations/predictleads) |
 | [Credits or quota](#credits-or-quota) | Credits used × your price per credit | [Tavily](/integrations/tavily) |
-| [Time used](#time-used) | Time used × your price per minute or hour | [TinyFish](/integrations/tinyfish) |
+| [Time used](#time-used) | Minutes used × your price per minute | [TinyFish](/integrations/tinyfish) |
 
 #### Price in the response
 
-Some providers, such as [Exa](/integrations/exa), return the dollar cost of each request. Pass it through.
+Some providers, such as [Exa](/integrations/exa), return the dollar cost of each request. Pass it through; the Exa page shows the code.
 
 Some providers settle the price after the call returns. [Apify](https://docs.apify.com/api/v2/actor-run-get), for example, recommends reading a run's cost again about 10 seconds after it finishes. Report the settled value.
 
@@ -215,4 +215,4 @@ Some providers bill in credits, and a credit's dollar price depends on your plan
 
 #### Time used
 
-Some tools bill by time, such as a remote browser billed per minute or per hour. Time the session and multiply by your rate. This is an estimate: the provider bills from its own usage records, which can run a little longer. [TinyFish](/integrations/tinyfish) browser sessions work this way.
+Some tools bill by time, such as a remote browser billed per minute. Time the session and multiply by your price per minute. This is an estimate: the provider bills from its own usage records, which can run a little longer. [TinyFish](/integrations/tinyfish) browser sessions work this way.

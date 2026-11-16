@@ -68,7 +68,7 @@ TinyFish bills remote browsers by the minute and returns no price, so you estima
     API = "https://api.browser.tinyfish.ai"
     HEADERS = {"X-API-Key": os.environ["TINYFISH_API_KEY"]}
 
-    @observe(name="browse", type="tool")
+    @observe(name="tinyfish_open_page", type="tool")
     def browse(url: str):
         start = time.monotonic()
         session = httpx.post(API, headers=HEADERS, json={"url": url}, timeout=60).json()
@@ -89,7 +89,7 @@ TinyFish bills remote browsers by the minute and returns no price, so you estima
     const headers = { 'X-API-Key': process.env.TINYFISH_API_KEY!, 'Content-Type': 'application/json' };
 
     async function browse(url: string) {
-      return observe({ name: 'browse', type: 'tool' }, async (u: string) => {
+      return observe({ name: 'tinyfish_open_page', type: 'tool' }, async (u: string) => {
         const start = performance.now();
         const session = await (await fetch(API, { method: 'POST', headers, body: JSON.stringify({ url: u }) })).json();
         try {
@@ -114,7 +114,7 @@ Call `browse` from your agent like any other function. Its span nests under the 
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `browse` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `tinyfish_open_page` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -129,15 +129,6 @@ Run your code and confirm the trace arrives:
 ## Limitations
 
 - The cost is an estimate: TinyFish bills from its own usage records, which can run a little longer.
-- Report the cost on the tool span only. A total reported on a parent span whose child spans are also priced counts the cost twice.
-
-## Run the example
-
-The Usage code is the complete example. To see how this billing pattern compares with others, read Cost Tracking.
-
-<Card title="Time used" icon="chart-line" href="/tracing/cost-tracking#time-used">
-  Report session time at the provider's time rate
-</Card>
 
 ## Next steps
 
@@ -145,7 +136,7 @@ The Usage code is the complete example. To see how this billing pattern compares
   <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
     Explore the full Python SDK reference and instrumentation options.
   </Card>
-  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
-    Learn how traceroot calculates token costs and tracks model spend.
+  <Card title="Time used" icon="chart-line" href="/tracing/cost-tracking#time-used">
+    Report time used at your price per minute
   </Card>
 </CardGroup>
