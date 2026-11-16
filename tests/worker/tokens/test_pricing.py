@@ -798,7 +798,12 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("anthropic.claude-3-opus-20240229-v1:0", "claude-3-opus"),
     ("anthropic.claude-3-sonnet-20240229-v1:0", "claude-3-sonnet"),
     ("anthropic.claude-3-haiku-20240307-v1:0", "claude-3-haiku"),
-    # Vertex AI — number-first ordering for 4.x families, @date separator
+    # Vertex AI — family-first ordering for 4.x families, @date separator
+    ("claude-haiku-4-5@20251001", "claude-haiku-4-5"),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5"),
+    ("claude-opus-4-5@20251101", "claude-opus-4-5"),
+    ("claude-sonnet-4@20250514", "claude-sonnet-4"),
+    # Vertex AI — number-first aliases still resolve
     ("claude-4-5-haiku@20251001", "claude-haiku-4-5"),
     ("claude-4-5-sonnet@20250929", "claude-sonnet-4-5"),
     ("claude-4-5-opus@20251101", "claude-opus-4-5"),
