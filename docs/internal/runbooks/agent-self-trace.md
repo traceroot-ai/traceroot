@@ -12,9 +12,10 @@ on by default and controlled per kind.
    posted to — the agent exports to `/api/v1/internal/traces/agent` (`source='agent'`),
    the worker to `/api/v1/internal/traces` (`source='detector'`) — so no header or
    payload can relabel it, and nothing new has to be minted, distributed or rotated.
-   Check the agent service actually has the secret set (`make dev` / `make prod`
-   generate it; prod compose passes it): with it unset the agent logs
-   `[AgentTrace] INTERNAL_API_SECRET unset; agent self-trace disabled` and runs untraced.
+   The agent service requires `INTERNAL_API_SECRET` to be set to a generated value (not a
+   published placeholder), the same value the web server and the detector worker use
+   (`make dev` / `make prod` generate it; prod compose passes it): it refuses to start
+   otherwise, and it rejects requests that do not carry the secret.
 2. Apply the Prisma migrations `20260901000000_rca_executions` and
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
@@ -25,7 +26,10 @@ on by default and controlled per kind.
    `rca,followup,chat`.
    Unset means all kinds; a token that is not one of those three is ignored and warned
    about once in the agent-service log (`[AgentTrace] AGENT_SELF_TRACE_KINDS token`).
-4. Deploy the agent service before the RCA worker, and wait for the agent rollout to
+4. In a staged rollout, deploy the callers (web server, detector worker) before the agent
+   service whenever the agent version requires the internal secret: callers send the
+   header to any agent version, while a caller without it is rejected by an agent that
+   requires it. Apart from that, deploy the agent service before the RCA worker, and wait for the agent rollout to
    finish before starting the worker rollout. The worker records each execution's
    `trace_status` from the agent's final `trace` SSE frame; an older agent that does not
    send it makes the new worker record `failed`, even when the RCA completed. The
