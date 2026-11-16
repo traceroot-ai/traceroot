@@ -83,14 +83,17 @@ class TestPrimaryEnqueue:
     def test_root_trace_enqueues_one_job_and_marks_pending(
         self, fake_redis, mock_add_job, monkeypatch
     ):
-        """Conditions + deterministic sampling select detectors; one delayed job is added."""
+        """Deterministic sampling selects detectors; one delayed job is added.
+
+        A detector whose condition the root batch does not meet is still enqueued:
+        conditions are judged later, on the settled trace (#3065)."""
         _patch_detectors(
             monkeypatch,
             [
                 _detector("d-pass", sample_rate=100),
                 _detector("d-sampled-out", sample_rate=0),
                 _detector(
-                    "d-cond-fail",
+                    "d-cond-not-yet-met",
                     sample_rate=100,
                     conditions=[{"field": "environment", "op": "=", "value": "production"}],
                 ),
@@ -104,13 +107,13 @@ class TestPrimaryEnqueue:
             f"{PROJECT}--{TRACE}",
             {
                 "traceId": TRACE,
-                "detectorIds": ["d-pass"],
+                "detectorIds": ["d-pass", "d-cond-not-yet-met"],
                 "projectId": PROJECT,
             },
         )
         state = _lock_state(fake_redis)
         assert state["state"] == "pending"
-        assert state["detector_ids"] == ["d-pass"]
+        assert state["detector_ids"] == ["d-pass", "d-cond-not-yet-met"]
         assert state["token"]
 
     def test_non_root_batch_enqueues_nothing(self, fake_redis, mock_add_job, monkeypatch):
@@ -162,19 +165,22 @@ class TestPrimaryEnqueue:
         assert _lock_state(fake_redis)["state"] == "sampled_out"
 
     def test_bad_trace_does_not_drop_rest_of_batch(self, fake_redis, mock_add_job, monkeypatch):
-        """A malformed condition only drops the offending trace."""
+        """A per-trace enqueue failure only drops the offending trace."""
         other = "bb" * 16
-        _patch_detectors(
-            monkeypatch,
-            [_detector("d1", conditions=[{"field": "cost", "op": ">", "value": "not-a-number"}])],
-        )
-        _patch_summaries(monkeypatch, {TRACE: {"cost": 5}, other: {}})
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {TRACE: {}, other: {}})
+
+        def fail_for_trace(job_id, data):
+            if data["traceId"] == TRACE:
+                raise RuntimeError("boom")
+
+        mock_add_job.side_effect = fail_for_trace
 
         dt.enqueue_detector_runs(PROJECT, {TRACE, other})
 
-        # TRACE raises in float(); `other` has cost missing -> condition False -> sampled_out.
-        assert mock_add_job.call_count == 0
-        assert _lock_state(fake_redis, trace_id=other)["state"] == "sampled_out"
+        assert {c.args[1]["traceId"] for c in mock_add_job.call_args_list} == {TRACE, other}
+        assert _lock_state(fake_redis, trace_id=TRACE) is None  # released for a retry
+        assert _lock_state(fake_redis, trace_id=other)["state"] == "pending"
 
     def test_concurrent_claims_enqueue_exactly_once(self, fake_redis, monkeypatch):
         added = []
@@ -193,6 +199,106 @@ class TestPrimaryEnqueue:
 
         assert added == [f"{PROJECT}--{TRACE}"]
         assert _lock_state(fake_redis)["state"] == "pending"
+
+
+# ── Trigger conditions judge the settled trace (#3065) ──────────────────
+
+
+COST_OVER_HALF = [{"field": "cost", "op": ">", "value": 0.50}]
+
+
+class TestTriggerConditionsOnSettledTrace:
+    """The root span can be exported in an earlier batch than the spans carrying a
+    trace's cost and errors. Conditions judged on that first batch dropped traces
+    that met them once complete, and the sticky lock kept them dropped."""
+
+    def test_multi_batch_trace_that_meets_its_condition_runs(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """The scenario from #3065, driven through both halves of the path."""
+        _patch_detectors(monkeypatch, [_detector("d-cost", conditions=COST_OVER_HALF)])
+
+        # Batch 1: only the root span is stored, so the trace costs nothing yet.
+        _patch_summaries(monkeypatch, {TRACE: {"cost": 0.0, "errors": 0}})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_called_once()
+        assert mock_add_job.call_args.args[1]["detectorIds"] == ["d-cost"]
+        assert _lock_state(fake_redis)["state"] == "pending"
+
+        # Batch 2 lands with the expensive child spans; the worker then sees the
+        # trace quiet and asks which detectors trigger on the settled trace.
+        _patch_summaries(monkeypatch, {TRACE: {"cost": 1.50, "errors": 1}})
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-cost"]) == ["d-cost"]
+
+    def test_settled_trace_that_misses_its_condition_runs_nothing(self, monkeypatch):
+        _patch_detectors(monkeypatch, [_detector("d-cost", conditions=COST_OVER_HALF)])
+        _patch_summaries(monkeypatch, {TRACE: {"cost": 0.10}})
+
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-cost"]) == []
+
+    def test_condition_met_at_root_but_not_once_settled_runs_nothing(self, monkeypatch):
+        """The reverse failure: ``errors = 0`` holds on the root batch alone, but a
+        later batch carries an error. Judging at enqueue ran the detector anyway."""
+        no_errors = [{"field": "errors", "op": "=", "value": 0}]
+        _patch_detectors(monkeypatch, [_detector("d-clean", conditions=no_errors)])
+        _patch_summaries(monkeypatch, {TRACE: {"errors": 1}})
+
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-clean"]) == []
+
+    def test_only_detectors_still_active_are_selected_in_job_order(self, monkeypatch):
+        """A detector disabled or deleted since enqueue drops out; the rest keep the
+        order the job carried them in."""
+        _patch_detectors(monkeypatch, [_detector("d-a"), _detector("d-b")])
+        _patch_summaries(monkeypatch, {TRACE: {}})
+
+        selected = dt.select_triggered_detectors(PROJECT, TRACE, ["d-b", "d-gone", "d-a"])
+
+        assert selected == ["d-b", "d-a"]
+
+    def test_trace_without_a_customer_summary_selects_nothing(self, monkeypatch):
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {})
+
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d1"]) == []
+
+    def test_trace_metadata_is_read_only_for_a_metadata_condition(self, monkeypatch):
+        """The traces-table read is gated on a metadata condition at enqueue; the
+        settled check must gate it the same way, on the candidate detectors only."""
+        flags = []
+
+        def summaries(project_id, trace_ids, *, include_trace_metadata=True):
+            flags.append(include_trace_metadata)
+            return {TRACE: {"metadata": {"tier": ["gold"]}}}
+
+        on_metadata = [{"field": "metadata", "key": "tier", "op": "=", "value": "gold"}]
+        _patch_detectors(
+            monkeypatch,
+            [_detector("d-plain"), _detector("d-meta", conditions=on_metadata)],
+        )
+        monkeypatch.setattr(dt, "_get_trace_summaries", summaries)
+
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-plain"]) == ["d-plain"]
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-meta"]) == ["d-meta"]
+        assert flags == [False, True]
+
+    def test_empty_detector_list_reads_nothing(self, monkeypatch):
+        boom = MagicMock(side_effect=AssertionError("must not be called"))
+        monkeypatch.setattr(dt, "_get_active_detectors", boom)
+
+        assert dt.select_triggered_detectors(PROJECT, TRACE, []) == []
+
+    def test_infrastructure_failure_raises_so_the_worker_retries(self, monkeypatch):
+        """An outage must not read as "no detector triggered", which would silently
+        drop the trace the way #3065 did."""
+        monkeypatch.setattr(
+            dt,
+            "_get_active_detectors",
+            MagicMock(side_effect=RuntimeError("postgres down")),
+        )
+
+        with pytest.raises(RuntimeError):
+            dt.select_triggered_detectors(PROJECT, TRACE, ["d1"])
 
 
 # ── Failure release (token-checked) ─────────────────────────────────────

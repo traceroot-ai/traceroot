@@ -426,6 +426,39 @@ async def get_time_since_last_span(trace_id: str, project_id: str):
     return {"time_since_last_span_ms": age}
 
 
+class TriggeredDetectorsPayload(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    project_id: str = Field(alias="projectId")
+    detector_ids: list[str] = Field(alias="detectorIds")
+
+
+@router.post(
+    "/traces/{trace_id}/triggered-detectors",
+    dependencies=[Depends(verify_internal_secret)],
+)
+def get_triggered_detectors(trace_id: str, body: TriggeredDetectorsPayload):
+    """Evaluate trigger conditions against a settled trace.
+
+    The detector worker calls this once ``time-since-last-span`` reaches
+    EVALUATOR_DELAY, so conditions are judged on the whole trace instead of the
+    root-bearing batch the job was enqueued from. A sync ``def`` because the
+    evaluation does blocking Postgres and ClickHouse reads; FastAPI runs it in
+    its thread pool.
+
+    Args:
+        trace_id (str): The settled trace.
+        body (TriggeredDetectorsPayload): Owning project and the detectors the
+            job was enqueued with.
+
+    Returns:
+        dict: ``{"detectorIds": [...]}`` — the subset whose conditions pass.
+    """
+    from worker.detector_tasks import select_triggered_detectors
+
+    return {"detectorIds": select_triggered_detectors(body.project_id, trace_id, body.detector_ids)}
+
+
 @router.get(
     "/traces/{trace_id}/findings",
     dependencies=[Depends(verify_internal_secret)],
