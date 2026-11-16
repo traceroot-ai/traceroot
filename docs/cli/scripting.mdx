@@ -99,7 +99,7 @@ Many commands also take these:
 | Flag | Taken by | Meaning |
 | :- | :- | :- |
 | `--from-file <path>` | Every create, update, status change, and delete | The fields as one [JSON body](#send-a-json-body) |
-| `--project-id <id>` | Detector, alert, dashboard, and widget commands, except `detectors list` | The project to act on. It outranks your [chosen project](/cli/authentication#choose-a-project), and must match an API key's project |
-| `--limit <n>` | List commands, and `datasets versions get` | How many to return. Each command's page gives the default and maximum |
+| `--project-id <id>` | Detector, alert, dashboard, and widget commands, except `detectors list` and `alerts list` | The project to act on. It outranks your [chosen project](/cli/authentication#choose-a-project), and must match an API key's project |
+| `--limit <n>` | `datasets versions get`, and every list command except `workspaces`, `projects`, `dashboards`, and `skills list` | How many to return. Each command's page gives the default and maximum |
 | `--since`, `--from`, `--to` | `traces list`, `detectors list`, `findings list` | A time window, as in [List traces](/cli/traces#list-traces) |
 | `--reason <text>` | Every delete | Why, 3 to 500 characters, recorded in the audit log. Required |

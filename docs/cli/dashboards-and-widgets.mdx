@@ -20,12 +20,12 @@ There's no `widgets list`. `dashboards get` shows a dashboard's widgets with the
 
 ```bash
 traceroot widgets data <widget-id> --range 7d
-traceroot widgets data <widget-id> --start-time 2026-06-01T00:00:00Z --end-time 2026-06-02T00:00:00Z
+traceroot widgets data <widget-id> --start-time <start> --end-time <end>
 ```
 
-`--range` takes `30m`, `1h`, `3h`, `6h`, `1d`, `7d`, `14d`, `30d`, `60d`, or `90d`. Give it, or both `--start-time` and `--end-time`, or neither for the last 24 hours.
+`--range` takes `30m`, `1h`, `3h`, `6h`, `1d`, `7d`, `14d`, `30d`, `60d`, or `90d`. Give it, or both `--start-time` and `--end-time` as ISO 8601 times such as `2026-11-01T00:00:00Z`, or neither for the last 24 hours.
 
-The response's `status` is `ok` with rows, `skipped` for a trace feed or legacy detector widget, or `error` with a reason. Its `window` says what the rows cover, because retention can shorten it.
+The response's `status` is `ok` with rows, `skipped` for a trace feed or legacy detector widget, or `error` with a reason. Its `window` says what the rows cover, because retention can shorten it. A window that ends before your plan's retention cutoff exits 2.
 
 ## Create and change dashboards
 
