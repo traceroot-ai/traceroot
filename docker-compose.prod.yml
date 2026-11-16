@@ -31,7 +31,8 @@ services:
         }
         refuse_copied CLICKHOUSE_PASSWORD "$$CLICKHOUSE_PASSWORD"
         refuse_copied MINIO_ROOT_PASSWORD "$$MINIO_ROOT_PASSWORD"
-        case "$$ENCRYPTION_KEY" in
+        # Hex digits are case-insensitive, so compare the key in lower case.
+        case "$$(printf '%s' "$$ENCRYPTION_KEY" | tr 'A-F' 'a-f')" in
           9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00)
             echo "preflight: ENCRYPTION_KEY has the value from the example configuration. Run make rotate-encryption-key to move stored provider keys to a new key, then start again." >&2
             exit 1;;

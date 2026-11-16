@@ -15,11 +15,13 @@ the same one as every other. Three things have to hold together:
 The equivalent check for the TypeScript side lives in frontend/ui/src/env.ts.
 """
 
+import datetime
 import os
 import re
 import shutil
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -135,6 +137,7 @@ def _run_env_secrets(
     # here would mean silently testing against an empty placeholder list.
     leftover = re.search(r"(?<!\$)\$\([^)]*\)", script)
     assert leftover is None, f"unexpanded make variable {leftover.group() if leftover else ''}"
+    script = script.replace("scripts/env-value.sh", str(_ROOT / "scripts" / "env-value.sh"))
     script = script.replace("\t", "").replace("$$", "$")
     script = re.sub(r"^@", "", script, flags=re.MULTILINE)
     env = dict(os.environ)
@@ -821,41 +824,80 @@ def _previous_keys(work: Path) -> list[str]:
     return [p.read_text().strip() for p in sorted((work / _STATE).glob("previous-*"))]
 
 
+_FAKE_DOCKER = r"""#!/bin/sh
+echo "ARGS: $*" >> "$FAKE_DOCKER_LOG"
+case "$*" in *" stop "*) [ -n "$FAKE_DOCKER_FAIL_STOP" ] && exit 1;; esac
+case "$*" in *"run "*)
+    echo "OLD_IS_CURRENT: $([ "$OLD_ENCRYPTION_KEY" = "$FAKE_EXPECT_OLD" ] && echo yes || echo no)" >> "$FAKE_DOCKER_LOG"
+    echo "NEW_ENV: $NEW_ENCRYPTION_KEY" >> "$FAKE_PRIVATE_LOG"
+    # Stand-in for the database: the one key its rows are encrypted under.
+    echo "RUN" >> "$FAKE_RUNS"
+    if [ -n "$FAKE_BLOCK_DIR" ]; then
+        touch "$FAKE_BLOCK_DIR/started"
+        n=0; while [ ! -e "$FAKE_BLOCK_DIR/release" ] && [ $n -lt 200 ]; do sleep 0.1; n=$((n+1)); done
+    fi
+    if [ -n "$FAKE_SWAP_STATE_DIR" ]; then
+        mv .env.encryption-key.d moved-state && mkdir attacker && ln -s attacker .env.encryption-key.d
+    fi
+    [ -n "$FAKE_DOCKER_FAIL" ] && exit 1
+    [ "$(cat "$FAKE_DB")" = "$OLD_ENCRYPTION_KEY" ] || { echo "rows open with neither key" >&2; exit 1; }
+    printf '%s' "$NEW_ENCRYPTION_KEY" > "$FAKE_DB";;
+esac
+exit 0
+"""
+
+
 @pytest.fixture
 def rotation(tmp_path: Path):
+    """The real script in a scratch checkout, with `docker` replaced by a recording stand-in."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "docker.log"
     fake = bin_dir / "docker"
-    fake.write_text(
-        "#!/bin/sh\n"
-        'echo "ARGS: $*" >> "$FAKE_DOCKER_LOG"\n'
-        'case "$*" in *" stop "*) [ -n "$FAKE_DOCKER_FAIL_STOP" ] && exit 1;; esac\n'
-        'case "$*" in *"run "*) echo "OLD_IS_CURRENT: $([ "$OLD_ENCRYPTION_KEY" = "$FAKE_EXPECT_OLD" ] '
-        '&& echo yes || echo no)" >> "$FAKE_DOCKER_LOG"\n'
-        'echo "NEW_ENV: $NEW_ENCRYPTION_KEY" >> "$FAKE_PRIVATE_LOG"\n'
-        '[ -n "$FAKE_DOCKER_FAIL" ] && exit 1;; esac\n'
-        "exit 0\n"
-    )
+    fake.write_text(_FAKE_DOCKER)
     fake.chmod(0o755)
     work = tmp_path / "repo"
     work.mkdir()
+    db = tmp_path / "db-key"
+    db.write_text(_OLD_KEY)
+    runs = tmp_path / "runs.log"
 
-    def run(fail: bool = False, fail_stop: bool = False) -> subprocess.CompletedProcess:
+    def start(
+        fail: bool = False,
+        fail_stop: bool = False,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.Popen:
         env = {
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "FAKE_DOCKER_LOG": str(log),
             "FAKE_PRIVATE_LOG": str(tmp_path / "private.log"),
             "FAKE_EXPECT_OLD": _OLD_KEY,
+            "FAKE_DB": str(db),
+            "FAKE_RUNS": str(runs),
+            "ROTATE_ENV_SECRETS": "true",
+            **(extra_env or {}),
         }
         if fail:
             env["FAKE_DOCKER_FAIL"] = "1"
         if fail_stop:
             env["FAKE_DOCKER_FAIL_STOP"] = "1"
-        return subprocess.run(
-            ["sh", str(_ROTATE)], cwd=work, capture_output=True, text=True, env=env
+        return subprocess.Popen(
+            ["sh", str(_ROTATE)],
+            cwd=work,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
+    def run(**kwargs) -> subprocess.CompletedProcess:
+        proc = start(**kwargs)
+        out, err = proc.communicate(timeout=60)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+    run.start = start  # type: ignore[attr-defined]
+    run.db = db  # type: ignore[attr-defined]
+    run.runs = runs  # type: ignore[attr-defined]
     return work, log, tmp_path / "private.log", run
 
 
@@ -1027,3 +1069,348 @@ def test_rotation_rejects_a_pending_file_that_is_not_a_key(rotation):
     assert result.returncode != 0
     assert "64-character" in result.stderr
     assert not log.exists()
+
+
+# --- the key in effect: startup and rotation read .env the way Docker Compose does -------
+
+_ENV_VALUE = _ROOT / "scripts" / "env-value.sh"
+_KEY = "ab" * 32
+
+# (.env text, key Docker Compose ends up using)
+_EFFECTIVE_CASES = {
+    "plain": (f"ENCRYPTION_KEY={_KEY}\n", _KEY),
+    "indented": (f"  ENCRYPTION_KEY={_KEY}\n", _KEY),
+    "tab indented": (f"\tENCRYPTION_KEY={_KEY}\n", _KEY),
+    "export": (f"export ENCRYPTION_KEY={_KEY}\n", _KEY),
+    "indented export": (f"  export ENCRYPTION_KEY={_KEY}\n", _KEY),
+    "double quoted": (f'ENCRYPTION_KEY="{_KEY}"\n', _KEY),
+    "single quoted": (f"ENCRYPTION_KEY='{_KEY}'\n", _KEY),
+    "trailing comment": (f"ENCRYPTION_KEY={_KEY}  # backup this file\n", _KEY),
+    "crlf": (f"ENCRYPTION_KEY={_KEY}\r\n", _KEY),
+    "last assignment wins": (f"ENCRYPTION_KEY={'cd' * 32}\nENCRYPTION_KEY={_KEY}\n", _KEY),
+    "last assignment is empty": (f"ENCRYPTION_KEY={_KEY}\nENCRYPTION_KEY=\n", ""),
+    "commented out": (f"# ENCRYPTION_KEY={_KEY}\n", ""),
+    "similar name": (f"OLD_ENCRYPTION_KEY={_KEY}\n", ""),
+    "unset": ("OTHER=1\n", ""),
+}
+
+
+@pytest.mark.parametrize("text, expected", _EFFECTIVE_CASES.values(), ids=_EFFECTIVE_CASES.keys())
+def test_every_reader_agrees_on_the_key_in_effect(tmp_path, text, expected):
+    """env-secrets, the launcher and rotation must not disagree about which key is live."""
+    from tmux_tools.launcher import effective_value
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(text, newline="")
+    shell = subprocess.run(
+        ["sh", str(_ENV_VALUE), "ENCRYPTION_KEY", str(env_file)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert shell == expected
+    assert effective_value(text, "ENCRYPTION_KEY") == expected
+
+
+_VALID_FORMS = [k for k, (_, v) in _EFFECTIVE_CASES.items() if v == _KEY]
+
+
+@pytest.mark.parametrize("form", _VALID_FORMS)
+def test_startup_keeps_an_encryption_key_docker_compose_already_accepts(tmp_path, form):
+    """A normal start must not add a second key line: a later line wins, orphaning stored keys."""
+    from tmux_tools.launcher import effective_value
+
+    text = _EFFECTIVE_CASES[form][0]
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").write_text(text, newline="")
+
+    _run_env_secrets(tmp_path)
+
+    after = (tmp_path / ".env").read_text()
+    assert effective_value(after, "ENCRYPTION_KEY") == _KEY
+    assert after.count("ENCRYPTION_KEY=") == text.count("ENCRYPTION_KEY=")
+    # The same holds for the launcher (make dev / make prod).
+    assert effective_value(fill_secrets(text, ("ENCRYPTION_KEY",)), "ENCRYPTION_KEY") == _KEY
+    assert fill_secrets(text, ("ENCRYPTION_KEY",)).count("ENCRYPTION_KEY=") == text.count(
+        "ENCRYPTION_KEY="
+    )
+
+
+def test_startup_repairs_the_assignment_compose_would_use(tmp_path):
+    """An empty last assignment is what Compose sees, so that is the one to fill."""
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").write_text(f"ENCRYPTION_KEY={_KEY}\n  ENCRYPTION_KEY=\n")
+
+    _run_env_secrets(tmp_path)
+
+    assert re.fullmatch(r"[0-9a-f]{64}", _values(tmp_path / ".env")["ENCRYPTION_KEY"].strip())
+
+
+def test_rotation_finds_an_indented_key_and_updates_it_in_place(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"A=1\n  export ENCRYPTION_KEY={_OLD_KEY}\nB=2\n")
+
+    result = run()
+
+    assert result.returncode == 0, result.stderr
+    text = (work / ".env").read_text()
+    assert text.count("ENCRYPTION_KEY") == 1 and _OLD_KEY not in text
+    assert run.db.read_text() == _values(work / ".env")["ENCRYPTION_KEY"]
+
+
+def test_rotation_stops_when_the_key_in_effect_is_not_in_env(rotation):
+    """Compose prefers the process environment, so rewriting .env would change nothing."""
+    work, log, _, run = rotation
+    before = f"ENCRYPTION_KEY={_OLD_KEY}\n"
+    (work / ".env").write_text(before)
+
+    result = run(extra_env={"ENCRYPTION_KEY": "ef" * 32})
+
+    assert result.returncode != 0
+    assert "environment" in result.stderr
+    assert (work / ".env").read_text() == before
+    assert not log.exists(), "the database must not be touched"
+
+
+def test_rotation_proceeds_when_the_environment_agrees_with_env(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+
+    assert run(extra_env={"ENCRYPTION_KEY": _OLD_KEY}).returncode == 0
+
+
+@pytest.mark.parametrize("value", ["${OTHER_KEY}", "short", "zz" * 32, "ab" * 33])
+def test_rotation_stops_on_a_key_it_cannot_read_the_way_compose_does(rotation, value):
+    work, log, _, run = rotation
+    before = f"ENCRYPTION_KEY={value}\n"
+    (work / ".env").write_text(before)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "64-character hex" in result.stderr
+    assert (work / ".env").read_text() == before
+    assert not log.exists()
+
+
+def test_rotation_stops_when_env_cannot_be_updated(rotation):
+    work, log, _, run = rotation
+    env_file = work / ".env"
+    env_file.write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    env_file.chmod(0o400)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "cannot update .env" in result.stderr
+    assert not log.exists()
+
+
+# --- one rotation at a time ----------------------------------------------------------
+
+
+def test_overlapping_rotations_leave_the_database_and_the_key_in_effect_consistent(
+    rotation, tmp_path
+):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    gate = tmp_path / "gate"
+    gate.mkdir()
+
+    first = run.start(extra_env={"FAKE_BLOCK_DIR": str(gate)})
+    deadline = time.time() + 30
+    while not (gate / "started").exists():
+        assert first.poll() is None, first.communicate()
+        assert time.time() < deadline, "the first rotation never reached the database step"
+        time.sleep(0.05)
+
+    # While the first is migrating the database, a second invocation must be turned away
+    # without reading, preparing or changing anything.
+    second = run()
+    assert second.returncode != 0
+    assert "another key rotation is running" in second.stderr
+    assert _values(work / ".env")["ENCRYPTION_KEY"] == _OLD_KEY
+    assert run.db.read_text() == _OLD_KEY
+
+    (gate / "release").touch()
+    _, err = first.communicate(timeout=60)
+    assert first.returncode == 0, err
+
+    final = _values(work / ".env")["ENCRYPTION_KEY"]
+    assert final != _OLD_KEY
+    assert run.db.read_text() == final, "the database and .env must use the same key"
+    assert run.runs.read_text().split() == ["RUN"], "only one rotation reached the database"
+    assert not (work / _STATE / "lock").exists(), "the lock is released afterwards"
+    assert run().returncode == 0, "a later rotation is not blocked by the earlier one"
+
+
+def test_simultaneous_rotations_admit_exactly_one(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+
+    procs = [run.start() for _ in range(6)]
+    results = [(p.communicate(timeout=60), p.returncode) for p in procs]
+
+    codes = [code for _, code in results]
+    final = _values(work / ".env")["ENCRYPTION_KEY"]
+    assert codes.count(0) >= 1
+    # Whoever got in changed the database and .env together; nobody else could.
+    assert run.db.read_text() == final
+    assert run.runs.read_text().split().count("RUN") == codes.count(0)
+    for (_, err), code in results:
+        if code != 0:
+            assert "another key rotation is running" in err or "nothing left" in err, err
+
+
+def test_a_lock_left_by_a_process_that_is_gone_does_not_block_rotation(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    lock = work / _STATE / "lock"
+    lock.mkdir(parents=True, mode=0o700)
+    (work / _STATE).chmod(0o700)
+    (lock / "pid").write_text("999999\n")
+
+    assert run().returncode == 0
+
+
+def test_a_lock_held_by_a_running_process_blocks_rotation(rotation):
+    work, log, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    lock = work / _STATE / "lock"
+    lock.mkdir(parents=True, mode=0o700)
+    (work / _STATE).chmod(0o700)
+    (lock / "pid").write_text(f"{os.getpid()}\n")
+
+    result = run()
+
+    assert result.returncode != 0 and "another key rotation is running" in result.stderr
+    assert not log.exists()
+
+
+def test_env_secrets_waits_for_a_running_rotation(tmp_path):
+    """Both rewrite .env; an interleaved write could put the old key back."""
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").write_text(f"ENCRYPTION_KEY={_KEY}\n")
+    (tmp_path / _STATE / "lock").mkdir(parents=True)
+
+    result = _run_env_secrets(tmp_path, check=False)
+
+    assert result.returncode != 0
+    assert b"rotation is running" in result.stderr
+
+
+# --- the state directory cannot be swapped for another ------------------------------------
+
+
+def test_replacing_the_state_directory_mid_run_does_not_redirect_the_saved_key(rotation):
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+
+    result = run(extra_env={"FAKE_SWAP_STATE_DIR": "1"})
+
+    assert result.returncode == 0, result.stderr
+    attacker = work / "attacker"
+    assert list(attacker.iterdir()) == [], "nothing may be written to the replacement"
+    kept = list((work / "moved-state").glob("previous-*"))
+    assert [p.read_text().strip() for p in kept] == [_OLD_KEY]
+
+
+def test_a_planted_backup_name_is_not_written_through(rotation):
+    """Even inside the private directory, an existing name is never followed or overwritten."""
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    state = work / _STATE
+    state.mkdir(mode=0o700)
+    target = work / "elsewhere"
+    target.write_text("")
+    # Whatever second the script picks, a link under that name must not be followed.
+    now = datetime.datetime.now()
+    for offset in range(-2, 40):
+        stamp = (now + datetime.timedelta(seconds=offset)).strftime("%Y%m%d%H%M%S")
+        link = state / f"previous-{stamp}"
+        if not link.exists() and not link.is_symlink():
+            link.symlink_to(target)
+
+    assert run().returncode == 0
+    assert target.read_text() == ""
+
+
+# --- the example key in any letter case -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "9CF7EC27E77884F3D76DDA6312F55317B2B6FFF317E5B09D4A9AD7B20EFF5E00",
+        "9cf7EC27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00",
+    ],
+)
+def test_preflight_refuses_the_example_key_in_any_letter_case(key):
+    """Hex digits decode the same either way, so it is the same key."""
+    result = _run_preflight(**{**_GOOD, "ENCRYPTION_KEY": key})
+    assert result.returncode != 0
+    assert "ENCRYPTION_KEY" in result.stderr
+    assert "make rotate-encryption-key" in result.stderr
+
+
+def test_rotation_treats_the_example_key_in_upper_case_as_the_current_key(rotation):
+    work, _, _, run = rotation
+    upper = _OLD_KEY.upper()
+    (work / ".env").write_text(f"ENCRYPTION_KEY={upper}\n")
+    run.db.write_text(upper)
+
+    assert run().returncode == 0
+    assert _values(work / ".env")["ENCRYPTION_KEY"] != upper
+
+
+# --- the launcher writes .env the way env-secrets does ---------------------------------
+
+
+def test_launcher_refuses_a_symlinked_env(tmp_path):
+    example = tmp_path / ".env.example"
+    example.write_text("INTERNAL_API_SECRET=\n")
+    target = tmp_path / "other"
+    target.write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").symlink_to(target)
+
+    with pytest.raises(SystemExit) as excinfo:
+        ensure_env_file(tmp_path / ".env", example, keys=ALL_GENERATED_KEYS)
+
+    assert "symlink" in str(excinfo.value)
+    assert target.read_text() == "ENCRYPTION_KEY=\n"
+
+
+def test_launcher_refuses_a_dangling_env_symlink_instead_of_creating_through_it(tmp_path):
+    example = tmp_path / ".env.example"
+    example.write_text("INTERNAL_API_SECRET=\n")
+    target = tmp_path / "not-yet"
+    (tmp_path / ".env").symlink_to(target)
+
+    with pytest.raises(SystemExit):
+        ensure_env_file(tmp_path / ".env", example)
+
+    assert not target.exists()
+
+
+def test_launcher_writes_env_privately_and_leaves_no_temp_file(tmp_path):
+    example = tmp_path / ".env.example"
+    example.write_text("INTERNAL_API_SECRET=\nCLICKHOUSE_PASSWORD=clickhouse\n")
+    env_path = tmp_path / ".env"
+    env_path.write_text("INTERNAL_API_SECRET=\nCLICKHOUSE_PASSWORD=clickhouse\n")
+    env_path.chmod(0o644)
+
+    ensure_env_file(env_path, example, keys=ALL_GENERATED_KEYS)
+
+    assert stat.S_IMODE(os.stat(env_path).st_mode) == 0o600
+    assert len(_values(env_path)["CLICKHOUSE_PASSWORD"]) == 64
+    assert [p.name for p in tmp_path.iterdir() if ".tmp." in p.name] == []
+
+
+def test_launcher_creates_a_new_env_with_mode_600_from_the_start(tmp_path):
+    example = tmp_path / ".env.example"
+    example.write_text("INTERNAL_API_SECRET=\n")
+
+    ensure_env_file(tmp_path / ".env", example)
+
+    assert stat.S_IMODE(os.stat(tmp_path / ".env").st_mode) == 0o600

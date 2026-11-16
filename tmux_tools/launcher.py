@@ -20,6 +20,7 @@ import shlex
 import shutil
 import socket
 import subprocess
+import tempfile
 from pathlib import Path
 
 from db.clickhouse.migrate import run_goose
@@ -126,23 +127,56 @@ def _needs_value(key: str, assigned: str) -> bool:
     return is_placeholder(assigned)
 
 
+def _assignment_pattern(key: str) -> re.Pattern[str]:
+    # Indentation and an `export` prefix are both accepted by Docker Compose's .env loader.
+    return re.compile(rf"^(\s*(?:export\s+)?{key}\s*=)(.*)$", re.MULTILINE)
+
+
+def effective_value(text: str, key: str) -> str:
+    """The value Docker Compose uses for ``key`` in .env text: the last assignment wins.
+
+    Quotes and a trailing `` # comment`` are dropped; empty when the key is not set.
+    """
+    matches = list(_assignment_pattern(key).finditer(text))
+    return _cleaned(matches[-1].group(2).rstrip("\r")) if matches else ""
+
+
 def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
     """Give every key in ``keys`` a generated value unless one is set.
 
-    Matches the optional ``export`` prefix so a key written that way is repaired
-    in place rather than appended a second time, where it would take precedence
-    over the operator's own value.
+    The assignment Docker Compose would use is the one that is judged and repaired: the
+    last one, wherever it is indented or prefixed with ``export``. It is replaced in
+    place rather than appended a second time, where it would take precedence over the
+    operator's own value.
     """
     for key in keys:
         # Matches to end of line, so substituting drops any trailing comment
         # along with the placeholder -- "# CHANGEME" stops being true here.
-        pattern = re.compile(rf"^(\s*(?:export\s+)?{key}\s*=)(.*)$", re.MULTILINE)
-        match = pattern.search(text)
-        if match is None:
+        pattern = _assignment_pattern(key)
+        matches = list(pattern.finditer(text))
+        if not matches:
             text = text.rstrip("\n") + f"\n{key}={secrets.token_hex(32)}\n"
-        elif _needs_value(key, match.group(2)):
-            text = pattern.sub(lambda m: m.group(1) + secrets.token_hex(32), text, count=1)
+        elif _needs_value(key, matches[-1].group(2).rstrip("\r")):
+            last = matches[-1]
+            text = text[: last.start()] + last.group(1) + secrets.token_hex(32) + text[last.end() :]
     return text
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Replace ``path`` with ``text`` through a private temporary file in the same directory.
+
+    The temporary file is created exclusively with mode 0600 and renamed over the target,
+    so the new content is never readable by others and a link planted at the target is
+    replaced rather than followed.
+    """
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.tmp.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 def ensure_env_file(
@@ -151,19 +185,23 @@ def ensure_env_file(
     keys: tuple[str, ...] = GENERATED_KEYS,
 ) -> None:
     """Create .env if absent, then give every placeholder secret a real value."""
+    if env_path.is_symlink():
+        raise SystemExit(
+            f"{env_path} is a symlink. Refusing to write secrets through it -- "
+            "replace it with a regular file."
+        )
     if not env_path.exists():
         print("Creating .env from .env.example...")
-        shutil.copy(example_path, env_path)
+        _write_private(env_path, example_path.read_text())
     else:
         print("Found existing .env file.")
-
-    os.chmod(env_path, 0o600)  # it holds generated secrets, not just defaults
+        os.chmod(env_path, 0o600)  # it holds generated secrets, not just defaults
 
     text = env_path.read_text()
     filled = fill_secrets(text, keys)
     if filled != text:
         print("  Generated a unique value for the local auth secrets.")
-        env_path.write_text(filled)
+        _write_private(env_path, filled)
 
 
 def ensure_infra():

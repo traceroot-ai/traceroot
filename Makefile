@@ -81,15 +81,18 @@ prod:
 ## only. Refusing is portable, and a `.env` that is a symlink is an ambiguity
 ## this recipe has no business resolving silently.
 env-secrets:
+	@if [ -z "$$TRACEROOT_ROTATION_LOCK_HELD" ] && [ -d .env.encryption-key.d/lock ]; then printf '%s\n' "env-secrets: an encryption key rotation is running. Wait for it to finish, then run this again." >&2; exit 1; fi
 	@umask 077; if [ -L .env ]; then printf '%s\n' "env-secrets: .env is a symlink. Refusing to write secrets through it -- replace it with a regular file." >&2; exit 1; fi; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS) $(FRESH_ONLY_SECRETS); do \
 		case " $(FRESH_ONLY_SECRETS) " in *" $$key "*) published=""; ;; *) published="$(PUBLISHED_PLACEHOLDERS)"; ;; esac; \
-		if awk -F= -v k="$$key" -v published="$$published" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t\r]+|[ \t\r]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) configured = 1 } END { exit !configured }' .env; then \
+		current=$$(sh scripts/env-value.sh "$$key" .env); \
+		lower=$$(printf '%s' "$$current" | tr 'A-Z' 'a-z'); \
+		if [ -n "$$current" ] && ! case " $$published " in *" $$lower "*) true ;; *) false ;; esac; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
 		tmpdir=$$(mktemp -d "./.env.tmp.XXXXXX") || exit 1; \
-		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
+		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/^[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
 		if [ -L .env ]; then rm -rf "$$tmpdir"; printf '%s\n' "env-secrets: .env became a symlink while secrets were being generated. Refusing to write through it." >&2; exit 1; fi; \
 		mv "$$tmpdir/env" .env; \
 		rmdir "$$tmpdir"; \
@@ -98,8 +101,8 @@ env-secrets:
 
 ## Move stored provider keys and Slack tokens to a new encryption key. Needed once on an
 ## install whose .env still has the example key; the stack refuses to start until it is done.
-rotate-encryption-key: env-secrets
-	@sh scripts/rotate-encryption-key.sh
+rotate-encryption-key:
+	@MAKE="$(MAKE)" sh scripts/rotate-encryption-key.sh
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets
