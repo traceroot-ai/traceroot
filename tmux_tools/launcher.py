@@ -128,8 +128,8 @@ def _needs_value(key: str, assigned: str) -> bool:
 
 
 def _assignment_pattern(key: str) -> re.Pattern[str]:
-    # Indentation and an `export` prefix are both accepted by Docker Compose's .env loader.
-    return re.compile(rf"^(\s*(?:export\s+)?{key}\s*=)(.*)$", re.MULTILINE)
+    # Docker Compose's .env loader accepts indentation, an `export` prefix, and `:` as well as `=`.
+    return re.compile(rf"^([ \t]*(?:export[ \t]+)?{key}[ \t]*[=:])(.*)$", re.MULTILINE)
 
 
 def effective_value(text: str, key: str) -> str:
@@ -162,6 +162,21 @@ def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
     return text
 
 
+ROTATION_LOCK = ROOT / ".env.encryption-key.d" / "lock"
+
+
+def _refuse_during_rotation() -> None:
+    """Stop when an encryption key rotation holds its lock.
+
+    Starting services then would let them read and write stored credentials with the old
+    key while the database is being migrated to the new one.
+    """
+    if ROTATION_LOCK.is_dir():
+        raise SystemExit(
+            "An encryption key rotation is running. Wait for it to finish, then start again."
+        )
+
+
 def _write_private(path: Path, text: str) -> None:
     """Replace ``path`` with ``text`` through a private temporary file in the same directory.
 
@@ -185,6 +200,7 @@ def ensure_env_file(
     keys: tuple[str, ...] = GENERATED_KEYS,
 ) -> None:
     """Create .env if absent, then give every placeholder secret a real value."""
+    _refuse_during_rotation()
     if env_path.is_symlink():
         raise SystemExit(
             f"{env_path} is a symlink. Refusing to write secrets through it -- "
@@ -287,6 +303,7 @@ def run_prod_setup():
 
     # Compose reports only that preflight failed; running it directly prints which value to change.
     _run(f"{PROD_COMPOSE} run --rm preflight")
+    _refuse_during_rotation()
 
     print("Building Docker images (cached if unchanged)...")
     _run(f"{PROD_COMPOSE} build")
@@ -301,6 +318,7 @@ def run_prod_setup():
     # services here causes Compose to run migrate/migrate-clickhouse first and
     # only bring up each app container after its migration dependency exits 0.
     print("Starting application services (migrations run automatically before app services)...")
+    _refuse_during_rotation()
     _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent")
 
     print("\nAll containers started. Launching log viewer...\n")

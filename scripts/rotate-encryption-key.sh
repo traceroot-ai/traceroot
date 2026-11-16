@@ -50,10 +50,17 @@ private_to_me . 700 ||
 # One rotation at a time. mkdir is atomic. A lock left behind by a run that was killed is
 # never cleared automatically: two runs could each judge it stale and both take it.
 LOCK_HELD=
-release_lock() {
+DB_UPDATED=
+FINISHED=
+cleanup() {
+	status=$?
+	if [ -n "$DB_UPDATED" ] && [ -z "$FINISHED" ]; then
+		echo "rotate-encryption-key: the database already uses the new key but .env was not updated. The new key is kept in $STATE_NAME/pending; fix the problem and run this command again to finish. Do not delete that file." >&2
+	fi
 	[ -z "$LOCK_HELD" ] || rm -rf lock
+	exit "$status"
 }
-trap release_lock EXIT
+trap cleanup EXIT
 trap 'exit 1' INT TERM HUP
 if ! mkdir lock 2>/dev/null; then
 	owner=$(cat lock/pid 2>/dev/null || true)
@@ -81,6 +88,8 @@ esac
 if [ -n "${ENCRYPTION_KEY:-}" ]; then
 	die "ENCRYPTION_KEY is set in your environment. Docker Compose uses that value instead of .env, so the services would keep the old key after the rotation. Unset it (and keep the key in .env) and run again."
 fi
+[ -z "${COMPOSE_ENV_FILES:-}" ] ||
+	die "COMPOSE_ENV_FILES is set, so Docker Compose may read the key from a file other than .env, which this command does not update. Unset it and run again."
 [ -w "$ENV_FILE" ] && [ -w "$ROOT" ] || die "cannot update .env, so the key was not changed."
 
 if [ -e pending ] || [ -L pending ]; then
@@ -114,11 +123,10 @@ fi
 # The keys travel in this process's environment, never on a command line.
 OLD_ENCRYPTION_KEY="$current" NEW_ENCRYPTION_KEY="$new" \
 	compose --profile rotate run --rm --build rotate-encryption-key
+DB_UPDATED=1
 
 tmpdir=$(mktemp -d "$ROOT/.env.tmp.XXXXXX")
-TRACEROOT_NEW_KEY="$new" awk -F= 'BEGIN { OFS = "=" } { name = $1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/^[ \t]+/, "", name); sub(/[ \t\r]+$/, "", name) }
-	name == "ENCRYPTION_KEY" { print name, ENVIRON["TRACEROOT_NEW_KEY"]; found = 1; next } { print }
-	END { if (!found) print "ENCRYPTION_KEY", ENVIRON["TRACEROOT_NEW_KEY"] }' "$ENV_FILE" >"$tmpdir/env" || { rm -rf "$tmpdir"; exit 1; }
+ENV_VALUE_NEW="$new" sh "$ENV_VALUE" --set ENCRYPTION_KEY "$ENV_FILE" >"$tmpdir/env" || { rm -rf "$tmpdir"; exit 1; }
 if [ -L "$ENV_FILE" ]; then
 	rm -rf "$tmpdir"
 	die ".env became a symlink during the run. Refusing to write through it; the new key is in $STATE_NAME/pending."
@@ -135,4 +143,5 @@ rmdir "$tmpdir"
 [ "$(sh "$ENV_VALUE" ENCRYPTION_KEY "$ENV_FILE")" = "$new" ] ||
 	die ".env does not hold the new key after the update. The database already uses it; it is in $STATE_NAME/pending. Set ENCRYPTION_KEY in .env to that value."
 rm -f pending
+FINISHED=1
 echo "rotate-encryption-key: done. .env has the new key; the previous one is in $STATE_NAME/$backup (delete it once you no longer need it). Start the stack with make prod-lite."

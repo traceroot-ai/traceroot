@@ -38,6 +38,7 @@ dev-autoreload: install-hooks
 dev-lite: install-hooks
 	@uv run python tmux_tools/launcher.py --env-only
 	@test -d frontend/node_modules || pnpm --dir frontend install
+	@if [ -d .env.encryption-key.d/lock ]; then printf '%s\n' "an encryption key rotation is running. Wait for it to finish, then start again." >&2; exit 1; fi
 	@$(PROD_COMPOSE) run --rm preflight
 	@echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
@@ -92,7 +93,7 @@ env-secrets:
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
 		tmpdir=$$(mktemp -d "./.env.tmp.XXXXXX") || exit 1; \
-		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/^[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
+		ENV_VALUE_NEW="$$value" sh scripts/env-value.sh --set "$$key" .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
 		if [ -L .env ]; then rm -rf "$$tmpdir"; printf '%s\n' "env-secrets: .env became a symlink while secrets were being generated. Refusing to write through it." >&2; exit 1; fi; \
 		mv "$$tmpdir/env" .env; \
 		rmdir "$$tmpdir"; \
@@ -106,6 +107,7 @@ rotate-encryption-key:
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets
+	@if [ -d .env.encryption-key.d/lock ]; then printf '%s\n' "an encryption key rotation is running. Wait for it to finish, then start again." >&2; exit 1; fi
 	@$(PROD_COMPOSE) run --rm preflight
 	@echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
