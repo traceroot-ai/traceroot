@@ -99,7 +99,7 @@ describe("SessionDetailPanel metadata badges", () => {
 
     expect(screen.getByText("Traces:")).toBeDefined();
     expect(screen.getByText("3")).toBeDefined();
-    expect(screen.getByText("Total Latency:")).toBeDefined();
+    expect(screen.getByText("Total latency:")).toBeDefined();
     expect(screen.getByText("User:")).toBeDefined();
     expect(screen.getByText("user-42")).toBeDefined();
     expect(screen.getByText("No traces in this session")).toBeDefined();

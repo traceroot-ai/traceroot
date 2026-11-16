@@ -135,8 +135,9 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
 // Layout constants for tree alignment
 export const TREE_LAYOUT = {
   NESTING_INDENT: 22, // Space per nesting level
-  ROW_HEIGHT: 28, // Height of each row (compact)
-  ICON_BOX_SIZE: 18, // Size of icon box
+  ROW_HEIGHT: 32, // Height of each row; equals a table row so list and tree rows line up
+  HEADER_HEIGHT: 32, // Tree/timeline column header, same as a table header row
+  ICON_BOX_SIZE: 20, // Size of icon box
   LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 
@@ -394,12 +395,17 @@ export function summarizeCostDetails(details: Record<string, number> | undefined
 /**
  * Sum each cost_details category across a trace's spans for the trace-level cost
  * popup (mirrors getTraceTokenUsage). Returns null when no span reports a
- * breakdown, so the trace cost chip renders without a popup.
+ * breakdown, or when any span with a positive cost has none (e.g. a
+ * caller-reported cost), so the popup never shows a total that disagrees with the
+ * trace cost; the trace cost chip then renders without a popup. A $0 span without
+ * a breakdown cannot skew the totals, so it does not hide the popup.
  */
 export function getTraceCostBreakdown(trace: TraceDetail): Record<string, number> | null {
-  const spansWithDetails = trace.spans.filter(
-    (s) => s.cost_details && Object.keys(s.cost_details).length > 0,
-  );
+  const hasDetails = (s: Span) => !!s.cost_details && Object.keys(s.cost_details).length > 0;
+  if (trace.spans.some((s) => (s.cost ?? 0) > 0 && !hasDetails(s))) {
+    return null;
+  }
+  const spansWithDetails = trace.spans.filter(hasDetails);
   if (spansWithDetails.length === 0) return null;
   const merged: Record<string, number> = {};
   for (const key of COST_DETAIL_KEYS) {

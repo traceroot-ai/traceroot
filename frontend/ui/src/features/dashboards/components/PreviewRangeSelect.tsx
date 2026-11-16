@@ -21,17 +21,13 @@ export function PreviewRangeSelect({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-[12px]">
+        <Button variant="outline" size="sm" className="h-8 text-[13px]">
           {findRangePreset(rangeId).label}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {RANGE_PRESETS.map((preset) => (
-          <DropdownMenuItem
-            key={preset.id}
-            className="text-[12px]"
-            onClick={() => onRangeChange(preset.id)}
-          >
+          <DropdownMenuItem key={preset.id} onClick={() => onRangeChange(preset.id)}>
             {preset.label}
           </DropdownMenuItem>
         ))}

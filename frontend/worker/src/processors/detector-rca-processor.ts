@@ -56,9 +56,10 @@ export async function resolveProjectModel(
     return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
   }
 
-  // 2. System model: validate against catalog, then use shared resolver
+  // 2. Formerly BYOK-only models must be explicitly selected as system models.
   for (const group of SYSTEM_MODELS) {
-    if (group.models.some((m) => m.id === rcaModel)) {
+    const entry = group.models.find((m) => m.id === rcaModel);
+    if (entry && (!entry.requiresExplicitSource || rcaSource === ModelSource.SYSTEM)) {
       const model = resolvePiModel(rcaModel, null);
       return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
     }

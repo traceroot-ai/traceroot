@@ -52,6 +52,36 @@ afterEach(() => {
 });
 
 describe("GeneralTab workspace delete dialog", () => {
+  it("saves a changed workspace name and disables saving an empty name", async () => {
+    renderTab();
+    const input = screen.getByPlaceholderText("Workspace name");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "  Renamed Workspace  " } });
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(save);
+    await waitFor(() => {
+      expect(mocks.updateWorkspace).toHaveBeenCalledWith("w1", "Renamed Workspace");
+    });
+  });
+
+  it("disables save and shows progress while a workspace rename is pending", async () => {
+    mocks.updateWorkspace.mockReturnValue(new Promise(() => {}));
+    renderTab();
+    fireEvent.change(screen.getByPlaceholderText("Workspace name"), {
+      target: { value: "Renamed Workspace" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Saving..." })).toHaveProperty("disabled", true);
+    });
+    expect(mocks.updateWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it("pressing Enter with the exact workspace name triggers delete", async () => {
     renderTab();
 

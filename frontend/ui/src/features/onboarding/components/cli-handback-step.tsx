@@ -60,7 +60,9 @@ interface CliHandbackStepProps {
  * since the person finishing a self-hosted first run is usually the person who
  * can correct it, and the value is already public: it is inlined into this
  * bundle. Both doors stay, because that is the half of this step which still
- * works.
+ * works. The manual one is not independent of the address, though: its steps
+ * send traces to the API only once `TRACEROOT_HOST_URL` names it, so the line
+ * says that the reader sets it there.
  */
 export function CliHandbackStep({
   projectId,
@@ -83,15 +85,17 @@ export function CliHandbackStep({
                 View the tracing docs
               </SectionLink>
             </div>
-            {/* What the command does, before it is pasted. It printed a command
-                and nothing else: the one thing a reader weighs before handing a
-                CLI their checkout is whether it is going to edit the checkout,
-                and that was the one thing the step did not say. "{projectName} is
-                ready" said nothing the header above had not already said, so this
-                costs no line — it replaces one. */}
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Instruments your repository, writes the API key into it, and waits for the first
-              trace. Run it where {projectName}&apos;s code lives.
+            {/* Only what a reader needs before pasting; what the command does is
+                on the docs page linked above. Where to run it, because pasted in
+                the wrong directory it writes the key where the application never
+                reads it. That it asks before editing their code, which is what
+                decides whether they paste it at all. And the Node floor, because
+                `setup` refuses a Node older than 20.12 while the rest of the CLI
+                runs on 20.3. The traces panel says the last two in the same
+                words. */}
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Run it where {projectName}&apos;s code lives. It asks before editing your code. Needs
+              Node.js 20.12 or later.
             </p>
           </div>
 
@@ -102,14 +106,13 @@ export function CliHandbackStep({
           <p className="text-[13px] font-medium">
             The setup command cannot be shown for this deployment
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {projectName} is ready, but <code className="font-mono">{setup.variable}</code> is set
-            to <code className="font-mono">{setup.value}</code>, which is not an origin the command
-            can be pointed at. Without it the command would send sign-in and your first traces to
-            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
-            value and rebuild the web app, since the value is built into it rather than read at
-            startup; once the rebuilt app is served the command appears here. Until then, &quot;Set
-            up manually&quot; walks through the rest in the browser.
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            <code className="font-mono">{setup.variable}</code> is set to{" "}
+            <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
+            the command would sign you in and send traces to traceroot Cloud instead. Correct that
+            value and rebuild the web app. Meanwhile, &quot;Set up manually&quot; works once you set{" "}
+            <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
+            address.
           </p>
         </div>
       )}

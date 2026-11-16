@@ -88,6 +88,20 @@ describe("what onboarding's manual step asks for", () => {
     expect(keyBlock().dataset.workspace).toBe("ws-1");
   });
 
+  it("says the model key is optional and is not the application's", () => {
+    // The section sits between the stack picker and "Create an API key", with
+    // a field named for the provider, so without this line it reads as a step
+    // in instrumenting the application.
+    renderStep();
+
+    const line = screen.getByText(/^Optional\./);
+    expect(line.textContent).toBe(
+      "Optional. This key is for traceroot's AI assistant and detectors, not for your application, which keeps using its own key.",
+    );
+    expect(isAbove(screen.getByText("Use your own model key"), line)).toBe(true);
+    expect(isAbove(line, keyBlock())).toBe(true);
+  });
+
   it("renders the walkthrough itself rather than a second copy of it", () => {
     // Matched without the step numbers: inserting a step into the walkthrough
     // renumbers the ones below it, and that is not this step's business.
@@ -95,7 +109,7 @@ describe("what onboarding's manual step asks for", () => {
 
     expect(screen.getByText(/Create an API key/)).toBeDefined();
     expect(screen.getByTestId("api-key-block")).toBeDefined();
-    expect(screen.getByText(/Initialize TraceRoot for OpenAI/)).toBeDefined();
+    expect(screen.getByText(/Initialize traceroot for OpenAI/)).toBeDefined();
     expect(screen.getByText(/External integrations/)).toBeDefined();
   });
 
@@ -106,7 +120,7 @@ describe("what onboarding's manual step asks for", () => {
     expect(keyBlock().dataset.adapter).toBe("openai");
 
     pickStack("Anthropic");
-    expect(screen.getByText(/Initialize TraceRoot for Anthropic/)).toBeDefined();
+    expect(screen.getByText(/Initialize traceroot for Anthropic/)).toBeDefined();
     expect(container.textContent).toContain("Integration.ANTHROPIC");
     expect(keyBlock().dataset.kind).toBe("fixed");
     expect(keyBlock().dataset.adapter).toBe("anthropic");
@@ -114,7 +128,7 @@ describe("what onboarding's manual step asks for", () => {
     // A framework that takes any provider: the key field is told so, and told
     // which one the snippet on screen happens to call.
     pickStack("CrewAI");
-    expect(screen.getByText(/Initialize TraceRoot for CrewAI/)).toBeDefined();
+    expect(screen.getByText(/Initialize traceroot for CrewAI/)).toBeDefined();
     expect(keyBlock().dataset.kind).toBe("suggested");
     expect(keyBlock().dataset.adapter).toBe("openai");
   });

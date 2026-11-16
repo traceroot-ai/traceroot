@@ -1,4 +1,4 @@
-# TraceRoot Development Infrastructure
+# traceroot Development Infrastructure
 #
 # Make sure to update the credential placeholders with your own secrets.
 # We mark them with # CHANGEME in the file below.
@@ -138,10 +138,22 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    environment:
+      # The credentials minio starts with; \"...\" below keeps each one a single argument.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-password}
+      # The bucket the API and worker use; they run on the host and read the same .env.
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
+    volumes:
+      # Expires events/ingest/ (7 days) and events/failed/ (30 days); import replaces all rules.
+      - ./docker/minio/lifecycle.json:/bootstrap/lifecycle.json:ro
     entrypoint: >
       /bin/sh -c "
-      mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minio} $${MINIO_ROOT_PASSWORD:-minio-password};
-      mc mb myminio/traceroot --ignore-existing;
+      mc alias set myminio http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"
+      || { echo 'minio-init: could not sign in to MinIO with MINIO_ROOT_USER and MINIO_ROOT_PASSWORD, skipping the bucket setup'; exit 0; };
+      mc mb \"myminio/$$S3_BUCKET_NAME\" --ignore-existing;
+      mc ilm rule import \"myminio/$$S3_BUCKET_NAME\" < /bootstrap/lifecycle.json
+      || echo 'minio-init: could not apply the bucket lifecycle rules';
       exit 0;
       "
 

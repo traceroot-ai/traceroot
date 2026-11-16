@@ -56,14 +56,14 @@ function Plot({ projectId, widgetId, spec, rangeId, bounds }: WidgetChartPreview
   // isPending, not isLoading: while the auth session resolves the query is
   // disabled rather than fetching, and isLoading would leave the card blank.
   if (isPending) {
-    return <div className="p-2 text-[11px] text-muted-foreground">Loading…</div>;
+    return <div className="p-2 text-[12px] text-muted-foreground">Loading…</div>;
   }
   // A failed preview costs the user nothing — the widget itself was created —
   // so it says so in one line and leaves the transcript intact.
   if (error) {
     return (
       <div
-        className="p-2 text-[11px] text-muted-foreground"
+        className="p-2 text-[12px] text-muted-foreground"
         title={error instanceof Error ? error.message : undefined}
       >
         Couldn&apos;t load this preview

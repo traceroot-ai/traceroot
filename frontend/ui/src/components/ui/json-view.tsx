@@ -94,7 +94,7 @@ function TreeNode({
   return (
     <div style={{ paddingLeft: depth * 16 }}>
       <div
-        className="flex cursor-pointer items-center gap-1 rounded py-px hover:bg-muted/50"
+        className="flex cursor-pointer items-center gap-1 rounded py-px hover:bg-muted"
         onClick={() => setCollapsed(!collapsed)}
       >
         {collapsed ? (
@@ -104,7 +104,7 @@ function TreeNode({
         )}
         {keyName !== undefined && <span className="text-muted-foreground">{keyName}</span>}
         {collapsed && (
-          <span className="ml-1 text-[10px] text-muted-foreground/60">{sizeLabel}</span>
+          <span className="ml-1 text-[12px] text-muted-foreground/60">{sizeLabel}</span>
         )}
       </div>
       {!collapsed &&
@@ -169,12 +169,12 @@ export function IOSection({ label, value }: IOSectionProps) {
   };
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-muted/30">
+    <div className="overflow-hidden rounded-[2px] border border-border bg-background hover:bg-muted">
       {/* Section header */}
-      <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           {label}
