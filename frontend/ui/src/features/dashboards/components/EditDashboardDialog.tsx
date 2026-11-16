@@ -56,14 +56,14 @@ export function EditDashboardDialog({
   return (
     <Dialog open={target !== null} onOpenChange={handleOpenChange}>
       <DialogContent>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Edit Dashboard</DialogTitle>
             <DialogDescription>
               Update the name and description of “{target?.name}”.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-3 py-4">
+          <div className="flex flex-col gap-3">
             <Input
               autoFocus
               aria-label="Dashboard name"

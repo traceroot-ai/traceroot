@@ -168,7 +168,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               Create a new API key to authenticate with the traceroot SDK.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <label className="mb-2 block text-sm font-medium">Name (optional)</label>
             <Input
               placeholder="e.g., Production, Development"
@@ -199,7 +199,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             <DialogTitle>Edit Note</DialogTitle>
             <DialogDescription>Update the note for this API key.</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <Input
               placeholder="e.g., Production, Development"
               value={editingKey?.name || ""}
@@ -245,7 +245,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               &quot;.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-2">
+          <div>
             <p className="mb-2 text-sm text-muted-foreground">
               Type{" "}
               <span className="font-mono font-semibold text-foreground">
