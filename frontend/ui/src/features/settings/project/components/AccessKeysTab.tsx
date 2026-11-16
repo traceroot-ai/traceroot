@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
@@ -43,6 +43,7 @@ function formatKeyHint(keyHint: string): string {
 
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
+  const formId = useId();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -169,9 +170,12 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </DialogDescription>
           </DialogHeader>
           <div>
-            <label className="mb-2 block text-sm font-medium">Name (optional)</label>
+            <label htmlFor={`${formId}-key-name`} className="mb-2 block text-sm font-medium">
+              Name (optional)
+            </label>
             <Input
               placeholder="e.g., Production, Development"
+              id={`${formId}-key-name`}
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
@@ -202,6 +206,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <div>
             <Input
               placeholder="e.g., Production, Development"
+              aria-label="Note"
               value={editingKey?.name || ""}
               onChange={(e) =>
                 setEditingKey(editingKey ? { ...editingKey, name: e.target.value } : null)

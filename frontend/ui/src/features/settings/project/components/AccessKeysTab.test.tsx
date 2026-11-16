@@ -97,3 +97,13 @@ it.each(["create", "update", "delete"] as const)(
     expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
   },
 );
+
+it("associates the API key name field with its visible label", () => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Create new API key" }));
+  expect(within(screen.getByRole("dialog")).getByLabelText("Name (optional)")).toBeTruthy();
+});
