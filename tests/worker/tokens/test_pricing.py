@@ -823,10 +823,8 @@ class TestClaudeBedrockAndVertexIds:
             price = get_model_price(model_id)
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
-
-        expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
-            f"{model_id} matched a different family than {expected_name}"
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
         )
 
     @pytest.mark.parametrize(
