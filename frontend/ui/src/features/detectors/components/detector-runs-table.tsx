@@ -11,7 +11,7 @@ interface DetectorRunsTableProps {
   onTraceClick: (run: BackendRun) => void;
   /** Fired when a self-traced run's run_id cell is clicked — opens its self-trace. */
   onRunClick: (run: BackendRun) => void;
-  /** Fired when a run's Agent Run ID cell is clicked — opens the RCA agent trace of its trace. */
+  /** Fired when a run's Agent run ID cell is clicked — opens the RCA agent trace of its trace. */
   onAgentRunClick: (run: BackendRun) => void;
   /** Where a Signal ID cell links: the Signals page with that signal open. */
   signalHref: (signalId: string) => string;
@@ -28,7 +28,7 @@ interface DetectorRunsTableProps {
  */
 function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () => void }) {
   return (
-    <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+    <td className={cn(DETECTOR_TD, "max-w-[9rem] truncate text-muted-foreground")}>
       {onOpen ? (
         <button
           type="button"
@@ -50,7 +50,7 @@ function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () 
 /** A muted dash for an id cell with nothing to show. */
 function EmptyIdCell() {
   return (
-    <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+    <td className={cn(DETECTOR_TD, "max-w-[9rem] truncate text-muted-foreground")}>
       <span className="text-muted-foreground">—</span>
     </td>
   );
@@ -59,9 +59,9 @@ function EmptyIdCell() {
 /**
  * A detector's runs; its findings are the same rows filtered to Identified.
  *
- * Each id cell opens its own id: Judge Run ID the run's self-trace, Trace ID the
+ * Each id cell opens its own id: Judge run ID the run's self-trace, Trace ID the
  * scanned customer trace, Signal ID the signal the hit joined (on the Signals
- * page), Agent Run ID the agent trace of the RCA that analysed this run's own
+ * page), Agent run ID the agent trace of the RCA that analysed this run's own
  * judge output; a run that only joined a signal analysed on another trace
  * shows a dash. Historical or failed-emit runs have no self-trace, so
  * their run_id stays plain text.
@@ -74,14 +74,14 @@ export function DetectorRunsTable({
   signalHref,
 }: DetectorRunsTableProps) {
   return (
-    <table className="w-full">
+    <table className="data-table w-full">
       <thead className="sticky top-0 bg-background">
-        <tr className="border-b border-border bg-muted/50">
+        <tr className="border-b border-border">
           <th className={cn(DETECTOR_TH, "w-[160px]")}>Timestamp</th>
-          <th className={cn(DETECTOR_TH, "w-[280px]")}>Judge Run ID</th>
+          <th className={cn(DETECTOR_TH, "w-[9rem]")}>Judge run ID</th>
           <th className={DETECTOR_TH}>Trace ID</th>
           <th className={DETECTOR_TH}>Signal ID</th>
-          <th className={DETECTOR_TH}>Agent Run ID</th>
+          <th className={DETECTOR_TH}>Agent run ID</th>
           <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
           <th className={DETECTOR_TH}>Summary</th>
           <th className={cn(DETECTOR_TH, "w-[90px] border-r-0")}>Status</th>
@@ -89,10 +89,7 @@ export function DetectorRunsTable({
       </thead>
       <tbody>
         {rows.map((run) => (
-          <tr
-            key={run.run_id}
-            className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
-          >
+          <tr key={run.run_id} className="border-b border-border transition-colors hover:bg-muted">
             <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
               {formatDate(run.timestamp)}
             </td>
@@ -103,7 +100,7 @@ export function DetectorRunsTable({
             />
             <IdCell id={run.trace_id} title={run.trace_id} onOpen={() => onTraceClick(run)} />
             {run.signal_id ? (
-              <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+              <td className={cn(DETECTOR_TD, "max-w-[9rem] truncate text-muted-foreground")}>
                 <Link
                   href={signalHref(run.signal_id)}
                   title={`${run.signal_id} — open the signal`}
@@ -113,7 +110,7 @@ export function DetectorRunsTable({
                 </Link>
               </td>
             ) : run.signal_gave_up ? (
-              <td className={cn(DETECTOR_TD, "whitespace-nowrap text-[11px]")}>
+              <td className={cn(DETECTOR_TD, "whitespace-nowrap text-[12px]")}>
                 <span
                   className="text-muted-foreground"
                   title="Grouping gave up on this hit: the model's answers about it stayed unusable. An admin can replay it."

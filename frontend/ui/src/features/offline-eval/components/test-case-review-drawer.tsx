@@ -102,8 +102,8 @@ export function TestCaseReviewDrawer({
             />
           ) : (
             <div>
-              <p className="mb-1 text-[11px] text-muted-foreground">Input</p>
-              <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
+              <p className="mb-1 text-[12px] text-muted-foreground">Input</p>
+              <div className="rounded border border-border bg-muted px-2.5 py-2 leading-relaxed">
                 <span className="text-muted-foreground">—</span>
               </div>
             </div>
@@ -122,8 +122,8 @@ export function TestCaseReviewDrawer({
             />
           ) : (
             <div>
-              <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
-              <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
+              <p className="mb-1 text-[12px] text-muted-foreground">Expected outcome</p>
+              <div className="rounded border border-border bg-muted px-2.5 py-2 leading-relaxed">
                 <span className="text-muted-foreground">
                   Not required — a scorer judges the output directly.
                 </span>
@@ -166,7 +166,7 @@ export function TestCaseReviewDrawer({
               placeholder={target.expected ?? "e.g. billing"}
               className="h-7 text-[12px]"
             />
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
+            <p className="mt-1.5 text-[12px] text-muted-foreground">
               Changing this publishes a new dataset version — it changes what future runs are
               evaluated against.
             </p>
@@ -174,7 +174,7 @@ export function TestCaseReviewDrawer({
         </DrawerBody>
 
         <DrawerFooter>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             Ready is advisory — it never blocks the case from an evaluation.
           </span>
           <span className="flex gap-2">

@@ -153,7 +153,7 @@ function Gutter({ count }: { count: number }) {
   return (
     <div
       aria-hidden
-      className="select-none border-r border-border bg-muted/40 px-2 py-1.5 text-right font-mono text-[12px] leading-relaxed text-muted-foreground/50"
+      className="select-none border-r border-border bg-muted px-2 py-1.5 text-right font-mono text-[12px] leading-relaxed text-muted-foreground/50"
     >
       {Array.from({ length: count }, (_, i) => (
         <div key={i}>{i + 1}</div>
@@ -198,7 +198,7 @@ export function LineNumberedTextarea({
   collapsed = false,
   collapseAt = 500,
   onExpand,
-  fontClassName = "text-[11px] leading-[18px]",
+  fontClassName = "text-[12px] leading-[18px]",
   "aria-label": ariaLabel,
 }: {
   value: string;
@@ -265,11 +265,16 @@ export function LineNumberedTextarea({
         <div
           aria-hidden={!isCollapsed}
           className={cn("pb-2 pt-1.5", !isCollapsed && "pointer-events-none")}
+          // The gutter column is painted on the whole layer, so the strip and its rule
+          // run the full height of the editor, not just the numbered lines.
+          style={{
+            backgroundImage: `linear-gradient(to right, hsl(var(--muted)) calc(${gutterWidth} - 1px), hsl(var(--border)) calc(${gutterWidth} - 1px), hsl(var(--border)) ${gutterWidth}, transparent ${gutterWidth})`,
+          }}
         >
           {Array.from({ length: totalLines }).map((_, i) => (
             <div key={i} className="flex items-start">
               <span
-                className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
+                className="shrink-0 select-none border-r border-border bg-muted px-2 text-right text-muted-foreground/50"
                 style={{ width: gutterWidth }}
               >
                 {i + 1}
@@ -291,7 +296,7 @@ export function LineNumberedTextarea({
             <div className="flex items-start">
               <span
                 aria-hidden
-                className="shrink-0 select-none border-r border-border bg-muted/40 px-2 pt-2 text-right text-muted-foreground/50"
+                className="shrink-0 select-none border-r border-border bg-muted px-2 pt-2 text-right text-muted-foreground/50"
                 style={{ width: gutterWidth }}
               >
                 {"​"}
@@ -357,7 +362,7 @@ export function LineNumberedTextarea({
 function CodeView({ text }: { text: string }) {
   const lines = text === "" ? 1 : text.split("\n").length;
   return (
-    <div className="flex overflow-x-auto rounded border border-border bg-muted/20">
+    <div className="flex overflow-x-auto rounded border border-border bg-muted">
       <Gutter count={lines} />
       <pre className="flex-1 whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[12px] leading-relaxed">
         {text}
@@ -385,12 +390,12 @@ export function ValueBlock({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+        <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {KIND_LABEL[kind]}
               <ChevronDown className="h-3 w-3" aria-hidden />
@@ -406,8 +411,8 @@ export function ValueBlock({
                   setMenuOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
-                  k === kind ? "bg-muted/70" : "hover:bg-muted/50",
+                  "flex h-7 w-full items-center rounded-[2px] px-2 text-left text-[13px] transition-colors",
+                  k === kind ? "bg-accent" : "hover:bg-muted",
                 )}
               >
                 {KIND_LABEL[k]}
@@ -630,7 +635,7 @@ export function EditableValueBlock({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {KIND_LABEL[kind]}
               <ChevronDown className="h-3 w-3" aria-hidden />
@@ -643,8 +648,8 @@ export function EditableValueBlock({
                 type="button"
                 onClick={() => changeKind(k)}
                 className={cn(
-                  "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
-                  k === kind ? "bg-muted/70" : "hover:bg-muted/50",
+                  "flex h-7 w-full items-center rounded-[2px] px-2 text-left text-[13px] transition-colors",
+                  k === kind ? "bg-accent" : "hover:bg-muted",
                 )}
               >
                 {KIND_LABEL[k]}
@@ -686,7 +691,7 @@ export function EditableValueBlock({
               <button
                 type="button"
                 onClick={() => setFieldExpanded(true)}
-                className="mt-2 cursor-pointer text-[11px] text-muted-foreground hover:text-foreground"
+                className="mt-2 cursor-pointer text-[12px] text-muted-foreground hover:text-foreground"
               >
                 …expand ({(collapseValue.length - COLLAPSE_AT).toLocaleString()} more characters)
               </button>
@@ -696,7 +701,7 @@ export function EditableValueBlock({
           )}
         </div>
         {!readOnly && (
-          <p className="mt-1 text-[10px] text-muted-foreground">
+          <p className="mt-1 text-[12px] text-muted-foreground">
             Preview — switch to Text to edit.
           </p>
         )}
@@ -729,7 +734,7 @@ export function EditableValueBlock({
         // variant keeps its lighter form-label look.
         size === "sm"
           ? "text-xs text-foreground"
-          : "text-[11px] text-muted-foreground hover:text-foreground",
+          : "text-[12px] text-muted-foreground hover:text-foreground",
       )}
     >
       {open ? (
@@ -756,12 +761,17 @@ export function EditableValueBlock({
       // the `overflow-hidden` below sets the flex item's automatic min-size to 0 —
       // so without it the flex column shrinks the field to fit and clips its
       // content instead of letting the pane scroll.
-      <div className="shrink-0 overflow-hidden rounded-md border border-border">
-        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-2.5 py-1.5">
+      <div className="shrink-0 overflow-hidden rounded-[2px] border border-border focus-within:border-ring">
+        <div className="flex h-9 items-center justify-between gap-2 border-b border-border px-4">
           {heading("sm")}
           {controls}
         </div>
-        {open && <div className="bg-background px-2.5 py-2">{field}</div>}
+        {/* One border per field: the editor's own is dropped inside the section card. */}
+        {open && (
+          <div className="bg-background [&_.border-input]:rounded-none [&_.border-input]:border-0">
+            {field}
+          </div>
+        )}
       </div>
     );
   }

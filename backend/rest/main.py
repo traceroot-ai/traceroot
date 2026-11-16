@@ -62,8 +62,8 @@ from rest.security_headers import SecurityHeadersMiddleware
 from shared.config import settings
 
 app = FastAPI(
-    title="TraceRoot API",
-    description="Open source AI agent improvement platform. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.",
+    title="traceroot API",
+    description="traceroot: the open-source platform that continuously improves your ai agents.",
     version="0.1.0",
 )
 

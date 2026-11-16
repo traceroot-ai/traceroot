@@ -8,12 +8,12 @@ Two questions this file answers:
    reaches it (defense-in-depth characterization)?
 
 The wire-level protection is layered: the public route requires an API key
-(project is bound from the key, never the payload), demands
-``application/x-protobuf``, and runs ``ParseFromString`` + ``MessageToDict``.
-Protobuf's schema is therefore the first gate — a customer cannot produce a
-structurally malformed attribute dict, because the proto type system rejects
-it before the transform ever runs. These tests pin both the gate and the
-transform's own behavior on decoded input.
+(project is bound from the key, never the payload) and demands
+``application/x-protobuf``, and the ingest worker runs ``ParseFromString`` +
+``MessageToDict`` on the staged body. Protobuf's schema is therefore the first
+gate — a customer cannot produce a structurally malformed attribute dict,
+because the proto type system rejects it before the transform ever runs. These
+tests pin both the gate and the transform's own behavior on decoded input.
 """
 
 import pytest
@@ -22,13 +22,13 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 
-from rest.routers.public.traces import decode_otlp_protobuf
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     attributes_to_dict,
     extract_attribute_value,
     transform_otel_to_clickhouse,
 )
+from worker.staged_batch import decode_otlp_protobuf
 
 TRACE_HEX = "abcdef0123456789abcdef0123456789"
 SPAN_HEX = "1122334455667788"

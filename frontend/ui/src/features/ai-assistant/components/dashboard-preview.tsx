@@ -34,12 +34,11 @@ const WidgetBody = dynamic(
   { ssr: false },
 );
 
-// react-grid-layout's defaults, which the dashboard grid leaves in place: ten
-// pixels between tiles, and the same ten around the grid (its container
-// padding falls back to the margin). Each formula below is the library's own
+// The dashboard grid's geometry (DashboardGrid): sixteen pixels between tiles,
+// and the same sixteen around the grid. Each formula below is the library's own
 // item and container arithmetic; at the reference width every value is a
 // whole pixel, so its rounding never bites.
-const MARGIN = 10;
+const MARGIN = 16;
 
 /** The container width at which the grid's columns come out at the reference width. */
 export const REFERENCE_WIDTH = COLS * REFERENCE_COL_WIDTH + (COLS - 1) * MARGIN + 2 * MARGIN;
@@ -164,7 +163,7 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
             </div>
             <div className="min-h-0 flex-1">
               {tile.notice !== undefined && (
-                <p className="text-[11px] text-muted-foreground">{tile.notice}</p>
+                <p className="text-[12px] text-muted-foreground">{tile.notice}</p>
               )}
               {range !== null && tile.widget !== null && (
                 <WidgetBody

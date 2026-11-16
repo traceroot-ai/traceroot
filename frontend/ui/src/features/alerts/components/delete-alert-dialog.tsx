@@ -43,7 +43,7 @@ export function DeleteAlertDialog({
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-w-[420px] gap-3">
         <DialogHeader>
-          <DialogTitle className="text-[13px] font-semibold">Delete alert</DialogTitle>
+          <DialogTitle>Delete alert</DialogTitle>
           <DialogDescription className="text-[12px]">
             Permanently delete <span className="font-medium text-foreground">{alertName}</span>?
             Evaluation and notifications stop immediately, and its recorded state is removed. This

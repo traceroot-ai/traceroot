@@ -20,7 +20,7 @@ describe("buildTemplateDetectorInput", () => {
   it("builds the defaults the new-detector form starts from", () => {
     const failure = getTemplate("failure")!;
     expect(buildTemplateDetectorInput(failure)).toEqual({
-      name: "Failure Detector",
+      name: "Failure detector",
       template: "failure",
       prompt: failure.prompt,
       outputSchema: failure.outputSchema,
@@ -33,6 +33,6 @@ describe("buildTemplateDetectorInput", () => {
 
   it("derives the name from the template label", () => {
     const safety = getTemplate("safety")!;
-    expect(buildTemplateDetectorInput(safety).name).toBe("Safety Detector");
+    expect(buildTemplateDetectorInput(safety).name).toBe("Safety detector");
   });
 });

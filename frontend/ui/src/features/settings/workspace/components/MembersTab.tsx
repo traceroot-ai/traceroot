@@ -116,10 +116,12 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Members</h2>
-          <p className="text-sm text-muted-foreground">Manage workspace members and invitations</p>
+      <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 className="text-[15px] font-medium">Members</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Manage workspace members and invitations
+          </p>
         </div>
         {canManageMembers && (
           <AddButton onClick={() => setShowInviteMember(true)}>Invite member</AddButton>
@@ -213,12 +215,12 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
 
       {!invitesLoading && invites.length > 0 && (
         <div className="border">
-          <div className="border-b bg-muted/30 px-4 py-3">
-            <h3 className="text-sm font-medium">Pending Invitations</h3>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <h3 className="text-[13px] font-medium">Pending Invitations</h3>
           </div>
-          <table className="w-full text-sm">
+          <table className="data-table w-full">
             <thead>
-              <tr className="border-b bg-muted/10 text-left">
+              <tr className="border-b text-left">
                 <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Invited By</th>
@@ -229,7 +231,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </thead>
             <tbody>
               {invites.map((invite: Invite) => (
-                <tr key={invite.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                <tr key={invite.id} className="border-b last:border-b-0 hover:bg-muted">
                   <td className="px-4 py-2">{invite.email}</td>
                   <td className="px-4 py-2">
                     {invite.role.charAt(0) + invite.role.slice(1).toLowerCase()}
@@ -253,17 +255,17 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
       )}
 
       <div className="border">
-        <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Members</h3>
+        <div className="flex h-9 items-center border-b border-border px-4">
+          <h3 className="text-[13px] font-medium">Members</h3>
         </div>
         {membersLoading ? (
           <div className="px-4 py-4 text-sm text-muted-foreground">Loading members...</div>
         ) : members.length === 0 ? (
           <div className="px-4 py-4 text-sm text-muted-foreground">No members found.</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="data-table w-full">
             <thead>
-              <tr className="border-b bg-muted/10 text-left">
+              <tr className="border-b text-left">
                 <th className="px-4 py-2 font-medium text-muted-foreground">Name</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
@@ -274,7 +276,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </thead>
             <tbody>
               {members.map((member: Member) => (
-                <tr key={member.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                <tr key={member.id} className="border-b last:border-b-0 hover:bg-muted">
                   <td className="px-4 py-2">
                     {member.name || <span className="text-muted-foreground">-</span>}
                   </td>

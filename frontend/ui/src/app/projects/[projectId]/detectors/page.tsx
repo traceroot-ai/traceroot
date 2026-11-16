@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -68,6 +69,10 @@ function CountLink({ href, label, value }: { href: string; label: string; value:
     </Link>
   );
 }
+
+/** "failure" / "FAILURE" -> "Failure". */
+const capitalizeLabel = (label: string) =>
+  label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
 
 export default function DetectorsPage() {
   const params = useParams();
@@ -182,16 +187,14 @@ export default function DetectorsPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Detectors</h1>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-          >
-            New Detector
-          </Button>
-        </div>
+        <PageHeader
+          title="Detectors"
+          actions={
+            <Button size="sm" onClick={() => router.push(`/projects/${projectId}/detectors/new`)}>
+              New detector
+            </Button>
+          }
+        />
 
         {/* Search / time-range filter */}
         <SearchFilterBar
@@ -229,7 +232,7 @@ export default function DetectorsPage() {
                 className="mt-1 h-7 text-[12px]"
                 onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
               >
-                New Detector
+                New detector
               </Button>
             </div>
           ) : isEmptySearch ? (
@@ -247,41 +250,41 @@ export default function DetectorsPage() {
               </Button>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="data-table w-full">
               <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Name
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[8rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Template
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[8rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Model
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[6.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Sampling
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Judge Runs
+                  <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Judge runs
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
                     Signals
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Agent Runs
+                  <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Agent runs
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Created At
+                  <th className="w-[11.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                    Created at
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Updated At
+                  <th className="hidden w-[11.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground 2xl:table-cell">
+                    Updated at
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Detector ID
                   </th>
-                  <th className="w-[56px] px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Actions
+                  <th className="col-sticky-end-head w-[56px] whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
@@ -294,7 +297,7 @@ export default function DetectorsPage() {
                   const agentRunCount = c?.agent_run_count ?? 0;
                   const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
-                    "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                    "border-r border-border px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
                   const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
                   // Judge runs open the detector page; signals open the
                   // Signals page narrowed to this detector.
@@ -312,21 +315,22 @@ export default function DetectorsPage() {
                       onClick={() =>
                         router.push(buildUrl(`/projects/${projectId}/detectors/${detector.id}`))
                       }
+                      data-selected={selectedDetectorId === detector.id ? "true" : undefined}
                       className={cn(
-                        "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                        selectedDetectorId === detector.id ? "bg-muted" : "hover:bg-muted/50",
+                        "cursor-pointer border-b border-border transition-colors",
+                        selectedDetectorId === detector.id ? "bg-accent" : "hover:bg-muted",
                       )}
                     >
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-foreground">
                         {detector.name}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {template?.label ?? detector.template}
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+                        {capitalizeLabel(template?.label ?? detector.template)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                         {modelLabel}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
                       </td>
                       <td className={countClass}>
@@ -349,16 +353,16 @@ export default function DetectorsPage() {
                       >
                         {counts ? agentRunCount : "—"}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="hidden whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground 2xl:table-cell">
                         {formatDate(detector.updateTime)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                      <td className="max-w-[10rem] truncate whitespace-nowrap border-r border-border px-3 py-1.5 font-mono text-[12px] text-muted-foreground">
                         {detector.id}
                       </td>
-                      <td className="px-2 text-right">
+                      <td className="col-sticky-end px-2 text-right">
                         <Popover
                           open={actionsOpen === detector.id}
                           onOpenChange={(open) => setActionsOpen(open ? detector.id : null)}
@@ -367,7 +371,7 @@ export default function DetectorsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-5 w-6 p-0 text-muted-foreground hover:text-foreground"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <MoreHorizontal className="h-3.5 w-3.5" />
@@ -375,7 +379,7 @@ export default function DetectorsPage() {
                           </PopoverTrigger>
                           <PopoverContent align="end" className="w-36 p-1">
                             <button
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-muted/60"
+                              className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] hover:bg-muted"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openPanel(detector.id);
@@ -386,7 +390,7 @@ export default function DetectorsPage() {
                               Edit
                             </button>
                             <button
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
+                              className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive hover:bg-destructive/10"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setDeleteTarget({ id: detector.id, name: detector.name });

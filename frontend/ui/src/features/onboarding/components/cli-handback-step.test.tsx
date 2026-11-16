@@ -71,7 +71,7 @@ describe("CliHandbackStep", () => {
     // `--project` answers "which project?" from memory, and a wrong answer
     // sends their first traces somewhere they will not look.
     const command = container.querySelector("pre")?.textContent ?? "";
-    expect(command).toContain("npx -y traceroot-cli@0.6.0 setup");
+    expect(command).toContain("npx -y traceroot-cli@0.6.1 setup");
     expect(command).toContain("--project proj-1");
   });
 
@@ -114,22 +114,40 @@ describe("CliHandbackStep", () => {
     expect(isAbove(screen.getByText(/code lives/), container.querySelector("pre")!)).toBe(true);
   });
 
-  it("says what the command does, and where it has to be run", () => {
+  it("says where to run the command and that it asks before editing", () => {
     // Two facts a reader cannot get from a command they have not run. That it
-    // edits their repository is the one that decides whether they paste it at
-    // all, and the step used to print the command without saying it. That it
-    // runs against their checkout rather than in the dashboard's
-    // terminal-shaped box is the other: pasted in the wrong directory it
-    // writes a key somewhere the application will never read it.
+    // asks before editing their code is the one that decides whether they
+    // paste it at all. That it runs against their checkout rather than in the
+    // dashboard's terminal-shaped box is the other: pasted in the wrong
+    // directory it writes a key somewhere the application will never read it.
+    // What it does is on the docs page, so the line stops there.
     renderStep();
 
-    const line = screen.getByText(/Instruments your repository/);
-    expect(line.textContent).toContain("writes the API key into it");
-    expect(line.textContent).toContain("waits for the first trace");
-    expect(line.textContent).toContain("Run it where my-llm-project's code lives");
+    expect(screen.getByText(/code lives/).textContent).toBe(
+      "Run it where my-llm-project's code lives. It asks before editing your code. Needs Node.js 20.12 or later.",
+    );
     expect(screen.getByRole("link", { name: "View the tracing docs" }).getAttribute("href")).toBe(
       "https://traceroot.ai/docs/tracing/get-started",
     );
+  });
+
+  it("promises neither a coding agent nor a wait for the first trace", () => {
+    // Setup asks how to instrument: run an agent, write the task for the
+    // reader's own agent, or print the steps. On a hand-over it changes no
+    // code, so only the agent route waits for the first trace.
+    const { container } = renderStep();
+    const text = container.textContent ?? "";
+
+    expect(text).not.toContain("coding agent");
+    expect(text).not.toContain("waits for the first trace");
+  });
+
+  it("names the Node version setup needs", () => {
+    // `setup` refuses a Node older than 20.12, though the rest of the CLI runs
+    // on 20.3, so a working CLI is no sign this command will start.
+    renderStep();
+
+    expect(screen.getByText(/code lives/).textContent).toContain("Needs Node.js 20.12 or later.");
   });
 
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {
@@ -157,6 +175,11 @@ describe("CliHandbackStep", () => {
 
     expect(text).toContain("NEXT_PUBLIC_API_URL");
     expect(text).toContain("http://:8000");
+    // The manual door needs this deployment's API address as well, so the line
+    // that offers it says the reader sets it there.
+    expect(text).toContain(
+      '"Set up manually" works once you set TRACEROOT_HOST_URL to this deployment\'s API address.',
+    );
     // The doors out of the step are the half of it that still works.
     expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
@@ -174,7 +197,7 @@ describe("CliHandbackStep", () => {
     // The whole line, not a prefix of it: on Cloud the unflagged command is the
     // correct one, so a stray `--host` here would be the error in reverse.
     expect(container.querySelector("pre")?.textContent).toBe(
-      "npx -y traceroot-cli@0.6.0 setup --project proj-1",
+      "npx -y traceroot-cli@0.6.1 setup --project proj-1",
     );
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
   });

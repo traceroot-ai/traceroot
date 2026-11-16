@@ -778,5 +778,6 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
     # Step 6 — Layer-3 post-rewrite verification (AST-based, fail closed).
     _verify_rewritten_ast(rewritten, cte_aliases, param_value)
 
-    # Step 7 — render.
-    return rewritten.sql(dialect="clickhouse"), bind_map
+    # Step 7 — render. Comments are not part of the tree the checks above
+    # verified, so none is rendered: ClickHouse runs only what was checked.
+    return rewritten.sql(dialect="clickhouse", comments=False), bind_map

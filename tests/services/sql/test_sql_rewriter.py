@@ -51,6 +51,45 @@ def _has_placeholder(sql: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Comments are not part of the rendered query. The checks above run on the
+# parsed tree, and a comment isn't in that tree, so ClickHouse must receive
+# exactly the query without them.
+# ---------------------------------------------------------------------------
+class TestCommentsAreNotRendered:
+    @pytest.mark.parametrize(
+        ("query", "without_comments"),
+        [
+            ("-- note\nSELECT 1", "SELECT 1"),
+            ("/* note */ SELECT 1", "SELECT 1"),
+            ("SELECT 1 -- note\n", "SELECT 1"),
+            ("SELECT 1 /* note */", "SELECT 1"),
+            (
+                "SELECT count() /* a */ FROM spans -- b\nWHERE 1 = 1",
+                "SELECT count() FROM spans WHERE 1 = 1",
+            ),
+        ],
+    )
+    def test_a_query_renders_as_it_would_without_its_comments(
+        self, query: str, without_comments: str
+    ) -> None:
+        rendered, binds = scope_and_render(query, PID)
+        assert (rendered, binds) == scope_and_render(without_comments, PID)
+        assert "note" not in rendered
+        assert "--" not in rendered
+        assert "/*" not in rendered
+
+    def test_the_query_after_a_comment_is_still_scoped(self) -> None:
+        rendered, binds = scope_and_render("-- note\nSELECT count() FROM spans", PID)
+        assert "note" not in rendered
+        assert "spans_public_v1(" in rendered
+        assert binds == {"scope_project_id": PID}
+
+    def test_comment_markers_inside_a_string_are_kept(self) -> None:
+        rendered, _ = scope_and_render("SELECT '-- a /* b */' AS a", PID)
+        assert rendered == "SELECT '-- a /* b */' AS a"
+
+
+# ---------------------------------------------------------------------------
 # 1.  Simple single-table rewrite — bound-parameter path
 # ---------------------------------------------------------------------------
 class TestSimpleRewrite:
@@ -123,6 +162,17 @@ class TestUnaliasedTableKeepsDefaultAlias:
     def test_traces_keeps_as_traces(self) -> None:
         rendered, _ = scope_and_render("SELECT count() FROM traces", PID)
         assert "AS traces" in rendered
+
+    def test_a_mixed_case_table_is_aliased_canonically(self) -> None:
+        # Layer 1 matches a table name case-insensitively, so a mixed-case name
+        # reaches here and rewrites like any other. The caller's spelling does
+        # not survive: the default alias is the canonical name, which is what
+        # makes the unqualified columns of the projection resolve on a server
+        # whose identifiers are case-sensitive.
+        rendered, _ = scope_and_render("SELECT span_id FROM SPANS", PID)
+        assert "spans_public_v1" in rendered
+        assert "AS spans" in rendered
+        assert "SPANS" not in rendered
 
 
 # ---------------------------------------------------------------------------
