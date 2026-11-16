@@ -177,15 +177,15 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
           </div>
+          {createMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {createMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
             </Button>
-            {createMutation.error instanceof ImpersonationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {createMutation.error.message}
-              </p>
-            )}
             <Button onClick={handleCreate} disabled={createMutation.isPending}>
               {createMutation.isPending ? "Creating..." : "Create"}
             </Button>
@@ -209,15 +209,15 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onKeyDown={(e) => e.key === "Enter" && handleSaveNote()}
             />
           </div>
+          {updateMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {updateMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingKey(null)}>
               Cancel
             </Button>
-            {updateMutation.error instanceof ImpersonationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {updateMutation.error.message}
-              </p>
-            )}
             <Button onClick={handleSaveNote} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "Saving..." : "Save"}
             </Button>
@@ -260,6 +260,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               className="h-8 text-[13px]"
             />
           </div>
+          {deleteMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setKeyToDelete(null)}>
               Cancel
@@ -277,11 +282,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete API Key"}
             </Button>
-            {deleteMutation.error instanceof ImpersonationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {deleteMutation.error.message}
-              </p>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
