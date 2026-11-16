@@ -570,7 +570,10 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             _get_trace_summaries(
                 project_id,
                 root_traces,
-                include_trace_metadata=_has_metadata_condition(detectors),
+                # Enqueue reads only the customer-traffic gate and is_evaluation from
+                # the summary; metadata conditions are judged later on the settled
+                # trace, so the traces-table read is never needed here.
+                include_trace_metadata=False,
             )
             if detectors
             else {}

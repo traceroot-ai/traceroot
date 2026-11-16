@@ -282,6 +282,24 @@ class TestTriggerConditionsOnSettledTrace:
         assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-meta"]) == ["d-meta"]
         assert flags == [False, True]
 
+    def test_enqueue_never_reads_trace_metadata(self, fake_redis, mock_add_job, monkeypatch):
+        """Enqueue no longer judges conditions, so even a metadata condition must not
+        cost it the traces-table read; the settled check makes that read instead."""
+        flags = []
+
+        def summaries(project_id, trace_ids, *, include_trace_metadata=True):
+            flags.append(include_trace_metadata)
+            return {TRACE: {}}
+
+        on_metadata = [{"field": "metadata", "key": "tier", "op": "=", "value": "gold"}]
+        _patch_detectors(monkeypatch, [_detector("d-meta", conditions=on_metadata)])
+        monkeypatch.setattr(dt, "_get_trace_summaries", summaries)
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        assert flags == [False]
+        mock_add_job.assert_called_once()
+
     def test_empty_detector_list_reads_nothing(self, monkeypatch):
         boom = MagicMock(side_effect=AssertionError("must not be called"))
         monkeypatch.setattr(dt, "_get_active_detectors", boom)
