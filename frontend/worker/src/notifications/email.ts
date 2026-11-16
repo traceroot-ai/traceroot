@@ -113,7 +113,9 @@ export async function sendDigestAlertEmail(params: {
 
   // One table row per detector: name (links to its findings) with the latest
   // trace underneath, and the finding count right-aligned so the list scans
-  // like a table. Rows are separated by hairlines rather than boxed.
+  // like a table. Rows are separated by hairlines rather than boxed. On narrow
+  // screens, names like "hallucination_detector" break after an underscore
+  // (<wbr>) and the count may wrap under itself, leaving the name its width.
   const htmlRows = shown
     .map((e, i) => {
       const findingNoun = e.findingCount === 1 ? "finding" : "findings";
@@ -124,14 +126,14 @@ export async function sendDigestAlertEmail(params: {
         : "";
       const rule = i === 0 ? "" : `border-top: 1px solid ${C.border};`;
       return `<tr>
-              <td style="padding: 12px 16px; ${rule} font-size: 14px; line-height: 1.5;"><a href="${findingsUrlFor(e.detectorId)}" style="color: ${C.ink}; font-weight: 600; text-decoration: none;">${escapeHtml(e.detectorName)}</a>${latest}</td>
-              <td align="right" style="padding: 12px 16px; ${rule} white-space: nowrap; vertical-align: top; font-size: 14px; line-height: 1.5;"><strong style="color: ${C.ink};">${e.findingCount}</strong> <span style="color: ${C.muted};">${findingNoun}</span></td>
+              <td style="padding: 12px 8px 12px 12px; ${rule} font-size: 14px; line-height: 1.5;"><a href="${findingsUrlFor(e.detectorId)}" style="color: ${C.ink}; font-weight: 600; text-decoration: none;">${escapeHtml(e.detectorName).replace(/_/g, "_<wbr>")}</a>${latest}</td>
+              <td align="right" style="padding: 12px 12px 12px 4px; ${rule} vertical-align: top; word-break: normal; overflow-wrap: normal; font-size: 14px; line-height: 1.5;"><strong style="color: ${C.ink};">${e.findingCount}</strong> <span style="color: ${C.muted};">${findingNoun}</span></td>
             </tr>`;
     })
     .concat(
       omitted > 0
         ? [
-            `<tr><td colspan="2" style="padding: 12px 16px; border-top: 1px solid ${C.border}; color: ${C.muted}; font-size: 13px;">+${omitted} more detector${omitted === 1 ? "" : "s"}</td></tr>`,
+            `<tr><td colspan="2" style="padding: 12px; border-top: 1px solid ${C.border}; color: ${C.muted}; font-size: 13px;">+${omitted} more detector${omitted === 1 ? "" : "s"}</td></tr>`,
           ]
         : [],
     )
