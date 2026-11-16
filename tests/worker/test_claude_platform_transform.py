@@ -130,6 +130,25 @@ class TestClaudePlatformSpanKind:
         _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "p-1")
         assert len(spans) == 0
 
+    def test_console_verification_test_span(self):
+        """Claude Console 'Test' destination button emits an anthropic.test span."""
+        trace_hex = "28" * 16
+        span_hex = "17" * 8
+        span = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.test",
+            attributes=[
+                make_attr("test", True),
+            ],
+        )
+        payload = make_otel_payload([span], scope_name="com.anthropic.claude-platform")
+        traces, spans = transform_otel_to_clickhouse(payload, "p-1")
+        assert len(traces) == 1
+        assert len(spans) == 1
+        assert spans[0]["name"] == "anthropic.test"
+        assert spans[0]["span_kind"] == SpanKind.SPAN
+
 
 class TestClaudePlatformSessionId:
     def test_anthropic_session_id_extracted(self):
