@@ -71,7 +71,9 @@ TinyFish bills remote browsers by the minute and returns no price, so you estima
     @observe(name="tinyfish_open_page", type="tool")
     def browse(url: str):
         start = time.monotonic()
-        session = httpx.post(API, headers=HEADERS, json={"url": url}, timeout=60).json()
+        response = httpx.post(API, headers=HEADERS, json={"url": url}, timeout=60)
+        response.raise_for_status()
+        session = response.json()
         try:
             ...  # drive the browser through session["cdp_url"]
         finally:
@@ -91,7 +93,9 @@ TinyFish bills remote browsers by the minute and returns no price, so you estima
     async function browse(url: string) {
       return observe({ name: 'tinyfish_open_page', type: 'tool' }, async (u: string) => {
         const start = performance.now();
-        const session = await (await fetch(API, { method: 'POST', headers, body: JSON.stringify({ url: u }) })).json();
+        const created = await fetch(API, { method: 'POST', headers, body: JSON.stringify({ url: u }) });
+        if (!created.ok) throw new Error(`TinyFish session failed: ${created.status}`);
+        const session = await created.json();
         try {
           // drive the browser through session.cdp_url
         } finally {
