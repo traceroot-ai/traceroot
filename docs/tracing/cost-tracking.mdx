@@ -197,7 +197,7 @@ A paid tool or API call takes a cost the same way, with no model or token usage 
 | [Price in the response](#price-in-the-response) | The price from the response | [Exa](/integrations/exa) |
 | [Fixed price per call](#fixed-price-per-call) | Your price per call | [PredictLeads](/integrations/predictleads) |
 | [Credits or quota](#credits-or-quota) | Credits used × your price per credit | [Tavily](/integrations/tavily) |
-| [Time used](#time-used) | Minutes used × your price per minute | [TinyFish](/integrations/tinyfish) |
+| [Time used](#time-used) | Time used × your price per minute or hour | [TinyFish](/integrations/tinyfish), [Notte](/integrations/notte) |
 
 #### Price in the response
 
@@ -215,4 +215,4 @@ Some providers bill in credits, and a credit's dollar price depends on your plan
 
 #### Time used
 
-Some tools bill by time, such as a remote browser billed per minute. Time the session and multiply by your price per minute, and report it in a `finally` block so a failed session is still billed. This is an estimate: the provider bills from its own usage records, which can run a little longer. [TinyFish](/integrations/tinyfish) browser sessions work this way.
+Some tools bill by time, such as a remote browser billed per minute or per hour. Time the session and multiply by your rate, and report it in a `finally` block so a failed session is still billed. This is an estimate: the provider bills from its own usage records, which can run a little longer. [TinyFish](/integrations/tinyfish) and [Notte](/integrations/notte) browser sessions both work this way.
