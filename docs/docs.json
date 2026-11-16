@@ -239,6 +239,15 @@
             ]
           },
           {
+            "group": "Tools and APIs",
+            "pages": [
+              "integrations/exa",
+              "integrations/predictleads",
+              "integrations/tavily",
+              "integrations/tinyfish"
+            ]
+          },
+          {
             "group": "Internal Model Providers",
             "pages": [
               "integrations/internal-models"
