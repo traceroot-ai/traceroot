@@ -39,6 +39,34 @@ async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Pro
   return body.time_since_last_span_ms;
 }
 
+/**
+ * Returns the subset of `detectorIds` whose trigger conditions the settled
+ * trace meets. Conditions are evaluated by the backend (the one evaluator,
+ * `select_triggered_detectors` in detector_tasks.py) so the worker never
+ * re-implements trigger semantics.
+ */
+async function fetchTriggeredDetectorIds(
+  projectId: string,
+  traceId: string,
+  detectorIds: string[],
+): Promise<string[]> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/triggered-detectors`,
+    {
+      method: "POST",
+      headers: { "X-Internal-Secret": INTERNAL_API_SECRET, "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId, detectorIds }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch triggered detectors for trace ${traceId}: HTTP ${response.status}`,
+    );
+  }
+  const body = (await response.json()) as { detectorIds: string[] };
+  return body.detectorIds;
+}
+
 /** Hash a string to 32 lowercase hex chars (first 128 bits of sha256). */
 function hash32(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 32);
@@ -530,7 +558,16 @@ export async function handleDetectorRunJob(
   const timeSinceLastSpanMs = await fetchTimeSinceLastSpanMs(projectId, traceId);
 
   if (timeSinceLastSpanMs >= EVALUATOR_DELAY) {
-    await processTrace(traceId, projectId, detectorIds);
+    // Trigger conditions are judged now, on the settled trace, not at enqueue:
+    // the job was enqueued from the root span's batch, which may predate the
+    // spans that carry the trace's cost, errors and tokens. Same retry policy
+    // as above on failure.
+    const triggeredIds = await fetchTriggeredDetectorIds(projectId, traceId, detectorIds);
+    if (triggeredIds.length === 0) {
+      console.log(`[Detector] No trigger conditions met for settled trace ${traceId}`);
+      return;
+    }
+    await processTrace(traceId, projectId, triggeredIds);
     return;
   }
 

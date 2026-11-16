@@ -75,13 +75,31 @@ import { handleDetectorRunJob, processTrace } from "../detector-run-processor.js
 
 const BASE_JOB: DetectorRunJob = { traceId: "t1", detectorIds: ["d1"], projectId: "p1" };
 
-/** Make the time-since-last-span fetch report `ms` of quiet; the spans download returns `spans`. */
-function mockFetches(ms: number, spans = "") {
-  mockFetch.mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ time_since_last_span_ms: ms }),
+/**
+ * Make the time-since-last-span fetch report `ms` of quiet; the spans download
+ * returns `spans`. The triggered-detectors check answers with `triggered`, or by
+ * default with every detector the job asked about (all conditions met).
+ */
+function mockFetches(ms: number, spans = "", triggered?: string[]) {
+  mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.includes("/triggered-detectors")) {
+      const asked = (JSON.parse(String(init?.body)) as { detectorIds: string[] }).detectorIds;
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ detectorIds: triggered ?? asked }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ time_since_last_span_ms: ms }),
+    });
   });
   mockDownloadSpans.mockResolvedValue(spans);
+}
+
+/** The URLs fetched so far, in order. */
+function fetchedUrls(): string[] {
+  return mockFetch.mock.calls.map((call) => String(call[0]));
 }
 
 function makeJob(over: Partial<Job<DetectorRunJob>> = {}): Job<DetectorRunJob> {
@@ -166,6 +184,61 @@ describe("handleDetectorRunJob — quiescence gate", () => {
   it("throws (for BullMQ retry) when time-since-last-span fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 });
     await expect(handleDetectorRunJob(makeJob())).rejects.toThrow();
+  });
+});
+
+describe("handleDetectorRunJob — trigger conditions on the settled trace (#3065)", () => {
+  it("evaluates only the detectors whose conditions the settled trace meets", async () => {
+    mockFetches(60_000, '{"span":1}\n', ["d2"]);
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+
+    await handleDetectorRunJob(job);
+
+    const triggerCall = mockFetch.mock.calls.find(([url]) =>
+      String(url).includes("/triggered-detectors"),
+    );
+    expect(triggerCall).toBeDefined();
+    const [url, init] = triggerCall as [string, RequestInit];
+    expect(url).toContain("/api/v1/internal/traces/t1/triggered-detectors");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ projectId: "p1", detectorIds: ["d1", "d2"] });
+    expect(init.headers).toMatchObject({ "X-Internal-Secret": expect.any(String) });
+
+    expect(mockDownloadSpans).toHaveBeenCalledWith("p1", "t1");
+    expect(mockPrisma.detector.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["d2"] }, enabled: true },
+    });
+  });
+
+  it("runs nothing when the settled trace meets no detector's conditions", async () => {
+    mockFetches(60_000, '{"span":1}\n', []);
+
+    await handleDetectorRunJob(makeJob());
+
+    expect(mockDownloadSpans).not.toHaveBeenCalled();
+    expect(mockPrisma.detector.findMany).not.toHaveBeenCalled();
+    expect(mockWriteRun).not.toHaveBeenCalled();
+  });
+
+  it("does not judge conditions before the trace is quiet", async () => {
+    mockFetches(21_000);
+
+    await expect(handleDetectorRunJob(makeJob(), "tok")).rejects.toBeInstanceOf(DelayedError);
+
+    expect(fetchedUrls().some((url) => url.includes("/triggered-detectors"))).toBe(false);
+  });
+
+  it("throws (for BullMQ retry) when the triggered-detectors check fails", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/triggered-detectors")
+          ? { ok: false, status: 500 }
+          : { ok: true, json: () => Promise.resolve({ time_since_last_span_ms: 60_000 }) },
+      ),
+    );
+
+    await expect(handleDetectorRunJob(makeJob())).rejects.toThrow(/triggered detectors/);
+    expect(mockDownloadSpans).not.toHaveBeenCalled();
   });
 });
 
