@@ -169,6 +169,26 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
   });
+
+  // Verbatim catalogue shape for the 5.5 row: Bedrock inference-profile prefixes
+  // and OpenRouter dotted ids (#2937).
+  const CLAUDE_5_5 = "claude-opus-5-5";
+  const CLAUDE_5_5_ROW = {
+    modelName: CLAUDE_5_5,
+    matchPattern:
+      "(?i)^(anthropic\\/)?(claude-opus-5[.-]5|(eu\\.|us\\.|apac\\.|jp\\.|au\\.|global\\.)?anthropic\\.claude-opus-5-5(-v\\d+:\\d+)?)$",
+    prices: [
+      { usageType: "input", price: 0.000004 },
+      { usageType: "output", price: 0.00002 },
+    ],
+  };
+
+  it("resolves Claude 5.5 Bedrock inference-profile and OpenRouter ids", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CLAUDE_5_5_ROW]);
+    const canonical = await lookup(CLAUDE_5_5);
+    expect(await lookup("global.anthropic.claude-opus-5-5")).toEqual(canonical);
+    expect(await lookup("anthropic/claude-opus-5.5")).toEqual(canonical);
+  });
 });
 
 describe("getModelPricing — uncompilable pattern", () => {
