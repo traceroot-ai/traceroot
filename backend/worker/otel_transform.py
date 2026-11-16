@@ -1501,7 +1501,7 @@ def transform_otel_to_clickhouse(
                     elif isinstance(explicit_metadata, str):
                         # Not a JSON object (free-text or a scalar): store it as
                         # given. Nothing to merge into, so this span has no paths.
-                        span_record["metadata"] = json.dumps(explicit_metadata)
+                        span_record["metadata"] = explicit_metadata
                     else:
                         span_record["metadata"] = json.dumps(explicit_metadata)
                 else:
