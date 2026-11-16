@@ -42,7 +42,11 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
         <div className="flex h-8 items-center gap-2 rounded-[2px] border border-border bg-background px-3 font-mono text-[12px] hover:bg-muted">
           <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
           <span className="flex-1 truncate text-foreground">&quot;{generatedKey}&quot;</span>
-          <CopyButton value={`TRACEROOT_API_KEY="${generatedKey}"`} className="h-6 w-6 shrink-0" />
+          <CopyButton
+            aria-label="Copy environment configuration"
+            value={`TRACEROOT_API_KEY="${generatedKey}"`}
+            className="h-6 w-6 shrink-0"
+          />
         </div>
         <p className="flex items-center gap-1 text-[12px] text-muted-foreground">
           <Check className="h-3 w-3 text-success" />

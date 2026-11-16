@@ -258,6 +258,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                   {canManageMembers && (
                     <td className="px-4 py-2">
                       <DeleteIconButton
+                        aria-label={`Cancel invitation for ${invite.email}`}
                         onClick={() => cancelInviteMutation.mutate(invite.id)}
                         disabled={cancelInviteMutation.isPending}
                       />
@@ -315,6 +316,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                     <td className="px-4 py-2">
                       {(member.user_id !== session?.user?.id || !isLastAdmin) && (
                         <DeleteIconButton
+                          aria-label={`Remove member ${member.name || member.email || ""}`}
                           onClick={() => removeMemberMutation.mutate(member.user_id)}
                           disabled={removeMemberMutation.isPending}
                         />

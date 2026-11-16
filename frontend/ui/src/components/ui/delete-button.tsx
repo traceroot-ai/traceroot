@@ -36,6 +36,8 @@ const DeleteIconButton = React.forwardRef<HTMLButtonElement, Omit<ButtonProps, "
     return (
       <Button
         ref={ref}
+        aria-label={props["aria-label"] ?? props.title ?? "Delete"}
+        title={props.title ?? props["aria-label"] ?? "Delete"}
         variant="ghost"
         size="sm"
         className={cn("h-7 w-7 p-0", className)}
