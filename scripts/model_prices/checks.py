@@ -20,6 +20,9 @@ MIN_COMPARED = 80
 # A model with at least this context window is also called with a [1m] suffix.
 ONE_MILLION = 1_000_000
 
+# The values of a flag a reviewed entry must copy to settle it.
+REVIEWED_MATCH = ("model", "field", "ours", "litellm", "modelsdev")
+
 # What a host adds around a model's own ID: a region, a vendor, a version or a date.
 HOST_PREFIX = re.compile(
     r"^(?:[a-z]+(?:-[a-z]+)*\.)?"
@@ -326,11 +329,13 @@ def build_report(
     date: str,
     hosted: dict[str, dict] | None = None,
     min_compared: int = MIN_COMPARED,
+    reviewed: list[dict] | None = None,
 ) -> dict:
     """Compare every row by exact model ID, then every catalog model a row prices through
     its matchPattern. A rate is flagged only when every catalog that lists the model and
-    has that rate disagrees with ours. Then check the IDs each row should match, and the
-    price file itself."""
+    has that rate disagrees with ours; a flag that copies a reviewed entry's model, field
+    and rates moves to reviewed, with that entry's reason and PR. Then check the IDs each
+    row should match, and the price file itself."""
     catalogs = {"litellm": litellm, "modelsdev": modelsdev}
     hosted = hosted or {}
     today = datetime.fromisoformat(date)
@@ -359,12 +364,22 @@ def build_report(
             f"only {compared} of {len(rows)} rows matched a catalog, below the floor of "
             f"{min_compared}; a catalog's model IDs or format may have changed"
         )
+    flagged += find_shadowed(rows, catalogs, today)
+    settled = {tuple(entry[key] for key in REVIEWED_MATCH): entry for entry in reviewed or []}
+    kept, left_as_is = [], []
+    for flag in flagged:
+        entry = settled.get(tuple(flag[key] for key in REVIEWED_MATCH))
+        if entry is None:
+            kept.append(flag)
+        else:
+            left_as_is.append({**flag, "reason": entry["reason"], "pr": entry["pr"]})
     return {
         "date": date,
         "status": "ok",
         "total": len(rows),
         "compared": compared,
-        "flagged": flagged + find_shadowed(rows, catalogs, today),
+        "flagged": kept,
+        "reviewed": left_as_is,
         "unpriced_ids": find_unpriced_ids(rows, catalogs, hosted, today),
         "overlaps": find_overlaps(rows, catalogs, hosted, today),
         "row_problems": find_row_problems(rows),

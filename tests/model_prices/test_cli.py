@@ -422,3 +422,146 @@ def test_files_are_read_and_written_as_utf8_whatever_the_locale(tmp_path):
     assert [m["model"] for m in report["missing"]] == ["gpt-ö"]
     for name in ("html", "payload"):
         assert "gpt-ü" in (tmp_path / f"out.{name}").read_text(encoding="utf-8")
+
+
+def _reviewed_file(tmp_path, content):
+    path = tmp_path / "reviewed.json"
+    path.write_text(content, encoding="utf-8")
+    return str(path)
+
+
+def test_a_reviewed_rate_is_left_out_of_the_flags(run, tmp_path):
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 5e-7,
+        "litellm": 1e-6,
+        "modelsdev": None,
+        "reason": "the provider's page says 0.50",
+        "pr": None,
+    }
+    path = _reviewed_file(tmp_path, json.dumps([entry]))
+    code, _, report = run(
+        [row("gpt-a", "openai", input_=5e-7)],
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--reviewed",
+        path,
+    )
+
+    assert code == 0
+    assert report["flagged"] == []
+    assert [item["reason"] for item in report["reviewed"]] == [entry["reason"]]
+
+
+def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
+    # PR #2 leaves the reviewed rate alone, so it adds no flag the file already covers.
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 5e-7,
+        "litellm": 1e-6,
+        "modelsdev": None,
+        "reason": "the provider's page says 0.50",
+        "pr": None,
+    }
+    path = _reviewed_file(tmp_path, json.dumps([entry]))
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    heads = {2: [*rows, row("gpt-b", "openai")]}
+    code, _, report = run(
+        rows,
+        {"gpt-a": ll_entry("openai"), "gpt-b": ll_entry("openai")},
+        md_catalog(),
+        *TRACK,
+        "--reviewed",
+        path,
+        heads=heads,
+    )
+
+    assert code == 0
+    assert report["tracking"] == "ok"
+    assert report["pull_requests"][0]["adds"] == []
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        pytest.param("{not json", "could not read the reviewed rates file", id="not-json"),
+        pytest.param("{}", "reviewed rates file is not a JSON list", id="not-a-list"),
+        pytest.param("[1]", "reviewed entry 0 is not an object", id="not-an-object"),
+        pytest.param(
+            json.dumps([{"model": "gpt-a"}]), "reviewed entry 0 has no field", id="missing-key"
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": "1",
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-numeric ours",
+            id="wrong-type",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has an empty reason",
+            id="empty-reason",
+        ),
+    ],
+)
+def test_a_malformed_reviewed_file_fails_the_run(run, tmp_path, content, message):
+    code, posted, report = run(
+        [row("gpt-a", "openai")],
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--reviewed",
+        _reviewed_file(tmp_path, content),
+    )
+
+    assert code == 1
+    assert report["status"] == "failed"
+    assert message in report["error"]
+    assert message in posted[0]["text"]
+
+
+def test_a_missing_reviewed_file_fails_the_run(run, tmp_path):
+    code, _, report = run(
+        [row("gpt-a", "openai")],
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--reviewed",
+        str(tmp_path / "nope.json"),
+    )
+
+    assert code == 1
+    assert "could not read the reviewed rates file" in report["error"]
+
+
+def test_the_shipped_reviewed_file_loads():
+    path = Path(cli.__file__).resolve().parent / "reviewed.json"
+
+    assert cli.load_reviewed(path) == []
+    assert path.read_text(encoding="utf-8") == "[]\n"

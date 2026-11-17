@@ -108,3 +108,26 @@ def test_every_format_counts_what_its_words_say():
     page = build_html(report)
     assert "<h2>Models not priced (2)</h2>" in page
     assert "<h2>Also not priced: aliases, snapshots, realtime and search (1)</h2>" in page
+
+
+def test_reviewed_rates_are_counted_in_one_line_after_the_flags():
+    rows = [row("gpt-a", "openai", input_=1e-6), row("gpt-b", "openai", input_=1e-6)]
+    litellm = {name: ll_entry("openai", input_=2e-6) for name in ("gpt-a", "gpt-b")}
+    modelsdev = md_catalog(openai={name: md_model(input_=2e-6) for name in ("gpt-a", "gpt-b")})
+    reviewed = [
+        {
+            "model": name,
+            "field": "input",
+            "ours": 1e-6,
+            "litellm": 2e-6,
+            "modelsdev": 2e-6,
+            "reason": "checked",
+            "pr": None,
+        }
+        for name in ("gpt-a", "gpt-b")
+    ]
+    text = format_report(report_for(rows, litellm, modelsdev, reviewed=reviewed))
+
+    assert "Reviewed and left as they are: 2 rates (scripts/model_prices/reviewed.json)" in text
+    assert "gpt-a  input" not in text
+    assert "Reviewed" not in format_report(report_for(rows, litellm, modelsdev))

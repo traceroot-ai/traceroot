@@ -23,6 +23,8 @@ TIMEOUT_SECONDS = 60
 # cacheWrite1h only appears on rows with a separate 1-hour cache write rate.
 FIELDS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
 REQUIRED_FIELDS = ("input", "output", "cacheRead", "cacheWrite")
+# What a reviewed entry holds: the first five are copied from a flag.
+REVIEWED_KEYS = ("model", "field", "ours", "litellm", "modelsdev", "reason", "pr")
 FIELD_LABELS = {
     "input": "input",
     "output": "output",
@@ -288,3 +290,35 @@ def load_source(source: str, label: str) -> Any:
         return json.loads(Path(source).read_text(encoding="utf-8"))
     except (URLError, OSError, ValueError) as exc:
         raise CheckError(f"could not load the {label} catalog ({type(exc).__name__})") from exc
+
+
+def load_reviewed(path: Path) -> list[dict]:
+    """Read the file of rates a maintainer has checked and left as they are. Each entry
+    copies a flag's model, field and rates, so it stops matching once a rate changes, and
+    gives the reason and the PR that settled it, if any. Anything else fails the run."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CheckError(f"could not read the reviewed rates file ({type(exc).__name__})") from exc
+    if not isinstance(data, list):
+        raise CheckError("the reviewed rates file is not a JSON list")
+    for index, entry in enumerate(data):
+        if not isinstance(entry, dict):
+            raise CheckError(f"reviewed entry {index} is not an object")
+        for key in REVIEWED_KEYS:
+            if key not in entry:
+                raise CheckError(f"reviewed entry {index} has no {key}")
+        for key in ("model", "reason"):
+            if not isinstance(entry[key], str):
+                raise CheckError(f"reviewed entry {index} has a non-text {key}")
+        if not entry["reason"].strip():
+            raise CheckError(f"reviewed entry {index} has an empty reason")
+        if entry["field"] not in FIELDS:
+            raise CheckError(f"reviewed entry {index} has an unknown field")
+        for key in ("ours", "litellm", "modelsdev"):
+            if entry[key] is not None and _number(entry[key]) is None:
+                raise CheckError(f"reviewed entry {index} has a non-numeric {key}")
+        pr = entry["pr"]
+        if pr is not None and (isinstance(pr, bool) or not isinstance(pr, int)):
+            raise CheckError(f"reviewed entry {index} has a non-integer pr")
+    return data

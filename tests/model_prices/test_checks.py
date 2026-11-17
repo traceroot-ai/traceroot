@@ -559,3 +559,43 @@ def test_too_few_rows_compared_fails():
     litellm = {"gpt-a": ll_entry("openai")}
     with pytest.raises(CheckError, match="floor of 2"):
         report_for(rows, litellm, md_catalog(), min_compared=2)
+
+
+def _reviewed(**changes):
+    """A reviewed entry for gpt-a's input rate of 1e-6 against 2e-6 in both catalogs."""
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 1e-6,
+        "litellm": 2e-6,
+        "modelsdev": 2e-6,
+        "reason": "the provider's page says 1.00",
+        "pr": 12,
+    }
+    return {**entry, **changes}
+
+
+def test_a_flag_a_maintainer_reviewed_moves_to_reviewed():
+    rows = [row("gpt-a", "openai", input_=1e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    modelsdev = md_catalog(openai={"gpt-a": md_model(input_=2e-6)})
+    report = report_for(rows, litellm, modelsdev, reviewed=[_reviewed()])
+
+    assert report["flagged"] == []
+    [item] = report["reviewed"]
+    assert (item["model"], item["field"], item["ours"]) == ("gpt-a", "input", 1e-6)
+    assert (item["reason"], item["pr"]) == ("the provider's page says 1.00", 12)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [{"ours": 1.5e-6}, {"litellm": 3e-6}, {"modelsdev": 3e-6}, {"field": "output"}],
+)
+def test_a_reviewed_entry_stops_matching_when_a_rate_changes(changed):
+    rows = [row("gpt-a", "openai", input_=1e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    modelsdev = md_catalog(openai={"gpt-a": md_model(input_=2e-6)})
+    report = report_for(rows, litellm, modelsdev, reviewed=[_reviewed(**changed)])
+
+    assert [f["field"] for f in report["flagged"]] == ["input"]
+    assert report["reviewed"] == []
