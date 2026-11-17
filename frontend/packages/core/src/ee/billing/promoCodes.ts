@@ -6,6 +6,9 @@
  *
  * Coupons also carry `metadata.plan` ("starter" | "pro"). That tag is only used when a
  * subscription changes plan, to end a discount that belongs to the plan being left.
+ * A coupon with `applies_to` but no tag still prices correctly after an upgrade (its
+ * discount covers no remaining item, checked against Stripe test mode) but stays
+ * attached until it ends, so create launch coupons with both.
  */
 
 function planOf(coupon: { metadata?: Record<string, string> | null }): string | null {
