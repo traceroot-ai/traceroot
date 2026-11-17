@@ -215,12 +215,14 @@ def test_baseline_exit_codes(run, tmp_path):
 
 
 # gpt-b's input rate is flagged, no catalog lists gpt-old, and gpt-big's input rate is a
-# per-million price. claude-f's pattern prices claude-f-2 at claude-f's rates and misses
+# per-million price. No catalog lists gpt-e either, but its pattern prices gpt-e-mini at
+# gpt-e's rates. claude-f's pattern prices claude-f-2 at claude-f's rates and misses
 # the Bedrock ID us.anthropic.claude-f. Only the host's rates check the GovCloud row: its
 # input is below the host's and its output matches. The [1m] row prices its ID for free.
 ROW_EDIT_LITELLM = {
     "gpt-a": ll_entry("openai"),
     "gpt-b": ll_entry("openai", input_=2e-6),
+    "gpt-e-mini": ll_entry("openai", input_=4e-7),
     "claude-f": ll_entry("anthropic"),
     "claude-f-2": ll_entry("anthropic", input_=8e-6),
     "us.anthropic.claude-f": ll_entry("bedrock"),
@@ -229,11 +231,13 @@ ROW_EDIT_LITELLM = {
     "claude-l": ll_entry("anthropic", max_input_tokens=1_000_000),
 }
 ONE_M = r"(?i)^claude-l\[1m\]$"
+GPT_E = r"(?i)^(openai\/)?gpt-e(-mini)?$"
 ROW_EDIT_BEFORE = [
     row("gpt-a", "openai"),
     row("gpt-b", "openai"),
     row("gpt-old", "openai"),
     row("gpt-big", "openai", input_=2e-3),
+    row("gpt-e", "openai", pattern=GPT_E),
     row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
     row("claude-k-6", "anthropic", input_=2e-6, output=1e-5),
     row("us-gov.anthropic.claude-k-6", "anthropic", input_=2e-6, output=1.2e-5),
@@ -277,6 +281,13 @@ def _gov(input_, output):
             {"gpt-old": row("gpt-old", "openai", input_=1e-4)},
             [],
             ["gpt-old input rate changed with no finding to fix (ours 1.00 → 100.00)"],
+        ),
+        (
+            # gpt-e-mini's flag asks to narrow gpt-e's pattern. Taking gpt-e-mini's rate
+            # instead clears it, but bills gpt-e at that rate too.
+            {"gpt-e": row("gpt-e", "openai", input_=4e-7, pattern=GPT_E)},
+            ["gpt-e-mini input rate (ours 1.00)"],
+            ["gpt-e input rate changed with no finding to fix (ours 1.00 → 0.40)"],
         ),
         (
             {"gpt-a": row("gpt-a", "openai", input_=1.029e-6)},
@@ -325,6 +336,7 @@ def _gov(input_, output):
     ],
     ids=[
         "uncompared-rate",
+        "pattern-flag-rate",
         "inside-tolerance",
         "fix-and-another-field",
         "fix-and-pattern",

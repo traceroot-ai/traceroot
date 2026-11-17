@@ -71,25 +71,27 @@ grok-4 row stops matching it. --track lists the same adds for each open PR.
 --baseline also lists each change to a row that no finding explains, as no catalog
 compares about a quarter of the rows and a rate changed inside the 3% tolerance shows no
 flag: a row removed or moved to another provider; a rate changed with no flag on that
-rate of that row, or of a model it prices, fixed or added; a matchPattern changed that
-matches no ID a finding fixed or added is about, no dash spelling or host ID priced
-another way, and no row the edit adds. A row problem fixed or added explains its row's
-rates and pattern. A row named after a [1m] or host ID is checked only through that ID,
-so its own finding, or a host rate on that field, fixed or added explains its rates.
---track leaves these out, as an open PR is judged by its findings.
-Pass the same saved --litellm and --modelsdev files to both runs, so only the price
-file differs between them. For the same reason, the second run judges which models are
-retired as of the baseline report's date, and reports that date.
+rate of that row, or of a dated snapshot or -latest alias it prices, fixed or added
+(another model its pattern prices needs a narrower pattern, not a new rate); a
+matchPattern changed that matches no ID a finding fixed or added is about, no dash
+spelling or host ID priced another way, and no row the edit adds. A row problem fixed or
+added explains its row's rates and pattern. A row named after a [1m] or host ID is
+checked only through that ID, so its own finding, or a host rate on that field, fixed or
+added explains its rates. --track leaves these out, as an open PR is judged by its
+findings. Pass the same saved --litellm, --modelsdev and --reviewed files to both runs,
+so only the price file differs between them. For the same reason, the second run judges
+which models are retired as of the baseline report's date, and reports that date.
 
 Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
 catalog could not be loaded, a file's format changed, fewer than --min-compared rows could
 be compared, the reviewed rates file is malformed, the --baseline report could not be read
 or was made from other catalogs or reviewed rates, or the Slack post failed. A failed run
 posts a failure alert when it can, never an all-clear. 2 for a usage error only. 3 with
---baseline when the price file adds a finding the baseline report does not have, or has a
-row change no finding explains, even when --track could not read GitHub. 4 when the report
-was produced but --track could not read GitHub, so no finding names its open PRs; every
-output is still written and posted.
+--baseline when it lists any add: a finding the baseline report does not have, a row whose
+finding the edit hides, a host ID newly priced at rates its host disagrees with, a dash
+spelling no longer priced, or a row change no finding explains, even when --track could
+not read GitHub. 4 when the report was produced but --track could not read GitHub, so no
+finding names its open PRs; every output is still written and posted.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
@@ -164,9 +166,9 @@ def main(argv: list[str]) -> int:
         type=Path,
         metavar="REPORT",
         help="list what this price file fixes and adds compared with a report saved by "
-        "--json, with each row change no finding explains; exit 3 if it adds a finding or "
-        "has such a row change, as even a correct new row adds a finding when a catalog "
-        "bills its model more above a prompt size (a long-context add)",
+        "--json, with each row change no finding explains as an add; exit 3 if it lists any "
+        "add, as even a correct new row adds a finding when a catalog bills its model more "
+        "above a prompt size (a long-context add)",
     )
     parser.add_argument(
         "--track",

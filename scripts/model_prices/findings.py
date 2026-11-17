@@ -157,16 +157,18 @@ def _unexplained(report: dict, after: dict) -> list[str]:
     """Each change to a row of report that no finding the after report fixes or adds
     explains, in a few words. A row removed or moved to another provider is never
     explained. A rate change is explained by a flag on that rate found through the row,
-    for its own model or one it prices through its pattern, fixed or added. A row named
-    after a [1m] or host ID that no catalog lists under it is checked only through that
-    ID, so a change to it is explained when that ID's own finding, or a host rate on that
-    field, is fixed or added. A matchPattern change is explained when the old or new
-    pattern matches an ID that moved: one a finding fixed or added is about, a dash
-    spelling or host ID priced another way, or a row the edit adds. A row problem fixed
-    or added explains its row's rates and pattern. Rows the edit adds are judged by their
-    findings alone. No catalog compares about a quarter of the rows, and a rate changed
-    inside the tolerance shows no flag, so without this an edit to either would pass
-    unseen."""
+    for its own model or a dated snapshot or -latest alias it prices, fixed or added. A
+    flag on another model its pattern prices asks for a narrower pattern, not a new rate:
+    giving the row that model's rate clears the flag but bills the row's own model at
+    it. A row named after a [1m] or host ID that no catalog lists under it is checked
+    only through that ID, so a change to it is explained when that ID's own finding, or a
+    host rate on that field, is fixed or added. A matchPattern change is explained when
+    the old or new pattern matches an ID that moved: one a finding fixed or added is
+    about, a dash spelling or host ID priced another way, or a row the edit adds. A row
+    problem fixed or added explains its row's rates and pattern. Rows the edit adds are
+    judged by their findings alone. No catalog compares about a quarter of the rows, and
+    a rate changed inside the tolerance shows no flag, so without this an edit to either
+    would pass unseen."""
     old_keys, new_keys = finding_keys(report), finding_keys(after)
     changed = {
         key: item
@@ -174,7 +176,9 @@ def _unexplained(report: dict, after: dict) -> list[str]:
         if (key in old_keys) != (key in new_keys)
     }
     flags = {
-        (_found_through(key, item), key[2]) for key, item in changed.items() if key[0] == "rate"
+        (_found_through(key, item), key[2])
+        for key, item in changed.items()
+        if key[0] == "rate" and item["fix"] == "rate"
     }
     flags |= {
         (key[1], field)
