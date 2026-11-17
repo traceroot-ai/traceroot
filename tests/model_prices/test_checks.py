@@ -181,6 +181,41 @@ def test_models_priced_through_another_rows_pattern_are_compared_with_that_row()
     ]
 
 
+def test_a_flag_says_whether_the_fix_is_the_rate_or_the_pattern():
+    rows = [
+        row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
+        row("claude-g", "anthropic", pattern=r"(?i)^claude-g(-[\d-]+)?$"),
+        row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest)?$"),
+    ]
+    litellm = {
+        "claude-f": ll_entry("anthropic", input_=2e-6),  # the row's own rate is stale
+        "claude-g-2": ll_entry("anthropic", input_=2e-6),  # another model the pattern absorbs
+        "claude-h-20260101": ll_entry("anthropic", input_=2e-6),  # a dated snapshot of the row
+        "claude-h-latest": ll_entry("anthropic", input_=2e-6),  # an alias of the row
+    }
+    report = report_for(rows, litellm, md_catalog(), min_compared=0)
+
+    assert [(f["model"], f["priced_as"], f["fix"]) for f in report["flagged"]] == [
+        ("claude-f", None, "rate"),
+        ("claude-g-2", "claude-g", "pattern"),
+        ("claude-h-20260101", "claude-h", "rate"),
+        ("claude-h-latest", "claude-h", "rate"),
+    ]
+
+
+def test_a_flag_says_whether_the_catalogs_agree_on_the_rate():
+    rows = [row("gpt-a", "openai", input_=1e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+
+    both = report_for(rows, litellm, md_catalog(openai={"gpt-a": md_model(input_=2e-6)}))
+    split = report_for(rows, litellm, md_catalog(openai={"gpt-a": md_model(input_=3e-6)}))
+    one = report_for(rows, litellm, md_catalog())
+
+    assert [f["catalogs_agree"] for f in both["flagged"]] == [True]
+    assert [f["catalogs_agree"] for f in split["flagged"]] == [False]
+    assert [f["catalogs_agree"] for f in one["flagged"]] == [None]
+
+
 def test_a_dotted_versions_dash_spelling_is_compared_with_the_row_that_prices_it():
     # Gateways send gpt-g-5 for gpt-g.5, and the gpt-g row's date group also matches it.
     rows = [
@@ -270,7 +305,7 @@ def test_an_id_two_patterns_match_at_different_prices_is_an_overlap():
     # The older rows' patterns, meant for dated snapshots, also match the newer versions.
     broad = row("claude-g", "anthropic", input_=1e-5, pattern=r"(?i)^claude-g(-[\d-]+)?$")
     newer = row("claude-g-2", "anthropic", input_=8e-6, pattern=r"(?i)^claude-g-2(-\d+)?$")
-    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+)?$")
+    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest)?$")
     copy = row("claude-h-2", "anthropic", pattern=r"(?i)^claude-h-2(-\d+)?$")
     litellm = {
         "claude-g": ll_entry("anthropic", input_=1e-5),

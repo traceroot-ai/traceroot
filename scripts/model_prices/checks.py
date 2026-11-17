@@ -112,10 +112,17 @@ def differs(ours: float, theirs: float, tolerance: float = TOLERANCE) -> bool:
 def _flag_rates(
     row: dict, provider: str, model: str, found: dict[str, dict], *, priced_as: str | None
 ) -> list[dict]:
-    """A flag for each of the row's rates that every catalog listing model disagrees with."""
+    """A flag for each of the row's rates that every catalog listing model disagrees with.
+    fix says what clears it: "rate" to change the row's rate, or "pattern" to narrow the
+    row's pattern when it absorbs another model, which is a catalog model that is not a
+    dated snapshot or -latest alias of the row's own model."""
     flags = []
     # A rate our row leaves out or sets to null is compared as production bills it.
     billed = billed_rates(row["prices"])
+    # MINOR_MODELS takes off -latest and dashed dates, HOST_SUFFIX an eight-digit date. A
+    # realtime or search model is not one, since it keeps that word in its name.
+    base = HOST_SUFFIX.sub("", MINOR_MODELS.sub("", model))
+    snapshot = priced_as is None or _family(base) == _family(priced_as)
     for field in FIELDS:
         ours = _number(row["prices"].get(field))
         theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}
@@ -130,6 +137,12 @@ def _flag_rates(
                     "modelsdev": theirs.get("modelsdev"),
                     "pricing_page": PRICING_PAGES.get(provider),
                     "priced_as": priced_as,
+                    "fix": "rate" if snapshot else "pattern",
+                    "catalogs_agree": (
+                        not differs(theirs["litellm"], theirs["modelsdev"])
+                        if len(theirs) == 2
+                        else None
+                    ),
                 }
             )
     return flags
