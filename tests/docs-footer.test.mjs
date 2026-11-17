@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../docs/footer.js", import.meta.url), "utf8");
 const config = JSON.parse(readFileSync(new URL("../docs/docs.json", import.meta.url), "utf8"));
-function harness(t) {
+function harness(t, pathname = "/docs/getting-started/introduction", display = "block") {
   const accesses = [];
   const window = new EventTarget();
   Object.defineProperty(window, "posthog", {
@@ -20,18 +20,20 @@ function harness(t) {
     readyState: "loading",
     querySelector: () => null,
   });
+  const location = { hostname: "traceroot.ai", pathname };
   vm.runInNewContext(source, {
     window, document, AbortController,
-    location: { hostname: "traceroot.ai", pathname: "/docs/getting-started/introduction" },
+    location,
     localStorage: {
       getItem() { accesses.push("storage read"); return "denied"; },
       setItem() { accesses.push("storage write"); },
       removeItem() { accesses.push("storage removal"); },
     },
-    getComputedStyle: () => ({ display: "block" }),
+    getComputedStyle: () => ({ display }),
+    ResizeObserver: class { disconnect() {} },
   });
   t.after(() => window.__trDocsFooterAdapter.dispose());
-  return { window, document, accesses };
+  return { window, document, location, accesses };
 }
 
 test("footer does not access analytics or consent storage", t => {
@@ -64,6 +66,55 @@ test("missing footer styles leave native content intact without injecting enhanc
   assert.deepEqual(row.children, [brand, columns, socials]);
   assert.deepEqual(env.accesses, [], "native fallback needs no analytics or readiness polling");
 });
+
+for (const prefix of ["/docs", ""]) {
+  test(`the ${prefix || "/"} footer keeps its static image across guide and API navigation`, t => {
+    const { window, document, location } = harness(t, `${prefix}/getting-started/introduction`, "contents");
+    function element(tagName) {
+      return {
+        tagName, children: [], isConnected: true,
+        classList: { add() {}, remove() {} }, style: { removeProperty() {} },
+        append(child) { this.children.push(child); },
+        remove() { this.isConnected = false; },
+      };
+    }
+    function nativeFooter() {
+      const footer = element("footer");
+      const wrapper = footer.firstElementChild = element("div");
+      const row = wrapper.firstElementChild = element("div");
+      const columns = element("div");
+      columns.style.gridTemplateColumns = "repeat(4, 1fr)";
+      row.children = [element("div"), columns];
+      return footer;
+    }
+    let footer = nativeFooter();
+    document.querySelector = selector => selector.startsWith("footer#footer") ? footer : null;
+    document.getElementById = () => null;
+    document.createElement = element;
+
+    function checkImage() {
+      const { children } = footer.firstElementChild;
+      assert.equal(children.length, 1);
+      assert.deepEqual(children[0].children.map(child => [child.tagName, child.src, child.alt]), [
+        ["img", `${prefix}/brand/footer-wordmark.svg?v=2`, ""],
+      ]);
+    }
+
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    checkImage();
+
+    location.pathname = `${prefix}/api-reference/authentication`;
+    window.dispatchEvent(new Event("mintlify:navigate"));
+    checkImage();
+
+    const previousExtras = footer.firstElementChild.children[0];
+    footer = nativeFooter();
+    location.pathname = `${prefix}/api-reference/alerts/list-alerts`;
+    window.dispatchEvent(new Event("mintlify:navigate"));
+    checkImage();
+    assert.equal(previousExtras.isConnected, false);
+  });
+}
 
 test("the functional primary contrasts with white and the API response surface", () => {
   const luminance = hex => {
