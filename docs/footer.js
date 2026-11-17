@@ -74,7 +74,7 @@
     const prefix = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
     const wordmark = document.createElement("img");
     wordmark.className = "tr-docs-footer__wordmark";
-    wordmark.src = `${prefix}/brand/footer-wordmark.svg`;
+    wordmark.src = `${prefix}/brand/footer-wordmark.svg?v=2`;
     wordmark.alt = "";
     wordmark.width = 800;
     wordmark.height = 128;
