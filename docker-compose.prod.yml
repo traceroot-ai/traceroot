@@ -79,7 +79,7 @@ services:
       - clickhouse_logs:/var/log/clickhouse-server
       # Defines sql_gateway_bootstrap, the only account holding access management.
       # Kept off the application account, which rest/worker/billing/detector all use.
-      - ./backend/db/clickhouse/bootstrap/sql_gateway_bootstrap_user.xml:/etc/clickhouse-server/users.d/zz-sql-gateway-bootstrap.xml:ro
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_bootstrap_user.xml:/etc/clickhouse-server/users.d/zz-sql-gateway-bootstrap.xml:ro,z
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
@@ -123,7 +123,7 @@ services:
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
     volumes:
       # Expires events/ingest/ (7 days) and events/failed/ (30 days); import replaces all rules.
-      - ./docker/minio/lifecycle.json:/bootstrap/lifecycle.json:ro
+      - ./docker/minio/lifecycle.json:/bootstrap/lifecycle.json:ro,z
     entrypoint: >
       /bin/sh -c "
       mc alias set myminio http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"
@@ -175,8 +175,8 @@ services:
       clickhouse:
         condition: service_healthy
     volumes:
-      - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
-      - ./backend/db/clickhouse/bootstrap/sql_gateway_readonly.sql:/bootstrap/sql_gateway_readonly.sql:ro
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro,z
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_readonly.sql:/bootstrap/sql_gateway_readonly.sql:ro,z
     # Credentials arrive as environment rather than command arguments, so they stay
     # out of the container's command line and out of `ps`. They are still readable
     # via `docker inspect` and the container config -- that is inherent to compose
