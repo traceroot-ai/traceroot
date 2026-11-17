@@ -142,6 +142,17 @@ describe("buildAlertBlocks", () => {
         buildAlertBlocks({ ...alertBase, value: 1000, threshold: 1000, thresholdOperator: ">=" }),
       )[0],
     ).toContain("was 1000 ms, at or above the 1000 ms threshold");
+    // so does an equal non-integer: its spellings collide like the cases above, and only
+    // value !== threshold keeps it from gaining digits ("was 1000.004 ms")
+    const [equalFraction] = sectionTexts(
+      buildAlertBlocks({
+        ...alertBase,
+        value: 1000.004,
+        threshold: 1000.004,
+        thresholdOperator: ">=",
+      }),
+    );
+    expect(equalFraction).toContain("was 1000 ms, at or above the 1000 ms threshold");
   });
 
   it("drops the measure's unit under an aggregation that discards it", () => {
