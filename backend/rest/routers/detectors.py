@@ -82,6 +82,7 @@ class PreviewCondition(BaseModel):
         if self.field == "metadata":
             if not isinstance(self.key, str) or not 0 < len(self.key.strip()) <= MAX_KEY_LENGTH:
                 raise ValueError("metadata key required")
+            self.key = self.key.strip()
         elif self.key is not None:
             raise ValueError("key is only valid for metadata")
         return self

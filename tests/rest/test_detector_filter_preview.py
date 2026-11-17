@@ -62,6 +62,22 @@ def test_empty_filter_matches_a_retained_trace(preview):
     assert response.json()["condition_matches"] == []
 
 
+def test_metadata_key_is_normalized_like_the_detector_editor(preview):
+    _, summaries = preview
+    summaries.return_value = {"trace-1": {"metadata": {"traffic_type": ["healthcheck"]}}}
+    response = _client().post(
+        URL,
+        json={
+            "trace_id": "trace-1",
+            "conditions": [
+                {"field": "metadata", "key": " traffic_type ", "op": "=", "value": "healthcheck"}
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["matches"] is True
+
+
 def test_missing_trace_is_not_previewed(preview):
     trace_reader, summaries = preview
     trace_reader.get_trace.return_value = None
