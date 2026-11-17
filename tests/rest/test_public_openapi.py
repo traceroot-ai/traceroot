@@ -1338,6 +1338,15 @@ def test_reference_pages_have_short_summaries_and_keep_usage_notes():
         role = op["x-tool"].get("policy", {}).get("minRole")
         if role in {"MEMBER", "ADMIN"}:
             assert role in page["content"], op["operationId"]
+    for op_id, note in openapi_public._DOCS_USAGE_NOTES.items():
+        assert note in operations[op_id]["x-mint"]["content"], op_id
+
+    # Pin the distinctions that were lost when the summaries were first shortened.
+    summaries = {op_id: op["x-mint"]["metadata"]["description"] for op_id, op in operations.items()}
+    assert "started after resolution" in summaries["set_signal_status"]
+    assert "built-in instructions" in summaries["create_detector"]
+    assert "evaluated fields" in summaries["update_alert"]
+    assert "pass rates" in summaries["read_run"]
     delete_note = operations["delete_workspace"]["x-mint"]["content"]
     assert "current name" in delete_note
     assert "only workspace" in delete_note
