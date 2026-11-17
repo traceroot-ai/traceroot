@@ -206,8 +206,9 @@ async def preview_filter(
     _access: RateLimitedProjectAccess,
 ):
     """Show which draft filter conditions match one retained customer trace."""
+    trace_reader = get_trace_reader_service()
     trace = await asyncio.to_thread(
-        get_trace_reader_service().get_trace,
+        trace_reader.get_trace,
         project_id=project_id,
         trace_id=payload.trace_id,
         source="user",
