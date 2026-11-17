@@ -74,32 +74,34 @@ changed inside the 3% tolerance shows no flag: a row removed or moved to another
 provider; a rate changed with no flag on that rate of that row, or of a dated snapshot
 or -latest alias it prices, fixed or added (another model its pattern prices needs a
 narrower pattern, not a new rate); a matchPattern change that moves no ID to or out of
-the row. An ID moves to the row when the worker newly picks the row for it, and out of
-it when the worker stops picking the row and the new pattern no longer matches it, or
-when narrowing the row fixes two rows matching it. The IDs that count are those a
-finding fixed or added is about, dash spellings and host IDs priced another way, and the
-names of rows the edit adds. A row problem fixed or added explains any new value of what
-it is about: a pattern problem the pattern, a rate out of range that rate, and a cache
-read rate above the input rate those two rates. Each later row of a name listed twice is
-compared too, as "<name> (2)" and so on; a row already named that fails the run. A row
-named after a [1m] or host ID is checked only through that ID, so its own finding, or a
-host rate on that field, fixed or added explains its rates. --track leaves these out, as
-an open PR is judged by its findings. Pass the same saved --litellm, --modelsdev and
---reviewed files to both runs, so only the price file differs between them. For the same
-reason, the second run judges which models are retired as of the baseline report's date,
-and reports that date.
+the row. An ID moves to the row when the new pattern starts matching it and the worker
+newly picks the row for it, and out of it when the new pattern stops matching it and the
+worker stops picking the row, or when narrowing the row fixes its "matched by two rows"
+finding. The IDs that count are those a finding fixed or added is about, dash spellings
+and host IDs priced another way, and the names of rows the edit adds. A row problem
+fixed or added explains any new value of what it is about: a pattern problem the
+pattern, a rate out of range that rate, and a cache read rate above the input rate those
+two rates. Each later row of a name listed twice is compared too, as "<name> (2)" and so
+on; if another row already has that name, the run fails. A row named after a [1m] or
+host ID is checked only through that ID, so its own finding, or a host rate on that
+field, fixed or added explains its rates. --track leaves these out, as an open PR is
+judged by its findings. Pass the same saved --litellm, --modelsdev and --reviewed files
+to both runs, so only the price file differs between them. For the same reason, the
+second run judges which models are retired as of the baseline report's date, and reports
+that date.
 
 Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
-catalog could not be loaded, a file's format changed, fewer than --min-compared rows could
-be compared, the reviewed rates file is malformed, the --baseline report could not be read
-or was made from other catalogs or reviewed rates, the Slack post failed, or --post is
-set with no SLACK_WEBHOOK_URL (checked before anything is fetched). A failed run posts a
-failure alert when it can, never an all-clear. 2 for a usage error only. 3 with
---baseline when it lists any add: a finding the baseline report does not have, a row whose
-finding the edit hides, a host ID newly priced at rates its host disagrees with, a dash
-spelling no longer priced, or a row change no finding explains, even when --track could
-not read GitHub. 4 when the report was produced but --track could not read GitHub, so no
-finding names its open PRs; every output is still written and posted.
+catalog could not be loaded, a file's format changed, a row is named like a repeated
+name's later row ("<name> (2)"), fewer than --min-compared rows could be compared, the
+reviewed rates file is malformed, the --baseline report could not be read or was made
+from other catalogs or reviewed rates, the Slack post failed, or --post is set with no
+SLACK_WEBHOOK_URL (checked before anything is fetched). A failed run posts a failure
+alert when it can, never an all-clear. 2 for a usage error only. 3 with --baseline when
+it lists any add: a finding the baseline report does not have, a row whose finding the
+edit hides, a host ID newly priced at rates its host disagrees with, a dash spelling no
+longer priced, or a row change no finding explains, even when --track could not read
+GitHub. 4 when the report was produced but --track could not read GitHub, so no finding
+names its open PRs; every output is still written and posted.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """

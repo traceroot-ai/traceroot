@@ -569,6 +569,31 @@ def test_a_fixed_overlap_explains_a_pattern_that_stops_matching_its_id(after, ad
     }
 
 
+def test_a_fixed_overlap_does_not_explain_a_row_that_never_matched_its_id():
+    # omega's pattern never matched gpt-a-mini, so the fixed overlap says nothing of it.
+    litellm = {"gpt-a": ll_entry("openai"), "gpt-a-mini": ll_entry("openai")}
+    omega = row("omega", "openai", pattern=r"(?i)^(openai\/)?omega$")
+    wider = row("omega", "openai", pattern=r"(?i)^(openai\/)?omega.*$")
+
+    assert compare([*OVERLAP, omega], [OVERLAP[0], NARROWED_ZETA, wider], litellm, md_catalog())[
+        "adds"
+    ] == ["omega matchPattern changed with no finding to fix"]
+
+
+def test_an_id_another_row_hands_over_explains_no_change_to_the_taking_rows_pattern():
+    # gpt-a-mini is billed at zeta's rate. Narrowing gpt-a hands it to zeta, whose old
+    # pattern already matched it, so the move says nothing of a change to zeta's pattern:
+    # a catch-all would bill every later ID at zeta's rates.
+    litellm = {"gpt-a": ll_entry("openai"), "gpt-a-mini": ll_entry("openai", input_=5e-6)}
+    narrowed = row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a$")
+    catch_all = row("zeta", "openai", input_=5e-6, pattern=r"(?i)^(openai\/)?.*$")
+
+    assert compare(OVERLAP, [narrowed, OVERLAP[1]], litellm, md_catalog())["adds"] == []
+    assert compare(OVERLAP, [narrowed, catch_all], litellm, md_catalog())["adds"] == [
+        "zeta matchPattern changed with no finding to fix"
+    ]
+
+
 @pytest.mark.parametrize(
     "key", ["dash_spellings", "host_rates", "compared_rows", "date", "catalogs", "rows"]
 )

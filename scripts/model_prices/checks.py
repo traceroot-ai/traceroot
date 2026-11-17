@@ -460,8 +460,8 @@ def build_report(
     # Each row as it was checked, so --baseline can list a change no finding shows and
     # price an ID as the worker does. The first row with a name, the one the worker
     # prices that name with, goes under the name; each later one, whose pattern can still
-    # price other IDs, under "<name> (2)", "<name> (3)" and so on, in file order. A row
-    # already named that would hide one of the two, so it fails the run.
+    # price other IDs, under "<name> (2)", "<name> (3)" and so on, in file order. If
+    # another row already has that name, one of the two would be hidden, so the run fails.
     checked: dict[str, dict] = {}
     listed: dict[str, int] = {}
     names = {row["modelName"] for row in rows}

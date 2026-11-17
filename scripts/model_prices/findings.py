@@ -158,23 +158,23 @@ def _unexplained(report: dict, after: dict) -> list[str]:
     explains, in a few words. A row removed or moved to another provider is never
     explained. A rate change is explained by a flag on that rate found through the row,
     for its own model or a dated snapshot or -latest alias it prices, fixed or added. A
-    flag on another model its pattern prices asks for a narrower pattern, not a new rate:
-    giving the row that model's rate clears the flag but bills the row's own model at
-    it. A row named after a [1m] or host ID that no catalog lists under it is checked
-    only through that ID, so a change to it is explained when that ID's own finding, or a
-    host rate on that field, is fixed or added. A row problem fixed or added explains any
-    new value of what it is about, as no catalog says which value is right: a pattern
-    problem the pattern, a rate out of range that rate, and a cache read rate above the
-    input rate those two rates. A matchPattern change is otherwise explained only by an
-    ID a finding fixed or added is about, a dash spelling or host ID priced another way,
-    or the name of a row the edit adds, and only when the ID moves to this row, as the
-    worker picks rows (see lookup), or the new pattern stops matching it and it moves
-    away or stops being matched by two rows. One such ID explains the whole change, so a
-    pattern that drops one ID and matches others still passes. Rows the edit adds are
-    judged by their findings alone. Each later row of a name listed twice is compared
-    too, as "<name> (2)" and so on. No catalog compares about a quarter of the rows, and a
-    rate changed inside the tolerance shows no flag, so without this an edit to either
-    would pass unseen."""
+    flag on another model its pattern prices asks for a narrower pattern, not a new
+    rate: giving the row that model's rate clears the flag but bills the row's own model
+    at it. A row named after a [1m] or host ID that no catalog lists under it is checked
+    only through that ID, so a change to it is explained when that ID's own finding, or
+    a host rate on that field, is fixed or added. A row problem fixed or added explains
+    any new value of what it is about, as no catalog says which value is right: a
+    pattern problem the pattern, a rate out of range that rate, and a cache read rate
+    above the input rate those two rates. A matchPattern change is otherwise explained
+    only by an ID a finding fixed or added is about, a dash spelling or host ID priced
+    another way, or the name of a row the edit adds, and only when the new pattern
+    starts matching the ID and the worker now prices it with this row (see lookup), or
+    stops matching it and it moves away or stops being matched by two rows. One such ID
+    explains the whole change, so a pattern that drops one ID and matches others still
+    passes. Rows the edit adds are judged by their findings alone. Each later row of a
+    name listed twice is compared too, as "<name> (2)" and so on. No catalog compares
+    about a quarter of the rows, and a rate changed inside the tolerance shows no flag,
+    so without this an edit to either would pass unseen."""
     old_keys, new_keys = finding_keys(report), finding_keys(after)
     changed = {
         key: item
@@ -244,15 +244,17 @@ def _unexplained(report: dict, after: dict) -> list[str]:
                 )
         # The worker prices a row's own name with that row, whatever the patterns, so a
         # name both files list never moves, and a new row's name moves to the new row,
-        # not to a pattern widened to match it. An ID that moves away explains the change
-        # only when the new pattern stops matching it: a new row that takes it over by name
-        # says nothing of the pattern. An overlap fixed that way needs no move, as the
-        # worker may have picked the other row.
+        # not to a pattern widened to match it. A move explains the change only when the
+        # pattern change made it: the new pattern starts matching an ID the worker now
+        # prices with this row, or stops matching one it moves away from. An ID a new row
+        # takes from this row by name, or one this row gets through another row's
+        # narrowing, says nothing of this pattern. An overlap fixed that way needs no
+        # move, as the worker may have picked the other row.
         if (
             old["matchPattern"] != new["matchPattern"]
             and (name, "matchPattern") not in flags
             and not any(
-                (old_pick is not old and new_pick is new)
+                (old_pick is not old and new_pick is new and not _matches(old, model_id))
                 or (old_pick is old and new_pick is not new and not _matches(new, model_id))
                 or (
                     model_id in overlaps and _matches(old, model_id) and not _matches(new, model_id)
