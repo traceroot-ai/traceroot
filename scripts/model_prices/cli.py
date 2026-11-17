@@ -32,7 +32,10 @@ result again. It also lists any problem a PR would add.
 
 A rate a maintainer has checked and left as it is goes in --reviewed (default
 scripts/model_prices/reviewed.json) and is no longer flagged until our rate or either
-catalog's rate changes.
+catalog's rate changes. To add one, copy model, field, ours, litellm and modelsdev
+verbatim from the flag in the --json report, since an entry matches only those exact
+values (a models.dev rate can read 4.0000000000000003e-07), then add a reason and pr,
+the number of the PR that settled it or null.
 
 A flag means "check this row", not "this is the price". Confirm the rate on the
 provider's pricing page, listed with each flag, before changing the price file.
@@ -54,12 +57,12 @@ a URL or a local file, so a saved catalog snapshot can be replayed. --track read
 GitHub, with GITHUB_TOKEN or GH_TOKEN when set; if GitHub can't be read, the report
 says so and the run exits 4.
 
-Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
-could not be loaded, a file's format changed, fewer than --min-compared rows could be
-compared, the reviewed rates file is malformed, or the Slack post failed. A failed run
+Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
+catalog could not be loaded, a file's format changed, fewer than --min-compared rows could
+be compared, the reviewed rates file is malformed, or the Slack post failed. A failed run
 posts a failure alert when it can, never an all-clear. 2 for a usage error. 4 when the
-report was produced but --track could not read GitHub, so no finding names its open
-PRs; every output is still written and posted.
+report was produced but --track could not read GitHub, so no finding names its open PRs;
+every output is still written and posted.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
