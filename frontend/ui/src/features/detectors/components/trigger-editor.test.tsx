@@ -124,6 +124,21 @@ describe("TriggerEditor — saving a metadata row", () => {
       { field: "metadata", op: "=", value: "acme", key: "tenant" },
     ]);
   });
+
+  it("offers and saves a metadata exclusion", () => {
+    const onSave = vi.fn();
+    renderEditor([{ field: "metadata", op: "=", value: "healthcheck", key: "traffic_type" }], {
+      onSave,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "is" }));
+    fireEvent.click(screen.getByRole("option", { name: "is not" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith([
+      { field: "metadata", op: "!=", value: "healthcheck", key: "traffic_type" },
+    ]);
+  });
 });
 
 describe("TriggerEditor — why its own Save is blocked", () => {

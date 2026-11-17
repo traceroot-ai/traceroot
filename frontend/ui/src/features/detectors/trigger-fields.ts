@@ -38,7 +38,7 @@ export interface TriggerFieldDef {
 
 const STRING_OPS = ["=", "!="] as const;
 const NUMERIC_OPS = [">", ">=", "<", "<=", "="] as const;
-const METADATA_OPS = ["=", "contains"] as const;
+const METADATA_OPS = ["=", "!=", "contains"] as const;
 
 export const TRIGGER_FIELD_DEFS: readonly TriggerFieldDef[] = [
   { field: "model_name", label: "Model", ops: STRING_OPS, valueKind: "enum" },
