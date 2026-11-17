@@ -15,6 +15,7 @@ import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { sendResetPasswordEmail } from "@/lib/email/send-reset-password-email";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -33,6 +34,13 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    sendResetPassword: async ({ user, url }) => {
+      await sendResetPasswordEmail({
+        to: user.email,
+        name: user.name,
+        resetUrl: url,
+      });
+    },
   },
 
   databaseHooks: {

@@ -26,6 +26,10 @@ vi.mock("better-auth/plugins", () => ({
   jwt: () => ({ id: "jwt" }),
 }));
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
+const sendResetPasswordEmailMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/email/send-reset-password-email", () => ({
+  sendResetPasswordEmail: sendResetPasswordEmailMock,
+}));
 const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
@@ -55,6 +59,14 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  emailAndPassword: {
+    enabled: boolean;
+    minPasswordLength: number;
+    sendResetPassword: (args: {
+      user: { email: string; name?: string | null };
+      url: string;
+    }) => Promise<void>;
+  };
   databaseHooks: {
     user: {
       create: {
@@ -81,6 +93,19 @@ describe("auth options", () => {
 
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
+  });
+
+  it("forwards password reset requests to sendResetPasswordEmail", async () => {
+    const { sendResetPassword } = options.emailAndPassword;
+    await sendResetPassword({
+      user: { email: "reset@example.com", name: "Reset User" },
+      url: "https://cloud.example.com/reset-password/tok123",
+    });
+    expect(sendResetPasswordEmailMock).toHaveBeenCalledWith({
+      to: "reset@example.com",
+      name: "Reset User",
+      resetUrl: "https://cloud.example.com/reset-password/tok123",
+    });
   });
 
   it("sends user_signed_up when a user is created", async () => {
