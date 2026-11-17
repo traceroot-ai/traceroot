@@ -40,7 +40,7 @@ Open your project in [traceroot Cloud](https://app.traceroot.ai), select **Detec
 6. **Signals**: leave **Generate signals** on to group findings into signals. Set **Root cause analysis** as described [below](#root-cause-analysis).
 7. Click **Create Detector**. The detector checks traces that arrive from then on.
 
-To skip known traffic such as health checks, tag those traces with a metadata value and add a filter such as **Metadata** `traffic_type` **is not** `healthcheck`. The detector runs on traces without that tag. This filters whole traces; it does not decide whether an error inside a trace was later recovered.
+To skip known traffic such as health checks, [attach metadata](/tracing/metadata) with `traffic_type` set to `healthcheck` and add a detector filter: **Metadata** `traffic_type` **is not** `healthcheck`. The detector runs on traces without that tag. This filters whole traces; it does not decide whether an error inside a trace was later recovered.
 
 ## Create detectors with AI
 

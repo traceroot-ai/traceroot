@@ -83,6 +83,17 @@ def test_metadata_contains_is_case_insensitive_and_false_for_an_unknown_key():
     assert _eval_condition(summary, {**condition, "key": "unset"}) is False
 
 
+def test_malformed_metadata_exclusion_does_not_match_every_trace():
+    """Legacy rows may bypass the current write-path validation."""
+    summary = {"metadata": {"traffic_type": ["user"]}}
+    for invalid in (
+        {"field": "metadata", "op": "!=", "value": "healthcheck"},
+        {"field": "metadata", "key": "", "op": "!=", "value": "healthcheck"},
+        {"field": "metadata", "key": "traffic_type", "op": "!=", "value": None},
+    ):
+        assert _eval_condition(summary, invalid) is False
+
+
 # --- Numeric fields ---
 
 

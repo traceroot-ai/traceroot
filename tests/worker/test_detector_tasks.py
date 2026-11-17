@@ -231,6 +231,32 @@ class TestTriggerConditionsOnSettledTrace:
         _patch_summaries(monkeypatch, {TRACE: {"cost": 1.50, "errors": 1}})
         assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-cost"]) == ["d-cost"]
 
+    def test_child_span_tag_excludes_a_trace_after_the_root_enqueues(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """A health-check tag can arrive on a child span after the root batch."""
+        exclude_healthchecks = [
+            {"field": "metadata", "key": "traffic_type", "op": "!=", "value": "healthcheck"}
+        ]
+        _patch_detectors(
+            monkeypatch, [_detector("d-no-healthchecks", conditions=exclude_healthchecks)]
+        )
+
+        _patch_summaries(monkeypatch, {TRACE: {"metadata": {}}})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+        mock_add_job.assert_called_once()
+        assert mock_add_job.call_args.args[1]["detectorIds"] == ["d-no-healthchecks"]
+        assert _lock_state(fake_redis)["state"] == "pending"
+
+        settled_metadata = dt._merge_metadata_values(None, [{}, {"traffic_type": "healthcheck"}])
+        _patch_summaries(monkeypatch, {TRACE: {"metadata": settled_metadata}})
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-no-healthchecks"]) == []
+
+        _patch_summaries(monkeypatch, {TRACE: {"metadata": {}}})
+        assert dt.select_triggered_detectors(PROJECT, TRACE, ["d-no-healthchecks"]) == [
+            "d-no-healthchecks"
+        ]
+
     def test_settled_trace_that_misses_its_condition_runs_nothing(self, monkeypatch):
         _patch_detectors(monkeypatch, [_detector("d-cost", conditions=COST_OVER_HALF)])
         _patch_summaries(monkeypatch, {TRACE: {"cost": 0.10}})

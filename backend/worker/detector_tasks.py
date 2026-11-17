@@ -229,6 +229,11 @@ def _eval_condition(trace_summary: dict, condition: dict) -> bool:
     op = condition.get("op")
     value = condition.get("value")
 
+    if field == "metadata":
+        key = condition.get("key")
+        if not isinstance(key, str) or not key.strip() or not isinstance(value, str) or not value:
+            return False
+
     actual = trace_summary.get(field)
     if isinstance(actual, dict):
         key = condition.get("key")
