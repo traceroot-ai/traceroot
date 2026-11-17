@@ -81,6 +81,14 @@ def report_for(rows, litellm, modelsdev, min_compared=1, reviewed=()):
     )
 
 
+def baseline_for(run, path, rows, litellm, modelsdev):
+    """Save rows' report at path as a --baseline report, with the catalog hashes main()
+    records for the same catalogs: the runner adds its own filler to LiteLLM's."""
+    saved = report_for(rows, litellm, modelsdev)
+    _, _, report = run(rows, litellm, modelsdev, "--min-compared", "1")
+    path.write_text(json.dumps({**saved, "catalogs": report["catalogs"]}))
+
+
 def compare(before, after, litellm, modelsdev):
     """What --baseline lists for an edit from the before rows to the after rows."""
     fixes, adds = changes(

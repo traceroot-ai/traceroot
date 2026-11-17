@@ -2,6 +2,7 @@
 report saved before it, and the same adds that --track lists for an open PR."""
 
 import json
+from urllib.error import URLError
 
 import pytest
 
@@ -9,6 +10,7 @@ from tests.model_prices.samples import (
     DATE,
     _block_text,
     _track_one_pr,
+    baseline_for,
     compare,
     ll_entry,
     md_catalog,
@@ -193,7 +195,7 @@ def test_baseline_exit_codes(run, tmp_path):
     litellm = {"gpt-a": ll_entry("openai", input_=2e-6), "gpt-b": ll_entry("openai")}
     baseline = tmp_path / "before.json"
     before = [row("gpt-a", "openai"), row("gpt-b", "openai")]
-    baseline.write_text(json.dumps(report_for(before, litellm, md_catalog())))
+    baseline_for(run, baseline, before, litellm, md_catalog())
     args = ("--min-compared", "1", "--baseline", str(baseline))
 
     fixed = [row("gpt-a", "openai", input_=2e-6), row("gpt-b", "openai")]
@@ -203,7 +205,7 @@ def test_baseline_exit_codes(run, tmp_path):
 
     broke = [row("gpt-a", "openai"), row("gpt-b", "openai", input_=9e-6)]
     code, _, report = run(broke, litellm, md_catalog(), *args)
-    assert code == 2
+    assert code == 3
     assert report["baseline"]["adds"] == ["gpt-b input rate (ours 9.00)"]
 
     baseline.write_text(json.dumps({"date": DATE, "status": "failed", "error": "x"}))
@@ -212,14 +214,16 @@ def test_baseline_exit_codes(run, tmp_path):
     assert "the baseline report is not from a completed run" in posted[-1]["text"]
 
 
-@pytest.mark.parametrize("key", ["dash_spellings", "host_rates", "compared_rows", "date"])
+@pytest.mark.parametrize(
+    "key", ["dash_spellings", "host_rates", "compared_rows", "date", "catalogs"]
+)
 def test_a_baseline_from_another_version_fails_the_run(run, tmp_path, key):
     # Without its dash spellings, host rates or compared rows, an edit that stops pricing
     # a dash spelling, prices a host ID at the wrong rate, or deletes a flagged row,
     # would pass unseen.
     litellm = {"gpt-a": ll_entry("openai")}
     rows = [row("gpt-a", "openai")]
-    saved = report_for(rows, litellm, md_catalog())
+    saved = {**report_for(rows, litellm, md_catalog()), "catalogs": {}}
     del saved[key]
     baseline = tmp_path / "before.json"
     baseline.write_text(json.dumps(saved))
@@ -241,7 +245,7 @@ def test_baseline_compares_at_the_baseline_reports_date(run, tmp_path):
     }
     rows = [row("gpt-a", "openai")]
     baseline = tmp_path / "before.json"
-    baseline.write_text(json.dumps(report_for(rows, litellm, md_catalog())))
+    baseline_for(run, baseline, rows, litellm, md_catalog())
 
     code, _, report = run(
         rows, litellm, md_catalog(), "--min-compared", "1", "--baseline", str(baseline)
@@ -263,7 +267,7 @@ def test_baseline_lists_each_add_on_its_own_line(run, tmp_path, capsys):
     }
     before = [row("gpt-a", "openai")]
     baseline = tmp_path / "before.json"
-    baseline.write_text(json.dumps(report_for(before, litellm, md_catalog())))
+    baseline_for(run, baseline, before, litellm, md_catalog())
     after = [*before, row("claude-x", "anthropic", cache_read=8e-7)]
 
     code, _, report = run(
@@ -271,7 +275,7 @@ def test_baseline_lists_each_add_on_its_own_line(run, tmp_path, capsys):
     )
 
     adds = ["claude-x cache read rate (ours 0.80)", "claude-x cache write 1h rate (ours none)"]
-    assert code == 2
+    assert code == 3
     assert report["baseline"] == {"fixes": ["claude-x not priced"], "adds": adds}
     listed = "\n".join(f"• {add}" for add in adds)
     assert (
@@ -316,3 +320,83 @@ def test_track_lists_the_host_rates_and_dash_spellings_a_pr_would_add(run):
     # Slack names the PR; the full report lists what it would add.
     warning = next(b for b in posted[0]["blocks"] if b.get("block_id") == "pr_warnings")
     assert "#1 would also add problems" in _block_text(warning)
+
+
+def test_baseline_from_other_catalogs_fails_the_run(run, tmp_path):
+    # A catalog that moved between the two runs would be credited as a fix with no edit.
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    rows = [row("gpt-a", "openai")]
+    baseline = tmp_path / "before.json"
+    baseline_for(run, baseline, rows, litellm, md_catalog())
+    args = ("--min-compared", "1", "--baseline", str(baseline))
+    message = (
+        "the catalogs or reviewed rates differ from the baseline report's: pass the same "
+        "saved --litellm, --modelsdev and --reviewed files to both runs"
+    )
+
+    for moved, other in (
+        (({"gpt-a": ll_entry("openai")}, md_catalog())),
+        ((litellm, md_catalog(openai={"gpt-x": {}}))),
+    ):
+        code, posted, report = run(rows, moved, other, *args)
+        assert code == 1
+        assert report["status"] == "failed"
+        assert message in posted[-1]["text"]
+
+
+def test_baseline_from_another_reviewed_list_fails_the_run(run, tmp_path):
+    # A rate reviewed between the two runs stops being flagged, which reads as a fix.
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    rows = [row("gpt-a", "openai")]
+    baseline = tmp_path / "before.json"
+    baseline_for(run, baseline, rows, litellm, md_catalog())
+    reviewed = tmp_path / "reviewed.json"
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 1e-6,
+        "litellm": 2e-6,
+        "modelsdev": None,
+        "reason": "checked",
+        "pr": None,
+    }
+    reviewed.write_text(json.dumps([entry]))
+
+    code, posted, _ = run(
+        rows,
+        litellm,
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--baseline",
+        str(baseline),
+        "--reviewed",
+        str(reviewed),
+    )
+
+    assert code == 1
+    assert "the catalogs or reviewed rates differ from the baseline report's" in posted[-1]["text"]
+
+
+def test_an_add_exits_3_even_when_github_cannot_be_read(run, tmp_path):
+    litellm = {"gpt-a": ll_entry("openai")}
+    baseline = tmp_path / "before.json"
+    baseline_for(run, baseline, [row("gpt-a", "openai")], litellm, md_catalog())
+
+    def offline(url):
+        raise URLError("offline")
+
+    code, _, report = run(
+        [row("gpt-a", "openai", input_=9e-6)],
+        litellm,
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--baseline",
+        str(baseline),
+        "--track",
+        github=offline,
+    )
+
+    assert code == 3
+    assert report["tracking"] == "GitHub could not be read (URLError)"

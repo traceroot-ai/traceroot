@@ -69,19 +69,20 @@ Pass the same saved --litellm and --modelsdev files to both runs, so only the pr
 file differs between them. For the same reason, the second run judges which models are
 retired as of the baseline report's date, and reports that date.
 
-Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
-could not be loaded, a file's format changed, fewer than --min-compared rows could be
-compared, the reviewed rates file is malformed, the --baseline report could not be read,
-or the Slack post failed. A failed run posts a failure alert when it can, never an
-all-clear. 2 for a usage error, or with --baseline when the price file adds a finding
-the baseline report does not have. 4 when the report was produced but --track could
-not read GitHub, so no finding names its open PRs; every output is still written and
-posted. A --baseline add exits 2 even when --track could not read GitHub.
+Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
+catalog could not be loaded, a file's format changed, fewer than --min-compared rows could
+be compared, the reviewed rates file is malformed, the --baseline report could not be read
+or was made from other catalogs or reviewed rates, or the Slack post failed. A failed run
+posts a failure alert when it can, never an all-clear. 2 for a usage error only. 3 with
+--baseline when the price file adds a finding the baseline report does not have, even when
+--track could not read GitHub. 4 when the report was produced but --track could not read
+GitHub, so no finding names its open PRs; every output is still written and posted.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -109,6 +110,11 @@ from .tracking import GITHUB_REPO, fetch_pricing_prs, track
 
 ROOT = Path(__file__).resolve().parents[2]
 REVIEWED_PATH = Path(__file__).resolve().parent / "reviewed.json"
+
+
+def _digest(data: object) -> str:
+    """A hash of parsed JSON, so two runs can tell they read the same catalog."""
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
 def main(argv: list[str]) -> int:
@@ -145,7 +151,7 @@ def main(argv: list[str]) -> int:
         type=Path,
         metavar="REPORT",
         help="list what this price file fixes and adds compared with a report saved by "
-        "--json; exit 2 if it adds anything, as even a correct new row does when a catalog "
+        "--json; exit 3 if it adds anything, as even a correct new row does when a catalog "
         "bills its model more above a prompt size (a long-context add)",
     )
     parser.add_argument(
@@ -184,7 +190,17 @@ def main(argv: list[str]) -> int:
             min_compared=args.min_compared,
             reviewed=reviewed,
         )
+        report["catalogs"] = {
+            "litellm": _digest(litellm_data),
+            "modelsdev": _digest(modelsdev_data),
+            "reviewed": _digest(reviewed),
+        }
         if baseline is not None:
+            if baseline["catalogs"] != report["catalogs"]:
+                raise CheckError(
+                    "the catalogs or reviewed rates differ from the baseline report's: pass "
+                    "the same saved --litellm, --modelsdev and --reviewed files to both runs"
+                )
             fixes, adds = changes(baseline, report)
             report["baseline"] = {"fixes": describe_all(fixes), "adds": adds}
         if args.track:
@@ -208,7 +224,8 @@ def main(argv: list[str]) -> int:
                 track(report, prs)
             except Exception as exc:
                 # The findings stand without it: say PRs weren't checked, and carry on
-                # (the run then exits 4, after every output is written).
+                # (the run then exits 4, or 3 for a baseline add, after every output is
+                # written).
                 if isinstance(exc, CheckError):
                     detail = str(exc)
                 else:
@@ -221,7 +238,7 @@ def main(argv: list[str]) -> int:
         # With --baseline, a finding the edit adds fails the check, even when --track
         # could not read GitHub.
         if report.get("baseline", {}).get("adds"):
-            status = 2
+            status = 3
         elif args.track and report["tracking"] != "ok":
             status = 4
         else:

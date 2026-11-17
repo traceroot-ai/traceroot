@@ -164,8 +164,14 @@ def load_baseline(path: Path) -> dict:
         finding_keys(baseline)
         datetime.fromisoformat(baseline["date"])
         # Without these, an edit that stops pricing a dash spelling, prices a host ID at
-        # the wrong rate, or deletes a flagged row, would pass unseen.
-        for key, kind in (("dash_spellings", dict), ("host_rates", dict), ("compared_rows", list)):
+        # the wrong rate, or deletes a flagged row, would pass unseen. Without the catalog
+        # hashes, a catalog that moved between the two runs would read as a fix.
+        for key, kind in (
+            ("dash_spellings", dict),
+            ("host_rates", dict),
+            ("compared_rows", list),
+            ("catalogs", dict),
+        ):
             if not isinstance(baseline[key], kind):
                 raise TypeError(f"{key} is not a {kind.__name__}")
     except (KeyError, TypeError, ValueError) as exc:
