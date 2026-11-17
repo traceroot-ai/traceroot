@@ -20,26 +20,33 @@ unescape_json() {
 			for (i = 1; i <= length(h); i++) { c = index("0123456789abcdef", tolower(substr(h, i, 1))); n = n * 16 + c - 1 }
 			return n
 		}
-		{
+		/^ *"V": "/ {
+			line = $0; sub(/^ *"V": "/, "", line); sub(/",?$/, "", line)
 			out = ""; i = 1
-			while (i <= length($0)) {
-				c = substr($0, i, 1)
+			while (i <= length(line)) {
+				c = substr(line, i, 1)
 				if (c != "\\") { out = out c; i++; continue }
-				e = substr($0, i + 1, 1)
-				if (e == "u") { out = out sprintf("%c", hex(substr($0, i + 2, 4))); i += 6; continue }
+				e = substr(line, i + 1, 1)
+				if (e == "u") { out = out sprintf("%c", hex(substr(line, i + 2, 4))); i += 6; continue }
 				out = out (e == "n" ? "\n" : e == "t" ? "\t" : e == "r" ? "\r" : e == "b" ? "\b" : e == "f" ? "\f" : e)
 				i += 2
 			}
-			printf "%s", out
-		}'
+			printf "%s", out; found = 1
+		}
+		END { exit found ? 0 : 1 }'
 }
 
 resolve() { # resolve KEY FILE
-	probe=$(mktemp -d)
+	probe=$(mktemp -d "${TMPDIR:-/tmp}/env-value.XXXXXX")
 	printf 'services:\n  v:\n    image: x\n    environment:\n      V: "${%s:-}"\n' "$1" >"$probe/compose.yml"
+	# Each stage is checked on its own: a pipeline reports only its last stage, so a failing
+	# docker or a missing value line must not read as an unset key.
 	status=0
-	value=$(docker compose --env-file "$2" -f "$probe/compose.yml" --project-directory "$probe" config --format json 2>/dev/null |
-		sed -n -e 's/^ *"V": "//' -e 'T' -e 's/",\{0,1\}$//' -e 'p' | unescape_json) || status=$?
+	json=$(docker compose --env-file "$2" -f "$probe/compose.yml" --project-directory "$probe" config --format json 2>/dev/null) || status=$?
+	value=
+	if [ "$status" -eq 0 ]; then
+		value=$(printf '%s\n' "$json" | unescape_json) || status=$?
+	fi
 	rm -rf "$probe"
 	[ "$status" -eq 0 ] || {
 		echo "env-value: could not read $2 with docker compose" >&2
@@ -58,7 +65,7 @@ get)
 	;;
 set)
 	new=${ENV_VALUE_NEW:?ENV_VALUE_NEW is not set}
-	work=$(mktemp -d)
+	work=$(mktemp -d "${TMPDIR:-/tmp}/env-value.XXXXXX")
 	trap 'rm -rf "$work"' EXIT
 	ENV_VALUE_KEY="$key" awk '
 		BEGIN { k = ENVIRON["ENV_VALUE_KEY"]; v = ENVIRON["ENV_VALUE_NEW"] }

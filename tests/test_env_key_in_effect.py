@@ -4,6 +4,7 @@ A normal start must keep a key Compose already accepts, in whatever form it is w
 and never add a second assignment that would shadow it.
 """
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -185,3 +186,49 @@ def test_startup_never_changes_the_key_compose_resolves_for_a_valid_multi_line_f
     assert (tmp_path / ".env").read_text().startswith(text), "existing lines are left alone"
     assert _resolved(tmp_path, "ENCRYPTION_KEY") == _KEY
     assert fill_secrets(text, ("ENCRYPTION_KEY",)) == text
+
+
+def _read_with_docker_stand_in(tmp_path: Path, body: str) -> subprocess.CompletedProcess:
+    """Run the reader with a `docker` that behaves as `body` says."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(f"#!/bin/sh\n{body}\n")
+    (bin_dir / "docker").chmod(0o755)
+    (tmp_path / ".env").write_text(f"ENCRYPTION_KEY={_KEY}\n")
+    return subprocess.run(
+        ["sh", str(_ENV_VALUE), "get", "ENCRYPTION_KEY", str(tmp_path / ".env")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "exit 1",
+        "echo 'unexpected output'",
+        "echo '{}'",
+        "exit 0",
+    ],
+    ids=["docker fails", "not json", "no value line", "no output"],
+)
+def test_a_failed_read_is_never_reported_as_an_unset_key(tmp_path, body):
+    """An empty value means 'not set'; a failure to read must be an error, not an empty value."""
+    result = _read_with_docker_stand_in(tmp_path, body)
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "could not read" in result.stderr
+
+
+def test_the_reader_does_not_depend_on_gnu_only_sed_features(tmp_path):
+    """Stock macOS sed has no `T` command; the reader must not need sed at all."""
+    result = _read_with_docker_stand_in(
+        tmp_path,
+        f"""printf '{{\\n  "services": {{\\n    "v": {{\\n      "environment": {{\\n        "V": "{_KEY}"\\n}}}}}}}}\\n'""",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == _KEY
+    code = [ln for ln in _ENV_VALUE.read_text().splitlines() if not ln.lstrip().startswith("#")]
+    assert not [ln for ln in code if re.search(r"\bsed\b", ln)]
