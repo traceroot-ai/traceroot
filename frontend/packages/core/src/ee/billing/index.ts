@@ -60,6 +60,7 @@ export {
 export {
   normalizePromoCode,
   resolvePromoForPlan,
+  promoFailureFromStripeError,
   discountsToKeepForPlan,
   PROMO_MESSAGES,
   type PromoFailureReason,

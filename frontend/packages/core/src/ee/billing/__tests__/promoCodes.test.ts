@@ -3,6 +3,7 @@ import {
   resolvePromoForPlan,
   discountsToKeepForPlan,
   normalizePromoCode,
+  promoFailureFromStripeError,
   type PromoStripe,
 } from "../promoCodes.ts";
 
@@ -139,5 +140,32 @@ describe("discountsToKeepForPlan", () => {
   it("returns an empty list when nothing applies", () => {
     expect(discountsToKeepForPlan([d("di_starter", { plan: "starter" })], "pro")).toEqual([]);
     expect(discountsToKeepForPlan([], "pro")).toEqual([]);
+  });
+});
+
+describe("promoFailureFromStripeError", () => {
+  it("maps Stripe's first-time-customer rejection to a clear message", () => {
+    const err = {
+      type: "StripeInvalidRequestError",
+      code: "promotion_code_customer_not_first_time",
+    };
+    expect(promoFailureFromStripeError(err)).toMatchObject({
+      reason: "not_eligible",
+      message: "This promo code is only valid for new customers.",
+    });
+  });
+
+  it("maps any other promotion_code_* rejection to not_eligible", () => {
+    expect(
+      promoFailureFromStripeError({ code: "promotion_code_min_amount_not_met" }),
+    ).toMatchObject({
+      reason: "not_eligible",
+    });
+  });
+
+  it("ignores unrelated errors", () => {
+    expect(promoFailureFromStripeError({ code: "rate_limit" })).toBeNull();
+    expect(promoFailureFromStripeError(new Error("boom"))).toBeNull();
+    expect(promoFailureFromStripeError(null)).toBeNull();
   });
 });

@@ -118,6 +118,28 @@ describe("POST /api/billing/checkout promo codes", () => {
     expect(sessionsCreate).not.toHaveBeenCalled();
   });
 
+  it("returns a clear 400 when Stripe refuses the code for a returning customer", async () => {
+    promoList.mockResolvedValue({ data: [promo("pro")] });
+    sessionsCreate.mockRejectedValue(
+      Object.assign(new Error("prior transactions"), {
+        type: "StripeInvalidRequestError",
+        code: "promotion_code_customer_not_first_time",
+      }),
+    );
+    const res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "LAUNCH" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      reason: "not_eligible",
+      error: "This promo code is only valid for new customers.",
+    });
+  });
+
+  it("still reports a real Stripe failure as a 500", async () => {
+    sessionsCreate.mockRejectedValue(Object.assign(new Error("down"), { code: "api_error" }));
+    const res = await POST(req({ workspaceId: "ws-1", plan: "pro" }));
+    expect(res.status).toBe(500);
+  });
+
   it("treats a blank code as no code", async () => {
     const res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "  " }));
     expect(res.status).toBe(200);

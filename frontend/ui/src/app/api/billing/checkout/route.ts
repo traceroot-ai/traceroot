@@ -9,6 +9,7 @@ import {
   METERED_PRICE_ENV_VARS,
   normalizePromoCode,
   resolvePromoForPlan,
+  promoFailureFromStripeError,
 } from "@traceroot/core";
 
 async function handlePOST(req: NextRequest) {
@@ -114,6 +115,15 @@ async function handlePOST(req: NextRequest) {
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
+    // Stripe checks the code's own restrictions (e.g. first-time customers only) when
+    // the session is created, so a refusal surfaces here.
+    const promoFailure = promoFailureFromStripeError(error);
+    if (promoFailure) {
+      return NextResponse.json(
+        { error: promoFailure.message, reason: promoFailure.reason },
+        { status: 400 },
+      );
+    }
     console.error("Checkout error:", error);
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
   }

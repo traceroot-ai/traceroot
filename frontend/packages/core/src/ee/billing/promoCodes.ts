@@ -11,7 +11,7 @@ import type Stripe from "stripe";
  * is refused (fail closed).
  */
 
-export type PromoFailureReason = "invalid" | "expired" | "wrong_plan";
+export type PromoFailureReason = "invalid" | "expired" | "wrong_plan" | "not_eligible";
 
 export type PromoResolution =
   | { ok: true; promotionCodeId: string }
@@ -25,6 +25,7 @@ export const PROMO_MESSAGES: Record<PromoFailureReason, string> = {
   invalid: "This promo code is not valid.",
   expired: "This promo code has expired.",
   wrong_plan: "This promo code is not valid for the selected plan.",
+  not_eligible: "This promo code is only valid for new customers.",
 };
 
 export function normalizePromoCode(input: unknown): string | null {
@@ -34,7 +35,9 @@ export function normalizePromoCode(input: unknown): string | null {
   return code;
 }
 
-function fail(reason: PromoFailureReason): PromoResolution {
+type PromoFailure = Extract<PromoResolution, { ok: false }>;
+
+function fail(reason: PromoFailureReason): PromoFailure {
   return { ok: false, reason, message: PROMO_MESSAGES[reason] };
 }
 
@@ -84,4 +87,15 @@ export function discountsToKeepForPlan(
       return plan === null || plan === newPlan.toLowerCase();
     })
     .map((d) => d.id);
+}
+
+/**
+ * Stripe checks the code's own restrictions (first-time customer, minimum amount) only
+ * when the Checkout Session is created. Turns that refusal into a promo failure so the
+ * caller can answer 400 instead of a generic server error. Returns null for any other error.
+ */
+export function promoFailureFromStripeError(err: unknown): PromoFailure | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code !== "string" || !code.startsWith("promotion_code_")) return null;
+  return fail("not_eligible");
 }
