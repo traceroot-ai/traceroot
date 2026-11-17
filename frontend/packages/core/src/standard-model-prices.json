@@ -940,7 +940,7 @@
   {
     "id": "tr-claude-opus-4",
     "modelName": "claude-opus-4",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4(-\\d{8})?(@\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-opus-4(-\\d{8})?(-v\\d+:\\d+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4(-0|-\\d{8})?(@\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-opus-4(-\\d{8})?(-v\\d+:\\d+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000015,

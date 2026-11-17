@@ -1269,6 +1269,7 @@ class TestClaudeLegacyModelIds:
             ("us.anthropic.claude-3-7-sonnet-20250219-v1:0", "claude-3-7-sonnet"),
             ("claude-3-7-sonnet@20250219", "claude-3-7-sonnet"),
             ("claude-opus-4-20250514", "claude-opus-4"),
+            ("claude-opus-4-0", "claude-opus-4"),
             ("anthropic.claude-opus-4-20250514-v1:0", "claude-opus-4"),
             ("claude-opus-4-1-20250805", "claude-opus-4-1"),
             ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
