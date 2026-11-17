@@ -1171,6 +1171,260 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
         )
 
 
+#: Public operation descriptions, keyed by operationId. FastAPI would otherwise
+#: publish each route function's whole docstring, ``Args:`` / ``Returns:`` /
+#: ``Raises:`` included, and the API reference uses the description as the
+#: page's meta description, which search results show. Each entry is plain text
+#: of 120 to 155 characters. An operation without an entry keeps its docstring.
+_OPERATION_DESCRIPTIONS: dict[str, str] = {
+    "whoami": (
+        "Check which traceroot project and workspace an API key belongs to. Useful "
+        "for confirming that a credential is valid and correctly scoped."
+    ),
+    "ingest_traces": (
+        "Send OTLP trace data to traceroot as protobuf, optionally gzip-compressed. "
+        "A 200 response means the batch was stored and queued for decoding."
+    ),
+    "list_traces": (
+        "List recent traces in a traceroot project, newest first. Offline evaluation "
+        "traces are excluded unless you set include_evaluations to true."
+    ),
+    "get_trace": (
+        "Fetch a single trace with its span tree from a traceroot project. The "
+        "default view is lightweight; request full fields for span input and output."
+    ),
+    "export_trace": (
+        "Export the complete bundle for one traceroot trace: the trace, its spans, "
+        "git context, and a manifest, with span input and output included."
+    ),
+    "list_trace_filter_values": (
+        "List the distinct values currently present for a categorical trace filter "
+        "field, such as model name or environment, in a traceroot project."
+    ),
+    "list_sessions": (
+        "List the sessions in a traceroot project, where a session groups the traces "
+        "that share a session id, with the trace count for each session."
+    ),
+    "get_session": (
+        "Fetch one traceroot session with all of its traces. Traces older than your "
+        "plan's retention window are left out instead of causing an error."
+    ),
+    "run_sql": (
+        "Run one read-only SQL query over the spans and traces of your traceroot "
+        "project and get the rows back. Results are capped and may be truncated."
+    ),
+    "get_sql_schema": (
+        "List the tables and columns, with their types, that a SQL query against "
+        "your traceroot project may reference. Read it before writing a query."
+    ),
+    "list_detectors": (
+        "List the detectors in a traceroot project, newest first, with each "
+        "detector's id, name, template, enabled flag, and creation time."
+    ),
+    "get_detector": (
+        "Fetch one detector's full configuration by id: prompt, output schema, "
+        "sample rate, root cause analysis settings, and trigger conditions."
+    ),
+    "create_detector": (
+        "Create a detector in a traceroot project from a template and a prompt. The "
+        "call is idempotent on the detector name within the project."
+    ),
+    "update_detector": (
+        "Edit a traceroot detector's name, prompt, enabled state, sample rate, or "
+        "model settings. Only the fields you send change; the template is fixed."
+    ),
+    "delete_detector": (
+        "Permanently delete a detector from a traceroot project. Findings it already "
+        "produced stay readable, and a repeated delete returns 404."
+    ),
+    "list_findings": (
+        "List recent detector findings for a traceroot project, newest first, "
+        "optionally filtered by detector, trace id, or time range."
+    ),
+    "get_finding": (
+        "Fetch a single detector finding by id from a traceroot project, including "
+        "the full analysis detail the detector produced for the trace."
+    ),
+    "get_finding_by_trace": (
+        "Fetch the detector finding attached to a specific trace in a traceroot "
+        "project. Each trace has at most one finding, so you get one or none."
+    ),
+    "list_signals": (
+        "List the signals in a traceroot project, newest first. Signals group the "
+        "recurring problems that detectors find; merged signals are left out."
+    ),
+    "get_signal": (
+        "Fetch one signal by id from a traceroot project, including when it was "
+        "resolved. A signal that was merged names the signal its findings moved to."
+    ),
+    "set_signal_status": (
+        "Resolve or reopen a traceroot signal. Resolving needs a reason, and a "
+        "resolved signal reopens by itself when its detector finds the problem again."
+    ),
+    "list_dashboards": (
+        "List the dashboards in a traceroot project, default dashboard first, with "
+        "each one's name, description, creator, widget count, and timestamps."
+    ),
+    "get_dashboard": (
+        "Fetch one traceroot dashboard by id together with its widgets, including "
+        "each widget's title, type, query spec, and creation time."
+    ),
+    "get_dashboard_data": (
+        "Run the query widgets on a traceroot dashboard for one time window and "
+        "return their results, so you can read what the dashboard shows."
+    ),
+    "create_dashboard": (
+        "Create a dashboard in a traceroot project. The call is idempotent on the "
+        "dashboard name, so repeating it does not create a duplicate."
+    ),
+    "update_dashboard": (
+        "Rename a traceroot dashboard or change its description. Fields you leave "
+        "out stay unchanged, and a null description clears the current one."
+    ),
+    "delete_dashboard": (
+        "Permanently delete a traceroot dashboard together with all of its widgets. "
+        "The last remaining dashboard in a project cannot be deleted."
+    ),
+    "get_widget": (
+        "Fetch one saved widget's definition by id, including its title, type, "
+        "stored query spec, display settings, and the dashboard it belongs to."
+    ),
+    "get_widget_data": (
+        "Run one saved traceroot dashboard widget for a time window and return its "
+        "results, without having to send the widget's query spec again."
+    ),
+    "run_widget_query": (
+        "Run a widget query spec for a time window and get its rows back, to answer "
+        "a metric question without saving a widget to a dashboard."
+    ),
+    "create_widget": (
+        "Add a widget to a traceroot dashboard: a query widget that charts a metric, "
+        "or a feed of recent traces. Every call creates a new widget."
+    ),
+    "update_widget": (
+        "Edit a traceroot dashboard widget's title, spec, or display settings. A new "
+        "spec replaces the old one entirely, and the widget type is fixed."
+    ),
+    "delete_widget": (
+        "Permanently delete one widget from a traceroot dashboard. The widget's slot "
+        "in the dashboard layout is removed along with it."
+    ),
+    "list_alerts": (
+        "List the threshold alerts in a traceroot project with each alert's rule "
+        "summary, status, and current severity, plus the project's alert capacity."
+    ),
+    "get_alert": (
+        "Fetch one traceroot alert by id with its full rule: view, measure, "
+        "aggregation, filters, window, threshold, and current evaluation state."
+    ),
+    "create_alert": (
+        "Create a threshold alert in a traceroot project: a span measure aggregated "
+        "over a time window and compared against a threshold you set."
+    ),
+    "update_alert": (
+        "Edit a traceroot alert's rule, such as its measure, window, or threshold. "
+        "Fields you leave out stay unchanged, and rule edits reset its state."
+    ),
+    "set_alert_status": (
+        "Pause or resume a traceroot alert without changing its rule. Pausing keeps "
+        "the current severity, and resuming restarts evaluation from a clean state."
+    ),
+    "delete_alert": (
+        "Permanently delete a threshold alert from a traceroot project. An open page "
+        "is discarded rather than resolved, and the response reports it."
+    ),
+    "list_datasets": (
+        "List the evaluation datasets in a traceroot project, newest first, with "
+        "each dataset's current published version and cursor-based paging."
+    ),
+    "get_dataset": (
+        "Read one evaluation dataset by id, including its name, description, key, "
+        "and current published version, which is null until one is published."
+    ),
+    "list_dataset_versions": (
+        "List the published versions of an evaluation dataset, newest first, each "
+        "with its test case count and whether it is the current version."
+    ),
+    "get_dataset_version": (
+        "Read one immutable evaluation dataset version and its test cases, whole or "
+        "one page at a time, with inputs and expected values as JSON."
+    ),
+    "list_evaluations": (
+        "List the evaluations in a traceroot project, newest first, each with its "
+        "run count and latest run, using cursor-based paging."
+    ),
+    "list_evaluation_runs": (
+        "List the evaluation runs in a traceroot project, newest first, optionally "
+        "filtered by evaluation or status, with cursor-based paging."
+    ),
+    "read_run": (
+        "Read one evaluation run's summary: its status, result counts, and the "
+        "per-score and per-metric means calculated over the run's results."
+    ),
+    "register_run": (
+        "Register and start an evaluation run in traceroot. The call is idempotent "
+        "on the client run id within an evaluation, so retries are safe."
+    ),
+    "upsert_result": (
+        "Create or update one test case result and its scores in an evaluation run. "
+        "The call is idempotent for each run and test case pair."
+    ),
+    "complete_run": (
+        "Mark an evaluation run as completed or failed in traceroot and report its "
+        "final completeness counts. The traceroot SDKs call this for you."
+    ),
+    "list_workspaces": (
+        "List the traceroot workspaces the signed-in user belongs to. Use it with "
+        "the project list to find the project a later request should target."
+    ),
+    "create_workspace": (
+        "Create a traceroot workspace that you administer. Creating one with a name "
+        "you already administer returns the existing workspace."
+    ),
+    "update_workspace": (
+        "Rename a traceroot workspace that you administer. Requires the ADMIN role, "
+        "and the new name cannot match another workspace you administer."
+    ),
+    "delete_workspace": (
+        "Permanently delete a traceroot workspace and everything in it, including "
+        "projects, access keys, memberships, and invites. Requires the ADMIN role."
+    ),
+    "list_projects": (
+        "List the traceroot projects the signed-in user can access across all "
+        "workspaces, to find the project id that project-scoped requests need."
+    ),
+    "create_project": (
+        "Create a project in a traceroot workspace you can write to. The call is "
+        "idempotent on the project name within the workspace."
+    ),
+    "update_project": (
+        "Edit a traceroot project's name or trace retention period. Setting the "
+        "retention to null returns it to the default for your plan."
+    ),
+    "delete_project": (
+        "Delete a traceroot project. It disappears from lists and reads and its "
+        "access keys stop working, while its data stays for the retention window."
+    ),
+}
+
+
+def _apply_operation_descriptions(schema: dict[str, Any]) -> None:
+    """Replace each operation's docstring-derived description with its entry
+    in ``_OPERATION_DESCRIPTIONS``.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
+            place.
+    """
+    for item in schema["paths"].values():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS:
+                continue
+            description = _OPERATION_DESCRIPTIONS.get(op.get("operationId") or "")
+            if description:
+                op["description"] = description
+
+
 def _collect_refs(node: Any, acc: set[str]) -> None:
     """Collect component schema names referenced by `$ref` anywhere under `node`."""
     if isinstance(node, dict):
@@ -1231,6 +1485,7 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     _apply_filters_param_schema(schema)
     _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
+    _apply_operation_descriptions(schema)
     return schema
 
 

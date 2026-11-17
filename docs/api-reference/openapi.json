@@ -7700,7 +7700,7 @@
   "paths": {
     "/api/v1/public/alerts": {
       "get": {
-        "description": "List the alerts in the caller's project (oldest first) with its capacity.",
+        "description": "List the threshold alerts in a traceroot project with each alert's rule summary, status, and current severity, plus the project's alert capacity.",
         "operationId": "list_alerts",
         "parameters": [
           {
@@ -7827,7 +7827,7 @@
         }
       },
       "post": {
-        "description": "Create a threshold alert in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Strict create \u2014 alerts have no unique name, so every\ncall inserts and ``created`` is always ``true`` on success.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateAlertRequest): The alert rule to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateAlertResponse: The created alert with its full rule.",
+        "description": "Create a threshold alert in a traceroot project: a span measure aggregated over a time window and compared against a threshold you set.",
         "operationId": "create_alert",
         "requestBody": {
           "content": {
@@ -7944,7 +7944,7 @@
     },
     "/api/v1/public/alerts/{alert_id}": {
       "delete": {
-        "description": "Hard-delete an alert.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). An outstanding page is discarded, not resolved: the\nresponse reports ``page_cleared`` when one was open.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    alert_id (str): The alert to delete.\n    project_id (str): The project the alert belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteAlertResponse: The removed alert and whether a page was cleared.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "description": "Permanently delete a threshold alert from a traceroot project. An open page is discarded rather than resolved, and the response reports it.",
         "operationId": "delete_alert",
         "parameters": [
           {
@@ -8074,7 +8074,7 @@
         }
       },
       "get": {
-        "description": "Get one alert with its full rule for the caller's project.",
+        "description": "Fetch one traceroot alert by id with its full rule: view, measure, aggregation, filters, window, threshold, and current evaluation state.",
         "operationId": "get_alert",
         "parameters": [
           {
@@ -8173,7 +8173,7 @@
         }
       },
       "patch": {
-        "description": "Edit an alert's rule in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). The patch is validated merged with the stored rule; an\nedit to any evaluated field resets the evaluation state, clears an open\npage, and re-arms a parked alert \u2014 the response reports the first two.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    alert_id (str): The alert to edit.\n    payload (UpdateAlertRequest): The project and the rule fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateAlertResponse: The updated alert, the changed fields, and the\n        state flags.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "description": "Edit a traceroot alert's rule, such as its measure, window, or threshold. Fields you leave out stay unchanged, and rule edits reset its state.",
         "operationId": "update_alert",
         "parameters": [
           {
@@ -8291,7 +8291,7 @@
     },
     "/api/v1/public/alerts/{alert_id}/status": {
       "patch": {
-        "description": "Pause or resume an alert without touching its rule.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Pausing keeps the severity it stopped at; resuming is a\ncold start (state reset, due now). Setting the status the alert already\nhas is a 200 with nothing changed.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    alert_id (str): The alert to pause or resume.\n    payload (AlertStatusRequest): The project and the target status.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateAlertResponse: The alert with its new status and the state flags.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Pause or resume a traceroot alert without changing its rule. Pausing keeps the current severity, and resuming restarts evaluation from a clean state.",
         "operationId": "set_alert_status",
         "parameters": [
           {
@@ -8419,7 +8419,7 @@
     },
     "/api/v1/public/dashboards": {
       "get": {
-        "description": "List the dashboards in the caller's project (default first).",
+        "description": "List the dashboards in a traceroot project, default dashboard first, with each one's name, description, creator, widget count, and timestamps.",
         "operationId": "list_dashboards",
         "parameters": [
           {
@@ -8499,7 +8499,7 @@
         }
       },
       "post": {
-        "description": "Create a dashboard in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Idempotent on the dashboard name within the project.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateDashboardRequest): The dashboard to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateDashboardResponse: The created (or matched) dashboard.",
+        "description": "Create a dashboard in a traceroot project. The call is idempotent on the dashboard name, so repeating it does not create a duplicate.",
         "operationId": "create_dashboard",
         "requestBody": {
           "content": {
@@ -8606,7 +8606,7 @@
     },
     "/api/v1/public/dashboards/{dashboard_id}": {
       "delete": {
-        "description": "Hard-delete a dashboard together with its widgets.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). A project's last dashboard cannot be deleted.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    dashboard_id (str): The dashboard to delete.\n    project_id (str): The project the dashboard belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteDashboardResponse: The removed dashboard and its widget count.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Permanently delete a traceroot dashboard together with all of its widgets. The last remaining dashboard in a project cannot be deleted.",
         "operationId": "delete_dashboard",
         "parameters": [
           {
@@ -8746,7 +8746,7 @@
         }
       },
       "get": {
-        "description": "Get one dashboard with its widgets for the caller's project.",
+        "description": "Fetch one traceroot dashboard by id together with its widgets, including each widget's title, type, query spec, and creation time.",
         "operationId": "get_dashboard",
         "parameters": [
           {
@@ -8845,7 +8845,7 @@
         }
       },
       "patch": {
-        "description": "Edit a dashboard's name or description.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). A null ``description`` clears it.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    dashboard_id (str): The dashboard to edit.\n    payload (UpdateDashboardRequest): The project and the fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateDashboardResponse: The updated dashboard and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Rename a traceroot dashboard or change its description. Fields you leave out stay unchanged, and a null description clears the current one.",
         "operationId": "update_dashboard",
         "parameters": [
           {
@@ -8973,7 +8973,7 @@
     },
     "/api/v1/public/dashboards/{dashboard_id}/data": {
       "get": {
-        "description": "Answer one dashboard's query widgets, up to the per-request cap, for a window.",
+        "description": "Run the query widgets on a traceroot dashboard for one time window and return their results, so you can read what the dashboard shows.",
         "operationId": "get_dashboard_data",
         "parameters": [
           {
@@ -9138,7 +9138,7 @@
     },
     "/api/v1/public/dataset-versions/{version_id}": {
       "get": {
-        "description": "Read an immutable snapshot: the version plus its cases, whole or a page at a time.\n\nPaging is opt-in through `limit`, because the released SDKs pull a version with one\nrequest and never follow `next_cursor`; a default page would silently truncate them.\nA version's case set is unbounded in practice, so any other caller should page.\n`input`/`expected` come back as native JSON values.",
+        "description": "Read one immutable evaluation dataset version and its test cases, whole or one page at a time, with inputs and expected values as JSON.",
         "operationId": "get_dataset_version",
         "parameters": [
           {
@@ -9309,7 +9309,7 @@
     },
     "/api/v1/public/datasets": {
       "get": {
-        "description": "List datasets, newest first. `next_cursor` is null on the last page.",
+        "description": "List the evaluation datasets in a traceroot project, newest first, with each dataset's current published version and cursor-based paging.",
         "operationId": "list_datasets",
         "parameters": [
           {
@@ -9485,7 +9485,7 @@
     },
     "/api/v1/public/datasets/{dataset_id}": {
       "get": {
-        "description": "Read one dataset. `current_dataset_version_id` is null until a version is published.",
+        "description": "Read one evaluation dataset by id, including its name, description, key, and current published version, which is null until one is published.",
         "operationId": "get_dataset",
         "parameters": [
           {
@@ -9616,7 +9616,7 @@
     },
     "/api/v1/public/datasets/{dataset_id}/versions": {
       "get": {
-        "description": "List versions newest-first, each with its case count and whether it is current.",
+        "description": "List the published versions of an evaluation dataset, newest first, each with its test case count and whether it is the current version.",
         "operationId": "list_dataset_versions",
         "parameters": [
           {
@@ -9781,7 +9781,7 @@
     },
     "/api/v1/public/detectors": {
       "get": {
-        "description": "List the detectors in the caller's project (newest first).",
+        "description": "List the detectors in a traceroot project, newest first, with each detector's id, name, template, enabled flag, and creation time.",
         "operationId": "list_detectors",
         "parameters": [
           {
@@ -9923,7 +9923,7 @@
         }
       },
       "post": {
-        "description": "Create a detector in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Idempotent on the detector name within the project.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateDetectorRequest): The detector to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateDetectorResponse: The created (or matched) detector.",
+        "description": "Create a detector in a traceroot project from a template and a prompt. The call is idempotent on the detector name within the project.",
         "operationId": "create_detector",
         "requestBody": {
           "content": {
@@ -10030,7 +10030,7 @@
     },
     "/api/v1/public/detectors/findings": {
       "get": {
-        "description": "List recent detector findings for the caller's project (newest first).",
+        "description": "List recent detector findings for a traceroot project, newest first, optionally filtered by detector, trace id, or time range.",
         "operationId": "list_findings",
         "parameters": [
           {
@@ -10210,7 +10210,7 @@
     },
     "/api/v1/public/detectors/findings/{finding_id}": {
       "get": {
-        "description": "Get a single finding by id for the key's project.",
+        "description": "Fetch a single detector finding by id from a traceroot project, including the full analysis detail the detector produced for the trace.",
         "operationId": "get_finding",
         "parameters": [
           {
@@ -10321,7 +10321,7 @@
     },
     "/api/v1/public/detectors/traces/{trace_id}/finding": {
       "get": {
-        "description": "Get the finding for a single trace (findings are 1-per-trace).",
+        "description": "Fetch the detector finding attached to a specific trace in a traceroot project. Each trace has at most one finding, so you get one or none.",
         "operationId": "get_finding_by_trace",
         "parameters": [
           {
@@ -10432,7 +10432,7 @@
     },
     "/api/v1/public/detectors/{detector_id}": {
       "delete": {
-        "description": "Hard-delete a detector; its existing findings stay readable.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Not idempotent: a second delete of the same id is a 404.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    detector_id (str): The detector to delete.\n    project_id (str): The project the detector belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteDetectorResponse: The removed detector.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "description": "Permanently delete a detector from a traceroot project. Findings it already produced stay readable, and a repeated delete returns 404.",
         "operationId": "delete_detector",
         "parameters": [
           {
@@ -10562,7 +10562,7 @@
         }
       },
       "get": {
-        "description": "Get one detector's full configuration for the key's project.",
+        "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, root cause analysis settings, and trigger conditions.",
         "operationId": "get_detector",
         "parameters": [
           {
@@ -10671,7 +10671,7 @@
         }
       },
       "patch": {
-        "description": "Edit a detector in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Only the sent fields change; ``template`` is immutable.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    detector_id (str): The detector to edit.\n    payload (UpdateDetectorRequest): The project and the fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateDetectorResponse: The updated detector and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Edit a traceroot detector's name, prompt, enabled state, sample rate, or model settings. Only the fields you send change; the template is fixed.",
         "operationId": "update_detector",
         "parameters": [
           {
@@ -10799,7 +10799,7 @@
     },
     "/api/v1/public/evaluation-runs": {
       "get": {
-        "description": "List evaluation runs, newest first, optionally one evaluation's or one status's.\n\nIdentity and status only: a run's counts and per-scorer means come from `read_run`, so\nlisting stays one query however many runs a page holds. `next_cursor` is null on the\nlast page.",
+        "description": "List the evaluation runs in a traceroot project, newest first, optionally filtered by evaluation or status, with cursor-based paging.",
         "operationId": "list_evaluation_runs",
         "parameters": [
           {
@@ -10999,7 +10999,7 @@
         }
       },
       "post": {
-        "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
+        "description": "Register and start an evaluation run in traceroot. The call is idempotent on the client run id within an evaluation, so retries are safe.",
         "operationId": "register_run",
         "requestBody": {
           "content": {
@@ -11102,7 +11102,7 @@
     },
     "/api/v1/public/evaluation-runs/{run_id}": {
       "get": {
-        "description": "Read a run's own summary: status, result counts, and per-score and per-metric\nmeans over the run's results.\n\nTyped rather than left to the catch-all so it appears in the published OpenAPI: an\nendpoint a CLI is expected to call must be in the contract the CLI generates from.\nSummary only, so the response is bounded by scorer count rather than case count.\n\nComparing two runs is not part of this read. It is a different question with its own\ntrust rules, and an optional parameter here would be too easily confused with the\nbaseline a run stores at registration.",
+        "description": "Read one evaluation run's summary: its status, result counts, and the per-score and per-metric means calculated over the run's results.",
         "operationId": "read_run",
         "parameters": [
           {
@@ -11233,7 +11233,7 @@
     },
     "/api/v1/public/evaluation-runs/{run_id}/complete": {
       "post": {
-        "description": "Complete/fail a run, reporting final completeness counts.",
+        "description": "Mark an evaluation run as completed or failed in traceroot and report its final completeness counts. The traceroot SDKs call this for you.",
         "operationId": "complete_run",
         "parameters": [
           {
@@ -11347,7 +11347,7 @@
     },
     "/api/v1/public/evaluation-runs/{run_id}/results": {
       "post": {
-        "description": "Upsert one test-case result (and its scores). Idempotent on (run, test case).",
+        "description": "Create or update one test case result and its scores in an evaluation run. The call is idempotent for each run and test case pair.",
         "operationId": "upsert_result",
         "parameters": [
           {
@@ -11461,7 +11461,7 @@
     },
     "/api/v1/public/evaluations": {
       "get": {
-        "description": "List evaluations, newest first, each with its run count and latest run.\n\n`next_cursor` is null on the last page.",
+        "description": "List the evaluations in a traceroot project, newest first, each with its run count and latest run, using cursor-based paging.",
         "operationId": "list_evaluations",
         "parameters": [
           {
@@ -11637,7 +11637,7 @@
     },
     "/api/v1/public/projects": {
       "get": {
-        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name, workspace_is_demo).",
+        "description": "List the traceroot projects the signed-in user can access across all workspaces, to find the project id that project-scoped requests need.",
         "operationId": "list_projects",
         "parameters": [
           {
@@ -11717,7 +11717,7 @@
         }
       },
       "post": {
-        "description": "Create a project in a workspace the authenticated user can write to.\n\nRequires MEMBER role or higher in the workspace (the write service decides).\nIdempotent on the project name within the workspace.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateProjectRequest): The project to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateProjectResponse: The created (or matched) project.",
+        "description": "Create a project in a traceroot workspace you can write to. The call is idempotent on the project name within the workspace.",
         "operationId": "create_project",
         "requestBody": {
           "content": {
@@ -11827,7 +11827,7 @@
     },
     "/api/v1/public/projects/{project_id}": {
       "delete": {
-        "description": "Soft-delete a project.\n\nRequires ADMIN role in the project's workspace (the write service\ndecides). The project drops out of every list and read and its access\nkeys stop authenticating; its data stays for the retention window.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    project_id (str): The project to delete.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteProjectResponse: The removed project.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "description": "Delete a traceroot project. It disappears from lists and reads and its access keys stop working, while its data stays for the retention window.",
         "operationId": "delete_project",
         "parameters": [
           {
@@ -11946,7 +11946,7 @@
         }
       },
       "patch": {
-        "description": "Edit a project's name or trace retention.\n\nRequires ADMIN role in the project's workspace (the write service\ndecides). A null ``trace_ttl_days`` returns retention to the plan default.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    project_id (str): The project to edit.\n    payload (UpdateProjectRequest): The fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateProjectResponse: The updated project and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Edit a traceroot project's name or trace retention period. Setting the retention to null returns it to the default for your plan.",
         "operationId": "update_project",
         "parameters": [
           {
@@ -12077,7 +12077,7 @@
     },
     "/api/v1/public/sessions": {
       "get": {
-        "description": "List unique sessions for the caller's project with trace counts.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
+        "description": "List the sessions in a traceroot project, where a session groups the traces that share a session id, with the trace count for each session.",
         "operationId": "list_sessions",
         "parameters": [
           {
@@ -12239,7 +12239,7 @@
     },
     "/api/v1/public/sessions/{session_id}": {
       "get": {
-        "description": "Get one session with all its traces for the key's project.\n\nRetention uses the silent list-style clamp rather than a 403: a session\nthat contains traces older than the plan window degrades to showing only\nthe in-window traces instead of failing outright.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    session_id (str): Session to fetch.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionDetailResponse: The session overview and its traces.\n\nRaises:\n    HTTPException: 404 if the session is missing or outside the key's\n        project, 500 on a reader failure.",
+        "description": "Fetch one traceroot session with all of its traces. Traces older than your plan's retention window are left out instead of causing an error.",
         "operationId": "get_session",
         "parameters": [
           {
@@ -12388,7 +12388,7 @@
     },
     "/api/v1/public/signals": {
       "get": {
-        "description": "List the signals in the caller's project (newest first). Merged signals are left out.",
+        "description": "List the signals in a traceroot project, newest first. Signals group the recurring problems that detectors find; merged signals are left out.",
         "operationId": "list_signals",
         "parameters": [
           {
@@ -12539,7 +12539,7 @@
     },
     "/api/v1/public/signals/{signal_id}": {
       "get": {
-        "description": "Get one signal of the caller's project. A merged signal names the signal it moved to.",
+        "description": "Fetch one signal by id from a traceroot project, including when it was resolved. A signal that was merged names the signal its findings moved to.",
         "operationId": "get_signal",
         "parameters": [
           {
@@ -12640,7 +12640,7 @@
     },
     "/api/v1/public/signals/{signal_id}/status": {
       "patch": {
-        "description": "Resolve or reopen a signal. Dismissing is not possible here.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Resolving needs a ``reason``; the reason ``other`` also\nneeds a ``note``. A resolved signal opens again by itself when its\ndetector finds the problem in a trace that started after the resolve. Send\n``expected_status`` to refuse the change when someone else changed the\nstatus first. Setting the status the signal already has changes nothing.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    signal_id (str): The signal to change.\n    payload (SignalStatusRequest): The project, the target status, and\n        the reason, note and expected status.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    SignalStatusResponse: The signal with its new status.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Resolve or reopen a traceroot signal. Resolving needs a reason, and a resolved signal reopens by itself when its detector finds the problem again.",
         "operationId": "set_signal_status",
         "parameters": [
           {
@@ -12768,7 +12768,7 @@
     },
     "/api/v1/public/sql": {
       "post": {
-        "description": "Run one read-only SQL query scoped to the caller's project.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context. Its ``project_id``\n        is the only project this query can ever see.\n    body (SqlRequest): The query, optional parameter values, and an optional\n        row cap that the service clamps down to the server ceiling.\n\nReturns:\n    SqlResponse: Columns, rows, and whether more rows matched than were\n        returned.\n\nRaises:\n    HTTPException: 400 when the query breaks the read-only contract or asks\n        for more than the server allows, 429 when no query slot is free,\n        500 when execution fails for a reason the caller cannot act on.",
+        "description": "Run one read-only SQL query over the spans and traces of your traceroot project and get the rows back. Results are capped and may be truncated.",
         "operationId": "run_sql",
         "parameters": [
           {
@@ -12915,7 +12915,7 @@
     },
     "/api/v1/public/sql/schema": {
       "get": {
-        "description": "Return the curated tables and columns available to public SQL.\n\nRead from the same contract the validator and the rewriter derive from, so\nwhat this advertises and what a query may reference cannot drift apart.",
+        "description": "List the tables and columns, with their types, that a SQL query against your traceroot project may reference. Read it before writing a query.",
         "operationId": "get_sql_schema",
         "parameters": [
           {
@@ -13027,7 +13027,7 @@
     },
     "/api/v1/public/traces": {
       "get": {
-        "description": "List recent traces for the caller's project (newest first).\n\nOffline-evaluation traces are excluded by default; pass\n``include_evaluations=true`` to include them.",
+        "description": "List recent traces in a traceroot project, newest first. Offline evaluation traces are excluded unless you set include_evaluations to true.",
         "operationId": "list_traces",
         "parameters": [
           {
@@ -13657,7 +13657,7 @@
         }
       },
       "post": {
-        "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nThe body is stored in S3 exactly as received and decoded asynchronously,\nso a 200 means the batch was stored and queued, not that it decoded.\n\nS3 path: events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz\n(``.pb`` when the body is not gzip-compressed)\n\nSize limits: by default the body may be at most 16 MiB as sent and 32 MiB\nonce unzipped. A larger request gets 413.\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional; any other coding gets 400)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
+        "description": "Send OTLP trace data to traceroot as protobuf, optionally gzip-compressed. A 200 response means the batch was stored and queued for decoding.",
         "operationId": "ingest_traces",
         "requestBody": {
           "content": {
@@ -13789,7 +13789,7 @@
     },
     "/api/v1/public/traces/filter-values/{field}": {
       "get": {
-        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
+        "description": "List the distinct values currently present for a categorical trace filter field, such as model name or environment, in a traceroot project.",
         "operationId": "list_trace_filter_values",
         "parameters": [
           {
@@ -13938,7 +13938,7 @@
     },
     "/api/v1/public/traces/{trace_id}": {
       "get": {
-        "description": "Get a single trace for the caller's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Fetch a single trace with its span tree from a traceroot project. The default view is lightweight; request full fields for span input and output.",
         "operationId": "get_trace",
         "parameters": [
           {
@@ -14077,7 +14077,7 @@
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Export the complete bundle for one traceroot trace: the trace, its spans, git context, and a manifest, with span input and output included.",
         "operationId": "export_trace",
         "parameters": [
           {
@@ -14216,7 +14216,7 @@
     },
     "/api/v1/public/whoami": {
       "get": {
-        "description": "Return the identity the authenticated API key maps to.",
+        "description": "Check which traceroot project and workspace an API key belongs to. Useful for confirming that a credential is valid and correctly scoped.",
         "operationId": "whoami",
         "responses": {
           "200": {
@@ -14278,7 +14278,7 @@
     },
     "/api/v1/public/widgets": {
       "post": {
-        "description": "Create a widget on a dashboard the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Strict create \u2014 never idempotent, ``created`` is always\n``true`` on success.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateWidgetRequest): The widget to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateWidgetResponse: The created widget.",
+        "description": "Add a widget to a traceroot dashboard: a query widget that charts a metric, or a feed of recent traces. Every call creates a new widget.",
         "operationId": "create_widget",
         "requestBody": {
           "content": {
@@ -14385,7 +14385,7 @@
     },
     "/api/v1/public/widgets/query": {
       "post": {
-        "description": "Run a widget spec for a window and return its rows with the window answered.",
+        "description": "Run a widget query spec for a time window and get its rows back, to answer a metric question without saving a widget to a dashboard.",
         "operationId": "run_widget_query",
         "parameters": [
           {
@@ -14482,7 +14482,7 @@
     },
     "/api/v1/public/widgets/{widget_id}": {
       "delete": {
-        "description": "Hard-delete a widget and its entry in the dashboard's layout.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides).\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    widget_id (str): The widget to delete.\n    project_id (str): The project the widget's dashboard belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteWidgetResponse: The removed widget.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "description": "Permanently delete one widget from a traceroot dashboard. The widget's slot in the dashboard layout is removed along with it.",
         "operationId": "delete_widget",
         "parameters": [
           {
@@ -14612,7 +14612,7 @@
         }
       },
       "get": {
-        "description": "Get one saved widget's definition, with its dashboard, for the caller's project.",
+        "description": "Fetch one saved widget's definition by id, including its title, type, stored query spec, display settings, and the dashboard it belongs to.",
         "operationId": "get_widget",
         "parameters": [
           {
@@ -14711,7 +14711,7 @@
         }
       },
       "patch": {
-        "description": "Edit a widget's title, spec, or display config.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). A sent ``spec`` replaces the whole spec and is checked\nagainst the widget's stored type by the service; ``type`` is immutable.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    widget_id (str): The widget to edit.\n    payload (UpdateWidgetRequest): The project and the fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateWidgetResponse: The updated widget and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "description": "Edit a traceroot dashboard widget's title, spec, or display settings. A new spec replaces the old one entirely, and the widget type is fixed.",
         "operationId": "update_widget",
         "parameters": [
           {
@@ -14829,7 +14829,7 @@
     },
     "/api/v1/public/widgets/{widget_id}/data": {
       "get": {
-        "description": "Answer one saved widget for a window, with a status instead of an exception.",
+        "description": "Run one saved traceroot dashboard widget for a time window and return its results, without having to send the widget's query spec again.",
         "operationId": "get_widget_data",
         "parameters": [
           {
@@ -14994,7 +14994,7 @@
     },
     "/api/v1/public/workspaces": {
       "get": {
-        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role,\n        is_demo); the public demo workspace, when present, comes last.",
+        "description": "List the traceroot workspaces the signed-in user belongs to. Use it with the project list to find the project a later request should target.",
         "operationId": "list_workspaces",
         "responses": {
           "200": {
@@ -15054,7 +15054,7 @@
         }
       },
       "post": {
-        "description": "Create a workspace administered by the authenticated user.\n\nIdempotent: re-creating a workspace the user already administers under the\nsame name returns that workspace with ``created: false``.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateWorkspaceRequest): The workspace to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateWorkspaceResponse: The created (or matched) workspace.",
+        "description": "Create a traceroot workspace that you administer. Creating one with a name you already administer returns the existing workspace.",
         "operationId": "create_workspace",
         "requestBody": {
           "content": {
@@ -15171,7 +15171,7 @@
     },
     "/api/v1/public/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Hard-delete a workspace and everything in it.\n\nRequires ADMIN role in the workspace (the write service decides); a\nworkspace outside the caller's memberships is a 403, as on the update.\nThe cascade removes every project, its data references, access keys,\nmemberships and invites; the typed ``name`` must equal the workspace's\ncurrent name, and the caller's only workspace cannot be deleted.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    workspace_id (str): The workspace to delete.\n    name (str): The workspace's current name, as a typed confirmation.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteWorkspaceResponse: The removed workspace and the cascade counts.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Permanently delete a traceroot workspace and everything in it, including projects, access keys, memberships, and invites. Requires the ADMIN role.",
         "operationId": "delete_workspace",
         "parameters": [
           {
@@ -15311,7 +15311,7 @@
         }
       },
       "patch": {
-        "description": "Rename a workspace the authenticated user administers.\n\nRequires ADMIN role in the workspace (the write service decides).\nWorkspace membership is the tenancy here, so a workspace outside the\ncaller's memberships is a 403 rather than a 404, as on the project\ncreate; a name the caller already administers a workspace under is a\n409.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    workspace_id (str): The workspace to edit.\n    payload (UpdateWorkspaceRequest): The fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateWorkspaceResponse: The updated workspace and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "description": "Rename a traceroot workspace that you administer. Requires the ADMIN role, and the new name cannot match another workspace you administer.",
         "operationId": "update_workspace",
         "parameters": [
           {
