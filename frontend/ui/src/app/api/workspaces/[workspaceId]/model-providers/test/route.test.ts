@@ -353,12 +353,35 @@ describe("POST model-providers/test - openai custom Base URL checks model IDs", 
     expect(await res.json()).toEqual({ success: true });
   });
 
+  it("does not let a configured :latest tag match a bare ID on other servers", async () => {
+    fetchMock.mockResolvedValue(listing("model-a"));
+    const res = await POST(
+      makeRequest({
+        ...ollama,
+        baseUrl: "http://vllm.internal:8000/v1",
+        models: ["model-a:latest"],
+      }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connected, but the server doesn't serve: model-a:latest",
+      detail: "Available models: model-a",
+    });
+  });
+
   it("does not check models against the default OpenAI host", async () => {
     fetchMock.mockResolvedValue(listing("gpt-4o"));
     const res = await POST(
       makeRequest({ adapter: "openai", apiKey: "k", models: ["gpt-6.1-sol"] }),
       makeParams(),
     );
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it("stays connected when the JSON body has no data list", async () => {
+    fetchMock.mockResolvedValue({ ...okResponse(), json: async () => ({ data: {} }) });
+    const res = await POST(makeRequest({ ...ollama, models: ["anything"] }), makeParams());
     expect(await res.json()).toEqual({ success: true });
   });
 

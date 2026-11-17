@@ -132,8 +132,9 @@ function isCustomHost(adapter: string, baseUrl?: string): boolean {
   }
 }
 
-// Ollama lists `name:latest` but also serves the bare `name`.
-const withoutLatestTag = (id: string) => id.replace(/:latest$/, "");
+// Ollama lists `name:latest` but also serves the bare `name`. Only the listed side
+// gets the alias: a configured `name:latest` must be listed as is.
+const withBareLatest = (ids: string[]) => ids.flatMap((id) => [id, id.replace(/:latest$/, "")]);
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
 async function handlePOST(request: NextRequest, { params }: RouteParams) {
@@ -189,8 +190,8 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
         // Reachable is not enough: a server that enforces model names answers
         // 404 on every call to a model it doesn't serve.
         if (check.ids) {
-          const served = new Set(check.ids.map(withoutLatestTag));
-          const missing = models.filter((m) => !served.has(withoutLatestTag(m)));
+          const served = new Set(withBareLatest(check.ids));
+          const missing = models.filter((m) => !served.has(m));
           if (missing.length > 0) {
             return successResponse({
               success: false,
