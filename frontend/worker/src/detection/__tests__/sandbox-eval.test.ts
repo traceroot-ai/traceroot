@@ -133,6 +133,36 @@ describe("runDetectionForTrace", () => {
     expect(mockComplete).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps scanning a detector whose stored output schema has malformed entries", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: true, summary: "Tool errored", data: { category: "x" } },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: '{"span_id":"1","status":"ERROR"}',
+      detector: {
+        ...DETECTOR,
+        outputSchema: [null, { type: "number" }, ...DETECTOR.outputSchema],
+        detectionSource: "system",
+        detectionModel: "claude-haiku-4-5",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.identified).toBe(true);
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves the shared detector default for unpinned system detectors", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [

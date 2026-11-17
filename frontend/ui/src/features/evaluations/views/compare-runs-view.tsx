@@ -116,7 +116,7 @@ function TextValue({ text }: { text: string | null }) {
       <TooltipContent
         align="start"
         side="bottom"
-        className="max-h-[420px] w-[460px] max-w-[80vw] overflow-auto whitespace-pre-wrap break-words border bg-popover p-3 font-mono text-[12px] leading-relaxed text-popover-foreground shadow-md"
+        className="max-h-[420px] w-[460px] max-w-[80vw] overflow-auto whitespace-pre-wrap break-words border bg-popover p-3 font-mono text-[12px] leading-relaxed text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
         {t}
       </TooltipContent>
@@ -351,7 +351,7 @@ export function CompareRunsView({
         <ProjectBreadcrumb projectId={projectId} current="Run Comparison" />
 
         {/* Search + baseline picker. */}
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-1.5">
+        <div className="flex min-h-11 flex-wrap items-center gap-3 border-b border-border px-4 py-1">
           <div className="relative min-w-[12rem] max-w-md flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -423,14 +423,14 @@ export function CompareRunsView({
             {/* Some runs exceeded the run-detail result cap, so their columns are
                 computed on a partial set — say so rather than imply full coverage. */}
             {truncatedRuns.length > 0 && (
-              <div className="border-b border-amber-400/60 bg-amber-100/50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <div className="border-b border-warning-border bg-warning-soft px-3 py-2 text-[12px] text-warning">
                 {truncatedRuns.map((b) => runLabel(b)).join(", ")} returned only the first{" "}
                 {truncatedRuns[0].results.length} of their cases (API limit), so their scores,
                 duration, and cost aggregates and deltas are partial.
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
-              <Table>
+              <Table className="sticky-sep">
                 <THead>
                   {/* Label row — grey, one line, with a divider below it. */}
                   <TRHead>
@@ -438,7 +438,7 @@ export function CompareRunsView({
                     <Th className="min-w-[220px]">Output</Th>
                     <Th className="min-w-[180px]">Expected</Th>
                     {scorerNames.map((name) => (
-                      <Th key={name} className="w-[130px] text-right font-mono">
+                      <Th key={name} className="w-[130px] text-right">
                         {name}
                       </Th>
                     ))}
@@ -451,7 +451,7 @@ export function CompareRunsView({
                     <Td />
                     <Td />
                     {scorerNames.map((name) => (
-                      <Td key={name} className="text-[10px] tabular-nums">
+                      <Td key={name} className="text-[12px] tabular-nums">
                         <NumericStack
                           ordered={ordered}
                           baseline={baseline}
@@ -463,7 +463,7 @@ export function CompareRunsView({
                         />
                       </Td>
                     ))}
-                    <Td className="text-[10px] tabular-nums">
+                    <Td className="text-[12px] tabular-nums">
                       <NumericStack
                         ordered={ordered}
                         baseline={baseline}
@@ -473,7 +473,7 @@ export function CompareRunsView({
                         higherIsBetter={false}
                       />
                     </Td>
-                    <Td className="text-[10px] tabular-nums">
+                    <Td className="text-[12px] tabular-nums">
                       <NumericStack
                         ordered={ordered}
                         baseline={baseline}
@@ -578,7 +578,7 @@ function CaseRow({
       {scorerNames.map((name) =>
         isCategorical(name) ? (
           // Categorical scorer — show each run's text value (no numeric delta).
-          <Td key={name} className="align-top text-[11px]">
+          <Td key={name} className="align-top text-[12px]">
             <RunStack
               align="right"
               values={ordered.map((b) => ({
@@ -593,7 +593,7 @@ function CaseRow({
             />
           </Td>
         ) : (
-          <Td key={name} className="align-top text-[11px] tabular-nums">
+          <Td key={name} className="align-top text-[12px] tabular-nums">
             <NumericStack
               ordered={ordered}
               baseline={baseline}
@@ -606,7 +606,7 @@ function CaseRow({
           </Td>
         ),
       )}
-      <Td className="align-top text-[11px] tabular-nums">
+      <Td className="align-top text-[12px] tabular-nums">
         <NumericStack
           ordered={ordered}
           baseline={baseline}
@@ -616,7 +616,7 @@ function CaseRow({
           higherIsBetter={false}
         />
       </Td>
-      <Td className="align-top text-[11px] tabular-nums">
+      <Td className="align-top text-[12px] tabular-nums">
         <NumericStack
           ordered={ordered}
           baseline={baseline}

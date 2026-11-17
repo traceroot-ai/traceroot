@@ -33,7 +33,7 @@ export function DeleteDetectorDialog({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
-          <DialogTitle className="text-[13px] font-semibold">Delete detector</DialogTitle>
+          <DialogTitle>Delete detector</DialogTitle>
         </DialogHeader>
 
         <div className="mt-1 space-y-4">

@@ -36,7 +36,7 @@ export function AgentModelLink({ projectId, rcaModel, workspaceId }: AgentModelL
   return (
     <Link
       href={`/projects/${projectId}/settings/detectors`}
-      className="inline-flex h-7 items-center gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+      className="inline-flex h-7 items-center gap-1 rounded-sm px-2 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
     >
       {resolvedLabel}
       <ExternalLink className="h-3 w-3" />

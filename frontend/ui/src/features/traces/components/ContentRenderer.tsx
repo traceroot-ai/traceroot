@@ -12,7 +12,7 @@ interface ContentRendererProps {
  */
 export function ContentRenderer({ content }: ContentRendererProps) {
   if (!content) {
-    return <span className="text-[11px] text-muted-foreground">-</span>;
+    return <span className="text-[12px] text-muted-foreground">-</span>;
   }
 
   // A bare media string (data URI or raw base64) won't reach JsonRenderer, so
@@ -33,7 +33,7 @@ export function ContentRenderer({ content }: ContentRendererProps) {
     // Not valid JSON — render the raw text.
   }
   return (
-    <div className="font-mono text-[11px] leading-relaxed">
+    <div className="font-mono text-[12px] leading-relaxed">
       <JsonRenderer value={value} />
     </div>
   );

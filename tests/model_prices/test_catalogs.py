@@ -90,6 +90,30 @@ def test_a_catalogs_non_finite_rate_counts_as_absent():
     ]
 
 
+def test_modelsdev_long_context_falls_back_to_200k_without_usable_tiers():
+    over = {"context_over_200k": {"input": 2.0}}
+    bad = [{"tier": {"type": "time", "size": 1}}, {"tier": "x"}, "x", {"tier": {"type": "context"}}]
+    two = [
+        {"tier": {"type": "context", "size": 300_000}},
+        {"tier": {"type": "context", "size": 250_000}},
+    ]
+    index = index_modelsdev(
+        md_catalog(
+            openai={
+                "plain": md_model(cost=over),
+                "bad-tiers": md_model(cost={**over, "tiers": bad}),
+                "two-tiers": md_model(cost={**over, "tiers": two}),
+                "none": md_model(),
+            }
+        )
+    )
+
+    assert index[("openai", "plain")]["long_context"] == 200_000
+    assert index[("openai", "bad-tiers")]["long_context"] == 200_000
+    assert index[("openai", "two-tiers")]["long_context"] == 250_000
+    assert index[("openai", "none")]["long_context"] is None
+
+
 def test_other_catalog_providers_are_ignored():
     rows = [row("gemini-c", "google")]
     litellm = {

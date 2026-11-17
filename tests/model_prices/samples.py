@@ -68,7 +68,7 @@ def md_catalog(**providers):
     return catalog
 
 
-def report_for(rows, litellm, modelsdev, min_compared=1):
+def report_for(rows, litellm, modelsdev, min_compared=1, reviewed=()):
     litellm = {**LITELLM_FILLER, **litellm}
     return build_report(
         rows,
@@ -77,6 +77,7 @@ def report_for(rows, litellm, modelsdev, min_compared=1):
         date=DATE,
         hosted=index_hosted(litellm, modelsdev),
         min_compared=min_compared,
+        reviewed=list(reviewed),
     )
 
 

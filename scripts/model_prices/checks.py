@@ -20,10 +20,13 @@ MIN_COMPARED = 80
 # A model with at least this context window is also called with a [1m] suffix.
 ONE_MILLION = 1_000_000
 
+# The values of a flag a reviewed entry must copy to settle it.
+REVIEWED_MATCH = ("model", "field", "ours", "litellm", "modelsdev")
+
 # What a host adds around a model's own ID: a region, a vendor, a version or a date.
 HOST_PREFIX = re.compile(
-    r"^(?:(?:us|us-gov|eu|apac|au|jp|in|ca|global)\.)?"
-    r"(?:anthropic|openai|xai|x-ai|google|deepseek|moonshotai|zai|z-ai)[./]"
+    r"^(?:[a-z]+(?:-[a-z]+)*\.)?"
+    r"(?:anthropic|openai|xai|x-ai|google|deepseek|moonshot|moonshotai|zai|z-ai)[./]"
 )
 HOST_SUFFIX = re.compile(r"(?:-\d{8})?(?:-v\d+(?::\d+)?)?(?:@\d{8})?$")
 
@@ -60,10 +63,11 @@ JS_INCOMPATIBLE = re.compile(
 
 # Missing models shown in small type under the main list: -latest aliases, dated
 # snapshots, and realtime, live and search models, which follow a base model's price.
-MINOR_MODELS = re.compile(
-    r"-latest$|-\d{4}(-\d{2}-\d{2})?$|-\d{2}-\d{4}$|-\d{4}-\d+k$|realtime|-live|search",
-    re.IGNORECASE,
-)
+_ALIAS_OR_DATE = r"-latest$|-\d{4}(-\d{2}-\d{2})?$|-\d{2}-\d{4}$"
+MINOR_MODELS = re.compile(rf"{_ALIAS_OR_DATE}|-\d{{4}}-\d+k$|realtime|-live|search", re.IGNORECASE)
+
+# The end of a -latest alias or a dated snapshot's name, with the date written either way.
+SNAPSHOT_SUFFIX = re.compile(rf"{_ALIAS_OR_DATE}|-\d{{8}}$", re.IGNORECASE)
 
 
 @functools.cache
@@ -112,10 +116,16 @@ def differs(ours: float, theirs: float, tolerance: float = TOLERANCE) -> bool:
 def _flag_rates(
     row: dict, provider: str, model: str, found: dict[str, dict], *, priced_as: str | None
 ) -> list[dict]:
-    """A flag for each of the row's rates that every catalog listing model disagrees with."""
+    """A flag for each of the row's rates that every catalog listing model disagrees with.
+    fix says what clears it: "rate" to change the row's rate, or "pattern" to narrow the
+    row's pattern when the row absorbs another model, one that is not a dated snapshot or
+    -latest alias of its own."""
     flags = []
     # A rate our row leaves out or sets to null is compared as production bills it.
     billed = billed_rates(row["prices"])
+    # Only a -latest alias or a dated snapshot is the row's own model; a -live or
+    # realtime model keeps its suffix and is another model the pattern absorbs.
+    snapshot = priced_as is None or _family(SNAPSHOT_SUFFIX.sub("", model)) == _family(priced_as)
     for field in FIELDS:
         ours = _number(row["prices"].get(field))
         theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}
@@ -130,6 +140,12 @@ def _flag_rates(
                     "modelsdev": theirs.get("modelsdev"),
                     "pricing_page": PRICING_PAGES.get(provider),
                     "priced_as": priced_as,
+                    "fix": "rate" if snapshot else "pattern",
+                    "catalogs_agree": (
+                        not differs(theirs["litellm"], theirs["modelsdev"])
+                        if len(theirs) == 2
+                        else None
+                    ),
                 }
             )
     return flags
@@ -365,7 +381,7 @@ def find_long_context(rows: list[dict], catalogs: dict[str, dict]) -> list[dict]
     found = []
     for row in rows:
         key = (row["provider"], row["modelName"])
-        # LiteLLM names the threshold; models.dev's context_over_200k key does not.
+        # LiteLLM names the threshold in its keys; models.dev lists it in its cost tiers.
         tiers = [catalogs[name][key]["long_context"] for name in catalogs if key in catalogs[name]]
         above = next((tier for tier in tiers if tier), None)
         if above:
@@ -381,11 +397,13 @@ def build_report(
     date: str,
     hosted: dict[str, dict] | None = None,
     min_compared: int = MIN_COMPARED,
+    reviewed: list[dict] | None = None,
 ) -> dict:
     """Compare every row by exact model ID, then every catalog model a row prices through
     its matchPattern. A rate is flagged only when every catalog that lists the model and
-    has that rate disagrees with ours. Then check the IDs each row should match, and the
-    price file itself."""
+    has that rate disagrees with ours; a flag that copies a reviewed entry's model, field
+    and rates moves to reviewed, with that entry's reason and PR. Then check the IDs each
+    row should match, and the price file itself."""
     catalogs = {"litellm": litellm, "modelsdev": modelsdev}
     hosted = hosted or {}
     today = datetime.fromisoformat(date)
@@ -414,12 +432,22 @@ def build_report(
             f"only {len(compared)} of {len(rows)} rows matched a catalog, below the floor of "
             f"{min_compared}; a catalog's model IDs or format may have changed"
         )
+    flagged += find_shadowed(rows, catalogs, today)
+    settled = {tuple(entry[key] for key in REVIEWED_MATCH): entry for entry in reviewed or []}
+    kept, left_as_is = [], []
+    for flag in flagged:
+        entry = settled.get(tuple(flag[key] for key in REVIEWED_MATCH))
+        if entry is None:
+            kept.append(flag)
+        else:
+            left_as_is.append({**flag, "reason": entry["reason"], "pr": entry["pr"]})
     return {
         "date": date,
         "status": "ok",
         "total": len(rows),
         "compared": len(compared),
-        "flagged": flagged + find_shadowed(rows, catalogs, today),
+        "flagged": kept,
+        "reviewed": left_as_is,
         "unpriced_ids": find_unpriced_ids(rows, catalogs, hosted, today),
         "overlaps": find_overlaps(rows, catalogs, hosted, today),
         "row_problems": find_row_problems(rows),

@@ -30,6 +30,10 @@ With --track, each finding also names the open pull requests that would clear it
 script applies each pricing PR's row changes to the current price file and checks the
 result again. It also lists any problem a PR would add.
 
+A rate a maintainer has checked and left as it is goes in --reviewed (default
+scripts/model_prices/reviewed.json) and is no longer flagged until our rate or either
+catalog's rate changes.
+
 A flag means "check this row", not "this is the price". Confirm the rate on the
 provider's pricing page, listed with each flag, before changing the price file.
 
@@ -49,7 +53,7 @@ extended before it is posted. --html writes every finding as a web page, and
 --report-url links the message to where that page is published. --litellm and --modelsdev take
 a URL or a local file, so a saved catalog snapshot can be replayed. --track reads
 GitHub, with GITHUB_TOKEN or GH_TOKEN when set; if GitHub can't be read, the report
-says so and the run still succeeds.
+says so and the run exits 4.
 
 --baseline checks an edit to the price file before it goes into a pull request. Save a
 report with --json before the edit, edit the file, then run again with --baseline
@@ -67,9 +71,12 @@ retired as of the baseline report's date, and reports that date.
 
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
-compared, the --baseline report could not be read, or the Slack post failed. 2 with
---baseline when the price file adds a finding the baseline report does not have. A
-failed run posts a failure alert when it can, never an all-clear.
+compared, the reviewed rates file is malformed, the --baseline report could not be read,
+or the Slack post failed. A failed run posts a failure alert when it can, never an
+all-clear. 2 for a usage error, or with --baseline when the price file adds a finding
+the baseline report does not have. 4 when the report was produced but --track could
+not read GitHub, so no finding names its open PRs; every output is still written and
+posted. A --baseline add exits 2 even when --track could not read GitHub.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
@@ -89,6 +96,7 @@ from .catalogs import (
     index_hosted,
     index_litellm,
     index_modelsdev,
+    load_reviewed,
     load_source,
     validate_rows,
 )
@@ -100,6 +108,7 @@ from .text import format_failure, format_report
 from .tracking import GITHUB_REPO, fetch_pricing_prs, track
 
 ROOT = Path(__file__).resolve().parents[2]
+REVIEWED_PATH = Path(__file__).resolve().parent / "reviewed.json"
 
 
 def main(argv: list[str]) -> int:
@@ -114,6 +123,9 @@ def main(argv: list[str]) -> int:
         "--payload", type=Path, metavar="PATH", help="also write the Slack message as JSON"
     )
     parser.add_argument("--prices", type=Path, default=ROOT / PRICE_PATH, help="our price file")
+    parser.add_argument(
+        "--reviewed", type=Path, default=REVIEWED_PATH, help="rates a maintainer has checked"
+    )
     parser.add_argument("--litellm", default=LITELLM_URL, metavar="URL_OR_PATH")
     parser.add_argument("--modelsdev", default=MODELSDEV_URL, metavar="URL_OR_PATH")
     parser.add_argument(
@@ -158,12 +170,19 @@ def main(argv: list[str]) -> int:
             # not read as a fix: only the price file differs between the two reports.
             date = baseline["date"]
         rows = validate_rows(json.loads(args.prices.read_text(encoding="utf-8")))
+        reviewed = load_reviewed(args.reviewed)
         litellm_data = load_source(args.litellm, "LiteLLM")
         modelsdev_data = load_source(args.modelsdev, "models.dev")
         litellm, modelsdev = index_litellm(litellm_data), index_modelsdev(modelsdev_data)
         hosted = index_hosted(litellm_data, modelsdev_data)
         report = build_report(
-            rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=args.min_compared
+            rows,
+            litellm,
+            modelsdev,
+            date=date,
+            hosted=hosted,
+            min_compared=args.min_compared,
+            reviewed=reviewed,
         )
         if baseline is not None:
             fixes, adds = changes(baseline, report)
@@ -177,12 +196,19 @@ def main(argv: list[str]) -> int:
                     report,
                     token,
                     lambda pr_rows: build_report(
-                        pr_rows, litellm, modelsdev, date=date, hosted=hosted, min_compared=0
+                        pr_rows,
+                        litellm,
+                        modelsdev,
+                        date=date,
+                        hosted=hosted,
+                        min_compared=0,
+                        reviewed=reviewed,
                     ),
                 )
                 track(report, prs)
             except Exception as exc:
-                # The findings stand without it: say PRs weren't checked, and carry on.
+                # The findings stand without it: say PRs weren't checked, and carry on
+                # (the run then exits 4, after every output is written).
                 if isinstance(exc, CheckError):
                     detail = str(exc)
                 else:
@@ -192,8 +218,14 @@ def main(argv: list[str]) -> int:
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
         text = format_report(report, more_in)
         payload = build_payload(report, args.report_url, more_in)
-        # With --baseline, a finding the edit adds fails the check.
-        status = 2 if report.get("baseline", {}).get("adds") else 0
+        # With --baseline, a finding the edit adds fails the check, even when --track
+        # could not read GitHub.
+        if report.get("baseline", {}).get("adds"):
+            status = 2
+        elif args.track and report["tracking"] != "ok":
+            status = 4
+        else:
+            status = 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}

@@ -5,7 +5,14 @@ would price wrong are listed."""
 import pytest
 
 from scripts.model_prices.catalogs import CheckError
-from scripts.model_prices.checks import JS_INCOMPATIBLE, PRICING_PAGES, differs, lookup
+from scripts.model_prices.checks import (
+    HOST_PREFIX,
+    HOST_SUFFIX,
+    JS_INCOMPATIBLE,
+    PRICING_PAGES,
+    differs,
+    lookup,
+)
 from scripts.model_prices.page import build_html
 from scripts.model_prices.slack import build_payload
 from scripts.model_prices.text import format_report
@@ -174,6 +181,45 @@ def test_models_priced_through_another_rows_pattern_are_compared_with_that_row()
     ]
 
 
+def test_a_flag_says_whether_the_fix_is_the_rate_or_the_pattern():
+    rows = [
+        row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
+        row("claude-g", "anthropic", pattern=r"(?i)^claude-g(-[\d-]+)?$"),
+        row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest|-live|-realtime)?$"),
+    ]
+    litellm = {
+        "claude-f": ll_entry("anthropic", input_=2e-6),  # the row's own rate is stale
+        "claude-g-2": ll_entry("anthropic", input_=2e-6),  # another model the pattern absorbs
+        "claude-h-20260101": ll_entry("anthropic", input_=2e-6),  # a dated snapshot of the row
+        "claude-h-latest": ll_entry("anthropic", input_=2e-6),  # an alias of the row
+        "claude-h-live": ll_entry("anthropic", input_=2e-6),  # another model, not a snapshot
+        "claude-h-realtime": ll_entry("anthropic", input_=2e-6),  # likewise
+    }
+    report = report_for(rows, litellm, md_catalog(), min_compared=0)
+
+    assert [(f["model"], f["priced_as"], f["fix"]) for f in report["flagged"]] == [
+        ("claude-f", None, "rate"),
+        ("claude-g-2", "claude-g", "pattern"),
+        ("claude-h-20260101", "claude-h", "rate"),
+        ("claude-h-latest", "claude-h", "rate"),
+        ("claude-h-live", "claude-h", "pattern"),
+        ("claude-h-realtime", "claude-h", "pattern"),
+    ]
+
+
+def test_a_flag_says_whether_the_catalogs_agree_on_the_rate():
+    rows = [row("gpt-a", "openai", input_=1e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+
+    both = report_for(rows, litellm, md_catalog(openai={"gpt-a": md_model(input_=2e-6)}))
+    split = report_for(rows, litellm, md_catalog(openai={"gpt-a": md_model(input_=3e-6)}))
+    one = report_for(rows, litellm, md_catalog())
+
+    assert [f["catalogs_agree"] for f in both["flagged"]] == [True]
+    assert [f["catalogs_agree"] for f in split["flagged"]] == [False]
+    assert [f["catalogs_agree"] for f in one["flagged"]] == [None]
+
+
 def test_a_dotted_versions_dash_spelling_is_compared_with_the_row_that_prices_it():
     # Gateways send gpt-g-5 for gpt-g.5, and the gpt-g row's date group also matches it.
     rows = [
@@ -263,7 +309,7 @@ def test_an_id_two_patterns_match_at_different_prices_is_an_overlap():
     # The older rows' patterns, meant for dated snapshots, also match the newer versions.
     broad = row("claude-g", "anthropic", input_=1e-5, pattern=r"(?i)^claude-g(-[\d-]+)?$")
     newer = row("claude-g-2", "anthropic", input_=8e-6, pattern=r"(?i)^claude-g-2(-\d+)?$")
-    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+)?$")
+    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest|-live|-realtime)?$")
     copy = row("claude-h-2", "anthropic", pattern=r"(?i)^claude-h-2(-\d+)?$")
     litellm = {
         "claude-g": ll_entry("anthropic", input_=1e-5),
@@ -342,6 +388,35 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         "• *1 model ID priced as another model*, e.g. `claude-k-5-1`: "
         "`eu.anthropic.claude-k-5-1` is priced as `claude-j`"
     ) in needs
+
+
+def test_a_bedrock_id_under_an_unlisted_region_prefix_is_an_unpriced_id():
+    rows = [row("claude-k-5", "anthropic", pattern=r"(?i)^claude-k-5$")]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "me.anthropic.claude-k-5": ll_entry("bedrock_converse"),
+    }
+    report = report_for(rows, litellm, md_catalog())
+
+    found = [(i["model"], i["row"], i["source"]) for i in report["unpriced_ids"]]
+    assert found == [("me.anthropic.claude-k-5", "claude-k-5", "Bedrock")]
+
+
+def test_a_bedrock_mantle_entry_is_a_bedrock_id():
+    rows = [row("claude-k-5", "anthropic", pattern=r"(?i)^claude-k-5$")]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "bedrock_mantle/anthropic.claude-k-5": ll_entry("bedrock_mantle"),
+    }
+    report = report_for(rows, litellm, md_catalog())
+
+    found = [(i["model"], i["row"], i["source"]) for i in report["unpriced_ids"]]
+    assert found == [("anthropic.claude-k-5", "claude-k-5", "Bedrock")]
+
+
+def test_a_moonshot_bedrock_id_strips_to_its_model_name():
+    model_id = "moonshot.kimi-k2-thinking"
+    assert HOST_SUFFIX.sub("", HOST_PREFIX.sub("", model_id)) == "kimi-k2-thinking"
 
 
 def test_an_id_another_row_prices_the_same_is_not_flagged():
@@ -484,3 +559,43 @@ def test_too_few_rows_compared_fails():
     litellm = {"gpt-a": ll_entry("openai")}
     with pytest.raises(CheckError, match="floor of 2"):
         report_for(rows, litellm, md_catalog(), min_compared=2)
+
+
+def _reviewed(**changes):
+    """A reviewed entry for gpt-a's input rate of 1e-6 against 2e-6 in both catalogs."""
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 1e-6,
+        "litellm": 2e-6,
+        "modelsdev": 2e-6,
+        "reason": "the provider's page says 1.00",
+        "pr": 12,
+    }
+    return {**entry, **changes}
+
+
+def test_a_flag_a_maintainer_reviewed_moves_to_reviewed():
+    rows = [row("gpt-a", "openai", input_=1e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    modelsdev = md_catalog(openai={"gpt-a": md_model(input_=2e-6)})
+    report = report_for(rows, litellm, modelsdev, reviewed=[_reviewed()])
+
+    assert report["flagged"] == []
+    [item] = report["reviewed"]
+    assert (item["model"], item["field"], item["ours"]) == ("gpt-a", "input", 1e-6)
+    assert (item["reason"], item["pr"]) == ("the provider's page says 1.00", 12)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [{"ours": 1.5e-6}, {"litellm": 3e-6}, {"modelsdev": 3e-6}, {"field": "output"}],
+)
+def test_a_reviewed_entry_stops_matching_when_a_rate_changes(changed):
+    rows = [row("gpt-a", "openai", input_=1e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    modelsdev = md_catalog(openai={"gpt-a": md_model(input_=2e-6)})
+    report = report_for(rows, litellm, modelsdev, reviewed=[_reviewed(**changed)])
+
+    assert [f["field"] for f in report["flagged"]] == ["input"]
+    assert report["reviewed"] == []

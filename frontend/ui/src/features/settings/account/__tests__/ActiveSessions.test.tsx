@@ -70,10 +70,10 @@ describe("ActiveSessions", () => {
 
     renderComponent();
 
-    expect(await screen.findByText("TraceRoot CLI")).toBeTruthy();
+    expect(await screen.findByText("traceroot CLI")).toBeTruthy();
     expect(screen.getByText(/Chrome on macOS/)).toBeTruthy();
     // The browser row must not also pick up the CLI's friendly label.
-    expect(screen.getAllByText("TraceRoot CLI")).toHaveLength(1);
+    expect(screen.getAllByText("traceroot CLI")).toHaveLength(1);
   });
 
   it("marks the current session distinctly and does not offer it a Revoke button", async () => {
@@ -97,12 +97,12 @@ describe("ActiveSessions", () => {
 
     renderComponent();
 
-    await screen.findByText("TraceRoot CLI");
+    await screen.findByText("traceroot CLI");
     fireEvent.click(screen.getByRole("button", { name: /^revoke$/i }));
 
     await waitFor(() => expect(mocks.revokeSession).toHaveBeenCalledWith({ token: "tok-cli" }));
     await waitFor(() => expect(mocks.listSessions).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByText("TraceRoot CLI")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("traceroot CLI")).toBeNull());
   });
 
   it("revokes all other sessions and refreshes the list", async () => {
@@ -114,12 +114,12 @@ describe("ActiveSessions", () => {
 
     renderComponent();
 
-    await screen.findByText("TraceRoot CLI");
+    await screen.findByText("traceroot CLI");
     fireEvent.click(screen.getByRole("button", { name: /revoke all other sessions/i }));
 
     await waitFor(() => expect(mocks.revokeOtherSessions).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.listSessions).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByText("TraceRoot CLI")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("traceroot CLI")).toBeNull());
   });
 
   it("disables Revoke all other sessions when there is nothing else to revoke", async () => {
@@ -144,14 +144,14 @@ describe("ActiveSessions", () => {
 
     renderComponent();
 
-    await screen.findByText("TraceRoot CLI");
+    await screen.findByText("traceroot CLI");
     fireEvent.click(screen.getByRole("button", { name: /^revoke$/i }));
 
     await waitFor(() => expect(mocks.revokeSession).toHaveBeenCalledWith({ token: "tok-cli" }));
     expect(await screen.findByText("Session already expired")).toBeTruthy();
     // The row is still there — a failed revoke must not silently refresh as
     // if it had succeeded.
-    expect(screen.getByText("TraceRoot CLI")).toBeTruthy();
+    expect(screen.getByText("traceroot CLI")).toBeTruthy();
     expect(mocks.listSessions).toHaveBeenCalledTimes(1);
   });
 
@@ -165,12 +165,12 @@ describe("ActiveSessions", () => {
 
     renderComponent();
 
-    await screen.findByText("TraceRoot CLI");
+    await screen.findByText("traceroot CLI");
     fireEvent.click(screen.getByRole("button", { name: /revoke all other sessions/i }));
 
     await waitFor(() => expect(mocks.revokeOtherSessions).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("Could not revoke other sessions")).toBeTruthy();
-    expect(screen.getByText("TraceRoot CLI")).toBeTruthy();
+    expect(screen.getByText("traceroot CLI")).toBeTruthy();
     expect(mocks.listSessions).toHaveBeenCalledTimes(1);
   });
 
@@ -187,7 +187,7 @@ describe("ActiveSessions", () => {
 
     await screen.findByText("Loading sessions...");
     expect(mocks.listSessions).not.toHaveBeenCalled();
-    expect(screen.queryByText("TraceRoot CLI")).toBeNull();
+    expect(screen.queryByText("traceroot CLI")).toBeNull();
     expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
   });
 

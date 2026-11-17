@@ -4,6 +4,7 @@ does not clear it."""
 
 from scripts.model_prices.catalogs import index_litellm, index_modelsdev
 from scripts.model_prices.checks import build_report
+from scripts.model_prices.findings import finding_keys
 from scripts.model_prices.slack import build_payload
 from scripts.model_prices.tracking import track
 from tests.model_prices.samples import (
@@ -14,6 +15,8 @@ from tests.model_prices.samples import (
     md_catalog,
     row,
 )
+
+FLAG_KEYS = ("model", "field", "ours", "litellm", "modelsdev")
 
 
 def test_a_pr_that_stops_comparing_a_flagged_row_does_not_fix_it():
@@ -99,3 +102,15 @@ def test_a_pr_that_deletes_a_flagged_row_does_not_fix_it():
     assert report["flagged"][0]["tracked_by"] == []
     [pr] = report["pull_requests"]
     assert (pr["fixes"], pr["adds"]) == ([], ["gpt-q-audio row removed"])
+
+
+def test_reviewed_rates_are_not_findings():
+    rows = [row("deepseek-d", "deepseek", input_=5e-7)]
+    litellm = {"deepseek/deepseek-d": ll_entry("deepseek", input_=1e-6)}
+    catalogs = (index_litellm({**LITELLM_FILLER, **litellm}), index_modelsdev(md_catalog()))
+    plain = build_report(rows, *catalogs, date=DATE, min_compared=0)
+    reviewed = [{k: plain["flagged"][0][k] for k in FLAG_KEYS} | {"reason": "ok", "pr": None}]
+
+    report = build_report(rows, *catalogs, date=DATE, min_compared=0, reviewed=reviewed)
+
+    assert report["reviewed"] and finding_keys(report) == {}

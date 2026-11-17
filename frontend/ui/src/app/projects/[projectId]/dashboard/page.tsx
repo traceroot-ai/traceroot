@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -96,40 +97,42 @@ export default function DashboardIndexPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex h-[45px] shrink-0 items-center justify-between border-b border-border px-4">
-          <h1 className="text-[13px] font-medium">Dashboards</h1>
-          <Button size="sm" className="h-7 text-[12px]" onClick={() => setCreateOpen(true)}>
-            ＋ New dashboard
-          </Button>
-        </div>
+        <PageHeader
+          title="Dashboards"
+          actions={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              New dashboard
+            </Button>
+          }
+        />
 
         {/* List */}
         <div className="flex-1 overflow-auto bg-background">
-          <table className="w-full">
+          <table className="data-table w-full">
             <thead className="sticky top-0 bg-background">
-              <tr className="border-b border-border bg-muted/50">
-                <th className="w-[16rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="w-[16rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                   Name
                 </th>
-                <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                   Description
                 </th>
-                <th className="w-[12rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="w-[12rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                   Owner
                 </th>
-                <th className="w-[10rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                   Created
                 </th>
-                <th className="w-[10rem] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                   Updated
                 </th>
-                <th className="w-10 px-2 py-1.5" />
+                <th className="col-sticky-end-head w-10 whitespace-nowrap px-2 py-1.5" />
               </tr>
             </thead>
             <tbody>
               {dashboards.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                  <td colSpan={6} className="!h-auto !p-6 text-center text-muted-foreground">
                     No dashboards yet.
                   </td>
                 </tr>
@@ -138,30 +141,30 @@ export default function DashboardIndexPage() {
                 <tr
                   key={d.id}
                   onClick={() => router.push(`/projects/${projectId}/dashboard/${d.id}`)}
-                  className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
+                  className="cursor-pointer border-b border-border transition-colors hover:bg-muted"
                 >
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                  <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-foreground">
                     <span className="block truncate" title={d.name}>
                       {d.name}
                     </span>
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                     <span className="block truncate" title={d.description ?? undefined}>
                       {d.description || "—"}
                     </span>
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                     <span className="block truncate" title={d.creator ?? undefined}>
                       {d.creator ?? "—"}
                     </span>
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                     {formatDate(d.createTime)}
                   </td>
-                  <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                  <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                     {formatDate(d.updateTime)}
                   </td>
-                  <td className="px-2 text-right">
+                  <td className="col-sticky-end px-2 text-right">
                     <Popover
                       open={actionsOpen === d.id}
                       onOpenChange={(open) => setActionsOpen(open ? d.id : null)}
@@ -171,7 +174,7 @@ export default function DashboardIndexPage() {
                           variant="ghost"
                           size="sm"
                           aria-label="Dashboard actions"
-                          className="h-5 w-6 p-0 text-muted-foreground hover:text-foreground"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <MoreHorizontal className="h-3.5 w-3.5" />
@@ -179,7 +182,7 @@ export default function DashboardIndexPage() {
                       </PopoverTrigger>
                       <PopoverContent align="end" className="w-36 p-1">
                         <button
-                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-muted/60"
+                          className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] hover:bg-muted"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditTarget({ id: d.id, name: d.name, description: d.description });
@@ -190,7 +193,7 @@ export default function DashboardIndexPage() {
                           Edit
                         </button>
                         <button
-                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:hover:bg-transparent"
+                          className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:hover:bg-transparent"
                           // The DELETE route rejects removing a project's last
                           // dashboard (the list endpoint would only reseed it).
                           disabled={dashboards.length === 1}

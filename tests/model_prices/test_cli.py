@@ -86,11 +86,12 @@ def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, cap
     assert cut_lines(write_json=False) == ("…and 10 more", "…and 15 more models")
 
 
-def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
+def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, tmp_path):
     def offline(url):
         raise URLError("offline")
 
     rows = [row("gpt-a", "openai", input_=5e-7)]
+    saved, page = tmp_path / "payload.json", tmp_path / "report.html"
     code, posted, report = run(
         rows,
         {"gpt-a": ll_entry("openai")},
@@ -98,10 +99,17 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
         "--min-compared",
         "1",
         "--track",
+        "--payload",
+        str(saved),
+        "--html",
+        str(page),
         github=offline,
     )
 
-    assert code == 0
+    # Exit 4, not 0, so an agent that only checks the code knows no PR was looked for.
+    assert code == 4
+    assert json.loads(saved.read_text()) == posted[0]
+    assert "gpt-a" in page.read_text()
     assert report["tracking"] == "GitHub could not be read (URLError)"
     assert "flagged" in report and report["flagged"][0]["model"] == "gpt-a"
     footer = posted[0]["blocks"][-1]["elements"][0]["text"]
@@ -124,7 +132,8 @@ def test_a_cut_off_pr_listing_still_reports(run):
         github=cut_off,
     )
 
-    assert code == 0
+    assert code == 4
+    assert len(posted) == 1
     assert report["tracking"] == "GitHub could not be read (IncompleteRead)"
     assert "tracked_by" not in report["flagged"][0]
     assert posted[0]["text"].endswith(": 1 model with prices to check")
@@ -135,7 +144,7 @@ def test_more_open_prs_than_the_listing_reads_leaves_prs_not_checked(run, monkey
     monkeypatch.setattr(tracking, "MAX_PR_PAGES", 2)
     page = [{"number": n, "title": "docs: typo", "head": {"sha": "h"}} for n in range(100)]
     rows = [row("gpt-a", "openai", input_=5e-7)]
-    code, _, report = run(
+    code, posted, report = run(
         rows,
         {"gpt-a": ll_entry("openai")},
         md_catalog(),
@@ -145,7 +154,8 @@ def test_more_open_prs_than_the_listing_reads_leaves_prs_not_checked(run, monkey
         github=lambda url: page,
     )
 
-    assert code == 0
+    assert code == 4
+    assert len(posted) == 1
     assert report["tracking"] == "GitHub could not be read (200 or more open PRs)"
     assert "tracked_by" not in report["flagged"][0]
 
@@ -265,7 +275,7 @@ def test_a_rate_limit_partway_through_the_prs_marks_no_finding_as_in_a_pr(run):
     limited = HTTPError("https://api.test", 429, "", {}, None)
     code, posted, report = _run_with_two_prs(run, limited)
 
-    assert code == 0
+    assert code == 4
     assert report["tracking"] == "GitHub could not be read (429)"
     assert not report["flagged"][0].get("tracked_by")
     assert posted[0]["text"].endswith(": 1 model with prices to check")
@@ -382,3 +392,146 @@ def test_files_are_read_and_written_as_utf8_whatever_the_locale(tmp_path):
         encoding="utf-8",
     )
     assert again.returncode == 0, again.stdout + again.stderr
+
+
+def _reviewed_file(tmp_path, content):
+    path = tmp_path / "reviewed.json"
+    path.write_text(content, encoding="utf-8")
+    return str(path)
+
+
+def test_a_reviewed_rate_is_left_out_of_the_flags(run, tmp_path):
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 5e-7,
+        "litellm": 1e-6,
+        "modelsdev": None,
+        "reason": "the provider's page says 0.50",
+        "pr": None,
+    }
+    path = _reviewed_file(tmp_path, json.dumps([entry]))
+    code, _, report = run(
+        [row("gpt-a", "openai", input_=5e-7)],
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--reviewed",
+        path,
+    )
+
+    assert code == 0
+    assert report["flagged"] == []
+    assert [item["reason"] for item in report["reviewed"]] == [entry["reason"]]
+
+
+def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
+    # PR #2 leaves the reviewed rate alone, so it adds no flag the file already covers.
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 5e-7,
+        "litellm": 1e-6,
+        "modelsdev": None,
+        "reason": "the provider's page says 0.50",
+        "pr": None,
+    }
+    path = _reviewed_file(tmp_path, json.dumps([entry]))
+    rows = [row("gpt-a", "openai", input_=5e-7)]
+    heads = {2: [*rows, row("gpt-b", "openai")]}
+    code, _, report = run(
+        rows,
+        {"gpt-a": ll_entry("openai"), "gpt-b": ll_entry("openai")},
+        md_catalog(),
+        *TRACK,
+        "--reviewed",
+        path,
+        heads=heads,
+    )
+
+    assert code == 0
+    assert report["tracking"] == "ok"
+    assert report["pull_requests"][0]["adds"] == []
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        pytest.param("{not json", "could not read the reviewed rates file", id="not-json"),
+        pytest.param("{}", "reviewed rates file is not a JSON list", id="not-a-list"),
+        pytest.param("[1]", "reviewed entry 0 is not an object", id="not-an-object"),
+        pytest.param(
+            json.dumps([{"model": "gpt-a"}]), "reviewed entry 0 has no field", id="missing-key"
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": "1",
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-numeric ours",
+            id="wrong-type",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has an empty reason",
+            id="empty-reason",
+        ),
+    ],
+)
+def test_a_malformed_reviewed_file_fails_the_run(run, tmp_path, content, message):
+    code, posted, report = run(
+        [row("gpt-a", "openai")],
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--min-compared",
+        "1",
+        "--reviewed",
+        _reviewed_file(tmp_path, content),
+    )
+
+    assert code == 1
+    assert report["status"] == "failed"
+    assert message in report["error"]
+    assert message in posted[0]["text"]
+
+
+def test_a_missing_reviewed_file_fails_the_run(run, tmp_path):
+    code, _, report = run(
+        [row("gpt-a", "openai")],
+        {"gpt-a": ll_entry("openai")},
+        md_catalog(),
+        "--reviewed",
+        str(tmp_path / "nope.json"),
+    )
+
+    assert code == 1
+    assert "could not read the reviewed rates file" in report["error"]
+
+
+def test_the_shipped_reviewed_file_loads():
+    path = Path(cli.__file__).resolve().parent / "reviewed.json"
+
+    assert cli.load_reviewed(path) == []
+    assert path.read_text(encoding="utf-8") == "[]\n"

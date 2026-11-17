@@ -11,6 +11,7 @@ from .checks import MINOR_MODELS
 
 # Rates in the terminal's price table; the page and the JSON report have every flag.
 MAX_FLAGGED_LINES = 20
+REVIEWED_FILE = "scripts/model_prices/reviewed.json"
 # Provider names as people write them.
 PROVIDER_NAMES = {
     "openai": "OpenAI",
@@ -365,6 +366,9 @@ def format_report(report: dict, more_in: str | None = None) -> str:
         if section.items:
             lines += ["", f"*{section.title}* ({len(section.items)}): {section.note}"]
             lines += _section_lines(section, tracked=_tracked(report), more_in=more_in)
+        if section.key == "prices" and report["reviewed"]:
+            count = _plural(len(report["reviewed"]), "rate")
+            lines += ["", f"Reviewed and left as they are: {count} ({REVIEWED_FILE})"]
     warnings = pr_warnings(report, _escape)
     if warnings:
         lines += ["", "*Open PRs to check*", *(f"• {warning}" for warning in warnings)]

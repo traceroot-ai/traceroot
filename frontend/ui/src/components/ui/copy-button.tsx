@@ -35,7 +35,7 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
         {...props}
       >
         {copied ? (
-          <Check className={cn("h-3.5 w-3.5 text-green-600", iconClassName)} />
+          <Check className={cn("h-3.5 w-3.5 text-success", iconClassName)} />
         ) : (
           <Copy className={cn("h-3.5 w-3.5", iconClassName)} />
         )}

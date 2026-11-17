@@ -35,7 +35,7 @@ traceroot: 여러분의 AI 에이전트를 지속적으로 개선하는 오픈 �
 
 ## traceroot
 
-에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
+오픈소스 Braintrust 대안. 에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -64,24 +64,26 @@ traceroot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 �
 
 ## traceroot 설정하기
 
-[traceroot 인스턴스](#traceroot-시작하기)(클라우드 또는 셀프 호스팅)가 준비되면 대시보드에서 프로젝트를 만들고 첫 트레이스를 전송할 방법을 선택하세요. 코딩 에이전트가 CLI로 계측을 설정하도록 하거나 SDK를 직접 설정할 수 있습니다.
+첫 트레이스를 [traceroot Cloud](https://app.traceroot.ai) 또는 직접 운영하는 [traceroot 인스턴스](#traceroot-시작하기)로 전송하세요. 명령어 하나를 실행해 코딩 에이전트가 계측을 추가하도록 하거나, SDK를 직접 설정할 수 있습니다.
 
 ### 코딩 에이전트로 설정하기
 
 <a id="cli-quickstart"></a>
 
-[traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)를 설치하고 로그인하세요:
+추적하려는 저장소의 루트에서 다음을 실행하세요:
 
 ```bash
-npm install -g traceroot-cli
-traceroot login
+npx -y traceroot-cli@latest setup
 ```
 
-그런 다음 코딩 에이전트에게 요청하세요:
+Claude Code, Codex, Cursor, OpenCode, Pi, Antigravity 등과 함께 사용할 수 있습니다.
 
-```text
-traceroot CLI로 이 애플리케이션에 트레이싱을 설정해 주세요.
-```
+[traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)는 브라우저로 로그인하고(무료 계정도 여기서 만들 수 있습니다), 프로젝트 API 키를 애플리케이션의 env 파일에 기록한 뒤, Claude Code 또는 Codex가 SDK를 추가하도록 하고 첫 트레이스가 도착할 때까지 기다립니다. Node.js 20.12 이상이 필요합니다.
+
+- 다른 코딩 에이전트를 쓰시나요? setup은 변경 사항을 에이전트가 실행할 작업으로 내보낼 수 있습니다.
+- 셀프 호스팅인가요? `--host`(API 오리진)와 `--auth-host`(웹 앱 오리진)로 setup이 인스턴스를 가리키게 하세요.
+
+각 단계와 셀프 호스팅, 문제 해결은 [설정 가이드](https://traceroot.ai/docs/tracing/get-started)를 참고하세요.
 
 ### SDK로 직접 설정하기
 
@@ -90,7 +92,7 @@ traceroot CLI로 이 애플리케이션에 트레이싱을 설정해 주세요.
 <details>
 <summary>최소 TypeScript 예제 실행하기</summary>
 
-Node.js와 npm, traceroot 프로젝트 API 키, OpenAI API 키가 필요합니다. 셀프 호스팅을 사용하는 경우 아래 클라우드 호스트 URL을 인스턴스 URL로 바꾸세요.
+Node.js와 npm, traceroot 프로젝트 API 키, OpenAI API 키가 필요합니다. 셀프 호스팅을 사용하는 경우 아래 클라우드 호스트 URL을 인스턴스의 API 오리진(예: `http://localhost:8000`)으로 바꾸세요.
 
 **1. SDK 설치:** TypeScript 프로젝트에서 실행하세요:
 
@@ -167,7 +169,7 @@ make prod-lite
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 <details open>
-<summary>지원하는 프레임워크 및 모델 프로바이더</summary>
+<summary>지원하는 프레임워크, 모델 프로바이더 및 코딩 에이전트</summary>
 
 ### 에이전트 프레임워크
 
@@ -197,6 +199,14 @@ make prod-lite
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistral chat completions, 툴 호출, streaming response에 대한 instrumentation을 자동으로 수집합니다. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat Completions 및 Responses API에 대한 instrumentation을 자동으로 수집합니다. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDK의 OpenRouter base URL로 호환 tracing을 수집합니다. [Python](./examples/python/openrouter-tool-agent) 및 [TypeScript](./examples/typescript/openrouter) 예제를 참고하세요. |
+
+### 코딩 에이전트
+
+| 통합 | 지원 언어 | 설명 |
+| ----------- | -------- | ----------- |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | 플러그인 | traceroot 플러그인으로 Claude Code의 요청, 툴 호출, subagent, 토큰 사용량을 수집합니다. |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | 플러그인 | traceroot 플러그인으로 Codex의 turn, 툴 호출, subagent, 토큰 사용량을 실시간으로 수집합니다. |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | Extension | traceroot extension으로 대화형 pi CLI 세션의 turn, 툴 호출, 토큰 사용량을 수집합니다. |
 
 </details>
 

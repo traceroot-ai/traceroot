@@ -12,6 +12,8 @@ import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
+import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
+import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import {
   SESSION_EXPIRES_IN_SECONDS,
@@ -36,6 +38,7 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        before: signupEmailPolicyHook(isCloud()),
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
