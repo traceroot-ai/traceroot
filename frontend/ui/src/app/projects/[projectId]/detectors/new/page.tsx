@@ -19,6 +19,7 @@ import {
 import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
+import { FilterPreview } from "@/features/detectors/components/filter-preview";
 import type { TriggerCondition } from "@/features/detectors/components/trigger-editor";
 import {
   normalizeTriggerConditions,
@@ -226,6 +227,7 @@ export default function NewDetectorPage() {
                 asCard
               />
             </div>
+            <FilterPreview projectId={projectId} conditions={triggerConditions} />
 
             {/* Sampling */}
             <div className="border border-border">
