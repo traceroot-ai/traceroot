@@ -10,6 +10,13 @@
 STATE_NAME=.env.encryption-key.d
 LOCK_HELD=
 
+# These commands read and write .env. With COMPOSE_ENV_FILES pointing elsewhere, Docker
+# Compose reads other files, so what they write would not be what the services get.
+refuse_other_env_files() {
+	[ -z "${COMPOSE_ENV_FILES:-}" ] || [ "$COMPOSE_ENV_FILES" = .env ] ||
+		die "COMPOSE_ENV_FILES is set to a file other than .env, so Docker Compose would not read the .env this command manages. Unset it and run again."
+}
+
 # True when $1 is owned by the user running this script and has exactly mode $2.
 private_to_me() {
 	[ -n "$(find "$1" -maxdepth 0 -user "$(id -u)" -perm "$2" 2>/dev/null)" ]

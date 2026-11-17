@@ -800,3 +800,36 @@ def test_preflight_refuses_the_example_key_in_any_letter_case(key):
     assert result.returncode != 0
     assert "ENCRYPTION_KEY" in result.stderr
     assert "make rotate-encryption-key" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "clickhouse dev-internal-secret",  # two neighbouring published words, not a published value
+        "changeme clickhouse",
+        "*",
+        "[a-z]*",
+        "click?ouse",
+        "clickhouse2",
+        "xclickhouse",
+        "minio-password-mine",
+    ],
+)
+def test_only_an_exact_published_value_is_replaced(tmp_path, value):
+    """An operator's own value is kept even when it looks like, or globs to, a published one."""
+    (tmp_path / ".env.example").write_text("CLICKHOUSE_PASSWORD=\n")
+    (tmp_path / ".env").write_text(f"CLICKHOUSE_PASSWORD='{value}'\n")
+
+    _run_env_secrets(tmp_path)
+
+    assert _values(tmp_path / ".env")["CLICKHOUSE_PASSWORD"] == f"'{value}'"
+
+
+@pytest.mark.parametrize("value", ["clickhouse", "ClickHouse", "MINIO-PASSWORD", "changeme"])
+def test_an_exact_published_value_is_still_replaced_in_any_letter_case(tmp_path, value):
+    (tmp_path / ".env.example").write_text("CLICKHOUSE_PASSWORD=\n")
+    (tmp_path / ".env").write_text(f"CLICKHOUSE_PASSWORD={value}\n")
+
+    _run_env_secrets(tmp_path)
+
+    assert re.fullmatch(r"[0-9a-f]{64}", _values(tmp_path / ".env")["CLICKHOUSE_PASSWORD"])

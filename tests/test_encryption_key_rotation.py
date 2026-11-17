@@ -693,3 +693,26 @@ def test_when_env_cannot_be_written_after_the_database_changed_the_new_key_is_ke
     assert _values(work / ".env")["ENCRYPTION_KEY"] == new_key
     assert run.db.read_text() == new_key
     assert not (work / _STATE / "pending").exists()
+
+
+@pytest.mark.parametrize("files", ["other.env", ".env,.env.local", "/etc/app.env"])
+def test_a_start_is_refused_when_compose_reads_other_env_files(rotation, files):
+    """It writes .env; with COMPOSE_ENV_FILES elsewhere the services would not see it."""
+    work, _, _, _ = rotation
+    marker = work / "started-anyway"
+
+    result = _with_lock(work, "touch", str(marker), extra_env={"COMPOSE_ENV_FILES": files})
+
+    assert result.returncode != 0
+    assert "COMPOSE_ENV_FILES" in result.stderr
+    assert not marker.exists()
+    assert not (work / _STATE / "lock").exists()
+
+
+@pytest.mark.parametrize("files", ["", ".env"])
+def test_a_start_is_allowed_when_compose_reads_the_env_file_this_manages(rotation, files):
+    work, _, _, _ = rotation
+
+    result = _with_lock(work, "true", extra_env={"COMPOSE_ENV_FILES": files})
+
+    assert result.returncode == 0, result.stderr

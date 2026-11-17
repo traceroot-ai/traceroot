@@ -30,6 +30,7 @@ if [ -L "$ENV_FILE" ]; then
 fi
 [ -f "$ENV_FILE" ] || die "no .env here. Run make prod-lite first."
 
+refuse_other_env_files
 key_state_open
 
 DB_UPDATED=
@@ -62,8 +63,6 @@ esac
 if [ -n "${ENCRYPTION_KEY:-}" ]; then
 	die "ENCRYPTION_KEY is set in your environment. Docker Compose uses that value instead of .env, so the services would keep the old key after the rotation. Unset it (and keep the key in .env) and run again."
 fi
-[ -z "${COMPOSE_ENV_FILES:-}" ] ||
-	die "COMPOSE_ENV_FILES is set, so Docker Compose may read the key from a file other than .env, which this command does not update. Unset it and run again."
 [ -w "$ENV_FILE" ] && [ -w "$ROOT" ] || die "cannot update .env, so the key was not changed."
 
 if [ -e pending ] || [ -L pending ]; then

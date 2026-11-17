@@ -198,3 +198,16 @@ def test_the_scratch_copy_used_to_read_env_is_private(monkeypatch):
     launcher.effective_value("A=1\n", "A")
 
     assert modes and set(modes) == {0o600}
+
+
+def test_the_launcher_refuses_when_compose_reads_other_env_files(tmp_path, monkeypatch):
+    launcher, _ = _use_state_dir(monkeypatch, tmp_path)
+    monkeypatch.setenv("COMPOSE_ENV_FILES", "other.env")
+    example = tmp_path / ".env.example"
+    example.write_text("INTERNAL_API_SECRET=\n")
+
+    with pytest.raises(SystemExit) as excinfo:
+        launcher.ensure_env_file(tmp_path / ".env", example)
+
+    assert "COMPOSE_ENV_FILES" in str(excinfo.value)
+    assert not (tmp_path / ".env").exists()

@@ -88,7 +88,8 @@ env-secrets-unlocked:
 		current=$$(sh scripts/env-value.sh get "$$key" .env) || exit 1; \
 		case "$$current" in "#"*) current="" ;; esac; \
 		lower=$$(printf '%s' "$$current" | tr 'A-Z' 'a-z'); \
-		if [ -n "$$current" ] && ! case " $$published " in *" $$lower "*) true ;; *) false ;; esac; then \
+		placeholder=; for word in $$published; do [ "$$lower" = "$$word" ] && placeholder=1; done; \
+		if [ -n "$$current" ] && [ -z "$$placeholder" ]; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \

@@ -14,6 +14,8 @@ die() {
 }
 . "$(cd "$(dirname "$0")" && pwd -P)/key-state.sh"
 
+refuse_other_env_files
+
 # A command run by another one that already holds the lock (the rotation, or make calling
 # make) must not wait for itself.
 if [ -n "${TRACEROOT_KEY_LOCK_HELD:-}" ]; then

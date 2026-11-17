@@ -181,6 +181,11 @@ def key_lock():
     so nothing starts with a key the database is being moved away from. Refuses while a
     rotation has not finished. Re-entrant through TRACEROOT_KEY_LOCK_HELD.
     """
+    if os.environ.get("COMPOSE_ENV_FILES") not in (None, "", ".env"):
+        raise SystemExit(
+            "COMPOSE_ENV_FILES is set to a file other than .env, so Docker Compose would not "
+            "read the .env this command manages. Unset it and run again."
+        )
     if os.name == "nt" or os.environ.get("TRACEROOT_KEY_LOCK_HELD"):
         yield
         return
