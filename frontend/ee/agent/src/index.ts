@@ -12,6 +12,7 @@ import {
   deleteSession,
   updateSessionTitle,
   executionBelongsToProject,
+  projectWorkspaceId,
   type TurnAttribution,
 } from "./session.js";
 import {
@@ -21,6 +22,11 @@ import {
   invalidateProviderCache,
 } from "./agent.js";
 import { decisionsRoute } from "./decisions-route.js";
+import {
+  assertInternalSecretConfigured,
+  callerIdentity,
+  requireInternalSecret,
+} from "./internal-auth.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
 import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
 import {
@@ -56,6 +62,9 @@ import type { Agent } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "./session.js";
 
 const app = new Hono();
+
+// Every route but the health check requires the internal credential.
+app.use("*", requireInternalSecret());
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
@@ -110,9 +119,18 @@ app.post("/api/v1/cache/invalidate-provider", async (c) => {
 // Session CRUD routes
 app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || undefined;
-  const workspaceId = c.req.header("x-workspace-id") || "";
+  const caller = callerIdentity(c, { allowSystem: true });
+  if (!caller) return c.json({ error: "x-user-id header required" }, 400);
+  const userId = caller.system ? undefined : caller.userId; // undefined → stored as null for system/RCA sessions
+  const claimedWorkspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string; executionId?: unknown }>();
+
+  // The session's workspace is the project's own.
+  const workspaceId = await projectWorkspaceId(projectId);
+  if (!workspaceId) return c.json({ error: "project not found" }, 404);
+  if (claimedWorkspaceId && claimedWorkspaceId !== workspaceId) {
+    return c.json({ error: "workspace does not match this project" }, 400);
+  }
 
   // Every message in this session reaches its execution through the session's
   // executionId, so an id from another project would attribute this project's
@@ -133,7 +151,7 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const session = await createSession({
     projectId,
     workspaceId,
-    userId, // undefined → stored as null for system/RCA sessions
+    userId,
     title: body.title,
     executionId,
   });
@@ -142,7 +160,7 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
 
 app.get("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
   if (!userId) {
     return c.json({ error: "x-user-id header required" }, 400);
   }
@@ -151,7 +169,8 @@ app.get("/api/v1/projects/:projectId/sessions", async (c) => {
 });
 
 app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
   const projectId = c.req.param("projectId");
   const session = await getSession(c.req.param("sessionId"), userId, projectId);
   if (!session) return c.json({ error: "not found" }, 404);
@@ -160,7 +179,8 @@ app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
 
 // GET messages for a session (for loading history in UI)
 app.get("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
   const projectId = c.req.param("projectId");
   const messages = await getSessionMessages(c.req.param("sessionId"), userId, projectId);
   if (!messages) return c.json({ error: "not found" }, 404);
@@ -169,7 +189,8 @@ app.get("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =>
 
 app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
 
   // Authorize first: deleteSession only removes a session the caller owns
   // in this project. Tearing down the executor and agent before that check
@@ -216,7 +237,9 @@ app.route("/", decisionsRoute);
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
-  const userId = c.req.header("x-user-id") || "";
+  const caller = callerIdentity(c, { allowSystem: true });
+  if (!caller) return c.json({ error: "x-user-id header required" }, 400);
+  const userId = caller.userId;
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -423,6 +446,7 @@ async function shutdown(signal: string): Promise<void> {
 
 async function main(): Promise<void> {
   console.log("[Agent] TraceRoot Agent Service starting...");
+  assertInternalSecretConfigured();
 
   // First, before anything slow: under `vite-node --watch` this module is
   // re-executed in the same process, so the previous execution's listener is

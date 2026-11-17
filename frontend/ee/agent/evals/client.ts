@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -145,8 +146,10 @@ export class AgentClient {
   private headers(): Record<string, string> {
     return {
       "Content-Type": "application/json",
-      "x-user-id": this.options.userId,
-      "x-workspace-id": this.options.workspaceId,
+      ...agentRequestHeaders({
+        userId: this.options.userId,
+        workspaceId: this.options.workspaceId,
+      }),
     };
   }
 
