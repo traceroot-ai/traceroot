@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,9 @@ export function PricingDialog({
 }: PricingDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState("");
+  // A promo code only applies to a new subscription, which starts at checkout.
+  const showPromoField = !hasSubscription;
 
   async function handlePlanSelect(newPlan: PlanType) {
     const action = resolvePlanAction(currentPlan, newPlan, hasSubscription);
@@ -48,7 +52,11 @@ export function PricingDialog({
 
     try {
       if (action.type === "checkout") {
-        const { url } = await createCheckoutSession(workspaceId, newPlan);
+        const { url } = await createCheckoutSession(
+          workspaceId,
+          newPlan,
+          promoCode.trim() || undefined,
+        );
         window.location.href = url;
       } else {
         const result = await changePlan(workspaceId, newPlan);
@@ -74,6 +82,21 @@ export function PricingDialog({
             Start free. Bring your own model keys on every plan, or use hosted models.
           </DialogDescription>
         </DialogHeader>
+        {showPromoField && (
+          <div className="flex items-center gap-3">
+            <label htmlFor="promo-code" className="text-sm text-muted-foreground">
+              Promo code
+            </label>
+            <Input
+              id="promo-code"
+              value={promoCode}
+              onChange={(e) => setPromoCode(e.target.value)}
+              placeholder="Optional"
+              autoComplete="off"
+              className="h-8 max-w-[220px]"
+            />
+          </div>
+        )}
         {error && (
           <div className="border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
             {error}

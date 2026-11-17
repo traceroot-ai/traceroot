@@ -7,6 +7,8 @@ import {
   getPlanConfig,
   PlanType,
   METERED_PRICE_ENV_VARS,
+  normalizePromoCode,
+  resolvePromoForPlan,
 } from "@traceroot/core";
 
 async function handlePOST(req: NextRequest) {
@@ -16,7 +18,7 @@ async function handlePOST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceId, plan } = await req.json();
+    const { workspaceId, plan, promoCode } = await req.json();
 
     // Validate plan (free plan has no checkout - users just sign up)
     const paidPlans: PlanType[] = [PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE];
@@ -41,6 +43,23 @@ async function handlePOST(req: NextRequest) {
     }
 
     const stripe = getStripeOrThrow();
+
+    // Optional promo code. Resolved before any Stripe customer or session exists,
+    // so a rejected code leaves nothing behind. The code must belong to this plan.
+    // Checkout gets the resolved code via `discounts` (the promo-code box stays off,
+    // so a code cannot be typed in past the plan check).
+    let promotionCodeId: string | null = null;
+    const code = normalizePromoCode(promoCode);
+    if (code) {
+      const resolution = await resolvePromoForPlan(stripe, code, plan);
+      if (!resolution.ok) {
+        return NextResponse.json(
+          { error: resolution.message, reason: resolution.reason },
+          { status: 400 },
+        );
+      }
+      promotionCodeId = resolution.promotionCodeId;
+    }
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
@@ -84,6 +103,7 @@ async function handlePOST(req: NextRequest) {
       customer: customerId,
       mode: "subscription",
       line_items: lineItems,
+      ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
       success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
       metadata: { workspaceId },

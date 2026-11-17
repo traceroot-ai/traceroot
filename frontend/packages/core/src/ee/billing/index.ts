@@ -55,3 +55,14 @@ export {
   type UsageNotificationState,
   type UsageNotificationDecision,
 } from "./usageNotifications.ts";
+
+// Promo codes: plan-bound Stripe promotion codes
+export {
+  normalizePromoCode,
+  resolvePromoForPlan,
+  discountsToKeepForPlan,
+  PROMO_MESSAGES,
+  type PromoFailureReason,
+  type PromoResolution,
+  type PromoStripe,
+} from "./promoCodes.ts";

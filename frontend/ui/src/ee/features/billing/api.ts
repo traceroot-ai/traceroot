@@ -28,10 +28,11 @@ export interface SubscriptionInfo {
 export async function createCheckoutSession(
   workspaceId: string,
   plan: string,
+  promoCode?: string,
 ): Promise<CheckoutResponse> {
   return fetchNextApi<CheckoutResponse>("/billing/checkout", {
     method: "POST",
-    body: JSON.stringify({ workspaceId, plan }),
+    body: JSON.stringify({ workspaceId, plan, promoCode }),
   });
 }
 
