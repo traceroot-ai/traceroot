@@ -59,8 +59,9 @@ says so and the run exits 4.
 
 Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
 catalog could not be loaded, a file's format changed, fewer than --min-compared rows could
-be compared, the reviewed rates file is malformed, or the Slack post failed. A failed run
-posts a failure alert when it can, never an all-clear. 2 for a usage error. 4 when the
+be compared, the reviewed rates file is malformed, the Slack post failed, or --post is set
+with no SLACK_WEBHOOK_URL (checked before anything is fetched). A failed run posts a
+failure alert when it can, never an all-clear. 2 for a usage error. 4 when the
 report was produced but --track could not read GitHub, so no finding names its open PRs;
 every output is still written and posted.
 
@@ -185,7 +186,11 @@ def main(argv: list[str]) -> int:
                 report["tracking"] = f"GitHub could not be read ({detail})"
         # A cut list points to the rest only where this run writes it.
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
-        text = format_report(report, more_in)
+        resolved = args.reviewed.resolve()
+        reviewed_in = str(
+            resolved.relative_to(ROOT) if resolved.is_relative_to(ROOT) else args.reviewed
+        )
+        text = format_report(report, more_in, reviewed_in=reviewed_in)
         payload = build_payload(report, args.report_url, more_in)
         status = 4 if args.track and report["tracking"] != "ok" else 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.

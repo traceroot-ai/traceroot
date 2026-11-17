@@ -3,9 +3,10 @@
 from scripts.model_prices.checks import PRICING_PAGES
 from scripts.model_prices.page import build_html
 from scripts.model_prices.slack import build_payload
-from scripts.model_prices.text import _escape, format_report
+from scripts.model_prices.text import _escape, format_report, sections, summary
 from tests.model_prices.samples import (
     DATE,
+    _reviewed_report,
     _track_one_pr,
     _tracked_report,
     ll_entry,
@@ -126,8 +127,39 @@ def test_reviewed_rates_are_counted_in_one_line_after_the_flags():
         }
         for name in ("gpt-a", "gpt-b")
     ]
-    text = format_report(report_for(rows, litellm, modelsdev, reviewed=reviewed))
+    report = report_for(rows, litellm, modelsdev, reviewed=reviewed)
+    text = format_report(report, reviewed_in="scripts/model_prices/reviewed.json")
 
     assert "Reviewed and left as they are: 2 rates (scripts/model_prices/reviewed.json)" in text
     assert "gpt-a  input" not in text
     assert "Reviewed" not in format_report(report_for(rows, litellm, modelsdev))
+
+
+def test_reviewed_rates_do_not_read_as_a_match_with_the_catalogs():
+    report = _reviewed_report(("gpt-a", "gpt-b"))
+
+    assert summary(report) == "nothing needs a fix; 2 reviewed rates differ from the catalogs"
+    assert "match the catalogs" not in format_report(report)
+    one = _reviewed_report()
+    assert summary(one).endswith("1 reviewed rate differs from the catalogs")
+
+
+def test_reviewed_rates_follow_what_open_prs_fix():
+    report = _tracked_report()
+    report["reviewed"] = _reviewed_report()["reviewed"]
+    for section in sections(report):
+        for item in section.items:
+            item["tracked_by"] = [11]
+
+    assert summary(report, open_only=True) == (
+        "nothing needs a fix that isn't in an open PR; 1 reviewed rate differs from the catalogs"
+    )
+
+
+def test_format_report_names_the_reviewed_file_it_is_given():
+    report = _reviewed_report()
+
+    assert "left as they are: 1 rate (my/reviewed.json)" in format_report(
+        report, reviewed_in="my/reviewed.json"
+    )
+    assert "left as they are: 1 rate\n" in format_report(report)

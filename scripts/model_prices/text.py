@@ -11,7 +11,6 @@ from .checks import MINOR_MODELS
 
 # Rates in the terminal's price table; the page and the JSON report have every flag.
 MAX_FLAGGED_LINES = 20
-REVIEWED_FILE = "scripts/model_prices/reviewed.json"
 # Provider names as people write them.
 PROVIDER_NAMES = {
     "openai": "OpenAI",
@@ -123,7 +122,7 @@ def sections(report: dict) -> list[Section]:
 def summary(report: dict, *, open_only: bool = False) -> str:
     """What needs a fix, e.g. "3 models with prices to check (1 with an open PR), 2 price
     file problems"; with open_only, only what no open PR fixes. When nothing does, it says
-    whether open PRs fix the rest."""
+    whether open PRs fix the rest, and if rates were reviewed, says so."""
     found, parts = sections(report), []
     for section in found:
         items = _open(section.items) if open_only else section.items
@@ -134,7 +133,12 @@ def summary(report: dict, *, open_only: bool = False) -> str:
     if parts:
         return ", ".join(parts)
     in_pr = any(item.get("tracked_by") for section in found for item in section.items)
-    return "nothing needs a fix that isn't in an open PR" if in_pr else "prices match the catalogs"
+    nothing = "nothing needs a fix that isn't in an open PR" if in_pr else "nothing needs a fix"
+    count = len(report["reviewed"])
+    if not count:
+        return nothing if in_pr else "prices match the catalogs"
+    verb = "differs" if count == 1 else "differ"
+    return f"{nothing}; {_plural(count, 'reviewed rate')} {verb} from the catalogs"
 
 
 def footer(report: dict) -> str:
@@ -353,9 +357,12 @@ def _section_lines(section: Section, *, tracked: bool, more_in: str | None) -> l
             return [_escape(", ".join(above))]
 
 
-def format_report(report: dict, more_in: str | None = None) -> str:
+def format_report(
+    report: dict, more_in: str | None = None, *, reviewed_in: str | None = None
+) -> str:
     """The report as text for the terminal: what to fix first, then context. more_in
-    names where the rest of a cut list can be read, such as "the JSON report"."""
+    names where the rest of a cut list can be read, such as "the JSON report", and
+    reviewed_in the reviewed rates file that was read."""
     lines = [f"*Model pricing audit, {report['date']}*: {summary(report)}"]
     for section in sections(report):
         if section.items:
@@ -363,7 +370,8 @@ def format_report(report: dict, more_in: str | None = None) -> str:
             lines += _section_lines(section, tracked=_tracked(report), more_in=more_in)
         if section.key == "prices" and report["reviewed"]:
             count = _plural(len(report["reviewed"]), "rate")
-            lines += ["", f"Reviewed and left as they are: {count} ({REVIEWED_FILE})"]
+            file = f" ({reviewed_in})" if reviewed_in else ""
+            lines += ["", f"Reviewed and left as they are: {count}{file}"]
     warnings = pr_warnings(report, _escape)
     if warnings:
         lines += ["", "*Open PRs to check*", *(f"• {warning}" for warning in warnings)]

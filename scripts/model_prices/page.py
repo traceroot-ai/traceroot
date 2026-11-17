@@ -3,10 +3,12 @@
 import html
 from collections.abc import Callable
 
+from .catalogs import FIELD_LABELS
 from .text import (
     NOT_ALL_CLEAR,
     PROVIDER_NAMES,
     Section,
+    _amount,
     _problem_text,
     _rate_rows,
     _tracked,
@@ -136,6 +138,25 @@ def build_html(report: dict) -> str:
         ]
         for pr in report.get("pull_requests", [])
     ]
+    reviewed = [
+        [
+            _h(i["model"]),
+            _h(FIELD_LABELS[i["field"]]),
+            *(_h(_amount(i[key])) for key in ("ours", "litellm", "modelsdev")),
+            _h(i["reason"]),
+            _html_prs([i["pr"]] if i["pr"] else [], urls),
+        ]
+        for i in report["reviewed"]
+    ]
+    note = "Rates that differ from the catalogs and that a maintainer checked and left as they are."
+    tables.append(
+        _html_table(
+            "Reviewed rates",
+            note,
+            ["Model", "Rate", "#Ours", "#LiteLLM", "#models.dev", "Reason", "PR"],
+            reviewed,
+        )
+    )
     note = "Each PR's row changes applied to the current price file and checked again."
     tables.append(
         _html_table("Open pricing PRs", note, ["PR", "Title", "Fixes", "Would add"], pulls)

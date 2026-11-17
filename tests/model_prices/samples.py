@@ -70,6 +70,26 @@ def report_for(rows, litellm, modelsdev, min_compared=1, reviewed=()):
     )
 
 
+def _reviewed_report(names=("gpt-a",)):
+    """Every rate differs, and a maintainer reviewed each one, so nothing is flagged."""
+    rows = [row(name, "openai", input_=1e-6) for name in names]
+    litellm = {name: ll_entry("openai", input_=2e-6) for name in names}
+    modelsdev = md_catalog(openai={name: md_model(input_=2e-6) for name in names})
+    reviewed = [
+        {
+            "model": name,
+            "field": "input",
+            "ours": 1e-6,
+            "litellm": 2e-6,
+            "modelsdev": 2e-6,
+            "reason": "the provider's page says <1.00>",
+            "pr": 12,
+        }
+        for name in names
+    ]
+    return report_for(rows, litellm, modelsdev, reviewed=reviewed)
+
+
 def _block_text(block):
     if block["type"] == "context":
         return " ".join(element["text"] for element in block["elements"])

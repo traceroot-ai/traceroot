@@ -18,6 +18,7 @@ from scripts.model_prices.text import _amount
 from tests.model_prices.samples import (
     DATE,
     _block_text,
+    _reviewed_report,
     _table_rows,
     _track_one_pr,
     _track_prs,
@@ -449,3 +450,14 @@ def test_slack_post_sends_the_payload_as_json(monkeypatch):
     assert request.get_method() == "POST"
     assert request.get_header("Content-type") == "application/json"
     assert json.loads(request.data) == payload
+
+
+def test_the_reviewed_line_is_in_the_message_only_when_rates_were_reviewed():
+    payload = build_payload(_reviewed_report(("gpt-a", "gpt-b")), REPORT_URL)
+    blocks = {block.get("block_id"): block for block in payload["blocks"]}
+
+    assert _block_text(blocks["reviewed"]) == "Reviewed and left as they are: 2 rates"
+    assert _block_text(blocks["needs"]) == (
+        ":large_green_circle: *Nothing needs a fix; 2 reviewed rates differ from the catalogs*"
+    )
+    assert "reviewed" not in _ids(build_payload(_quiet_report()))
