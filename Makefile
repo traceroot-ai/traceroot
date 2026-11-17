@@ -19,7 +19,7 @@ PUBLISHED_PLACEHOLDERS := dev-internal-secret internal-secret your-better-auth-s
 # Only vX.Y.Z tags are platform versions; other tags must not become the label.
 APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset env-secrets rotate-encryption-key
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset env-secrets env-secrets-unlocked rotate-encryption-key
 
 ## Install repository git hooks for contributors.
 install-hooks:
@@ -38,10 +38,7 @@ dev-autoreload: install-hooks
 dev-lite: install-hooks
 	@uv run python tmux_tools/launcher.py --env-only
 	@test -d frontend/node_modules || pnpm --dir frontend install
-	@if [ -d .env.encryption-key.d/lock ]; then printf '%s\n' "an encryption key rotation is running. Wait for it to finish, then start again." >&2; exit 1; fi
-	@$(PROD_COMPOSE) run --rm preflight
-	@echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop"
-	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
+	@sh scripts/with-key-lock.sh sh -c '$(PROD_COMPOSE) run --rm preflight && echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop" && APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build'
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps. Run `make dev` to start again.
 dev-reset:
@@ -82,18 +79,21 @@ prod:
 ## only. Refusing is portable, and a `.env` that is a symlink is an ambiguity
 ## this recipe has no business resolving silently.
 env-secrets:
-	@if [ -z "$$TRACEROOT_ROTATION_LOCK_HELD" ] && [ -d .env.encryption-key.d/lock ]; then printf '%s\n' "env-secrets: an encryption key rotation is running. Wait for it to finish, then run this again." >&2; exit 1; fi
+	@sh scripts/with-key-lock.sh $(MAKE) --no-print-directory env-secrets-unlocked
+
+env-secrets-unlocked:
 	@umask 077; if [ -L .env ]; then printf '%s\n' "env-secrets: .env is a symlink. Refusing to write secrets through it -- replace it with a regular file." >&2; exit 1; fi; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS) $(FRESH_ONLY_SECRETS); do \
 		case " $(FRESH_ONLY_SECRETS) " in *" $$key "*) published=""; ;; *) published="$(PUBLISHED_PLACEHOLDERS)"; ;; esac; \
-		current=$$(sh scripts/env-value.sh "$$key" .env); \
+		current=$$(sh scripts/env-value.sh get "$$key" .env) || exit 1; \
+		case "$$current" in "#"*) current="" ;; esac; \
 		lower=$$(printf '%s' "$$current" | tr 'A-Z' 'a-z'); \
 		if [ -n "$$current" ] && ! case " $$published " in *" $$lower "*) true ;; *) false ;; esac; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
 		tmpdir=$$(mktemp -d "./.env.tmp.XXXXXX") || exit 1; \
-		ENV_VALUE_NEW="$$value" sh scripts/env-value.sh --set "$$key" .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
+		ENV_VALUE_NEW="$$value" sh scripts/env-value.sh set "$$key" .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
 		if [ -L .env ]; then rm -rf "$$tmpdir"; printf '%s\n' "env-secrets: .env became a symlink while secrets were being generated. Refusing to write through it." >&2; exit 1; fi; \
 		mv "$$tmpdir/env" .env; \
 		rmdir "$$tmpdir"; \
@@ -107,10 +107,7 @@ rotate-encryption-key:
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets
-	@if [ -d .env.encryption-key.d/lock ]; then printf '%s\n' "an encryption key rotation is running. Wait for it to finish, then start again." >&2; exit 1; fi
-	@$(PROD_COMPOSE) run --rm preflight
-	@echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop"
-	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
+	@sh scripts/with-key-lock.sh sh -c '$(PROD_COMPOSE) run --rm preflight && echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop" && APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build'
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
 prod-reset:

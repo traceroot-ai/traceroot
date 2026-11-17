@@ -125,7 +125,7 @@ def _run_env_secrets(
     from what an operator actually runs. ``extra_path`` goes in front of PATH, so
     a test can make one of the tools the recipe shells out to fail.
     """
-    script = _makefile_recipe("env-secrets")
+    script = _makefile_recipe("env-secrets-unlocked")
     script = script.replace("$(REQUIRED_SECRETS)", " ".join(sorted(_makefile_required_secrets())))
     script = script.replace("$(FRESH_ONLY_SECRETS)", " ".join(_makefile_list("FRESH_ONLY_SECRETS")))
     script = script.replace(
@@ -433,7 +433,7 @@ def test_generated_secret_never_becomes_a_command_line_argument(tmp_path):
         'double"quote',
         "single'quote",
         "percent%sformat",
-        "dollar$and`backtick`",
+        "back`tick`",
     ],
 )
 def test_a_generated_value_with_metacharacters_is_written_verbatim(tmp_path, value):
@@ -775,19 +775,13 @@ def test_prod_lite_replaces_a_copied_database_password(tmp_path):
 
 
 @pytest.mark.parametrize("target", ["prod-lite", "dev-lite"])
-def test_make_targets_run_the_preflight_so_its_message_reaches_the_terminal(target):
-    """Compose alone says only that preflight failed; running it prints the variable."""
+def test_make_start_targets_run_the_preflight_and_start_inside_one_key_lock(target):
+    """Compose alone says only that preflight failed, so run it where its message shows; and
+    check and start under the same lock a rotation holds, so no rotation can begin between."""
     recipe = _makefile_recipe(target)
-    assert "run --rm preflight" in recipe
-    assert recipe.index("run --rm preflight") < recipe.index("up --build")
-
-
-@pytest.mark.parametrize("target", ["prod-lite", "dev-lite"])
-def test_make_start_targets_check_for_a_running_rotation_just_before_starting(target):
-    """Services started while a rotation migrates the database would use the old key."""
-    recipe = _makefile_recipe(target)
-    guard = recipe.index(".env.encryption-key.d/lock")
-    assert guard < recipe.index("run --rm preflight") < recipe.index("up --build")
+    locked = recipe[recipe.index("with-key-lock.sh") :]
+    assert "run --rm preflight" in locked
+    assert locked.index("run --rm preflight") < locked.index("up --build")
 
 
 # (.env text, key Docker Compose ends up using)

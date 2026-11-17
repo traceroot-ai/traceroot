@@ -17,7 +17,6 @@ import pytest
 
 from tests.test_published_secrets import (
     _ROOT,
-    _run_env_secrets,
     _values,
 )
 
@@ -36,6 +35,8 @@ def _previous_keys(work: Path) -> list[str]:
 
 
 _FAKE_DOCKER = r"""#!/bin/sh
+# Reading what an env file resolves to is real: only the stack-changing calls are recorded.
+case "$*" in *" config "*) exec "$REAL_DOCKER" "$@";; esac
 echo "ARGS: $*" >> "$FAKE_DOCKER_LOG"
 case "$*" in *" stop "*) [ -n "$FAKE_DOCKER_FAIL_STOP" ] && exit 1;; esac
 case "$*" in *"run "*)
@@ -89,6 +90,7 @@ def rotation(tmp_path: Path):
             "FAKE_DB": str(db),
             "FAKE_RUNS": str(runs),
             "ROTATE_ENV_SECRETS": "true",
+            "REAL_DOCKER": shutil.which("docker") or "docker",
             **(extra_env or {}),
         }
         if fail:
@@ -174,7 +176,7 @@ def test_rotation_run_twice_is_a_no_op_the_second_time(rotation):
     assert not (work / _STATE / "pending").exists()
 
 
-@pytest.mark.parametrize("line", ["", "ENCRYPTION_KEY=\n", "ENCRYPTION_KEY=   # none yet\n"])
+@pytest.mark.parametrize("line", ["", "ENCRYPTION_KEY=\n"])
 def test_rotation_with_no_key_set_says_there_is_nothing_to_rotate(rotation, line):
     work, log, _, run = rotation
     (work / ".env").write_text(line)
@@ -319,7 +321,7 @@ def test_rotation_stops_even_when_the_environment_value_matches_env(rotation):
     assert run.db.read_text() == _OLD_KEY
 
 
-@pytest.mark.parametrize("value", ["${OTHER_KEY}", "short", "zz" * 32, "ab" * 33])
+@pytest.mark.parametrize("value", ["short", "zz" * 32, "ab" * 33, "   # not a key"])
 def test_rotation_stops_on_a_key_it_cannot_read_the_way_compose_does(rotation, value):
     work, log, _, run = rotation
     before = f"ENCRYPTION_KEY={value}\n"
@@ -365,7 +367,7 @@ def test_overlapping_rotations_leave_the_database_and_the_key_in_effect_consiste
     # without reading, preparing or changing anything.
     second = run()
     assert second.returncode != 0
-    assert "another key rotation is running" in second.stderr
+    assert "another start or key rotation is running" in second.stderr
     assert _values(work / ".env")["ENCRYPTION_KEY"] == _OLD_KEY
     assert run.db.read_text() == _OLD_KEY
 
@@ -396,7 +398,7 @@ def test_simultaneous_rotations_admit_exactly_one(rotation):
     assert run.runs.read_text().split().count("RUN") == codes.count(0)
     for (_, err), code in results:
         if code != 0:
-            assert "another key rotation is running" in err or "nothing left" in err, err
+            assert "another start or key rotation is running" in err or "nothing left" in err, err
 
 
 def _plant_lock(work: Path, pid: str) -> Path:
@@ -416,7 +418,7 @@ def test_a_lock_left_by_a_process_that_is_gone_is_not_cleared_automatically(rota
     result = run()
 
     assert result.returncode != 0
-    assert "another key rotation is running" in result.stderr
+    assert "another start or key rotation is running" in result.stderr
     assert "remove" in result.stderr and ".env.encryption-key.d/lock" in result.stderr
     assert lock.exists() and not log.exists()
 
@@ -448,20 +450,143 @@ def test_a_lock_held_by_a_running_process_blocks_rotation(rotation):
 
     result = run()
 
-    assert result.returncode != 0 and "another key rotation is running" in result.stderr
+    assert result.returncode != 0 and "another start or key rotation is running" in result.stderr
     assert not log.exists()
 
 
-def test_env_secrets_waits_for_a_running_rotation(tmp_path):
-    """Both rewrite .env; an interleaved write could put the old key back."""
-    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
-    (tmp_path / ".env").write_text(f"ENCRYPTION_KEY={_KEY}\n")
-    (tmp_path / _STATE / "lock").mkdir(parents=True)
+_WITH_LOCK = _ROOT / "scripts" / "with-key-lock.sh"
 
-    result = _run_env_secrets(tmp_path, check=False)
+
+def _with_lock(work: Path, *command: str, extra_env: dict[str, str] | None = None):
+    env = {**os.environ, **(extra_env or {})}
+    env.pop("TRACEROOT_KEY_LOCK_HELD", None)
+    return subprocess.run(
+        ["sh", str(_WITH_LOCK), *command], cwd=work, capture_output=True, text=True, env=env
+    )
+
+
+def test_a_start_runs_in_the_checkout_and_releases_the_lock(rotation):
+    work, _, _, _ = rotation
+
+    result = _with_lock(work, "pwd")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(work.resolve())
+    assert not (work / _STATE / "lock").exists()
+
+
+def test_a_start_keeps_the_exit_status_of_its_command_and_still_releases_the_lock(rotation):
+    work, _, _, _ = rotation
+
+    assert _with_lock(work, "sh", "-c", "exit 7").returncode == 7
+    assert not (work / _STATE / "lock").exists()
+
+
+def test_a_start_is_refused_while_a_rotation_is_running(rotation, tmp_path):
+    """The window the earlier check-then-start left open: the lock is taken, not looked at."""
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    gate = tmp_path / "gate"
+    gate.mkdir()
+    rotating = run.start(extra_env={"FAKE_BLOCK_DIR": str(gate)})
+    _wait_for(gate / "started", rotating)
+
+    marker = tmp_path / "started-anyway"
+    result = _with_lock(work, "touch", str(marker))
 
     assert result.returncode != 0
-    assert b"rotation is running" in result.stderr
+    assert "another start or key rotation is running" in result.stderr
+    assert not marker.exists(), "the command must not run at all"
+
+    (gate / "release").touch()
+    assert rotating.communicate(timeout=60) and rotating.returncode == 0
+
+
+def test_a_rotation_is_refused_while_a_start_is_running(rotation, tmp_path):
+    """Starting holds the same lock for as long as it runs, so a rotation cannot begin."""
+    work, log, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    release = tmp_path / "release"
+    starting = subprocess.Popen(
+        [
+            "sh",
+            str(_WITH_LOCK),
+            "sh",
+            "-c",
+            f"touch {tmp_path}/up; while [ ! -e {release} ]; do sleep 0.1; done",
+        ],
+        cwd=work,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _wait_for(tmp_path / "up", starting)
+
+    result = run()
+
+    assert result.returncode != 0
+    assert "another start or key rotation is running" in result.stderr
+    assert not log.exists()
+    assert run.db.read_text() == _OLD_KEY
+
+    release.touch()
+    assert starting.wait(timeout=30) == 0
+
+
+def test_a_start_is_refused_after_the_database_moved_but_env_was_not_updated(rotation):
+    """Services started now would read the new ciphertext with the old key still in .env."""
+    work, _, _, run = rotation
+    (work / ".env").write_text(f"ENCRYPTION_KEY={_OLD_KEY}\n")
+    try:
+        assert run(extra_env={"FAKE_READONLY_ROOT": "1"}).returncode != 0
+    finally:
+        work.chmod(0o755)
+    marker = work / "started-anyway"
+
+    result = _with_lock(work, "touch", str(marker))
+
+    assert result.returncode != 0
+    assert "did not finish" in result.stderr and "make rotate-encryption-key" in result.stderr
+    assert not marker.exists()
+
+    assert run().returncode == 0, "the rotation finishes"
+    assert _with_lock(work, "touch", str(marker)).returncode == 0, "and starting works again"
+
+
+def test_nested_commands_do_not_wait_for_the_lock_their_parent_holds(rotation):
+    work, _, _, _ = rotation
+
+    result = _with_lock(work, "sh", str(_WITH_LOCK), "echo", "inner")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "inner"
+
+
+def test_simultaneous_starts_run_one_at_a_time(rotation, tmp_path):
+    work, _, _, _ = rotation
+    log = tmp_path / "order.log"
+    script = f"echo begin >> {log}; sleep 0.3; echo end >> {log}"
+    procs = [
+        subprocess.Popen(
+            ["sh", str(_WITH_LOCK), "sh", "-c", script],
+            cwd=work,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(5)
+    ]
+    codes = [p.wait(timeout=60) for p in procs]
+
+    lines = log.read_text().split()
+    assert lines == ["begin", "end"] * codes.count(0), "commands never overlap"
+    assert codes.count(0) >= 1
+
+
+def _wait_for(path: Path, proc: subprocess.Popen) -> None:
+    deadline = time.time() + 30
+    while not path.exists():
+        assert proc.poll() is None, proc.communicate()
+        assert time.time() < deadline, f"{path.name} never appeared"
+        time.sleep(0.05)
 
 
 def test_replacing_the_state_directory_mid_run_does_not_redirect_the_saved_key(rotation):

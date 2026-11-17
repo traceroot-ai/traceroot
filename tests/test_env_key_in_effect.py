@@ -4,10 +4,7 @@ A normal start must keep a key Compose already accepts, in whatever form it is w
 and never add a second assignment that would shadow it.
 """
 
-import json
-import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -71,6 +68,15 @@ _EFFECTIVE_CASES = {
     "colon spaced and indented": (f"  ENCRYPTION_KEY : {_KEY}\n", _KEY),
     "colon with export": (f"export ENCRYPTION_KEY: {_KEY}\n", _KEY),
     "spaces around equals": (f"ENCRYPTION_KEY = {_KEY}\n", _KEY),
+    "inside a quoted multi-line value only": (f'NOTE="first\nENCRYPTION_KEY={_KEY}\nlast"\n', ""),
+    "real key then a multi-line value that mentions it": (
+        f'ENCRYPTION_KEY={_KEY}\nNOTE="first\nENCRYPTION_KEY=\nlast"\n',
+        _KEY,
+    ),
+    "multi-line value then the real key": (
+        f'NOTE="first\nENCRYPTION_KEY=\nlast"\nENCRYPTION_KEY={_KEY}\n',
+        _KEY,
+    ),
     "double quoted": (f'ENCRYPTION_KEY="{_KEY}"\n', _KEY),
     "single quoted": (f"ENCRYPTION_KEY='{_KEY}'\n", _KEY),
     "trailing comment": (f"ENCRYPTION_KEY={_KEY}  # backup this file\n", _KEY),
@@ -91,7 +97,7 @@ def test_every_reader_agrees_on_the_key_in_effect(tmp_path, text, expected):
     env_file = tmp_path / ".env"
     env_file.write_text(text, newline="")
     shell = subprocess.run(
-        ["sh", str(_ENV_VALUE), "ENCRYPTION_KEY", str(env_file)],
+        ["sh", str(_ENV_VALUE), "get", "ENCRYPTION_KEY", str(env_file)],
         capture_output=True,
         text=True,
         check=True,
@@ -135,31 +141,47 @@ def test_startup_repairs_the_assignment_compose_would_use(tmp_path):
     assert re.fullmatch(r"[0-9a-f]{64}", _values(tmp_path / ".env")["ENCRYPTION_KEY"].strip())
 
 
-def _compose_value(tmp_path: Path, text: str) -> str:
-    """What `docker compose config` resolves ENCRYPTION_KEY to for this .env."""
-    (tmp_path / "compose.yml").write_text(
-        "services:\n  app:\n    image: x\n    environment:\n"
-        '      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-}"\n'
-    )
-    (tmp_path / ".env").write_text(text, newline="")
-    out = subprocess.run(
-        ["docker", "compose", "-f", "compose.yml", "config", "--format", "json"],
-        cwd=tmp_path,
+def _resolved(tmp_path: Path, key: str) -> str:
+    return subprocess.run(
+        ["sh", str(_ENV_VALUE), "get", key, str(tmp_path / ".env")],
         capture_output=True,
         text=True,
         check=True,
-        env={k: v for k, v in os.environ.items() if k != "ENCRYPTION_KEY"},
     ).stdout
-    value = json.loads(out)["services"]["app"]["environment"]["ENCRYPTION_KEY"]
-    return value or ""
 
 
-@pytest.mark.skipif(shutil.which("docker") is None, reason="needs the docker CLI (no daemon)")
-@pytest.mark.parametrize("text, expected", _EFFECTIVE_CASES.values(), ids=_EFFECTIVE_CASES.keys())
-def test_the_reader_agrees_with_docker_compose_itself(tmp_path, text, expected):
-    """The expected values above are what Compose really uses, not just what we assume."""
-    try:
-        resolved = _compose_value(tmp_path, text)
-    except subprocess.CalledProcessError as error:
-        pytest.skip(f"this docker CLI cannot resolve the file: {error.stderr[:80]}")
-    assert resolved == expected
+def test_startup_adds_a_key_without_touching_a_multi_line_value_that_mentions_it(tmp_path):
+    """The only matching line sits inside NOTE's value; editing it would corrupt NOTE."""
+    note = 'NOTE="first\nENCRYPTION_KEY=\nlast"\n'
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").write_text(note)
+
+    _run_env_secrets(tmp_path)
+
+    assert (tmp_path / ".env").read_text().startswith(note)
+    assert re.fullmatch(r"[0-9a-f]{64}", _resolved(tmp_path, "ENCRYPTION_KEY"))
+
+
+def test_startup_replaces_a_copied_secret_without_editing_a_look_alike_inside_a_value(tmp_path):
+    text = 'INTERNAL_API_SECRET=dev-internal-secret\nNOTE="a\nINTERNAL_API_SECRET=other\nb"\n'
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    (tmp_path / ".env").write_text(text)
+
+    _run_env_secrets(tmp_path)
+
+    after = (tmp_path / ".env").read_text()
+    assert 'NOTE="a\nINTERNAL_API_SECRET=other\nb"' in after
+    assert re.fullmatch(r"[0-9a-f]{64}", _resolved(tmp_path, "INTERNAL_API_SECRET"))
+
+
+def test_startup_never_changes_the_key_compose_resolves_for_a_valid_multi_line_file(tmp_path):
+    """A look-alike line after the real key must not make startup replace the real key."""
+    text = f'ENCRYPTION_KEY={_KEY}\nNOTE="first\nENCRYPTION_KEY=\nlast"\n'
+    (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
+    (tmp_path / ".env").write_text(text)
+
+    _run_env_secrets(tmp_path)
+
+    assert (tmp_path / ".env").read_text().startswith(text), "existing lines are left alone"
+    assert _resolved(tmp_path, "ENCRYPTION_KEY") == _KEY
+    assert fill_secrets(text, ("ENCRYPTION_KEY",)) == text

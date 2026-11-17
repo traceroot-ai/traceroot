@@ -2,6 +2,8 @@
 
 import os
 import stat
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -60,55 +62,84 @@ def test_launcher_creates_a_new_env_with_mode_600_from_the_start(tmp_path):
     assert stat.S_IMODE(os.stat(tmp_path / ".env").st_mode) == 0o600
 
 
+def _use_state_dir(monkeypatch, tmp_path):
+    from tmux_tools import launcher
+
+    state = tmp_path / ".env.encryption-key.d"
+    monkeypatch.setattr(launcher, "STATE_DIR", state)
+    monkeypatch.delenv("TRACEROOT_KEY_LOCK_HELD", raising=False)
+    return launcher, state
+
+
 def test_the_launcher_does_not_start_services_while_a_rotation_holds_its_lock(
     tmp_path, monkeypatch
 ):
     """Services started mid-rotation would read stored credentials with the old key."""
-    from tmux_tools import launcher
-
-    lock = tmp_path / ".env.encryption-key.d" / "lock"
-    lock.mkdir(parents=True)
-    monkeypatch.setattr(launcher, "ROTATION_LOCK", lock)
+    launcher, state = _use_state_dir(monkeypatch, tmp_path)
+    (state / "lock").mkdir(parents=True, mode=0o700)
+    state.chmod(0o700)
     commands: list[str] = []
     monkeypatch.setattr(launcher, "_run", lambda command, **kw: commands.append(str(command)))
-    monkeypatch.setattr(launcher, "ensure_env_file", lambda *a, **k: None)
 
     with pytest.raises(SystemExit) as excinfo:
         launcher.run_prod_setup()
 
     assert "rotation is running" in str(excinfo.value)
-    assert not any(" up " in command for command in commands)
+    assert commands == []
 
 
-def test_the_launcher_stops_before_starting_apps_when_a_rotation_begins_meanwhile(
-    tmp_path, monkeypatch
-):
-    from tmux_tools import launcher
-
-    lock = tmp_path / ".env.encryption-key.d" / "lock"
-    monkeypatch.setattr(launcher, "ROTATION_LOCK", lock)
-    commands: list[str] = []
+def test_the_launcher_holds_the_lock_for_the_whole_start_and_releases_it(tmp_path, monkeypatch):
+    """No rotation can begin between the preflight and the command that starts the apps."""
+    launcher, state = _use_state_dir(monkeypatch, tmp_path)
+    held_during: list[bool] = []
 
     def fake_run(command, **kwargs):
-        commands.append(str(command))
-        if " build" in str(command):
-            lock.mkdir(parents=True)  # a rotation starts while images are being built
+        held_during.append((state / "lock").is_dir())
 
     monkeypatch.setattr(launcher, "_run", fake_run)
     monkeypatch.setattr(launcher, "ensure_env_file", lambda *a, **k: None)
 
-    with pytest.raises(SystemExit):
+    launcher.run_prod_setup()
+
+    assert held_during and all(held_during)
+    assert not (state / "lock").exists()
+    assert "TRACEROOT_KEY_LOCK_HELD" not in os.environ
+
+
+def test_the_launcher_releases_the_lock_when_a_step_fails(tmp_path, monkeypatch):
+    launcher, state = _use_state_dir(monkeypatch, tmp_path)
+
+    def failing_run(command, **kwargs):
+        raise RuntimeError("compose failed")
+
+    monkeypatch.setattr(launcher, "_run", failing_run)
+    monkeypatch.setattr(launcher, "ensure_env_file", lambda *a, **k: None)
+
+    with pytest.raises(RuntimeError):
         launcher.run_prod_setup()
 
-    assert not any("up -d web" in command for command in commands)
+    assert not (state / "lock").exists()
+
+
+def test_the_launcher_refuses_to_start_while_a_rotation_has_not_finished(tmp_path, monkeypatch):
+    launcher, state = _use_state_dir(monkeypatch, tmp_path)
+    state.mkdir(mode=0o700)
+    (state / "pending").write_text("a" * 64 + "\n")
+    commands: list[str] = []
+    monkeypatch.setattr(launcher, "_run", lambda command, **kw: commands.append(str(command)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        launcher.run_prod_setup()
+
+    assert "did not finish" in str(excinfo.value)
+    assert commands == []
+    assert not (state / "lock").exists()
 
 
 def test_the_launcher_leaves_env_alone_while_a_rotation_holds_its_lock(tmp_path, monkeypatch):
-    from tmux_tools import launcher
-
-    lock = tmp_path / ".env.encryption-key.d" / "lock"
-    lock.mkdir(parents=True)
-    monkeypatch.setattr(launcher, "ROTATION_LOCK", lock)
+    _, state = _use_state_dir(monkeypatch, tmp_path)
+    (state / "lock").mkdir(parents=True, mode=0o700)
+    state.chmod(0o700)
     example = tmp_path / ".env.example"
     example.write_text("INTERNAL_API_SECRET=\n")
 
@@ -116,3 +147,36 @@ def test_the_launcher_leaves_env_alone_while_a_rotation_holds_its_lock(tmp_path,
         ensure_env_file(tmp_path / ".env", example)
 
     assert not (tmp_path / ".env").exists()
+
+
+def test_the_launcher_refuses_a_state_directory_others_can_use(tmp_path, monkeypatch):
+    launcher, state = _use_state_dir(monkeypatch, tmp_path)
+    state.mkdir(mode=0o755)
+    state.chmod(0o755)
+
+    with pytest.raises(SystemExit) as excinfo, launcher.key_lock():
+        pass
+
+    assert "mode 700" in str(excinfo.value)
+
+
+def test_the_launcher_and_the_shell_wrapper_exclude_each_other(tmp_path, monkeypatch):
+    """One lock, two implementations: each must see the other's."""
+    launcher, state = _use_state_dir(monkeypatch, tmp_path)
+    wrapper = Path(launcher.ROOT) / "scripts" / "with-key-lock.sh"
+
+    with launcher.key_lock():
+        held = subprocess.run(
+            ["sh", str(wrapper), "true"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            env={k: v for k, v in os.environ.items() if k != "TRACEROOT_KEY_LOCK_HELD"},
+        )
+    assert held.returncode != 0 and "another start or key rotation" in held.stderr
+
+    lock = state / "lock"
+    lock.mkdir()
+    (lock / "pid").write_text("1\n")
+    with pytest.raises(SystemExit), launcher.key_lock():
+        pass

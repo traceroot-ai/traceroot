@@ -12,22 +12,17 @@ umask 077
 ROOT=$(pwd -P)
 ENV_FILE="$ROOT/.env"
 ENV_VALUE="$(cd "$(dirname "$0")" && pwd -P)/env-value.sh"
-STATE_NAME=.env.encryption-key.d
 COMPOSE="${ROTATE_COMPOSE:-docker compose -f docker-compose.prod.yml}"
-ENV_SECRETS="${ROTATE_ENV_SECRETS:-${MAKE:-make} --no-print-directory env-secrets}"
+ENV_SECRETS="${ROTATE_ENV_SECRETS:-${MAKE:-make} --no-print-directory env-secrets-unlocked}"
 
 die() {
 	echo "rotate-encryption-key: $1" >&2
 	exit 1
 }
+. "$(cd "$(dirname "$0")" && pwd -P)/key-state.sh"
 
 compose() {
 	(cd "$ROOT" && $COMPOSE "$@")
-}
-
-# True when $1 is owned by the user running this script and has exactly mode $2.
-private_to_me() {
-	[ -n "$(find "$1" -maxdepth 0 -user "$(id -u)" -perm "$2" 2>/dev/null)" ]
 }
 
 if [ -L "$ENV_FILE" ]; then
@@ -35,21 +30,8 @@ if [ -L "$ENV_FILE" ]; then
 fi
 [ -f "$ENV_FILE" ] || die "no .env here. Run make prod-lite first."
 
-# State directory: holds the lock, the pending new key and the previous key. Create it
-# private, then work from inside it: every later path is relative to a directory this
-# process already holds, so replacing the name afterwards cannot redirect a write. The
-# check runs after the cd, so a directory someone else prepared is refused.
-if [ -L "$ROOT/$STATE_NAME" ]; then
-	die "$STATE_NAME is a symlink. Refusing to use it -- remove it and run again."
-fi
-[ -e "$ROOT/$STATE_NAME" ] || mkdir -m 700 "$ROOT/$STATE_NAME" 2>/dev/null || true # another run may create it first
-cd "$ROOT/$STATE_NAME" 2>/dev/null || die "$STATE_NAME must be a directory. Remove it and run again."
-private_to_me . 700 ||
-	die "$STATE_NAME must be owned by you with mode 700. Remove it and run again."
+key_state_open
 
-# One rotation at a time. mkdir is atomic. A lock left behind by a run that was killed is
-# never cleared automatically: two runs could each judge it stale and both take it.
-LOCK_HELD=
 DB_UPDATED=
 FINISHED=
 cleanup() {
@@ -57,25 +39,17 @@ cleanup() {
 	if [ -n "$DB_UPDATED" ] && [ -z "$FINISHED" ]; then
 		echo "rotate-encryption-key: the database already uses the new key but .env was not updated. The new key is kept in $STATE_NAME/pending; fix the problem and run this command again to finish. Do not delete that file." >&2
 	fi
-	[ -z "$LOCK_HELD" ] || rm -rf lock
+	key_state_unlock
 	exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM HUP
-if ! mkdir lock 2>/dev/null; then
-	owner=$(cat lock/pid 2>/dev/null || true)
-	if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-		die "another key rotation is running, or one was stopped before it finished (process $owner is no longer running). If none is running, remove $STATE_NAME/lock and run again."
-	fi
-	die "another key rotation is running${owner:+ (process $owner)}. Wait for it to finish, or remove $STATE_NAME/lock if none is."
-fi
-LOCK_HELD=1
-echo $$ >lock/pid
+key_state_lock
 
 # Generate whatever else is missing, under the same lock so nothing else rewrites .env meanwhile.
-(cd "$ROOT" && TRACEROOT_ROTATION_LOCK_HELD=1 $ENV_SECRETS) || die "could not prepare .env."
+(cd "$ROOT" && TRACEROOT_KEY_LOCK_HELD=1 $ENV_SECRETS) || die "could not prepare .env."
 
-current=$(sh "$ENV_VALUE" ENCRYPTION_KEY "$ENV_FILE")
+current=$(sh "$ENV_VALUE" get ENCRYPTION_KEY "$ENV_FILE")
 [ -n "$current" ] ||
 	die "ENCRYPTION_KEY is not set in .env, so there is nothing to rotate. Run make prod-lite to generate one."
 case "$current" in
@@ -126,7 +100,7 @@ OLD_ENCRYPTION_KEY="$current" NEW_ENCRYPTION_KEY="$new" \
 DB_UPDATED=1
 
 tmpdir=$(mktemp -d "$ROOT/.env.tmp.XXXXXX")
-ENV_VALUE_NEW="$new" sh "$ENV_VALUE" --set ENCRYPTION_KEY "$ENV_FILE" >"$tmpdir/env" || { rm -rf "$tmpdir"; exit 1; }
+ENV_VALUE_NEW="$new" sh "$ENV_VALUE" set ENCRYPTION_KEY "$ENV_FILE" >"$tmpdir/env" || { rm -rf "$tmpdir"; exit 1; }
 if [ -L "$ENV_FILE" ]; then
 	rm -rf "$tmpdir"
 	die ".env became a symlink during the run. Refusing to write through it; the new key is in $STATE_NAME/pending."
@@ -140,7 +114,7 @@ backup="previous-$(date +%Y%m%d%H%M%S)"
 ) || die "could not save the previous key. The database already uses the new key, which is in $STATE_NAME/pending; do not delete it."
 mv "$tmpdir/env" "$ENV_FILE"
 rmdir "$tmpdir"
-[ "$(sh "$ENV_VALUE" ENCRYPTION_KEY "$ENV_FILE")" = "$new" ] ||
+[ "$(sh "$ENV_VALUE" get ENCRYPTION_KEY "$ENV_FILE")" = "$new" ] ||
 	die ".env does not hold the new key after the update. The database already uses it; it is in $STATE_NAME/pending. Set ENCRYPTION_KEY in .env to that value."
 rm -f pending
 FINISHED=1

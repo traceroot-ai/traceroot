@@ -13,12 +13,14 @@ Usage:
 """
 
 import argparse
+import contextlib
 import os
 import re
 import secrets
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -120,61 +122,112 @@ def is_placeholder(assigned: str) -> bool:
     return not cleaned or cleaned.lower() in PUBLISHED_PLACEHOLDERS
 
 
-def _needs_value(key: str, assigned: str) -> bool:
-    """Whether ``KEY=assigned`` should be replaced with a generated value."""
-    if key in FRESH_ONLY_KEYS:
-        return not _cleaned(assigned)
-    return is_placeholder(assigned)
+ENV_VALUE_SCRIPT = ROOT / "scripts" / "env-value.sh"
+STATE_DIR = ROOT / ".env.encryption-key.d"
 
 
-def _assignment_pattern(key: str) -> re.Pattern[str]:
-    # Docker Compose's .env loader accepts indentation, an `export` prefix, and `:` as well as `=`.
-    return re.compile(rf"^([ \t]*(?:export[ \t]+)?{key}[ \t]*[=:])(.*)$", re.MULTILINE)
+def _env_value(*args: str, new_value: str | None = None) -> str:
+    """Run scripts/env-value.sh, which asks Docker Compose what an env file resolves to."""
+    env = dict(os.environ)
+    if new_value is not None:
+        env["ENV_VALUE_NEW"] = new_value
+    result = subprocess.run(
+        ["sh", str(ENV_VALUE_SCRIPT), *args], capture_output=True, text=True, env=env
+    )
+    if result.returncode != 0:
+        raise SystemExit(result.stderr.strip() or "could not read .env with docker compose")
+    return result.stdout
+
+
+def _needs_value(key: str, resolved: str) -> bool:
+    """Whether the value Compose resolves for ``key`` should be replaced with a generated one."""
+    # Compose reads `NAME=   # note` as the value "# note"; that is a comment, not a value.
+    if not resolved or resolved.startswith("#"):
+        return True
+    return key not in FRESH_ONLY_KEYS and resolved.lower() in PUBLISHED_PLACEHOLDERS
 
 
 def effective_value(text: str, key: str) -> str:
-    """The value Docker Compose uses for ``key`` in .env text: the last assignment wins.
-
-    Quotes and a trailing `` # comment`` are dropped; empty when the key is not set.
-    """
-    matches = list(_assignment_pattern(key).finditer(text))
-    return _cleaned(matches[-1].group(2).rstrip("\r")) if matches else ""
+    """The value Docker Compose resolves for ``key`` in .env text (empty when unset)."""
+    with tempfile.TemporaryDirectory() as scratch:
+        path = Path(scratch) / ".env"
+        path.write_text(text)
+        return _env_value("get", key, str(path))
 
 
 def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
-    """Give every key in ``keys`` a generated value unless one is set.
+    """Give every key in ``keys`` a generated value unless Docker Compose already resolves one.
 
-    The assignment Docker Compose would use is the one that is judged and repaired: the
-    last one, wherever it is indented or prefixed with ``export``. It is replaced in
-    place rather than appended a second time, where it would take precedence over the
-    operator's own value.
+    What counts is the value Compose resolves, not the text of any one line, so an
+    assignment written in any form it accepts (indented, exported, ``NAME: value``,
+    quoted, repeated, inside a multi-line value) is judged the way the services see it.
     """
-    for key in keys:
-        # Matches to end of line, so substituting drops any trailing comment
-        # along with the placeholder -- "# CHANGEME" stops being true here.
-        pattern = _assignment_pattern(key)
-        matches = list(pattern.finditer(text))
-        if not matches:
-            text = text.rstrip("\n") + f"\n{key}={secrets.token_hex(32)}\n"
-        elif _needs_value(key, matches[-1].group(2).rstrip("\r")):
-            last = matches[-1]
-            text = text[: last.start()] + last.group(1) + secrets.token_hex(32) + text[last.end() :]
-    return text
+    with tempfile.TemporaryDirectory() as scratch:
+        path = Path(scratch) / ".env"
+        path.write_text(text)
+        for key in keys:
+            if _needs_value(key, _env_value("get", key, str(path))):
+                path.write_text(_env_value("set", key, str(path), new_value=secrets.token_hex(32)))
+        return path.read_text()
 
 
-ROTATION_LOCK = ROOT / ".env.encryption-key.d" / "lock"
+@contextlib.contextmanager
+def key_lock():
+    """Hold the encryption key lock while starting services or rewriting .env.
 
-
-def _refuse_during_rotation() -> None:
-    """Stop when an encryption key rotation holds its lock.
-
-    Starting services then would let them read and write stored credentials with the old
-    key while the database is being migrated to the new one.
+    Same protocol as scripts/with-key-lock.sh: a rotation holds the lock for its whole run,
+    so nothing starts with a key the database is being moved away from. Refuses while a
+    rotation has not finished. Re-entrant through TRACEROOT_KEY_LOCK_HELD.
     """
-    if ROTATION_LOCK.is_dir():
+    if os.name == "nt" or os.environ.get("TRACEROOT_KEY_LOCK_HELD"):
+        yield
+        return
+    if STATE_DIR.is_symlink():
+        raise SystemExit(f"{STATE_DIR.name} is a symlink. Remove it and run again.")
+    STATE_DIR.mkdir(mode=0o700, exist_ok=True)
+    try:
+        fd = os.open(STATE_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
         raise SystemExit(
-            "An encryption key rotation is running. Wait for it to finish, then start again."
-        )
+            f"{STATE_DIR.name} must be a directory. Remove it and run again."
+        ) from None
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise SystemExit(
+                f"{STATE_DIR.name} must be owned by you with mode 700. Remove it and run again."
+            )
+        try:
+            os.mkdir("lock", 0o700, dir_fd=fd)
+        except FileExistsError:
+            raise SystemExit(
+                "Another start or key rotation is running. Wait for it to finish, or remove "
+                f"{STATE_DIR.name}/lock if none is."
+            ) from None
+        try:
+            pid_fd = os.open("lock/pid", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=fd)
+            with os.fdopen(pid_fd, "w") as handle:
+                handle.write(f"{os.getpid()}\n")
+            try:
+                os.stat("pending", dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise SystemExit(
+                    "A key rotation did not finish. Run make rotate-encryption-key again to "
+                    f"finish it (or remove {STATE_DIR.name}/pending to abandon it) before starting."
+                )
+            os.environ["TRACEROOT_KEY_LOCK_HELD"] = "1"
+            yield
+        finally:
+            os.environ.pop("TRACEROOT_KEY_LOCK_HELD", None)
+            for name in ("lock/pid",):
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(name, dir_fd=fd)
+            with contextlib.suppress(FileNotFoundError):
+                os.rmdir("lock", dir_fd=fd)
+    finally:
+        os.close(fd)
 
 
 def _write_private(path: Path, text: str) -> None:
@@ -200,7 +253,11 @@ def ensure_env_file(
     keys: tuple[str, ...] = GENERATED_KEYS,
 ) -> None:
     """Create .env if absent, then give every placeholder secret a real value."""
-    _refuse_during_rotation()
+    with key_lock():
+        _ensure_env_file(env_path, example_path, keys)
+
+
+def _ensure_env_file(env_path: Path, example_path: Path, keys: tuple[str, ...]) -> None:
     if env_path.is_symlink():
         raise SystemExit(
             f"{env_path} is a symlink. Refusing to write secrets through it -- "
@@ -299,11 +356,16 @@ def run_env_only(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_PAT
 
 def run_prod_setup():
     """Build Docker images and start all services. Idempotent."""
+    # One lock for the whole start, so a key rotation cannot begin between steps.
+    with key_lock():
+        _start_prod_services()
+
+
+def _start_prod_services():
     ensure_env_file(keys=ALL_GENERATED_KEYS)
 
     # Compose reports only that preflight failed; running it directly prints which value to change.
     _run(f"{PROD_COMPOSE} run --rm preflight")
-    _refuse_during_rotation()
 
     print("Building Docker images (cached if unchanged)...")
     _run(f"{PROD_COMPOSE} build")
@@ -318,7 +380,6 @@ def run_prod_setup():
     # services here causes Compose to run migrate/migrate-clickhouse first and
     # only bring up each app container after its migration dependency exits 0.
     print("Starting application services (migrations run automatically before app services)...")
-    _refuse_during_rotation()
     _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent")
 
     print("\nAll containers started. Launching log viewer...\n")
