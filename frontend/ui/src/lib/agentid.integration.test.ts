@@ -23,6 +23,7 @@ let otherKey: CryptoKey;
 let publicJwk: Row;
 let idTokenFor: () => Promise<string | undefined>;
 let userinfo: Row;
+let grantedScopes: string[];
 let googleProfile: { sub: string; email: string };
 let tokenRequests: { authorization: string | null; body: URLSearchParams }[];
 let createdWith: { path?: string; provider?: string }[];
@@ -101,7 +102,11 @@ function fakeAgentId() {
     if (url === AGENTID_ENDPOINTS.userInfoUrl) {
       const bearer = new Headers(init?.headers).get("authorization");
       if (bearer !== "Bearer agent-access-token") return new Response(null, { status: 401 });
-      return Response.json(userinfo);
+      // Like AgentID, owner claims only come back when owner_profile was requested.
+      if (grantedScopes.includes("owner_profile")) return Response.json(userinfo);
+      return Response.json(
+        Object.fromEntries(Object.entries(userinfo).filter(([k]) => !k.startsWith("owner_"))),
+      );
     }
     if (url === AGENTID_ENDPOINTS.tokenUrl) {
       tokenRequests.push({
@@ -134,6 +139,7 @@ async function signIn(auth: Awaited<ReturnType<typeof testAuth>>, provider: "age
   );
   expect(start.status).toBe(200);
   const authorizeUrl = new URL(((await start.json()) as { url: string }).url);
+  grantedScopes = authorizeUrl.searchParams.get("scope")?.split(" ") ?? [];
   const cookie = start.headers
     .getSetCookie()
     .map((c) => c.split(";")[0])
@@ -178,6 +184,12 @@ describe("AgentID sign-in", () => {
       AGENTID_ENDPOINTS.authorizationUrl,
     );
     expect(authorizeUrl.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authorizeUrl.searchParams.get("scope")?.split(" ")).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "owner_profile",
+    ]);
     expect(db.user).toEqual([
       expect.objectContaining({ email: "agent-1@agentmail.to", emailVerified: false }),
     ]);

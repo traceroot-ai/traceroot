@@ -45,7 +45,9 @@ export function agentIdProvider(env: AgentIdEnv): GenericOAuthConfig<"agentid"> 
     tokenUrl: AGENTID_ENDPOINTS.tokenUrl,
     tokenEndpointAuth: { method: "client_secret_basic" },
     pkce: true,
-    scopes: ["openid", "email", "profile"],
+    // owner_profile carries owner_sub, the agent's AgentMail account or organization;
+    // AgentID leaves every owner claim out of userinfo unless it is requested.
+    scopes: ["openid", "email", "profile", "owner_profile"],
     getUserInfo: async ({ idToken, accessToken }) => {
       if (!idToken || !accessToken) return null;
       const provider = { id: "agentid", idToken: idTokenConfig };
