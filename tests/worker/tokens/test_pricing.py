@@ -244,6 +244,8 @@ GEMINI_MODEL_CASES = [
 ]
 
 DEEPSEEK_MODEL_CASES = [
+    ("deepseek-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),

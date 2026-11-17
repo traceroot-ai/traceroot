@@ -169,6 +169,25 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
   });
+
+  // DeepSeek renamed Flash to `deepseek-flash`
+  const FLASH_ROW = {
+    modelName: "deepseek-v4-flash",
+    matchPattern:
+      "(?i)^(deepseek\\/)?(deepseek-flash|deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
+    prices: [
+      { usageType: "input", price: 0.00000015 },
+      { usageType: "output", price: 0.0000006 },
+    ],
+  };
+
+  it("resolves deepseek-flash to the Flash row's price", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([FLASH_ROW]);
+    const canonical = await lookup("deepseek-v4-flash");
+    const aliased = await lookup("deepseek-flash");
+    expect(aliased).not.toBeNull();
+    expect(aliased).toEqual(canonical);
+  });
 });
 
 describe("getModelPricing — uncompilable pattern", () => {
