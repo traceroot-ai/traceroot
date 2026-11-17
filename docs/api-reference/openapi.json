@@ -11369,7 +11369,7 @@
         "x-mint": {
           "content": "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, or unobserved scores return null. This endpoint summarizes a single run.",
           "metadata": {
-            "description": "Read one evaluation run's status, result counts, and scores. Scores report numeric means, Boolean pass rates, or null for nonnumeric or missing data."
+            "description": "Read an evaluation run's status and counts. Numeric scores are averaged, boolean scores are pass rates, and scores without a supported aggregate are null."
           }
         },
         "x-tool": {
@@ -14448,7 +14448,7 @@
         "x-mint": {
           "content": "The default projection is `full`. Use `fields` to narrow the export. Exports have their own rate limit.",
           "metadata": {
-            "description": "Export the complete bundle for one traceroot trace: the trace, its spans, git context, and a manifest, with span input and output included."
+            "description": "Export a trace, its spans, git context, and a manifest. Span input and output are included by default and can be excluded with the fields parameter."
           }
         },
         "x-tool": {

@@ -1270,8 +1270,8 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
         "default view is lightweight; request full fields for span input and output."
     ),
     "export_trace": (
-        "Export the complete bundle for one traceroot trace: the trace, its spans, "
-        "git context, and a manifest, with span input and output included."
+        "Export a trace, its spans, git context, and a manifest. Span input and output are "
+        "included by default and can be excluded with the fields parameter."
     ),
     "list_trace_filter_values": (
         "List the distinct values currently present for a categorical trace filter "
@@ -1434,8 +1434,8 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
         "filtered by evaluation or status, with cursor-based paging."
     ),
     "read_run": (
-        "Read one evaluation run's status, result counts, and scores. Scores report numeric "
-        "means, Boolean pass rates, or null for nonnumeric or missing data."
+        "Read an evaluation run's status and counts. Numeric scores are averaged, boolean "
+        "scores are pass rates, and scores without a supported aggregate are null."
     ),
     "register_run": (
         "Register and start an evaluation run in traceroot. The call is idempotent "
