@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
-import {
-  prisma,
-  getStripeOrThrow,
-  mapPriceIdToPlan,
-  findPlanItem,
-  PlanType,
-} from "@traceroot/core";
+import { prisma, getStripeOrThrow, PlanType } from "@traceroot/core";
 import Stripe from "stripe";
+import { workspaceBillingFromSubscription } from "../workspace-billing";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -54,26 +49,14 @@ export async function POST(req: NextRequest) {
           subscription = await stripe.subscriptions.retrieve(subscription.id);
         }
 
-        // The subscription also carries the metered usage prices, and a schedule
-        // phase transition recreates the plan item last, so items.data[0] is not
-        // reliably the plan. Reading a metered price there maps to the free plan.
-        const priceId = findPlanItem(subscription.items.data)?.price.id ?? null;
-        const plan = mapPriceIdToPlan(priceId);
+        const billing = workspaceBillingFromSubscription(subscription);
+        const plan = billing.billingPlan;
 
         // updateMany rather than update: a workspace that no longer exists must not
         // throw. See the `count === 0` branch below.
         const { count } = await prisma.workspace.updateMany({
           where: { id: workspaceId },
-          data: {
-            billingCustomerId: subscription.customer as string,
-            billingSubscriptionId: subscription.id,
-            billingPriceId: priceId,
-            billingStatus: subscription.status, // active, past_due, canceled, etc.
-            billingPlan: plan,
-            // Store current billing period dates (updated each month when subscription renews)
-            billingPeriodStart: new Date(subscription.current_period_start * 1000),
-            billingPeriodEnd: new Date(subscription.current_period_end * 1000),
-          },
+          data: billing,
         });
 
         if (count === 0) {
