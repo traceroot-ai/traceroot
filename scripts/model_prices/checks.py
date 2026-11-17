@@ -60,10 +60,11 @@ JS_INCOMPATIBLE = re.compile(
 
 # Missing models shown in small type under the main list: -latest aliases, dated
 # snapshots, and realtime, live and search models, which follow a base model's price.
-MINOR_MODELS = re.compile(
-    r"-latest$|-\d{4}(-\d{2}-\d{2})?$|-\d{2}-\d{4}$|-\d{4}-\d+k$|realtime|-live|search",
-    re.IGNORECASE,
-)
+_ALIAS_OR_DATE = r"-latest$|-\d{4}(-\d{2}-\d{2})?$|-\d{2}-\d{4}$"
+MINOR_MODELS = re.compile(rf"{_ALIAS_OR_DATE}|-\d{{4}}-\d+k$|realtime|-live|search", re.IGNORECASE)
+
+# The end of a -latest alias or a dated snapshot's name, with the date written either way.
+SNAPSHOT_SUFFIX = re.compile(rf"{_ALIAS_OR_DATE}|-\d{{8}}$", re.IGNORECASE)
 
 
 @functools.cache
@@ -114,15 +115,14 @@ def _flag_rates(
 ) -> list[dict]:
     """A flag for each of the row's rates that every catalog listing model disagrees with.
     fix says what clears it: "rate" to change the row's rate, or "pattern" to narrow the
-    row's pattern when it absorbs another model, which is a catalog model that is not a
-    dated snapshot or -latest alias of the row's own model."""
+    row's pattern when the row absorbs another model, one that is not a dated snapshot or
+    -latest alias of its own."""
     flags = []
     # A rate our row leaves out or sets to null is compared as production bills it.
     billed = billed_rates(row["prices"])
-    # MINOR_MODELS takes off -latest and dashed dates, HOST_SUFFIX an eight-digit date. A
-    # realtime or search model is not one, since it keeps that word in its name.
-    base = HOST_SUFFIX.sub("", MINOR_MODELS.sub("", model))
-    snapshot = priced_as is None or _family(base) == _family(priced_as)
+    # Only a -latest alias or a dated snapshot is the row's own model; a -live or
+    # realtime model keeps its suffix and is another model the pattern absorbs.
+    snapshot = priced_as is None or _family(SNAPSHOT_SUFFIX.sub("", model)) == _family(priced_as)
     for field in FIELDS:
         ours = _number(row["prices"].get(field))
         theirs = {name: rates[field] for name, rates in found.items() if rates[field] is not None}

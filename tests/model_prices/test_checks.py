@@ -185,13 +185,15 @@ def test_a_flag_says_whether_the_fix_is_the_rate_or_the_pattern():
     rows = [
         row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
         row("claude-g", "anthropic", pattern=r"(?i)^claude-g(-[\d-]+)?$"),
-        row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest)?$"),
+        row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest|-live|-realtime)?$"),
     ]
     litellm = {
         "claude-f": ll_entry("anthropic", input_=2e-6),  # the row's own rate is stale
         "claude-g-2": ll_entry("anthropic", input_=2e-6),  # another model the pattern absorbs
         "claude-h-20260101": ll_entry("anthropic", input_=2e-6),  # a dated snapshot of the row
         "claude-h-latest": ll_entry("anthropic", input_=2e-6),  # an alias of the row
+        "claude-h-live": ll_entry("anthropic", input_=2e-6),  # another model, not a snapshot
+        "claude-h-realtime": ll_entry("anthropic", input_=2e-6),  # likewise
     }
     report = report_for(rows, litellm, md_catalog(), min_compared=0)
 
@@ -200,6 +202,8 @@ def test_a_flag_says_whether_the_fix_is_the_rate_or_the_pattern():
         ("claude-g-2", "claude-g", "pattern"),
         ("claude-h-20260101", "claude-h", "rate"),
         ("claude-h-latest", "claude-h", "rate"),
+        ("claude-h-live", "claude-h", "pattern"),
+        ("claude-h-realtime", "claude-h", "pattern"),
     ]
 
 
@@ -305,7 +309,7 @@ def test_an_id_two_patterns_match_at_different_prices_is_an_overlap():
     # The older rows' patterns, meant for dated snapshots, also match the newer versions.
     broad = row("claude-g", "anthropic", input_=1e-5, pattern=r"(?i)^claude-g(-[\d-]+)?$")
     newer = row("claude-g-2", "anthropic", input_=8e-6, pattern=r"(?i)^claude-g-2(-\d+)?$")
-    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest)?$")
+    same = row("claude-h", "anthropic", pattern=r"(?i)^claude-h(-[\d-]+|-latest|-live|-realtime)?$")
     copy = row("claude-h-2", "anthropic", pattern=r"(?i)^claude-h-2(-\d+)?$")
     litellm = {
         "claude-g": ll_entry("anthropic", input_=1e-5),
