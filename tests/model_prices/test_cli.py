@@ -603,3 +603,20 @@ def test_the_shipped_reviewed_file_loads():
 
     assert cli.load_reviewed(path) == []
     assert path.read_text(encoding="utf-8") == "[]\n"
+
+
+def test_the_reviewed_line_names_the_file_that_was_read(run, tmp_path, capsys):
+    entry = {
+        "model": "gpt-a",
+        "field": "input",
+        "ours": 5e-7,
+        "litellm": 1e-6,
+        "modelsdev": None,
+        "reason": "checked",
+        "pr": None,
+    }
+    path = _reviewed_file(tmp_path, json.dumps([entry]))
+    args = ([row("gpt-a", "openai", input_=5e-7)], {"gpt-a": ll_entry("openai")}, md_catalog())
+    run(*args, "--min-compared", "1", "--reviewed", path)
+
+    assert f"left as they are: 1 rate ({path})" in capsys.readouterr().out

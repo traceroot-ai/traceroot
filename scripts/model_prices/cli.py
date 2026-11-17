@@ -85,8 +85,9 @@ which models are retired as of the baseline report's date, and reports that date
 Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
 catalog could not be loaded, a file's format changed, fewer than --min-compared rows could
 be compared, the reviewed rates file is malformed, the --baseline report could not be read
-or was made from other catalogs or reviewed rates, or the Slack post failed. A failed run
-posts a failure alert when it can, never an all-clear. 2 for a usage error only. 3 with
+or was made from other catalogs or reviewed rates, the Slack post failed, or --post is
+set with no SLACK_WEBHOOK_URL (checked before anything is fetched). A failed run posts a
+failure alert when it can, never an all-clear. 2 for a usage error only. 3 with
 --baseline when it lists any add: a finding the baseline report does not have, a row whose
 finding the edit hides, a host ID newly priced at rates its host disagrees with, a dash
 spelling no longer priced, or a row change no finding explains, even when --track could
@@ -249,7 +250,11 @@ def main(argv: list[str]) -> int:
                 report["tracking"] = f"GitHub could not be read ({detail})"
         # A cut list points to the rest only where this run writes it.
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
-        text = format_report(report, more_in)
+        resolved = args.reviewed.resolve()
+        reviewed_in = str(
+            resolved.relative_to(ROOT) if resolved.is_relative_to(ROOT) else args.reviewed
+        )
+        text = format_report(report, more_in, reviewed_in=reviewed_in)
         payload = build_payload(report, args.report_url, more_in)
         # With --baseline, a finding the edit adds, or a row change no finding explains,
         # fails the check, even when --track could not read GitHub.

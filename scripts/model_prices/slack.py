@@ -303,6 +303,9 @@ def build_payload(report: dict, report_url: str | None = None, more_in: str | No
     warning = _pr_warning(report, more_in) if _tracked(report) else ""
     if warning:
         blocks.append(_context("pr_warnings", warning))
+    if report["reviewed"]:
+        count = _plural(len(report["reviewed"]), "rate")
+        blocks.append(_context("reviewed", f"Reviewed and left as they are: {count}"))
     checked = _escape(footer(report))
     blocks.append(
         _context("footer", f"<{report_url}|Full report> · {checked}" if report_url else checked)
