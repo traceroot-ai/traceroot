@@ -32,7 +32,7 @@ export const STATUS_LABELS: Record<SignalStatus, string> = {
 };
 
 const REASON_LABELS: Record<string, string> = {
-  fixed_elsewhere: "Fixed outside TraceRoot",
+  fixed_elsewhere: "Fixed outside traceroot",
   fixed_by_pr: "PR was merged",
   already_fixed_before: "Already fixed before this signal",
   unclear: "Signal is unclear",
@@ -124,13 +124,13 @@ export function SignalStatusControl({
         </SelectContent>
       </Select>
       {!closing && mutation.error && (
-        <span className="ml-2 text-[11px] text-destructive">{mutation.error.message}</span>
+        <span className="ml-2 text-[12px] text-destructive">{mutation.error.message}</span>
       )}
 
       <Dialog open={!!closing} onOpenChange={(open) => !open && !mutation.isPending && reset()}>
         <DialogContent className="max-w-[480px]">
           <DialogHeader>
-            <DialogTitle className="text-[14px] font-semibold">{copy?.title}</DialogTitle>
+            <DialogTitle>{copy?.title}</DialogTitle>
             <DialogDescription className="space-y-1 text-[13px]">
               <span className="block text-foreground">{title}</span>
               <span className="block">{copy?.hint}</span>
@@ -142,7 +142,7 @@ export function SignalStatusControl({
                 Reason <span className="font-normal text-muted-foreground">(required)</span>
               </p>
               <Select value={reason} onValueChange={setReason}>
-                <SelectTrigger className="h-9 text-[13px]" aria-label="Reason">
+                <SelectTrigger aria-label="Reason">
                   <SelectValue placeholder="Select a reason" />
                 </SelectTrigger>
                 <SelectContent>

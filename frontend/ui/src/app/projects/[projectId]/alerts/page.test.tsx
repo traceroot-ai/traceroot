@@ -178,7 +178,7 @@ describe("AlertsPage", () => {
     expect(screen.getByTestId("onboarding").textContent).toBe("proj-1");
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByPlaceholderText("Search...")).toBeNull();
-    expect(screen.queryByRole("button", { name: "New Alert" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New alert" })).toBeNull();
   });
 
   it("shows the table and the list chrome once the project has an alert", () => {
@@ -188,7 +188,7 @@ describe("AlertsPage", () => {
     expect(screen.getByText("P95 latency")).toBeTruthy();
     expect(screen.getByPlaceholderText("Search...")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "New Alert" }));
+    fireEvent.click(screen.getByRole("button", { name: "New alert" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts/new");
   });
 
@@ -312,7 +312,7 @@ describe("AlertsPage", () => {
   });
 
   describe("the per-project cap", () => {
-    const newAlertButton = () => screen.getByRole("button", { name: "New Alert" });
+    const newAlertButton = () => screen.getByRole("button", { name: "New alert" });
     const notice = (used: number, max: number) =>
       `This project has ${used} of ${max} alerts. Delete one to make room — paused alerts still count toward the limit.`;
 

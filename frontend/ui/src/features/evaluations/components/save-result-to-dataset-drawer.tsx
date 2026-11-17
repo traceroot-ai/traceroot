@@ -212,19 +212,19 @@ export function SaveResultToDatasetDrawer({
         <DrawerBody className="space-y-4">
           {/* Target dataset — fixed for update, chosen for save/duplicate. */}
           <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Dataset</div>
+            <div className="text-[12px] font-medium text-muted-foreground">Dataset</div>
             {meta.picksDataset ? (
               <Select
                 value={datasets.some((d) => d.id === targetDatasetId) ? targetDatasetId : ""}
                 onValueChange={setTargetDatasetId}
               >
-                <SelectTrigger className="h-8 text-[12px]">
+                <SelectTrigger className="h-8 text-[13px]">
                   <SelectValue placeholder="Choose a dataset" />
                 </SelectTrigger>
                 <SelectContent>
                   {datasets.length ? (
                     datasets.map((d) => (
-                      <SelectItem key={d.id} value={d.id} className="text-[12px]">
+                      <SelectItem key={d.id} value={d.id}>
                         {d.name}
                       </SelectItem>
                     ))
@@ -240,7 +240,7 @@ export function SaveResultToDatasetDrawer({
                 </SelectContent>
               </Select>
             ) : (
-              <div className="rounded-md border border-input bg-muted/40 px-2.5 py-1.5 text-[12px]">
+              <div className="rounded-md border border-input bg-muted px-2.5 py-1.5 text-[12px]">
                 <span className="font-medium">{sourceDatasetName}</span>
                 <span className="text-muted-foreground">
                   {" "}
@@ -269,7 +269,7 @@ export function SaveResultToDatasetDrawer({
                 <span className="text-[12px] font-medium">
                   Use this candidate output as the expected answer
                 </span>
-                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                <span className="mt-0.5 block text-[12px] text-muted-foreground">
                   Off by default — a candidate&rsquo;s output never becomes the expected answer
                   unless you say so.
                 </span>
@@ -308,7 +308,7 @@ export function SaveResultToDatasetDrawer({
           {error && (
             <div
               role="alert"
-              className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive"
+              className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-[12px] text-destructive"
             >
               {error}
             </div>

@@ -69,7 +69,7 @@ export function PendingDecisionBar({
         <Button
           size="sm"
           variant={destructive ? "destructive" : "default"}
-          className="h-6 gap-1.5 px-2.5 text-[11px]"
+          className="h-6 gap-1.5 px-2.5 text-[12px]"
           disabled={inFlight !== null}
           // "create" is the decisions route's proceed action for every class.
           onClick={() => void decide("create")}
@@ -80,14 +80,14 @@ export function PendingDecisionBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 gap-1.5 px-2.5 text-[11px] text-muted-foreground"
+          className="h-6 gap-1.5 px-2.5 text-[12px] text-muted-foreground"
           disabled={inFlight !== null}
           onClick={() => void decide("skip")}
         >
           {inFlight === "skip" && spinner}
           Skip
         </Button>
-        <span className="ml-auto min-w-0 truncate text-[11px] text-muted-foreground/70">
+        <span className="ml-auto min-w-0 truncate text-[12px] text-muted-foreground/70">
           {destructive ? "a reply below skips it" : "or reply below to revise"}
         </span>
       </div>

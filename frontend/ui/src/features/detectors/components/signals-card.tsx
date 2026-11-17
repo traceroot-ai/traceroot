@@ -50,18 +50,16 @@ export function SignalsCard({
   const mode: RcaMode = enableRca ? "automatic" : "manual";
   return (
     <div className="border border-border">
-      <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="text-[12px] font-medium text-muted-foreground">Signals</span>
+      <div className="flex h-9 items-center border-b border-border px-4">
+        <span className="text-[13px] font-medium text-foreground">Signals</span>
       </div>
       <div className="divide-y divide-border">
-        <div className="flex flex-col gap-2 p-3">
-          <label
-            htmlFor={`${idPrefix}-signals`}
-            className="cursor-pointer text-[11px] text-muted-foreground"
-          >
-            <span className="font-medium text-foreground">Generate signals</span>
-            <br />
-            Group related findings into signals.
+        <div className="flex items-center justify-between gap-4 p-4">
+          <label htmlFor={`${idPrefix}-signals`} className="cursor-pointer">
+            <span className="block text-[13px] font-medium text-foreground">Generate signals</span>
+            <span className="block text-[12px] text-muted-foreground">
+              Group related findings into signals.
+            </span>
           </label>
           <Switch
             id={`${idPrefix}-signals`}
@@ -69,39 +67,33 @@ export function SignalsCard({
             onCheckedChange={onEnableSignalsChange}
           />
         </div>
-        <div className="p-3">
-          <p className="mb-1.5 text-[11px] font-medium text-foreground">Root cause analysis</p>
-          <Select
-            value={mode}
-            onValueChange={(v) => onEnableRcaChange(v === "automatic")}
-            disabled={!enableSignals}
-          >
-            <SelectTrigger
-              id={`${idPrefix}-rca`}
-              className="h-7 w-[160px] text-[12px]"
-              aria-label="Root cause analysis"
+        <div className="p-4">
+          <p className="mb-1.5 text-[13px] font-medium text-foreground">Root cause analysis</p>
+          <div className="w-40">
+            <Select
+              value={mode}
+              onValueChange={(v) => onEnableRcaChange(v === "automatic")}
+              disabled={!enableSignals}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="manual" className="text-[12px]">
-                Manual
-              </SelectItem>
-              <SelectItem value="automatic" className="text-[12px]">
-                Automatic
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+              <SelectTrigger id={`${idPrefix}-rca`} aria-label="Root cause analysis">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="automatic">Automatic</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="mt-1.5 text-[12px] text-muted-foreground">
             {enableSignals
               ? RCA_MODE_HINT[mode]
               : "The agent runs from signals, so it needs Generate signals."}
           </p>
         </div>
-        <div className="p-3">
-          <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Agent Model</p>
+        <div className="p-4">
+          <p className="mb-1.5 text-[13px] font-medium text-foreground">Agent model</p>
           <AgentModelLink projectId={projectId} rcaModel={rcaModel} workspaceId={workspaceId} />
-          <p className="mt-1 text-[11px] text-muted-foreground">Shared across this project.</p>
+          <p className="mt-1.5 text-[12px] text-muted-foreground">Shared across this project.</p>
         </div>
       </div>
     </div>

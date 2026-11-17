@@ -18,6 +18,10 @@
       "types": "./src/lib/capture-policy.ts",
       "default": "./src/lib/capture-policy.ts"
     },
+    "./detector-output-schema": {
+      "types": "./src/lib/detector-output-schema.ts",
+      "default": "./src/lib/detector-output-schema.ts"
+    },
     "./capture-note": {
       "types": "./src/lib/capture-note.ts",
       "default": "./src/lib/capture-note.ts"

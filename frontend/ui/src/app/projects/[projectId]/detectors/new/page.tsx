@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@/lib/utils";
+import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -38,7 +40,7 @@ export default function NewDetectorPage() {
   const INITIAL_TEMPLATE = DETECTOR_TEMPLATES[0];
 
   const [selectedTemplate, setSelectedTemplate] = useState(INITIAL_TEMPLATE.id);
-  const [name, setName] = useState(INITIAL_TEMPLATE.label + " Detector");
+  const [name, setName] = useState(INITIAL_TEMPLATE.label + " detector");
   const [nameEdited, setNameEdited] = useState(false);
   const [prompt, setPrompt] = useState(INITIAL_TEMPLATE.prompt);
   const [sampleRate, setSampleRate] = useState(DEFAULT_DETECTOR_SAMPLE_RATE);
@@ -64,7 +66,7 @@ export default function NewDetectorPage() {
       setSelectedTemplate(templateId);
       setPrompt(template.prompt);
       setTriggerConditions(template.defaultConditions as TriggerCondition[]);
-      if (!nameEdited) setName(templateId === "blank" ? "" : template.label + " Detector");
+      if (!nameEdited) setName(templateId === "blank" ? "" : template.label + " detector");
     }
   };
 
@@ -109,28 +111,36 @@ export default function NewDetectorPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h1 className="text-[13px] font-medium">New Detector</h1>
-        </div>
+        <PageBackHeader
+          backHref={`/projects/${projectId}/detectors`}
+          backLabel="Detectors"
+          title="New detector"
+        />
 
         {/* Scrollable form */}
         <div className="flex-1 overflow-y-auto">
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-4">
+          <form
+            onSubmit={handleSubmit}
+            className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4"
+          >
             {/* Template */}
             <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Template</span>
+              <div className="flex h-9 items-center border-b border-border px-4">
+                <span className="text-[13px] font-medium text-foreground">Template</span>
               </div>
-              <div className="p-3">
+              <div className="p-4">
                 <div className="flex flex-wrap gap-1.5">
                   {DETECTOR_TEMPLATES.map((t) => (
                     <Button
                       key={t.id}
                       type="button"
                       size="sm"
-                      variant={selectedTemplate === t.id ? "default" : "outline"}
+                      variant="outline"
                       onClick={() => handleTemplateChange(t.id)}
-                      className="h-7 text-[12px]"
+                      className={cn(
+                        "h-7 text-[12px]",
+                        selectedTemplate === t.id && "border-brand bg-accent text-brand",
+                      )}
                     >
                       {t.label}
                     </Button>
@@ -144,10 +154,10 @@ export default function NewDetectorPage() {
 
             {/* Name */}
             <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Name</span>
+              <div className="flex h-9 items-center border-b border-border px-4">
+                <span className="text-[13px] font-medium text-foreground">Name</span>
               </div>
-              <div className="p-3">
+              <div className="p-4">
                 <Input
                   value={name}
                   onChange={(e) => {
@@ -171,19 +181,20 @@ export default function NewDetectorPage() {
 
             {/* Model */}
             <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Model</span>
+              <div className="flex h-9 items-center border-b border-border px-4">
+                <span className="text-[13px] font-medium text-foreground">Model</span>
               </div>
               {/* Detector Model — per-detector, editable */}
-              <div className="p-3">
+              <div className="p-4">
                 <ModelSelector
                   value={modelSelection}
                   onChange={setModelSelection}
                   workspaceId={project?.workspace_id}
                   defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
                   allowDecisionModels
+                  field
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-[12px] text-muted-foreground">
                   Used to evaluate each trace for this detector.
                 </p>
               </div>
@@ -191,10 +202,10 @@ export default function NewDetectorPage() {
 
             {/* Prompt */}
             <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
+              <div className="flex h-9 items-center border-b border-border px-4">
+                <span className="text-[13px] font-medium text-foreground">Prompt</span>
               </div>
-              <div className="p-3">
+              <div className="p-4">
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
@@ -218,17 +229,17 @@ export default function NewDetectorPage() {
 
             {/* Sampling */}
             <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Sampling</span>
+              <div className="flex h-9 items-center border-b border-border px-4">
+                <span className="text-[13px] font-medium text-foreground">Sampling</span>
               </div>
-              <div className="flex items-center gap-3 p-3">
+              <div className="flex items-center gap-3 p-4">
                 <input
                   type="range"
                   min={0}
                   max={100}
                   value={sampleRate}
                   onChange={(e) => setSampleRate(Number(e.target.value))}
-                  className="flex-1 cursor-pointer accent-foreground"
+                  className="flex-1 cursor-pointer accent-brand"
                 />
                 <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
                   {sampleRate}%
@@ -277,7 +288,7 @@ export default function NewDetectorPage() {
                   conditionsError !== null
                 }
               >
-                {createMutation.isPending ? "Creating..." : "Create Detector"}
+                {createMutation.isPending ? "Creating..." : "Create detector"}
               </Button>
             </div>
           </form>

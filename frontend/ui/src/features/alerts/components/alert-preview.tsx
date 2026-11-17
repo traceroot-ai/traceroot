@@ -60,8 +60,8 @@ interface AlertPreviewProps {
   window: AlertWindow;
 }
 
-// Red is reserved for the threshold and the breach; the series takes palette entry 1.
-const PREVIEW_SERIES_COLOR = SERIES_COLORS[1];
+// Red is reserved for the threshold and the breach; the series takes the first series color.
+const PREVIEW_SERIES_COLOR = SERIES_COLORS[0];
 
 const DAY_MS = 86_400_000;
 
@@ -86,7 +86,7 @@ const THRESHOLD_GRAPHIC_CLASS = "text-destructive";
 
 // The destructive token lands near 3.8:1, under the 4.5:1 text needs, so the
 // label steps one shade darker on light and lighter on dark.
-const THRESHOLD_TEXT_CLASS = "text-red-700 dark:text-red-400";
+const THRESHOLD_TEXT_CLASS = "text-danger ";
 
 /**
  * Null for an equality condition, which is a value rather than a side. The
@@ -287,8 +287,8 @@ export function AlertPreview({
 
   return (
     <div className="flex min-h-[320px] min-w-0 flex-1 flex-col border border-border">
-      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="text-[12px] font-medium text-muted-foreground">Live preview</span>
+      <div className="flex h-9 items-center justify-between border-b border-border px-4">
+        <span className="text-[13px] font-medium text-foreground">Live preview</span>
         <DateFilterSelect
           dateFilter={dateFilter}
           customStartDate={customStart}
@@ -298,7 +298,7 @@ export function AlertPreview({
             setCustomStart(start);
             setCustomEnd(end);
           }}
-          className="h-7 min-w-0 text-[12px]"
+          className="min-w-0"
         />
       </div>
       <div className="min-h-0 flex-1 p-4">

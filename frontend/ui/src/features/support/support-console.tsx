@@ -153,7 +153,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Support console</h1>
+        <h1 className="text-[15px] font-medium">Support console</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Find a customer and impersonate their account. All support access is logged.
         </p>
@@ -167,7 +167,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
         </Tabs>
       )}
       {listError && (
-        <p role="alert" className="rounded border border-red-300 p-3 text-sm text-red-600">
+        <p role="alert" className="rounded border border-danger-border p-3 text-sm text-danger">
           {listError}
         </p>
       )}
@@ -197,7 +197,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
             <col />
             <col className={view === "staff" ? "w-40" : "w-36"} />
           </colgroup>
-          <thead className="border-b bg-muted/40">
+          <thead className="border-b">
             <tr>
               <th className="p-3 font-medium">Name</th>
               <th className="p-3 font-medium">Email</th>
@@ -333,7 +333,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
             />
           </label>
           {actionError && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-danger">
               {actionError}
             </p>
           )}
@@ -367,7 +367,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
             This change is audited.
           </DialogDescription>
           {actionError && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-danger">
               {actionError}
             </p>
           )}

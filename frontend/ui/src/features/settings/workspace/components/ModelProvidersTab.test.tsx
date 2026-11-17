@@ -279,13 +279,34 @@ describe("ModelProvidersTab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
     const baseUrlInput = screen.getByDisplayValue("https://example.com/v1testing");
     fireEvent.change(baseUrlInput, { target: { value: " https://example.com/v1testing " } });
-    fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
 
     await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
     expect(mocks.testModelProvider).toHaveBeenCalledWith(
       "ws-1",
       expect.objectContaining({ baseUrl: "https://example.com/v1testing" }),
     );
+  });
+
+  it("adds the adapter default first, then the first unused catalog model", async () => {
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "anthropic" },
+    });
+
+    const addModel = screen.getByRole("button", { name: /add model/i });
+    fireEvent.click(addModel);
+    fireEvent.click(addModel);
+
+    // Every mocked Select is a combobox; the model rows are the ones offering Claude models.
+    const modelValues = screen
+      .getAllByRole("combobox")
+      .filter((el) =>
+        Array.from((el as HTMLSelectElement).options).some((o) => o.value.startsWith("claude-")),
+      )
+      .map((el) => (el as HTMLSelectElement).value);
+    expect(modelValues).toEqual(["claude-opus-5-5", "claude-fable-5-2"]);
   });
 
   it("shows the catalog protocol for an o-series model and persists an explicit Responses pick", async () => {

@@ -1,4 +1,4 @@
-"""TraceRoot development environment launcher.
+"""traceroot development environment launcher.
 
 Launches all services in a tmux session with named windows.
 Handles all setup automatically: deps, infra, migrations.
@@ -440,7 +440,7 @@ def make_driver(autoreload=False):
                 title="Frontend",
                 command="cd frontend/ui && pnpm dev",
                 web_urls=[
-                    ("TraceRoot UI", f"http://localhost:{FRONTEND_PORT}"),
+                    ("traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
@@ -520,7 +520,7 @@ def make_prod_driver():
                 title="Web",
                 command=f"{PROD_COMPOSE} logs -f --tail=50 web",
                 web_urls=[
-                    ("TraceRoot UI", f"http://localhost:{FRONTEND_PORT}"),
+                    ("traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
@@ -565,7 +565,7 @@ def make_prod_driver():
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Launch TraceRoot dev environment")
+    parser = argparse.ArgumentParser(description="Launch traceroot dev environment")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--autoreload",
