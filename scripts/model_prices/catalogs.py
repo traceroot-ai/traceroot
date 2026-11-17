@@ -84,6 +84,7 @@ LITELLM_LONG_CONTEXT = re.compile(r"^(?:input|output)_cost_per_token_above_(\d+)
 LITELLM_HOSTS = {
     "bedrock": "Bedrock",
     "bedrock_converse": "Bedrock",
+    "bedrock_mantle": "Bedrock",
     "vertex_ai-anthropic_models": "Vertex AI",
 }
 MODELSDEV_HOSTS = {"amazon-bedrock": "Bedrock", "openrouter": "OpenRouter"}

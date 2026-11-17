@@ -5,7 +5,14 @@ would price wrong are listed."""
 import pytest
 
 from scripts.model_prices.catalogs import CheckError
-from scripts.model_prices.checks import JS_INCOMPATIBLE, PRICING_PAGES, differs, lookup
+from scripts.model_prices.checks import (
+    HOST_PREFIX,
+    HOST_SUFFIX,
+    JS_INCOMPATIBLE,
+    PRICING_PAGES,
+    differs,
+    lookup,
+)
 from scripts.model_prices.page import build_html
 from scripts.model_prices.slack import build_payload
 from scripts.model_prices.text import format_report
@@ -342,6 +349,35 @@ def test_ids_other_hosts_serve_a_model_under_must_match_its_row():
         "• *1 model ID priced as another model*, e.g. `claude-k-5-1`: "
         "`eu.anthropic.claude-k-5-1` is priced as `claude-j`"
     ) in needs
+
+
+def test_a_bedrock_id_under_an_unlisted_region_prefix_is_an_unpriced_id():
+    rows = [row("claude-k-5", "anthropic", pattern=r"(?i)^claude-k-5$")]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "me.anthropic.claude-k-5": ll_entry("bedrock_converse"),
+    }
+    report = report_for(rows, litellm, md_catalog())
+
+    found = [(i["model"], i["row"], i["source"]) for i in report["unpriced_ids"]]
+    assert found == [("me.anthropic.claude-k-5", "claude-k-5", "Bedrock")]
+
+
+def test_a_bedrock_mantle_entry_is_a_bedrock_id():
+    rows = [row("claude-k-5", "anthropic", pattern=r"(?i)^claude-k-5$")]
+    litellm = {
+        "claude-k-5": ll_entry("anthropic"),
+        "bedrock_mantle/anthropic.claude-k-5": ll_entry("bedrock_mantle"),
+    }
+    report = report_for(rows, litellm, md_catalog())
+
+    found = [(i["model"], i["row"], i["source"]) for i in report["unpriced_ids"]]
+    assert found == [("anthropic.claude-k-5", "claude-k-5", "Bedrock")]
+
+
+def test_a_moonshot_bedrock_id_strips_to_its_model_name():
+    model_id = "moonshot.kimi-k2-thinking"
+    assert HOST_SUFFIX.sub("", HOST_PREFIX.sub("", model_id)) == "kimi-k2-thinking"
 
 
 def test_an_id_another_row_prices_the_same_is_not_flagged():

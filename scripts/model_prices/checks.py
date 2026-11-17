@@ -22,8 +22,8 @@ ONE_MILLION = 1_000_000
 
 # What a host adds around a model's own ID: a region, a vendor, a version or a date.
 HOST_PREFIX = re.compile(
-    r"^(?:(?:us|us-gov|eu|apac|au|jp|in|ca|global)\.)?"
-    r"(?:anthropic|openai|xai|x-ai|google|deepseek|moonshotai|zai|z-ai)[./]"
+    r"^(?:[a-z]+(?:-[a-z]+)*\.)?"
+    r"(?:anthropic|openai|xai|x-ai|google|deepseek|moonshot|moonshotai|zai|z-ai)[./]"
 )
 HOST_SUFFIX = re.compile(r"(?:-\d{8})?(?:-v\d+(?::\d+)?)?(?:@\d{8})?$")
 
