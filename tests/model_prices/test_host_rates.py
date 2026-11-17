@@ -187,10 +187,19 @@ def test_a_rate_change_on_a_row_no_catalog_compares_is_checked_against_the_host(
         "but the host lists input 2.40 (ours 2.00) and output 12.00 (ours 0.00)"
     )
 
-    assert compare(before, zeroed, litellm, md_catalog()) == {"fixes": [], "adds": [add]}
-    assert compare(before, fixed, litellm, md_catalog()) == {"fixes": [], "adds": []}
-    [pr] = _track_one_pr(before, litellm, zeroed)["pull_requests"]
-    assert (pr["fixes"], pr["adds"]) == ([], [add])
+    changed = "us-gov.anthropic.claude-k-6 {} rate changed with no finding to fix (ours {})"
+    for edit, adds in ((zeroed, [add]), (fixed, [])):
+        [pr] = _track_one_pr(before, litellm, edit)["pull_requests"]
+        assert (pr["fixes"], pr["adds"]) == ([], adds)
+    # No finding shows the host's rates, so --baseline also lists the rate change itself.
+    assert compare(before, zeroed, litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": [add, changed.format("output", "12.00 → 0.00")],
+    }
+    assert compare(before, fixed, litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": [changed.format("input", "2.00 → 2.40")],
+    }
 
     # A row a catalog compares shows the change in its own flags, so its host IDs are
     # not listed again.

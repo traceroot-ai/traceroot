@@ -65,6 +65,13 @@ every catalog that lists that exact ID charges other input or output rates, as B
 does for GovCloud and regional profiles. So is a dotted version's dash spelling that a
 row priced before the edit and none prices after it, such as grok-4-20 once a narrowed
 grok-4 row stops matching it. --track lists the same adds for each open PR.
+--baseline also lists each change to a row that no finding explains, as no catalog
+compares about a quarter of the rows and a rate changed inside the 3% tolerance shows no
+flag: a row removed or moved to another provider; a rate changed with no flag on that
+rate of that row, or of a model it prices, fixed or added; a matchPattern changed that
+matches no ID a finding fixed or added is about, no dash spelling or host ID priced
+another way, and no row the edit adds. A row problem fixed or added explains its row's
+rates and pattern. --track leaves these out, as an open PR is judged by its findings.
 Pass the same saved --litellm and --modelsdev files to both runs, so only the price
 file differs between them. For the same reason, the second run judges which models are
 retired as of the baseline report's date, and reports that date.
@@ -102,7 +109,7 @@ from .catalogs import (
     validate_rows,
 )
 from .checks import MIN_COMPARED, build_report
-from .findings import changes, describe_all, load_baseline
+from .findings import changes, describe_all, load_baseline, unexplained
 from .page import build_html
 from .slack import build_payload, failure_payload, post_to_slack
 from .text import format_failure, format_report
@@ -202,6 +209,8 @@ def main(argv: list[str]) -> int:
                     "the same saved --litellm, --modelsdev and --reviewed files to both runs"
                 )
             fixes, adds = changes(baseline, report)
+            # Only here, not for --track. A removed row with a finding is listed once.
+            adds += [line for line in unexplained(baseline, report) if line not in adds]
             report["baseline"] = {"fixes": describe_all(fixes), "adds": adds}
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")

@@ -5,7 +5,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from .catalogs import FIELD_LABELS, CheckError
+from .catalogs import FIELD_LABELS, FIELDS, CheckError
+from .checks import _matches
 from .text import _amount, _catalog_amount, _join
 
 
@@ -152,6 +153,61 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     return fixes, adds
 
 
+def unexplained(report: dict, after: dict) -> list[str]:
+    """Each change to a row of report that no finding the after report fixes or adds
+    explains, in a few words. A row removed or moved to another provider is never
+    explained. A rate change is explained by a flag on that rate found through the row,
+    for its own model or one it prices through its pattern. A matchPattern change is
+    explained when the old or new pattern matches an ID that moved: one a finding fixed or
+    added is about, a dash spelling or host ID priced another way, or a row the edit adds.
+    A row problem fixed or added explains its row's rates and pattern. Rows the edit adds
+    are judged by their findings alone. No catalog compares about a quarter of the rows,
+    and a rate changed inside the tolerance shows no flag, so without this an edit to
+    either would pass unseen. Only --baseline lists these: --track judges an open PR by
+    its findings."""
+    old_keys, new_keys = finding_keys(report), finding_keys(after)
+    changed = {
+        key: item
+        for key, item in {**old_keys, **new_keys}.items()
+        if (key in old_keys) != (key in new_keys)
+    }
+    flags = {
+        (_found_through(key, item), key[2]) for key, item in changed.items() if key[0] == "rate"
+    }
+    whole = {key[1] for key in changed if key[0] == "row"}
+    moved = {item["model"] for key, item in changed.items() if key[0] != "row"}
+    for name in ("dash_spellings", "host_rates"):
+        was, now = report[name], after[name]
+        moved |= {
+            model_id
+            for model_id in was.keys() | now.keys()
+            if was.get(model_id) != now.get(model_id)
+        }
+    moved |= after["rows"].keys() - report["rows"].keys()
+    lines = []
+    for name, old in report["rows"].items():
+        new = after["rows"].get(name)
+        if new is None:
+            lines.append(f"{name} row removed")
+            continue
+        if new["provider"] != old["provider"]:
+            lines.append(f"{name} provider changed")
+        if name in whole:
+            continue
+        for field in FIELDS:
+            was, now = old["prices"][field], new["prices"][field]
+            if was != now and (name, field) not in flags:
+                lines.append(
+                    f"{name} {FIELD_LABELS[field]} rate changed with no finding to fix "
+                    f"(ours {_amount(was)} → {_amount(now)})"
+                )
+        if old["matchPattern"] != new["matchPattern"] and not any(
+            _matches(row, model_id) for row in (old, new) for model_id in moved
+        ):
+            lines.append(f"{name} matchPattern changed with no finding to fix")
+    return lines
+
+
 def load_baseline(path: Path) -> dict:
     """A report saved by --json from a completed run. Anything else fails the run."""
     try:
@@ -164,12 +220,14 @@ def load_baseline(path: Path) -> dict:
         finding_keys(baseline)
         datetime.fromisoformat(baseline["date"])
         # Without these, an edit that stops pricing a dash spelling, prices a host ID at
-        # the wrong rate, or deletes a flagged row, would pass unseen. Without the catalog
-        # hashes, a catalog that moved between the two runs would read as a fix.
+        # the wrong rate, deletes a flagged row, or changes a row no finding shows, would
+        # pass unseen. Without the catalog hashes, a catalog that moved between the two
+        # runs would read as a fix.
         for key, kind in (
             ("dash_spellings", dict),
             ("host_rates", dict),
             ("compared_rows", list),
+            ("rows", dict),
             ("catalogs", dict),
         ):
             if not isinstance(baseline[key], kind):

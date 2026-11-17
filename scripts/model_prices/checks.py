@@ -458,4 +458,13 @@ def build_report(
         "compared_rows": compared,
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
+        # Each row as it was checked, so --baseline can list a change no finding shows.
+        "rows": {
+            row["modelName"]: {
+                "provider": row["provider"],
+                "matchPattern": row["matchPattern"],
+                "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
+            }
+            for row in rows
+        },
     }

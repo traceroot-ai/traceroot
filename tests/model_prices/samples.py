@@ -14,7 +14,7 @@ from scripts.model_prices.catalogs import (
     index_modelsdev,
 )
 from scripts.model_prices.checks import build_report
-from scripts.model_prices.findings import changes, describe_all
+from scripts.model_prices.findings import changes, describe_all, unexplained
 from scripts.model_prices.tracking import GITHUB_API, track
 
 DATE = "2026-11-08"
@@ -91,9 +91,9 @@ def baseline_for(run, path, rows, litellm, modelsdev):
 
 def compare(before, after, litellm, modelsdev):
     """What --baseline lists for an edit from the before rows to the after rows."""
-    fixes, adds = changes(
-        report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev)
-    )
+    report, edited = report_for(before, litellm, modelsdev), report_for(after, litellm, modelsdev)
+    fixes, adds = changes(report, edited)
+    adds += [line for line in unexplained(report, edited) if line not in adds]
     return {"fixes": describe_all(fixes), "adds": adds}
 
 
