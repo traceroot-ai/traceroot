@@ -22,12 +22,7 @@ export const EMAIL_LOGO_URL =
   process.env.NEXT_PUBLIC_LOGO_URL ||
   "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_wordmark.png";
 
-/**
- * Hosted PNG of the website footer's pixel wordmark: a still frame of the
- * dithered "traceroot" with the turquoise sweep frozen in place, as on
- * traceroot.ai. Static on purpose: an animated GIF loads more slowly in the
- * header. Rendered from docs/brand/footer-wordmark.svg at 960x154 (2x).
- */
+/** Email-safe PNG of the green website footer wordmark, rendered at 2×. */
 export const EMAIL_PIXEL_WORDMARK_URL =
   "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_pixel_wordmark.png";
 
