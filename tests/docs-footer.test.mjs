@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../docs/footer.js", import.meta.url), "utf8");
 const config = JSON.parse(readFileSync(new URL("../docs/docs.json", import.meta.url), "utf8"));
-function harness(t) {
+function harness(t, pathname = "/docs/getting-started/introduction", display = "block") {
   const accesses = [];
   const window = new EventTarget();
   Object.defineProperty(window, "posthog", {
@@ -22,13 +22,14 @@ function harness(t) {
   });
   vm.runInNewContext(source, {
     window, document, AbortController,
-    location: { hostname: "traceroot.ai", pathname: "/docs/getting-started/introduction" },
+    location: { hostname: "traceroot.ai", pathname },
     localStorage: {
       getItem() { accesses.push("storage read"); return "denied"; },
       setItem() { accesses.push("storage write"); },
       removeItem() { accesses.push("storage removal"); },
     },
-    getComputedStyle: () => ({ display: "block" }),
+    getComputedStyle: () => ({ display }),
+    ResizeObserver: class { disconnect() {} },
   });
   t.after(() => window.__trDocsFooterAdapter.dispose());
   return { window, document, accesses };
@@ -64,6 +65,39 @@ test("missing footer styles leave native content intact without injecting enhanc
   assert.deepEqual(row.children, [brand, columns, socials]);
   assert.deepEqual(env.accesses, [], "native fallback needs no analytics or readiness polling");
 });
+
+for (const [pathname, src] of [
+  ["/docs/getting-started/introduction", "/docs/brand/footer-wordmark.svg"],
+  ["/api-reference/status/health", "/brand/footer-wordmark.svg"],
+]) {
+  test(`the footer renders one static image on navigation at ${pathname}`, t => {
+    const { window, document } = harness(t, pathname, "contents");
+    function element(tagName) {
+      return {
+        tagName, children: [], isConnected: true,
+        classList: { add() {}, remove() {} }, style: { removeProperty() {} },
+        append(child) { this.children.push(child); },
+        remove() { this.isConnected = false; },
+      };
+    }
+    const footer = element("footer");
+    const wrapper = footer.firstElementChild = element("div");
+    const row = wrapper.firstElementChild = element("div");
+    const columns = element("div");
+    columns.style.gridTemplateColumns = "repeat(4, 1fr)";
+    row.children = [element("div"), columns];
+    document.querySelector = selector => selector.startsWith("footer#footer") ? footer : null;
+    document.getElementById = () => null;
+    document.createElement = element;
+
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.dispatchEvent(new Event("mintlify:navigate"));
+
+    assert.equal(wrapper.children.length, 1);
+    const [extras] = wrapper.children;
+    assert.deepEqual(extras.children.map(child => [child.tagName, child.src, child.alt]), [["img", src, ""]]);
+  });
+}
 
 test("the functional primary contrasts with white and the API response surface", () => {
   const luminance = hex => {

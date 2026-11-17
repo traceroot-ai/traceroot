@@ -118,21 +118,8 @@
 .tr-docs-footer__wordmark {
   display: block;
   width: 100%;
-  /* Home's canvas has 6px of empty space above the first pixel. */
-  margin: calc(var(--tr-footer-gap) - 6px) 0 0;
-  aspect-ratio: 800 / 128;
-}
-
-.tr-docs-footer__wordmark :is(img, canvas) {
-  display: block;
-  width: 100%;
   height: auto;
-  margin: 0;
-  aspect-ratio: 800 / 128;
-}
-
-.tr-docs-footer__wordmark [hidden] {
-  display: none;
+  margin: calc(var(--tr-footer-gap) - 6px) 0 0;
 }
 
 @media (min-width: 1024px) {
