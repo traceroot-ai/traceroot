@@ -109,6 +109,7 @@ export async function testModelProvider(
     providerId?: string;
     baseUrl?: string;
     config?: Record<string, unknown>;
+    models?: string[];
     awsAccessKeyId?: string;
     awsSecretAccessKey?: string;
     awsRegion?: string;
