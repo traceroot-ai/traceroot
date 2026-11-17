@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { FormEvent } from "react";
 import { ApiError } from "@/lib/api/errors";
 
@@ -93,10 +93,12 @@ it("aborts a pending preview when the draft changes", async () => {
     <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 2 }]} />,
   );
   await waitFor(() => expect(signal.aborted).toBe(true));
-  resolveRequest({ trace_id: "trace-1", matches: true, condition_matches: [true] });
   rerender(
     <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 1 }]} />,
   );
+  await act(async () => {
+    resolveRequest({ trace_id: "trace-1", matches: true, condition_matches: [true] });
+  });
   expect(screen.queryByText("Filter matches this trace")).toBeNull();
 });
 
