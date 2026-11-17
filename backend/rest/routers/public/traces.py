@@ -46,8 +46,9 @@ router = APIRouter(prefix="/public/traces", tags=["Traces"])
 # (defined in deps); the limiter keys ingest by its own bucket via ``key_ingest``.
 IngestAuth = KeyStampedAuth
 
-# How long an exporter should wait before resending a batch that could not be queued.
-_ENQUEUE_RETRY_AFTER_SECONDS = 5
+# How long an exporter should wait before resending a batch that could not be
+# stored or queued.
+_RETRY_AFTER_SECONDS = 5
 
 
 def _body_too_large(detail: str) -> HTTPException:
@@ -201,10 +202,15 @@ async def ingest_traces(
         s3_service.upload_bytes(s3_key, body, content_type="application/x-protobuf")
         logger.info(f"Stored OTLP batch to {s3_key} for project {project_id}")
     except Exception as e:
+        # Nothing was stored, so the batch only survives if the exporter sends it
+        # again. OTLP exporters retry a 503 and drop the batch on a 500. The
+        # storage client's error names internal endpoints, so it is logged here
+        # and kept out of the response.
         logger.error(f"Failed to upload OTLP batch to S3: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Storage error: {e}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not store the batch. Retry shortly.",
+            headers={"Retry-After": str(_RETRY_AFTER_SECONDS)},
         ) from e
 
     # 5. Enqueue Celery task for async processing (S3 reference only, not full payload)
@@ -221,7 +227,7 @@ async def ingest_traces(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not queue the batch for processing. Retry shortly.",
-            headers={"Retry-After": str(_ENQUEUE_RETRY_AFTER_SECONDS)},
+            headers={"Retry-After": str(_RETRY_AFTER_SECONDS)},
         ) from e
 
     # 6. Return success (async processing happens in background)

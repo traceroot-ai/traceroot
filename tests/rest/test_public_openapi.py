@@ -161,12 +161,14 @@ def test_ingestion_documents_protobuf_request_body():
 
 def test_ingestion_documents_runtime_error_responses():
     # The ingest route raises 400 (bad/empty/undecodable body), 402 (plan limit),
-    # 415 (wrong Content-Type) and 500 (S3 storage failure) at runtime.
+    # 415 (wrong Content-Type) and 503 (S3 storage or queueing failure) at runtime.
     post = _schema()["paths"]["/api/v1/public/traces"]["post"]
-    for code in ("400", "402", "415", "500"):
+    for code in ("400", "402", "415", "503"):
         assert code in post["responses"], code
+    # a storage failure is a 503 now, so no 500 is documented for this route
+    assert "500" not in post["responses"]
     # existing responses are preserved
-    assert set(post["responses"]) >= {"200", "401", "422", "400", "402", "415", "500"}
+    assert set(post["responses"]) >= {"200", "401", "422", "400", "402", "415", "503"}
 
 
 def _public_operations(schema):
