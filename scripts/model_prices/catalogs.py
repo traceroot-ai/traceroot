@@ -272,10 +272,12 @@ def index_hosted(litellm: object, modelsdev: object) -> dict[str, dict]:
             continue
         # Keys may carry a provider prefix and a route, as in bedrock/us-gov-west-1/<model
         # ID>. A route prices the ID for one region or plan, so the bare <model ID> wins,
-        # then bedrock/<model ID>, then a route, wherever the catalog lists each.
+        # then bedrock/<model ID>, then a route, wherever the catalog lists each. A
+        # bedrock_mantle key ranks below all of those, in the same order: its rates can
+        # run above Bedrock's own.
         model_id = key.rsplit("/", 1)[-1]
-        rank = min(key.count("/"), 2)
-        if model_id.endswith("@default") or rank >= ranks.get(model_id, 3):
+        rank = min(key.count("/"), 2) + (3 if key.startswith("bedrock_mantle/") else 0)
+        if model_id.endswith("@default") or rank >= ranks.get(model_id, 6):
             continue
         ranks[model_id] = rank
         hosted[model_id] = {

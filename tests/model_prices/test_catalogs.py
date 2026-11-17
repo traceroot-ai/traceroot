@@ -71,6 +71,37 @@ def test_a_host_ids_bare_key_wins_over_its_provider_prefixed_key(bare_first):
     assert (rates["input"], rates["output"]) == (2e-6, 1e-5)
 
 
+@pytest.mark.parametrize("bedrock_first", [True, False], ids=["bedrock-first", "mantle-first"])
+def test_a_host_ids_bedrock_keys_win_over_its_bedrock_mantle_key(bedrock_first):
+    keys = {
+        "bedrock/anthropic.claude-k-5": ll_entry("bedrock", input_=2e-6, output=1e-5),
+        "bedrock_mantle/anthropic.claude-k-5": ll_entry(
+            "bedrock_mantle", input_=2.2e-6, output=1.1e-5
+        ),
+        "bedrock_mantle/us-gov-west-1/anthropic.claude-k-5": ll_entry(
+            "bedrock_mantle", input_=2.4e-6, output=1.2e-5
+        ),
+    }
+    litellm = dict(keys.items() if bedrock_first else reversed(keys.items()))
+    rates = index_hosted(litellm, md_catalog())["anthropic.claude-k-5"]["rates"]["litellm"]
+
+    assert (rates["input"], rates["output"]) == (2e-6, 1e-5)
+
+
+def test_a_host_id_only_bedrock_mantle_lists_takes_its_rates():
+    litellm = {
+        "bedrock_mantle/us-gov-west-1/anthropic.claude-k-5": ll_entry(
+            "bedrock_mantle", input_=2.4e-6, output=1.2e-5
+        ),
+        "bedrock_mantle/anthropic.claude-k-5": ll_entry(
+            "bedrock_mantle", input_=2.2e-6, output=1.1e-5
+        ),
+    }
+    rates = index_hosted(litellm, md_catalog())["anthropic.claude-k-5"]["rates"]["litellm"]
+
+    assert (rates["input"], rates["output"]) == (2.2e-6, 1.1e-5)
+
+
 def test_a_catalogs_non_finite_rate_counts_as_absent():
     # JSON parsers accept NaN and Infinity, and read 1e999 as infinity.
     rows = [row("gpt-a", "openai"), row("gpt-b", "openai")]
