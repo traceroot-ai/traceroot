@@ -95,6 +95,12 @@ on by default and controlled per kind.
 - If the code itself must be reverted, roll back the worker first and wait for its
   rollout to finish before rolling back the agent. Reverting the agent alone leaves
   the new worker talking to an older agent that does not send the frame.
+- The order reverses when the rollback also crosses the agent's internal-secret
+  requirement: a worker older than that change sends no credential, so an agent that
+  still requires it answers 403 and background RCA fails. Roll back the agent first, then
+  the callers (web server, detector worker); an older agent accepts calls with or without
+  the credential. If both reverts are needed, no single order satisfies both rules, so
+  roll them back together and expect RCA runs in flight during the switch to fail.
 - The executions table, `ai_messages.turn_kind` column, capture policy on persisted
   tool output, per-source usage breakdown, and agent ingest path ship unflagged. The
   migrations are additive and can stay.
