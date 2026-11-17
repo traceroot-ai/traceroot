@@ -498,6 +498,74 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
             "reviewed entry 0 has an empty reason",
             id="empty-reason",
         ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": 1,
+                        "field": "input",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-text model",
+            id="non-text-model",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "inputs",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has an unknown field",
+            id="unknown-field",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": True,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-integer pr",
+            id="bool-pr",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": "12",
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-integer pr",
+            id="text-pr",
+        ),
     ],
 )
 def test_a_malformed_reviewed_file_fails_the_run(run, tmp_path, content, message):
