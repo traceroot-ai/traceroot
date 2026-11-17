@@ -346,12 +346,33 @@ def find_overlaps(
     return overlaps
 
 
+def row_keys(rows: list[dict]) -> list[str]:
+    """What the report calls each row: its modelName, the name the worker prices with the
+    first row that has it, or, for each later row with that name, whose pattern can still
+    price other IDs, "<name> (2)", "<name> (3)" and so on, in file order. If another row
+    already has that name, one of the two would be hidden, so the run fails."""
+    names = {row["modelName"] for row in rows}
+    listed: dict[str, int] = {}
+    keys = []
+    for row in rows:
+        name = row["modelName"]
+        listed[name] = listed.get(name, 0) + 1
+        key = name if listed[name] == 1 else f"{name} ({listed[name]})"
+        if key != name and key in names:
+            raise CheckError(
+                f'a later "{name}" row is compared as "{key}", the name of another row'
+            )
+        keys.append(key)
+    return keys
+
+
 def find_row_problems(rows: list[dict]) -> list[dict]:
     """Problems in the price file itself, found without a catalog, so rows no catalog
-    lists are checked too. Each names, in fields, the parts of its row it is about."""
+    lists are checked too. Each names its row as row_keys does, and, in fields, the parts
+    of the row it is about."""
     problems = []
     seen: set[str] = set()
-    for row in rows:
+    for row, key in zip(rows, row_keys(rows), strict=True):
         name, pattern = row["modelName"], row["matchPattern"]
         found: list[tuple[str, list[str]]] = []
         if name.lower() in seen:
@@ -386,7 +407,7 @@ def find_row_problems(rows: list[dict]) -> list[dict]:
         if cache_read is not None and input_ is not None and cache_read > input_:
             found.append(("cache read rate is above the input rate", ["cacheRead", "input"]))
         problems += [
-            {"row": name, "problem": problem, "fields": fields} for problem, fields in found
+            {"row": key, "problem": problem, "fields": fields} for problem, fields in found
         ]
     return problems
 
@@ -458,27 +479,16 @@ def build_report(
         else:
             left_as_is.append({**flag, "reason": entry["reason"], "pr": entry["pr"]})
     # Each row as it was checked, so --baseline can list a change no finding shows and
-    # price an ID as the worker does. The first row with a name, the one the worker
-    # prices that name with, goes under the name; each later one, whose pattern can still
-    # price other IDs, under "<name> (2)", "<name> (3)" and so on, in file order. If
-    # another row already has that name, one of the two would be hidden, so the run fails.
-    checked: dict[str, dict] = {}
-    listed: dict[str, int] = {}
-    names = {row["modelName"] for row in rows}
-    for row in rows:
-        name = row["modelName"]
-        listed[name] = listed.get(name, 0) + 1
-        key = name if listed[name] == 1 else f"{name} ({listed[name]})"
-        if key != name and key in names:
-            raise CheckError(
-                f'a later "{name}" row is compared as "{key}", the name of another row'
-            )
-        checked[key] = {
-            "modelName": name,
+    # price an ID as the worker does.
+    checked = {
+        key: {
+            "modelName": row["modelName"],
             "provider": row["provider"],
             "matchPattern": row["matchPattern"],
             "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
         }
+        for row, key in zip(rows, row_keys(rows), strict=True)
+    }
     return {
         "date": date,
         "status": "ok",

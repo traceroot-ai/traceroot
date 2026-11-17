@@ -519,8 +519,33 @@ def test_removing_a_later_row_of_a_name_listed_twice_is_listed():
     litellm = {"gpt-b": ll_entry("openai")}
 
     assert compare(TWICE, [TWICE[0], TWICE[2]], litellm, md_catalog()) == {
-        "fixes": ["gpt-a: modelName is listed twice"],
+        "fixes": ["gpt-a (2): modelName is listed twice"],
         "adds": ["gpt-a (2) row removed"],
+    }
+
+
+OUT_OF_RANGE = [TWICE[0], row("gpt-a", "openai", input_=2e-3), TWICE[2]]
+
+
+@pytest.mark.parametrize(
+    ("after", "adds"),
+    [
+        (TWICE, []),
+        (
+            [row("gpt-a", "openai", input_=1e-4), *TWICE[1:]],
+            ["gpt-a input rate changed with no finding to fix (ours 1.00 → 100.00)"],
+        ),
+    ],
+    ids=["fixed", "first-row-changed-too"],
+)
+def test_a_problem_on_a_later_row_of_a_name_listed_twice_explains_only_that_row(after, adds):
+    # Fixing the second gpt-a row's input rate explains that row's change, not a change
+    # to the first row's.
+    litellm = {"gpt-b": ll_entry("openai")}
+
+    assert compare(OUT_OF_RANGE, after, litellm, md_catalog()) == {
+        "fixes": ["gpt-a (2): input rate is outside $0-$1,000 per 1M tokens"],
+        "adds": adds,
     }
 
 
