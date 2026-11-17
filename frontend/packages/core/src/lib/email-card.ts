@@ -7,7 +7,7 @@
  * body rows, one ink CTA button, divider, and a muted footer note. Colors come
  * from the brandbook in Figma; see EMAIL_COLORS.
  *
- * Table-based markup with inline styles only, so it survives Gmail/Outlook
+ * Table-based markup with inline styles and a classic Outlook fallback, so it survives Gmail/Outlook
  * CSS stripping. The card lets long unbroken words wrap (detector names such
  * as "hallucination_detector", workspace names, emails), so a single token
  * can't widen it past a 320px screen; the setting inherits into body rows.
@@ -85,6 +85,9 @@ export function renderEmailCard(params: {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!--[if mso]>
+    <style>h1, p, td, a { word-break: break-all; }</style>
+    <![endif]-->
   </head>
   <body style="font-family: ${EMAIL_FONT_STACK}; line-height: 1.6; color: ${c.ink}; margin: 0; padding: 32px 16px; background-color: ${c.surface};">
     <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto; background: ${c.white}; border: 1px solid ${c.border}; border-top: 3px solid ${c.accent}; border-radius: 8px; border-collapse: separate; word-break: break-word; overflow-wrap: anywhere;">
