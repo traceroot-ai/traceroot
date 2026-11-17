@@ -7,9 +7,6 @@ import {
   getPlanConfig,
   PlanType,
   METERED_PRICE_ENV_VARS,
-  normalizePromoCode,
-  resolvePromoForPlan,
-  promoFailureFromStripeError,
 } from "@traceroot/core";
 
 async function handlePOST(req: NextRequest) {
@@ -19,7 +16,7 @@ async function handlePOST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceId, plan, promoCode } = await req.json();
+    const { workspaceId, plan } = await req.json();
 
     // Validate plan (free plan has no checkout - users just sign up)
     const paidPlans: PlanType[] = [PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE];
@@ -44,23 +41,6 @@ async function handlePOST(req: NextRequest) {
     }
 
     const stripe = getStripeOrThrow();
-
-    // Optional promo code. Resolved before any Stripe customer or session exists,
-    // so a rejected code leaves nothing behind. The code must belong to this plan.
-    // Checkout gets the resolved code via `discounts` (the promo-code box stays off,
-    // so a code cannot be typed in past the plan check).
-    let promotionCodeId: string | null = null;
-    const code = normalizePromoCode(promoCode);
-    if (code) {
-      const resolution = await resolvePromoForPlan(stripe, code, plan);
-      if (!resolution.ok) {
-        return NextResponse.json(
-          { error: resolution.message, reason: resolution.reason },
-          { status: 400 },
-        );
-      }
-      promotionCodeId = resolution.promotionCodeId;
-    }
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
@@ -104,7 +84,9 @@ async function handlePOST(req: NextRequest) {
       customer: customerId,
       mode: "subscription",
       line_items: lineItems,
-      ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
+      // Promo codes are entered on Stripe's hosted page. Each coupon is restricted to its
+      // plan's product (`applies_to`), so Stripe refuses a code for the wrong plan.
+      allow_promotion_codes: true,
       success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
       metadata: { workspaceId },
@@ -115,15 +97,6 @@ async function handlePOST(req: NextRequest) {
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
-    // Stripe checks the code's own restrictions (e.g. first-time customers only) when
-    // the session is created, so a refusal surfaces here.
-    const promoFailure = promoFailureFromStripeError(error);
-    if (promoFailure) {
-      return NextResponse.json(
-        { error: promoFailure.message, reason: promoFailure.reason },
-        { status: 400 },
-      );
-    }
     console.error("Checkout error:", error);
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
   }

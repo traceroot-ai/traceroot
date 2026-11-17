@@ -56,14 +56,5 @@ export {
   type UsageNotificationDecision,
 } from "./usageNotifications.ts";
 
-// Promo codes: plan-bound Stripe promotion codes
-export {
-  normalizePromoCode,
-  resolvePromoForPlan,
-  promoFailureFromStripeError,
-  discountsToKeepForPlan,
-  PROMO_MESSAGES,
-  type PromoFailureReason,
-  type PromoResolution,
-  type PromoStripe,
-} from "./promoCodes.ts";
+// Promo codes: plan-bound Stripe promotion codes (entered on hosted Checkout)
+export { discountsToKeepForPlan } from "./promoCodes.ts";

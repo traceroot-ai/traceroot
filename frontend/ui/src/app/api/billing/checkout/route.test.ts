@@ -18,19 +18,14 @@ vi.hoisted(() => {
   process.env.BETTER_AUTH_URL = "http://localhost:3000";
 });
 
-const { customersCreate, sessionsCreate, promoList, workspaceFindFirst, workspaceUpdate } =
-  vi.hoisted(() => ({
-    customersCreate: vi.fn(),
-    sessionsCreate: vi.fn(),
-    promoList: vi.fn(),
-    workspaceFindFirst: vi.fn(),
-    workspaceUpdate: vi.fn(),
-  }));
+const { customersCreate, sessionsCreate, workspaceFindFirst, workspaceUpdate } = vi.hoisted(() => ({
+  customersCreate: vi.fn(),
+  sessionsCreate: vi.fn(),
+  workspaceFindFirst: vi.fn(),
+  workspaceUpdate: vi.fn(),
+}));
 
 vi.mock("@traceroot/core", async () => {
-  const core = await vi.importActual<
-    typeof import("../../../../../../packages/core/src/ee/billing/promoCodes.ts")
-  >("../../../../../../packages/core/src/ee/billing/promoCodes.ts");
   const plans = await vi.importActual<
     typeof import("../../../../../../packages/core/src/ee/billing/plans.ts")
   >("../../../../../../packages/core/src/ee/billing/plans.ts");
@@ -38,7 +33,6 @@ vi.mock("@traceroot/core", async () => {
     typeof import("../../../../../../packages/core/src/ee/billing/subscriptionItems.ts")
   >("../../../../../../packages/core/src/ee/billing/subscriptionItems.ts");
   return {
-    ...core,
     getPlanConfig: plans.getPlanConfig,
     PlanType: plans.PlanType,
     METERED_PRICE_ENV_VARS: items.METERED_PRICE_ENV_VARS,
@@ -46,7 +40,6 @@ vi.mock("@traceroot/core", async () => {
     getStripeOrThrow: () => ({
       customers: { create: customersCreate },
       checkout: { sessions: { create: sessionsCreate } },
-      promotionCodes: { list: promoList },
     }),
   };
 });
@@ -55,95 +48,44 @@ import { POST } from "./route";
 
 const req = (body: unknown) => ({ json: async () => body }) as never;
 
-const promo = (plan: string, over: Record<string, unknown> = {}) => ({
-  id: "promo_1",
-  active: true,
-  expires_at: null,
-  coupon: { valid: true, metadata: { plan } },
-  ...over,
-});
-
 beforeEach(() => {
   vi.clearAllMocks();
   workspaceFindFirst.mockResolvedValue({ id: "ws-1", billingCustomerId: "cus_1" });
-  sessionsCreate.mockResolvedValue({ url: "https://checkout.example/test" });
+  sessionsCreate.mockResolvedValue({ url: "https://checkout.example.test/s" });
 });
 
-describe("POST /api/billing/checkout promo codes", () => {
-  it("without a code, creates the session exactly as before (no discounts, no promo box)", async () => {
+describe("POST /api/billing/checkout", () => {
+  it("lets Stripe's hosted page take the promo code, with the plan and all three metered items", async () => {
     const res = await POST(req({ workspaceId: "ws-1", plan: "pro" }));
-    expect(res.status).toBe(200);
-    const args = sessionsCreate.mock.calls[0][0];
-    expect(args.discounts).toBeUndefined();
-    expect(args.allow_promotion_codes).toBeUndefined();
-    expect(args.payment_method_collection).toBeUndefined();
-    expect(promoList).not.toHaveBeenCalled();
-  });
 
-  it("applies a valid code for the plan, keeping all three metered items", async () => {
-    promoList.mockResolvedValue({ data: [promo("pro")] });
-    const res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: " LAUNCH " }));
     expect(res.status).toBe(200);
     const args = sessionsCreate.mock.calls[0][0];
-    expect(args.discounts).toEqual([{ promotion_code: "promo_1" }]);
+    expect(args.allow_promotion_codes).toBe(true);
     expect(args.line_items.map((i: { price: string }) => i.price)).toEqual([
       "price_pro",
       "price_ai",
       "price_rca",
       "price_detector",
     ]);
-    expect(promoList).toHaveBeenCalledWith(expect.objectContaining({ code: "LAUNCH" }));
   });
 
-  it("rejects a code made for another plan before creating anything", async () => {
-    workspaceFindFirst.mockResolvedValue({ id: "ws-1", billingCustomerId: null });
-    promoList.mockResolvedValue({ data: [promo("starter")] });
-    const res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "LAUNCH" }));
+  it("never pre-applies a discount, and ignores a promo code sent in the body", async () => {
+    await POST(req({ workspaceId: "ws-1", plan: "starter", promoCode: "ANYTHING" }));
+
+    const args = sessionsCreate.mock.calls[0][0];
+    expect(args.discounts).toBeUndefined();
+    expect(JSON.stringify(args)).not.toContain("ANYTHING");
+  });
+
+  it("still rejects an invalid plan", async () => {
+    const res = await POST(req({ workspaceId: "ws-1", plan: "free" }));
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ reason: "wrong_plan" });
-    expect(customersCreate).not.toHaveBeenCalled();
     expect(sessionsCreate).not.toHaveBeenCalled();
   });
 
-  it("rejects an expired code and an unknown code", async () => {
-    promoList.mockResolvedValue({ data: [promo("pro", { active: false, expires_at: 1 })] });
-    let res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "OLD" }));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ reason: "expired" });
-
-    promoList.mockResolvedValue({ data: [] });
-    res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "NOPE" }));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ reason: "invalid" });
-    expect(sessionsCreate).not.toHaveBeenCalled();
-  });
-
-  it("returns a clear 400 when Stripe refuses the code for a returning customer", async () => {
-    promoList.mockResolvedValue({ data: [promo("pro")] });
-    sessionsCreate.mockRejectedValue(
-      Object.assign(new Error("prior transactions"), {
-        type: "StripeInvalidRequestError",
-        code: "promotion_code_customer_not_first_time",
-      }),
-    );
-    const res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "LAUNCH" }));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      reason: "not_eligible",
-      error: "This promo code is only valid for new customers.",
-    });
-  });
-
-  it("still reports a real Stripe failure as a 500", async () => {
-    sessionsCreate.mockRejectedValue(Object.assign(new Error("down"), { code: "api_error" }));
+  it("returns 500 when Stripe fails", async () => {
+    sessionsCreate.mockRejectedValue(new Error("boom"));
     const res = await POST(req({ workspaceId: "ws-1", plan: "pro" }));
     expect(res.status).toBe(500);
-  });
-
-  it("treats a blank code as no code", async () => {
-    const res = await POST(req({ workspaceId: "ws-1", plan: "pro", promoCode: "  " }));
-    expect(res.status).toBe(200);
-    expect(promoList).not.toHaveBeenCalled();
-    expect(sessionsCreate.mock.calls[0][0].discounts).toBeUndefined();
   });
 });
