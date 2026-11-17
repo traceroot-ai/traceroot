@@ -12,6 +12,7 @@
 
 import 'dotenv/config';
 // [start:tracing-get-started-typescript]
+// import 'dotenv/config'; // Uncomment if using a .env file (requires: npm install dotenv)
 import OpenAI from 'openai';
 import { TraceRoot } from '@traceroot-ai/traceroot';
 
@@ -21,6 +22,14 @@ TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 const openai = new OpenAI();
 // [end:tracing-get-started-typescript]
 import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+
+// [start:typescript-sdk-observe]
+import { observe } from '@traceroot-ai/traceroot';
+
+const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
+  return 'your result here';
+});
+// [end:typescript-sdk-observe]
 
 console.log('[Observability: TraceRoot]');
 

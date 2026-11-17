@@ -28,6 +28,7 @@ import {
   isAggregationValidForMeasure,
   isMeasureValidForView,
   MAX_ALERTS_PER_PROJECT,
+  thresholdProblemForMeasure,
   toAlertFilters,
   type AlertCreateInput,
   type AlertUpdateInput,
@@ -57,9 +58,9 @@ export type ValidatedAlertRule = Omit<AlertCreateInput, "filters"> & { filters: 
  * The one validator for an alert create, shared by the cookie route and the
  * internal write route so the two surfaces cannot drift: the zod shape, then
  * the cross-field checks (measure per view, aggregation evaluable for the
- * measure and filters). Filters come back canonicalized — the scheduler's
- * dedup key is a fingerprint over the stored JSON, so they must be stored
- * in this form.
+ * measure and filters, a threshold the measure can cross). Filters come back
+ * canonicalized — the scheduler's dedup key is a fingerprint over the stored
+ * JSON, so they must be stored in this form.
  */
 export function validateAlertCreate(
   body: unknown,
@@ -75,6 +76,13 @@ export function validateAlertCreate(
   if (!isAggregationValidForMeasure(rule.view, rule.measure, rule.aggregation, filters)) {
     return { ok: false, error: "Invalid aggregation for measure" };
   }
+  const thresholdProblem = thresholdProblemForMeasure(
+    rule.view,
+    rule.measure,
+    rule.thresholdOperator,
+    rule.threshold,
+  );
+  if (thresholdProblem !== null) return { ok: false, error: thresholdProblem };
   return { ok: true, rule: { ...rule, filters } };
 }
 
@@ -366,6 +374,29 @@ export async function updateAlert(input: {
       name: existing.name,
       renotify: existing.renotify,
     });
+
+    // Merged the same way: a threshold-only edit is judged against the stored
+    // measure. Only a value that differs from the stored one counts, because
+    // the form sends the whole rule on every save: an edit that changes none
+    // of these four fields leaves the stored condition alone, so renaming a
+    // rule saved before this check still goes through.
+    const rewritesCondition =
+      edit.view !== undefined ||
+      edit.measure !== undefined ||
+      edit.thresholdOperator !== undefined ||
+      edit.threshold !== undefined;
+    if (rewritesCondition) {
+      const thresholdProblem = thresholdProblemForMeasure(
+        view,
+        measure,
+        patch.thresholdOperator ?? snapshot.thresholdOperator,
+        patch.threshold ?? snapshot.threshold,
+      );
+      if (thresholdProblem !== null) {
+        return { result: { ok: false, status: 400, error: thresholdProblem } };
+      }
+    }
+
     if (changed.length === 0) {
       return {
         result: {

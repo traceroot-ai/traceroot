@@ -98,8 +98,18 @@ def test_integrations_overview_parity() -> None:
     picker_integrations = set(re.findall(r'id:\s*"([a-zA-Z0-9-]+)"', picker_content))
 
     missing_in_docs = picker_integrations - docs_integrations
+    # Tools and coding agents documented in overview.mdx:
+    tools_and_agents_docs = {
+        "claude-code",
+        "codex",
+        "pi-cli",
+        "exa",
+        "predictleads",
+        "tavily",
+        "tinyfish",
+    }
     # typesafe is documented in docs before in-app picker card onboarding:
-    extra_in_docs = (docs_integrations - picker_integrations) - {"typesafe"}
+    extra_in_docs = (docs_integrations - picker_integrations) - {"typesafe"} - tools_and_agents_docs
 
     assert not missing_in_docs, (
         f"Integrations in in-app picker missing from docs/integrations/overview.mdx: {sorted(missing_in_docs)}"
@@ -136,7 +146,7 @@ def test_integrations_overview_parity() -> None:
         "pi",
         "typesafe",
         "vercel-ai",
-    }
+    } | tools_and_agents_docs
     unexpected_docs_non_py = (docs_integrations - py_mapped) - non_py_docs
     assert not unexpected_docs_non_py, (
         f"Docs integrations not present in Python Integration enum or allowed non-Python set: {sorted(unexpected_docs_non_py)}"
@@ -159,7 +169,7 @@ def test_integrations_overview_parity() -> None:
         )
 
     # Bidirectional: Docs pages that no SDK README lists
-    known_non_sdk_docs = {"langchain-deepagents", "openrouter", "typesafe"}
+    known_non_sdk_docs = {"langchain-deepagents", "openrouter", "typesafe"} | tools_and_agents_docs
     docs_missing_from_sdk = (docs_integrations - all_sdk_slugs) - known_non_sdk_docs
     assert not docs_missing_from_sdk, (
         f"Docs integrations missing from all SDK READMEs and not in known non-SDK set: {sorted(docs_missing_from_sdk)}"

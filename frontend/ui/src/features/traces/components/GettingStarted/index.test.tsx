@@ -71,7 +71,7 @@ describe("the empty traces page", () => {
 });
 
 describe("the manual tab", () => {
-  it("picks the stack itself, as step 3, below the switch", () => {
+  it("picks the stack itself, as step 4, below the switch", () => {
     render(<GettingStarted projectId="proj_1" />);
     pickMode("Manual");
 
@@ -81,14 +81,15 @@ describe("the manual tab", () => {
     expect(steps).toEqual([
       "Create an API key",
       "Install SDK",
+      "Set environment variables",
       "Select your integration",
-      "Initialize TraceRoot for OpenAI",
-      "External integrations",
+      "Initialize traceroot for OpenAI",
+      "Run your application",
     ]);
     expect(
       isAbove(
         screen.getByRole("button", { name: "Manual" }),
-        screen.getByRole("radiogroup", { name: "Model Providers" }),
+        screen.getByRole("radiogroup", { name: "Integration" }),
       ),
     ).toBe(true);
   });
@@ -98,7 +99,7 @@ describe("the manual tab", () => {
     pickMode("Manual");
     pickStack("CrewAI");
 
-    expect(screen.getByText("4. Initialize TraceRoot for CrewAI")).toBeTruthy();
+    expect(screen.getByText("5. Initialize traceroot for CrewAI")).toBeTruthy();
     // The snippet's body, not its heading: the heading would still read "for
     // CrewAI" over OpenAI's code.
     expect(container.textContent).toContain("Integration.CREWAI");
@@ -130,7 +131,7 @@ describe("a workspace that cannot be read", () => {
     expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
     expect(screen.queryByTestId("github-connect")).toBeNull();
     // The stack picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Model Providers" })).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeTruthy();
   });
 
   it("holds the integrations behind a placeholder while the project loads", () => {

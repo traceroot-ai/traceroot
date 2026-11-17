@@ -23,7 +23,7 @@ export function AlertChannelsEditor({ emailAddresses, onChange }: AlertChannelsE
             value={addr}
             onChange={(e) => update(i, e.target.value)}
             placeholder="you@example.com"
-            className="h-7 flex-1 text-[12px]"
+            className="h-8 flex-1 text-[13px]"
           />
           <button
             type="button"

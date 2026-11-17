@@ -242,7 +242,7 @@ function mountDetail() {
 
 /**
  * Opens the slide-in panel for a case by clicking its Input cell. "Copy ID" is
- * the panel's unique anchor ("Row" also labels the add-row button).
+ * the panel's unique anchor ("Add row" also labels the add-row button).
  */
 async function openCase(text: string | RegExp) {
   fireEvent.click((await screen.findAllByText(text))[0]);
@@ -291,7 +291,7 @@ describe("Dataset detail — versions", () => {
     // The older snapshot's content loads (no read-only banner — that was removed).
     expect(await screen.findByText("seeded ticket")).toBeDefined();
     // Editing branches from the current version, so adding a row is disabled here.
-    expect(screen.getByRole("button", { name: /Row/ }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: /Add row/ }).hasAttribute("disabled")).toBe(true);
     // The request carried the requested snapshot.
     expect(requests.some((r) => r.url.includes("version_id=dv1"))).toBe(true);
   });
@@ -333,9 +333,9 @@ describe("Dataset detail — filtering and adding rows", () => {
   it("Row opens the editor and POSTs the authored row", async () => {
     mountDetail();
     await screen.findByText(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: "Row" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     // Opens the editor rather than inserting a blank row.
-    expect(await screen.findByText("New Row")).toBeDefined();
+    expect(await screen.findByText("New row")).toBeDefined();
     // Create mode is gated until an input is typed.
     const save = screen.getByRole("button", { name: "Save" });
     expect(save.hasAttribute("disabled")).toBe(true);
@@ -355,7 +355,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
     fireEvent.click(await screen.findByText("Edit"));
     // Seeded from the row.
-    expect(await screen.findByText("Edit Row")).toBeDefined();
+    expect(await screen.findByText("Edit row")).toBeDefined();
     const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
     expect(input.value).toContain("charged twice");
     fireEvent.change(input, { target: { value: "edited question" } });
@@ -371,7 +371,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     await screen.findByText(/charged twice/);
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
     fireEvent.click(await screen.findByText("Edit"));
-    expect(await screen.findByText("Edit Row")).toBeDefined();
+    expect(await screen.findByText("Edit row")).toBeDefined();
     const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
     const save = screen.getByRole("button", { name: "Save" });
     expect(save.hasAttribute("disabled")).toBe(true);
@@ -408,7 +408,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     await screen.findByText(/hello/);
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
     fireEvent.click(await screen.findByText("Edit"));
-    expect(await screen.findByText("Edit Row")).toBeDefined();
+    expect(await screen.findByText("Edit row")).toBeDefined();
     const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
     const save = screen.getByRole("button", { name: "Save" });
     expect(save.hasAttribute("disabled")).toBe(true);
@@ -429,7 +429,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     // Row 2 is the fixture case that carries metadata.
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[1]);
     fireEvent.click(await screen.findByText("Edit"));
-    expect(await screen.findByText("Edit Row")).toBeDefined();
+    expect(await screen.findByText("Edit row")).toBeDefined();
     const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
     expect(metadata.value).toContain("channel");
     const save = screen.getByRole("button", { name: "Save" });
@@ -476,7 +476,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     await screen.findByText(/canonicalizer rejects/);
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
     fireEvent.click(await screen.findByText("Edit"));
-    expect(await screen.findByText("Edit Row")).toBeDefined();
+    expect(await screen.findByText("Edit row")).toBeDefined();
     const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
     expect(metadata.value).toContain("\\ud800");
 
@@ -503,7 +503,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     // Row 2 is the fixture case that carries metadata.
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[1]);
     fireEvent.click(await screen.findByText("Edit"));
-    expect(await screen.findByText("Edit Row")).toBeDefined();
+    expect(await screen.findByText("Edit row")).toBeDefined();
     const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
     const save = screen.getByRole("button", { name: "Save" });
 
@@ -724,7 +724,7 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
     await screen.findByText(/charged twice/);
 
     // The add publishes dv3 and un-pins the selection on its own (`onSaved`)...
-    fireEvent.click(screen.getByRole("button", { name: "Row" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     fireEvent.change(await screen.findByLabelText("Input"), {
       target: { value: "a new question" },
     });
@@ -804,7 +804,7 @@ describe("Dataset detail — the slide-in case panel", () => {
     fireEvent.click(screen.getByText("Billing routing nightly"));
     expect(mockPush).toHaveBeenCalledWith("/projects/p1/evaluations/run1");
     // Back to the Row tab — the read-only view shows the Input section. Scoped to
-    // the dialog since "Row" also names the toolbar's "+ Row" button.
+    // the dialog since "Add row" also names the toolbar's "+ Row" button.
     fireEvent.click(within(dialog).getByRole("button", { name: "Row" }));
     expect(await within(dialog).findByText("Input")).toBeDefined();
   });

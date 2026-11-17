@@ -90,9 +90,17 @@
   },
   "source_repository": "traceroot-ai/traceroot-cli",
   "source_path": "src/registry/naming.ts",
-  "source_commit": "85e9d6520ea9870e5ea31262906fbdce4efefb30",
+  "source_commit": "75ae2c96efb48f39ce714304b2a18295e96a5ccf",
   "handwritten_note": "Hand-maintained against the CLI's --help output at source_commit.",
   "handwritten": [
+    {
+      "command": "setup",
+      "description": "Connect this repository to traceroot and see your first trace. See [Tracing](/tracing/get-started)."
+    },
+    {
+      "command": "setup doctor",
+      "description": "Diagnose a setup that did not complete. Flag: `--service <path>`."
+    },
     {
       "command": "login",
       "description": "Sign in with the browser (device flow), or persist an explicit --api-key."

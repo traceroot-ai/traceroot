@@ -48,8 +48,8 @@ const TONE_ICON: Record<ToastTone, React.ComponentType<{ className?: string }>> 
 
 const TONE_GLYPH: Record<ToastTone, string> = {
   default: "text-muted-foreground",
-  success: "text-emerald-600 dark:text-emerald-400",
-  warning: "text-amber-600 dark:text-amber-400",
+  success: "text-success ",
+  warning: "text-warning ",
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -103,13 +103,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               key={item.id}
               role="status"
               aria-live="polite"
-              className="pointer-events-auto flex items-start gap-2 rounded-md border border-border bg-popover px-3 py-2 shadow-md"
+              className="pointer-events-auto flex items-start gap-2 rounded-md border border-border bg-popover px-3 py-2 shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
             >
               <Icon className={cn("mt-px h-3.5 w-3.5 shrink-0", TONE_GLYPH[tone])} />
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] font-medium text-foreground">{item.title}</p>
                 {item.description && (
-                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">
                     {item.description}
                   </p>
                 )}

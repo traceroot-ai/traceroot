@@ -1,3 +1,4 @@
+import { AUTH } from "./internal-auth-support.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decisionsRoute } from "../decisions-route.js";
 import { pendingDecisions, userSkipReason } from "../pending-decisions.js";
@@ -25,7 +26,7 @@ function park(sessionId: string, toolName = "create_detector") {
 function post(sessionId: string, body: unknown) {
   return decisionsRoute.request(`/api/v1/projects/p1/sessions/${sessionId}/decisions`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-user-id": "u1" },
+    headers: { ...AUTH, "content-type": "application/json", "x-user-id": "u1" },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }

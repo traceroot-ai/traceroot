@@ -90,4 +90,15 @@ describe("POST model-providers", () => {
     const { create } = modelProviderUpsertMock.mock.calls[0][0];
     expect(create).toMatchObject({ adapter: "typesafe", keyCipher: "enc(ts-key)" });
   });
+
+  it.each(["   ", "\u00a0"])("rejects a blank API key (%j) without saving it", async (blank) => {
+    const res = await POST(
+      makeRequest({ adapter: "anthropic", provider: "Claude", apiKey: blank }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "API key is required" });
+    expect(modelProviderUpsertMock).not.toHaveBeenCalled();
+  });
 });

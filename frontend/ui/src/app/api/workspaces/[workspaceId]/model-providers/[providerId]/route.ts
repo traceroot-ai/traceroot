@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -21,7 +22,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
   try {
     await fetch(`${AGENT_SERVICE_URL}/api/v1/cache/invalidate-provider`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...agentRequestHeaders({ system: true }) },
       body: JSON.stringify({ workspaceId, providerName }),
     });
   } catch {
@@ -31,7 +32,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
 
 const updateSchema = z.object({
   provider: z.string().min(1).max(100).optional(), // rename label
-  apiKey: z.string().min(1).optional(),
+  apiKey: z.string().trim().min(1, "API key is required").optional(),
   baseUrl: z.string().url().nullable().optional(),
   customModels: z.array(z.string().min(1)).optional(),
   withDefaultModels: z.boolean().optional(),

@@ -160,6 +160,16 @@ def main() -> int:
             "tracing-get-started-python",
             "tracing-get-started-typescript",
         ],
+        DOCS_DIR / "tracing" / "cost-tracking.mdx": [
+            "tracing-cost-tracking-python",
+            "tracing-cost-tracking-typescript",
+        ],
+        DOCS_DIR / "tracing" / "python-sdk.mdx": [
+            "python-sdk-observe",
+        ],
+        DOCS_DIR / "tracing" / "typescript-sdk.mdx": [
+            "typescript-sdk-observe",
+        ],
     }
 
     for doc_target, expected_ids in expected_page_snippets.items():
