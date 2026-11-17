@@ -151,7 +151,7 @@ def effective_value(text: str, key: str) -> str:
     """The value Docker Compose resolves for ``key`` in .env text (empty when unset)."""
     with tempfile.TemporaryDirectory() as scratch:
         path = Path(scratch) / ".env"
-        path.write_text(text)
+        _write_private(path, text)
         return _env_value("get", key, str(path))
 
 
@@ -164,10 +164,12 @@ def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
     """
     with tempfile.TemporaryDirectory() as scratch:
         path = Path(scratch) / ".env"
-        path.write_text(text)
+        _write_private(path, text)
         for key in keys:
             if _needs_value(key, _env_value("get", key, str(path))):
-                path.write_text(_env_value("set", key, str(path), new_value=secrets.token_hex(32)))
+                _write_private(
+                    path, _env_value("set", key, str(path), new_value=secrets.token_hex(32))
+                )
         return path.read_text()
 
 

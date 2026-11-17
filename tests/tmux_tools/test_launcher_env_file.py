@@ -180,3 +180,21 @@ def test_the_launcher_and_the_shell_wrapper_exclude_each_other(tmp_path, monkeyp
     (lock / "pid").write_text("1\n")
     with pytest.raises(SystemExit), launcher.key_lock():
         pass
+
+
+def test_the_scratch_copy_used_to_read_env_is_private(monkeypatch):
+    """fill_secrets reads a copy of .env through docker compose; that copy is for its owner only."""
+    from tmux_tools import launcher
+
+    modes: list[int] = []
+
+    def record(*args, new_value=None):
+        modes.append(stat.S_IMODE(os.stat(args[2]).st_mode))
+        return "x" if args[0] == "get" else "A=1\n"
+
+    monkeypatch.setattr(launcher, "_env_value", record)
+
+    launcher.fill_secrets("A=\n", ("A",))
+    launcher.effective_value("A=1\n", "A")
+
+    assert modes and set(modes) == {0o600}
