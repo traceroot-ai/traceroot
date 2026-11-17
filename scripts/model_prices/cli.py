@@ -71,7 +71,9 @@ flag: a row removed or moved to another provider; a rate changed with no flag on
 rate of that row, or of a model it prices, fixed or added; a matchPattern changed that
 matches no ID a finding fixed or added is about, no dash spelling or host ID priced
 another way, and no row the edit adds. A row problem fixed or added explains its row's
-rates and pattern. --track leaves these out, as an open PR is judged by its findings.
+rates and pattern. A row named after a [1m] or host ID is checked only through that ID,
+so its own finding, or a host rate on that field, fixed or added explains its rates.
+--track leaves these out, as an open PR is judged by its findings.
 Pass the same saved --litellm and --modelsdev files to both runs, so only the price
 file differs between them. For the same reason, the second run judges which models are
 retired as of the baseline report's date, and reports that date.
@@ -81,9 +83,10 @@ catalog could not be loaded, a file's format changed, fewer than --min-compared 
 be compared, the reviewed rates file is malformed, the --baseline report could not be read
 or was made from other catalogs or reviewed rates, or the Slack post failed. A failed run
 posts a failure alert when it can, never an all-clear. 2 for a usage error only. 3 with
---baseline when the price file adds a finding the baseline report does not have, even when
---track could not read GitHub. 4 when the report was produced but --track could not read
-GitHub, so no finding names its open PRs; every output is still written and posted.
+--baseline when the price file adds a finding the baseline report does not have, or has a
+row change no finding explains, even when --track could not read GitHub. 4 when the report
+was produced but --track could not read GitHub, so no finding names its open PRs; every
+output is still written and posted.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
@@ -109,7 +112,7 @@ from .catalogs import (
     validate_rows,
 )
 from .checks import MIN_COMPARED, build_report
-from .findings import changes, describe_all, load_baseline, unexplained
+from .findings import baseline_changes, describe_all, load_baseline
 from .page import build_html
 from .slack import build_payload, failure_payload, post_to_slack
 from .text import format_failure, format_report
@@ -158,7 +161,8 @@ def main(argv: list[str]) -> int:
         type=Path,
         metavar="REPORT",
         help="list what this price file fixes and adds compared with a report saved by "
-        "--json; exit 3 if it adds anything, as even a correct new row does when a catalog "
+        "--json, with each row change no finding explains; exit 3 if it adds a finding or "
+        "has such a row change, as even a correct new row adds a finding when a catalog "
         "bills its model more above a prompt size (a long-context add)",
     )
     parser.add_argument(
@@ -208,9 +212,7 @@ def main(argv: list[str]) -> int:
                     "the catalogs or reviewed rates differ from the baseline report's: pass "
                     "the same saved --litellm, --modelsdev and --reviewed files to both runs"
                 )
-            fixes, adds = changes(baseline, report)
-            # Only here, not for --track. A removed row with a finding is listed once.
-            adds += [line for line in unexplained(baseline, report) if line not in adds]
+            fixes, adds = baseline_changes(baseline, report)
             report["baseline"] = {"fixes": describe_all(fixes), "adds": adds}
         if args.track:
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -244,8 +246,8 @@ def main(argv: list[str]) -> int:
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
         text = format_report(report, more_in)
         payload = build_payload(report, args.report_url, more_in)
-        # With --baseline, a finding the edit adds fails the check, even when --track
-        # could not read GitHub.
+        # With --baseline, a finding the edit adds, or a row change no finding explains,
+        # fails the check, even when --track could not read GitHub.
         if report.get("baseline", {}).get("adds"):
             status = 3
         elif args.track and report["tracking"] != "ok":

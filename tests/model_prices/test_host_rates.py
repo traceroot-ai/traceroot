@@ -68,6 +68,29 @@ def test_a_host_id_another_row_takes_over_at_the_same_rates_is_not_added():
     assert compare(before, after, litellm, md_catalog()) == {"fixes": [], "adds": []}
 
 
+def test_a_pattern_narrowed_to_hand_a_host_id_to_its_own_row_is_explained():
+    # The broad row prices the Bedrock ID at its own model's rates, so no finding shows
+    # it. Narrowed, the ID goes to its own row at the same rates: only its host rates
+    # entry shows that the narrowed pattern moved it.
+    litellm = {
+        "claude-s-4": ll_entry("anthropic", input_=3e-6, output=1.5e-5),
+        "claude-s-4-6": ll_entry("anthropic", input_=3e-6, output=1.5e-5),
+        "us.anthropic.claude-s-4-6": ll_entry("bedrock_converse", input_=3.3e-6, output=1.65e-5),
+    }
+    broad = r"(?i)^((us\.)?anthropic\.)?claude-s-4(-[\d-]+)?$"
+    own = row(
+        "claude-s-4-6",
+        "anthropic",
+        input_=3e-6,
+        output=1.5e-5,
+        pattern=r"(?i)^((us\.)?anthropic\.)?claude-s-4-6$",
+    )
+    before = [row("claude-s-4", "anthropic", input_=3e-6, output=1.5e-5, pattern=broad), own]
+    after = [row("claude-s-4", "anthropic", input_=3e-6, output=1.5e-5), own]
+
+    assert compare(before, after, litellm, md_catalog()) == {"fixes": [], "adds": []}
+
+
 def test_a_new_row_that_prices_host_ids_below_the_hosts_rates_is_added():
     # A row for a model no row priced, whose pattern also takes Bedrock's regional and
     # GovCloud profiles, prices them at the model's own rates.
@@ -187,19 +210,10 @@ def test_a_rate_change_on_a_row_no_catalog_compares_is_checked_against_the_host(
         "but the host lists input 2.40 (ours 2.00) and output 12.00 (ours 0.00)"
     )
 
-    changed = "us-gov.anthropic.claude-k-6 {} rate changed with no finding to fix (ours {})"
-    for edit, adds in ((zeroed, [add]), (fixed, [])):
-        [pr] = _track_one_pr(before, litellm, edit)["pull_requests"]
-        assert (pr["fixes"], pr["adds"]) == ([], adds)
-    # No finding shows the host's rates, so --baseline also lists the rate change itself.
-    assert compare(before, zeroed, litellm, md_catalog()) == {
-        "fixes": [],
-        "adds": [add, changed.format("output", "12.00 → 0.00")],
-    }
-    assert compare(before, fixed, litellm, md_catalog()) == {
-        "fixes": [],
-        "adds": [changed.format("input", "2.00 → 2.40")],
-    }
+    assert compare(before, zeroed, litellm, md_catalog()) == {"fixes": [], "adds": [add]}
+    assert compare(before, fixed, litellm, md_catalog()) == {"fixes": [], "adds": []}
+    [pr] = _track_one_pr(before, litellm, zeroed)["pull_requests"]
+    assert (pr["fixes"], pr["adds"]) == ([], [add])
 
     # A row a catalog compares shows the change in its own flags, so its host IDs are
     # not listed again.

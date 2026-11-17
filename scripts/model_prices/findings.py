@@ -153,18 +153,20 @@ def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
     return fixes, adds
 
 
-def unexplained(report: dict, after: dict) -> list[str]:
+def _unexplained(report: dict, after: dict) -> list[str]:
     """Each change to a row of report that no finding the after report fixes or adds
     explains, in a few words. A row removed or moved to another provider is never
     explained. A rate change is explained by a flag on that rate found through the row,
-    for its own model or one it prices through its pattern. A matchPattern change is
-    explained when the old or new pattern matches an ID that moved: one a finding fixed or
-    added is about, a dash spelling or host ID priced another way, or a row the edit adds.
-    A row problem fixed or added explains its row's rates and pattern. Rows the edit adds
-    are judged by their findings alone. No catalog compares about a quarter of the rows,
-    and a rate changed inside the tolerance shows no flag, so without this an edit to
-    either would pass unseen. Only --baseline lists these: --track judges an open PR by
-    its findings."""
+    for its own model or one it prices through its pattern, fixed or added. A row named
+    after a [1m] or host ID that no catalog lists under it is checked only through that
+    ID, so a change to it is explained when that ID's own finding, or a host rate on that
+    field, is fixed or added. A matchPattern change is explained when the old or new
+    pattern matches an ID that moved: one a finding fixed or added is about, a dash
+    spelling or host ID priced another way, or a row the edit adds. A row problem fixed
+    or added explains its row's rates and pattern. Rows the edit adds are judged by their
+    findings alone. No catalog compares about a quarter of the rows, and a rate changed
+    inside the tolerance shows no flag, so without this an edit to either would pass
+    unseen."""
     old_keys, new_keys = finding_keys(report), finding_keys(after)
     changed = {
         key: item
@@ -174,6 +176,24 @@ def unexplained(report: dict, after: dict) -> list[str]:
     flags = {
         (_found_through(key, item), key[2]) for key, item in changed.items() if key[0] == "rate"
     }
+    flags |= {
+        (key[1], field)
+        for key in changed
+        if key[0] == "id" and key[1] == key[2]
+        for field in FIELDS
+    }
+    # By ID and field, without our rate: a host rate still wrong, or right both times,
+    # explains nothing.
+    old_named, new_named = (
+        {
+            (model_id, rate["field"])
+            for model_id, entry in found["host_rates"].items()
+            if entry["row"] == model_id
+            for rate in entry["rates"]
+        }
+        for found in (report, after)
+    )
+    flags |= old_named ^ new_named
     whole = {key[1] for key in changed if key[0] == "row"}
     moved = {item["model"] for key, item in changed.items() if key[0] != "row"}
     for name in ("dash_spellings", "host_rates"):
@@ -184,6 +204,9 @@ def unexplained(report: dict, after: dict) -> list[str]:
             if was.get(model_id) != now.get(model_id)
         }
     moved |= after["rows"].keys() - report["rows"].keys()
+    # The worker prices a row's own name with that row, whatever the patterns, so a name
+    # both files list cannot have moved.
+    moved -= report["rows"].keys() & after["rows"].keys()
     lines = []
     for name, old in report["rows"].items():
         new = after["rows"].get(name)
@@ -206,6 +229,15 @@ def unexplained(report: dict, after: dict) -> list[str]:
         ):
             lines.append(f"{name} matchPattern changed with no finding to fix")
     return lines
+
+
+def baseline_changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
+    """What --baseline lists for an edit from report to after: what changes finds, and
+    each row change no finding explains (see _unexplained). A removed row with a finding
+    is listed once. --track lists only what changes finds, as an open PR is judged by its
+    findings."""
+    fixes, adds = changes(report, after)
+    return fixes, adds + [line for line in _unexplained(report, after) if line not in adds]
 
 
 def load_baseline(path: Path) -> dict:

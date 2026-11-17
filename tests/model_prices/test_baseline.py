@@ -113,7 +113,7 @@ def test_an_edit_that_stops_comparing_a_flagged_row_is_added():
         "claude-f": ll_entry("anthropic"),
     }
     before = [row("deepseek-d", "deepseek", output=1e-6), row("claude-f", "anthropic")]
-    after = [row("deepseek-d", "typesafe", output=1e-6), before[1]]
+    after = [{**before[0], "provider": "typesafe"}, before[1]]
 
     assert compare(before, after, litellm, md_catalog()) == {
         "fixes": [],
@@ -216,20 +216,29 @@ def test_baseline_exit_codes(run, tmp_path):
 
 # gpt-b's input rate is flagged, no catalog lists gpt-old, and gpt-big's input rate is a
 # per-million price. claude-f's pattern prices claude-f-2 at claude-f's rates and misses
-# the Bedrock ID us.anthropic.claude-f.
+# the Bedrock ID us.anthropic.claude-f. Only the host's rates check the GovCloud row: its
+# input is below the host's and its output matches. The [1m] row prices its ID for free.
 ROW_EDIT_LITELLM = {
     "gpt-a": ll_entry("openai"),
     "gpt-b": ll_entry("openai", input_=2e-6),
     "claude-f": ll_entry("anthropic"),
     "claude-f-2": ll_entry("anthropic", input_=8e-6),
     "us.anthropic.claude-f": ll_entry("bedrock"),
+    "claude-k-6": ll_entry("anthropic", input_=2e-6, output=1e-5),
+    "us-gov.anthropic.claude-k-6": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
+    "claude-l": ll_entry("anthropic", max_input_tokens=1_000_000),
 }
+ONE_M = r"(?i)^claude-l\[1m\]$"
 ROW_EDIT_BEFORE = [
     row("gpt-a", "openai"),
     row("gpt-b", "openai"),
     row("gpt-old", "openai"),
     row("gpt-big", "openai", input_=2e-3),
     row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
+    row("claude-k-6", "anthropic", input_=2e-6, output=1e-5),
+    row("us-gov.anthropic.claude-k-6", "anthropic", input_=2e-6, output=1.2e-5),
+    row("claude-l", "anthropic"),
+    row("claude-l[1m]", "anthropic", input_=0, output=0, cache_read=0, pattern=ONE_M),
 ]
 
 
@@ -257,55 +266,86 @@ def _run_row_edit(run, tmp_path, edit):
     )
 
 
+def _gov(input_, output):
+    return row("us-gov.anthropic.claude-k-6", "anthropic", input_=input_, output=output)
+
+
 @pytest.mark.parametrize(
-    ("edit", "fixes", "add"),
+    ("edit", "fixes", "adds"),
     [
         (
             {"gpt-old": row("gpt-old", "openai", input_=1e-4)},
             [],
-            "gpt-old input rate changed with no finding to fix (ours 1.00 → 100.00)",
+            ["gpt-old input rate changed with no finding to fix (ours 1.00 → 100.00)"],
         ),
         (
             {"gpt-a": row("gpt-a", "openai", input_=1.029e-6)},
             [],
-            "gpt-a input rate changed with no finding to fix (ours 1.00 → 1.029)",
+            ["gpt-a input rate changed with no finding to fix (ours 1.00 → 1.029)"],
         ),
         (
             {"gpt-b": row("gpt-b", "openai", input_=2e-6, output=2.05e-6)},
             ["gpt-b input rate (ours 1.00)"],
-            "gpt-b output rate changed with no finding to fix (ours 2.00 → 2.05)",
+            ["gpt-b output rate changed with no finding to fix (ours 2.00 → 2.05)"],
         ),
-        ({"gpt-old": None}, [], "gpt-old row removed"),
+        (
+            {"gpt-b": row("gpt-b", "openai", input_=2e-6, pattern=r"(?i)gpt-b")},
+            ["gpt-b input rate (ours 1.00)"],
+            ["gpt-b matchPattern changed with no finding to fix"],
+        ),
+        ({"gpt-old": None}, [], ["gpt-old row removed"]),
         (
             {"gpt-old": {**row("gpt-old", "openai"), "provider": "xai"}},
             [],
-            "gpt-old provider changed",
+            ["gpt-old provider changed"],
         ),
         (
             {"gpt-a": row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a(-\d{4})?$")},
             [],
-            "gpt-a matchPattern changed with no finding to fix",
+            ["gpt-a matchPattern changed with no finding to fix"],
+        ),
+        (
+            {"us-gov.anthropic.claude-k-6": _gov(2.058e-6, 1.2e-5)},
+            [],
+            [
+                "us-gov.anthropic.claude-k-6 priced at us-gov.anthropic.claude-k-6's rates, "
+                "but the host lists input 2.40 (ours 2.058)",
+                "us-gov.anthropic.claude-k-6 input rate changed with no finding to fix "
+                "(ours 2.00 → 2.058)",
+            ],
+        ),
+        (
+            {"us-gov.anthropic.claude-k-6": _gov(2e-6, 1.2348e-5)},
+            [],
+            [
+                "us-gov.anthropic.claude-k-6 output rate changed with no finding to fix "
+                "(ours 12.00 → 12.35)"
+            ],
         ),
     ],
     ids=[
         "uncompared-rate",
         "inside-tolerance",
         "fix-and-another-field",
+        "fix-and-pattern",
         "row-removed",
         "provider",
         "pattern-moves-nothing",
+        "host-id-row-still-wrong",
+        "host-id-row-was-right",
     ],
 )
-def test_baseline_adds_a_row_change_no_finding_explains(run, tmp_path, edit, fixes, add):
+def test_baseline_adds_a_row_change_no_finding_explains(run, tmp_path, edit, fixes, adds):
     # No catalog compares a quarter of the rows, and a rate changed inside the tolerance
-    # shows no flag, so only the baseline report's rows show these. --track judges an
-    # open PR by its findings alone, so it lists none of them.
+    # shows no flag, so only the baseline report's rows show these.
     code, _, report = _run_row_edit(run, tmp_path, edit)
 
     assert code == 3
-    assert report["baseline"] == {"fixes": fixes, "adds": [add]}
+    assert report["baseline"] == {"fixes": fixes, "adds": adds}
+    # --track judges an open PR by its findings alone, so it leaves out the row change,
+    # listed last.
     [pr] = _track_one_pr(ROW_EDIT_BEFORE, ROW_EDIT_LITELLM, _edited(edit))["pull_requests"]
-    assert pr["adds"] == []
+    assert pr["adds"] == adds[:-1]
 
 
 @pytest.mark.parametrize(
@@ -338,6 +378,11 @@ def test_baseline_adds_a_row_change_no_finding_explains(run, tmp_path, edit, fix
             {"gpt-big": row("gpt-big", "openai", input_=2e-6)},
             ["gpt-big: input rate is outside $0-$1,000 per 1M tokens"],
         ),
+        ({"us-gov.anthropic.claude-k-6": _gov(2.4e-6, 1.2e-5)}, []),
+        (
+            {"claude-l[1m]": row("claude-l[1m]", "anthropic", pattern=ONE_M)},
+            ["claude-l[1m] priced as claude-l[1m]"],
+        ),
     ],
     ids=[
         "flagged-rate",
@@ -345,13 +390,29 @@ def test_baseline_adds_a_row_change_no_finding_explains(run, tmp_path, edit, fix
         "new-row-and-narrowed-row",
         "row-split-off",
         "row-problem",
+        "host-id-row",
+        "1m-row",
     ],
 )
 def test_baseline_passes_a_row_change_a_finding_explains(run, tmp_path, edit, fixes):
+    # A row named after a host ID or a [1m] ID is checked only through that ID: by the
+    # host's rates, or by the rates of the model the ID belongs to.
     code, _, report = _run_row_edit(run, tmp_path, edit)
 
     assert code == 0
     assert report["baseline"] == {"fixes": fixes, "adds": []}
+
+
+def test_baseline_compares_a_name_listed_twice_by_its_first_row():
+    # The worker prices a name listed twice with its first row.
+    litellm = {"gpt-a": ll_entry("openai")}
+    before = [row("gpt-a", "openai"), row("gpt-old", "openai"), row("gpt-old", "openai")]
+    after = [before[0], row("gpt-old", "openai", input_=1e-4), before[2]]
+
+    assert compare(before, after, litellm, md_catalog()) == {
+        "fixes": [],
+        "adds": ["gpt-old input rate changed with no finding to fix (ours 1.00 → 100.00)"],
+    }
 
 
 @pytest.mark.parametrize(

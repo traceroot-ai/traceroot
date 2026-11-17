@@ -441,6 +441,18 @@ def build_report(
             kept.append(flag)
         else:
             left_as_is.append({**flag, "reason": entry["reason"], "pr": entry["pr"]})
+    # Each row as it was checked, so --baseline can list a change no finding shows. A
+    # name listed twice is the first row with it, the one the worker prices it with.
+    checked: dict[str, dict] = {}
+    for row in rows:
+        checked.setdefault(
+            row["modelName"],
+            {
+                "provider": row["provider"],
+                "matchPattern": row["matchPattern"],
+                "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
+            },
+        )
     return {
         "date": date,
         "status": "ok",
@@ -458,13 +470,5 @@ def build_report(
         "compared_rows": compared,
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
-        # Each row as it was checked, so --baseline can list a change no finding shows.
-        "rows": {
-            row["modelName"]: {
-                "provider": row["provider"],
-                "matchPattern": row["matchPattern"],
-                "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
-            }
-            for row in rows
-        },
+        "rows": checked,
     }
