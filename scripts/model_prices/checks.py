@@ -313,7 +313,7 @@ def find_long_context(rows: list[dict], catalogs: dict[str, dict]) -> list[dict]
     found = []
     for row in rows:
         key = (row["provider"], row["modelName"])
-        # LiteLLM names the threshold; models.dev's context_over_200k key does not.
+        # LiteLLM names the threshold in its keys; models.dev lists it in its cost tiers.
         tiers = [catalogs[name][key]["long_context"] for name in catalogs if key in catalogs[name]]
         above = next((tier for tier in tiers if tier), None)
         if above:

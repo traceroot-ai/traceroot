@@ -211,13 +211,25 @@ def index_modelsdev(data: object) -> dict[tuple[str, str], dict]:
                 value = _number(model["cost"].get(src))
                 rates[field] = None if value is None else value / 1e6
             limit = model.get("limit")
+            tiers = model["cost"].get("tiers")
+            sizes = [
+                _number(tier["tier"].get("size"))
+                for tier in (tiers if isinstance(tiers, list) else [])
+                if isinstance(tier, dict)
+                and isinstance(tier.get("tier"), dict)
+                and tier["tier"].get("type") == "context"
+            ]
+            threshold = min((size for size in sizes if size), default=None)
+            if threshold is None and "context_over_200k" in model["cost"]:
+                threshold = 200_000
             index[(provider, model_id)] = {
                 "rates": rates,
                 "text": _outputs_text(model),
                 "retired_from": _retired(model),
                 "context": _number(limit.get("context")) if isinstance(limit, dict) else None,
-                # e.g. "context_over_200k": the rates above a 200K-token prompt.
-                "long_context": 200_000 if "context_over_200k" in model["cost"] else None,
+                # The smallest context tier is the prompt size above which rates change;
+                # "context_over_200k" without tiers means 200K.
+                "long_context": threshold,
             }
     _require_fields("models.dev", index, MODELSDEV_FIELDS)
     return index

@@ -78,8 +78,10 @@ def test_modelsdev_first_party_rates_are_converted_from_per_million():
     assert index[("openai", "gpt-5.5")]["rates"]["output"] == pytest.approx(3e-05)
 
 
-def test_modelsdev_long_context_comes_from_cost_context_over_200k():
+def test_modelsdev_long_context_comes_from_cost_tiers_or_context_over_200k():
     index = index_modelsdev(MODELSDEV)
+
+    assert index[("openai", "gpt-5.5")]["long_context"] == 272_000
 
     assert index[("google", "gemini-2.5-pro")]["long_context"] == 200_000
     assert index[("google", "gemini-2.5-pro")]["rates"]["input"] == pytest.approx(1.25e-06)
