@@ -33,16 +33,23 @@ export function FilterPreview({ projectId, conditions, disabled = false }: Filte
   } | null>(null);
   const requestRef = useRef<AbortController | null>(null);
 
-  useEffect(() => () => requestRef.current?.abort(), []);
-
   const normalized = normalizeTriggerConditions(conditions);
   const validationError = validateTriggerConditions(normalized);
   const trimmedTraceId = traceId.trim();
   const key = JSON.stringify([projectId, trimmedTraceId, normalized]);
   const visible = !disabled && result?.key === key ? result : null;
 
+  useEffect(() => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setBusy(false);
+    setResult(null);
+  }, [key, disabled]);
+
+  useEffect(() => () => requestRef.current?.abort(), []);
+
   const runPreview = async () => {
-    if (disabled || !trimmedTraceId || validationError) return;
+    if (disabled || busy || !trimmedTraceId || validationError) return;
     requestRef.current?.abort();
     const controller = new AbortController();
     requestRef.current = controller;
@@ -92,6 +99,12 @@ export function FilterPreview({ projectId, conditions, disabled = false }: Filte
           aria-label="Trace ID to preview"
           value={traceId}
           onChange={(event) => setTraceId(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void runPreview();
+            }
+          }}
           disabled={disabled}
           placeholder="Paste a trace ID"
           className="h-8 min-w-0 font-mono text-[12px]"

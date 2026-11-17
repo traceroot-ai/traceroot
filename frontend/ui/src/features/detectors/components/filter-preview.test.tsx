@@ -73,6 +73,51 @@ it("clears a result when the draft conditions change", async () => {
     <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 2 }]} />,
   );
   expect(screen.queryByText("Filter matches this trace")).toBeNull();
+  rerender(
+    <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 1 }]} />,
+  );
+  expect(screen.queryByText("Filter matches this trace")).toBeNull();
+});
+
+it("aborts a pending preview when the draft changes", async () => {
+  let resolveRequest!: (value: unknown) => void;
+  mockFetchTraceApi.mockReturnValue(new Promise((resolve) => (resolveRequest = resolve)));
+  const { rerender } = render(
+    <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 1 }]} />,
+  );
+  fireEvent.change(screen.getByLabelText("Trace ID to preview"), { target: { value: "trace-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+  const signal = mockFetchTraceApi.mock.calls[0][1].signal as AbortSignal;
+
+  rerender(
+    <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 2 }]} />,
+  );
+  await waitFor(() => expect(signal.aborted).toBe(true));
+  resolveRequest({ trace_id: "trace-1", matches: true, condition_matches: [true] });
+  rerender(
+    <FilterPreview projectId="project-1" conditions={[{ field: "cost", op: ">", value: 1 }]} />,
+  );
+  expect(screen.queryByText("Filter matches this trace")).toBeNull();
+});
+
+it("uses Enter for preview without submitting the new-detector form", async () => {
+  mockFetchTraceApi.mockResolvedValue({
+    trace_id: "trace-1",
+    matches: true,
+    condition_matches: [],
+  });
+  const submit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
+  render(
+    <form onSubmit={submit}>
+      <FilterPreview projectId="project-1" conditions={[]} />
+      <button type="submit">Create detector</button>
+    </form>,
+  );
+  const input = screen.getByLabelText("Trace ID to preview");
+  fireEvent.change(input, { target: { value: "trace-1" } });
+  expect(fireEvent.keyDown(input, { key: "Enter", code: "Enter" })).toBe(false);
+  await waitFor(() => expect(mockFetchTraceApi).toHaveBeenCalledOnce());
+  expect(submit).not.toHaveBeenCalled();
 });
 
 it("does not request a preview for an incomplete filter", () => {

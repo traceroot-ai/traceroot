@@ -71,7 +71,7 @@ class PreviewCondition(BaseModel):
             ):
                 raise ValueError("invalid numeric trigger value")
         elif self.field in text:
-            allowed = {"=", "!=", "contains"} if self.field == "metadata" else {"=", "!="}
+            allowed = {"=", "contains"} if self.field == "metadata" else {"=", "!="}
             if self.op not in allowed:
                 raise ValueError("invalid text trigger operator")
             if not isinstance(self.value, str) or not 0 < len(self.value) <= MAX_VALUE_LENGTH:

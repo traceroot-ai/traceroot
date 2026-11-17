@@ -31,7 +31,7 @@ def _client(plan="enterprise"):
     return TestClient(app)
 
 
-def test_preview_reports_each_condition_without_creating_a_run(preview):
+def test_preview_reports_each_condition_for_a_scoped_trace(preview):
     trace_reader, summaries = preview
     response = _client().post(
         URL,
@@ -102,6 +102,7 @@ def test_retention_is_checked_before_summary_query(preview):
         {"field": "cost", "op": ">", "value": "many"},
         {"field": "environment", "op": ">", "value": "production"},
         {"field": "metadata", "op": "=", "value": "healthcheck"},
+        {"field": "metadata", "key": "traffic_type", "op": "!=", "value": "healthcheck"},
         {"field": "errors", "op": "=", "value": -1},
     ],
 )
