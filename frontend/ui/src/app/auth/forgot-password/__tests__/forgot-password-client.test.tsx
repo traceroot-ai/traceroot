@@ -3,12 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
-  forgetPassword: vi.fn(),
+  requestPasswordReset: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    forgetPassword: (...args: unknown[]) => mocks.forgetPassword(...args),
+    requestPasswordReset: (...args: unknown[]) => mocks.requestPasswordReset(...args),
   },
 }));
 
@@ -29,7 +29,7 @@ describe("ForgotPasswordClient", () => {
   });
 
   it("submits the email and shows confirmation on success", async () => {
-    mocks.forgetPassword.mockResolvedValue({ data: { status: true }, error: null });
+    mocks.requestPasswordReset.mockResolvedValue({ data: { status: true }, error: null });
 
     render(<ForgotPasswordClient />);
     fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
@@ -38,7 +38,7 @@ describe("ForgotPasswordClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
 
     await waitFor(() =>
-      expect(mocks.forgetPassword).toHaveBeenCalledWith({
+      expect(mocks.requestPasswordReset).toHaveBeenCalledWith({
         email: "user@example.com",
         redirectTo: "/auth/reset-password",
       }),
@@ -49,8 +49,8 @@ describe("ForgotPasswordClient", () => {
     expect(screen.getByRole("link", { name: "Back to sign in" })).toBeTruthy();
   });
 
-  it("displays an error when forgetPassword fails", async () => {
-    mocks.forgetPassword.mockResolvedValue({
+  it("displays an error when requestPasswordReset fails", async () => {
+    mocks.requestPasswordReset.mockResolvedValue({
       error: { message: "Rate limit exceeded" },
     });
 
