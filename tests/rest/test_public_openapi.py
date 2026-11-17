@@ -1312,8 +1312,8 @@ def test_create_widget_spec_keeps_widget_spec_component_for_parity():
 # --- API reference (docs copy + grouping) -----------------------------------
 
 
-def test_docs_copy_adds_servers_and_sdk_notes_only():
-    """The docs copy is the public document plus `servers` and the SDK notes;
+def test_docs_copy_only_adds_servers_and_page_metadata_or_content():
+    """The docs copy is the public document plus `servers` and Mintlify extensions;
     nothing else differs, and the public document itself gains neither."""
     public = _schema()
     docs = build_docs_schema(public)
@@ -1329,6 +1329,20 @@ def test_docs_copy_adds_servers_and_sdk_notes_only():
     assert stripped == public
 
 
+def test_reference_pages_have_short_summaries_and_keep_usage_notes():
+    docs = build_docs_schema(_schema())
+    operations = {op["operationId"]: op for op in _public_operations(docs)}
+    for op in operations.values():
+        page = op["x-mint"]
+        assert 120 <= len(page["metadata"]["description"]) <= 155, op["operationId"]
+        role = op["x-tool"].get("policy", {}).get("minRole")
+        if role in {"MEMBER", "ADMIN"}:
+            assert role in page["content"], op["operationId"]
+    delete_note = operations["delete_workspace"]["x-mint"]["content"]
+    assert "current name" in delete_note
+    assert "only workspace" in delete_note
+
+
 def test_docs_copy_labels_the_sdk_driven_operations():
     """Every operation hidden from the tool registry is one the SDKs call, and
     its reference page says so; the ingest page also names its content type."""
@@ -1337,11 +1351,9 @@ def test_docs_copy_labels_the_sdk_driven_operations():
         op["operationId"]: op["x-mint"]["content"]
         for item in docs["paths"].values()
         for op in item.values()
-        if "x-mint" in op
+        if "SDKs call this endpoint" in op["x-mint"].get("content", "")
     }
     assert set(labelled) == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
-    for content in labelled.values():
-        assert "SDKs call this endpoint" in content
     assert "application/x-protobuf" in labelled["ingest_traces"]
 
 

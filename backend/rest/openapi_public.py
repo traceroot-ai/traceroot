@@ -1171,12 +1171,88 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
         )
 
 
-#: Public operation descriptions, keyed by operationId. FastAPI would otherwise
-#: publish each route function's whole docstring, ``Args:`` / ``Returns:`` /
-#: ``Raises:`` included, and the API reference uses the description as the
-#: page's meta description, which search results show. Each entry is plain text
-#: of 120 to 155 characters. An operation without an entry keeps its docstring.
-_OPERATION_DESCRIPTIONS: dict[str, str] = {
+def _collect_refs(node: Any, acc: set[str]) -> None:
+    """Collect component schema names referenced by `$ref` anywhere under `node`."""
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+            acc.add(ref.rsplit("/", 1)[1])
+        for value in node.values():
+            _collect_refs(value, acc)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_refs(value, acc)
+
+
+def build_public_schema(app: Any) -> dict[str, Any]:
+    """Return the public-only OpenAPI document for `app`.
+
+    Keeps only `/api/v1/public/*` paths and the component schemas transitively
+    referenced by them, so unrelated (internal/session) model changes don't churn
+    the public artifact.
+    """
+    full = app.openapi()
+    # app.openapi() returns FastAPI's *cached* document; its path-item and
+    # component-schema dicts are shared with it. _apply_public_contract mutates
+    # path operations in place, so deep-copy everything that enters (and may be
+    # mutated in) the public document to avoid corrupting the cached full schema.
+    paths = {
+        p: copy.deepcopy(item) for p, item in full["paths"].items() if p.startswith(PUBLIC_PREFIX)
+    }
+
+    all_schemas = (full.get("components") or {}).get("schemas", {})
+    referenced: set[str] = set()
+    _collect_refs(paths, referenced)
+    # Transitively pull in nested schema references to a fixpoint.
+    changed = True
+    while changed:
+        changed = False
+        for name in list(referenced):
+            schema = all_schemas.get(name)
+            if schema is None:
+                continue
+            before = len(referenced)
+            _collect_refs(schema, referenced)
+            changed = changed or len(referenced) != before
+
+    components: dict[str, Any] = {}
+    if referenced:
+        components["schemas"] = {
+            n: copy.deepcopy(all_schemas[n]) for n in referenced if n in all_schemas
+        }
+
+    schema = {
+        "openapi": full["openapi"],
+        "info": {"title": TITLE, "version": full["info"]["version"]},
+        "paths": paths,
+        "components": components,
+    }
+    _apply_public_contract(schema)
+    _apply_filters_param_schema(schema)
+    _apply_widget_spec_vocabulary(schema)
+    _apply_tool_curation(schema)
+    return schema
+
+
+#: Base URLs for the docs' API playground. The cloud host serves the public API
+#: under the same origin the SDKs default to; self-hosters point the variable at
+#: their own backend.
+DOCS_SERVERS: list[dict[str, Any]] = [
+    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
+    {
+        "url": "{baseUrl}",
+        "description": "Self-hosted",
+        "variables": {
+            "baseUrl": {
+                "default": "http://localhost:8000",
+                "description": "Your TraceRoot backend URL",
+            }
+        },
+    },
+]
+
+#: Page summaries used by Mintlify for search snippets, keyed by operation ID.
+_DOCS_DESCRIPTIONS: dict[str, str] = {
     "whoami": (
         "Check which traceroot project and workspace an API key belongs to. Useful "
         "for confirming that a credential is valid and correctly scoped."
@@ -1226,8 +1302,8 @@ _OPERATION_DESCRIPTIONS: dict[str, str] = {
         "sample rate, root cause analysis settings, and trigger conditions."
     ),
     "create_detector": (
-        "Create a detector in a traceroot project from a template and a prompt. The "
-        "call is idempotent on the detector name within the project."
+        "Create a detector using a template's built-in instructions or your own prompt. "
+        "Creating a detector by name is idempotent within a project."
     ),
     "update_detector": (
         "Edit a traceroot detector's name, prompt, enabled state, sample rate, or "
@@ -1258,8 +1334,8 @@ _OPERATION_DESCRIPTIONS: dict[str, str] = {
         "resolved. A signal that was merged names the signal its findings moved to."
     ),
     "set_signal_status": (
-        "Resolve or reopen a traceroot signal. Resolving needs a reason, and a "
-        "resolved signal reopens by itself when its detector finds the problem again."
+        "Resolve or reopen a signal. After resolution, the detector can reopen the signal only "
+        "for a matching finding on a trace that started after resolution."
     ),
     "list_dashboards": (
         "List the dashboards in a traceroot project, default dashboard first, with "
@@ -1322,8 +1398,8 @@ _OPERATION_DESCRIPTIONS: dict[str, str] = {
         "over a time window and compared against a threshold you set."
     ),
     "update_alert": (
-        "Edit a traceroot alert's rule, such as its measure, window, or threshold. "
-        "Fields you leave out stay unchanged, and rule edits reset its state."
+        "Update a threshold alert in a TraceRoot project. Changes to evaluated fields reset its "
+        "state, while changing only the alert name preserves it."
     ),
     "set_alert_status": (
         "Pause or resume a traceroot alert without changing its rule. Pausing keeps "
@@ -1358,8 +1434,8 @@ _OPERATION_DESCRIPTIONS: dict[str, str] = {
         "filtered by evaluation or status, with cursor-based paging."
     ),
     "read_run": (
-        "Read one evaluation run's summary: its status, result counts, and the "
-        "per-score and per-metric means calculated over the run's results."
+        "Read one evaluation run's status, result counts, and scores. Scores report numeric "
+        "means, Boolean pass rates, or null for nonnumeric or missing data."
     ),
     "register_run": (
         "Register and start an evaluation run in traceroot. The call is idempotent "
@@ -1407,104 +1483,56 @@ _OPERATION_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
-
-def _apply_operation_descriptions(schema: dict[str, Any]) -> None:
-    """Replace each operation's docstring-derived description with its entry
-    in ``_OPERATION_DESCRIPTIONS``.
-
-    Args:
-        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
-            place.
-    """
-    for item in schema["paths"].values():
-        for method, op in item.items():
-            if method not in _HTTP_METHODS:
-                continue
-            description = _OPERATION_DESCRIPTIONS.get(op.get("operationId") or "")
-            if description:
-                op["description"] = description
-
-
-def _collect_refs(node: Any, acc: set[str]) -> None:
-    """Collect component schema names referenced by `$ref` anywhere under `node`."""
-    if isinstance(node, dict):
-        ref = node.get("$ref")
-        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
-            acc.add(ref.rsplit("/", 1)[1])
-        for value in node.values():
-            _collect_refs(value, acc)
-    elif isinstance(node, list):
-        for value in node:
-            _collect_refs(value, acc)
-
-
-def build_public_schema(app: Any) -> dict[str, Any]:
-    """Return the public-only OpenAPI document for `app`.
-
-    Keeps only `/api/v1/public/*` paths and the component schemas transitively
-    referenced by them, so unrelated (internal/session) model changes don't churn
-    the public artifact.
-    """
-    full = app.openapi()
-    # app.openapi() returns FastAPI's *cached* document; its path-item and
-    # component-schema dicts are shared with it. _apply_public_contract mutates
-    # path operations in place, so deep-copy everything that enters (and may be
-    # mutated in) the public document to avoid corrupting the cached full schema.
-    paths = {
-        p: copy.deepcopy(item) for p, item in full["paths"].items() if p.startswith(PUBLIC_PREFIX)
-    }
-
-    all_schemas = (full.get("components") or {}).get("schemas", {})
-    referenced: set[str] = set()
-    _collect_refs(paths, referenced)
-    # Transitively pull in nested schema references to a fixpoint.
-    changed = True
-    while changed:
-        changed = False
-        for name in list(referenced):
-            schema = all_schemas.get(name)
-            if schema is None:
-                continue
-            before = len(referenced)
-            _collect_refs(schema, referenced)
-            changed = changed or len(referenced) != before
-
-    components: dict[str, Any] = {}
-    if referenced:
-        components["schemas"] = {
-            n: copy.deepcopy(all_schemas[n]) for n in referenced if n in all_schemas
-        }
-
-    schema = {
-        "openapi": full["openapi"],
-        "info": {"title": TITLE, "version": full["info"]["version"]},
-        "paths": paths,
-        "components": components,
-    }
-    _apply_public_contract(schema)
-    _apply_filters_param_schema(schema)
-    _apply_widget_spec_vocabulary(schema)
-    _apply_tool_curation(schema)
-    _apply_operation_descriptions(schema)
-    return schema
-
-
-#: Base URLs for the docs' API playground. The cloud host serves the public API
-#: under the same origin the SDKs default to; self-hosters point the variable at
-#: their own backend.
-DOCS_SERVERS: list[dict[str, Any]] = [
-    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
-    {
-        "url": "{baseUrl}",
-        "description": "Self-hosted",
-        "variables": {
-            "baseUrl": {
-                "default": "http://localhost:8000",
-                "description": "Your TraceRoot backend URL",
-            }
-        },
-    },
-]
+#: Caller-facing details that do not fit in the search snippet.
+_DOCS_USAGE_NOTES = {
+    "list_alerts": "Alerts are ordered oldest first.",
+    "create_alert": "Each call creates a new alert, even when its name matches an existing one.",
+    "update_alert": (
+        "Changing an evaluated field resets evaluation, clears an open page, and re-arms a "
+        "parked alert. Renaming the alert alone leaves its evaluation state unchanged."
+    ),
+    "set_alert_status": "Setting the current status again returns 200 without changing the alert.",
+    "set_signal_status": (
+        "Resolving requires a reason. For `other`, include a `note`. To guard against a "
+        "concurrent change, send `expected_status`. You cannot dismiss a signal here."
+    ),
+    "create_detector": (
+        "Standard templates use their built-in instructions when you omit `prompt`. "
+        "For the `blank` template, supply your own prompt."
+    ),
+    "read_run": (
+        "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, "
+        "or unobserved scores return null. This endpoint summarizes a single run."
+    ),
+    "get_dashboard_data": (
+        "Each widget has its own result. Feeds are skipped, and query widgets beyond the "
+        "per-request limit return an inline error."
+    ),
+    "get_dataset_version": (
+        "Without `limit`, the response includes all cases. For large versions, pass `limit` "
+        "and follow `next_cursor` until it is null."
+    ),
+    "list_evaluation_runs": "Use the run detail endpoint to read result counts and scores.",
+    "list_workspaces": "Use a user credential. This request does not take a project ID.",
+    "list_projects": "Use a user credential. Each project includes its owning workspace.",
+    "get_trace": "Use `fields=full` or `fields=io,metadata` to include span inputs and outputs.",
+    "export_trace": (
+        "The default projection is `full`. Use `fields` to narrow the export. "
+        "Exports have their own rate limit."
+    ),
+    "ingest_traces": (
+        "The default limits are 16 MiB as sent and 32 MiB after decompression. "
+        "Larger requests return 413."
+    ),
+    "delete_workspace": (
+        "Send the workspace's current name to confirm deletion. You cannot delete your "
+        "only workspace."
+    ),
+    "update_workspace": (
+        "A name that matches another workspace you administer returns 409. "
+        "A workspace outside your memberships returns 403."
+    ),
+}
 
 _SDK_NOTE = (
     "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only "
@@ -1521,7 +1549,7 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
     Mintlify only reads files inside ``docs/``, so the reference needs its own
     copy. It is the public document plus what only the docs need: ``servers``
-    for the playground, and a note on each operation hidden from the tool
+    for the playground, search descriptions, and a note on each operation hidden from the tool
     registry (the SDKs' ingest and evaluation-run writes) saying the SDKs call
     it. ``public.json`` itself stays unchanged, so the tool registry is unaffected.
 
@@ -1535,12 +1563,30 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
     docs["servers"] = copy.deepcopy(DOCS_SERVERS)
     for item in docs["paths"].values():
         for method, op in item.items():
-            if method not in _HTTP_METHODS or op.get("x-tool", {}).get("enabled", True):
+            if method not in _HTTP_METHODS:
                 continue
-            note = _SDK_NOTE
-            if op.get("operationId") == "ingest_traces":
-                note += _INGEST_NOTE
-            op["x-mint"] = {"content": note}
+            op_id = op["operationId"]
+            tool = op["x-tool"]
+            parts = []
+            if not tool["enabled"]:
+                parts.append(_SDK_NOTE + (_INGEST_NOTE if op_id == "ingest_traces" else ""))
+            role = tool.get("policy", {}).get("minRole")
+            if role == "MEMBER":
+                parts.append(
+                    "Use a user credential with the `MEMBER` role or higher in the workspace."
+                )
+            elif role == "ADMIN":
+                parts.append("Use a user credential with the `ADMIN` role in the workspace.")
+            if op_id in _DOCS_USAGE_NOTES:
+                parts.append(_DOCS_USAGE_NOTES[op_id])
+
+            page = {}
+            if summary := _DOCS_DESCRIPTIONS.get(op_id):
+                page["metadata"] = {"description": summary}
+            if parts:
+                page["content"] = "\n\n".join(parts)
+            if page:
+                op["x-mint"] = page
     return docs
 
 
