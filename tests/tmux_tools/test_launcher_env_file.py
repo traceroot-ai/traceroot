@@ -13,30 +13,22 @@ from tests.test_published_secrets import (
 from tmux_tools.launcher import ALL_GENERATED_KEYS, ensure_env_file
 
 
-def test_launcher_refuses_a_symlinked_env(tmp_path):
+def test_launcher_refuses_a_symlinked_env_without_writing_through_it(tmp_path):
     example = tmp_path / ".env.example"
     example.write_text("INTERNAL_API_SECRET=\n")
-    target = tmp_path / "other"
-    target.write_text("ENCRYPTION_KEY=\n")
-    (tmp_path / ".env").symlink_to(target)
+    existing = tmp_path / "other"
+    existing.write_text("ENCRYPTION_KEY=\n")
+    not_yet = tmp_path / "not-yet"
 
-    with pytest.raises(SystemExit) as excinfo:
-        ensure_env_file(tmp_path / ".env", example, keys=ALL_GENERATED_KEYS)
+    for target in (existing, not_yet):  # a link to a file, and a dangling one
+        (tmp_path / ".env").unlink(missing_ok=True)
+        (tmp_path / ".env").symlink_to(target)
+        with pytest.raises(SystemExit) as excinfo:
+            ensure_env_file(tmp_path / ".env", example, keys=ALL_GENERATED_KEYS)
+        assert "symlink" in str(excinfo.value)
 
-    assert "symlink" in str(excinfo.value)
-    assert target.read_text() == "ENCRYPTION_KEY=\n"
-
-
-def test_launcher_refuses_a_dangling_env_symlink_instead_of_creating_through_it(tmp_path):
-    example = tmp_path / ".env.example"
-    example.write_text("INTERNAL_API_SECRET=\n")
-    target = tmp_path / "not-yet"
-    (tmp_path / ".env").symlink_to(target)
-
-    with pytest.raises(SystemExit):
-        ensure_env_file(tmp_path / ".env", example)
-
-    assert not target.exists()
+    assert existing.read_text() == "ENCRYPTION_KEY=\n"
+    assert not not_yet.exists()
 
 
 def test_launcher_writes_env_privately_and_leaves_no_temp_file(tmp_path):
@@ -195,7 +187,6 @@ def test_the_scratch_copy_used_to_read_env_is_private(monkeypatch):
     monkeypatch.setattr(launcher, "_env_value", record)
 
     launcher.fill_secrets("A=\n", ("A",))
-    launcher.effective_value("A=1\n", "A")
 
     assert modes and set(modes) == {0o600}
 

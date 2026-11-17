@@ -25,6 +25,12 @@ compose() {
 	(cd "$ROOT" && $COMPOSE "$@")
 }
 
+# True for a 64-character hex string (a 256-bit key).
+is_hex_key() {
+	case "$1" in *[!0-9a-fA-F]* | "") return 1 ;; esac
+	[ "${#1}" -eq 64 ]
+}
+
 if [ -L "$ENV_FILE" ]; then
 	die ".env is a symlink. Refusing to write secrets through it -- replace it with a regular file."
 fi
@@ -53,10 +59,7 @@ key_state_lock
 current=$(sh "$ENV_VALUE" get ENCRYPTION_KEY "$ENV_FILE")
 [ -n "$current" ] ||
 	die "ENCRYPTION_KEY is not set in .env, so there is nothing to rotate. Run make prod-lite to generate one."
-case "$current" in
-*[!0-9a-fA-F]*) die "ENCRYPTION_KEY in .env is not a 64-character hex key, so it cannot be rotated safely." ;;
-esac
-[ "${#current}" -eq 64 ] || die "ENCRYPTION_KEY in .env is not a 64-character hex key, so it cannot be rotated safely."
+is_hex_key "$current" || die "ENCRYPTION_KEY in .env is not a 64-character hex key, so it cannot be rotated safely."
 
 # Docker Compose prefers a value in the environment over .env, whether or not it matches
 # .env today. Rewriting .env cannot change what the services use, so stop before the database.
@@ -69,10 +72,7 @@ if [ -e pending ] || [ -L pending ]; then
 	[ -f pending ] && [ ! -L pending ] && private_to_me pending 600 ||
 		die "$STATE_NAME/pending must be a regular file owned by you with mode 600. Remove it and run again."
 	new=$(tr -d ' \t\r\n' <pending)
-	case "$new" in
-	*[!0-9a-fA-F]* | "") die "$STATE_NAME/pending does not hold a 64-character hex key. Remove it and run again." ;;
-	esac
-	[ "${#new}" -eq 64 ] || die "$STATE_NAME/pending does not hold a 64-character hex key. Remove it and run again."
+	is_hex_key "$new" || die "$STATE_NAME/pending does not hold a 64-character hex key. Remove it and run again."
 else
 	new=$(openssl rand -hex 32)
 	(

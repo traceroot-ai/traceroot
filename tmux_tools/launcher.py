@@ -147,14 +147,6 @@ def _needs_value(key: str, resolved: str) -> bool:
     return key not in FRESH_ONLY_KEYS and resolved.lower() in PUBLISHED_PLACEHOLDERS
 
 
-def effective_value(text: str, key: str) -> str:
-    """The value Docker Compose resolves for ``key`` in .env text (empty when unset)."""
-    with tempfile.TemporaryDirectory() as scratch:
-        path = Path(scratch) / ".env"
-        _write_private(path, text)
-        return _env_value("get", key, str(path))
-
-
 def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
     """Give every key in ``keys`` a generated value unless Docker Compose already resolves one.
 
@@ -228,9 +220,8 @@ def key_lock():
             yield
         finally:
             os.environ.pop("TRACEROOT_KEY_LOCK_HELD", None)
-            for name in ("lock/pid",):
-                with contextlib.suppress(FileNotFoundError):
-                    os.unlink(name, dir_fd=fd)
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink("lock/pid", dir_fd=fd)
             with contextlib.suppress(FileNotFoundError):
                 os.rmdir("lock", dir_fd=fd)
     finally:
