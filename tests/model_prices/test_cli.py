@@ -138,11 +138,12 @@ def test_a_cut_list_names_where_the_rest_is_only_when_this_run_wrote_it(run, cap
     assert cut_lines(write_json=False) == ("…and 10 more", "…and 15 more models")
 
 
-def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
+def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run, tmp_path):
     def offline(url):
         raise URLError("offline")
 
     rows = [row("gpt-a", "openai", input_=5e-7)]
+    saved, page = tmp_path / "payload.json", tmp_path / "report.html"
     code, posted, report = run(
         rows,
         {"gpt-a": ll_entry("openai")},
@@ -150,10 +151,17 @@ def test_unreadable_github_still_reports_and_says_prs_were_not_checked(run):
         "--min-compared",
         "1",
         "--track",
+        "--payload",
+        str(saved),
+        "--html",
+        str(page),
         github=offline,
     )
 
-    assert code == 0
+    # Exit 4, not 0, so an agent that only checks the code knows no PR was looked for.
+    assert code == 4
+    assert json.loads(saved.read_text()) == posted[0]
+    assert "gpt-a" in page.read_text()
     assert report["tracking"] == "GitHub could not be read (URLError)"
     assert "flagged" in report and report["flagged"][0]["model"] == "gpt-a"
     footer = posted[0]["blocks"][-1]["elements"][0]["text"]
@@ -176,7 +184,8 @@ def test_a_cut_off_pr_listing_still_reports(run):
         github=cut_off,
     )
 
-    assert code == 0
+    assert code == 4
+    assert len(posted) == 1
     assert report["tracking"] == "GitHub could not be read (IncompleteRead)"
     assert "tracked_by" not in report["flagged"][0]
     assert posted[0]["text"].endswith(": 1 model with prices to check")
@@ -187,7 +196,7 @@ def test_more_open_prs_than_the_listing_reads_leaves_prs_not_checked(run, monkey
     monkeypatch.setattr(tracking, "MAX_PR_PAGES", 2)
     page = [{"number": n, "title": "docs: typo", "head": {"sha": "h"}} for n in range(100)]
     rows = [row("gpt-a", "openai", input_=5e-7)]
-    code, _, report = run(
+    code, posted, report = run(
         rows,
         {"gpt-a": ll_entry("openai")},
         md_catalog(),
@@ -197,7 +206,8 @@ def test_more_open_prs_than_the_listing_reads_leaves_prs_not_checked(run, monkey
         github=lambda url: page,
     )
 
-    assert code == 0
+    assert code == 4
+    assert len(posted) == 1
     assert report["tracking"] == "GitHub could not be read (200 or more open PRs)"
     assert "tracked_by" not in report["flagged"][0]
 
@@ -317,7 +327,7 @@ def test_a_rate_limit_partway_through_the_prs_marks_no_finding_as_in_a_pr(run):
     limited = HTTPError("https://api.test", 429, "", {}, None)
     code, posted, report = _run_with_two_prs(run, limited)
 
-    assert code == 0
+    assert code == 4
     assert report["tracking"] == "GitHub could not be read (429)"
     assert not report["flagged"][0].get("tracked_by")
     assert posted[0]["text"].endswith(": 1 model with prices to check")

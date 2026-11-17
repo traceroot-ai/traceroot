@@ -52,12 +52,14 @@ extended before it is posted. --html writes every finding as a web page, and
 --report-url links the message to where that page is published. --litellm and --modelsdev take
 a URL or a local file, so a saved catalog snapshot can be replayed. --track reads
 GitHub, with GITHUB_TOKEN or GH_TOKEN when set; if GitHub can't be read, the report
-says so and the run still succeeds.
+says so and the run exits 4.
 
 Exit codes: 0 when a report was produced, with or without flags. 1 when a catalog
 could not be loaded, a file's format changed, fewer than --min-compared rows could be
 compared, the reviewed rates file is malformed, or the Slack post failed. A failed run
-posts a failure alert when it can, never an all-clear.
+posts a failure alert when it can, never an all-clear. 2 for a usage error. 4 when the
+report was produced but --track could not read GitHub, so no finding names its open
+PRs; every output is still written and posted.
 
 Standard library only, so it runs on any Python 3.11+ without installing anything.
 """
@@ -171,7 +173,8 @@ def main(argv: list[str]) -> int:
                 )
                 track(report, prs)
             except Exception as exc:
-                # The findings stand without it: say PRs weren't checked, and carry on.
+                # The findings stand without it: say PRs weren't checked, and carry on
+                # (the run then exits 4, after every output is written).
                 if isinstance(exc, CheckError):
                     detail = str(exc)
                 else:
@@ -180,7 +183,8 @@ def main(argv: list[str]) -> int:
         # A cut list points to the rest only where this run writes it.
         more_in = "the full report" if args.report_url else "the JSON report" if args.json else None
         text = format_report(report, more_in)
-        payload, status = build_payload(report, args.report_url, more_in), 0
+        payload = build_payload(report, args.report_url, more_in)
+        status = 4 if args.track and report["tracking"] != "ok" else 0
     except Exception as exc:  # Every failure must alert; none may read as all clear.
         reason = str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         report = {"date": date, "status": "failed", "error": reason}
