@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -104,5 +104,37 @@ describe("SpanTimelineView token/cost badges", () => {
     for (const badge of screen.getAllByText("100 → 50 (150)")) {
       expect(badge.querySelector("svg")).toBeTruthy();
     }
+  });
+});
+
+describe("SpanTimelineView selection", () => {
+  it("selects and highlights an in-progress span and reports hover changes", () => {
+    const span = { ...trace.spans[0], span_end_time: null };
+    const liveTrace = { ...trace, spans: [span] };
+    const onSelect = vi.fn();
+    const onHoverChange = vi.fn();
+    const props = {
+      trace: liveTrace,
+      onSelect,
+      collapsedIds: new Set<string>(),
+      scrollRef: { current: null },
+      onHoverChange,
+    };
+    const { rerender } = render(
+      <SpanTimelineView {...props} selection={{ type: "trace" }} hoveredSpanId={null} />,
+    );
+    const spanRow = screen.getAllByText("0.0123")[1].closest("div.group")!;
+    fireEvent.mouseEnter(spanRow);
+    expect(onHoverChange).toHaveBeenCalledWith("span-1");
+    fireEvent.click(spanRow);
+    expect(onSelect).toHaveBeenCalledWith({ type: "span", span });
+
+    rerender(
+      <SpanTimelineView {...props} selection={{ type: "span", span }} hoveredSpanId="span-1" />,
+    );
+    expect(spanRow.className).toContain("bg-accent");
+    expect(spanRow.querySelector(".animate-pulse")?.className).toContain("brightness-95");
+    fireEvent.mouseLeave(spanRow);
+    expect(onHoverChange).toHaveBeenLastCalledWith(null);
   });
 });

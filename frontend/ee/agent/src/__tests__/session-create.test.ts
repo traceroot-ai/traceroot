@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const create = vi.fn();
+const findProject = vi.fn();
 vi.mock("@traceroot/core", () => ({
-  prisma: { aISession: { create: (...a: unknown[]) => create(...a) } },
+  prisma: {
+    aISession: { create: (...a: unknown[]) => create(...a) },
+    project: { findUnique: (...a: unknown[]) => findProject(...a) },
+  },
 }));
 
-import { createSession } from "../session.js";
+import { createSession, projectWorkspaceId } from "../session.js";
 
 beforeEach(() => {
   create.mockReset();
@@ -26,5 +30,21 @@ describe("createSession", () => {
       executionId: "exec-1",
     });
     expect(create.mock.calls[0][0].data).toMatchObject({ userId: "u1", executionId: null });
+  });
+});
+
+describe("projectWorkspaceId", () => {
+  it("returns the workspace the project belongs to", async () => {
+    findProject.mockResolvedValue({ workspaceId: "w9" });
+    await expect(projectWorkspaceId("p1")).resolves.toBe("w9");
+    expect(findProject).toHaveBeenCalledWith({
+      where: { id: "p1" },
+      select: { workspaceId: true },
+    });
+  });
+
+  it("returns null for a project that does not exist", async () => {
+    findProject.mockResolvedValue(null);
+    await expect(projectWorkspaceId("nope")).resolves.toBeNull();
   });
 });

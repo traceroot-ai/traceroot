@@ -3,12 +3,15 @@
 Every read is secret-gated and scoped by project id.
 """
 
+import json
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
@@ -351,12 +354,11 @@ async def list_detector_runs(
     "/traces/{trace_id}/spans-jsonl",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def get_spans_jsonl(trace_id: str, project_id: str):
-    """Return all spans for a trace as newline-delimited JSON."""
-    import json
+def get_spans_jsonl(trace_id: str, project_id: str):
+    """Return all spans for a trace as newline-delimited JSON.
 
-    from fastapi.responses import PlainTextResponse
-
+    A plain ``def``, so FastAPI runs the query and encoding in its thread pool.
+    """
     ch = get_clickhouse_client()
     # Dedup ReplacingMergeTree rows without FINAL (FINAL scans all parts and
     # defeats the trace_id-first sort key / no-IO projection): keep the latest
@@ -377,8 +379,6 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     def _default(obj):
         if hasattr(obj, "isoformat"):
             return obj.isoformat()
-        from decimal import Decimal
-
         if isinstance(obj, Decimal):
             return float(obj)
         raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")

@@ -42,7 +42,7 @@ export function FirstTraceLine({ wait }: FirstTraceLineProps) {
 function Line({ wait }: FirstTraceLineProps) {
   if (wait.kind === "waiting") {
     return (
-      <p className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+      <p className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
         <Loader2 className="h-3 w-3 animate-spin" />
         Waiting for your first trace. This page updates when it arrives.
       </p>
@@ -51,8 +51,8 @@ function Line({ wait }: FirstTraceLineProps) {
 
   if (wait.kind === "found") {
     return (
-      <p className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
-        <Check className="h-3.5 w-3.5 text-green-600" />
+      <p className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
+        <Check className="h-3.5 w-3.5 text-success" />
         <span>Your first trace arrived. Opening it…</span>
         <Link href={traceUrl(wait.found)} className="font-medium underline hover:text-foreground">
           View it
@@ -66,7 +66,7 @@ function Line({ wait }: FirstTraceLineProps) {
     // run that this tab cannot make. The way out is the same page either way,
     // and it is also where an expired session gets asked to sign in again.
     return (
-      <p className="text-center text-[11px] text-muted-foreground">
+      <p className="text-center text-[12px] text-muted-foreground">
         We could not read your traces from this tab.{" "}
         <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
           Open your traces
@@ -80,7 +80,7 @@ function Line({ wait }: FirstTraceLineProps) {
   // page that will show the trace whenever it does turn up — the setup itself
   // is still running wherever the command was run.
   return (
-    <p className="text-center text-[11px] text-muted-foreground">
+    <p className="text-center text-[12px] text-muted-foreground">
       Still no trace.{" "}
       <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
         Open your traces

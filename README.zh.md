@@ -35,7 +35,7 @@ traceroot：持续改进你的 AI Agent 的开源平台。
 
 ## traceroot
 
-找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
+开源 Braintrust 替代方案。找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -64,24 +64,26 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
 ## 配置 traceroot
 
-准备好 [traceroot 实例](#开始使用-traceroot)（云端或自托管）后，在仪表盘中创建项目，并选择发送第一条追踪的方式：让编程 Agent 通过 CLI 配置埋点，或手动配置 SDK。
+将第一条追踪发送到 [traceroot Cloud](https://app.traceroot.ai) 或你自己的 [traceroot 实例](#开始使用-traceroot)：运行一条命令，让编程 Agent 添加埋点，或手动配置 SDK。
 
 ### 使用编程 Agent
 
 <a id="cli-quickstart"></a>
 
-安装 [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 并登录：
+在你想要追踪的仓库根目录运行：
 
 ```bash
-npm install -g traceroot-cli
-traceroot login
+npx -y traceroot-cli@latest setup
 ```
 
-然后向你的编程 Agent 提出请求：
+支持 Claude Code、Codex、Cursor、OpenCode、Pi、Antigravity 等。
 
-```text
-使用 traceroot CLI 为此应用配置追踪。
-```
+[traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 会通过浏览器引导你登录（也可在此创建免费账号），将项目 API 密钥写入应用的 env 文件，让 Claude Code 或 Codex 添加 SDK，并等待第一条追踪。需要 Node.js 20.12 或更高版本。
+
+- 使用其他编程 Agent？setup 可以将改动导出为任务，交给它执行。
+- 自托管？通过 `--host`（API 源地址）和 `--auth-host`（Web 应用源地址）将 setup 指向你的实例。
+
+各步骤、自托管与故障排查请参阅[配置指南](https://traceroot.ai/docs/tracing/get-started)。
 
 ### 手动配置 SDK
 
@@ -90,7 +92,7 @@ traceroot login
 <details>
 <summary>运行最小 TypeScript 示例</summary>
 
-你需要 Node.js、npm、traceroot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例地址。
+你需要 Node.js、npm、traceroot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例的 API 源地址（例如 `http://localhost:8000`）。
 
 **1. 安装 SDK**，在 TypeScript 项目中运行：
 
@@ -167,7 +169,7 @@ make prod-lite
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 <details open>
-<summary>支持的框架与模型厂商</summary>
+<summary>支持的框架、模型厂商与编程 Agent</summary>
 
 ### Agent 框架
 
@@ -197,6 +199,14 @@ make prod-lite
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | 自动埋点 Mistral 的 chat completions、工具调用以及流式响应。 |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | 自动埋点 Chat Completions 与 Responses API。 |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | 通过 OpenAI SDK 的 OpenRouter base URL 进行兼容追踪；可参考 [Python](./examples/python/openrouter-tool-agent) 与 [TypeScript](./examples/typescript/openrouter) 示例。 |
+
+### 编程 Agent
+
+| 集成 | 支持语言 | 描述 |
+| ----------- | -------- | ----------- |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | 插件 | 通过 traceroot 插件追踪 Claude Code 的请求、工具调用、子 Agent 与 token 用量。 |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | 插件 | 通过 traceroot 插件实时追踪 Codex 的 turn、工具调用、子 Agent 与 token 用量。 |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | 扩展 | 通过 traceroot 扩展追踪交互式 pi CLI 会话的 turn、工具调用与 token 用量。 |
 
 </details>
 
