@@ -148,8 +148,8 @@ importers:
         specifier: 0.80.3
         version: 0.80.3(ws@8.21.3)(zod@4.6.7)
       '@prisma/client':
-        specifier: ^5.22.0
-        version: 5.22.0(prisma@5.22.0)
+        specifier: ^7.10.1
+        version: 7.10.1(prisma@5.22.0)(typescript@5.9.3)
       zod:
         specifier: ^4.6.6
         version: 4.6.7
@@ -250,8 +250,8 @@ importers:
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.71.2(react@19.0.0))
       '@prisma/client':
-        specifier: 5.22.0
-        version: 5.22.0(prisma@5.22.0)
+        specifier: 7.10.1
+        version: 7.10.1(prisma@5.22.0)(typescript@5.9.3)
       '@radix-ui/react-dialog':
         specifier: ^1.1.0
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
@@ -287,7 +287,7 @@ importers:
         version: 3.0.3
       better-auth:
         specifier: 1.7.15
-        version: 1.7.15(@opentelemetry/api@1.9.1)(@prisma/client@5.22.0(prisma@5.22.0))(mongodb@7.1.0(socks@2.8.7))(next@16.4.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@22.19.15)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(prisma@5.22.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)(vitest@4.1.12)
+        version: 1.7.15(@opentelemetry/api@1.9.1)(@prisma/client@7.10.1(prisma@5.22.0)(typescript@5.9.3))(mongodb@7.1.0(socks@2.8.7))(next@16.4.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@22.19.15)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(prisma@5.22.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)(vitest@4.1.12)
       class-variance-authority:
         specifier: ^0.7.0
         version: 0.7.1
@@ -937,7 +937,7 @@ packages:
 
   '@daytonaio/sdk@0.148.0':
     resolution: {integrity: sha512-/h+cJnIVuX0xXit9kyxrUh5c1Xf//7Xk5xyf4ULPhzT5xpBGakZnaCNKb0AvS4kpaK1mU75+kT/onxGlc6wMGw==}
-    deprecated: 'Moved to @daytona/sdk, same API, no breaking changes. Please update: npm uninstall @daytonaio/sdk && npm i @daytona/sdk'
+    deprecated: 'Moved to @daytona/sdk, same API, no breaking changes. Please update: npm uninstall @daytonaio/sdk && npm i @daytona/sdk@0'
 
   '@daytonaio/toolbox-api-client@0.148.0':
     resolution: {integrity: sha512-lLhl6XHCLYWTtI7/uH57+AEp8nS6q/Y1tgZg686qFrDW6lIdhTF7vVViGd4Z9XfmdoVSlMpV/2I2UnyNryWDtQ==}
@@ -1931,13 +1931,19 @@ packages:
   '@posthog/types@1.413.0':
     resolution: {integrity: sha512-tYAVzNojWckuG/wxBB0fwE70sFruQQq4xbhkci7eH2ARU3mMfUTkvpN1HwBMpm0AtbxidLiH0IFvagmdJ8opPw==}
 
-  '@prisma/client@5.22.0':
-    resolution: {integrity: sha512-M0SVXfyHnQREBKxCgyo7sffrKttwE6R8PMq330MIUF0pTwjUhLbW84pFDlf06B27XyCR++VtjugEnIHdr07SVA==}
-    engines: {node: '>=16.13'}
+  '@prisma/client-runtime-utils@7.10.1':
+    resolution: {integrity: sha512-AzoATVIgmO3lcZfM443+9SI7+cyLMW2+Psw4op8WQHpHvHCX//CKxv8fwhiL0yGWF8DjdQrFewxrZo5McBdB8g==}
+
+  '@prisma/client@7.10.1':
+    resolution: {integrity: sha512-5tgAbFGh//zVOC6WPNVgziOErJHYkUE+wmqCwbIyq6IrTXUYtv9y2iBFGh/Owo99Mx0+cr0j1FOrxkYBMuyhaQ==}
+    engines: {node: ^20.19 || ^22.12 || >=24.0}
     peerDependencies:
       prisma: '*'
+      typescript: '>=5.4.0'
     peerDependenciesMeta:
       prisma:
+        optional: true
+      typescript:
         optional: true
 
   '@prisma/debug@5.22.0':
@@ -6410,12 +6416,12 @@ snapshots:
     optionalDependencies:
       mongodb: 7.1.0(socks@2.8.7)
 
-  '@better-auth/prisma-adapter@1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(@prisma/client@5.22.0(prisma@5.22.0))(prisma@5.22.0)':
+  '@better-auth/prisma-adapter@1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(@prisma/client@7.10.1(prisma@5.22.0)(typescript@5.9.3))(prisma@5.22.0)':
     dependencies:
       '@better-auth/core': 1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       '@better-auth/utils': 0.5.1
     optionalDependencies:
-      '@prisma/client': 5.22.0(prisma@5.22.0)
+      '@prisma/client': 7.10.1(prisma@5.22.0)(typescript@5.9.3)
       prisma: 5.22.0
 
   '@better-auth/telemetry@1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)':
@@ -7533,9 +7539,14 @@ snapshots:
 
   '@posthog/types@1.413.0': {}
 
-  '@prisma/client@5.22.0(prisma@5.22.0)':
+  '@prisma/client-runtime-utils@7.10.1': {}
+
+  '@prisma/client@7.10.1(prisma@5.22.0)(typescript@5.9.3)':
+    dependencies:
+      '@prisma/client-runtime-utils': 7.10.1
     optionalDependencies:
       prisma: 5.22.0
+      typescript: 5.9.3
 
   '@prisma/debug@5.22.0': {}
 
@@ -8827,14 +8838,14 @@ snapshots:
 
   bcryptjs@3.0.3: {}
 
-  better-auth@1.7.15(@opentelemetry/api@1.9.1)(@prisma/client@5.22.0(prisma@5.22.0))(mongodb@7.1.0(socks@2.8.7))(next@16.4.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@22.19.15)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(prisma@5.22.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)(vitest@4.1.12):
+  better-auth@1.7.15(@opentelemetry/api@1.9.1)(@prisma/client@7.10.1(prisma@5.22.0)(typescript@5.9.3))(mongodb@7.1.0(socks@2.8.7))(next@16.4.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@22.19.15)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(prisma@5.22.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)(vitest@4.1.12):
     dependencies:
       '@better-auth/core': 1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       '@better-auth/drizzle-adapter': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)
       '@better-auth/kysely-adapter': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(kysely@0.28.17)
       '@better-auth/memory-adapter': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)
       '@better-auth/mongo-adapter': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(mongodb@7.1.0(socks@2.8.7))
-      '@better-auth/prisma-adapter': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(@prisma/client@5.22.0(prisma@5.22.0))(prisma@5.22.0)
+      '@better-auth/prisma-adapter': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(@prisma/client@7.10.1(prisma@5.22.0)(typescript@5.9.3))(prisma@5.22.0)
       '@better-auth/telemetry': 1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)
       '@better-auth/utils': 0.5.1
       '@better-fetch/fetch': 1.3.3
@@ -8847,7 +8858,7 @@ snapshots:
       nanostores: 1.3.0
       zod: 4.6.7
     optionalDependencies:
-      '@prisma/client': 5.22.0(prisma@5.22.0)
+      '@prisma/client': 7.10.1(prisma@5.22.0)(typescript@5.9.3)
       mongodb: 7.1.0(socks@2.8.7)
       next: 16.4.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@22.19.15)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
       prisma: 5.22.0
