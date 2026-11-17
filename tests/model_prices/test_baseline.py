@@ -343,6 +343,16 @@ def _gov(input_, output):
             ["gpt-a matchPattern changed with no finding to fix"],
         ),
         (
+            # The new row takes openai/gpt-a over by name, but gpt-a's wider pattern still
+            # matches it, so the new row moved it, not the pattern change.
+            {
+                "gpt-a": row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a.*$"),
+                "openai/gpt-a": row("openai/gpt-a", "openai", pattern=r"(?i)^openai\/gpt-a$"),
+            },
+            [],
+            ["gpt-a matchPattern changed with no finding to fix"],
+        ),
+        (
             {"us-gov.anthropic.claude-k-6": _gov(2.058e-6, 1.2e-5)},
             [],
             [
@@ -373,6 +383,7 @@ def _gov(input_, output):
         "provider",
         "pattern-moves-nothing",
         "new-row-the-pattern-matches",
+        "new-row-for-an-id-the-pattern-still-matches",
         "host-id-row-still-wrong",
         "host-id-row-was-right",
     ],
@@ -501,6 +512,61 @@ def test_baseline_compares_every_row_of_a_name_listed_twice(after, add):
     litellm = {"gpt-b": ll_entry("openai")}
 
     assert compare(TWICE, after, litellm, md_catalog()) == {"fixes": [], "adds": [add]}
+
+
+def test_removing_a_later_row_of_a_name_listed_twice_is_listed():
+    # A removed row is never explained, as its pattern could price other IDs.
+    litellm = {"gpt-b": ll_entry("openai")}
+
+    assert compare(TWICE, [TWICE[0], TWICE[2]], litellm, md_catalog()) == {
+        "fixes": ["gpt-a: modelName is listed twice"],
+        "adds": ["gpt-a (2) row removed"],
+    }
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [[*TWICE[:2], row("gpt-a (2)", "openai")], [row("gpt-a (2)", "openai"), *TWICE[:2]]],
+    ids=["named-row-last", "named-row-first"],
+)
+def test_a_row_named_like_a_later_row_of_a_name_listed_twice_fails_the_run(run, rows):
+    # --baseline would compare the second gpt-a row and the row named "gpt-a (2)" under
+    # one name, and so only one of them.
+    code, posted, _ = run(rows, {"gpt-a": ll_entry("openai")}, md_catalog(), "--min-compared", "1")
+
+    message = 'a later "gpt-a" row is compared as "gpt-a (2)", the name of another row'
+    assert code == 1
+    assert message in posted[-1]["text"]
+
+
+OVERLAP = [
+    row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a(-mini)?$"),
+    row("zeta", "openai", input_=5e-6, pattern=r"(?i)^(openai\/)?(zeta|gpt-a-mini)$"),
+]
+NARROWED_ZETA = row("zeta", "openai", input_=5e-6, pattern=r"(?i)^(openai\/)?zeta$")
+
+
+@pytest.mark.parametrize(
+    ("after", "adds"),
+    [
+        ([OVERLAP[0], NARROWED_ZETA], []),
+        (
+            [row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a(-mini|-max)?$"), NARROWED_ZETA],
+            ["gpt-a matchPattern changed with no finding to fix"],
+        ),
+    ],
+    ids=["narrowed", "other-row-still-matches"],
+)
+def test_a_fixed_overlap_explains_a_pattern_that_stops_matching_its_id(after, adds):
+    # Both rows match gpt-a-mini, at different rates. The worker prices it with gpt-a, so
+    # narrowing zeta moves no ID, but it fixes the overlap. gpt-a's pattern still matches
+    # it, so the fix does not explain a change to gpt-a's.
+    litellm = {"gpt-a": ll_entry("openai"), "gpt-a-mini": ll_entry("openai")}
+
+    assert compare(OVERLAP, after, litellm, md_catalog()) == {
+        "fixes": ["gpt-a-mini matched by two rows"],
+        "adds": adds,
+    }
 
 
 @pytest.mark.parametrize(

@@ -357,19 +357,25 @@ def find_row_problems(rows: list[dict]) -> list[dict]:
         if name.lower() in seen:
             found.append(("modelName is listed twice", []))
         seen.add(name.lower())
-        about_pattern = []
         if _compile(pattern) is None:
-            about_pattern.append(
-                "matchPattern does not compile, so the row matches its exact name only"
+            found.append(
+                (
+                    "matchPattern does not compile, so the row matches its exact name only",
+                    ["matchPattern"],
+                )
             )
         else:
             if JS_INCOMPATIBLE.search(pattern):
-                about_pattern.append(
-                    "matchPattern uses regex syntax the UI cannot read the same way"
+                found.append(
+                    (
+                        "matchPattern uses regex syntax the UI cannot read the same way",
+                        ["matchPattern"],
+                    )
                 )
             if not _matches(row, name):
-                about_pattern.append("matchPattern does not match the row's own modelName")
-        found += [(problem, ["matchPattern"]) for problem in about_pattern]
+                found.append(
+                    ("matchPattern does not match the row's own modelName", ["matchPattern"])
+                )
         rates = {field: _number(row["prices"].get(field)) for field in FIELDS}
         for field, rate in rates.items():
             if rate is not None and not 0 <= rate <= MAX_RATE:
@@ -454,13 +460,20 @@ def build_report(
     # Each row as it was checked, so --baseline can list a change no finding shows and
     # price an ID as the worker does. The first row with a name, the one the worker
     # prices that name with, goes under the name; each later one, whose pattern can still
-    # price other IDs, under "<name> (2)", "<name> (3)" and so on, in file order.
+    # price other IDs, under "<name> (2)", "<name> (3)" and so on, in file order. A row
+    # already named that would hide one of the two, so it fails the run.
     checked: dict[str, dict] = {}
     listed: dict[str, int] = {}
+    names = {row["modelName"] for row in rows}
     for row in rows:
         name = row["modelName"]
         listed[name] = listed.get(name, 0) + 1
-        checked[name if listed[name] == 1 else f"{name} ({listed[name]})"] = {
+        key = name if listed[name] == 1 else f"{name} ({listed[name]})"
+        if key != name and key in names:
+            raise CheckError(
+                f'a later "{name}" row is compared as "{key}", the name of another row'
+            )
+        checked[key] = {
             "modelName": name,
             "provider": row["provider"],
             "matchPattern": row["matchPattern"],

@@ -60,32 +60,34 @@ says so and the run exits 4.
 
 --baseline checks an edit to the price file before it goes into a pull request. Save a
 report with --json before the edit, edit the file, then run again with --baseline
-pointing at that report: the output lists the findings the edit fixes and any it adds.
-A flagged rate the edit changes to another value the catalogs disagree with is an add,
-not a fix. So is a row with a finding that the edit deletes, or stops comparing by
-changing its provider to one no catalog covers: that hides the finding. A Bedrock, Vertex AI or OpenRouter ID that a row newly prices is an add when
-every catalog that lists that exact ID charges other input or output rates, as Bedrock
-does for GovCloud and regional profiles. So is a dotted version's dash spelling that a
-row priced before the edit and none prices after it, such as grok-4-20 once a narrowed
-grok-4 row stops matching it. --track lists the same adds for each open PR.
---baseline also lists each change to a row that no finding explains, as no catalog
-compares about a quarter of the rows and a rate changed inside the 3% tolerance shows no
-flag: a row removed or moved to another provider; a rate changed with no flag on that
-rate of that row, or of a dated snapshot or -latest alias it prices, fixed or added
-(another model its pattern prices needs a narrower pattern, not a new rate); a
-matchPattern changed with no ID moving to or from the row, as the worker picks rows,
-among the IDs a finding fixed or added is about, the dash spellings and host IDs priced
-another way, and the names of rows the edit adds (a new row prices its own name, so a
-pattern widened to match it does not take it over). A row problem fixed or added
-explains only what it is about: a pattern problem the pattern, a rate out of range that
-rate, and a cache read rate above the input rate those two rates. Each later row of a
-name listed twice is compared too, as "<name> (2)" and so on. A row named after a [1m]
-or host ID is checked only through that ID, so its own finding, or a host rate on that
-field, fixed or added explains its rates. --track leaves these out, as an open PR is
-judged by its findings. Pass the same saved --litellm, --modelsdev and --reviewed files
-to both runs, so only the price file differs between them. For the same reason, the
-second run judges which models are retired as of the baseline report's date, and
-reports that date.
+pointing at that report: the output lists the findings the edit fixes and any it adds. A
+flagged rate the edit changes to another value the catalogs disagree with is an add, not
+a fix. So is a row with a finding that the edit deletes, or stops comparing by changing
+its provider to one no catalog covers: that hides the finding. A Bedrock, Vertex AI or
+OpenRouter ID that a row newly prices is an add when every catalog that lists that exact
+ID charges other input or output rates, as Bedrock does for GovCloud and regional
+profiles. So is a dotted version's dash spelling that a row priced before the edit and
+none prices after it, such as grok-4-20 once a narrowed grok-4 row stops matching it.
+--track lists the same adds for each open PR. --baseline also lists each change to a row
+that no finding explains, as no catalog compares about a quarter of the rows and a rate
+changed inside the 3% tolerance shows no flag: a row removed or moved to another
+provider; a rate changed with no flag on that rate of that row, or of a dated snapshot
+or -latest alias it prices, fixed or added (another model its pattern prices needs a
+narrower pattern, not a new rate); a matchPattern change that moves no ID to or out of
+the row. An ID moves to the row when the worker newly picks the row for it, and out of
+it when the worker stops picking the row and the new pattern no longer matches it, or
+when narrowing the row fixes two rows matching it. The IDs that count are those a
+finding fixed or added is about, dash spellings and host IDs priced another way, and the
+names of rows the edit adds. A row problem fixed or added explains any new value of what
+it is about: a pattern problem the pattern, a rate out of range that rate, and a cache
+read rate above the input rate those two rates. Each later row of a name listed twice is
+compared too, as "<name> (2)" and so on; a row already named that fails the run. A row
+named after a [1m] or host ID is checked only through that ID, so its own finding, or a
+host rate on that field, fixed or added explains its rates. --track leaves these out, as
+an open PR is judged by its findings. Pass the same saved --litellm, --modelsdev and
+--reviewed files to both runs, so only the price file differs between them. For the same
+reason, the second run judges which models are retired as of the baseline report's date,
+and reports that date.
 
 Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
 catalog could not be loaded, a file's format changed, fewer than --min-compared rows could

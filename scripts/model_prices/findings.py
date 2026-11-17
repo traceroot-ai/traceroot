@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .catalogs import FIELD_LABELS, FIELDS, CheckError
-from .checks import lookup
+from .checks import _matches, lookup
 from .text import _amount, _catalog_amount, _join
 
 
@@ -162,13 +162,16 @@ def _unexplained(report: dict, after: dict) -> list[str]:
     giving the row that model's rate clears the flag but bills the row's own model at
     it. A row named after a [1m] or host ID that no catalog lists under it is checked
     only through that ID, so a change to it is explained when that ID's own finding, or a
-    host rate on that field, is fixed or added. A row problem fixed or added explains only
-    what it is about: a pattern problem the pattern, a rate out of range that rate, and a
-    cache read rate above the input rate those two rates. A matchPattern change is
-    otherwise explained only by an ID whose row, as the worker picks it (see lookup),
-    changes to or from this one: an ID a finding fixed or added is about, a dash spelling
-    or host ID priced another way, or the name of a row the edit adds. Rows the edit adds
-    are judged by their findings alone. Each later row of a name listed twice is compared
+    host rate on that field, is fixed or added. A row problem fixed or added explains any
+    new value of what it is about, as no catalog says which value is right: a pattern
+    problem the pattern, a rate out of range that rate, and a cache read rate above the
+    input rate those two rates. A matchPattern change is otherwise explained only by an
+    ID a finding fixed or added is about, a dash spelling or host ID priced another way,
+    or the name of a row the edit adds, and only when the ID moves to this row, as the
+    worker picks rows (see lookup), or the new pattern stops matching it and it moves
+    away or stops being matched by two rows. One such ID explains the whole change, so a
+    pattern that drops one ID and matches others still passes. Rows the edit adds are
+    judged by their findings alone. Each later row of a name listed twice is compared
     too, as "<name> (2)" and so on. No catalog compares about a quarter of the rows, and a
     rate changed inside the tolerance shows no flag, so without this an edit to either
     would pass unseen."""
@@ -218,6 +221,12 @@ def _unexplained(report: dict, after: dict) -> list[str]:
         }
     old_rows, new_rows = list(report["rows"].values()), list(after["rows"].values())
     candidates |= {row["modelName"] for row in new_rows} - {row["modelName"] for row in old_rows}
+    # The row the worker prices each candidate with, before and after.
+    picked = {
+        model_id: (lookup(old_rows, model_id), lookup(new_rows, model_id))
+        for model_id in candidates
+    }
+    overlaps = {key[1] for key in changed if key[0] == "overlap" and key in old_keys}
     lines = []
     for name, old in report["rows"].items():
         new = after["rows"].get(name)
@@ -235,13 +244,20 @@ def _unexplained(report: dict, after: dict) -> list[str]:
                 )
         # The worker prices a row's own name with that row, whatever the patterns, so a
         # name both files list never moves, and a new row's name moves to the new row,
-        # not to a pattern widened to match it.
+        # not to a pattern widened to match it. An ID that moves away explains the change
+        # only when the new pattern stops matching it: a new row that takes it over by name
+        # says nothing of the pattern. An overlap fixed that way needs no move, as the
+        # worker may have picked the other row.
         if (
             old["matchPattern"] != new["matchPattern"]
             and (name, "matchPattern") not in flags
             and not any(
-                (lookup(old_rows, model_id) is old) != (lookup(new_rows, model_id) is new)
-                for model_id in candidates
+                (old_pick is not old and new_pick is new)
+                or (old_pick is old and new_pick is not new and not _matches(new, model_id))
+                or (
+                    model_id in overlaps and _matches(old, model_id) and not _matches(new, model_id)
+                )
+                for model_id, (old_pick, new_pick) in picked.items()
             )
         ):
             lines.append(f"{name} matchPattern changed with no finding to fix")
