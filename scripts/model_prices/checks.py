@@ -348,30 +348,40 @@ def find_overlaps(
 
 def find_row_problems(rows: list[dict]) -> list[dict]:
     """Problems in the price file itself, found without a catalog, so rows no catalog
-    lists are checked too."""
+    lists are checked too. Each names, in fields, the parts of its row it is about."""
     problems = []
     seen: set[str] = set()
     for row in rows:
         name, pattern = row["modelName"], row["matchPattern"]
-        found = []
+        found: list[tuple[str, list[str]]] = []
         if name.lower() in seen:
-            found.append("modelName is listed twice")
+            found.append(("modelName is listed twice", []))
         seen.add(name.lower())
+        about_pattern = []
         if _compile(pattern) is None:
-            found.append("matchPattern does not compile, so the row matches its exact name only")
+            about_pattern.append(
+                "matchPattern does not compile, so the row matches its exact name only"
+            )
         else:
             if JS_INCOMPATIBLE.search(pattern):
-                found.append("matchPattern uses regex syntax the UI cannot read the same way")
+                about_pattern.append(
+                    "matchPattern uses regex syntax the UI cannot read the same way"
+                )
             if not _matches(row, name):
-                found.append("matchPattern does not match the row's own modelName")
+                about_pattern.append("matchPattern does not match the row's own modelName")
+        found += [(problem, ["matchPattern"]) for problem in about_pattern]
         rates = {field: _number(row["prices"].get(field)) for field in FIELDS}
         for field, rate in rates.items():
             if rate is not None and not 0 <= rate <= MAX_RATE:
-                found.append(f"{FIELD_LABELS[field]} rate is outside $0-$1,000 per 1M tokens")
+                found.append(
+                    (f"{FIELD_LABELS[field]} rate is outside $0-$1,000 per 1M tokens", [field])
+                )
         cache_read, input_ = rates["cacheRead"], rates["input"]
         if cache_read is not None and input_ is not None and cache_read > input_:
-            found.append("cache read rate is above the input rate")
-        problems += [{"row": name, "problem": problem} for problem in found]
+            found.append(("cache read rate is above the input rate", ["cacheRead", "input"]))
+        problems += [
+            {"row": name, "problem": problem, "fields": fields} for problem, fields in found
+        ]
     return problems
 
 
@@ -441,18 +451,21 @@ def build_report(
             kept.append(flag)
         else:
             left_as_is.append({**flag, "reason": entry["reason"], "pr": entry["pr"]})
-    # Each row as it was checked, so --baseline can list a change no finding shows. A
-    # name listed twice is the first row with it, the one the worker prices it with.
+    # Each row as it was checked, so --baseline can list a change no finding shows and
+    # price an ID as the worker does. The first row with a name, the one the worker
+    # prices that name with, goes under the name; each later one, whose pattern can still
+    # price other IDs, under "<name> (2)", "<name> (3)" and so on, in file order.
     checked: dict[str, dict] = {}
+    listed: dict[str, int] = {}
     for row in rows:
-        checked.setdefault(
-            row["modelName"],
-            {
-                "provider": row["provider"],
-                "matchPattern": row["matchPattern"],
-                "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
-            },
-        )
+        name = row["modelName"]
+        listed[name] = listed.get(name, 0) + 1
+        checked[name if listed[name] == 1 else f"{name} ({listed[name]})"] = {
+            "modelName": name,
+            "provider": row["provider"],
+            "matchPattern": row["matchPattern"],
+            "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
+        }
     return {
         "date": date,
         "status": "ok",

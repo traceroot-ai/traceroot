@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .catalogs import FIELD_LABELS, FIELDS, CheckError
-from .checks import _matches
+from .checks import lookup
 from .text import _amount, _catalog_amount, _join
 
 
@@ -162,12 +162,15 @@ def _unexplained(report: dict, after: dict) -> list[str]:
     giving the row that model's rate clears the flag but bills the row's own model at
     it. A row named after a [1m] or host ID that no catalog lists under it is checked
     only through that ID, so a change to it is explained when that ID's own finding, or a
-    host rate on that field, is fixed or added. A matchPattern change is explained when
-    the old or new pattern matches an ID that moved: one a finding fixed or added is
-    about, a dash spelling or host ID priced another way, or a row the edit adds. A row
-    problem fixed or added explains its row's rates and pattern. Rows the edit adds are
-    judged by their findings alone. No catalog compares about a quarter of the rows, and
-    a rate changed inside the tolerance shows no flag, so without this an edit to either
+    host rate on that field, is fixed or added. A row problem fixed or added explains only
+    what it is about: a pattern problem the pattern, a rate out of range that rate, and a
+    cache read rate above the input rate those two rates. A matchPattern change is
+    otherwise explained only by an ID whose row, as the worker picks it (see lookup),
+    changes to or from this one: an ID a finding fixed or added is about, a dash spelling
+    or host ID priced another way, or the name of a row the edit adds. Rows the edit adds
+    are judged by their findings alone. Each later row of a name listed twice is compared
+    too, as "<name> (2)" and so on. No catalog compares about a quarter of the rows, and a
+    rate changed inside the tolerance shows no flag, so without this an edit to either
     would pass unseen."""
     old_keys, new_keys = finding_keys(report), finding_keys(after)
     changed = {
@@ -198,19 +201,23 @@ def _unexplained(report: dict, after: dict) -> list[str]:
         for found in (report, after)
     )
     flags |= old_named ^ new_named
-    whole = {key[1] for key in changed if key[0] == "row"}
-    moved = {item["model"] for key, item in changed.items() if key[0] != "row"}
+    # A row problem names the rates, or the pattern, it is about.
+    flags |= {
+        (key[1], field)
+        for key, item in changed.items()
+        if key[0] == "row"
+        for field in item["fields"]
+    }
+    candidates = {item["model"] for key, item in changed.items() if key[0] != "row"}
     for name in ("dash_spellings", "host_rates"):
         was, now = report[name], after[name]
-        moved |= {
+        candidates |= {
             model_id
             for model_id in was.keys() | now.keys()
             if was.get(model_id) != now.get(model_id)
         }
-    moved |= after["rows"].keys() - report["rows"].keys()
-    # The worker prices a row's own name with that row, whatever the patterns, so a name
-    # both files list cannot have moved.
-    moved -= report["rows"].keys() & after["rows"].keys()
+    old_rows, new_rows = list(report["rows"].values()), list(after["rows"].values())
+    candidates |= {row["modelName"] for row in new_rows} - {row["modelName"] for row in old_rows}
     lines = []
     for name, old in report["rows"].items():
         new = after["rows"].get(name)
@@ -219,8 +226,6 @@ def _unexplained(report: dict, after: dict) -> list[str]:
             continue
         if new["provider"] != old["provider"]:
             lines.append(f"{name} provider changed")
-        if name in whole:
-            continue
         for field in FIELDS:
             was, now = old["prices"][field], new["prices"][field]
             if was != now and (name, field) not in flags:
@@ -228,8 +233,16 @@ def _unexplained(report: dict, after: dict) -> list[str]:
                     f"{name} {FIELD_LABELS[field]} rate changed with no finding to fix "
                     f"(ours {_amount(was)} → {_amount(now)})"
                 )
-        if old["matchPattern"] != new["matchPattern"] and not any(
-            _matches(row, model_id) for row in (old, new) for model_id in moved
+        # The worker prices a row's own name with that row, whatever the patterns, so a
+        # name both files list never moves, and a new row's name moves to the new row,
+        # not to a pattern widened to match it.
+        if (
+            old["matchPattern"] != new["matchPattern"]
+            and (name, "matchPattern") not in flags
+            and not any(
+                (lookup(old_rows, model_id) is old) != (lookup(new_rows, model_id) is new)
+                for model_id in candidates
+            )
         ):
             lines.append(f"{name} matchPattern changed with no finding to fix")
     return lines

@@ -73,14 +73,19 @@ compares about a quarter of the rows and a rate changed inside the 3% tolerance 
 flag: a row removed or moved to another provider; a rate changed with no flag on that
 rate of that row, or of a dated snapshot or -latest alias it prices, fixed or added
 (another model its pattern prices needs a narrower pattern, not a new rate); a
-matchPattern changed that matches no ID a finding fixed or added is about, no dash
-spelling or host ID priced another way, and no row the edit adds. A row problem fixed or
-added explains its row's rates and pattern. A row named after a [1m] or host ID is
-checked only through that ID, so its own finding, or a host rate on that field, fixed or
-added explains its rates. --track leaves these out, as an open PR is judged by its
-findings. Pass the same saved --litellm, --modelsdev and --reviewed files to both runs,
-so only the price file differs between them. For the same reason, the second run judges
-which models are retired as of the baseline report's date, and reports that date.
+matchPattern changed with no ID moving to or from the row, as the worker picks rows,
+among the IDs a finding fixed or added is about, the dash spellings and host IDs priced
+another way, and the names of rows the edit adds (a new row prices its own name, so a
+pattern widened to match it does not take it over). A row problem fixed or added
+explains only what it is about: a pattern problem the pattern, a rate out of range that
+rate, and a cache read rate above the input rate those two rates. Each later row of a
+name listed twice is compared too, as "<name> (2)" and so on. A row named after a [1m]
+or host ID is checked only through that ID, so its own finding, or a host rate on that
+field, fixed or added explains its rates. --track leaves these out, as an open PR is
+judged by its findings. Pass the same saved --litellm, --modelsdev and --reviewed files
+to both runs, so only the price file differs between them. For the same reason, the
+second run judges which models are retired as of the baseline report's date, and
+reports that date.
 
 Exit codes: 0 when a report was produced and none of the cases below applies. 1 when a
 catalog could not be loaded, a file's format changed, fewer than --min-compared rows could

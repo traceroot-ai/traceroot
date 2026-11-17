@@ -215,10 +215,12 @@ def test_baseline_exit_codes(run, tmp_path):
 
 
 # gpt-b's input rate is flagged, no catalog lists gpt-old, and gpt-big's input rate is a
-# per-million price. No catalog lists gpt-e either, but its pattern prices gpt-e-mini at
-# gpt-e's rates. claude-f's pattern prices claude-f-2 at claude-f's rates and misses
-# the Bedrock ID us.anthropic.claude-f. Only the host's rates check the GovCloud row: its
-# input is below the host's and its output matches. The [1m] row prices its ID for free.
+# per-million price. No catalog lists gpt-bad, whose pattern does not compile, or gpt-c,
+# whose cache read rate is above its input rate. No catalog lists gpt-e either, but its
+# pattern prices gpt-e-mini at gpt-e's rates. claude-f's pattern prices claude-f-2 at
+# claude-f's rates and misses the Bedrock ID us.anthropic.claude-f. No row prices
+# claude-k-6's dated snapshot. Only the host's rates check the GovCloud row: its input is
+# below the host's and its output matches. The [1m] row prices its ID for free.
 ROW_EDIT_LITELLM = {
     "gpt-a": ll_entry("openai"),
     "gpt-b": ll_entry("openai", input_=2e-6),
@@ -227,16 +229,20 @@ ROW_EDIT_LITELLM = {
     "claude-f-2": ll_entry("anthropic", input_=8e-6),
     "us.anthropic.claude-f": ll_entry("bedrock"),
     "claude-k-6": ll_entry("anthropic", input_=2e-6, output=1e-5),
+    "claude-k-6-20260101": ll_entry("anthropic", input_=2e-6, output=1e-5),
     "us-gov.anthropic.claude-k-6": ll_entry("bedrock_converse", input_=2.4e-6, output=1.2e-5),
     "claude-l": ll_entry("anthropic", max_input_tokens=1_000_000),
 }
 ONE_M = r"(?i)^claude-l\[1m\]$"
 GPT_E = r"(?i)^(openai\/)?gpt-e(-mini)?$"
+BROKEN = r"(?i)^(openai\/)?gpt-bad(-\d{4}$"
 ROW_EDIT_BEFORE = [
     row("gpt-a", "openai"),
     row("gpt-b", "openai"),
     row("gpt-old", "openai"),
     row("gpt-big", "openai", input_=2e-3),
+    row("gpt-bad", "openai", pattern=BROKEN),
+    row("gpt-c", "openai", cache_read=2e-6),
     row("gpt-e", "openai", pattern=GPT_E),
     row("claude-f", "anthropic", pattern=r"(?i)^claude-f(-[\d-]+)?$"),
     row("claude-k-6", "anthropic", input_=2e-6, output=1e-5),
@@ -304,6 +310,17 @@ def _gov(input_, output):
             ["gpt-b input rate (ours 1.00)"],
             ["gpt-b matchPattern changed with no finding to fix"],
         ),
+        (
+            # A row problem explains only the rates or pattern it is about.
+            {"gpt-big": row("gpt-big", "openai", input_=2e-6, output=2.05e-6)},
+            ["gpt-big: input rate is outside $0-$1,000 per 1M tokens"],
+            ["gpt-big output rate changed with no finding to fix (ours 2.00 → 2.05)"],
+        ),
+        (
+            {"gpt-bad": row("gpt-bad", "openai", input_=9e-4)},
+            ["gpt-bad: matchPattern does not compile, so the row matches its exact name only"],
+            ["gpt-bad input rate changed with no finding to fix (ours 1.00 → 900.00)"],
+        ),
         ({"gpt-old": None}, [], ["gpt-old row removed"]),
         (
             {"gpt-old": {**row("gpt-old", "openai"), "provider": "xai"}},
@@ -312,6 +329,16 @@ def _gov(input_, output):
         ),
         (
             {"gpt-a": row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a(-\d{4})?$")},
+            [],
+            ["gpt-a matchPattern changed with no finding to fix"],
+        ),
+        (
+            # The new row prices its own name, so no ID moves to the widened gpt-a, but any
+            # later ID the wider pattern matches, such as gpt-a-max, gets gpt-a's rates.
+            {
+                "gpt-a": row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a(-[a-z]+)?$"),
+                "gpt-a-pro": row("gpt-a-pro", "openai"),
+            },
             [],
             ["gpt-a matchPattern changed with no finding to fix"],
         ),
@@ -340,9 +367,12 @@ def _gov(input_, output):
         "inside-tolerance",
         "fix-and-another-field",
         "fix-and-pattern",
+        "row-problem-and-another-rate",
+        "pattern-fix-and-rate",
         "row-removed",
         "provider",
         "pattern-moves-nothing",
+        "new-row-the-pattern-matches",
         "host-id-row-still-wrong",
         "host-id-row-was-right",
     ],
@@ -390,6 +420,30 @@ def test_baseline_adds_a_row_change_no_finding_explains(run, tmp_path, edit, fix
             {"gpt-big": row("gpt-big", "openai", input_=2e-6)},
             ["gpt-big: input rate is outside $0-$1,000 per 1M tokens"],
         ),
+        (
+            {"gpt-bad": row("gpt-bad", "openai")},
+            ["gpt-bad: matchPattern does not compile, so the row matches its exact name only"],
+        ),
+        (
+            {"gpt-c": row("gpt-c", "openai", cache_read=1e-7)},
+            ["gpt-c: cache read rate is above the input rate"],
+        ),
+        (
+            {"gpt-c": row("gpt-c", "openai", input_=3e-6, cache_read=2e-6)},
+            ["gpt-c: cache read rate is above the input rate"],
+        ),
+        (
+            {
+                "claude-k-6": row(
+                    "claude-k-6",
+                    "anthropic",
+                    input_=2e-6,
+                    output=1e-5,
+                    pattern=r"(?i)^(anthropic\/)?claude-k-6(-\d{8})?$",
+                )
+            },
+            ["claude-k-6-20260101 not priced"],
+        ),
         ({"us-gov.anthropic.claude-k-6": _gov(2.4e-6, 1.2e-5)}, []),
         (
             {"claude-l[1m]": row("claude-l[1m]", "anthropic", pattern=ONE_M)},
@@ -402,6 +456,10 @@ def test_baseline_adds_a_row_change_no_finding_explains(run, tmp_path, edit, fix
         "new-row-and-narrowed-row",
         "row-split-off",
         "row-problem",
+        "pattern-problem",
+        "cache-read-lowered",
+        "input-raised",
+        "pattern-prices-unpriced-model",
         "host-id-row",
         "1m-row",
     ],
@@ -415,16 +473,34 @@ def test_baseline_passes_a_row_change_a_finding_explains(run, tmp_path, edit, fi
     assert report["baseline"] == {"fixes": fixes, "adds": []}
 
 
-def test_baseline_compares_a_name_listed_twice_by_its_first_row():
-    # The worker prices a name listed twice with its first row.
-    litellm = {"gpt-a": ll_entry("openai")}
-    before = [row("gpt-a", "openai"), row("gpt-old", "openai"), row("gpt-old", "openai")]
-    after = [before[0], row("gpt-old", "openai", input_=1e-4), before[2]]
+TWICE = [row("gpt-a", "openai"), row("gpt-a", "openai"), row("gpt-b", "openai")]
 
-    assert compare(before, after, litellm, md_catalog()) == {
-        "fixes": [],
-        "adds": ["gpt-old input rate changed with no finding to fix (ours 1.00 → 100.00)"],
-    }
+
+@pytest.mark.parametrize(
+    ("after", "add"),
+    [
+        (
+            [row("gpt-a", "openai", input_=1e-4), *TWICE[1:]],
+            "gpt-a input rate changed with no finding to fix (ours 1.00 → 100.00)",
+        ),
+        (
+            [TWICE[0], row("gpt-a", "openai", input_=1e-4), TWICE[2]],
+            "gpt-a (2) input rate changed with no finding to fix (ours 1.00 → 100.00)",
+        ),
+        (
+            [TWICE[0], row("gpt-a", "openai", pattern=r"(?i)^(openai\/)?gpt-a(-mini)?$"), TWICE[2]],
+            "gpt-a (2) matchPattern changed with no finding to fix",
+        ),
+    ],
+    ids=["first-row-rate", "second-row-rate", "second-row-pattern"],
+)
+def test_baseline_compares_every_row_of_a_name_listed_twice(after, add):
+    # The worker prices gpt-a with its first row, but the second row's pattern still
+    # prices other IDs, here gpt-a-mini. No catalog lists either, so only the baseline
+    # report's rows show these.
+    litellm = {"gpt-b": ll_entry("openai")}
+
+    assert compare(TWICE, after, litellm, md_catalog()) == {"fixes": [], "adds": [add]}
 
 
 @pytest.mark.parametrize(
