@@ -28,13 +28,13 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
     return (
       <Button
         ref={ref}
-        aria-label={props["aria-label"] ?? props.title ?? "Copy"}
-        title={props.title ?? props["aria-label"] ?? "Copy"}
         variant={variant}
         size={size}
         className={cn("h-7 w-7 p-0", className)}
         onClick={handleCopy}
         {...props}
+        aria-label={props["aria-label"] ?? props.title ?? "Copy"}
+        title={props.title ?? props["aria-label"] ?? "Copy"}
       >
         {copied ? (
           <Check className={cn("h-3.5 w-3.5 text-success", iconClassName)} />

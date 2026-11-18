@@ -166,7 +166,7 @@ export function CodeBlock({ label, value, mono = true, language }: CodeBlockProp
     <div className="overflow-hidden rounded-md border border-border">
       <div className="flex h-8 items-center justify-between border-b border-border px-4">
         <span className="text-[12px] text-muted-foreground">{label}</span>
-        <CopyButton aria-label="Copy code" value={value} className="h-7 w-7" />
+        <CopyButton aria-label={`Copy ${label} snippet`} value={value} className="h-7 w-7" />
       </div>
       <pre
         className={cn(
