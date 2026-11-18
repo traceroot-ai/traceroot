@@ -129,6 +129,12 @@
             ]
           },
           {
+            "group": "MCP",
+            "pages": [
+              "mcp/get-started"
+            ]
+          },
+          {
             "group": "Detectors",
             "pages": [
               "detectors/introduction"
