@@ -808,6 +808,16 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
+    ("claude-3-7-sonnet-20250219", "claude-3-7-sonnet"),
+    ("claude-3-7-sonnet-latest", "claude-3-7-sonnet"),
+    ("us.anthropic.claude-3-7-sonnet-20250219-v1:0", "claude-3-7-sonnet"),
+    ("claude-3-7-sonnet@20250219", "claude-3-7-sonnet"),
+    ("claude-opus-4-20250514", "claude-opus-4"),
+    ("claude-opus-4-0", "claude-opus-4"),
+    ("anthropic.claude-opus-4-20250514-v1:0", "claude-opus-4"),
+    ("claude-opus-4-1-20250805", "claude-opus-4-1"),
+    ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
+    ("claude-opus-4-1@20250805", "claude-opus-4-1"),
 ]
 
 
@@ -819,8 +829,7 @@ class TestClaudeBedrockAndVertexIds:
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
 
-        expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different family than {expected_name}"
         )
 
@@ -858,6 +867,9 @@ class TestClaudeBedrockAndVertexIds:
             ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-3-7-sonnet", (3e-6, 1.5e-5, 3e-7, 3.75e-6, 6e-6)),
+            ("claude-opus-4", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
+            ("claude-opus-4-1", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
         ],
     )
     def test_published_rates(self, model_name, rates):
@@ -1251,40 +1263,3 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
-
-
-CLAUDE_LEGACY_PUBLISHED_RATES = {
-    "claude-3-7-sonnet": (3.00, 15.00),
-    "claude-opus-4": (15.00, 75.00),
-    "claude-opus-4-1": (15.00, 75.00),
-}
-
-
-class TestClaudeLegacyModelIds:
-    @pytest.mark.parametrize(
-        "model_id,expected_name",
-        [
-            ("claude-3-7-sonnet-20250219", "claude-3-7-sonnet"),
-            ("claude-3-7-sonnet-latest", "claude-3-7-sonnet"),
-            ("us.anthropic.claude-3-7-sonnet-20250219-v1:0", "claude-3-7-sonnet"),
-            ("claude-3-7-sonnet@20250219", "claude-3-7-sonnet"),
-            ("claude-opus-4-20250514", "claude-opus-4"),
-            ("claude-opus-4-0", "claude-opus-4"),
-            ("anthropic.claude-opus-4-20250514-v1:0", "claude-opus-4"),
-            ("claude-opus-4-1-20250805", "claude-opus-4-1"),
-            ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
-            ("claude-opus-4-1@20250805", "claude-opus-4-1"),
-        ],
-    )
-    def test_matches_expected_model(self, real_cache, model_id, expected_name):
-        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
-            price = get_model_price(model_id)
-
-        assert price is not None, f"{model_id} should match a pricing entry but returned None"
-        assert price[MATCHED_MODEL_NAME] == expected_name
-
-    @pytest.mark.parametrize("model_name,rates", CLAUDE_LEGACY_PUBLISHED_RATES.items())
-    def test_input_and_output_match_published_rate(self, real_cache, model_name, rates):
-        entry = next(e for e in real_cache if e["model_name"] == model_name)
-        assert entry["prices"]["input"] == pytest.approx(rates[0] / 1e6)
-        assert entry["prices"]["output"] == pytest.approx(rates[1] / 1e6)
