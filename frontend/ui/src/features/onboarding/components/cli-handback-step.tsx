@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
 import { SectionLink } from "@/features/traces/components/GettingStarted/SectionLink";
+import { useSetupCommandCopied } from "@/features/traces/components/GettingStarted/use-setup-command-copied";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -71,6 +72,7 @@ export function CliHandbackStep({
   onSkip,
 }: CliHandbackStepProps) {
   const setup = setupCommand({ projectId });
+  const onCommandCopied = useSetupCommandCopied(projectId, "onboarding");
 
   return (
     <div className="flex flex-col gap-3">
@@ -99,7 +101,7 @@ export function CliHandbackStep({
             </p>
           </div>
 
-          <CodeBlock label="terminal" value={setup.command} />
+          <CodeBlock label="terminal" value={setup.command} onCopy={onCommandCopied} />
         </>
       ) : (
         <div>

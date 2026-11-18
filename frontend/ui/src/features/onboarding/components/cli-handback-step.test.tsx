@@ -1,14 +1,22 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
 import { CliHandbackStep } from "./cli-handback-step";
+
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 
 vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a href={href}>{children}</a>
   ),
 }));
+
+/** jsdom has no clipboard, so each copy test states what the browser does with the write. */
+function stubClipboard(writeText: (text: string) => Promise<void>) {
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+}
 
 function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = {}) {
   const onSetUpManually = vi.fn();
@@ -58,6 +66,42 @@ afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
   vi.resetModules();
+  capture.mockReset();
+  Reflect.deleteProperty(navigator, "clipboard");
+});
+
+describe("CliHandbackStep copy tracking", () => {
+  it("records the copy once the command is on the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy terminal snippet" }));
+
+    await waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("setup --project proj-1"));
+    expect(capture).toHaveBeenCalledWith("setup_command_copied", {
+      project_id: "proj-1",
+      surface: "onboarding",
+    });
+  });
+
+  it("records nothing when the browser refuses the copy", async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")));
+    renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy terminal snippet" }));
+
+    // The button's error is shown only after the rejected write was handled, so by
+    // then a recorded copy would already have happened.
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not copy");
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("records nothing until the command is copied", () => {
+    renderStep();
+    expect(capture).not.toHaveBeenCalled();
+  });
 });
 
 describe("CliHandbackStep", () => {
