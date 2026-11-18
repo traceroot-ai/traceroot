@@ -89,6 +89,7 @@ describe("runJevDetection", () => {
     });
     expect(result).toMatchObject({
       inferenceCost: 0,
+      inferenceSingleCall: true,
       inferenceInputTokens: 810,
       inferenceOutputTokens: 63,
       inferenceSource: "byok",

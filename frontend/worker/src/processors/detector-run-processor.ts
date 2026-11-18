@@ -98,23 +98,50 @@ export interface ScanUsage {
   inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
+  /** The eval already priced each attempt. Do not price the summed counts. */
+  inferenceCatalogPriced?: boolean;
+  /** These counts are one call. A sum must stay on the short card. */
+  inferenceSingleCall?: boolean;
+  inferenceCacheReadTokens?: number;
+  inferenceCacheWriteTokens?: number;
+  inferenceCacheWrite1hTokens?: number;
 }
 
 async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
+  const cacheRead = usage.inferenceCacheReadTokens ?? 0;
+  const cacheWrite = usage.inferenceCacheWriteTokens ?? 0;
+  const cacheWrite1h = usage.inferenceCacheWrite1hTokens ?? 0;
   if (
     usage.inferenceCost > 0 ||
+    usage.inferenceCatalogPriced ||
     !usage.inferenceModel ||
-    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
+    usage.inferenceInputTokens + usage.inferenceOutputTokens + cacheRead + cacheWrite <= 0
   ) {
     return usage.inferenceCost;
   }
 
   try {
-    const fallback = await calculateCost(
-      usage.inferenceModel,
-      usage.inferenceInputTokens,
-      usage.inferenceOutputTokens,
-    );
+    // Anything still unpriced here is a sum, unless the eval said it was one call.
+    // Two short attempts must not become one long prompt when the per-attempt
+    // lookup failed and this fallback is the retry.
+    const fallback = usage.inferenceSingleCall
+      ? await calculateCost(
+          usage.inferenceModel,
+          usage.inferenceInputTokens,
+          usage.inferenceOutputTokens,
+          cacheRead,
+          cacheWrite,
+          cacheWrite1h,
+        )
+      : await calculateCost(
+          usage.inferenceModel,
+          usage.inferenceInputTokens,
+          usage.inferenceOutputTokens,
+          cacheRead,
+          cacheWrite,
+          cacheWrite1h,
+          { longContext: false },
+        );
     return fallback > 0 ? fallback : usage.inferenceCost;
   } catch (err) {
     console.error(
@@ -141,7 +168,13 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
  * denominator) when its latest version completed OR used inference.
  */
 function recordedInferenceUsage(usage: ScanUsage): boolean {
-  return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
+  return (
+    usage.inferenceInputTokens +
+      usage.inferenceOutputTokens +
+      (usage.inferenceCacheReadTokens ?? 0) +
+      (usage.inferenceCacheWriteTokens ?? 0) >
+    0
+  );
 }
 
 interface SingleDetectorOutcome {
@@ -268,6 +301,11 @@ async function runSingleDetector(params: {
     inferenceSource: result.inferenceSource,
     inferenceModel: result.inferenceModel,
     inferenceProvider: result.inferenceProvider,
+    inferenceCatalogPriced: result.inferenceCatalogPriced,
+    inferenceSingleCall: result.inferenceSingleCall,
+    inferenceCacheReadTokens: result.inferenceCacheReadTokens,
+    inferenceCacheWriteTokens: result.inferenceCacheWriteTokens,
+    inferenceCacheWrite1hTokens: result.inferenceCacheWrite1hTokens,
   };
 
   if (!result.identified) {
