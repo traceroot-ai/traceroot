@@ -102,6 +102,8 @@ import {
   TRACE_COUNT_CLAIM_LEASE_MS,
 } from "./trace-count";
 
+const reportAt = (at: Date) => reportDailyTraceCounts(() => at);
+
 const NOV_18 = new Date("2026-11-18T09:00:00Z");
 const NOV_18_DAY = new Date("2026-11-18T00:00:00Z");
 const NOV_19 = new Date("2026-11-19T00:15:00Z");
@@ -141,7 +143,7 @@ describe("reportDailyTraceCounts", () => {
     workspace("ws_3", "user_ada", 7);
     workspace("ws_4", "user_lin"); // usage not written yet
 
-    expect(await reportDailyTraceCounts(NOV_18)).toEqual({ kind: "sent", sent: 3, remaining: 0 });
+    expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 3, remaining: 0 });
     expect(sent()).toEqual([
       ["user_sam", 150],
       ["user_ada", 7],
@@ -161,7 +163,7 @@ describe("reportDailyTraceCounts", () => {
       { workspaceId: "ws_legacy", userId: "user_ada", role: "ADMIN", createTime: new Date(2) },
     );
 
-    await reportDailyTraceCounts(NOV_18);
+    await reportAt(NOV_18);
 
     expect(sent()).toEqual([["user_ada", 42]]);
   });
@@ -171,7 +173,7 @@ describe("reportDailyTraceCounts", () => {
     workspace("ws_demo", "user_sam", 1000);
     workspace("ws_1", "user_sam", 5);
 
-    await reportDailyTraceCounts(NOV_18);
+    await reportAt(NOV_18);
 
     expect(sent()).toEqual([["user_sam", 5]]);
   });
@@ -179,7 +181,7 @@ describe("reportDailyTraceCounts", () => {
   it("skips an owner whose user no longer exists", async () => {
     workspace("ws_orphan", "user_gone", 9);
 
-    await reportDailyTraceCounts(NOV_18);
+    await reportAt(NOV_18);
 
     expect(sent()).toEqual([]);
     expect(db.tables.onboarding).toEqual([]);
@@ -188,13 +190,13 @@ describe("reportDailyTraceCounts", () => {
   it("sends each person once per UTC day, however often the tick runs", async () => {
     workspace("ws_1", "user_sam", 10);
 
-    await reportDailyTraceCounts(NOV_18);
-    expect(await reportDailyTraceCounts(later(10 * 60_000))).toEqual({
+    await reportAt(NOV_18);
+    expect(await reportAt(later(10 * 60_000))).toEqual({
       kind: "sent",
       sent: 0,
       remaining: 0,
     });
-    await reportDailyTraceCounts(NOV_19);
+    await reportAt(NOV_19);
 
     expect(sent()).toEqual([
       ["user_sam", 10],
@@ -212,7 +214,7 @@ describe("reportDailyTraceCounts", () => {
       for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    await Promise.all([reportDailyTraceCounts(NOV_18), reportDailyTraceCounts(later(1))]);
+    await Promise.all([reportAt(NOV_18), reportAt(later(1))]);
 
     expect(sent().sort()).toEqual([
       ["user_ada", 20],
@@ -221,11 +223,32 @@ describe("reportDailyTraceCounts", () => {
     ]);
   });
 
+  it("keeps the second owner's claim live when the first send took longer than a lease", async () => {
+    workspace("ws_1", "user_sam", 10);
+    workspace("ws_2", "user_ada", 20);
+    let now = NOV_18;
+    analytics.sendServerPersonProperties
+      .mockImplementationOnce(async () => {
+        now = later(TRACE_COUNT_CLAIM_LEASE_MS + 1);
+      })
+      .mockImplementationOnce(async () => {
+        // The overlapping tick arrives while the second send is in flight.
+        await reportAt(now);
+      });
+
+    await reportDailyTraceCounts(() => now);
+
+    expect(sent()).toEqual([
+      ["user_sam", 10],
+      ["user_ada", 20],
+    ]);
+  });
+
   it("skips a person another tick is sending right now", async () => {
     workspace("ws_1", "user_sam", 10);
     db.tables.onboarding.push({ userId: "user_sam", traceCountClaimedAt: later(-30_000) });
 
-    expect(await reportDailyTraceCounts(NOV_18)).toEqual({ kind: "sent", sent: 0, remaining: 1 });
+    expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 0, remaining: 1 });
     expect(sent()).toEqual([]);
   });
 
@@ -236,7 +259,7 @@ describe("reportDailyTraceCounts", () => {
       traceCountClaimedAt: later(-TRACE_COUNT_CLAIM_LEASE_MS - 1),
     });
 
-    await reportDailyTraceCounts(NOV_18);
+    await reportAt(NOV_18);
 
     expect(sent()).toEqual([["user_sam", 10]]);
     expect(row("user_sam")).toMatchObject({
@@ -254,14 +277,14 @@ describe("reportDailyTraceCounts", () => {
       .mockRejectedValueOnce(new Error("PostHog unavailable"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    expect(await reportDailyTraceCounts(NOV_18)).toEqual({ kind: "sent", sent: 1, remaining: 2 });
+    expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 1, remaining: 2 });
     expect(row("user_ada")).toMatchObject({
       traceCountReportedOn: null,
       traceCountClaimedAt: null,
     });
     expect(row("user_lin")).toBeUndefined();
 
-    await reportDailyTraceCounts(later(15 * 60_000));
+    await reportAt(later(15 * 60_000));
     expect(sent()).toEqual([
       ["user_sam", 10],
       ["user_ada", 20], // the failed attempt
@@ -277,8 +300,8 @@ describe("reportDailyTraceCounts", () => {
     // Tick A claimed Sam and died before its send reached PostHog.
     db.tables.onboarding.push({ userId: "user_sam", traceCountClaimedAt: NOV_18 });
 
-    await reportDailyTraceCounts(later(10_000)); // tick B, overlapping A
-    await reportDailyTraceCounts(later(TRACE_COUNT_CLAIM_LEASE_MS + 60_000)); // A, retried
+    await reportAt(later(10_000)); // tick B, overlapping A
+    await reportAt(later(TRACE_COUNT_CLAIM_LEASE_MS + 60_000)); // A, retried
 
     expect(sent().sort()).toEqual([
       ["user_ada", 20],
@@ -291,7 +314,7 @@ describe("reportDailyTraceCounts", () => {
     workspace("ws_1", "user_sam", 10);
     db.tables.onboarding.push({ userId: "user_sam", lastActiveDay: NOV_18_DAY });
 
-    await reportDailyTraceCounts(NOV_18);
+    await reportAt(NOV_18);
 
     expect(sent()).toEqual([["user_sam", 10]]);
     expect(row("user_sam")).toMatchObject({
@@ -307,12 +330,12 @@ describe("reportDailyTraceCounts", () => {
       workspace(`ws_${i}`, `user_${i}`, i);
     }
 
-    expect(await reportDailyTraceCounts(NOV_18)).toEqual({
+    expect(await reportAt(NOV_18)).toEqual({
       kind: "sent",
       sent: TRACE_COUNT_BATCH_SIZE,
       remaining: extra,
     });
-    expect(await reportDailyTraceCounts(later(15 * 60_000))).toEqual({
+    expect(await reportAt(later(15 * 60_000))).toEqual({
       kind: "sent",
       sent: extra,
       remaining: 0,
@@ -324,7 +347,7 @@ describe("reportDailyTraceCounts", () => {
     analytics.enabled = false;
     workspace("ws_1", "user_sam", 10);
 
-    expect(await reportDailyTraceCounts(NOV_18)).toEqual({ kind: "analytics_off" });
+    expect(await reportAt(NOV_18)).toEqual({ kind: "analytics_off" });
     expect(db.tables.onboarding).toEqual([]);
     expect(sent()).toEqual([]);
   });

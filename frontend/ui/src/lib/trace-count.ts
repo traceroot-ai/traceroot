@@ -37,11 +37,13 @@ export type TraceCountRun =
       remaining: number;
     };
 
-export async function reportDailyTraceCounts(now: Date = new Date()): Promise<TraceCountRun> {
+export async function reportDailyTraceCounts(
+  clock: () => Date = () => new Date(),
+): Promise<TraceCountRun> {
   // Nowhere to send the property: claiming people for the day would only write rows.
   if (!isServerAnalyticsEnabled()) return { kind: "analytics_off" };
 
-  const today = utcDay(now);
+  const today = utcDay(clock());
   const counts = await traceCountsByOwner();
   const doneToday = await prisma.userOnboarding.findMany({
     where: { traceCountReportedOn: today },
@@ -53,15 +55,16 @@ export async function reportDailyTraceCounts(now: Date = new Date()): Promise<Tr
   let sent = 0;
   for (const [userId, traceCount] of due.slice(0, TRACE_COUNT_BATCH_SIZE)) {
     // Another tick may hold this person, or have finished them since the read above.
-    if (!(await claim(userId, today, now))) continue;
+    const claimedAt = clock();
+    if (!(await claim(userId, today, claimedAt))) continue;
     try {
       await sendServerPersonProperties(userId, { trace_count: traceCount });
     } catch (err) {
-      await release(userId, now);
+      await release(userId, claimedAt);
       console.error("[trace-count] PostHog did not accept a count; ending this tick:", err);
       break;
     }
-    await markSent(userId, today, now);
+    await markSent(userId, today, claimedAt);
     sent += 1;
   }
   return { kind: "sent", sent, remaining: due.length - sent };
