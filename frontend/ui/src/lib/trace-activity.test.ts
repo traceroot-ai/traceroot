@@ -19,19 +19,28 @@ const db = vi.hoisted(() => {
     tracking: [] as Row[],
   };
 
-  /** Equality, null, `lt`, `gte` and `OR`: the conditions the module writes. */
+  const sameTime = (a: unknown, b: Date) => a instanceof Date && a.getTime() === b.getTime();
+
+  /** Equality, null, `lt`, `gt`, `gte`, `has`, `OR` and `NOT`: the conditions the module writes. */
   function matches(row: Row, where: Row): boolean {
     return Object.entries(where).every(([key, condition]) => {
       if (key === "OR") return (condition as Row[]).some((c) => matches(row, c));
+      if (key === "NOT")
+        return ([] as Row[]).concat(condition as Row).every((c) => !matches(row, c));
       const value = row[key] ?? null;
       if (condition === null) return value === null;
-      if (condition instanceof Date) {
-        return value instanceof Date && value.getTime() === condition.getTime();
-      }
+      if (condition instanceof Date) return sameTime(value, condition);
       if (typeof condition === "object") {
-        const { lt, gte } = condition as { lt?: Date; gte?: number };
+        const { lt, gt, gte, has } = condition as {
+          lt?: Date;
+          gt?: Date;
+          gte?: number;
+          has?: Date;
+        };
         if (lt !== undefined) return value instanceof Date && value.getTime() < lt.getTime();
+        if (gt !== undefined) return value instanceof Date && value.getTime() > gt.getTime();
         if (gte !== undefined) return typeof value === "number" && value >= gte;
+        if (has !== undefined) return Array.isArray(value) && value.some((v) => sameTime(v, has));
       }
       return value === condition;
     });
@@ -39,8 +48,11 @@ const db = vi.hoisted(() => {
 
   function apply(row: Row, data: Row) {
     for (const [key, value] of Object.entries(data)) {
-      const increment = (value as { increment?: number } | null)?.increment;
-      row[key] = increment === undefined ? value : (row[key] as number) + increment;
+      const { increment, push } = (value ?? {}) as { increment?: number; push?: unknown };
+      if (increment !== undefined) row[key] = (row[key] as number) + increment;
+      else if (push !== undefined)
+        row[key] = [...((row[key] as unknown[] | undefined) ?? []), push];
+      else row[key] = value;
     }
   }
 
@@ -97,7 +109,13 @@ const db = vi.hoisted(() => {
         if (tables.onboarding.some((row) => row.userId === data.userId)) {
           throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
         }
-        const row = { lastActiveDay: null, activeDaysFirstWeek: 0, activeWeekAt: null, ...data };
+        const row = {
+          lastActiveDay: null,
+          countedDays: [],
+          activeDaysFirstWeek: 0,
+          activeWeekAt: null,
+          ...data,
+        };
         tables.onboarding.push(row);
         return row;
       }),
@@ -137,6 +155,7 @@ vi.mock("@/lib/first-trace-backfill", async (importOriginal) => ({
 }));
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "internal-test-secret" } }));
 
+import { utcDay } from "@/lib/utc-day";
 import {
   ACTIVE_FIRST_WEEK_DAYS,
   recordTraceActivity,
@@ -314,6 +333,11 @@ describe("an active first week", () => {
     db.tables.onboarding.push({
       userId: "user_sam",
       lastActiveDay: new Date("2026-11-12T00:00:00Z"),
+      countedDays: [
+        new Date("2026-11-10T00:00:00Z"),
+        new Date("2026-11-11T00:00:00Z"),
+        new Date("2026-11-12T00:00:00Z"),
+      ],
       activeDaysFirstWeek: ACTIVE_FIRST_WEEK_DAYS,
       activeWeekAt: null,
     });
@@ -323,6 +347,99 @@ describe("an active first week", () => {
 
     expect(sameDay).toMatchObject({ activeDayCounted: false, activeFirstWeek: true });
     expect(events("active_first_week")).toHaveLength(1);
+  });
+});
+
+describe("the day a report counts", () => {
+  /** Midnight UTC of day n of Sam's first week, as the worker reports a day. */
+  const day = (n: number) => utcDay(at(n));
+  const counted = () => db.tables.onboarding[0]?.activeDaysFirstWeek;
+
+  it("is the day the traces were received, which a retry past midnight keeps", async () => {
+    // Traces on day 0; their report kept failing until half a minute after midnight.
+    const late = await recordTraceActivity("proj_a", at(1, "00:00:30"), day(0));
+    const next = await recordTraceActivity("proj_a", at(1), day(1));
+
+    expect([late, next].map(dayCounted)).toEqual([true, true]);
+    expect(db.tables.onboarding[0]).toMatchObject({
+      activeDaysFirstWeek: 2,
+      lastActiveDay: day(1),
+      countedDays: [day(0), day(1)],
+    });
+  });
+
+  it("counts two days once each when the later day's report arrives first", async () => {
+    const outcomes = [
+      await recordTraceActivity("proj_a", at(2), day(2)),
+      // A batch from day 1 that waited in the queue, or a report retried for a day.
+      await recordTraceActivity("proj_b", at(2, "12:01:00"), day(1)),
+    ];
+
+    expect(outcomes.map(dayCounted)).toEqual([true, true]);
+    expect(db.tables.onboarding[0]).toMatchObject({
+      activeDaysFirstWeek: 2,
+      lastActiveDay: day(2),
+    });
+  });
+
+  it("counts a repeated report for either day once", async () => {
+    const outcomes: TraceActivityOutcome[] = [];
+    for (const n of [2, 1, 1, 2, 1]) {
+      outcomes.push(await recordTraceActivity("proj_a", at(2), day(n)));
+    }
+
+    expect(outcomes.map(dayCounted)).toEqual([true, true, false, false, false]);
+    expect(counted()).toBe(2);
+  });
+
+  it("counts each day once when reports for two days arrive together", async () => {
+    const outcomes = await Promise.all([
+      recordTraceActivity("proj_a", at(2), day(2)),
+      recordTraceActivity("proj_b", at(2), day(1)),
+      recordTraceActivity("proj_a", at(2), day(1)),
+      recordTraceActivity("proj_b", at(2), day(2)),
+    ]);
+
+    expect(outcomes.filter(dayCounted)).toHaveLength(2);
+    expect(counted()).toBe(2);
+  });
+
+  it("does not count again the latest day a receiver without the list of days counted", async () => {
+    // The row as a receiver from before the list leaves it during a rollout.
+    db.tables.onboarding.push({
+      userId: "user_sam",
+      lastActiveDay: day(1),
+      countedDays: [],
+      activeDaysFirstWeek: 1,
+      activeWeekAt: null,
+    });
+
+    const outcomes = [
+      await recordTraceActivity("proj_a", at(1), day(1)),
+      await recordTraceActivity("proj_a", at(2), day(0)),
+    ];
+
+    expect(outcomes.map(dayCounted)).toEqual([false, true]);
+    expect(db.tables.onboarding[0]).toMatchObject({
+      activeDaysFirstWeek: 2,
+      lastActiveDay: day(1),
+    });
+  });
+
+  it("is the day the report arrives when the worker sends none", async () => {
+    await recordTraceActivity("proj_a", at(3));
+
+    expect(db.tables.onboarding[0]).toMatchObject({ lastActiveDay: day(3), countedDays: [day(3)] });
+  });
+
+  it("counts nothing for a reported day outside the owner's first week", async () => {
+    const outcomes = [
+      await recordTraceActivity("proj_a", at(0), day(-1)), // the day before sign-up
+      await recordTraceActivity("proj_a", at(8), day(7)), // the day after the week
+    ];
+
+    expect(outcomes.map(dayCounted)).toEqual([false, false]);
+    expect(db.tables.onboarding).toEqual([]);
   });
 });
 

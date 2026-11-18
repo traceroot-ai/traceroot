@@ -14,9 +14,12 @@
  *   store without an event (lib/first-trace-backfill.ts). A report that needs the
  *   cutoff before any is recorded is refused; the worker records its start and
  *   retries.
- * - The days in the owner's first week on which traces arrived. A UTC day counts
- *   once, on the first report that day from any of the owner's projects. The week
- *   is the owner's sign-up day and the six days after it.
+ * - The days in the owner's first week on which traces arrived. The day is the UTC
+ *   day the API received the batch, which the worker keeps through queueing and
+ *   retries, so a report that arrives after midnight still counts the day before.
+ *   Each day counts once, from any of the owner's projects, whatever order the
+ *   reports for different days arrive in. The week is the owner's sign-up day and
+ *   the six days after it.
  * - An active first week, `active_first_week`: sent once, by the call that finds
  *   the threshold reached and marks it.
  *
@@ -56,9 +59,14 @@ export type TraceActivityOutcome =
       activeFirstWeek: boolean;
     };
 
+/**
+ * Records one report. `day` is midnight UTC of the day the traces were received, as
+ * the worker reports it; a report without one counts the day it arrives.
+ */
 export async function recordTraceActivity(
   projectId: string,
   now: Date = new Date(),
+  day: Date = utcDay(now),
 ): Promise<TraceActivityOutcome> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, deleteTime: null },
@@ -86,7 +94,9 @@ export async function recordTraceActivity(
     trackingStart !== null && (await recordFirstTrace(projectId, trackingStart, now));
   if (firstTrace && ownerId) captureServerEvent(ownerId, "first_trace_received", properties);
 
-  const week = ownerId ? await countFirstWeekDay(ownerId, now) : { counted: false, active: false };
+  const week = ownerId
+    ? await countFirstWeekDay(ownerId, utcDay(day), now)
+    : { counted: false, active: false };
   if (week.active && ownerId) captureServerEvent(ownerId, "active_first_week", properties);
 
   return {
@@ -140,16 +150,16 @@ async function earliestAdmin(workspaceId: string): Promise<string | null> {
 
 async function countFirstWeekDay(
   userId: string,
+  day: Date,
   now: Date,
 ): Promise<{ counted: boolean; active: boolean }> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { createdAt: true } });
   if (!user) return { counted: false, active: false };
 
-  const today = utcDay(now);
-  const dayOfWeek = Math.round((today.getTime() - utcDay(user.createdAt).getTime()) / DAY_MS);
+  const dayOfWeek = Math.round((day.getTime() - utcDay(user.createdAt).getTime()) / DAY_MS);
   if (dayOfWeek < 0 || dayOfWeek >= FIRST_WEEK_DAYS) return { counted: false, active: false };
 
-  const counted = await countDay(userId, today);
+  const counted = await countDay(userId, day);
   // Tried on every report in the week, not only the one that counted the third
   // day, so a call that stopped between the two writes is finished by the next.
   const { count } = await prisma.userOnboarding.updateMany({
@@ -159,32 +169,43 @@ async function countFirstWeekDay(
   return { counted, active: count === 1 };
 }
 
-/** Counts `today` for the user unless it is already counted; true when this call counted it. */
-async function countDay(userId: string, today: Date): Promise<boolean> {
-  const notCountedToday = {
-    userId,
-    OR: [{ lastActiveDay: null }, { lastActiveDay: { lt: today } }],
-  };
-  const countToday = { lastActiveDay: today, activeDaysFirstWeek: { increment: 1 } };
-
-  if (
-    (await prisma.userOnboarding.updateMany({ where: notCountedToday, data: countToday })).count
-  ) {
-    return true;
-  }
+/**
+ * Counts `day` for the user unless it is already counted; true when this call counted it.
+ *
+ * The counted days are kept as a list, so a report that arrives after a later day's
+ * (a retry past midnight, a batch that waited in the queue) still counts its day
+ * once. `lastActiveDay` stays the latest day counted: it is all a receiver from
+ * before the list checks, so the two can run side by side during a rollout, and a
+ * day equal to it is never counted again.
+ */
+async function countDay(userId: string, day: Date): Promise<boolean> {
+  if (await addDay(userId, day)) return true;
   try {
     await prisma.userOnboarding.create({
-      data: { userId, lastActiveDay: today, activeDaysFirstWeek: 1 },
+      data: { userId, lastActiveDay: day, countedDays: [day], activeDaysFirstWeek: 1 },
     });
     return true;
   } catch (err) {
     if (!isPrismaKnownError(err, "P2002")) throw err;
   }
-  // The row exists: either today is already counted, or another report created
-  // the row a moment ago. The conditional update tells the two apart.
-  const { count } = await prisma.userOnboarding.updateMany({
-    where: notCountedToday,
-    data: countToday,
+  // The row exists: either the day is already counted, or another report created
+  // the row a moment ago. The conditional updates tell the two apart.
+  return addDay(userId, day);
+}
+
+/** Adds `day` to the user's counted days unless it is there; true when this call added it. */
+async function addDay(userId: string, day: Date): Promise<boolean> {
+  const notCounted = { userId, NOT: { countedDays: { has: day } } };
+  const countIt = { countedDays: { push: day }, activeDaysFirstWeek: { increment: 1 } };
+  // The latest day so far moves lastActiveDay on; an earlier one leaves it.
+  const latest = await prisma.userOnboarding.updateMany({
+    where: { ...notCounted, OR: [{ lastActiveDay: null }, { lastActiveDay: { lt: day } }] },
+    data: { ...countIt, lastActiveDay: day },
   });
-  return count === 1;
+  if (latest.count === 1) return true;
+  const earlier = await prisma.userOnboarding.updateMany({
+    where: { ...notCounted, lastActiveDay: { gt: day } },
+    data: countIt,
+  });
+  return earlier.count === 1;
 }

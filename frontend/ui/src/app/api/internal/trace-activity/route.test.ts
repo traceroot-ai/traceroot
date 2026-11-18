@@ -30,7 +30,7 @@ import { POST } from "./route";
  */
 const exampleRequest = JSON.parse(
   readFileSync(join(__dirname, "request.example.json"), "utf8"),
-) as { projectId: string };
+) as { projectId: string; day: string };
 
 function makeRequest(body: unknown | (() => Promise<unknown>)) {
   const json = typeof body === "function" ? body : async () => body;
@@ -48,17 +48,33 @@ beforeEach(() => {
 });
 
 describe("POST /api/internal/trace-activity", () => {
-  it("records the project named in the worker's example request", async () => {
+  it("records the project and the day named in the worker's example request", async () => {
     const response = await POST(makeRequest(exampleRequest));
 
     expect(response.status).toBe(200);
-    expect(recordTraceActivityMock).toHaveBeenCalledWith(exampleRequest.projectId);
+    expect(recordTraceActivityMock).toHaveBeenCalledWith(
+      exampleRequest.projectId,
+      expect.any(Date),
+      new Date(`${exampleRequest.day}T00:00:00.000Z`),
+    );
     expect(await response.json()).toEqual({
       recorded: true,
       firstTrace: true,
       activeDayCounted: true,
       activeFirstWeek: false,
     });
+  });
+
+  it("leaves the day to the time the report arrives for a worker that sends none", async () => {
+    // A worker from before reports carried the day.
+    const response = await POST(makeRequest({ projectId: exampleRequest.projectId }));
+
+    expect(response.status).toBe(200);
+    expect(recordTraceActivityMock).toHaveBeenCalledWith(
+      exampleRequest.projectId,
+      expect.any(Date),
+      undefined,
+    );
   });
 
   it("rejects a caller without the internal secret before recording anything", async () => {
@@ -74,6 +90,9 @@ describe("POST /api/internal/trace-activity", () => {
     ["a body that is not JSON", () => Promise.reject(new SyntaxError("bad json")), "Invalid JSON"],
     ["a missing project id", {}, "projectId is required"],
     ["an empty project id", { projectId: "" }, "projectId is required"],
+    ["a day that does not exist", { projectId: "p", day: "2026-11-31" }, "day must be YYYY-MM-DD"],
+    ["a day that is not a date", { projectId: "p", day: "18 November" }, "day must be YYYY-MM-DD"],
+    ["a day that is not a string", { projectId: "p", day: 20261118 }, "day must be YYYY-MM-DD"],
   ])("answers 400 to %s", async (_, body, error) => {
     const response = await POST(makeRequest(body));
 

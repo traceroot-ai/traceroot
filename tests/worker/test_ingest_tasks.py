@@ -1,5 +1,6 @@
 """Unit tests for Celery task logic with mocked S3 + ClickHouse."""
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -150,12 +151,38 @@ class TestProcessS3TracesReportsTraceActivity:
     ):
         order = []
         mock_ch.insert_spans_batch.side_effect = lambda *a: order.append("spans written")
-        mock_trace_activity.side_effect = lambda project_id: order.append(f"report {project_id}")
+        mock_trace_activity.side_effect = lambda project_id, received_at: order.append(
+            f"report {project_id}"
+        )
         mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
 
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         assert order == ["spans written", "report proj-1"]
+
+    def test_reports_the_time_the_api_received_the_batch(
+        self, mock_s3, mock_ch, mock_trace_activity
+    ):
+        # Received just before midnight, processed after it: the report is for the
+        # day the traces arrived.
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+
+        process_s3_traces(
+            s3_key="test/key.json", project_id="proj-1", received_at="2026-11-17T23:59:50+00:00"
+        )
+
+        mock_trace_activity.assert_called_once_with(
+            "proj-1", datetime(2026, 11, 17, 23, 59, 50, tzinfo=UTC)
+        )
+
+    def test_a_batch_queued_without_a_receive_time_is_reported_without_one(
+        self, mock_s3, mock_ch, mock_trace_activity
+    ):
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_trace_activity.assert_called_once_with("proj-1", None)
 
     def test_no_report_for_a_batch_without_spans(self, mock_s3, mock_ch, mock_trace_activity):
         mock_s3.download_json.return_value = {"resourceSpans": []}

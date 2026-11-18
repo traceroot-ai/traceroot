@@ -243,15 +243,19 @@ model User {
 // counts the days in the user's first week on which their projects received
 // traces; see ui/src/lib/trace-activity.ts.
 model UserOnboarding {
-  userId              String    @id @map("user_id") @db.VarChar
-  // The last UTC day counted in activeDaysFirstWeek, so a day counts once.
-  lastActiveDay       DateTime? @map("last_active_day") @db.Date
-  activeDaysFirstWeek Int       @default(0) @map("active_days_first_week")
+  userId              String     @id @map("user_id") @db.VarChar
+  // The latest UTC day counted in activeDaysFirstWeek. A receiver from before
+  // countedDays checks only this, so it is kept up to date during a rollout.
+  lastActiveDay       DateTime?  @map("last_active_day") @db.Date
+  // Every UTC day counted in activeDaysFirstWeek, so each day counts once
+  // whatever order its reports arrive in.
+  countedDays         DateTime[] @default([]) @map("counted_days") @db.Date
+  activeDaysFirstWeek Int        @default(0) @map("active_days_first_week")
   // Set once, when activeDaysFirstWeek first reaches the active-week threshold.
-  activeWeekAt        DateTime? @map("active_week_at") @db.Timestamp(6)
-  createTime          DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime          DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
-  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  activeWeekAt        DateTime?  @map("active_week_at") @db.Timestamp(6)
+  createTime          DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime          DateTime   @updatedAt @map("update_time") @db.Timestamp(6)
+  user                User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@map("user_onboarding")
 }
