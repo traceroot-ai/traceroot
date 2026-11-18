@@ -45,6 +45,22 @@ export interface ToolPolicy {
 }
 
 /**
+ * Behavior hints a surface may pass on to its client (the MCP tool
+ * annotations). Derived by the generator from the HTTP method and policy, so
+ * no surface has to guess whether a tool reads, writes or deletes.
+ */
+export interface ToolAnnotations {
+  /** Human-readable name, from the curated tool name. */
+  title: string;
+  /** The tool changes nothing: a GET, or a POST the curation marks `readOnly`. */
+  readOnlyHint: boolean;
+  /** The tool deletes or otherwise destroys data (DELETE, or `approvalClass: "approval"`). */
+  destructiveHint: boolean;
+  /** The tool reaches beyond TraceRoot's own API. Always false. */
+  openWorldHint: boolean;
+}
+
+/**
  * One tool in the shared registry. Inert data — where and how to call the API —
  * generated from the public OpenAPI schema's x-tool curation. Logic lives in
  * the backend service layer; surfaces adapt (client, shape) but never reimplement.
@@ -67,4 +83,8 @@ export interface RegistryEntry {
   /** Required on every non-GET entry (POST, PATCH, DELETE); validated at
    * generation time. */
   policy?: ToolPolicy;
+  /** Behavior hints, derived by the generator on every generated entry.
+   * Optional in the type so hand-written entry literals (internal tools,
+   * test fixtures) need not carry them. */
+  annotations?: ToolAnnotations;
 }
