@@ -63,13 +63,14 @@ describe("challenge", () => {
     expect(challenge(undefined)).toBe("Bearer");
   });
 
-  it("points at the metadata when OAuth is on", () => {
+  it("points at the metadata and names the scopes when OAuth is on", () => {
     expect(challenge(OAUTH)).toBe(
-      'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',
+      'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp", ' +
+        'scope="mcp:read offline_access"',
     );
   });
 
-  it("says why a token was refused", () => {
+  it("says why a token was refused, without asking for scopes", () => {
     expect(challenge(OAUTH, { code: "invalid_token", description: "expired" })).toBe(
       'Bearer error="invalid_token", error_description="expired", ' +
         'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',

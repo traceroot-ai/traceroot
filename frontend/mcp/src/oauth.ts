@@ -62,7 +62,7 @@ export function protectedResourceMetadata(config: OAuthConfig) {
 
 /**
  * The `WWW-Authenticate` value for a 401. A missing credential gets a challenge
- * that points at the metadata; a refused one
+ * that points at the metadata and names the scopes to ask for; a refused one
  * says why with `invalid_token`, which is what makes a client refresh or sign
  * in again. With OAuth off there is no metadata to point at.
  */
@@ -76,6 +76,9 @@ export function challenge(
   }
   if (config) {
     params.push(`resource_metadata="${resourceMetadataUrl(config)}"`);
+    // offline_access too: a client that asks for exactly these scopes still gets
+    // a refresh token, so it can keep the connection past the first hour.
+    if (!error) params.push(`scope="${MCP_READ_SCOPE} ${REFRESH_SCOPE}"`);
   }
   return params.length > 0 ? `Bearer ${params.join(", ")}` : "Bearer";
 }
