@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Loader2, Plus, Search } from "lucide-react";
+import Link from "next/link";
+import { Check, Loader2, Search } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
-import { ConnectFrame } from "@/features/oauth-connect";
+import { ClientVerifiedBy, UnverifiedClientNotice } from "@/features/oauth-connect";
 import { CONTINUE_PATH, type OAuthClientDisplay } from "@/lib/oauth/client-display";
 
 type WorkspaceRow = {
@@ -106,102 +109,118 @@ export function SelectProjectClient({ client = null }: { client?: OAuthClientDis
   }
 
   return (
-    <ConnectFrame client={client} title={`Choose a project for ${assistant}`}>
-      <div className="space-y-4">
-        <p className="text-[13px] text-muted-foreground">
-          {assistant} will be able to read this project&apos;s data, and no other project.
-          You&apos;ll review exactly what it can see next.
-        </p>
-
-        {groups === null && !error && (
-          <div className="flex justify-center py-6 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading projects" />
+    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="mb-2 flex justify-center">
+            <Logo size="lg" />
           </div>
-        )}
+          <CardTitle className="text-[15px] font-medium">
+            Choose a project for {assistant}
+          </CardTitle>
+          <ClientVerifiedBy client={client} />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <UnverifiedClientNotice client={client} />
 
-        {groups !== null && total === 0 && (
-          <EmptyState groups={groups} onCreated={(id) => loadProjects(id)} />
-        )}
+          <p className="text-center text-[13px] text-muted-foreground">
+            {assistant} will be able to read this project&apos;s data, and no other project.
+            You&apos;ll review what it can see next.
+          </p>
 
-        {groups !== null && total > SEARCH_THRESHOLD && (
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              type="search"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Search projects"
-              aria-label="Search projects"
-              className="h-8 pl-8 text-[13px]"
-            />
-          </div>
-        )}
+          {groups === null && !error && (
+            <div className="flex flex-col items-center gap-2 py-6 text-[13px] text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <p>Loading projects...</p>
+            </div>
+          )}
 
-        {visible && total > 0 && (
-          <div
-            role="radiogroup"
-            aria-label="Project"
-            className="max-h-[320px] space-y-3 overflow-y-auto"
-          >
-            {visible.length === 0 && (
-              <p className="py-3 text-center text-[13px] text-muted-foreground">
-                No project matches &ldquo;{filter}&rdquo;.
-              </p>
-            )}
-            {visible.map((group) => (
-              <section key={group.id} aria-label={group.name}>
-                <h2 className="mb-1.5 text-[12px] font-medium text-muted-foreground">
-                  {group.name}
-                </h2>
-                <ul className="space-y-1.5">
-                  {group.projects.map((p) => {
-                    const checked = selected === p.id;
-                    return (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={checked}
-                          onClick={() => setSelected(p.id)}
-                          className={cn(
-                            "flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                            checked
-                              ? "border-foreground/70 bg-muted"
-                              : "border-border hover:bg-muted/50",
-                          )}
-                        >
-                          <span
-                            aria-hidden
+          {groups !== null && total === 0 && (
+            <EmptyState groups={groups} onCreated={(id) => loadProjects(id)} />
+          )}
+
+          {groups !== null && total > SEARCH_THRESHOLD && (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Search projects"
+                aria-label="Search projects"
+                className="h-8 pl-8 text-[13px]"
+              />
+            </div>
+          )}
+
+          {visible && total > 0 && (
+            <div
+              role="radiogroup"
+              aria-label="Project"
+              className="max-h-[320px] overflow-y-auto border"
+            >
+              {visible.length === 0 && (
+                <p className="px-3 py-3 text-[13px] text-muted-foreground">
+                  No project matches &ldquo;{filter}&rdquo;.
+                </p>
+              )}
+              {visible.map((group) => (
+                <section
+                  key={group.id}
+                  aria-label={group.name}
+                  className="border-b last:border-b-0"
+                >
+                  <h2 className="flex h-8 items-center border-b bg-muted px-3 text-[12px] font-medium text-muted-foreground">
+                    {group.name}
+                  </h2>
+                  <ul>
+                    {group.projects.map((p) => {
+                      const checked = selected === p.id;
+                      return (
+                        <li key={p.id} className="border-b last:border-b-0">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={checked}
+                            onClick={() => setSelected(p.id)}
                             className={cn(
-                              "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
-                              checked ? "border-foreground" : "border-muted-foreground/50",
+                              "flex h-8 w-full items-center gap-2 px-3 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+                              checked ? "bg-accent" : "hover:bg-muted",
                             )}
                           >
-                            {checked && <span className="h-2 w-2 rounded-full bg-foreground" />}
-                          </span>
-                          <span className="truncate font-medium">{p.name}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            ))}
-          </div>
-        )}
+                            <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                              {checked && <Check aria-hidden className="h-3.5 w-3.5" />}
+                            </span>
+                            <span className="truncate">{p.name}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
 
-        {error && <p className="text-center text-[12px] text-red-500">{error}</p>}
+          {error && (
+            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
+              {error}
+            </div>
+          )}
 
-        {total > 0 && (
-          <Button className="w-full" disabled={!selected || pending} onClick={handleContinue}>
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
-          </Button>
-        )}
-      </div>
-    </ConnectFrame>
+          {total > 0 && (
+            <Button
+              size="sm"
+              className="h-8 w-full text-[13px]"
+              disabled={!selected || pending}
+              onClick={handleContinue}
+            >
+              {pending ? "Continuing..." : "Continue"}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -222,17 +241,17 @@ function EmptyState({
   if (!workspace) {
     const restart = `${CONTINUE_PATH}${typeof window === "undefined" ? "" : window.location.search}`;
     return (
-      <div className="rounded-md border border-dashed px-4 py-5 text-center">
-        <p className="text-[13px] font-medium">You don&apos;t have a project yet</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">
-          Set one up, and you&apos;ll come straight back here to finish connecting.
+      <div className="border px-3 py-3 text-[13px] text-muted-foreground">
+        <p>
+          You don&apos;t have a project yet. Set one up and you&apos;ll come straight back here to
+          finish connecting.
         </p>
-        <a
+        <Link
           href={`/onboarding?callbackUrl=${encodeURIComponent(restart)}`}
-          className={cn(buttonVariants({ size: "sm" }), "mt-3")}
+          className={cn(buttonVariants({ size: "sm" }), "mt-3 h-8 w-full text-[13px]")}
         >
           Set up a project
-        </a>
+        </Link>
       </div>
     );
   }
@@ -258,31 +277,34 @@ function EmptyState({
   }
 
   return (
-    <form onSubmit={create} className="rounded-md border border-dashed px-4 py-4">
-      <p className="text-[13px] font-medium">You don&apos;t have a project yet</p>
-      <p className="mt-1 text-[12px] text-muted-foreground">
-        Create one in {workspace.name} to connect. It starts empty; send traces to it any time.
+    <form onSubmit={create} className="space-y-3">
+      <p className="text-[13px] text-muted-foreground">
+        You don&apos;t have a project yet. Create one in{" "}
+        <span className="font-medium text-foreground">{workspace.name}</span> to connect. It starts
+        empty; send traces to it any time.
       </p>
-      <div className="mt-3 flex gap-2">
+      <div>
+        <label htmlFor="oauth-new-project" className="mb-1 block text-[13px] font-medium">
+          Project name
+        </label>
         <Input
+          id="oauth-new-project"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Project name"
-          aria-label="Project name"
+          placeholder="e.g. checkout-agent"
           className="h-8 text-[13px]"
           maxLength={100}
         />
-        <Button type="submit" size="sm" disabled={!name.trim() || creating}>
-          {creating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <>
-              <Plus className="mr-1 h-3.5 w-3.5" /> Create
-            </>
-          )}
-        </Button>
+        {error && <p className="mt-1 text-[12px] text-danger">{error}</p>}
       </div>
-      {error && <p className="mt-2 text-[12px] text-red-500">{error}</p>}
+      <Button
+        type="submit"
+        size="sm"
+        className="h-8 w-full text-[13px]"
+        disabled={!name.trim() || creating}
+      >
+        {creating ? "Creating..." : "Create"}
+      </Button>
     </form>
   );
 }

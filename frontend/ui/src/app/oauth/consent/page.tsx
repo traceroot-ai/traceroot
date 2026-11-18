@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { env } from "@/env";
 import { getRequestSession } from "@/lib/request-session";
 import { loadOAuthClientDisplay } from "@/lib/oauth/load-client-display";
 import { ConsentClient } from "./consent-client";
@@ -18,19 +17,7 @@ export default async function OAuthConsentPage({
   ]);
   return (
     <Suspense fallback={null}>
-      <ConsentClient
-        client={client}
-        accountEmail={session?.user?.email ?? null}
-        appHost={hostOf(env.NEXT_PUBLIC_APP_URL)}
-      />
+      <ConsentClient client={client} accountEmail={session?.user?.email ?? null} />
     </Suspense>
   );
-}
-
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).host;
-  } catch {
-    return null;
-  }
 }

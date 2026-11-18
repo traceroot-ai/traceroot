@@ -54,10 +54,10 @@ afterEach(() => {
 describe("ConsentClient", () => {
   it("says who vouches for a metadata-document client, with no unverified warning", async () => {
     stubSelection({ projectName: "mcp-e2e", workspaceName: "Acme" });
-    render(<ConsentClient client={CLAUDE} accountEmail="kai@example.com" appHost="app.test" />);
+    render(<ConsentClient client={CLAUDE} accountEmail="kai@example.com" />);
 
     await screen.findByTestId("consent-project");
-    expect(screen.getByText("claude.ai")).toBeTruthy();
+    expect(screen.getByText("claude.ai").parentElement?.textContent).toBe("Verified by claude.ai");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText(/registered itself/)).toBeNull();
   });
@@ -69,6 +69,7 @@ describe("ConsentClient", () => {
     const banner = await screen.findByRole("alert");
     expect(banner.textContent).toContain("Unverified application");
     expect(banner.textContent).toContain("Acme Helper");
+    expect(screen.queryByText(/Verified by/)).toBeNull();
   });
 
   it("shows the workspace next to the project only when it differs", async () => {
@@ -82,14 +83,13 @@ describe("ConsentClient", () => {
     expect((await screen.findByTestId("consent-project")).textContent).toBe("mcp-e2e · Acme");
   });
 
-  it("shows who is granting access: email, workspace and host", async () => {
+  it("shows who is granting access and that the access is read-only", async () => {
     stubSelection({ projectName: "mcp-e2e", workspaceName: "Acme" });
-    render(<ConsentClient client={CLAUDE} accountEmail="kai@example.com" appHost="app.test" />);
+    render(<ConsentClient client={CLAUDE} accountEmail="kai@example.com" />);
 
     await screen.findByTestId("consent-project");
-    const account = screen.getByTestId("consent-account").textContent;
-    expect(account).toContain("kai@example.com");
-    expect(account).toContain("Acme · app.test");
+    expect(screen.getByText("as kai@example.com")).toBeTruthy();
+    expect(screen.getByText("Access").nextElementSibling?.textContent).toContain("Read-only.");
   });
 
   it("names the action on the primary button and approves with it", async () => {
@@ -98,7 +98,7 @@ describe("ConsentClient", () => {
     render(<ConsentClient client={CLAUDE} />);
 
     const allow = await screen.findByRole("button", { name: "Allow Claude to read mcp-e2e" });
-    expect(screen.getByText(/You'll be sent to/).parentElement?.textContent).toContain(
+    expect(screen.getByText("Returns to").nextElementSibling?.textContent).toBe(
       "https://claude.ai",
     );
     fireEvent.click(allow);
@@ -125,7 +125,7 @@ describe("ConsentClient", () => {
     mocks.signOut.mockResolvedValue({});
     render(<ConsentClient client={CLAUDE} accountEmail="kai@example.com" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Not you? Switch account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Not you? Sign out" }));
 
     await waitFor(() => expect(location.href).toMatch(/^\/oauth\/continue\?/));
     expect(mocks.signOut).toHaveBeenCalled();
