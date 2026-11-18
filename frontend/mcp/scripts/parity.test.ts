@@ -47,4 +47,27 @@ describe("parity harness against fixtures", () => {
     const rows = stdout.split("\n").filter((line) => line.startsWith("PASS"));
     expect(rows.filter((line) => line.endsWith("vs http"))).toHaveLength(4);
   }, 130_000);
+
+  it("fails on an --only name that matches no tool", async () => {
+    const failure = await run(
+      new URL("../node_modules/.bin/vite-node", import.meta.url).pathname,
+      [
+        new URL("./parity.ts", import.meta.url).pathname,
+        "--",
+        "--url",
+        "http://127.0.0.1:1/mcp",
+        "--key",
+        "tr-x",
+        "--host",
+        "http://127.0.0.1:1",
+        "--only",
+        "get_trce",
+      ],
+      { timeout: 60_000 },
+    ).then(
+      () => undefined,
+      (error: { stderr: string }) => error,
+    );
+    expect(failure?.stderr).toContain("matches no tool");
+  }, 70_000);
 });
