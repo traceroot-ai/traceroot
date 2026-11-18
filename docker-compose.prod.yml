@@ -655,6 +655,8 @@ services:
       # Domain-verification token from the OpenAI apps dashboard, served as plain
       # text at /.well-known/openai-apps-challenge; blank serves 404.
       MCP_OPENAI_APPS_CHALLENGE: ${MCP_OPENAI_APPS_CHALLENGE:-}
+      # Longest tool result, in characters; blank keeps the default (80000).
+      MCP_MAX_RESULT_CHARS: ${MCP_MAX_RESULT_CHARS:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
       interval: 10s

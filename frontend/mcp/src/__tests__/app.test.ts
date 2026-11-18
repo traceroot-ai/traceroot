@@ -5,11 +5,12 @@ import { createApp, parseAllowedHosts } from "../app.js";
 import { PROBE_PATH } from "../credential-check.js";
 import { EXPOSED_TOOLS } from "../exposure.js";
 import { SERVER_INSTRUCTIONS } from "../instructions.js";
+import { parseMaxResultChars } from "../server.js";
 
 type Backend = (url: URL, init: RequestInit) => { status: number; body: unknown };
 
 /** The app wired to a fake backend; returns the app and the backend's call log. */
-function appWith(backend: Backend) {
+function appWith(backend: Backend, options: { maxResultChars?: number } = {}) {
   const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const { status, body } = backend(new URL(String(input)), init ?? {});
     return new Response(JSON.stringify(body), {
@@ -21,6 +22,7 @@ function appWith(backend: Backend) {
     backendUrl: "http://rest:8000",
     allowedHosts: ["localhost"],
     fetchImpl: fetchImpl as unknown as typeof fetch,
+    ...options,
   });
   return { app, fetchImpl };
 }
@@ -372,6 +374,30 @@ describe("MCP app", () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
       await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe("tool result size", () => {
+  it("cuts a long result at the configured length and says how to narrow it", async () => {
+    const { app } = appWith(() => ({ status: 200, body: { traces: ["x".repeat(500)] } }), {
+      maxResultChars: 100,
+    });
+    const client = await connect(app);
+    const result = await client.callTool({ name: "list_traces", arguments: {} });
+    const text = (result.content as { text: string }[])[0].text;
+    expect(text.startsWith('{"traces":["' + "x".repeat(88))).toBe(true);
+    expect(text).toContain("[Result truncated");
+    expect(text).toContain("the limit is 100");
+    expect(text).toContain("Narrow the request");
+  });
+
+  it("reads MCP_MAX_RESULT_CHARS as a positive integer, unset keeping the default", () => {
+    expect(parseMaxResultChars(undefined)).toBeUndefined();
+    expect(parseMaxResultChars(" ")).toBeUndefined();
+    expect(parseMaxResultChars("150000")).toBe(150_000);
+    for (const raw of ["0", "-5", "1.5", "lots"]) {
+      expect(() => parseMaxResultChars(raw)).toThrow(/MCP_MAX_RESULT_CHARS/);
     }
   });
 });

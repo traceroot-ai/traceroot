@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { createApp, parseAllowedHosts } from "./app.js";
 import { parseOAuthConfig } from "./oauth.js";
+import { parseMaxResultChars } from "./server.js";
 
 const MCP_SERVICE_URL = process.env.MCP_SERVICE_URL || "http://localhost:8200";
 const PORT = parseInt(new URL(MCP_SERVICE_URL).port || "8200", 10);
@@ -10,6 +11,7 @@ const app = createApp({
   timeoutMs: 60_000,
   allowedHosts: parseAllowedHosts(process.env.MCP_ALLOWED_HOSTS),
   oauth: parseOAuthConfig(process.env),
+  maxResultChars: parseMaxResultChars(process.env.MCP_MAX_RESULT_CHARS),
   openaiAppsChallenge: process.env.MCP_OPENAI_APPS_CHALLENGE?.trim() || undefined,
 });
 

@@ -21,12 +21,29 @@ export interface ServerConfig {
   timeoutMs?: number;
   /** fetch override, for tests. */
   fetchImpl?: typeof fetch;
+  /** Longest tool result text; a longer one is cut with a note on how to narrow the call. */
+  maxResultChars?: number;
 }
 
 /** Per-request hooks around the caller's credential. */
 export interface RequestHooks {
   /** Called when the backend answers a tool call 401: the credential stopped working. */
   onUnauthorized?: () => void;
+}
+
+/**
+ * `MCP_MAX_RESULT_CHARS` as a positive integer; unset or blank keeps the
+ * adapter's default. Anything else fails at startup rather than serving
+ * uncapped or empty results.
+ */
+export function parseMaxResultChars(raw: string | undefined): number | undefined {
+  const value = (raw ?? "").trim();
+  if (value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`MCP_MAX_RESULT_CHARS must be a positive integer, got "${value}"`);
+  }
+  return parsed;
 }
 
 const registryDescription = (name: string) =>
@@ -50,10 +67,11 @@ const TOOL_OPTIONS: Readonly<Record<string, Partial<ToMcpToolOptions>>> = {
 };
 
 /** The exposed tools, built against `client`. What a connected assistant is offered. */
-export function buildTools(client: ApiClient): McpTool[] {
+export function buildTools(client: ApiClient, maxResultChars?: number): McpTool[] {
   return exposedEntries(REGISTRY).map((entry) =>
     toMcpTool(entry, {
       client,
+      maxResultChars,
       hiddenParams: SURFACE_HIDDEN_PARAMS,
       paramDescriptions: PARAM_DESCRIPTIONS,
       ...TOOL_OPTIONS[entry.name],
@@ -82,7 +100,7 @@ export function createServer(
     { instructions: SERVER_INSTRUCTIONS },
   );
 
-  for (const tool of buildTools(client)) {
+  for (const tool of buildTools(client, config.maxResultChars)) {
     server.registerTool(
       tool.name,
       {
