@@ -517,6 +517,30 @@ class TraceReaderService:
         self._has_traces_cache[project_id] = (now + ttl, found)
         return found
 
+    def first_trace_receive_time(self, project_id: str) -> datetime | None:
+        """When the project's earliest stored customer span was received.
+
+        ``ch_create_time`` is when the ingest worker wrote a span, so its minimum is
+        when the project first received a trace, as far as stored spans go: spans
+        past retention are gone, and for them this is the oldest one kept. Scoped
+        like ``has_traces``.
+
+        Args:
+            project_id (str): Project whose customer spans to read.
+
+        Returns:
+            datetime | None: The receive time (naive UTC), or None when the project
+                has no customer spans.
+        """
+        result = self._client.query(
+            "SELECT minOrNull(ch_create_time) FROM spans "
+            "WHERE project_id = {project_id:String} "
+            f"AND {customer_traffic_only()}",
+            parameters={"project_id": project_id},
+        )
+        row = result.result_rows[0] if result.result_rows else None
+        return row[0] if row else None
+
     _TRACE_START_CACHE_MAX = 1024
 
     def get_trace_start_time(

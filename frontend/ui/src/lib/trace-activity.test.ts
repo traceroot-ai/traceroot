@@ -16,6 +16,7 @@ const db = vi.hoisted(() => {
     members: [] as Row[],
     users: [] as Row[],
     onboarding: [] as Row[],
+    tracking: [] as Row[],
   };
 
   /** Equality, null, `lt`, `gte` and `OR`: the conditions the module writes. */
@@ -62,8 +63,14 @@ const db = vi.hoisted(() => {
         const workspace = tables.workspaces.find((row) => row.id === project.workspaceId);
         return {
           workspaceId: project.workspaceId,
+          firstTraceReceiveTime: project.firstTraceReceiveTime ?? null,
           workspace: { createdBy: workspace?.createdBy ?? null },
         };
+      }),
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        await roundTrip();
+        const project = tables.projects.find((row) => row.id === where.id);
+        return project ? { firstTraceReceiveTime: project.firstTraceReceiveTime ?? null } : null;
       }),
       updateMany: updateMany(tables.projects),
     },
@@ -95,6 +102,20 @@ const db = vi.hoisted(() => {
         return row;
       }),
     },
+    firstTraceTracking: {
+      findUnique: vi.fn(async () => {
+        await roundTrip();
+        return tables.tracking[0] ? { startedAt: tables.tracking[0].startedAt } : null;
+      }),
+      create: vi.fn(async ({ data }: { data: Row }) => {
+        await roundTrip();
+        if (tables.tracking.length) {
+          throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+        }
+        tables.tracking.push({ ...data });
+        return data;
+      }),
+    },
   };
   return { tables, prisma };
 });
@@ -106,6 +127,15 @@ vi.mock("@traceroot/core", () => ({
 
 const { captureServerEvent } = vi.hoisted(() => ({ captureServerEvent: vi.fn() }));
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent }));
+
+// The trace store's answer is stated per test; the start of recording and filling
+// the time run for real.
+const { readFirstTraceReceiveTime } = vi.hoisted(() => ({ readFirstTraceReceiveTime: vi.fn() }));
+vi.mock("@/lib/first-trace-backfill", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/first-trace-backfill")>()),
+  readFirstTraceReceiveTime,
+}));
+vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "internal-test-secret" } }));
 
 import {
   ACTIVE_FIRST_WEEK_DAYS,
@@ -128,6 +158,8 @@ const dayCounted = (outcome: TraceActivityOutcome) =>
 beforeEach(() => {
   for (const table of Object.values(db.tables)) table.length = 0;
   captureServerEvent.mockReset();
+  // By default the store does not show the batch yet, and the report is taken at its word.
+  readFirstTraceReceiveTime.mockReset().mockResolvedValue(null);
   db.tables.users.push({ id: "user_sam", createdAt: SIGNED_UP });
   db.tables.workspaces.push({ id: "ws_sam", createdBy: "user_sam" });
   db.tables.projects.push(
@@ -288,5 +320,71 @@ describe("an active first week", () => {
 
     expect(sameDay).toMatchObject({ activeDayCounted: false, activeFirstWeek: true });
     expect(events("active_first_week")).toHaveLength(1);
+  });
+});
+
+describe("projects with traces from before recording started", () => {
+  const START = at(0, "10:00:00");
+  const OCT_11 = new Date("2026-10-11T08:30:00Z");
+  const startedRecording = () => db.tables.tracking.push({ id: 1, startedAt: START });
+
+  it("does not send first_trace_received for a first trace an hour before the start", async () => {
+    startedRecording();
+    readFirstTraceReceiveTime.mockResolvedValue(at(0, "09:00:00"));
+
+    const outcome = await recordTraceActivity("proj_a", at(0));
+
+    expect(firstTrace(outcome)).toBe(false);
+    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0, "09:00:00"));
+    expect(events("first_trace_received")).toEqual([]);
+  });
+
+  it("sends it for a first trace after the start, recorded at the store's receive time", async () => {
+    // The report gets through two hours after the trace arrived, after retries.
+    startedRecording();
+    readFirstTraceReceiveTime.mockResolvedValue(at(0, "10:30:00"));
+
+    const outcome = await recordTraceActivity("proj_a", at(0, "12:30:00"));
+
+    expect(firstTrace(outcome)).toBe(true);
+    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0, "10:30:00"));
+    expect(events("first_trace_received")).toHaveLength(1);
+  });
+
+  it("starts recording with the first report this deployment receives", async () => {
+    readFirstTraceReceiveTime.mockResolvedValue(OCT_11);
+
+    const outcome = await recordTraceActivity("proj_a", at(0));
+
+    expect(db.tables.tracking).toEqual([{ id: 1, startedAt: at(0) }]);
+    expect(firstTrace(outcome)).toBe(false);
+    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(OCT_11);
+  });
+
+  it("records the first trace at the report's time when the store shows none yet", async () => {
+    startedRecording();
+
+    expect(firstTrace(await recordTraceActivity("proj_a", at(0)))).toBe(true);
+    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0));
+  });
+
+  it("is looked up only while the project's time is empty", async () => {
+    await recordTraceActivity("proj_a", at(0));
+    await recordTraceActivity("proj_a", at(0, "13:00:00"));
+    await recordTraceActivity("proj_a", at(1));
+
+    expect(readFirstTraceReceiveTime).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails the report and writes nothing about the project when the store cannot be read", async () => {
+    startedRecording();
+    readFirstTraceReceiveTime.mockRejectedValue(
+      new Error("first-trace lookup failed with status 503"),
+    );
+
+    await expect(recordTraceActivity("proj_a", at(0))).rejects.toThrow("status 503");
+    expect(db.tables.projects[0].firstTraceReceiveTime).toBeNull();
+    expect(db.tables.onboarding).toEqual([]);
+    expect(captureServerEvent).not.toHaveBeenCalled();
   });
 });
