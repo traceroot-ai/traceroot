@@ -1,0 +1,35 @@
+{
+  "evaluation_run_id": "run-001",
+  "evaluation_id": "evaluation-001",
+  "evaluation_key": "refund-answers",
+  "evaluation_name": "Refund answers",
+  "dataset_id": "dataset-001",
+  "dataset_version_id": "version-001",
+  "run_number": 1,
+  "status": "complete",
+  "environment": "fixture",
+  "candidate_version": "v1",
+  "started_at": "2026-06-01T11:00:00Z",
+  "completed_at": "2026-06-01T11:02:00Z",
+  "result_count": 1,
+  "scored_count": 1,
+  "passed_count": 1,
+  "failed_count": 0,
+  "errored_count": 0,
+  "not_scored_count": 0,
+  "scorer_error_count": 0,
+  "task_error_count": 0,
+  "metrics": [],
+  "scores": [
+    {
+      "name": "correctness",
+      "direction": "higher",
+      "unit": null,
+      "value": 1,
+      "value_type": "number",
+      "observed_count": 1
+    }
+  ],
+  "run_path": "/evaluations/evaluation-001/runs/run-001",
+  "run_url": "http://fixture.invalid/evaluations/evaluation-001/runs/run-001"
+}

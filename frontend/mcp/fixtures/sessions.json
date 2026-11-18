@@ -1,0 +1,27 @@
+{
+  "list": {
+    "data": [
+      {
+        "session_id": "session-001",
+        "trace_count": 2,
+        "first_trace_time": "2026-06-01T09:00:00Z",
+        "last_trace_time": "2026-06-01T10:00:00Z",
+        "duration_ms": 3600000,
+        "total_cost": 0.0133,
+        "total_input_tokens": 1390,
+        "total_output_tokens": 380,
+        "user_ids": ["user-1"],
+        "input": "hello",
+        "output": "hi"
+      }
+    ],
+    "meta": { "limit": 50, "total": 1 }
+  },
+  "detail": {
+    "session_id": "session-001",
+    "trace_count": 2,
+    "first_trace_time": "2026-06-01T09:00:00Z",
+    "last_trace_time": "2026-06-01T10:00:00Z",
+    "traces": [{ "trace_id": "trace-001" }, { "trace_id": "trace-002" }]
+  }
+}

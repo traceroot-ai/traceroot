@@ -1,0 +1,79 @@
+{
+  "list": {
+    "data": [
+      {
+        "id": "dashboard-001",
+        "name": "Overview",
+        "description": "Fixture dashboard",
+        "is_default": true,
+        "widget_count": 1,
+        "creator": "fixture",
+        "create_time": "2026-05-22T08:00:00Z",
+        "update_time": "2026-05-22T08:00:00Z"
+      }
+    ]
+  },
+  "detail": {
+    "id": "dashboard-001",
+    "name": "Overview",
+    "description": "Fixture dashboard",
+    "is_default": true,
+    "creator": "fixture",
+    "create_time": "2026-05-22T08:00:00Z",
+    "update_time": "2026-05-22T08:00:00Z",
+    "layout": [{ "widget_id": "widget-001", "x": 0, "y": 0, "w": 6, "h": 4 }],
+    "widgets": [
+      {
+        "id": "widget-001",
+        "title": "Cost by model",
+        "type": "bar",
+        "create_time": "2026-05-22T08:00:00Z",
+        "spec": {
+          "view": "spans",
+          "filters": [],
+          "metric": { "measure": "cost", "agg": "sum" },
+          "breakdown": "model_name",
+          "display": { "type": "bar" }
+        }
+      }
+    ]
+  },
+  "data": {
+    "dashboard_id": "dashboard-001",
+    "window": { "start_time": "2026-06-01T00:00:00Z", "end_time": "2026-06-02T00:00:00Z" },
+    "widgets": [
+      {
+        "widget_id": "widget-001",
+        "status": "ok",
+        "rows": [["gpt-4o", 0.0133]],
+        "truncated": false
+      }
+    ]
+  },
+  "widget": {
+    "id": "widget-001",
+    "title": "Cost by model",
+    "type": "bar",
+    "create_time": "2026-05-22T08:00:00Z",
+    "spec": {
+      "view": "spans",
+      "filters": [],
+      "metric": { "measure": "cost", "agg": "sum" },
+      "breakdown": "model_name",
+      "display": { "type": "bar" }
+    }
+  },
+  "widgetData": {
+    "widget_id": "widget-001",
+    "status": "ok",
+    "window": { "start_time": "2026-06-01T00:00:00Z", "end_time": "2026-06-02T00:00:00Z" },
+    "columns": ["model_name", "value"],
+    "rows": [["gpt-4o", 0.0133]]
+  },
+  "query": {
+    "status": "ok",
+    "window": { "start_time": "2026-06-01T00:00:00Z", "end_time": "2026-06-02T00:00:00Z" },
+    "columns": ["model_name", "value"],
+    "rows": [["gpt-4o", 0.0133]]
+  }
+}

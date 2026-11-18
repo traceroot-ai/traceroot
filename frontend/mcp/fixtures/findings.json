@@ -1,0 +1,28 @@
+{
+  "list": {
+    "data": [
+      {
+        "finding_id": "finding-001",
+        "trace_id": "trace-002",
+        "project_id": "project-fixture",
+        "timestamp": "2026-06-01T09:05:00Z",
+        "summary": "The agent called a refund tool with a missing argument.",
+        "detectors": ["Tool misuse"],
+        "run_ids": ["run-a"],
+        "signals": []
+      }
+    ],
+    "meta": { "limit": 50, "total": 1 }
+  },
+  "detail": {
+    "finding_id": "finding-001",
+    "trace_id": "trace-002",
+    "timestamp": "2026-06-01T09:05:00Z",
+    "summary": "The agent called a refund tool with a missing argument.",
+    "run_ids": ["run-a"],
+    "results": [
+      { "detector_id": "detector-001", "detector_name": "Tool misuse", "template": "failure" }
+    ],
+    "rca": { "status": "complete", "result": "The refund tool was called without an order id." }
+  }
+}
