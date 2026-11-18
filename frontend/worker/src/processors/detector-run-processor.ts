@@ -335,7 +335,9 @@ export async function processTrace(
         }).catch((err) => console.error("[Detector] Failed to write run:", err)),
       ),
     );
-    return;
+    // No detector has run yet. Let BullMQ retry transient download failures;
+    // terminal HTTP errors are UnrecoverableError and consume no more attempts.
+    throw e;
   }
 
   await evaluateTrace(traceId, projectId, detectorIds, spansJsonl);
