@@ -125,7 +125,14 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
           </p>
         </div>
         {canManageMembers && (
-          <AddButton onClick={() => setShowInviteMember(true)}>Invite member</AddButton>
+          <AddButton
+            onClick={() => {
+              if (inviteMutation.isError) inviteMutation.reset();
+              setShowInviteMember(true);
+            }}
+          >
+            Invite member
+          </AddButton>
         )}
       </div>
 
@@ -171,7 +178,9 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               </Select>
             </div>
             {inviteMutation.isError && (
-              <p className="text-sm text-destructive">{inviteMutation.error.message}</p>
+              <p role="alert" className="text-sm text-destructive">
+                {inviteMutation.error.message}
+              </p>
             )}
           </div>
           <DialogFooter>
@@ -220,6 +229,11 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                 ))}
               </SelectContent>
             </Select>
+            {updateRoleMutation.isError && (
+              <p role="alert" className="mt-4 text-sm text-destructive">
+                {updateRoleMutation.error.message}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -309,9 +323,10 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                   <td className="px-4 py-2">
                     {canManageMembers ? (
                       <button
-                        onClick={() =>
-                          setEditingMember({ userId: member.user_id, role: member.role })
-                        }
+                        onClick={() => {
+                          if (updateRoleMutation.isError) updateRoleMutation.reset();
+                          setEditingMember({ userId: member.user_id, role: member.role });
+                        }}
                         className="cursor-pointer hover:underline"
                       >
                         {member.role.charAt(0) + member.role.slice(1).toLowerCase()}

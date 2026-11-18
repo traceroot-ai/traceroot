@@ -107,6 +107,35 @@ describe("MembersTab Cancel actions", () => {
   );
 });
 
+it.each(["invite", "role"] as const)(
+  "shows a failed %s request, clears its error on reopen, and allows retry",
+  async (kind) => {
+    const api = kind === "invite" ? createInvite : updateMemberRole;
+    vi.mocked(api).mockRejectedValueOnce(new Error("The request could not be completed."));
+    vi.mocked(api).mockRejectedValueOnce(new Error("Please try again later."));
+    let dialog = openDialog(kind);
+    const submit = kind === "invite" ? "Send Invitation" : "Save";
+    fireEvent.click(dialog.getByRole("button", { name: submit }));
+    expect((await dialog.findByRole("alert")).textContent).toBe(
+      "The request could not be completed.",
+    );
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: kind === "invite" ? "Invite member" : "Member" }),
+    );
+    dialog = within(screen.getByRole("dialog"));
+    expect(dialog.queryByRole("alert")).toBeNull();
+    if (kind === "invite")
+      expect(dialog.getByPlaceholderText("member@example.com")).toHaveProperty(
+        "value",
+        "invite@example.com",
+      );
+    fireEvent.click(dialog.getByRole("button", { name: submit }));
+    expect((await dialog.findByRole("alert")).textContent).toBe("Please try again later.");
+    expect(api).toHaveBeenCalledTimes(2);
+  },
+);
+
 it("associates the invitation fields with their visible labels", () => {
   const dialog = openDialog("invite");
   expect(dialog.getByLabelText("Email").getAttribute("type")).toBe("email");
