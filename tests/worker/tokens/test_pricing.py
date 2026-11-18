@@ -808,13 +808,6 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
-    ("claude-3-7-sonnet-20250219", "claude-3-7-sonnet"),
-    ("claude-3-7-sonnet-latest", "claude-3-7-sonnet"),
-    ("us.anthropic.claude-3-7-sonnet-20250219-v1:0", "claude-3-7-sonnet"),
-    ("claude-3-7-sonnet@20250219", "claude-3-7-sonnet"),
-    ("claude-opus-4-20250514", "claude-opus-4"),
-    ("claude-opus-4-0", "claude-opus-4"),
-    ("anthropic.claude-opus-4-20250514-v1:0", "claude-opus-4"),
     ("claude-opus-4-1-20250805", "claude-opus-4-1"),
     ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
     ("claude-opus-4-1@20250805", "claude-opus-4-1"),
@@ -867,8 +860,6 @@ class TestClaudeBedrockAndVertexIds:
             ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
-            ("claude-3-7-sonnet", (3e-6, 1.5e-5, 3e-7, 3.75e-6, 6e-6)),
-            ("claude-opus-4", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
             ("claude-opus-4-1", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
         ],
     )

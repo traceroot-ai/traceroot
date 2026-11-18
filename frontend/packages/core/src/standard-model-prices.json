@@ -938,32 +938,6 @@
     }
   },
   {
-    "id": "tr-claude-opus-4",
-    "modelName": "claude-opus-4",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4(-0|-\\d{8})?(@\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-opus-4(-\\d{8})?(-v\\d+:\\d+)?)$",
-    "provider": "anthropic",
-    "prices": {
-      "input": 0.000015,
-      "output": 0.000075,
-      "cacheRead": 0.0000015,
-      "cacheWrite": 0.00001875,
-      "cacheWrite1h": 0.00003
-    }
-  },
-  {
-    "id": "tr-claude-3-7-sonnet",
-    "modelName": "claude-3-7-sonnet",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3[.-]7-sonnet(-\\d{8}|-latest)?(@\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-3-7-sonnet(-\\d{8})?(-v\\d+:\\d+)?)$",
-    "provider": "anthropic",
-    "prices": {
-      "input": 0.000003,
-      "output": 0.000015,
-      "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375,
-      "cacheWrite1h": 0.000006
-    }
-  },
-  {
     "id": "tr-gpt-5-codex",
     "modelName": "gpt-5-codex",
     "matchPattern": "(?i)^(openai\\/)?(gpt-5-codex)(-[\\d-]+)?$",
