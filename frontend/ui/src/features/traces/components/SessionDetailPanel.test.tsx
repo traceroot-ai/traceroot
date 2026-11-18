@@ -107,7 +107,7 @@ describe("SessionDetailPanel metadata badges", () => {
     expect(latencyBadge?.querySelector("svg")).toBeTruthy();
 
     const userBadge = screen.getByText("User:").parentElement;
-    expect(userBadge?.querySelector("svg")).toBeTruthy();
+    expect(userBadge?.querySelectorAll("svg")).toHaveLength(2); // user icon + chevron
 
     expect(screen.getByText("Traces:")).toBeDefined();
     expect(screen.getByText("3")).toBeDefined();
