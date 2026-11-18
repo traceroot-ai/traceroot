@@ -161,8 +161,12 @@ def test_a_user_outside_the_project_is_refused_before_any_read(path):
     assert internal.call_count == 0
 
 
+@respx.mock
 @pytest.mark.parametrize("path", PATHS)
 def test_a_user_without_a_project_is_told_to_pick_one(path):
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(200, json={"valid": True, "userId": "u1"})
+    )
     resp = _client().get(path, headers=USER_HEADER)
     assert resp.status_code == 400
     assert "list_projects" in resp.json()["detail"]

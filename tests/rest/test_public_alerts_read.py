@@ -278,7 +278,10 @@ def test_list_alerts_requires_authorization():
 
 @respx.mock
 def test_list_alerts_user_token_requires_project_id():
-    """A user credential without ?project_id is a 400 before any internal call."""
+    """A valid user credential without ?project_id is a 400 before the alert service is called."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(200, json={"valid": True, "userId": "u1"})
+    )
     internal = _mock_internal(LIST_BODY)
     client = TestClient(app, raise_server_exceptions=False)
     resp = client.get("/api/v1/public/alerts", headers=USER_HEADER)
