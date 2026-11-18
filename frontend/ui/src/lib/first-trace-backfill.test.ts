@@ -112,7 +112,7 @@ describe("readFirstTraceReceiveTime", () => {
 });
 
 describe("startFirstTraceTracking", () => {
-  it("starts recording at the first call and keeps that start", async () => {
+  it("records the first start it is given and keeps it, whatever later calls say", async () => {
     expect(await firstTraceTrackingStart()).toBeNull();
 
     expect(await startFirstTraceTracking(START)).toEqual(START);
@@ -159,11 +159,15 @@ describe("resolveFirstTraceReceiveTime", () => {
     expect(captureServerEvent).not.toHaveBeenCalled();
   });
 
-  it("stores the trace store's time while recording has not started", async () => {
+  it("shows the trace store's time without storing it while no start is recorded", async () => {
+    // A worker may have started reporting without recording its start yet (the web
+    // app was unreachable): a trace now could be a new project's first, which its
+    // report must still be able to record with its event.
     storeAnswers(AFTER_START);
 
     expect(await resolveFirstTraceReceiveTime(project())).toEqual(AFTER_START);
-    expect(db.projects.get("proj_old")?.firstTraceReceiveTime).toEqual(AFTER_START);
+    expect(db.projects.get("proj_old")?.firstTraceReceiveTime).toBeNull();
+    expect(db.prisma.project.updateMany).not.toHaveBeenCalled();
   });
 
   it("shows a first trace from after recording started without storing it", async () => {

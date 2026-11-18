@@ -145,6 +145,8 @@ import {
 
 /** Sam signs up on 10 November; `at(n)` is noon UTC on day n of their first week. */
 const SIGNED_UP = new Date("2026-11-10T09:00:00Z");
+/** When the ingest worker started reporting, as it recorded before its first report. */
+const REPORTING_STARTED = new Date("2026-11-09T00:00:00Z");
 const at = (day: number, time = "12:00:00") =>
   new Date(`2026-11-${String(10 + day).padStart(2, "0")}T${time}Z`);
 
@@ -160,6 +162,7 @@ beforeEach(() => {
   captureServerEvent.mockReset();
   // By default the store does not show the batch yet, and the report is taken at its word.
   readFirstTraceReceiveTime.mockReset().mockResolvedValue(null);
+  db.tables.tracking.push({ id: 1, startedAt: REPORTING_STARTED });
   db.tables.users.push({ id: "user_sam", createdAt: SIGNED_UP });
   db.tables.workspaces.push({ id: "ws_sam", createdBy: "user_sam" });
   db.tables.projects.push(
@@ -323,10 +326,10 @@ describe("an active first week", () => {
   });
 });
 
-describe("projects with traces from before recording started", () => {
+describe("projects with traces from before reporting started", () => {
   const START = at(0, "10:00:00");
   const OCT_11 = new Date("2026-10-11T08:30:00Z");
-  const startedRecording = () => db.tables.tracking.push({ id: 1, startedAt: START });
+  const startedRecording = () => db.tables.tracking.splice(0, 1, { id: 1, startedAt: START });
 
   it("does not send first_trace_received for a first trace an hour before the start", async () => {
     startedRecording();
@@ -351,14 +354,55 @@ describe("projects with traces from before recording started", () => {
     expect(events("first_trace_received")).toHaveLength(1);
   });
 
-  it("starts recording with the first report this deployment receives", async () => {
+  it("fills a project's time quietly when its report is the first the web app receives", async () => {
+    startedRecording();
     readFirstTraceReceiveTime.mockResolvedValue(OCT_11);
 
     const outcome = await recordTraceActivity("proj_a", at(0));
 
-    expect(db.tables.tracking).toEqual([{ id: 1, startedAt: at(0) }]);
     expect(firstTrace(outcome)).toBe(false);
     expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(OCT_11);
+    expect(events("first_trace_received")).toEqual([]);
+    expect(db.tables.tracking).toEqual([{ id: 1, startedAt: START }]);
+  });
+
+  it("sends it for a brand-new project whose report is the first the web app receives", async () => {
+    // The worker recorded its start before writing the project's first span; the
+    // report reaches the web app after both.
+    startedRecording();
+    readFirstTraceReceiveTime.mockResolvedValue(at(0, "10:00:05"));
+
+    const outcome = await recordTraceActivity("proj_a", at(0, "10:00:06"));
+
+    expect(firstTrace(outcome)).toBe(true);
+    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0, "10:00:05"));
+    expect(events("first_trace_received")).toHaveLength(1);
+    expect(db.tables.tracking).toEqual([{ id: 1, startedAt: START }]);
+  });
+
+  it("refuses to decide, and writes nothing, before the worker has recorded its start", async () => {
+    // A report can reach a web app with no start recorded only if the start was lost;
+    // taking the report's own time as the start would make this new project look old.
+    db.tables.tracking.length = 0;
+    readFirstTraceReceiveTime.mockResolvedValue(at(0, "11:59:58"));
+
+    const outcome = await recordTraceActivity("proj_a", at(0));
+
+    expect(outcome).toEqual({ kind: "tracking_not_started" });
+    expect(db.tables.tracking).toEqual([]);
+    expect(db.tables.projects[0].firstTraceReceiveTime).toBeNull();
+    expect(db.tables.onboarding).toEqual([]);
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("still counts the day for a project whose first trace is recorded, with no start", async () => {
+    db.tables.tracking.length = 0;
+    db.tables.projects[0].firstTraceReceiveTime = at(-1);
+
+    const outcome = await recordTraceActivity("proj_a", at(0));
+
+    expect(outcome).toMatchObject({ kind: "recorded", firstTrace: false, activeDayCounted: true });
+    expect(readFirstTraceReceiveTime).not.toHaveBeenCalled();
   });
 
   it("records the first trace at the report's time when the store shows none yet", async () => {

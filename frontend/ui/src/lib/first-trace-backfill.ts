@@ -1,18 +1,20 @@
 /**
- * The first-trace time of projects that already had traces when this deployment
- * started recording first traces.
+ * The first-trace time of projects that already had traces when the ingest worker
+ * started reporting trace activity.
  *
- * `first_trace_receive_time` is written when the ingest worker reports a
- * project's traces (lib/trace-activity.ts). The first report this deployment ever
- * receives marks when that recording started (`first_trace_tracking`). A project
- * whose earliest stored trace was received before that moment already had traces:
- * its time is filled from the trace store, quietly, without any event. A project
- * whose earliest trace came after it is receiving its first trace, which the
- * worker's report records, with `first_trace_received`.
+ * `first_trace_receive_time` is written when the worker reports a project's traces
+ * (lib/trace-activity.ts). Before its first report, and as it starts, the worker
+ * records when it started reporting (`POST /api/internal/first-trace-tracking`,
+ * kept in `first_trace_tracking`): the cutoff. Only the first start recorded is
+ * kept. A project whose earliest stored customer trace was received before the
+ * cutoff already had traces: its time is filled from the trace store, quietly,
+ * without any event. A project whose earliest trace came after it is receiving its
+ * first trace, which the worker's report records, with `first_trace_received`.
+ * Until a cutoff is recorded nothing is decided either way.
  *
  * Nothing runs as a separate backfill, on our cloud or on a self-hosted install:
  * a project is filled the first time its first-trace time is read, or the first
- * time the worker reports its traces after the start.
+ * time the worker reports its traces after the cutoff.
  */
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
@@ -34,7 +36,7 @@ export async function readFirstTraceReceiveTime(projectId: string): Promise<Date
   return body.first_trace_receive_time ? new Date(body.first_trace_receive_time) : null;
 }
 
-/** When this deployment started recording first traces; null before its first report. */
+/** When the ingest worker started reporting (the cutoff); null until it has recorded it. */
 export async function firstTraceTrackingStart(): Promise<Date | null> {
   const row = await prisma.firstTraceTracking.findUnique({
     where: { id: 1 },
@@ -44,20 +46,21 @@ export async function firstTraceTrackingStart(): Promise<Date | null> {
 }
 
 /**
- * The start of first-trace recording, set to `now` by the first call that finds
- * none. Concurrent first calls agree on one start.
+ * Records `startedAt`, when the ingest worker started reporting, as the cutoff
+ * unless one is already recorded, and returns the recorded cutoff. A recorded
+ * cutoff is never moved. Concurrent first calls agree on one.
  */
-export async function startFirstTraceTracking(now: Date): Promise<Date> {
+export async function startFirstTraceTracking(startedAt: Date): Promise<Date> {
   const existing = await firstTraceTrackingStart();
   if (existing) return existing;
   try {
-    const created = await prisma.firstTraceTracking.create({ data: { id: 1, startedAt: now } });
+    const created = await prisma.firstTraceTracking.create({ data: { id: 1, startedAt } });
     return created.startedAt;
   } catch (err) {
     if (!isPrismaKnownError(err, "P2002")) throw err;
   }
-  // Another report started it a moment ago.
-  return (await firstTraceTrackingStart()) ?? now;
+  // Another worker recorded its start a moment ago.
+  return (await firstTraceTrackingStart()) ?? startedAt;
 }
 
 /**
@@ -85,9 +88,9 @@ export async function fillFirstTraceReceiveTime(
  * else the trace store's. Null while the project has no traces, and for the
  * shared demo workspace, which is nobody's first trace.
  *
- * Only a trace from before recording started is stored here. A later one is
- * returned without being stored, so the worker's report still records it as the
- * project's first, with its event.
+ * Only a trace from before the cutoff is stored here. A later one, and any trace
+ * while no cutoff is recorded, is returned without being stored, so the worker's
+ * report still decides, with the event for a project's first trace.
  */
 export async function resolveFirstTraceReceiveTime(project: {
   id: string;
@@ -100,6 +103,6 @@ export async function resolveFirstTraceReceiveTime(project: {
   const receivedAt = await readFirstTraceReceiveTime(project.id);
   if (!receivedAt) return null;
   const trackingStart = await firstTraceTrackingStart();
-  if (trackingStart && receivedAt >= trackingStart) return receivedAt;
+  if (!trackingStart || receivedAt >= trackingStart) return receivedAt;
   return fillFirstTraceReceiveTime(project.id, receivedAt);
 }

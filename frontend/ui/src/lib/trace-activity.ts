@@ -8,10 +8,12 @@
  *
  * - The project's first trace. `first_trace_receive_time` is set only while it is
  *   empty, and `first_trace_received` is sent only by the call whose update filled
- *   it, so a project sends the event once. A project that already had traces when
- *   this deployment started recording first traces is not receiving its first:
- *   its time is filled from the trace store without an event
- *   (lib/first-trace-backfill.ts).
+ *   it, so a project sends the event once. A project whose earliest stored trace
+ *   was received before the worker started reporting (the cutoff it records before
+ *   its first report) is not receiving its first: its time is filled from the trace
+ *   store without an event (lib/first-trace-backfill.ts). A report that needs the
+ *   cutoff before any is recorded is refused; the worker records its start and
+ *   retries.
  * - The days in the owner's first week on which traces arrived. A UTC day counts
  *   once, on the first report that day from any of the owner's projects. The week
  *   is the owner's sign-up day and the six days after it.
@@ -27,8 +29,8 @@ import { isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import {
   fillFirstTraceReceiveTime,
+  firstTraceTrackingStart,
   readFirstTraceReceiveTime,
-  startFirstTraceTracking,
 } from "@/lib/first-trace-backfill";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { utcDay } from "@/lib/utc-day";
@@ -42,6 +44,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export type TraceActivityOutcome =
   | { kind: "unknown_project" }
   | { kind: "demo_project" }
+  /** The project's first trace needs the cutoff, which the worker has not recorded. */
+  | { kind: "tracking_not_started" }
   | {
       kind: "recorded";
       /** This call recorded the project's first trace. */
@@ -67,10 +71,19 @@ export async function recordTraceActivity(
   if (!project) return { kind: "unknown_project" };
   if (isDemoWorkspace(project.workspaceId)) return { kind: "demo_project" };
 
+  // A first trace is placed against the cutoff, read before anything is written so
+  // that a refused report changes nothing.
+  let trackingStart: Date | null = null;
+  if (!project.firstTraceReceiveTime) {
+    trackingStart = await firstTraceTrackingStart();
+    if (!trackingStart) return { kind: "tracking_not_started" };
+  }
+
   const ownerId = project.workspace.createdBy ?? (await earliestAdmin(project.workspaceId));
   const properties = { project_id: projectId, workspace_id: project.workspaceId };
 
-  const firstTrace = !project.firstTraceReceiveTime && (await recordFirstTrace(projectId, now));
+  const firstTrace =
+    trackingStart !== null && (await recordFirstTrace(projectId, trackingStart, now));
   if (firstTrace && ownerId) captureServerEvent(ownerId, "first_trace_received", properties);
 
   const week = ownerId ? await countFirstWeekDay(ownerId, now) : { counted: false, active: false };
@@ -85,18 +98,20 @@ export async function recordTraceActivity(
 }
 
 /**
- * Records the project's first trace, unless its earliest stored trace was received
- * before this deployment started recording first traces (which the first report
- * starts): then that time is filled in quietly. True when this call recorded a new
- * first trace.
+ * Records the project's first trace, unless its earliest stored customer trace was
+ * received before `trackingStart`, the cutoff: then that time is filled in quietly.
+ * True when this call recorded a new first trace.
  *
  * The time recorded is the trace store's earliest receive time, so a report that
  * gets through only after retries still records when the trace arrived. A failed
  * lookup throws, so the worker retries the report rather than guessing either way.
  * A project the store shows no customer spans for is taken at the worker's word.
  */
-async function recordFirstTrace(projectId: string, now: Date): Promise<boolean> {
-  const trackingStart = await startFirstTraceTracking(now);
+async function recordFirstTrace(
+  projectId: string,
+  trackingStart: Date,
+  now: Date,
+): Promise<boolean> {
   const receivedAt = await readFirstTraceReceiveTime(projectId);
   if (receivedAt && receivedAt < trackingStart) {
     await fillFirstTraceReceiveTime(projectId, receivedAt);

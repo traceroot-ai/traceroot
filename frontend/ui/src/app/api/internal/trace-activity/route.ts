@@ -15,7 +15,10 @@ const traceActivitySchema = z.object({
 // counts. Records the project's first trace and the owner's active days (see
 // lib/trace-activity.ts). Every write is conditional, so a repeated report
 // changes nothing and the caller may retry freely; ingestion never waits on it.
-// Trust is the X-Internal-Secret. Never log ids.
+// A project's first trace is placed against the cutoff the worker records before
+// its first report (POST /api/internal/first-trace-tracking); without one the
+// report is refused with 409 and changes nothing, and the worker records its start
+// and retries. Trust is the X-Internal-Secret. Never log ids.
 export async function POST(request: NextRequest) {
   if (!verifyInternalSecret(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,6 +42,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     case "demo_project":
       return NextResponse.json({ recorded: false });
+    case "tracking_not_started":
+      return NextResponse.json({ error: "First-trace tracking has not started" }, { status: 409 });
     case "recorded":
       return NextResponse.json({
         recorded: true,
