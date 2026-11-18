@@ -19,6 +19,14 @@ vi.mock("../../../notifications/digest-recipients.js", () => ({
 vi.mock("../../../notifications/slack.js", () => ({ postSlackMessage: mockSlack }));
 vi.mock("../../../notifications/email.js", () => ({ sendEmail: mockEmail }));
 vi.mock("@traceroot/core", () => ({
+  EMAIL_COLORS: {
+    ink: "#0B1015",
+    muted: "#5F646B",
+    border: "#DFDFDF",
+    surface: "#F4F4F6",
+    white: "#FFFFFF",
+    accent: "#14B8B0",
+  },
   prisma: { detectorAlertConfig: { findUnique: mockAlertConfig } },
   escapeHtml: (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
   renderEmailCard: (p: { title: string; bodyHtml: string }) =>

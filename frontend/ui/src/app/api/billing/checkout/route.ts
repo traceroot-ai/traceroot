@@ -84,6 +84,9 @@ async function handlePOST(req: NextRequest) {
       customer: customerId,
       mode: "subscription",
       line_items: lineItems,
+      // Promo codes are entered on Stripe's hosted page. Each coupon is restricted to its
+      // plan's product (`applies_to`), so Stripe refuses a code for the wrong plan.
+      allow_promotion_codes: true,
       success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
       metadata: { workspaceId },

@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { validateOutputSchema } from "@/features/detectors/output-schema";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
@@ -128,8 +129,12 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     const conditionsError = validateTriggerConditions(triggerConditions);
     if (conditionsError) return errorResponse(conditionsError, 400);
   }
-  if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
-    return errorResponse("outputSchema must be an array", 400);
+  // Validated against the types the detection worker builds, as the write
+  // service does: an unknown type or a repeated name would be stored and then
+  // screened wrong.
+  if (outputSchema !== undefined) {
+    const schemaError = validateOutputSchema(outputSchema);
+    if (schemaError) return errorResponse(schemaError, 400);
   }
 
   // detectionSource: only "system" / "byok" / null are valid. Reject anything

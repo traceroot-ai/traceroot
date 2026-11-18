@@ -281,6 +281,18 @@ describe("AlertForm", () => {
     expect(saveButton().hasAttribute("disabled")).toBe(false);
   });
 
+  it("blocks the save on a threshold the API would refuse, and says why", () => {
+    const reason = "Threshold must be zero or more: count can never be negative";
+    renderForm();
+    fillRequiredFields("p95 latency", "-3");
+    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(reason).className).toContain("text-destructive");
+
+    fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "3" } });
+    expect(saveButton().hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText(reason)).toBeNull();
+  });
+
   it("posts the draft under the names the create endpoint reads", async () => {
     const fetchMock = stubCreateSuccess();
     renderForm();
@@ -418,6 +430,23 @@ describe("AlertForm", () => {
       // The first call, not the last: a frame on the defaults would bill a query.
       expect(previewMetrics()[0]).toEqual({ measure: "duration_ms", agg: "p95" });
       expect(previewMetrics()).not.toContainEqual({ measure: "count", agg: "count" });
+    });
+
+    it("saves a rename of a legacy negative threshold, and blocks a change to it with the reason", () => {
+      renderForm({ alertId: "alert-9", initialDraft: { ...SAVED_DRAFT, threshold: "-5" } });
+      const save = () => screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
+      const reason = "Threshold must be zero or more: latency can never be negative";
+
+      fireEvent.change(screen.getByLabelText("name"), { target: { value: "Renamed" } });
+      expect(save().disabled).toBe(false);
+      expect(screen.queryByText(reason)).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-6" } });
+      expect(save().disabled).toBe(true);
+      expect(screen.getByText(reason)).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-5.0" } });
+      expect(save().disabled).toBe(false);
     });
 
     it("warns, without blocking the save, when the rule has an alert open", () => {
