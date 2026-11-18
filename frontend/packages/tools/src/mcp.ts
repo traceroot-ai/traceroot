@@ -1,7 +1,9 @@
-import type { ApiClient } from "./client.js";
+import { ApiError, type ApiClient } from "./client.js";
 import { dispatch } from "./dispatch.js";
+import { fitToBudget } from "./fit.js";
 import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { InputSchema, RegistryEntry, ToolAnnotations } from "./types.js";
+import { checkArguments } from "./validate.js";
 
 /** One text block of an MCP tool result. */
 export interface McpToolResultContent {
@@ -11,8 +13,44 @@ export interface McpToolResultContent {
 
 export interface McpToolResult {
   content: McpToolResultContent[];
+  /**
+   * The result object the text encodes, for clients that read structured
+   * output. Present only when the result is a JSON object.
+   */
+  structuredContent?: Record<string, unknown>;
   /** Set when the call failed; the text then carries the backend's detail. */
   isError?: boolean;
+  /** How the call went, for the server's own telemetry. Never sent to the client. */
+  report: McpCallReport;
+}
+
+/** Why a call failed, coarse enough to count. */
+export type McpErrorKind =
+  | "invalid_arguments"
+  | "api_error"
+  | "timeout"
+  | "aborted"
+  | "network"
+  | "internal";
+
+/** What a call did, without its arguments or result content. */
+export interface McpCallReport {
+  errorKind?: McpErrorKind;
+  /** The backend's status when it answered with an error. */
+  httpStatus?: number;
+  /** Length of the text returned to the client. */
+  resultChars: number;
+  /** The result was shrunk to fit the character budget. */
+  truncated: boolean;
+  /** Values withheld as credentials by transformResult. */
+  redactions: number;
+  /** The wrapper key the arguments were unwrapped from, if any. */
+  unwrappedFrom?: string;
+}
+
+/** Counters a transformResult may add to; they end up in the call's report. */
+export interface ResultNotes {
+  redactions: number;
 }
 
 /**
@@ -48,7 +86,11 @@ export interface ToMcpToolOptions {
    * made with (defaults applied). The content-withholding default of a trace
    * read is the motivating case.
    */
-  transformResult?: (result: unknown, args: Readonly<Record<string, unknown>>) => unknown;
+  transformResult?: (
+    result: unknown,
+    args: Readonly<Record<string, unknown>>,
+    notes: ResultNotes,
+  ) => unknown;
   /**
    * Descriptions for params the registry leaves undescribed, by param name. A
    * description the registry already carries wins. A model picks arguments from
@@ -57,9 +99,11 @@ export interface ToMcpToolOptions {
    */
   paramDescriptions?: Readonly<Record<string, string>>;
   /**
-   * Longest result text returned. A longer one is cut and says so, so the model
-   * narrows the request instead of reasoning over a silently partial answer or
-   * overflowing its context. Defaults to DEFAULT_MAX_RESULT_CHARS.
+   * Longest result text returned. A longer result is shrunk structurally (long
+   * strings cut, then list tails dropped) so it stays valid JSON, and says what
+   * went and how to ask for less, so the model narrows the request instead of
+   * reasoning over a silently partial answer or overflowing its context.
+   * Defaults to DEFAULT_MAX_RESULT_CHARS.
    */
   maxResultChars?: number;
 }
@@ -67,13 +111,28 @@ export interface ToMcpToolOptions {
 /** About 20k tokens of JSON: under the limit clients such as Claude Code apply to a tool result. */
 export const DEFAULT_MAX_RESULT_CHARS = 80_000;
 
-/** Cut text to `limit` characters, appending what happened and what to do about it. */
-export function truncateResult(text: string, limit: number): string {
-  if (text.length <= limit) return text;
+/**
+ * How to ask for less, from the params the tool actually takes; stored as the
+ * shrunk result's `_hint`.
+ */
+export function narrowingHint(schema: InputSchema, limit: number): string {
+  const has = (name: string) => name in schema.properties;
+  const ways: string[] = [];
+  if (has("limit")) ways.push("a smaller limit");
+  if (has("max_rows")) ways.push("a lower max_rows");
+  if (has("start_after") && has("end_before")) {
+    ways.push("a shorter time window (start_after, end_before)");
+  } else if (has("start_time") && has("end_time")) {
+    ways.push("a shorter time window (start_time, end_time)");
+  }
+  if (has("fields")) ways.push("a lighter fields value");
+  const paging = ["cursor", "page"].filter(has);
+  const narrow = ways.length > 0 ? `Ask for less (${ways.join(", ")})` : "Narrow the request";
+  const page = paging.length > 0 ? `, or page through with ${paging.join("/")}` : "";
   return (
-    text.slice(0, limit) +
-    `\n\n[Result truncated: it was ${text.length} characters and the limit is ${limit}. ` +
-    "Narrow the request (a shorter time window, a smaller limit, or specific fields) and call again.]"
+    `This result was over the ${limit}-character limit and was shortened: a cut value ends ` +
+    `in "…[truncated N chars]" and dropped list items are counted in _truncated, by path. ` +
+    `${narrow}${page} and call again.`
   );
 }
 
@@ -120,6 +179,7 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
   if (annotations === undefined) {
     throw new Error(`Registry entry ${entry.name} has no annotations; regenerate the registry`);
   }
+  const hint = narrowingHint(inputSchema, maxResultChars);
   return {
     name: entry.name,
     title: annotations.title,
@@ -127,7 +187,13 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
     inputSchema,
     annotations,
     execute: async (rawParams, signal): Promise<McpToolResult> => {
-      const params = { ...((rawParams ?? {}) as Record<string, unknown>) };
+      // Checked here rather than by the server's SDK so the message can teach:
+      // it names each bad path, unknown keys and the accepted shape.
+      const checked = checkArguments(entry.name, inputSchema, rawParams, { hidden });
+      if (!checked.ok) {
+        return failure(checked.message, { errorKind: "invalid_arguments" });
+      }
+      const params = { ...checked.args };
       // The schema says these fields do not exist, so a value for one is never
       // the caller's.
       for (const name of hidden) {
@@ -139,17 +205,54 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
       try {
         const args = { ...(defaults?.(supplied) ?? {}), ...supplied };
         const result = await dispatch(entry, args, client, { signal });
-        const shaped = transformResult ? transformResult(result, args) : result;
+        const notes: ResultNotes = { redactions: 0 };
+        const shaped = transformResult ? transformResult(result, args, notes) : result;
         // Compact: the model reads it as well as indented JSON, in about a third fewer tokens.
-        const text = truncateResult(JSON.stringify(shaped), maxResultChars);
-        return { content: [{ type: "text", text }] };
+        const fitted = fitToBudget(shaped, maxResultChars, { hint });
+        return {
+          content: [{ type: "text", text: fitted.text }],
+          ...(isPlainObject(fitted.value) ? { structuredContent: fitted.value } : {}),
+          report: {
+            resultChars: fitted.text.length,
+            truncated: fitted.truncated,
+            redactions: notes.redactions,
+            ...(checked.unwrappedFrom ? { unwrappedFrom: checked.unwrappedFrom } : {}),
+          },
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return {
-          content: [{ type: "text", text: `Error calling ${entry.name}: ${message}` }],
-          isError: true,
-        };
+        return failure(`Error calling ${entry.name}: ${message}`, classify(error, signal));
       }
     },
   };
+}
+
+function failure(text: string, report: Partial<McpCallReport>): McpToolResult {
+  return {
+    content: [{ type: "text", text }],
+    isError: true,
+    report: { resultChars: text.length, truncated: false, redactions: 0, ...report },
+  };
+}
+
+/** The error kind of a failed dispatch, from the error's class. */
+function classify(error: unknown, signal: AbortSignal | undefined): Partial<McpCallReport> {
+  if (error instanceof ApiError) {
+    return { errorKind: "api_error", httpStatus: error.status };
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return { errorKind: "timeout" };
+  }
+  if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+    return { errorKind: "aborted" };
+  }
+  if (error instanceof TypeError) {
+    // fetch reports an unreachable backend as a TypeError.
+    return { errorKind: "network" };
+  }
+  return { errorKind: "internal" };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

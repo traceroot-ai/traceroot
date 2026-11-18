@@ -24,8 +24,11 @@ export {
 export { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "./internal.js";
 export {
   toMcpTool,
+  type McpCallReport,
+  type McpErrorKind,
   type McpTool,
   type McpToolResult,
+  type ResultNotes,
   type McpToolResultContent,
   type ToMcpToolOptions,
 } from "./mcp.js";
