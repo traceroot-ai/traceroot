@@ -134,7 +134,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <div className="border">
         <div className="flex h-9 items-center justify-between border-b px-4">
           <span className="text-[13px] font-medium">.env</span>
-          <CopyButton value={envBlockContent} className="h-7 w-7" />
+          <CopyButton
+            aria-label="Copy environment configuration"
+            value={envBlockContent}
+            className="h-7 w-7"
+          />
         </div>
         <div className="bg-muted px-4 py-2.5 font-mono text-[12px]">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
@@ -151,7 +155,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
                 {newKeyData.key}
               </code>
-              <CopyButton value={newKeyData.key} variant="outline" />
+              <CopyButton aria-label="Copy API key" value={newKeyData.key} variant="outline" />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key
@@ -333,6 +337,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   </td>
                   <td className="px-3 py-2">
                     <DeleteIconButton
+                      aria-label={`Delete API key ${key.name || formatKeyHint(key.key_hint)}`}
                       className="h-6 w-6"
                       onClick={() => {
                         deleteMutation.reset();

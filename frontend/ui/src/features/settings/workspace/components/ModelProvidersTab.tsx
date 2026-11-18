@@ -392,6 +392,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                           Edit
                         </Button>
                         <DeleteIconButton
+                          aria-label={`Delete provider ${p.provider}`}
                           onClick={() => {
                             deleteMutation.reset();
                             setDeleteTarget(p);

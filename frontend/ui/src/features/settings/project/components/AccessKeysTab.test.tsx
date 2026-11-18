@@ -45,6 +45,33 @@ it("keeps the ordinary empty-state copy", async () => {
   ).toBeTruthy();
 });
 
+it.each([
+  ["Production", "Delete API key Production"],
+  [null, "Delete API key tr-1234...9012"],
+])("names the delete action for API key %s", async (name, expectedLabel) => {
+  vi.mocked(getAccessKeys).mockResolvedValue({
+    access_keys: [
+      {
+        id: "key-1",
+        name,
+        key_hint: "tr-123456789012",
+        create_time: "2026-01-01T00:00:00Z",
+        last_use_time: null,
+      },
+    ],
+  } as Awaited<ReturnType<typeof getAccessKeys>>);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  const button = await screen.findByRole("button", { name: expectedLabel });
+  expect(button.title).toBe(expectedLabel);
+  fireEvent.click(button);
+  expect(screen.getByRole("dialog", { name: "Delete API Key" })).toBeTruthy();
+  expect(deleteAccessKey).not.toHaveBeenCalled();
+});
+
 it.each(["create", "update", "delete"] as const)(
   "shows a %s denial and clears it when reopening",
   async (action) => {
