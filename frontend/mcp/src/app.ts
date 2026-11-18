@@ -18,6 +18,8 @@ export interface AppConfig extends ServerConfig {
   oauth?: OAuthConfig;
   /** How long the backend's verdict on a credential is reused. */
   credentialTtlMs?: number;
+  /** Served at /.well-known/openai-apps-challenge to prove domain ownership; unset serves 404. */
+  openaiAppsChallenge?: string;
 }
 
 /** Split a comma-separated host list, dropping blanks; an empty result means unset (any host). */
@@ -64,6 +66,14 @@ export function createApp(config: AppConfig): Hono {
 
   const app = new Hono();
   app.get("/health", (c) => c.json({ status: "ok" }));
+
+  // Domain verification for an app directory: the token exactly, as plain text.
+  const { openaiAppsChallenge } = config;
+  if (openaiAppsChallenge) {
+    app.get("/.well-known/openai-apps-challenge", (c) =>
+      c.body(openaiAppsChallenge, 200, { "Content-Type": "text/plain; charset=utf-8" }),
+    );
+  }
 
   const { oauth } = config;
   if (oauth) {

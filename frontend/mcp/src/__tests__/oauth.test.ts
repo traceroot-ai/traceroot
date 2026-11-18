@@ -210,3 +210,24 @@ describe("the endpoint", () => {
     expect(response.status).toBe(200);
   });
 });
+
+describe("the OpenAI apps domain challenge", () => {
+  const make = (openaiAppsChallenge?: string) =>
+    createApp({ backendUrl: "http://rest:8000", openaiAppsChallenge, oauth: OAUTH });
+
+  it("serves the configured token as plain text, without a credential", async () => {
+    const response = await make("token-123").fetch(
+      new Request("https://mcp.example.com/.well-known/openai-apps-challenge"),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^text\/plain/);
+    expect(await response.text()).toBe("token-123");
+  });
+
+  it("is not found when unset", async () => {
+    const response = await make().fetch(
+      new Request("https://mcp.example.com/.well-known/openai-apps-challenge"),
+    );
+    expect(response.status).toBe(404);
+  });
+});

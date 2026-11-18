@@ -10,6 +10,7 @@ const app = createApp({
   timeoutMs: 60_000,
   allowedHosts: parseAllowedHosts(process.env.MCP_ALLOWED_HOSTS),
   oauth: parseOAuthConfig(process.env),
+  openaiAppsChallenge: process.env.MCP_OPENAI_APPS_CHALLENGE?.trim() || undefined,
 });
 
 serve({ fetch: app.fetch, port: PORT });
