@@ -27,6 +27,14 @@ def mock_detector_enqueue(monkeypatch):
     return mock
 
 
+@pytest.fixture(autouse=True)
+def mock_trace_activity(monkeypatch):
+    """Mock the report to the web app so tests never touch Redis or HTTP."""
+    mock = MagicMock()
+    monkeypatch.setattr("worker.ingest_tasks.schedule_trace_activity_report", mock)
+    return mock
+
+
 class TestProcessS3Traces:
     def test_happy_path(self, mock_s3, mock_ch):
         """Downloads from S3, transforms, inserts traces + spans."""
@@ -134,6 +142,36 @@ class TestProcessS3Traces:
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         mock_detector_enqueue.assert_not_called()
+
+
+class TestProcessS3TracesReportsTraceActivity:
+    def test_reports_the_project_after_its_spans_are_written(
+        self, mock_s3, mock_ch, mock_trace_activity
+    ):
+        order = []
+        mock_ch.insert_spans_batch.side_effect = lambda *a: order.append("spans written")
+        mock_trace_activity.side_effect = lambda project_id: order.append(f"report {project_id}")
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        assert order == ["spans written", "report proj-1"]
+
+    def test_no_report_for_a_batch_without_spans(self, mock_s3, mock_ch, mock_trace_activity):
+        mock_s3.download_json.return_value = {"resourceSpans": []}
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_trace_activity.assert_not_called()
+
+    def test_no_report_when_writing_the_spans_fails(self, mock_s3, mock_ch, mock_trace_activity):
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+        mock_ch.insert_spans_batch.side_effect = Exception("CH connection error")
+
+        with pytest.raises(Exception, match="CH connection error"):
+            process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_trace_activity.assert_not_called()
 
 
 class TestTaskCostByTrace:
