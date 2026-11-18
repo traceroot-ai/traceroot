@@ -91,6 +91,16 @@ describe("POST /api/internal/trace-activity", () => {
     expect(await response.json()).toEqual({ error: "Project not found" });
   });
 
+  it("answers 409 while the worker has not recorded when it started reporting", async () => {
+    // The worker then records its start and sends the report again.
+    recordTraceActivityMock.mockResolvedValue({ kind: "tracking_not_started" });
+
+    const response = await POST(makeRequest(exampleRequest));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "First-trace tracking has not started" });
+  });
+
   it("answers 200 without recording for a demo workspace project", async () => {
     recordTraceActivityMock.mockResolvedValue({ kind: "demo_project" });
 

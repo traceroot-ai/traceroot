@@ -256,10 +256,10 @@ model UserOnboarding {
   @@map("user_onboarding")
 }
 
-// When this deployment started recording first traces: the time of the first
-// trace-activity report it received. A project whose earliest stored trace is older
-// already had traces then; see ui/src/lib/first-trace-backfill.ts. At most one row
-// (a CHECK in the migration keeps id at 1).
+// When the ingest worker started reporting trace activity, which it records before
+// its first report: the cutoff. A project whose earliest stored trace is older
+// already had traces then; see ui/src/lib/first-trace-backfill.ts. The first start
+// recorded is kept. At most one row (a CHECK in the migration keeps id at 1).
 model FirstTraceTracking {
   id        Int      @id @default(1) @db.SmallInt
   startedAt DateTime @default(now()) @map("started_at") @db.Timestamp(6)
