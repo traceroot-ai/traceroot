@@ -23,8 +23,8 @@ TIMEOUT_SECONDS = 60
 # cacheWrite1h only appears on rows with a separate 1-hour cache write rate.
 FIELDS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
 REQUIRED_FIELDS = ("input", "output", "cacheRead", "cacheWrite")
-# What a reviewed entry holds: the first five are copied from a flag.
-REVIEWED_KEYS = ("model", "field", "ours", "litellm", "modelsdev", "reason", "pr")
+# What a reviewed entry holds: the first six are copied from a flag.
+REVIEWED_KEYS = ("model", "field", "ours", "billed", "litellm", "modelsdev", "reason", "pr")
 FIELD_LABELS = {
     "input": "input",
     "output": "output",
@@ -306,8 +306,9 @@ def load_source(source: str, label: str) -> Any:
 
 def load_reviewed(path: Path) -> list[dict]:
     """Read the file of rates a maintainer has checked and left as they are. Each entry
-    copies a flag's model, field and rates, so it stops matching once a rate changes, and
-    gives the reason and the PR that settled it, if any. Anything else fails the run."""
+    copies a flag's model, field and rates, including the rate we bill, so it stops
+    matching once a rate changes, and gives the reason and the PR that settled it, if any.
+    Anything else fails the run."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -327,8 +328,9 @@ def load_reviewed(path: Path) -> list[dict]:
             raise CheckError(f"reviewed entry {index} has an empty reason")
         if entry["field"] not in FIELDS:
             raise CheckError(f"reviewed entry {index} has an unknown field")
-        for key in ("ours", "litellm", "modelsdev"):
-            if entry[key] is not None and _number(entry[key]) is None:
+        for key in ("ours", "billed", "litellm", "modelsdev"):
+            # Only billed is never null: it is the rate production bills.
+            if (key == "billed" or entry[key] is not None) and _number(entry[key]) is None:
                 raise CheckError(f"reviewed entry {index} has a non-numeric {key}")
         pr = entry["pr"]
         if pr is not None and (isinstance(pr, bool) or not isinstance(pr, int)):

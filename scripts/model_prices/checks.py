@@ -21,7 +21,7 @@ MIN_COMPARED = 80
 ONE_MILLION = 1_000_000
 
 # The values of a flag a reviewed entry must copy to settle it.
-REVIEWED_MATCH = ("model", "field", "ours", "litellm", "modelsdev")
+REVIEWED_MATCH = ("model", "field", "ours", "billed", "litellm", "modelsdev")
 
 # What a host adds around a model's own ID: a region, a vendor, a version or a date.
 HOST_PREFIX = re.compile(
@@ -136,6 +136,7 @@ def _flag_rates(
                     "provider": provider,
                     "field": field,
                     "ours": ours,
+                    "billed": billed[field],
                     "litellm": theirs.get("litellm"),
                     "modelsdev": theirs.get("modelsdev"),
                     "pricing_page": PRICING_PAGES.get(provider),

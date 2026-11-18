@@ -32,11 +32,11 @@ result again. It also lists any problem a PR would add. A PR that changes a row 
 current file has since changed another way is listed with that conflict and not checked.
 
 A rate a maintainer has checked and left as it is goes in --reviewed (default
-scripts/model_prices/reviewed.json) and is no longer flagged until our rate or either
-catalog's rate changes. To add one, copy model, field, ours, litellm and modelsdev
-verbatim from the flag in the --json report, since an entry matches only those exact
-values (a models.dev rate can read 4.0000000000000003e-07), then add a reason and pr,
-the number of the PR that settled it or null.
+scripts/model_prices/reviewed.json) and is no longer flagged until our rate, the rate we
+bill, or either catalog's rate changes. To add one, copy model, field, ours, billed,
+litellm and modelsdev verbatim from the flag in the --json report, since an entry
+matches only those exact values (a models.dev rate can read 4.0000000000000003e-07),
+then add a reason and pr, the number of the PR that settled it or null.
 
 A flag means "check this row", not "this is the price". Confirm the rate on the
 provider's pricing page, listed with each flag, before changing the price file.

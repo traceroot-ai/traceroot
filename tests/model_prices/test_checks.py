@@ -297,6 +297,35 @@ def test_a_row_without_a_1h_cache_write_rate_is_compared_at_its_cache_write_rate
     ]
 
 
+def test_a_reviewed_1h_cache_write_rate_is_matched_on_the_rate_we_bill():
+    litellm = {
+        "claude-y": ll_entry(
+            "anthropic",
+            cache_creation_input_token_cost=1.25e-6,
+            cache_creation_input_token_cost_above_1hr=2e-6,
+        )
+    }
+
+    def flagged_1h(cache_write, reviewed=()):
+        rows = [row("claude-y", "anthropic")]  # no cacheWrite1h: billed at cacheWrite
+        rows[0]["prices"]["cacheWrite"] = cache_write
+        report = report_for(rows, litellm, md_catalog(), reviewed=reviewed)
+        return [f for f in report["flagged"] if f["field"] == "cacheWrite1h"], report
+
+    [flag], _ = flagged_1h(1.25e-6)
+    assert (flag["ours"], flag["billed"]) == (None, 1.25e-6)
+    entry = _reviewed(**{k: flag[k] for k in ("model", "field", "ours", "billed", "litellm")})
+    entry["modelsdev"] = flag["modelsdev"]
+
+    flags, report = flagged_1h(1.25e-6, [entry])
+    assert flags == []
+    assert [(i["field"], i["billed"]) for i in report["reviewed"]] == [("cacheWrite1h", 1.25e-6)]
+    # cacheWrite changes, and the one-hour rate we bill with it: the entry no longer applies.
+    flags, report = flagged_1h(1.5e-6, [entry])
+    assert [(f["ours"], f["billed"]) for f in flags] == [(None, 1.5e-6)]
+    assert report["reviewed"] == []
+
+
 def test_lookup_tries_patterns_in_model_name_order():
     # The worker reads rows ordered by modelName, whatever their order in the file.
     later = row("model-b", "openai", pattern=r"(?i)^model-.*$")
@@ -567,6 +596,7 @@ def _reviewed(**changes):
         "model": "gpt-a",
         "field": "input",
         "ours": 1e-6,
+        "billed": 1e-6,
         "litellm": 2e-6,
         "modelsdev": 2e-6,
         "reason": "the provider's page says 1.00",
@@ -589,7 +619,13 @@ def test_a_flag_a_maintainer_reviewed_moves_to_reviewed():
 
 @pytest.mark.parametrize(
     "changed",
-    [{"ours": 1.5e-6}, {"litellm": 3e-6}, {"modelsdev": 3e-6}, {"field": "output"}],
+    [
+        {"ours": 1.5e-6},
+        {"billed": 1.5e-6},
+        {"litellm": 3e-6},
+        {"modelsdev": 3e-6},
+        {"field": "output"},
+    ],
 )
 def test_a_reviewed_entry_stops_matching_when_a_rate_changes(changed):
     rows = [row("gpt-a", "openai", input_=1e-6)]

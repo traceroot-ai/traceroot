@@ -120,6 +120,7 @@ def test_reviewed_rates_are_counted_in_one_line_after_the_flags():
             "model": name,
             "field": "input",
             "ours": 1e-6,
+            "billed": 1e-6,
             "litellm": 2e-6,
             "modelsdev": 2e-6,
             "reason": "checked",

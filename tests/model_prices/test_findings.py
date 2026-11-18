@@ -14,7 +14,7 @@ from tests.model_prices.samples import (
     row,
 )
 
-FLAG_KEYS = ("model", "field", "ours", "litellm", "modelsdev")
+FLAG_KEYS = ("model", "field", "ours", "billed", "litellm", "modelsdev")
 
 
 def test_a_pr_that_stops_comparing_a_flagged_row_does_not_fix_it():
