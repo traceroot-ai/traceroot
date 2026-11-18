@@ -657,6 +657,12 @@ services:
       MCP_OPENAI_APPS_CHALLENGE: ${MCP_OPENAI_APPS_CHALLENGE:-}
       # Longest tool result, in characters; blank keeps the default (80000).
       MCP_MAX_RESULT_CHARS: ${MCP_MAX_RESULT_CHARS:-}
+      # Per-call telemetry spans over OTLP/HTTP protobuf (no arguments, no
+      # results). For a TraceRoot project: http://rest:8000/api/v1/public/traces
+      # with headers "Authorization=Bearer%20tr-...". Blank endpoint: stdout only.
+      MCP_TELEMETRY_OTLP_ENDPOINT: ${MCP_TELEMETRY_OTLP_ENDPOINT:-}
+      MCP_TELEMETRY_OTLP_HEADERS: ${MCP_TELEMETRY_OTLP_HEADERS:-}
+      MCP_TELEMETRY_SERVICE_NAME: ${MCP_TELEMETRY_SERVICE_NAME:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
       interval: 10s
