@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { captureServerEvent } from "@/lib/posthog-server";
 import { validateOutputSchema } from "@/features/detectors/output-schema";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
@@ -217,6 +218,13 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     if (!isPrismaKnownError(e, "P2002")) throw e;
     return errorResponse("A detector with this name already exists", 409);
   }
+
+  // The other creation path, lib/write-services/detectors.ts, sends the same event.
+  captureServerEvent(user.id, "detector_created", {
+    project_id: projectId,
+    workspace_id: workspaceId,
+    transport: "ui",
+  });
 
   return successResponse({ detector }, 201);
 }

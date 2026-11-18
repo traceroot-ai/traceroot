@@ -19,6 +19,7 @@ import {
 } from "@traceroot/core";
 import { z } from "zod";
 import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
+import { captureServerEvent } from "@/lib/posthog-server";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
   DETECTOR_TEMPLATES,
@@ -283,6 +284,14 @@ export async function createDetector(input: {
   const { result, audit } = outcome;
   if (audit) {
     await writeAudit(prisma, audit);
+    // Only a detector this call created: a retry answered with the existing one,
+    // a lost name race and a refused request all return without an audit entry.
+    // The web app's own create route sends the same event.
+    captureServerEvent(audit.actorUserId, "detector_created", {
+      project_id: audit.projectId,
+      workspace_id: audit.workspaceId,
+      transport: audit.transport,
+    });
   }
   return result;
 }

@@ -35,6 +35,8 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     listWorkspaceModels,
   };
 });
+const { captureServerEvent } = vi.hoisted(() => ({ captureServerEvent: vi.fn() }));
+vi.mock("@/lib/posthog-server", () => ({ captureServerEvent }));
 import { createDetector } from "./detectors";
 
 const baseInput = {
@@ -76,6 +78,7 @@ beforeEach(() => {
   root.auditLog.create.mockReset();
   root.auditLog.create.mockResolvedValue({});
   root.detector.findFirst.mockReset();
+  captureServerEvent.mockReset();
   listWorkspaceModels.mockReset();
   listWorkspaceModels.mockResolvedValue({
     systemModels: [
@@ -599,5 +602,64 @@ describe("createDetector", () => {
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
+  });
+});
+
+describe("createDetector — detector_created", () => {
+  it("is sent once, to the actor, for a detector this call created", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+
+    await run({ provenance: { transport: "agent", agentSessionId: "s1" } });
+
+    expect(captureServerEvent).toHaveBeenCalledTimes(1);
+    expect(captureServerEvent).toHaveBeenCalledWith("u1", "detector_created", {
+      project_id: "p1",
+      workspace_id: "w1",
+      transport: "agent",
+    });
+  });
+
+  it("is not sent when a retry gets the existing detector back", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(createdRow);
+
+    await run();
+
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("is not sent when the insert loses the name race to a concurrent create", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(p2002());
+    root.detector.findFirst.mockResolvedValue(createdRow);
+
+    await run();
+
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a VIEWER", () => mockAccess("VIEWER"), {}],
+    ["a missing project", () => tx.project.findUnique.mockResolvedValue(null), {}],
+    ["an invalid body", () => mockAccess(), { name: "   " }],
+  ])("is not sent for a request refused for %s", async (_, arrange, overrides) => {
+    arrange();
+
+    const r = await run(overrides);
+
+    expect(r.ok).toBe(false);
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("is not sent when the transaction fails", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(new Error("connection lost"));
+
+    await expect(run()).rejects.toThrow("connection lost");
+    expect(captureServerEvent).not.toHaveBeenCalled();
   });
 });
