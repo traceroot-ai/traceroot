@@ -8,6 +8,8 @@
  *   pnpm tsx quickstart.ts
  */
 
+import { pathToFileURL } from 'node:url';
+
 // [start:tracing-get-started-typescript]
 // import { config } from 'dotenv';  // Uncomment if using a .env file (requires: npm install dotenv)
 import OpenAI from 'openai';
@@ -23,4 +25,7 @@ async function main() {
 // Call main() from your entry point.
 // [end:tracing-get-started-typescript]
 
-await main();
+// Run main() when this file is executed, not when another module imports it.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
