@@ -14,6 +14,7 @@ from tests.model_prices.samples import (
     compare,
     ll_entry,
     md_catalog,
+    md_model,
     report_for,
     row,
     runner,
@@ -617,6 +618,72 @@ def test_an_id_another_row_hands_over_explains_no_change_to_the_taking_rows_patt
     assert compare(OVERLAP, [narrowed, catch_all], litellm, md_catalog())["adds"] == [
         "zeta matchPattern changed with no finding to fix"
     ]
+
+
+def _cache_write_rows(cache_write, one_hour=None):
+    """A claude-a row with a cache write rate and, when given, a one-hour rate."""
+    claude = row("claude-a", "anthropic")
+    claude["prices"]["cacheWrite"] = cache_write
+    claude["prices"]["cacheWrite1h"] = one_hour
+    return [claude]
+
+
+CACHE_WRITE_CATALOGS = (
+    {
+        "claude-a": ll_entry(
+            "anthropic",
+            cache_creation_input_token_cost=4e-6,
+            cache_creation_input_token_cost_above_1hr=1e-6,
+        )
+    },
+    md_catalog(anthropic={"claude-a": md_model(cost={"cache_write": 4.0})}),
+)
+
+
+def test_an_omitted_rate_that_bills_more_through_its_fallback_is_added(run, tmp_path):
+    # The one-hour rate is omitted in both files, so it bills the cache write rate: $2
+    # before the edit, $4 after, and the catalog lists $1.
+    before, after = _cache_write_rows(2e-6), _cache_write_rows(4e-6)
+
+    assert compare(before, after, *CACHE_WRITE_CATALOGS) == {
+        "fixes": ["claude-a cache write rate (ours 2.00)"],
+        "adds": ["claude-a cache write 1h rate (ours none, billed 4.00)"],
+    }
+    baseline = tmp_path / "before.json"
+    baseline_for(run, baseline, before, *CACHE_WRITE_CATALOGS)
+    code, _, _ = run(
+        after, *CACHE_WRITE_CATALOGS, "--min-compared", "1", "--baseline", str(baseline)
+    )
+    assert code == 3
+
+
+def test_a_stored_rate_changed_to_the_rate_it_billed_is_added():
+    # An omitted one-hour rate that bills $4 through the fallback, then stated as $4: the
+    # billed rate is the same, and the finding has a new key, as for any stored rate change.
+    before, after = _cache_write_rows(4e-6), _cache_write_rows(4e-6, one_hour=4e-6)
+
+    assert compare(before, after, *CACHE_WRITE_CATALOGS) == {
+        "fixes": [],
+        "adds": ["claude-a cache write 1h rate (ours 4.00)"],
+    }
+
+
+def test_a_baseline_without_the_billed_rate_fails_the_run(run, tmp_path):
+    litellm = {"gpt-a": ll_entry("openai", input_=2e-6)}
+    rows = [row("gpt-a", "openai")]
+    saved = report_for(rows, litellm, md_catalog())
+    assert saved["flagged"]
+    for flag in saved["flagged"]:
+        del flag["billed"]
+    baseline = tmp_path / "before.json"
+    baseline.write_text(json.dumps(saved))
+
+    code, posted, _ = run(
+        rows, litellm, md_catalog(), "--min-compared", "1", "--baseline", str(baseline)
+    )
+
+    assert code == 1
+    assert "the baseline report was written by a different version" in posted[-1]["text"]
 
 
 @pytest.mark.parametrize(

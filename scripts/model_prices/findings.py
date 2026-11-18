@@ -12,11 +12,12 @@ from .text import _amount, _catalog_amount, _join
 
 def finding_keys(report: dict) -> dict[tuple, dict]:
     """Each finding by a key: what it is about and, for a flagged rate or an unpriced
-    ID, the value it has, our rate or the row that prices the ID. An edit that changes
-    that value gives the finding a new key."""
+    ID, the value it has: our stored rate and the rate we bill, or the row that prices
+    the ID. An edit that changes that value gives the finding a new key, so an omitted
+    rate that bills another rate through a fallback is told apart too."""
     keys: dict[tuple, dict] = {}
     for item in report["flagged"]:
-        keys[("rate", item["model"], item["field"], item["ours"])] = item
+        keys[("rate", item["model"], item["field"], item["ours"], item["billed"])] = item
     for item in report["unpriced_ids"]:
         keys[("id", item["model"], item["priced_as"])] = item
     for item in report["overlaps"]:
@@ -30,11 +31,19 @@ def finding_keys(report: dict) -> dict[tuple, dict]:
     return keys
 
 
+def _rate_text(ours: float | None, billed: float) -> str:
+    """Our stored rate, and the rate we bill when that is not what it bills, e.g.
+    "none, billed 4.00" for an omitted rate that falls back to another."""
+    if billed == (ours or 0):
+        return _amount(ours)
+    return f"{_amount(ours)}, billed {_amount(billed)}"
+
+
 def describe(key: tuple) -> str:
     """A finding key in a few words, e.g. "claude-x cache read rate (ours 0.10)"."""
     match key:
-        case ("rate", model, field, ours):
-            return f"{model} {FIELD_LABELS[field]} rate (ours {_amount(ours)})"
+        case ("rate", model, field, ours, billed):
+            return f"{model} {FIELD_LABELS[field]} rate (ours {_rate_text(ours, billed)})"
         case ("id", model, None):
             return f"{model} not priced by its row"
         case ("id", model, priced_as):
@@ -63,7 +72,7 @@ def describe_all(keys: list[tuple]) -> list[str]:
     merged = [
         f"{model} {_join([FIELD_LABELS[key[2]] for key in found])} rate"
         + "s" * (len(found) > 1)
-        + f" (ours {_join([_amount(key[3]) for key in found])})"
+        + f" (ours {_join([_rate_text(key[3], key[4]) for key in found])})"
         for model, found in rates.items()
     ]
     return merged + others
