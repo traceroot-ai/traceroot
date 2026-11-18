@@ -32,6 +32,10 @@ describe("mcpOAuthProviderOptions", () => {
     expect(options.allowUnauthenticatedClientRegistration).toBe(true);
   });
 
+  it("registers a loopback or custom-scheme client as native when it does not say", () => {
+    expect(options.clientRegistrationDefaultApplicationType).toBe("infer");
+  });
+
   describe("the project picker", () => {
     const { shouldRedirect } = options.postLogin;
 
