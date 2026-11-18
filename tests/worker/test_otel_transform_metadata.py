@@ -434,3 +434,15 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+def test_deeply_nested_explicit_metadata_does_not_fail_the_batch():
+    """json.loads raises RecursionError, not ValueError, on deeply-nested JSON. One
+    such metadata string must be stored as given, like any other non-object value,
+    rather than abort the transform and lose every span in the batch."""
+    deep = "[" * 200_000 + "]" * 200_000
+    payload = _otel_payload([_attr("traceroot.span.metadata", deep)])
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["metadata"] == deep
