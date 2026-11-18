@@ -102,6 +102,20 @@ describe("CliHandbackStep copy tracking", () => {
     renderStep();
     expect(capture).not.toHaveBeenCalled();
   });
+
+  it("records choosing the manual route and skipping", () => {
+    const { onSetUpManually, onSkip } = renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+
+    expect(capture.mock.calls).toEqual([
+      ["setup_route_chosen", { project_id: "proj-1", surface: "onboarding", route: "manual" }],
+      ["setup_skipped", { project_id: "proj-1", surface: "onboarding", step: "command" }],
+    ]);
+    expect(onSetUpManually).toHaveBeenCalledTimes(1);
+    expect(onSkip).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("CliHandbackStep", () => {
