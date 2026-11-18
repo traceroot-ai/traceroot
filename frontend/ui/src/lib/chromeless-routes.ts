@@ -20,7 +20,7 @@
 //   a waiting `traceroot setup` terminal is polling against — one stray rail
 //   click drops the query, and the CLI then polls for the whole device-code
 //   lifetime with nothing left to point the user back at the handoff.
-const CHROMELESS_ROUTES = ["/auth", "/device", "/onboarding"] as const;
+const CHROMELESS_ROUTES = ["/auth", "/device", "/onboarding", "/oauth"] as const;
 
 // Matches a listed route exactly, or anything nested under it — so a future
 // `/onboarding/<step>` inherits the treatment instead of silently getting the

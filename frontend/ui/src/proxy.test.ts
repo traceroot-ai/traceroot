@@ -37,6 +37,16 @@ describe("middleware matcher exemptions", () => {
     expect(matchesProxy("/apple-icon.png")).toBe(false);
   });
 
+  it("exempts OAuth discovery metadata, which assistants fetch with no session", () => {
+    expect(matchesProxy("/.well-known/oauth-authorization-server/api/auth")).toBe(false);
+  });
+
+  it("still protects the OAuth pages, so they only ever run for a signed-in user", () => {
+    expect(matchesProxy("/oauth/continue?client_id=c1")).toBe(true);
+    expect(matchesProxy("/oauth/select-project")).toBe(true);
+    expect(matchesProxy("/oauth/consent")).toBe(true);
+  });
+
   it("exempts only the exact health path, not neighbours", () => {
     expect(matchesProxy("/api/healthcheck")).toBe(true);
     expect(matchesProxy("/api/health/deep")).toBe(true);
