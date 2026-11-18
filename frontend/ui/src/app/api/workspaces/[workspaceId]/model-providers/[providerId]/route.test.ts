@@ -96,28 +96,16 @@ describe("PATCH model-providers/[providerId]", () => {
   });
 
   it("updates provider successfully when name is not changed", async () => {
-    modelProviderUpdateMock.mockResolvedValue({
-      id: "mp-1",
-      provider: "Claude",
-      adapter: "anthropic",
-      enabled: false,
-    });
-
-    const res = await PATCH(makeRequest({ enabled: false }), makeParams());
+    const res = await PATCH(makeRequest({ provider: "Claude", enabled: false }), makeParams());
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.provider).toBe("Claude");
     expect(body.enabled).toBe(false);
     expect(modelProviderDuplicateMock).not.toHaveBeenCalled();
     expect(modelProviderUpdateMock).toHaveBeenCalledTimes(1);
   });
 
   it("updates provider successfully when renamed to an unused name", async () => {
-    modelProviderUpdateMock.mockResolvedValue({
-      id: "mp-1",
-      provider: "New Claude Name",
-      adapter: "anthropic",
-    });
-
     const res = await PATCH(makeRequest({ provider: "New Claude Name" }), makeParams());
     expect(res.status).toBe(200);
     const body = await res.json();
