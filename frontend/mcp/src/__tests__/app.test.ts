@@ -379,17 +379,24 @@ describe("MCP app", () => {
 });
 
 describe("tool result size", () => {
-  it("cuts a long result at the configured length and says how to narrow it", async () => {
-    const { app } = appWith(() => ({ status: 200, body: { traces: ["x".repeat(500)] } }), {
-      maxResultChars: 100,
+  it("shrinks a long result to the configured length as JSON and says how to narrow it", async () => {
+    const traces = Array.from({ length: 20 }, (_, i) => ({
+      trace_id: `t${i}`,
+      name: "x".repeat(40),
+    }));
+    const { app } = appWith(() => ({ status: 200, body: { data: traces } }), {
+      maxResultChars: 900,
     });
     const client = await connect(app);
     const result = await client.callTool({ name: "list_traces", arguments: {} });
     const text = (result.content as { text: string }[])[0].text;
-    expect(text.startsWith('{"traces":["' + "x".repeat(88))).toBe(true);
-    expect(text).toContain("[Result truncated");
-    expect(text).toContain("the limit is 100");
-    expect(text).toContain("Narrow the request");
+    expect(text.length).toBeLessThanOrEqual(900);
+    const parsed = JSON.parse(text);
+    expect(parsed.data[0].trace_id).toBe("t0");
+    expect(parsed._truncated.data).toBe(20 - parsed.data.length);
+    expect(parsed._hint).toContain("over the 900-character limit");
+    expect(parsed._hint).toContain("a smaller limit");
+    expect(result.structuredContent).toEqual(parsed);
   });
 
   it("reads MCP_MAX_RESULT_CHARS as a positive integer, unset keeping the default", () => {

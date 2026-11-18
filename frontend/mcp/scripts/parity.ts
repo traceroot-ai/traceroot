@@ -2,7 +2,9 @@
  * Calls each of the 24 exposed tools over MCP and compares the result with a
  * baseline: the pinned `traceroot-cli --json` for 20 tools, a plain HTTP request
  * to the public API for the 4 the CLI does not cover. Exits non-zero on any
- * difference outside the allow-list in parity-cases.ts.
+ * difference outside the allow-list in parity-cases.ts. Only the result text is
+ * compared (structuredContent carries the same object), and the baseline is
+ * passed through the surface's credential redaction first.
  *
  *   pnpm --filter @traceroot/mcp parity --url http://localhost:8200/mcp --key tr-… \
  *     [--host http://localhost:8000] [--only get_trace] [--run-id <evaluation run id>]
@@ -16,6 +18,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, promisify } from "node:util";
+import { redactCredentials } from "../src/redaction.js";
 import { CASES, NORMALISE, type ParityCase, type Seeds } from "./parity-cases.js";
 
 const run = promisify(execFile);
@@ -190,7 +193,11 @@ async function check(c: ParityCase, s: Seeds): Promise<Verdict> {
       c.cli ? cli(c.cli(s)) : http(c.http!(s)),
     ]);
     const left = canonical(normalise(fromMcp, c.normaliseBoth));
-    const right = canonical(normalise(normalise(fromBaseline, c.normaliseCli), c.normaliseBoth));
+    // The MCP surface redacts credentials by design (src/redaction.ts); the
+    // baseline goes through the same rule, so that is the only difference allowed.
+    const right = canonical(
+      normalise(normalise(redactCredentials(fromBaseline), c.normaliseCli), c.normaliseBoth),
+    );
     return left === right ? verdict("PASS") : verdict("FAIL", firstDifference(left, right));
   } catch (error) {
     return verdict("FAIL", error instanceof Error ? error.message.split("\n")[0]! : String(error));
