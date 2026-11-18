@@ -6,6 +6,7 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
+import { oauthDefaultResource } from "@/lib/oauth/default-resource";
 import { oauthImpersonationGuard } from "@/lib/oauth/impersonation-guard";
 import { mcpOAuthProviderOptions } from "@/lib/oauth/provider-options";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
@@ -171,7 +172,11 @@ export const auth = betterAuth({
     // pasted key. Off unless MCP_RESOURCE_URL is set. Its tokens are signed with
     // the key set above, so the backend verifies them offline the same way.
     ...(env.MCP_RESOURCE_URL
-      ? [oauthImpersonationGuard(), oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL))]
+      ? [
+          oauthImpersonationGuard(),
+          oauthDefaultResource(env.MCP_RESOURCE_URL),
+          oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL)),
+        ]
       : []),
   ],
 });
