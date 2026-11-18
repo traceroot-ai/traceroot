@@ -44,6 +44,11 @@ export function mcpOAuthProviderOptions(resource: string) {
     // out application_type. Such a client is registered as native, which is what
     // those callbacks mean; any other plain-http callback is still refused.
     clientRegistrationDefaultApplicationType: "infer" as const,
+    // Refresh tokens rotate on every use. An assistant that lost the response to
+    // a refresh (a dropped connection, a retry) gets the same response again for
+    // this many seconds; reusing a rotated token after that is treated as theft
+    // and revokes every token the assistant holds for the user.
+    refreshTokenReuseInterval: 120,
     postLogin: {
       page: OAUTH_SELECT_PROJECT_PAGE,
       // The first pass of every authorization asks the user to choose again. A

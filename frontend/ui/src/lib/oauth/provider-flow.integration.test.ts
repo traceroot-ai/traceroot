@@ -309,3 +309,40 @@ describe("tokens for a request that names no resource", () => {
     expect(location.searchParams.get("error")).toBe("invalid_target");
   });
 });
+
+describe("a rotated refresh token", () => {
+  async function rotateOnce() {
+    const { clientId, exchanged } = await connect();
+    const first = (exchanged.body as TokenResponse).refresh_token;
+    const form = { grant_type: "refresh_token", refresh_token: first, client_id: clientId };
+    const rotated = await token(form);
+    expect(rotated.status).toBe(200);
+    return { form, rotated: rotated.body as TokenResponse, clientId };
+  }
+
+  it("replays the same response when reused within two minutes", async () => {
+    const { form, rotated } = await rotateOnce();
+    vi.advanceTimersByTime(119_000);
+    const replayed = await token(form);
+    expect(replayed.status).toBe(200);
+    expect(replayed.body).toMatchObject({
+      access_token: rotated.access_token,
+      refresh_token: rotated.refresh_token,
+    });
+  });
+
+  it("is treated as stolen when reused after two minutes, revoking the newer token too", async () => {
+    const { form, rotated, clientId } = await rotateOnce();
+    vi.advanceTimersByTime(121_000);
+    const reused = await token(form);
+    expect(reused.status).toBe(400);
+    expect(reused.body.error).toBe("invalid_grant");
+
+    const successor = await token({
+      grant_type: "refresh_token",
+      refresh_token: rotated.refresh_token,
+      client_id: clientId,
+    });
+    expect(successor.status).toBe(400);
+  });
+});
