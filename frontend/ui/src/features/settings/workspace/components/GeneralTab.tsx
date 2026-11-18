@@ -17,6 +17,7 @@ import {
 import { Role } from "@traceroot/core";
 import { updateWorkspace, deleteWorkspace } from "@/lib/api";
 import { useWorkspace } from "../hooks";
+import { isSubmitEnter } from "@/lib/keyboard";
 
 interface GeneralTabProps {
   workspaceId: string;
@@ -144,7 +145,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
+              onKeyDown={(e) => isSubmitEnter(e) && handleDelete()}
               placeholder="Workspace name"
             />
             {deleteMutation.isError && (
