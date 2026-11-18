@@ -1,6 +1,7 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { Hono } from "hono";
+import { CredentialCheck } from "./credential-check.js";
 import {
   challenge,
   isExpiredJwt,
@@ -15,6 +16,8 @@ export interface AppConfig extends ServerConfig {
   allowedHosts?: string[];
   /** When set, the endpoint advertises OAuth so assistants can sign in instead of using a key. */
   oauth?: OAuthConfig;
+  /** How long the backend's verdict on a credential is reused. */
+  credentialTtlMs?: number;
 }
 
 /** Split a comma-separated host list, dropping blanks; an empty result means unset (any host). */
@@ -26,21 +29,36 @@ export function parseAllowedHosts(raw: string | undefined): string[] | undefined
   return hosts.length > 0 ? hosts : undefined;
 }
 
+/** Bearer token of an `Authorization` header, if it carries one. */
+function bearerOf(authorization: string): string | undefined {
+  return /^Bearer (\S+)/i.exec(authorization)?.[1];
+}
+
 /**
  * The HTTP app: `POST /mcp` serves MCP over Streamable HTTP, `GET /health`
  * answers the container probe. Stateless, and the endpoint serves both the
  * 2026-07-28 and the earlier protocol (the handler's default).
  *
  * The credential check sits in an outer app so it runs before anything the
- * SDK's app does (Host validation, body parsing): an unauthenticated request
- * is refused with 401 whatever else is wrong with it. The probe is also
- * outside Host validation, since a probe reaches the pod by its own address.
+ * SDK's app does (Host validation, body parsing): a request without a working
+ * credential is refused with 401 whatever else is wrong with it. The probe is
+ * also outside Host validation, since a probe reaches the pod by its own address.
  */
 export function createApp(config: AppConfig): Hono {
+  const credentials = new CredentialCheck({
+    backendUrl: config.backendUrl,
+    fetchImpl: config.fetchImpl,
+    ttlMs: config.credentialTtlMs,
+  });
   const mcp = createMcpHonoApp({ host: "0.0.0.0", allowedHosts: config.allowedHosts });
   const handler = createMcpHandler((ctx) => {
     const authorization = ctx.requestInfo?.headers.get("authorization") ?? "";
-    return createServer(authorization, config);
+    const bearer = bearerOf(authorization);
+    return createServer(authorization, config, {
+      // A credential revoked since its check: the tool call already answered with
+      // an error, and the next request gets the 401.
+      onUnauthorized: bearer ? () => credentials.markInvalid(bearer) : undefined,
+    });
   });
   mcp.all("/mcp", (c) => handler.fetch(c.req.raw));
 
@@ -56,10 +74,8 @@ export function createApp(config: AppConfig): Hono {
     );
   }
 
-  app.all("/mcp", (c) => {
-    const authorization = c.req.header("authorization") ?? "";
-    const bearer = /^Bearer (\S+)/i.exec(authorization)?.[1];
-    // A missing credential is refused here; a wrong one is refused by the backend.
+  app.all("/mcp", async (c) => {
+    const bearer = bearerOf(c.req.header("authorization") ?? "");
     if (!bearer) {
       return c.json({ error: "Missing bearer credential" }, 401, {
         "WWW-Authenticate": challenge(oauth),
@@ -71,6 +87,19 @@ export function createApp(config: AppConfig): Hono {
         "WWW-Authenticate": challenge(oauth, {
           code: "invalid_token",
           description: "The access token expired",
+        }),
+      });
+    }
+    // A credential the backend refuses gets the 401 that sends a client back to
+    // refresh or sign in. When the backend gives no answer (an outage), the
+    // request goes on: the backend still checks every tool call, and an outage is
+    // not a reason to make the user sign in again.
+    const verdict = await credentials.check(bearer);
+    if (verdict.status === "invalid") {
+      return c.json({ error: verdict.detail }, 401, {
+        "WWW-Authenticate": challenge(oauth, {
+          code: "invalid_token",
+          description: verdict.detail,
         }),
       });
     }

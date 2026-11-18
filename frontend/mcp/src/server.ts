@@ -23,6 +23,12 @@ export interface ServerConfig {
   fetchImpl?: typeof fetch;
 }
 
+/** Per-request hooks around the caller's credential. */
+export interface RequestHooks {
+  /** Called when the backend answers a tool call 401: the credential stopped working. */
+  onUnauthorized?: () => void;
+}
+
 const registryDescription = (name: string) =>
   REGISTRY.find((entry) => entry.name === name)!.description;
 
@@ -60,12 +66,16 @@ export function buildTools(client: ApiClient): McpTool[] {
  * unchanged as the backend's bearer; the backend validates it and scopes the
  * call to the key's project, so nothing here holds or checks a credential.
  */
-export function createServer(authorization: string, config: ServerConfig): McpServer {
+export function createServer(
+  authorization: string,
+  config: ServerConfig,
+  hooks: RequestHooks = {},
+): McpServer {
   const client = new ApiClient({
     baseUrl: config.backendUrl,
     headers: { Authorization: authorization },
     timeoutMs: config.timeoutMs,
-    fetchImpl: config.fetchImpl,
+    fetchImpl: watchUnauthorized(config.fetchImpl, hooks.onUnauthorized),
   });
   const server = new McpServer(
     { name: "traceroot", version: "0.0.1" },
@@ -90,4 +100,21 @@ export function createServer(authorization: string, config: ServerConfig): McpSe
     );
   }
   return server;
+}
+
+/**
+ * Wrap fetch to report a 401 from the backend. The tool result is already on
+ * its way as an error by then (the response status is committed before a tool
+ * runs), so the report is what turns the next request into a 401.
+ */
+function watchUnauthorized(
+  fetchImpl: typeof fetch | undefined,
+  onUnauthorized: (() => void) | undefined,
+): typeof fetch | undefined {
+  if (!onUnauthorized) return fetchImpl;
+  return async (input, init) => {
+    const response = await (fetchImpl ?? fetch)(input, init);
+    if (response.status === 401) onUnauthorized();
+    return response;
+  };
 }

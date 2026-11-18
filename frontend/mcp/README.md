@@ -5,12 +5,13 @@ The hosted MCP server. It serves tools from the shared registry
 caller's credential to the public API, which validates it. It stores nothing and
 holds no secret: it never reads `INTERNAL_API_SECRET`.
 
-| File                   | Role                                                                                          |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `src/exposure.ts`      | Which registry tools are exposed (milestone 1: 24 reads), checked against the registry        |
-| `src/server.ts`        | One `McpServer` per request, with tools built by `toMcpTool` and bound to the caller's bearer |
-| `src/trace-content.ts` | A trace read defaults to the skeleton projection and withholds trace-level content            |
-| `src/app.ts`           | Hono app: `/mcp` through the SDK's `createMcpHandler`, `/health`, a 401 for a missing bearer  |
+| File                      | Role                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/exposure.ts`         | Which registry tools are exposed (milestone 1: 24 reads), checked against the registry        |
+| `src/server.ts`           | One `McpServer` per request, with tools built by `toMcpTool` and bound to the caller's bearer |
+| `src/trace-content.ts`    | A trace read defaults to the skeleton projection and withholds trace-level content            |
+| `src/app.ts`              | Hono app: `/mcp` through the SDK's `createMcpHandler`, `/health`, a 401 for a missing bearer  |
+| `src/credential-check.ts` | Asks rest whether a bearer is accepted (cached ~30 s by hash) so a refused one gets a 401     |
 
 The endpoint serves both the 2026-07-28 protocol and the earlier one.
 
@@ -75,6 +76,18 @@ The web app needs the same `MCP_RESOURCE_URL`, and rest needs
 `TRACEROOT_OAUTH_ISSUER` and `TRACEROOT_OAUTH_AUDIENCES` (see `docker-compose.prod.yml`).
 With both set, an unauthenticated request is answered 401 with a pointer to
 `/.well-known/oauth-protected-resource/mcp`, which names the sign-in server. The
-server does not validate OAuth tokens: like a key, a token is forwarded to rest,
-which checks the signature, the audience, the read scope, the project chosen at
-consent, and that the connection has not been revoked. API keys keep working.
+server does not verify OAuth tokens itself: like a key, a token is forwarded to
+rest, which checks the signature, the audience, the read scope, the project
+chosen at consent, and that the connection has not been revoked. API keys keep
+working.
+
+Before a request reaches the SDK, the server asks rest about its bearer
+(`GET /api/v1/public/sql/schema`, which takes every credential without a project)
+and answers a refused one with `401` and `WWW-Authenticate: Bearer
+error="invalid_token"`, which is what makes a client refresh or sign in again.
+The verdict is cached for 30 seconds by a hash of the credential, so a revoked
+connection is refused within that window; a tool call that rest answers 401 also
+marks the credential refused at once. A credential rest accepts but refuses for
+another reason (403, no access to the project) is let through, so the tool
+results say why. If rest does not answer, the request is let through too: rest
+still checks every tool call.

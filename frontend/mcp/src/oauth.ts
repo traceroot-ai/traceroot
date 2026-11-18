@@ -3,10 +3,11 @@
  *
  * An assistant that is not given a key calls the endpoint with no credential and
  * is answered 401 with a pointer to this server's metadata, which names the
- * authorization server to sign in with. The server does not validate OAuth tokens:
- * like an API key, a token is passed through to the backend, which verifies it.
- * The one thing checked here is expiry, so an expired token gets the 401 that
- * makes a client refresh instead of a tool error it cannot act on.
+ * authorization server to sign in with. The server does not verify OAuth tokens
+ * itself: like an API key, a token is passed through to the backend, which
+ * verifies it (see credential-check.ts for how its verdict becomes a 401). The
+ * one thing read here is expiry, so an expired token gets the 401 that makes a
+ * client refresh without a round trip to the backend.
  */
 
 /** The scope this server needs: read access to one project's data. */
@@ -59,17 +60,29 @@ export function protectedResourceMetadata(config: OAuthConfig) {
   };
 }
 
-/** The `WWW-Authenticate` value for a 401: bare `Bearer` unless OAuth is on. */
+/**
+ * The `WWW-Authenticate` value for a 401. A missing credential gets a challenge
+ * that points at the metadata; a refused one
+ * says why with `invalid_token`, which is what makes a client refresh or sign
+ * in again. With OAuth off there is no metadata to point at.
+ */
 export function challenge(
   config: OAuthConfig | undefined,
   error?: { code: "invalid_token"; description: string },
 ): string {
-  if (!config) return "Bearer";
-  const params = [`resource_metadata="${resourceMetadataUrl(config)}"`];
+  const params: string[] = [];
   if (error) {
-    params.unshift(`error="${error.code}"`, `error_description="${error.description}"`);
+    params.push(`error="${error.code}"`, `error_description="${quotable(error.description)}"`);
   }
-  return `Bearer ${params.join(", ")}`;
+  if (config) {
+    params.push(`resource_metadata="${resourceMetadataUrl(config)}"`);
+  }
+  return params.length > 0 ? `Bearer ${params.join(", ")}` : "Bearer";
+}
+
+/** Keep only the characters RFC 6750 allows in a quoted challenge parameter. */
+function quotable(text: string): string {
+  return text.replace(/[^\x20-\x21\x23-\x5b\x5d-\x7e]/g, "");
 }
 
 /**

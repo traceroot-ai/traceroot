@@ -2,6 +2,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { serve } from "@hono/node-server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, parseAllowedHosts } from "../app.js";
+import { PROBE_PATH } from "../credential-check.js";
 import { EXPOSED_TOOLS } from "../exposure.js";
 import { SERVER_INSTRUCTIONS } from "../instructions.js";
 
@@ -22,6 +23,13 @@ function appWith(backend: Backend) {
     fetchImpl: fetchImpl as unknown as typeof fetch,
   });
   return { app, fetchImpl };
+}
+
+/** The backend calls tools made, without the credential probes ahead of them. */
+function toolCalls(fetchImpl: ReturnType<typeof appWith>["fetchImpl"]) {
+  return (fetchImpl.mock.calls as unknown as [string, RequestInit][]).filter(
+    ([url]) => new URL(url).pathname !== PROBE_PATH,
+  );
 }
 
 /** A Request as the node server builds it, with the Host header a real socket carries. */
@@ -142,7 +150,7 @@ describe("MCP app", () => {
       spans: [{ span_id: "s1", git_source_file: "app.py", git_source_line: 12 }],
     });
 
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = toolCalls(fetchImpl)[0];
     expect(url).toBe("http://rest:8000/api/v1/public/traces/t-1?fields=skeleton");
     expect(init.headers).toEqual({ Authorization: "Bearer tr-abc" });
   });
@@ -163,7 +171,7 @@ describe("MCP app", () => {
     const client = await connect(app);
     const result = await client.callTool({ name: "run_sql", arguments: { query: "SELECT 1" } });
     expect(result.isError).toBeFalsy();
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = toolCalls(fetchImpl)[0];
     expect(new URL(url).pathname).toBe("/api/v1/public/sql");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ query: "SELECT 1" });
@@ -191,18 +199,64 @@ describe("MCP app", () => {
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain('{\\"traces\\":[]}');
-    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [, init] = toolCalls(fetchImpl)[0];
     expect(init.headers).toEqual({ Authorization: "Bearer tr-legacy" });
   });
 
-  it("returns the backend's refusal of a bad key as a tool error", async () => {
-    const { app } = appWith(() => ({ status: 401, body: { detail: "Invalid API key" } }));
-    const client = await connect(app, "tr-wrong");
+  it("answers a key the backend refuses with 401 invalid_token before the SDK", async () => {
+    const { app, fetchImpl } = appWith(() => ({
+      status: 401,
+      body: { detail: "Invalid API key" },
+    }));
+    const response = await app.fetch(
+      request("http://localhost/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer tr-wrong",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe(
+      'Bearer error="invalid_token", error_description="Invalid API key"',
+    );
+    expect(await response.json()).toEqual({ error: "Invalid API key" });
+    expect(toolCalls(fetchImpl)).toHaveLength(0);
+  });
+
+  it("answers the request after a tool call's 401 with 401", async () => {
+    let revoked = false;
+    const { app } = appWith((url) =>
+      url.pathname === PROBE_PATH || !revoked
+        ? { status: 200, body: { traces: [] } }
+        : { status: 401, body: { detail: "Invalid token" } },
+    );
+    const client = await connect(app, "tr-revoked-later");
+    revoked = true;
+    // The status of this exchange is committed before the tool runs, so the
+    // refusal arrives as a tool error...
     const result = await client.callTool({ name: "list_traces", arguments: {} });
     expect(result.isError).toBe(true);
-    const content = result.content as { text: string }[];
-    expect(content[0].text).toBe("Error calling list_traces: API error 401: Invalid API key");
+    expect((result.content as { text: string }[])[0].text).toContain("API error 401");
+    // ...and the next request, within the cache window, gets the 401.
+    const next = await app.fetch(
+      request("http://localhost/mcp", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer tr-revoked-later",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+      }),
+    );
+    expect(next.status).toBe(401);
+    expect(next.headers.get("www-authenticate")).toContain('error="invalid_token"');
   });
+
   it("serves a 2026-07-28 client with resultType, ttlMs and cacheScope from the handler", async () => {
     const { app } = appWith(() => ({ status: 200, body: { traces: [] } }));
     const wire: string[] = [];
