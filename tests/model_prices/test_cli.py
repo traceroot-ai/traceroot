@@ -405,6 +405,7 @@ def test_a_reviewed_rate_is_left_out_of_the_flags(run, tmp_path):
         "model": "gpt-a",
         "field": "input",
         "ours": 5e-7,
+        "billed": 5e-7,
         "litellm": 1e-6,
         "modelsdev": None,
         "reason": "the provider's page says 0.50",
@@ -432,6 +433,7 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
         "model": "gpt-a",
         "field": "input",
         "ours": 5e-7,
+        "billed": 5e-7,
         "litellm": 1e-6,
         "modelsdev": None,
         "reason": "the provider's page says 0.50",
@@ -471,6 +473,7 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
                         "model": "gpt-a",
                         "field": "input",
                         "ours": "1",
+                        "billed": 1e-6,
                         "litellm": None,
                         "modelsdev": None,
                         "reason": "x",
@@ -488,6 +491,7 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
                         "model": "gpt-a",
                         "field": "input",
                         "ours": 1e-6,
+                        "billed": 1e-6,
                         "litellm": None,
                         "modelsdev": None,
                         "reason": "",
@@ -502,9 +506,63 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
             json.dumps(
                 [
                     {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has no billed",
+            id="no-billed",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "billed": None,
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-numeric billed",
+            id="null-billed",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-a",
+                        "field": "input",
+                        "ours": 1e-6,
+                        "billed": "1e-6",
+                        "litellm": None,
+                        "modelsdev": None,
+                        "reason": "x",
+                        "pr": None,
+                    }
+                ]
+            ),
+            "reviewed entry 0 has a non-numeric billed",
+            id="text-billed",
+        ),
+        pytest.param(
+            json.dumps(
+                [
+                    {
                         "model": 1,
                         "field": "input",
                         "ours": 1e-6,
+                        "billed": 1e-6,
                         "litellm": None,
                         "modelsdev": None,
                         "reason": "x",
@@ -522,6 +580,7 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
                         "model": "gpt-a",
                         "field": "inputs",
                         "ours": 1e-6,
+                        "billed": 1e-6,
                         "litellm": None,
                         "modelsdev": None,
                         "reason": "x",
@@ -539,6 +598,7 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
                         "model": "gpt-a",
                         "field": "input",
                         "ours": 1e-6,
+                        "billed": 1e-6,
                         "litellm": None,
                         "modelsdev": None,
                         "reason": "x",
@@ -556,6 +616,7 @@ def test_an_open_pr_is_judged_against_the_same_reviewed_rates(run, tmp_path):
                         "model": "gpt-a",
                         "field": "input",
                         "ours": 1e-6,
+                        "billed": 1e-6,
                         "litellm": None,
                         "modelsdev": None,
                         "reason": "x",
@@ -610,6 +671,7 @@ def test_the_reviewed_line_names_the_file_that_was_read(run, tmp_path, capsys):
         "model": "gpt-a",
         "field": "input",
         "ours": 5e-7,
+        "billed": 5e-7,
         "litellm": 1e-6,
         "modelsdev": None,
         "reason": "checked",

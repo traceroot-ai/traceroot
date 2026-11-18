@@ -107,6 +107,7 @@ def _reviewed_report(names=("gpt-a",)):
             "model": name,
             "field": "input",
             "ours": 1e-6,
+            "billed": 1e-6,
             "litellm": 2e-6,
             "modelsdev": 2e-6,
             "reason": "the provider's page says <1.00>",

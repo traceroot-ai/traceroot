@@ -760,6 +760,7 @@ def test_baseline_from_another_reviewed_list_fails_the_run(run, tmp_path):
         "model": "gpt-a",
         "field": "input",
         "ours": 1e-6,
+        "billed": 1e-6,
         "litellm": 2e-6,
         "modelsdev": None,
         "reason": "checked",

@@ -27,18 +27,30 @@ PR_CHECK_SECONDS = 10
 # A PR is checked when its title or body mentions pricing or a model in the report.
 PRICING_WORDS = re.compile(r"pric", re.IGNORECASE)
 
+# A key a row lacks, apart from one it sets to null.
+_ABSENT = object()
 
-def _apply_changes(current: dict, base: dict, head: dict) -> dict:
-    """current with what changed from base to head: a key head sets to another value
-    takes head's value, a key head drops is removed, and prices change field by field."""
+
+def _apply_changes(current: dict, base: dict, head: dict, model: str, path: str = "") -> dict:
+    """current with what changed from base to head, key by key: a key head leaves as
+    base has it stays as current has it, and a key head changes or drops takes head's value
+    (or is removed) when current still has base's value or already has head's. When
+    current and head changed a key to different values, prices merge field by field and
+    any other key is a _ConflictError on model, named by its path."""
     merged = dict(current)
     for key in dict.fromkeys([*base, *head]):
-        if key not in head:
-            merged.pop(key, None)
-        elif key == "prices" and all(isinstance(r.get(key), dict) for r in (current, base, head)):
-            merged[key] = _apply_changes(current[key], base[key], head[key])
-        elif key not in base or base[key] != head[key]:
-            merged[key] = head[key]
+        ours, was, theirs = (r.get(key, _ABSENT) for r in (current, base, head))
+        if theirs == was:
+            continue
+        if ours in (was, theirs):
+            if theirs is _ABSENT:
+                merged.pop(key, None)
+            else:
+                merged[key] = theirs
+        elif key == "prices" and all(isinstance(v, dict) for v in (ours, was, theirs)):
+            merged[key] = _apply_changes(ours, was, theirs, model, f"{path}{key}.")
+        else:
+            raise _ConflictError(model, f"{path}{key}")
     return merged
 
 
@@ -47,25 +59,34 @@ def apply_pr(rows: list[dict], base: list[dict], head: list[dict]) -> list[dict]
     row the PR changes between its merge base and its head, only the keys and prices
     fields it changes are applied to the current row, so a branch that is behind leaves
     later changes to the current file alone. Rows the PR adds are added whole, and rows
-    it removes are removed. A row the current file removed since the PR branched stays
-    removed, even when the PR changed it."""
+    it removes are removed. Changes that overlap raise a _ConflictError: a key or prices
+    field the PR and the current file changed to different values, a row the PR removed
+    that the current file changed, a row the current file removed that the PR changed,
+    or a row both added with different contents."""
     before = {row["id"]: row for row in base}
     after = {row["id"]: row for row in head}
     changed = {row_id: row for row_id, row in after.items() if before.get(row_id) != row}
     removed = before.keys() - after.keys()
     merged = []
     for row in rows:
-        if row["id"] in removed:
+        row_id = row["id"]
+        if row_id in removed:
+            if row != before[row_id]:
+                raise _ConflictError(row["modelName"])
             continue
-        new = changed.pop(row["id"], None)
+        new = changed.pop(row_id, None)
         if new is None:
             merged.append(row)
-        elif row["id"] in before:
-            merged.append(_apply_changes(row, before[row["id"]], new))
-        else:  # Added by the PR and, since it branched, by the current file too.
+        elif row_id in before:
+            merged.append(_apply_changes(row, before[row_id], new, row["modelName"]))
+        elif row != new:  # Added by the PR and, since it branched, by the current file too.
+            raise _ConflictError(row["modelName"])
+        else:
             merged.append(new)
-    # What is left is either new in the PR or removed from the current file since.
-    return merged + [row for row_id, row in changed.items() if row_id not in before]
+    for row_id, row in changed.items():
+        if row_id in before:  # The current file removed it since the PR branched.
+            raise _ConflictError(row["modelName"])
+    return merged + list(changed.values())
 
 
 def track(report: dict, prs: list[dict]) -> None:
@@ -93,6 +114,15 @@ def track(report: dict, prs: list[dict]) -> None:
 
 class _TimeLimitError(Exception):
     """Checking one open PR's price file ran over PR_CHECK_SECONDS."""
+
+
+class _ConflictError(Exception):
+    """An open PR's price file and the current one changed the same row, or the same key of
+    it, in different ways, so the PR is not checked until they are resolved."""
+
+    def __init__(self, model: str, key: str | None = None):
+        where = f"{model} ({key})" if key else model
+        super().__init__(f"its price file conflicts with the current one on {where}")
 
 
 class _NoTimeLimitError(Exception):
@@ -138,7 +168,9 @@ def fetch_pricing_prs(
     evaluate: Callable[[list[dict]], dict],
 ) -> list[dict]:
     """The open PRs in repo that change the price file, each with the report evaluate
-    builds from the price file it would leave on merge. A PR is looked at when its title
+    builds from the price file it would leave on merge. A PR that changes a row the
+    current file has since changed another way (see apply_pr) gets an "error" naming the
+    row, and the key when one conflicts, instead, and is not checked until it is resolved. A PR is looked at when its title
     or body mentions pricing or a model in the report. Anything that goes wrong with one
     PR, from reading its files to checking its rows, gives that PR an "error" instead, so
     only GitHub's rate limit stops the others. More open PRs than MAX_PR_PAGES pages
@@ -184,6 +216,8 @@ def fetch_pricing_prs(
                 pr["report"] = evaluate(validate_rows(apply_pr(rows, base, after)))
         except _TimeLimitError:
             pr["error"] = f"its price file took over {PR_CHECK_SECONDS} seconds to check"
+        except _ConflictError as exc:
+            pr["error"] = str(exc)
         except _NoTimeLimitError:
             pr["error"] = "its price file was not checked: no time limit can be set here"
         except Exception as exc:  # Any error with an open PR stays with that PR.
