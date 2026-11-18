@@ -37,17 +37,18 @@ const AGENTID_MARK_PATHS = [
   "M102.47 0.847827C205.434 44.796 156.456 42.1015 248.434 1.63153C252.885 -1.09955 258.353 1.88915 259.419 7.69219L269.235 61.1686L270.819 69.7893L263.592 71.8231L263.582 71.8259C190.588 92.3069 165.244 92.0078 86.7576 71.7428L79.1971 69.7905L80.9925 60.8681L91.8401 6.91975C92.9559 1.3706 98.105 -1.55777 102.47 0.847827Z",
 ];
 
-// The official black and white marks: AgentID's brand rules forbid recolouring
-// and sizes under 16px (17px keeps this 351x339 mark above that on both sides).
-function AgentIdMark({ fill, className }: { fill: string; className: string }) {
+// The official black mark, and the white one in dark mode: AgentID's brand rules
+// forbid any other colour and sizes under 16px (17px keeps this 351x339 mark
+// above that on both sides).
+function AgentIdMark() {
   return (
     <svg
       viewBox="0 0 351 339"
-      className={cn("h-[17px] w-[17px] shrink-0", className)}
+      className="h-[17px] w-[17px] shrink-0 text-[#18181B] dark:text-[#FAFAFA]"
       aria-hidden="true"
     >
       {AGENTID_MARK_PATHS.map((d) => (
-        <path key={d} d={d} fill={fill} />
+        <path key={d} d={d} fill="currentColor" />
       ))}
     </svg>
   );
@@ -55,15 +56,7 @@ function AgentIdMark({ fill, className }: { fill: string; className: string }) {
 
 const PROVIDERS: Record<SocialProvider, { label: string; mark: React.ReactNode }> = {
   google: { label: "Google", mark: <GoogleMark /> },
-  agentid: {
-    label: "AgentID",
-    mark: (
-      <>
-        <AgentIdMark fill="#18181B" className="dark:hidden" />
-        <AgentIdMark fill="#FAFAFA" className="hidden dark:block" />
-      </>
-    ),
-  },
+  agentid: { label: "AgentID", mark: <AgentIdMark /> },
 };
 
 const START_FAILED = "Could not start sign-in. Please try again.";

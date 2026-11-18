@@ -8,6 +8,7 @@ import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
 import { isSelfSignup } from "./attribution";
@@ -51,7 +52,7 @@ export async function onUserCreated(
 
   // Staff-provisioned users are not sign-ups; agents sign up in bulk, so they
   // get no welcome email or Slack post.
-  if (!isSelfSignup(context) || signupProvider(context) === "agentid") {
+  if (!isSelfSignup(context) || signupProvider(context) === AGENTID_PROVIDER_ID) {
     await demo;
     return;
   }

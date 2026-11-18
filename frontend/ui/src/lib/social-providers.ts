@@ -1,6 +1,6 @@
-import { isAgentIdConfigured } from "@/lib/agentid";
+export const AGENTID_PROVIDER_ID = "agentid" as const;
 
-export type SocialProvider = "google" | "agentid";
+export type SocialProvider = "google" | typeof AGENTID_PROVIDER_ID;
 
 interface SocialProviderEnv {
   AUTH_GOOGLE_CLIENT_ID: string;
@@ -9,12 +9,16 @@ interface SocialProviderEnv {
   AUTH_AGENTID_CLIENT_SECRET: string;
 }
 
+const hasCredentials = (id: string, secret: string) => Boolean(id.trim() && secret.trim());
+
 /** The social sign-in buttons to show, in display order. */
 export function configuredSocialProviders(env: SocialProviderEnv): SocialProvider[] {
   const providers: SocialProvider[] = [];
-  if (env.AUTH_GOOGLE_CLIENT_ID.trim() && env.AUTH_GOOGLE_CLIENT_SECRET.trim()) {
+  if (hasCredentials(env.AUTH_GOOGLE_CLIENT_ID, env.AUTH_GOOGLE_CLIENT_SECRET)) {
     providers.push("google");
   }
-  if (isAgentIdConfigured(env)) providers.push("agentid");
+  if (hasCredentials(env.AUTH_AGENTID_CLIENT_ID, env.AUTH_AGENTID_CLIENT_SECRET)) {
+    providers.push(AGENTID_PROVIDER_ID);
+  }
   return providers;
 }

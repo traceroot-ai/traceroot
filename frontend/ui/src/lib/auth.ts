@@ -15,7 +15,8 @@ import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
-import { agentIdProvider, isAgentIdConfigured } from "@/lib/agentid";
+import { agentIdProvider } from "@/lib/agentid";
+import { AGENTID_PROVIDER_ID, configuredSocialProviders } from "@/lib/social-providers";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -23,7 +24,6 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
-const agentIdEnabled = isAgentIdConfigured(env);
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -158,7 +158,9 @@ export const auth = betterAuth({
       jwt: { expirationTime: "10m" },
       jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),
-    ...(agentIdEnabled ? [genericOAuth({ config: [agentIdProvider(env)] })] : []),
+    ...(configuredSocialProviders(env).includes(AGENTID_PROVIDER_ID)
+      ? [genericOAuth({ config: [agentIdProvider(env)] })]
+      : []),
   ],
 });
 

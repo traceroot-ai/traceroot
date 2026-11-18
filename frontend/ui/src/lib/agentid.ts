@@ -1,6 +1,6 @@
-import { verifyProviderIdToken } from "@better-auth/core/oauth2";
 import type { GenericOAuthConfig } from "better-auth/plugins/generic-oauth";
-import { createRemoteJWKSet, decodeJwt } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 
 interface AgentIdEnv {
   AUTH_AGENTID_CLIENT_ID: string;
@@ -21,23 +21,13 @@ export const AGENTID_ENDPOINTS = {
 // Fetched on first use and cached; jose bounds each fetch with a timeout.
 const agentIdKeys = createRemoteJWKSet(new URL(AGENTID_ENDPOINTS.jwksUrl));
 
-export function isAgentIdConfigured(env: AgentIdEnv): boolean {
-  return Boolean(env.AUTH_AGENTID_CLIENT_ID.trim() && env.AUTH_AGENTID_CLIENT_SECRET.trim());
-}
-
 // AgentID, AgentMail's OpenID Connect issuer for AI agents. The email is always
 // reported unverified, so better-auth never links an agent into an existing user.
-export function agentIdProvider(env: AgentIdEnv): GenericOAuthConfig<"agentid"> {
+export function agentIdProvider(env: AgentIdEnv): GenericOAuthConfig<typeof AGENTID_PROVIDER_ID> {
   const clientId = env.AUTH_AGENTID_CLIENT_ID.trim();
-  const idTokenConfig = {
-    jwks: agentIdKeys,
-    issuer: AGENTID_ISSUER,
-    audience: clientId,
-    algorithms: ["ES256"],
-  };
 
   return {
-    providerId: "agentid",
+    providerId: AGENTID_PROVIDER_ID,
     name: "AgentID",
     clientId,
     clientSecret: env.AUTH_AGENTID_CLIENT_SECRET.trim(),
@@ -47,10 +37,18 @@ export function agentIdProvider(env: AgentIdEnv): GenericOAuthConfig<"agentid"> 
     pkce: true,
     scopes: ["openid", "email", "profile"],
     getUserInfo: async ({ idToken, accessToken }) => {
-      if (!idToken || !accessToken) return null;
-      const provider = { id: "agentid", idToken: idTokenConfig };
-      if (!(await verifyProviderIdToken(provider, idToken))) return null;
-      const { sub } = decodeJwt(idToken);
+      // jose skips the audience check when it is empty, so a blank client id fails closed.
+      if (!clientId || !idToken || !accessToken) return null;
+      // Same claims and clock skew as better-auth's own id_token verifier.
+      const verified = await jwtVerify(idToken, agentIdKeys, {
+        issuer: AGENTID_ISSUER,
+        audience: clientId,
+        algorithms: ["ES256"],
+        requiredClaims: ["iss", "sub", "aud", "exp", "iat"],
+        clockTolerance: 30,
+      }).catch(() => null);
+      const sub = verified?.payload.sub;
+      if (!sub) return null;
 
       const response = await fetch(AGENTID_ENDPOINTS.userInfoUrl, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -60,11 +58,10 @@ export function agentIdProvider(env: AgentIdEnv): GenericOAuthConfig<"agentid"> 
         ? await response.json().catch(() => null)
         : null;
       // userinfo must describe the agent the verified id_token names.
-      if (!sub || profile?.sub !== sub || typeof profile.email !== "string") return null;
+      if (profile?.sub !== sub || typeof profile.email !== "string" || !profile.email) return null;
 
       const name = typeof profile.name === "string" && profile.name ? profile.name : undefined;
       return {
-        ...profile,
         id: sub,
         email: profile.email,
         emailVerified: false,

@@ -198,18 +198,32 @@ describe("AgentID sign-in", () => {
     );
   });
 
+  // Only a verified id_token may lead to a userinfo request.
   it.each([
-    ["signed by another key", () => idToken({}, { key: otherKey })],
-    ["for another client", () => idToken({ aud: "someone-else" })],
-    ["from another issuer", () => idToken({ iss: "https://evil.example" })],
-    ["expired", () => idToken({}, { expiresIn: Math.floor(Date.now() / 1000) - 3600 })],
-    ["whose subject differs from userinfo", () => idToken({ sub: "someone-else" })],
-    ["that is missing", async () => undefined],
-  ])("rejects an id_token %s and creates no user", async (_, mint) => {
+    ["signed by another key", () => idToken({}, { key: otherKey }), 0],
+    ["for another client", () => idToken({ aud: "someone-else" }), 0],
+    ["from another issuer", () => idToken({ iss: "https://evil.example" }), 0],
+    ["expired", () => idToken({}, { expiresIn: Math.floor(Date.now() / 1000) - 3600 }), 0],
+    ["whose subject differs from userinfo", () => idToken({ sub: "someone-else" }), 1],
+    ["that is missing", async () => undefined, 0],
+  ])("rejects an id_token %s and creates no user", async (_, mint, userinfoRequests) => {
     idTokenFor = mint;
     const auth = await testAuth();
 
-    expect(errorCode((await signIn(auth, "agentid")).location)).toBeTruthy();
+    expect(errorCode((await signIn(auth, "agentid")).location)).toBe("unable_to_get_user_info");
+    const calls = vi.mocked(fetch).mock.calls;
+    expect(calls.filter(([url]) => String(url) === AGENTID_ENDPOINTS.userInfoUrl)).toHaveLength(
+      userinfoRequests,
+    );
+    expect(db.user).toHaveLength(0);
+    expect(db.account).toHaveLength(0);
+  });
+
+  it("refuses userinfo with an empty email and creates no user", async () => {
+    agent("agent-1", "");
+    const auth = await testAuth();
+
+    expect(errorCode((await signIn(auth, "agentid")).location)).toBe("unable_to_get_user_info");
     expect(db.user).toHaveLength(0);
     expect(db.account).toHaveLength(0);
   });
