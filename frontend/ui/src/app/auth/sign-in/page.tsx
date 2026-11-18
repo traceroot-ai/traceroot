@@ -17,7 +17,5 @@ export default async function SignInPage({
     clientIdFromCallbackUrl(typeof callbackUrl === "string" ? callbackUrl : null),
   );
 
-  return (
-    <SignInClient socialProviders={configuredSocialProviders(env)} connection={connection} />
-  );
+  return <SignInClient socialProviders={configuredSocialProviders(env)} connection={connection} />;
 }

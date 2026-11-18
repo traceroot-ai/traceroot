@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   signUpEmail: vi.fn(),
   signInSocial: vi.fn(),
+  loadClient: vi.fn(),
 }));
 
 let searchParams = new URLSearchParams();
@@ -25,12 +26,22 @@ vi.mock("@/lib/auth-client", () => ({
 
 vi.mock("@/env", () => ({ env: {} }));
 
+// The page reads the assistant being connected from the database.
+vi.mock("@/lib/oauth/load-client-display", () => ({
+  loadOAuthClientDisplay: (...args: unknown[]) => mocks.loadClient(...args),
+}));
+
 import { env } from "@/env";
 import SignUpPage from "../page";
-import { SignUpClient } from "../sign-up-client";
 
 function setParams(params: Record<string, string>) {
   searchParams = new URLSearchParams(params);
+}
+
+// The page is a server component: resolve it with the current query, then render.
+async function renderPage() {
+  const params = Object.fromEntries(searchParams.entries());
+  render(await SignUpPage({ searchParams: Promise.resolve(params) }));
 }
 
 function fillForm(email = "kai@acme.io") {
@@ -44,6 +55,7 @@ function fillForm(email = "kai@acme.io") {
 }
 
 beforeEach(() => {
+  mocks.loadClient.mockResolvedValue(null);
   env.TRACEROOT_CLOUD_ENV = undefined;
   env.AUTH_GOOGLE_CLIENT_ID = "";
   env.AUTH_GOOGLE_CLIENT_SECRET = "";
@@ -62,7 +74,7 @@ afterEach(() => {
 
 describe("SignUpPage", () => {
   it("shows a validation error and does not submit a signup without a name", async () => {
-    render(<SignUpPage />);
+    await renderPage();
     fillForm();
     fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
@@ -74,7 +86,7 @@ describe("SignUpPage", () => {
   it("submits a test-domain signup and onboards outside traceroot Cloud", async () => {
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpPage />);
+    await renderPage();
     fillForm("kai@workspace.test");
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -92,7 +104,7 @@ describe("SignUpPage", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpPage />);
+    await renderPage();
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -117,7 +129,7 @@ describe("SignUpPage", () => {
 
     env.AUTH_GOOGLE_CLIENT_ID = "test-client";
     env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
-    render(<SignUpPage />);
+    await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
@@ -133,7 +145,7 @@ describe("SignUpPage", () => {
     setParams({ callbackUrl: "/projects/p1/traces" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpPage />);
+    await renderPage();
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -146,17 +158,17 @@ describe("SignUpPage", () => {
     setParams({ callbackUrl: "/device-settings" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<SignUpPage />);
+    await renderPage();
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
   });
 
-  it("carries the callback to the sign-in link", () => {
+  it("carries the callback to the sign-in link", async () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
 
-    render(<SignUpPage />);
+    await renderPage();
     const link = screen.getByRole("link", { name: "Sign in" });
     expect(link.getAttribute("href")).toBe(
       `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
@@ -168,7 +180,7 @@ describe("SignUpPage", () => {
     ["staging", "kai@mailinator.com", "Disposable email addresses aren't supported"],
   ] as const)("shows the %s rejection for %s inline", async (cloudEnv, email, message) => {
     env.TRACEROOT_CLOUD_ENV = cloudEnv;
-    render(<SignUpPage />);
+    await renderPage();
     fillForm(email);
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -176,8 +188,8 @@ describe("SignUpPage", () => {
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
   });
 
-  it("uses a bare sign-in link when there is no callback", () => {
-    render(<SignUpPage />);
+  it("uses a bare sign-in link when there is no callback", async () => {
+    await renderPage();
     const link = screen.getByRole("link", { name: "Sign in" });
     expect(link.getAttribute("href")).toBe("/auth/sign-in");
   });
@@ -185,18 +197,16 @@ describe("SignUpPage", () => {
   it("names the assistant and returns to its authorization after onboarding", async () => {
     const callback = "/oauth/continue?response_type=code&client_id=https%3A%2F%2Fclaude.ai%2Fdoc";
     setParams({ callbackUrl: callback });
+    mocks.loadClient.mockResolvedValue({ name: "Claude", verifiedHost: "claude.ai" });
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
-    render(
-      <SignUpClient
-        socialProviders={[]}
-        emailDomainPolicyEnabled={false}
-        connection={{ name: "Claude", verifiedHost: "claude.ai" }}
-      />,
-    );
+    await renderPage();
+    expect(mocks.loadClient).toHaveBeenCalledWith("https://claude.ai/doc");
     expect(
       screen.getByRole("heading", { name: "Create an account to connect Claude" }),
     ).toBeTruthy();
+    expect(screen.getByText("claude.ai")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -205,6 +215,17 @@ describe("SignUpPage", () => {
         `/onboarding?callbackUrl=${encodeURIComponent(callback)}`,
       ),
     );
+  });
+
+  it("warns that a self-registered assistant is unverified", async () => {
+    setParams({ callbackUrl: "/oauth/continue?client_id=dcr-1" });
+    mocks.loadClient.mockResolvedValue({ name: "Acme Helper", verifiedHost: null });
+
+    await renderPage();
+    expect(
+      screen.getByRole("heading", { name: "Create an account to connect Acme Helper" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Unverified application");
   });
 });
 
@@ -217,7 +238,7 @@ describe("SignUpPage social buttons", () => {
     env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
     env.AUTH_AGENTID_CLIENT_ID = "agentid-client";
     env.AUTH_AGENTID_CLIENT_SECRET = "agentid-secret";
-    render(<SignUpPage />);
+    await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "AgentID" }));
 
     const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };

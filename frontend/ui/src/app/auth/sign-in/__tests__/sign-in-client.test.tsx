@@ -145,8 +145,8 @@ describe("SignInClient", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: "Sign in to connect Claude" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "TraceRoot connecting to Claude" })).toBeTruthy();
-    expect(screen.getByText("claude.ai")).toBeTruthy();
+    expect(screen.getByText("claude.ai").parentElement?.textContent).toBe("Verified by claude.ai");
+    expect(screen.queryByRole("alert")).toBeNull();
     // The connection is carried to sign-up too.
     expect(screen.getByRole("link", { name: "Sign up" }).getAttribute("href")).toBe(
       `/auth/sign-up?callbackUrl=${encodeURIComponent(OAUTH_CALLBACK)}`,
@@ -163,7 +163,8 @@ describe("SignInClient", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: "Sign in to connect Acme Helper" })).toBeTruthy();
-    expect(screen.getByText("Unverified application")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Unverified application");
+    expect(screen.queryByText(/Verified by/)).toBeNull();
   });
 
   it("returns to the authorization after signing in", async () => {
@@ -249,6 +250,28 @@ describe("SignInClient social buttons", () => {
       false,
     );
   });
+});
+
+describe("SignInClient social buttons while connecting an assistant", () => {
+  it.each(["google", "agentid"] as const)(
+    "sends a %s sign-in back to the authorization",
+    (provider) => {
+      setParams({ callbackUrl: OAUTH_CALLBACK });
+      mocks.signInSocial.mockReturnValue(new Promise(() => {}));
+
+      render(
+        <SignInClient
+          socialProviders={["google", "agentid"]}
+          connection={{ name: "Claude", verifiedHost: "claude.ai" }}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: provider === "google" ? "Google" : "AgentID" }),
+      );
+
+      expect(mocks.signInSocial).toHaveBeenCalledWith({ provider, callbackURL: OAUTH_CALLBACK });
+    },
+  );
 });
 
 describe("configuredSocialProviders", () => {
