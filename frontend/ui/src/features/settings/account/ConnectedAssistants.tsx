@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plug } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LoadingState } from "@/components/ui/loading-state";
-import { ClientMark, MCP_DOCS_URL } from "@/features/oauth-connect";
+import { MCP_DOCS_URL } from "@/features/oauth-connect";
 import { formatRelativeTime } from "@/lib/utils";
 
 interface Connection {
@@ -63,12 +61,13 @@ export function ConnectedAssistants() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Connected assistants</h2>
-        <p className="text-sm text-muted-foreground">
-          Assistants you have allowed to read a project&apos;s data. Each can read one project and
-          cannot change anything. Disconnect one to cut its access at once.
-        </p>
+      <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 className="text-[15px] font-medium">Connected assistants</h2>
+          <p className="truncate text-sm text-muted-foreground">
+            Assistants with read-only access to one of your projects.
+          </p>
+        </div>
       </div>
 
       {remove.error && (
@@ -77,62 +76,79 @@ export function ConnectedAssistants() {
         </p>
       )}
 
-      {query.isLoading ? (
-        <div className="border px-3 py-4">
-          <LoadingState label="Loading connections..." />
-        </div>
-      ) : query.isError ? (
-        <div className="border px-3 py-3 text-[13px] text-muted-foreground">
-          Couldn&apos;t load your connections. Try refreshing the page.
-        </div>
-      ) : connections.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <ul className="divide-y rounded-md border" aria-label="Connected assistants">
-          {connections.map((connection) => (
-            <li
-              key={connection.id}
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 sm:flex-nowrap"
+      <div className="overflow-x-auto border">
+        {query.isLoading ? (
+          <div className="px-3 py-4">
+            <LoadingState label="Loading connections..." />
+          </div>
+        ) : query.isError ? (
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">
+            Couldn&apos;t load your connections. Try refreshing the page.
+          </div>
+        ) : connections.length === 0 ? (
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">
+            <span>No assistants are connected.</span>{" "}
+            <a
+              href={MCP_DOCS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-foreground"
             >
-              <ClientMark
-                client={{
-                  name: connection.clientName,
-                  verifiedHost: connection.verifiedHost ?? null,
-                }}
-                className="h-8 w-8"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[13px] font-medium">{connection.clientName}</span>
-                  {connection.verifiedHost ? (
-                    <Badge variant="success">Verified · {connection.verifiedHost}</Badge>
-                  ) : (
-                    <Badge variant="warning">Self-registered</Badge>
-                  )}
-                </div>
-                <p className="mt-0.5 text-[12px] text-muted-foreground">
-                  <span className="text-foreground">
-                    {connection.projectName ?? "A project that no longer exists"}
-                  </span>{" "}
-                  · Connected {formatRelativeTime(connection.createdAt)}
-                </p>
-              </div>
-              <Badge variant="outline">Read-only</Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-[12px]"
-                onClick={() => {
-                  remove.reset();
-                  setConfirming(connection);
-                }}
-              >
-                Disconnect
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+              Set up the MCP server
+            </a>{" "}
+            in Claude, ChatGPT, Cursor or another assistant to let it read a project.
+          </div>
+        ) : (
+          <table className="data-table w-full">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  Assistant
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Project</th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  Verified by
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  Connected
+                </th>
+                <th className="w-28 px-3 py-2 text-[12px] font-medium text-muted-foreground" />
+              </tr>
+            </thead>
+            <tbody>
+              {connections.map((connection) => (
+                <tr key={connection.id} className="border-b last:border-b-0 hover:bg-muted">
+                  <td className="px-3 py-2">{connection.clientName}</td>
+                  <td className="px-3 py-2">
+                    {connection.projectName ?? (
+                      <span className="text-muted-foreground">Deleted project</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {connection.verifiedHost ?? "Self-registered"}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {formatRelativeTime(connection.createdAt)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[12px]"
+                      onClick={() => {
+                        remove.reset();
+                        setConfirming(connection);
+                      }}
+                    >
+                      Disconnect
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       <Dialog
         open={confirming !== null}
@@ -140,18 +156,18 @@ export function ConnectedAssistants() {
           if (!open && !remove.isPending) setConfirming(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Disconnect {confirming?.clientName}?</DialogTitle>
-            <DialogDescription>
-              {confirming?.clientName} loses access to{" "}
-              <span className="font-medium text-foreground">
-                {confirming?.projectName ?? "this project"}
-              </span>{" "}
-              on its next request, and its tokens are deleted. To use it again, connect it from the
-              assistant.
-            </DialogDescription>
+            <DialogTitle>Disconnect {confirming?.clientName}</DialogTitle>
           </DialogHeader>
+          <DialogDescription>
+            {confirming?.clientName} loses access to{" "}
+            <span className="font-medium text-foreground">
+              {confirming?.projectName ?? "this project"}
+            </span>{" "}
+            on its next request, and its tokens are deleted. To use it again, connect it from the
+            assistant.
+          </DialogDescription>
           <DialogFooter>
             <Button
               variant="outline"
@@ -170,27 +186,6 @@ export function ConnectedAssistants() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center rounded-md border border-dashed px-6 py-8 text-center">
-      <Plug className="h-5 w-5 text-muted-foreground" aria-hidden />
-      <p className="mt-2 text-[13px] font-medium">No assistants are connected.</p>
-      <p className="mt-1 max-w-sm text-[12px] text-muted-foreground">
-        Add TraceRoot as an MCP server in Claude, ChatGPT, Cursor or another assistant, and it can
-        read one project&apos;s traces after you approve it here.
-      </p>
-      <a
-        href={MCP_DOCS_URL}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-3 text-[12px] font-medium underline-offset-4 hover:underline"
-      >
-        Set up the MCP server
-      </a>
     </div>
   );
 }

@@ -53,12 +53,16 @@ describe("ConnectedAssistants", () => {
     );
     renderComponent();
     expect(await screen.findByText("Claude")).toBeTruthy();
-    expect(screen.getByText("Checkout agent")).toBeTruthy();
-    expect(screen.getByText("Verified · claude.ai")).toBeTruthy();
-    expect(screen.getByText("Read-only")).toBeTruthy();
+    const row = screen.getByText("Claude").closest("tr");
+    expect(
+      Array.from(row?.querySelectorAll("td") ?? [])
+        .slice(0, 3)
+        .map((cell) => cell.textContent),
+    ).toEqual(["Claude", "Checkout agent", "claude.ai"]);
+    expect(screen.getByText(/read-only access to one of your projects/)).toBeTruthy();
   });
 
-  it("tags an assistant that registered itself", async () => {
+  it("says when an assistant registered itself", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -67,7 +71,7 @@ describe("ConnectedAssistants", () => {
     );
     renderComponent();
     expect(await screen.findByText("Self-registered")).toBeTruthy();
-    expect(screen.queryByText(/Verified/)).toBeNull();
+    expect(screen.queryByText("claude.ai")).toBeNull();
   });
 
   it("asks before disconnecting, naming what the assistant loses, and can be cancelled", async () => {
@@ -78,7 +82,7 @@ describe("ConnectedAssistants", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "Disconnect Claude?" })).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "Disconnect Claude" })).toBeTruthy();
     expect(dialog.textContent).toContain("loses access to Checkout agent");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
