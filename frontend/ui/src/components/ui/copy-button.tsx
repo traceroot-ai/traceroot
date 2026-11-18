@@ -21,24 +21,28 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
     const [copyError, setCopyError] = React.useState(false);
     const errorId = React.useId();
     const resetTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const copyAttempt = React.useRef(0);
 
     React.useEffect(
       () => () => {
+        copyAttempt.current += 1;
         if (resetTimer.current) clearTimeout(resetTimer.current);
       },
       [],
     );
 
     const handleCopy = async () => {
+      const attempt = ++copyAttempt.current;
       if (resetTimer.current) clearTimeout(resetTimer.current);
       setCopied(false);
       setCopyError(false);
       try {
         await navigator.clipboard.writeText(value);
       } catch {
-        setCopyError(true);
+        if (attempt === copyAttempt.current) setCopyError(true);
         return;
       }
+      if (attempt !== copyAttempt.current) return;
       setCopied(true);
       resetTimer.current = setTimeout(() => setCopied(false), 2000);
       onCopy?.();
