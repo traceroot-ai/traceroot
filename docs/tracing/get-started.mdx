@@ -43,12 +43,12 @@ Create an API key either with [traceroot Cloud](https://app.traceroot.ai) or [Se
 <Tabs>
   <Tab title="Python">
     ```bash
-    pip install traceroot
+    pip install traceroot openai
     ```
   </Tab>
   <Tab title="TypeScript">
     ```bash
-    npm install @traceroot-ai/traceroot
+    npm install @traceroot-ai/traceroot openai
     ```
   </Tab>
 </Tabs>
@@ -74,40 +74,38 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # self-hosted: your API's 
   <Tab title="Python">
     Initialize traceroot where your application starts, inside the `if __name__ == "__main__":` block rather than at module scope, so a test that imports the module doesn't send traces.
 
+    {/* [start:snippet:tracing-get-started-python] */}
     ```python
-    import traceroot
-    from traceroot import Integration
+    # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
     from openai import OpenAI
 
-    def main():
-        client = OpenAI()
-        # ...your application
+    import traceroot
+    from traceroot import Integration
 
-    if __name__ == "__main__":
-        # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
-        traceroot.initialize(integrations=[Integration.OPENAI])  # instruments all OpenAI calls
-        main()
+    # This single line instruments all OpenAI API calls
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = OpenAI()
     ```
+    {/* [end:snippet:tracing-get-started-python] */}
 
     Under a server such as uvicorn or gunicorn that block never runs, so initialize where the framework starts up.
   </Tab>
   <Tab title="TypeScript">
     Initialize traceroot in the function your entry point calls to start, rather than at module scope, so a test that imports the module doesn't send traces.
 
+    {/* [start:snippet:tracing-get-started-typescript] */}
     ```typescript
-    // import { config } from 'dotenv';  // Uncomment if using a .env file (requires: npm install dotenv)
+    // import 'dotenv/config'; // Uncomment if using a .env file (requires: npm install dotenv)
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
-    async function main() {
-      // config();
-      TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });  // instruments all OpenAI calls
-      const openai = new OpenAI();
-      // ...your application
-    }
+    // This single line instruments all OpenAI API calls
+    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
-    // Call main() from your entry point.
+    const openai = new OpenAI();
     ```
+    {/* [end:snippet:tracing-get-started-typescript] */}
 
     If a framework loads your module instead of running it, initialize where the framework starts up instead.
   </Tab>
