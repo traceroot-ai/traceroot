@@ -43,6 +43,10 @@ afterEach(() => {
 // `traceroot setup` run that is blocked waiting on them.
 const NESTED_CALLBACK = "/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234";
 
+// Where the OAuth provider sends a signed-out user who is connecting an assistant.
+const OAUTH_CALLBACK =
+  "/oauth/continue?response_type=code&client_id=https%3A%2F%2Fclaude.ai%2Fdoc&sig=abc";
+
 function fillAndSubmit() {
   fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
     target: { value: "kai@example.com" },
@@ -129,6 +133,52 @@ describe("SignInClient", () => {
     // safeCallbackUrl collapses the off-origin value to the "/" fallback, which
     // is treated as "no real callback" — so the link stays bare.
     expect(link.getAttribute("href")).toBe("/auth/sign-up");
+  });
+
+  it("shows which assistant the sign-in will connect", () => {
+    setParams({ callbackUrl: OAUTH_CALLBACK });
+
+    render(
+      <SignInClient
+        socialProviders={[]}
+        connection={{ name: "Claude", verifiedHost: "claude.ai" }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Sign in to connect Claude" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "TraceRoot connecting to Claude" })).toBeTruthy();
+    expect(screen.getByText("claude.ai")).toBeTruthy();
+    // The connection is carried to sign-up too.
+    expect(screen.getByRole("link", { name: "Sign up" }).getAttribute("href")).toBe(
+      `/auth/sign-up?callbackUrl=${encodeURIComponent(OAUTH_CALLBACK)}`,
+    );
+  });
+
+  it("marks a self-registered assistant as unverified while signing in", () => {
+    setParams({ callbackUrl: OAUTH_CALLBACK });
+
+    render(
+      <SignInClient
+        socialProviders={[]}
+        connection={{ name: "Acme Helper", verifiedHost: null }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Sign in to connect Acme Helper" })).toBeTruthy();
+    expect(screen.getByText("Unverified application")).toBeTruthy();
+  });
+
+  it("returns to the authorization after signing in", async () => {
+    setParams({ callbackUrl: OAUTH_CALLBACK });
+    mocks.signInEmail.mockResolvedValue({ error: null });
+
+    render(
+      <SignInClient
+        socialProviders={[]}
+        connection={{ name: "Claude", verifiedHost: "claude.ai" }}
+      />,
+    );
+    fillAndSubmit();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(OAUTH_CALLBACK));
   });
 });
 
