@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { useMetadataKeys } from "./hooks";
 import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
+import { isSubmitEnter } from "@/lib/keyboard";
 
 // Icons mirror the trace detail / list UI for consistency; the model and environment
 // fields, which have no trace-detail icon, use a generic one. The dashboard widget
@@ -114,7 +115,7 @@ export function TextField({
       maxLength={MAX_VALUE_LENGTH}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") onEnter?.();
+        if (isSubmitEnter(e)) onEnter?.();
       }}
       className={cn("h-7 min-w-0 flex-1 rounded-md", textSize)}
     />
@@ -355,7 +356,7 @@ export function MetadataKeyCombobox({
             onKeyDown={(e) => {
               // Enter dismisses the suggestion list and applies the filter if the row is
               // complete; the typed key needs no confirmation, it is already the key.
-              if (e.key === "Enter") {
+              if (isSubmitEnter(e)) {
                 setOpen(false);
                 onEnter?.();
               }

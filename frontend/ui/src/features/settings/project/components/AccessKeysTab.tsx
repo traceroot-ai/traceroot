@@ -25,6 +25,7 @@ import {
   deleteAccessKey,
   type AccessKey,
 } from "@/lib/api";
+import { isSubmitEnter } from "@/lib/keyboard";
 
 interface AccessKeysTabProps {
   projectId: string;
@@ -174,7 +175,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               placeholder="e.g., Production, Development"
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              onKeyDown={(e) => isSubmitEnter(e) && handleCreate()}
             />
           </div>
           <DialogFooter>
@@ -206,7 +207,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onChange={(e) =>
                 setEditingKey(editingKey ? { ...editingKey, name: e.target.value } : null)
               }
-              onKeyDown={(e) => e.key === "Enter" && handleSaveNote()}
+              onKeyDown={(e) => isSubmitEnter(e) && handleSaveNote()}
             />
           </div>
           <DialogFooter>
