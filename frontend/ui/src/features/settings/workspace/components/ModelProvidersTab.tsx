@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
@@ -59,6 +59,7 @@ export function getBaseUrlPayload(
 
 export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const queryClient = useQueryClient();
+  const formId = useId();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editProvider, setEditProvider] = useState<ModelProviderResponse | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ModelProviderResponse | null>(null);
@@ -423,9 +424,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
           <div className="space-y-4">
             {/* Adapter selector */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Adapter</label>
+              <label htmlFor={`${formId}-adapter`} className="text-sm font-medium">
+                Adapter
+              </label>
               <Select value={adapter} onValueChange={handleAdapterChange} disabled={!!editProvider}>
-                <SelectTrigger>
+                <SelectTrigger id={`${formId}-adapter`}>
                   <SelectValue placeholder="Select an adapter" />
                 </SelectTrigger>
                 <SelectContent>
@@ -444,8 +447,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
             {/* Provider name (user label) */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Provider name</label>
+              <label htmlFor={`${formId}-provider-name`} className="text-sm font-medium">
+                Provider name
+              </label>
               <Input
+                id={`${formId}-provider-name`}
                 value={providerName}
                 onChange={(e) => setProviderName(e.target.value)}
                 placeholder="e.g. My OpenAI, Production DeepSeek"
@@ -458,33 +464,45 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {/* Credentials — conditional on adapter type */}
             {adapterConfig?.credentialType === "aws" ? (
               <div className="space-y-3">
-                <label className="text-sm font-medium">AWS credentials</label>
+                <h3 className="text-sm font-medium">AWS credentials</h3>
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    id="useDefaultCreds"
+                    id={`${formId}-default-credentials`}
                     checked={useDefaultCredentials}
                     onChange={(e) => setUseDefaultCredentials(e.target.checked)}
                     className="rounded"
                   />
-                  <label htmlFor="useDefaultCreds" className="text-sm">
+                  <label htmlFor={`${formId}-default-credentials`} className="text-sm">
                     Use default AWS credential chain
                   </label>
                 </div>
                 {!useDefaultCredentials && (
                   <>
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">Access key ID</label>
+                      <label
+                        htmlFor={`${formId}-aws-key`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        Access key ID
+                      </label>
                       <Input
+                        id={`${formId}-aws-key`}
                         value={awsAccessKeyId}
                         onChange={(e) => setAwsAccessKeyId(e.target.value)}
                         placeholder="AKIA..."
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">Secret access key</label>
+                      <label
+                        htmlFor={`${formId}-aws-secret`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        Secret access key
+                      </label>
                       <Input
                         type="password"
+                        id={`${formId}-aws-secret`}
                         value={awsSecretAccessKey}
                         onChange={(e) => setAwsSecretAccessKey(e.target.value)}
                         placeholder="Secret key"
@@ -493,8 +511,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   </>
                 )}
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Region</label>
+                  <label htmlFor={`${formId}-aws-region`} className="text-xs text-muted-foreground">
+                    Region
+                  </label>
                   <Input
+                    id={`${formId}-aws-region`}
                     value={awsRegion}
                     onChange={(e) => setAwsRegion(e.target.value)}
                     placeholder="us-east-1"
@@ -503,11 +524,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               </div>
             ) : adapterConfig ? (
               <div className="space-y-2">
-                <label className="text-sm font-medium">
+                <label htmlFor={`${formId}-api-key`} className="text-sm font-medium">
                   API key{editProvider ? " (leave blank to keep current)" : ""}
                 </label>
                 <Input
                   type="password"
+                  id={`${formId}-api-key`}
                   value={apiKey}
                   onChange={(e) => {
                     setApiKey(e.target.value);
@@ -521,10 +543,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {/* Base URL — hidden for Bedrock (uses AWS regions, not URLs) */}
             {adapterConfig && adapterConfig.credentialType !== "aws" && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">
+                <label htmlFor={`${formId}-base-url`} className="text-sm font-medium">
                   Base URL{adapterConfig.requiresBaseUrl ? "" : " (optional)"}
                 </label>
                 <Input
+                  id={`${formId}-base-url`}
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   placeholder={
@@ -542,7 +565,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {adapterConfig && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">Models</label>
+                  <h3 className="text-sm font-medium">Models</h3>
                   <Button
                     type="button"
                     variant="outline"
@@ -564,7 +587,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     <div key={i} className="flex items-center gap-2">
                       {curatedModels ? (
                         <Select value={model} onValueChange={(v) => updateCustomModel(i, v)}>
-                          <SelectTrigger className="flex-1">
+                          <SelectTrigger aria-label={`Model ${i + 1}`} className="flex-1">
                             <SelectValue placeholder="Select a model" />
                           </SelectTrigger>
                           <SelectContent>
@@ -584,6 +607,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                         </Select>
                       ) : (
                         <Input
+                          aria-label={`Model ${i + 1}`}
                           value={model}
                           onChange={(e) => updateCustomModel(i, e.target.value)}
                           placeholder={
@@ -603,7 +627,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                             setModelProtocols((prev) => ({ ...prev, [model]: v }))
                           }
                         >
-                          <SelectTrigger className="w-[180px]">
+                          <SelectTrigger
+                            aria-label={`API protocol for model ${i + 1}`}
+                            className="w-[180px]"
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

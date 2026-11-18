@@ -106,3 +106,13 @@ describe("MembersTab Cancel actions", () => {
     },
   );
 });
+
+it("associates the invitation fields with their visible labels", () => {
+  const dialog = openDialog("invite");
+  expect(dialog.getByLabelText("Email").getAttribute("type")).toBe("email");
+  expect(dialog.getByRole("combobox", { name: "Role" })).toBeTruthy();
+});
+
+it("names the role selector in the member editor", () => {
+  expect(openDialog("role").getByRole("combobox", { name: "Role" })).toBeTruthy();
+});

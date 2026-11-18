@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { AddButton } from "@/components/ui/add-button";
@@ -41,6 +41,7 @@ interface MembersTabProps {
 
 export function MembersTab({ workspaceId }: MembersTabProps) {
   const queryClient = useQueryClient();
+  const formId = useId();
   const { data: session } = useSession();
 
   const [showInviteMember, setShowInviteMember] = useState(false);
@@ -138,21 +139,26 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-medium">Email</label>
+              <label htmlFor={`${formId}-invite-email`} className="mb-2 block text-sm font-medium">
+                Email
+              </label>
               <Input
                 placeholder="member@example.com"
                 value={newMemberEmail}
                 onChange={(e) => setNewMemberEmail(e.target.value)}
+                id={`${formId}-invite-email`}
                 type="email"
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium">Role</label>
+              <label htmlFor={`${formId}-invite-role`} className="mb-2 block text-sm font-medium">
+                Role
+              </label>
               <Select
                 value={newMemberRole}
                 onValueChange={(value) => setNewMemberRole(value as Role)}
               >
-                <SelectTrigger>
+                <SelectTrigger id={`${formId}-invite-role`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -194,14 +200,16 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             <DialogDescription>Update the member&apos;s role in this workspace.</DialogDescription>
           </DialogHeader>
           <div>
-            <label className="mb-2 block text-sm font-medium">Role</label>
+            <label htmlFor={`${formId}-member-role`} className="mb-2 block text-sm font-medium">
+              Role
+            </label>
             <Select
               value={editingMember?.role || Role.MEMBER}
               onValueChange={(value) =>
                 setEditingMember(editingMember ? { ...editingMember, role: value as Role } : null)
               }
             >
-              <SelectTrigger>
+              <SelectTrigger id={`${formId}-member-role`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
