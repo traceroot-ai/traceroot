@@ -244,6 +244,8 @@ GEMINI_MODEL_CASES = [
 ]
 
 DEEPSEEK_MODEL_CASES = [
+    ("deepseek-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),
@@ -474,6 +476,30 @@ class TestGeminiModelIds:
     def test_unpriced_gemini_ids_do_not_inherit_a_price(self, real_cache, model_id):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price(model_id) is None
+
+
+# $ per 1M tokens, off-peak: input, cache hit, output
+DEEPSEEK_PUBLISHED_RATES = {
+    "deepseek-v4-flash": (0.15, 0.003, 0.60),
+    "deepseek-v4-pro": (0.66, 0.022, 1.98),
+}
+
+
+class TestDeepSeekPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://api-docs.deepseek.com/quick_start/pricing).
+
+    Peak hours cost twice the off-peak rate; the table has no time-of-day
+    pricing, so peak-hour calls record half their cost.
+    """
+
+    @pytest.mark.parametrize("model_name,rates", DEEPSEEK_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+        assert entry["prices"]["cacheWrite"] is None
 
 
 class TestDeepSeekModelIds:
@@ -737,6 +763,15 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("apac.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    # Japan, Australia, and India profiles. Same price row as us/eu/apac/global.
+    # Issue #2938; the India prefix was added on the issue after the report.
+    ("jp.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("au.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("in.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("jp.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("au.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("jp.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+    ("in.anthropic.claude-opus-5", "claude-opus-5"),
     # Bedrock — no CRIS prefix
     ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),

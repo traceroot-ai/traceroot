@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -21,7 +22,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
   try {
     await fetch(`${AGENT_SERVICE_URL}/api/v1/cache/invalidate-provider`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...agentRequestHeaders({ system: true }) },
       body: JSON.stringify({ workspaceId, providerName }),
     });
   } catch {

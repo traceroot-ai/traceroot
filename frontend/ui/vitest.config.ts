@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, "**/.next/**", "e2e/**"],
     environment: "node",
+    env: { INTERNAL_API_SECRET: "unit-test-internal-secret-0123456789abcdef" },
     coverage: {
       provider: "v8",
       reporter: ["lcov"],

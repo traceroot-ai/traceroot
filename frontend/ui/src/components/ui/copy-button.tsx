@@ -58,6 +58,8 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
             className={cn("h-7 w-7 p-0", className)}
             onClick={handleCopy}
             {...props}
+            aria-label={props["aria-label"] ?? props.title ?? "Copy"}
+            title={props.title ?? props["aria-label"] ?? "Copy"}
             aria-describedby={
               copyError
                 ? [props["aria-describedby"], errorId].filter(Boolean).join(" ")

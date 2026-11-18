@@ -19,7 +19,10 @@ vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "admin-1" } } }),
 }));
 
-function openDialog(kind: "invite" | "role") {
+function renderMembers(
+  name: string | null = "Team member",
+  email: string | null = "member@example.com",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false }, mutations: { retry: false } },
   });
@@ -30,8 +33,8 @@ function openDialog(kind: "invite" | "role") {
       {
         id: "m1",
         user_id: "u1",
-        name: "Team member",
-        email: "member@example.com",
+        name,
+        email,
         role: "MEMBER",
       },
     ],
@@ -43,6 +46,10 @@ function openDialog(kind: "invite" | "role") {
       <MembersTab workspaceId="w1" />
     </QueryClientProvider>,
   );
+}
+
+function openDialog(kind: "invite" | "role") {
+  renderMembers();
   fireEvent.click(
     screen.getByRole("button", { name: kind === "invite" ? "Invite member" : "Member" }),
   );
@@ -58,6 +65,15 @@ function openDialog(kind: "invite" | "role") {
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+});
+
+it.each([
+  ["Team member", "member@example.com", "Remove member Team member"],
+  [null, "member@example.com", "Remove member member@example.com"],
+  [null, null, "Remove member "],
+] as const)("names the removal action for member %s / %s", (name, email, expectedLabel) => {
+  renderMembers(name, email);
+  expect(screen.getByRole("button", { name: expectedLabel.trim() }).title).toBe(expectedLabel);
 });
 
 describe("MembersTab Cancel actions", () => {
@@ -89,4 +105,14 @@ describe("MembersTab Cancel actions", () => {
       expect(kind === "invite" ? createInvite : updateMemberRole).toHaveBeenCalledTimes(1);
     },
   );
+});
+
+it("associates the invitation fields with their visible labels", () => {
+  const dialog = openDialog("invite");
+  expect(dialog.getByLabelText("Email").getAttribute("type")).toBe("email");
+  expect(dialog.getByRole("combobox", { name: "Role" })).toBeTruthy();
+});
+
+it("names the role selector in the member editor", () => {
+  expect(openDialog("role").getByRole("combobox", { name: "Role" })).toBeTruthy();
 });

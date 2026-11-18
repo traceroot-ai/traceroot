@@ -354,3 +354,21 @@ describe("ModelProvidersTab", () => {
     );
   });
 });
+
+it("associates provider credentials with their visible labels", async () => {
+  renderTab();
+  fireEvent.click(await screen.findByRole("button", { name: "Add provider" }));
+  const dialog = within(screen.getByRole("dialog"));
+  fireEvent.change(dialog.getByRole("combobox", { name: "adapter" }), {
+    target: { value: "openai" },
+  });
+  expect(dialog.getByLabelText("Provider name")).toBeTruthy();
+  expect(dialog.getByLabelText("API key")).toBeTruthy();
+  expect(dialog.getByLabelText("Base URL (optional)")).toBeTruthy();
+  fireEvent.change(dialog.getAllByRole("combobox", { name: "adapter" })[0], {
+    target: { value: "amazon-bedrock" },
+  });
+  expect(dialog.getByLabelText("Access key ID")).toBeTruthy();
+  expect(dialog.getByLabelText("Secret access key")).toBeTruthy();
+  expect(dialog.getByLabelText("Region")).toBeTruthy();
+});
