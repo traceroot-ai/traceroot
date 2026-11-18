@@ -123,9 +123,11 @@ export const auth = betterAuth({
     // the unforgeable per-address bound lives at the edge WAF.
     customRules: {
       "/device/code": { window: 60, max: 10 },
-      // Unauthenticated, and inserts an oauth_clients row on every call; same
-      // reasoning and same coarse bound as /device/code above.
-      "/oauth2/register": { window: 60, max: 10 },
+      // Unauthenticated, and inserts an oauth_clients row on every call, so it
+      // is capped like /device/code above, but higher: a hosted assistant
+      // registers a new client on every fresh connection, and many users of one
+      // assistant reach us from the same few egress addresses.
+      "/oauth2/register": { window: 60, max: 60 },
     },
   },
 
