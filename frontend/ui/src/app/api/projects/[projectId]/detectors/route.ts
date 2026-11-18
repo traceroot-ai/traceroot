@@ -2,7 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
-import { captureServerEvent } from "@/lib/posthog-server";
+import { captureDetectorCreated } from "@/lib/detector-created-event";
 import { validateOutputSchema } from "@/features/detectors/output-schema";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
@@ -219,11 +219,18 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("A detector with this name already exists", 409);
   }
 
-  // The other creation path, lib/write-services/detectors.ts, sends the same event.
-  captureServerEvent(user.id, "detector_created", {
-    project_id: projectId,
-    workspace_id: workspaceId,
-    transport: "ui",
+  captureDetectorCreated(user.id, "ui", {
+    projectId,
+    workspaceId,
+    template,
+    prompt,
+    detectionSource: sourceStr,
+    detectionModel: resolvedModel,
+    triggerConditions,
+    sampleRate: resolvedSampleRate,
+    enabled: resolvedEnabled,
+    enableRca: resolvedEnableRca,
+    enableSignals: resolvedEnableSignals,
   });
 
   return successResponse({ detector }, 201);

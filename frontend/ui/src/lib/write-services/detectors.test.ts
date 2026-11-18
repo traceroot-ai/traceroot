@@ -37,6 +37,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 });
 const { captureServerEvent } = vi.hoisted(() => ({ captureServerEvent: vi.fn() }));
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent }));
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { createDetector } from "./detectors";
 
 const baseInput = {
@@ -585,9 +586,26 @@ describe("createDetector", () => {
       detectionModel: "gpt-5.4",
       detectionProvider: "My OpenAI",
       enableRca: false,
+      enableSignals: false,
+      enabled: false,
+      sampleRate: 40,
       provenance: { transport: "agent", agentSessionId: "as1" },
     });
     expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      "u1",
+      "detector_created",
+      expect.objectContaining({
+        template: "other",
+        detection_source: "byok",
+        default_model: false,
+        trigger_count: 1,
+        sample_rate: 40,
+        enabled: false,
+        rca_enabled: false,
+        signals_enabled: false,
+      }),
+    );
     expect(tx.detector.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -611,14 +629,52 @@ describe("createDetector — detector_created", () => {
     tx.detector.findFirst.mockResolvedValue(null);
     tx.detector.create.mockResolvedValue(createdRow);
 
-    await run({ provenance: { transport: "agent", agentSessionId: "s1" } });
+    await run({
+      template: "hallucination",
+      prompt: undefined,
+      provenance: { transport: "agent", agentSessionId: "s1" },
+    });
 
     expect(captureServerEvent).toHaveBeenCalledTimes(1);
     expect(captureServerEvent).toHaveBeenCalledWith("u1", "detector_created", {
       project_id: "p1",
       workspace_id: "w1",
       transport: "agent",
+      template: "hallucination",
+      detection_source: "system",
+      default_model: true,
+      prompt_customized: false,
+      trigger_count: 0,
+      sample_rate: DEFAULT_DETECTOR_SAMPLE_RATE,
+      enabled: true,
+      rca_enabled: true,
+      signals_enabled: true,
     });
+  });
+
+  it("counts the system default picked by id as the default model", async () => {
+    mockAccess();
+    listWorkspaceModels.mockResolvedValue({
+      systemModels: [
+        {
+          provider: "OpenAI",
+          adapter: "openai",
+          source: "system",
+          models: [{ id: DETECTOR_SYSTEM_DEFAULT_MODEL_ID, label: "default" }],
+        },
+      ],
+      byokProviders: [],
+    });
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+
+    await run({ detectionSource: "system", detectionModel: DETECTOR_SYSTEM_DEFAULT_MODEL_ID });
+
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      "u1",
+      "detector_created",
+      expect.objectContaining({ detection_source: "system", default_model: true }),
+    );
   });
 
   it("is not sent when a retry gets the existing detector back", async () => {

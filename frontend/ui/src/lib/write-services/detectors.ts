@@ -19,7 +19,7 @@ import {
 } from "@traceroot/core";
 import { z } from "zod";
 import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
-import { captureServerEvent } from "@/lib/posthog-server";
+import { captureDetectorCreated, type CreatedDetector } from "@/lib/detector-created-event";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
   DETECTOR_TEMPLATES,
@@ -119,6 +119,7 @@ const inputSchema = z
 type TxOutcome = Promise<{
   result: ServiceResult<DetectorCreated>;
   audit?: AuditEntry;
+  created?: CreatedDetector;
 }>;
 
 export async function createDetector(input: {
@@ -265,6 +266,19 @@ export async function createDetector(input: {
           transport: input.provenance.transport,
           agentSessionId: input.provenance.agentSessionId ?? null,
         },
+        created: {
+          projectId: input.projectId,
+          workspaceId: project.workspaceId,
+          template,
+          prompt,
+          detectionSource: detectionSource ?? null,
+          detectionModel: parsed.data.detectionModel || null,
+          triggerConditions,
+          sampleRate: resolvedSampleRate,
+          enabled: resolvedEnabled,
+          enableRca: enableRca ?? true,
+          enableSignals: enableSignals ?? true,
+        },
       };
     });
   } catch (e) {
@@ -281,17 +295,12 @@ export async function createDetector(input: {
     return { ok: true, created: false, data: raced };
   }
 
-  const { result, audit } = outcome;
+  const { result, audit, created } = outcome;
   if (audit) {
     await writeAudit(prisma, audit);
     // Only a detector this call created: a retry answered with the existing one,
     // a lost name race and a refused request all return without an audit entry.
-    // The web app's own create route sends the same event.
-    captureServerEvent(audit.actorUserId, "detector_created", {
-      project_id: audit.projectId,
-      workspace_id: audit.workspaceId,
-      transport: audit.transport,
-    });
+    if (created) captureDetectorCreated(audit.actorUserId, audit.transport, created);
   }
   return result;
 }

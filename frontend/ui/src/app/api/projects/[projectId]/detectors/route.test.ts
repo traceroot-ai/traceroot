@@ -43,6 +43,7 @@ const { captureServerEvent } = vi.hoisted(() => ({ captureServerEvent: vi.fn() }
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent }));
 
 import { Role } from "@traceroot/core";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { POST } from "./route";
 
 function makeRequest(body: unknown) {
@@ -281,7 +282,40 @@ describe("POST .../detectors — detector_created", () => {
       project_id: "proj-1",
       workspace_id: "ws-1",
       transport: "ui",
+      template: "failure",
+      detection_source: "system",
+      default_model: true,
+      prompt_customized: true,
+      trigger_count: 0,
+      sample_rate: DEFAULT_DETECTOR_SAMPLE_RATE,
+      enabled: true,
+      rca_enabled: true,
+      signals_enabled: true,
     });
+  });
+
+  it("reports a BYOK detector and sends any other template as other", async () => {
+    await POST(
+      makeRequest(
+        validBody({
+          template: "my own",
+          detectionSource: "byok",
+          detectionProvider: "My OpenAI",
+          detectionModel: "gpt-5.4",
+        }),
+      ),
+      makeParams(),
+    );
+
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      "user-1",
+      "detector_created",
+      expect.objectContaining({
+        template: "other",
+        detection_source: "byok",
+        default_model: false,
+      }),
+    );
   });
 
   it("is not sent when the name is taken", async () => {
