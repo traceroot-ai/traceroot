@@ -17,6 +17,7 @@ from scripts.model_prices.checks import build_report
 from scripts.model_prices.tracking import (
     GITHUB_API,
     MAX_PRICE_FILE_BYTES,
+    _ConflictError,
     apply_pr,
     fetch_pricing_prs,
 )
@@ -24,6 +25,7 @@ from tests.model_prices.samples import (
     DATE,
     LITELLM_FILLER,
     _track_one_pr,
+    _track_prs,
     _tracked_report,
     ll_entry,
     md_catalog,
@@ -47,15 +49,110 @@ def test_a_pr_is_merged_by_its_own_row_changes():
     ]
 
 
-def test_a_row_the_current_file_removed_stays_removed_though_the_pr_changed_it():
+def test_a_row_the_current_file_removed_conflicts_with_the_prs_change_to_it():
     base = [row("gpt-a", "openai"), row("gpt-b", "openai")]
     # Since the PR branched, the current file removed gpt-b, which the PR changed.
     current = [row("gpt-a", "openai")]
-    head = [base[0], row("gpt-b", "openai", input_=7e-6), row("gpt-c", "openai")]
+    head = [base[0], row("gpt-b", "openai", input_=7e-6)]
 
-    merged = apply_pr(current, base, head)
+    with pytest.raises(_ConflictError, match=r"conflicts with the current one on gpt-b$"):
+        apply_pr(current, base, head)
+    # A row the PR left alone stays removed.
+    assert apply_pr(current, base, [base[0], base[1], row("gpt-c", "openai")]) == [
+        base[0],
+        row("gpt-c", "openai"),
+    ]
 
-    assert [r["modelName"] for r in merged] == ["gpt-a", "gpt-c"]
+
+def test_a_row_the_pr_removed_conflicts_when_the_current_file_changed_it():
+    base = [row("gpt-a", "openai"), row("gpt-b", "openai")]
+    head = [base[0]]
+
+    with pytest.raises(_ConflictError, match=r"conflicts with the current one on gpt-b$"):
+        apply_pr([base[0], row("gpt-b", "openai", input_=5e-6)], base, head)
+    assert apply_pr(base, base, head) == [base[0]]
+
+
+def test_a_row_both_added_conflicts_unless_the_two_are_the_same():
+    current = [row("gpt-a", "openai"), row("gpt-new", "openai", input_=5e-6)]
+    base = [row("gpt-a", "openai")]
+
+    with pytest.raises(_ConflictError, match=r"conflicts with the current one on gpt-new$"):
+        apply_pr(current, base, [*base, row("gpt-new", "openai", input_=9e-6)])
+    assert apply_pr(current, base, [*base, row("gpt-new", "openai", input_=5e-6)]) == current
+
+
+def test_both_sides_making_the_same_edit_to_a_key_is_not_a_conflict():
+    base = [row("gpt-a", "openai", input_=1e-6, pattern="^a$")]
+    current = [row("gpt-a", "openai", input_=3e-6, pattern="^a$")]
+    head = [row("gpt-a", "openai", input_=3e-6, pattern="^a$")]
+
+    assert apply_pr(current, base, head) == current
+    # Another key of the row, and another field of its prices, merge too.
+    head[0]["matchPattern"] = "^a-1$"
+    head[0]["prices"]["output"] = 4e-6
+    [merged] = apply_pr(current, base, head)
+    assert (merged["matchPattern"], merged["prices"]["input"], merged["prices"]["output"]) == (
+        "^a-1$",
+        3e-6,
+        4e-6,
+    )
+
+
+def test_a_key_changed_on_both_sides_to_different_values_conflicts():
+    base = [row("gpt-a", "openai", pattern="^a$")]
+    current = [row("gpt-a", "openai", pattern="^a-x$")]
+    head = [row("gpt-a", "openai", pattern="^a-y$")]
+
+    with pytest.raises(_ConflictError, match=r"on gpt-a \(matchPattern\)$"):
+        apply_pr(current, base, head)
+    # A key the PR drops that the current file changed conflicts as well.
+    head[0].pop("matchPattern")
+    with pytest.raises(_ConflictError, match=r"on gpt-a \(matchPattern\)$"):
+        apply_pr(current, base, head)
+
+
+def test_a_pr_whose_price_edit_conflicts_with_the_current_file_is_not_checked(monkeypatch):
+    # The input rate was $1/M when the PR branched, is $2/M now, and the PR makes it $3/M,
+    # which is the catalog's.
+    base = [row("gpt-a", "openai", input_=1e-6)]
+    current = [row("gpt-a", "openai", input_=2e-6)]
+    head = [row("gpt-a", "openai", input_=3e-6)]
+    litellm = {"gpt-a": ll_entry("openai", input_=3e-6)}
+    report = _track_prs(current, litellm, {})
+
+    with pytest.raises(_ConflictError, match=r"on gpt-a \(prices.input\)$"):
+        apply_pr(current, base, head)
+
+    pulls = [
+        {
+            "number": 7,
+            "title": "fix(pricing): gpt-a input rate",
+            "html_url": "https://github.test/pull/7",
+            "base": {"sha": "base7"},
+            "head": {"sha": "head7"},
+        }
+    ]
+
+    def fake_fetch(url, max_bytes=None, headers=None):
+        if "/pulls?" in url:
+            return pulls
+        if url.startswith(GITHUB_API):
+            return {
+                "merge_base_commit": {"sha": "mb7"},
+                "files": [{"filename": PRICE_PATH}],
+            }
+        return head if "head7" in url else base
+
+    monkeypatch.setattr(tracking, "fetch_json", fake_fetch)
+    prs = fetch_pricing_prs("owner/repo", current, report, None, lambda r: {"rows": r})
+    [pr] = prs
+    assert pr["error"] == "its price file conflicts with the current one on gpt-a (prices.input)"
+    assert "report" not in pr
+
+    tracked = _track_prs(current, litellm, {7: pr["error"]})
+    assert [f["tracked_by"] for f in tracked["flagged"]] == [[]]
+    assert tracked["pull_requests"][0]["fixes"] == []
 
 
 def test_a_pr_changes_only_the_fields_it_changed_in_a_row():

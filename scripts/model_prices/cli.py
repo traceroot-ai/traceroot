@@ -28,7 +28,8 @@ LiteLLM's model_prices_and_context_window.json and models.dev's api.json, and re
 
 With --track, each finding also names the open pull requests that would clear it: the
 script applies each pricing PR's row changes to the current price file and checks the
-result again. It also lists any problem a PR would add.
+result again. It also lists any problem a PR would add. A PR that changes a row the
+current file has since changed another way is listed with that conflict and not checked.
 
 A rate a maintainer has checked and left as it is goes in --reviewed (default
 scripts/model_prices/reviewed.json) and is no longer flagged until our rate or either
