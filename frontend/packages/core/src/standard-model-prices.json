@@ -597,7 +597,7 @@
   {
     "id": "tr-gpt-4.1",
     "modelName": "gpt-4.1",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-4\\.1)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4[.-]1)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
@@ -681,7 +681,7 @@
   {
     "id": "tr-gpt-4",
     "modelName": "gpt-4",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-4)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4)(-\\d{4})?$",
     "provider": "openai",
     "prices": {
       "input": 0.00003,
