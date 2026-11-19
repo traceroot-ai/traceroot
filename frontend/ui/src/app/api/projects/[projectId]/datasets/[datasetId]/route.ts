@@ -91,12 +91,15 @@ async function handlePATCH(req: NextRequest, { params }: RouteParams) {
 
   // A dataset's name is its human identity: renaming onto a name another dataset in the
   // project already uses would deduplicate them, so deny it (case-insensitive). Excludes
-  // this dataset itself, so keeping (or re-casing) its own name is allowed.
-  if (parsed.data.name !== undefined) {
+  // this dataset itself, so keeping (or re-casing) its own name is allowed. Skipped when
+  // the name is unchanged: the edit panel always sends it, and a description-only save
+  // must not be refused for a name this dataset already shares.
+  if (parsed.data.name !== undefined && parsed.data.name !== existing.name) {
     const clash = await prisma.dataset.findFirst({
       where: {
+        // Every dataset, not only legacy UI rows with a null clientDatasetId: datasets
+        // created in the UI now carry a ds_ client id too, so that scope matched nothing.
         projectId,
-        clientDatasetId: null, // UI-scoped, matching the partial unique index
         id: { not: datasetId },
         name: { equals: parsed.data.name, mode: "insensitive" as const },
       },
@@ -133,8 +136,9 @@ async function handlePATCH(req: NextRequest, { params }: RouteParams) {
     });
     return successResponse({ dataset });
   } catch (e) {
-    // A rename racing a concurrent create/rename to the same name loses to the partial
-    // unique index (uq_dataset_project_lower_name_ui); surface the same 409 as the pre-check.
+    // The partial unique index (uq_dataset_project_lower_name_ui) covers only legacy rows
+    // with a null clientDatasetId, so this race backstop applies to those alone; for other
+    // datasets the pre-check above is the only name guard. Surface the same 409 as it.
     if (parsed.data.name !== undefined && isPrismaKnownError(e, "P2002")) {
       return errorResponse(
         `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
