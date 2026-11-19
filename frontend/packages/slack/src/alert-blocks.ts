@@ -112,6 +112,31 @@ function formatMeasureValue(measure: string, aggregation: string, value: number)
   return withAlertUnit(formatNumber(value), getAlertUnit(measure, aggregation));
 }
 
+/**
+ * The reading and the threshold, spelled so that two different numbers never
+ * print alike. The rounding above can land a reading on its own threshold, so a
+ * page says "was 1000 ms, above the 1000 ms threshold", or "not equal to" it.
+ * When it would, both gain significant digits together until they part: raising
+ * only the reading still collides once the threshold itself was rounded.
+ */
+function formatComparison(value: number, threshold: number): [string, string] {
+  let valueText = formatNumber(value);
+  let thresholdText = formatNumber(threshold);
+  for (
+    let digits = 4;
+    valueText === thresholdText && value !== threshold && digits <= 21;
+    digits++
+  ) {
+    const format = new Intl.NumberFormat("en-US", {
+      maximumSignificantDigits: digits,
+      useGrouping: false,
+    });
+    valueText = format.format(value);
+    thresholdText = format.format(threshold);
+  }
+  return [valueText, thresholdText];
+}
+
 // Call form reads as the aggregation applied to the measure. The row-count
 // pseudo-measure pins its aggregation to itself, which would say count twice.
 function measureLabel(aggregation: string, measure: string): string {
@@ -121,15 +146,18 @@ function measureLabel(aggregation: string, measure: string): string {
 function describeOutcome(params: AlertBlockParams): string {
   const { severity, value, threshold, thresholdOperator, measure, aggregation, window } = params;
   const label = measureLabel(aggregation, measure);
-  const thresholdText = formatMeasureValue(measure, aggregation, threshold);
 
   if (severity === "NO_DATA") {
+    const thresholdText = formatMeasureValue(measure, aggregation, threshold);
     return `No data for ${label} over the last ${window}, so the ${thresholdText} threshold could not be evaluated.`;
   }
 
   // A null value under ALERT or OK is ZERO mode's reading of an empty window,
   // so the sentence states the zero the threshold was compared against.
-  const valueText = formatMeasureValue(measure, aggregation, value ?? 0);
+  const unit = getAlertUnit(measure, aggregation);
+  const [valueNumber, thresholdNumber] = formatComparison(value ?? 0, threshold);
+  const valueText = withAlertUnit(valueNumber, unit);
+  const thresholdText = withAlertUnit(thresholdNumber, unit);
   if (severity === "OK") {
     return `${label} recovered to ${valueText}, back within the ${thresholdText} threshold, over the last ${window}.`;
   }
