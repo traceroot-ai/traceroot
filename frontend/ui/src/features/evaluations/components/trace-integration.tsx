@@ -122,7 +122,12 @@ export function SaveTestCaseDrawer({
 
   // The trace-detail response OMITS span input/output/metadata — they are fetched
   // per span on demand (getSpanIO), so read them from that hook, not the span.
-  const { data: spanIO } = useSpanIO(projectId, traceId ?? "", span?.span_id ?? null);
+  const { data: spanIO } = useSpanIO(
+    projectId,
+    traceId ?? "",
+    span?.span_id ?? null,
+    !!span?.pending,
+  );
   // True only once the fetched I/O actually belongs to the currently-selected span.
   // Switching spans (nav, or a tree click) changes `span?.span_id`, and `spanIO` goes
   // undefined until the new span's fetch lands — during that window this component's
