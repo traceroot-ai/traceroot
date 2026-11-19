@@ -321,8 +321,8 @@ def _get_trace_summaries(
             trace_id,
             groupUniqArray(environment) AS environments,
             groupUniqArray(model_name) AS model_names,
-            sum(cost) AS cost,
-            sum(total_tokens) AS total_tokens,
+            ifNull(sum(cost), 0) AS cost,
+            ifNull(sum(total_tokens), 0) AS total_tokens,
             if(
                 min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
                 dateDiff('millisecond', min(span_start_time), max(span_end_time)),
