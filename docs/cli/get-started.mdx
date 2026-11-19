@@ -1,17 +1,46 @@
 ---
-title: Get Started
-description: Bring TraceRoot to your terminal
+title: Get started with the traceroot CLI
+sidebarTitle: Get Started
+description: Set up traceroot in your repository and work with your project from the terminal
 ---
 
-The TraceRoot CLI wraps the TraceRoot API so you can work with your project directly from the terminal — list, inspect, and export traces, then pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
+The traceroot CLI sets up tracing in your repository with one command, then lets you work with your project from the terminal — traces, detector findings, alerts, dashboards, evaluations, and SQL — and pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
 
 Full source and reference live in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repo.
 
+## Set up a repository
+
+Run this from the root of the repository you want to trace:
+
+```bash
+npx -y traceroot-cli@latest setup
+```
+
+Setup signs you in, has your coding agent add the traceroot SDK, and waits for your first trace; no install or sign-in needed first. [Tracing](/tracing/get-started) covers each step, self-hosting, and troubleshooting.
+
+### Run without prompts
+
+Setup never prompts when it isn't attached to a terminal, when `CI` is set to anything but empty or `false`, or with `--no-input` or `--json`. Pass what it would otherwise ask for:
+
+```bash
+npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
+```
+
+A project API key also sets the project. Without a key, run `npx -y traceroot-cli@latest login` first, then run setup without `--api-key`. Login prints a URL and a code for a person to confirm in a browser, and waits, so a coding agent has to show them to you. If setup exits 10, it can't choose for you, usually because you have several projects or none: follow the remedy it prints. With several projects, you can pass `--project`.
+
+Without prompts, setup notes uncommitted changes instead of asking, and writes the instrumentation task to `.traceroot/prompts/setup-instrument.md` rather than running a coding agent. Pass `--agent claude` or `--agent codex` to run one. After the task is done and the application has run, rerun the same setup command with `--resume`, such as `npx -y traceroot-cli@latest setup --no-input --resume`, to get a link to the first trace. [Coding agents](/getting-started/coding-agents#set-up-tracing) has these steps as a prompt.
+
 ## Install
+
+Every command also runs through `npx`, as above. To keep the `traceroot` command, install the CLI globally:
 
 ```bash
 npm install -g traceroot-cli
 ```
+
+The examples below use `traceroot`. Without a global install, replace it with `npx -y traceroot-cli@latest`.
+
+The CLI needs Node.js 20.3 or later, and `setup` needs 20.12 or later.
 
 ## Authenticate
 
@@ -25,7 +54,7 @@ Run `traceroot login` to sign in through your browser:
 traceroot login
 ```
 
-This initiates an OAuth device flow (RFC 8628), opens your browser to authorize access, and saves a session credential to `~/.config/traceroot/credentials.json`. The session token is exchanged for a short-lived access token, refreshed automatically as it expires.
+It prints a URL and a code, tries to open your browser, and saves a session to `~/.config/traceroot/credentials.json`. If no browser opens, open the URL yourself.
 
 ### API key login (CI & scripts)
 
@@ -52,7 +81,7 @@ The CLI resolves credentials in this order:
 6. Config file (`./.traceroot/config.json`)
 7. Auto-discovered `./.env` — a `TRACEROOT_API_KEY` here selects key mode when nothing above it is set
 
-Create API keys in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
+Create API keys in [traceroot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
 
 ### Verify credentials
 
@@ -114,7 +143,7 @@ So `--fields full`, or `--fields io,metadata`, includes span I/O in the JSON pay
 
 ## Read evaluations
 
-The CLI also reads your offline [evaluations](/evals/introduction) — the datasets you run against and the runs that scored them, so a run id no longer has to come from the web app.
+The CLI also reads your offline [evaluations](/evals/introduction): the datasets you run against and the runs that scored them.
 
 ```bash
 # Which evaluations exist, and how each one's latest run ended
@@ -133,33 +162,97 @@ See [From the terminal](/evals/cli) for what each read shows, and for the datase
 
 Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
 
-| Command | What it does |
-| :-- | :-- |
-| `login` | Validate an API key and save credentials. |
-| `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
-| `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
-| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
-| `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
-| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
-| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
-| `datasets versions get <version-id>` | Show one version and a page of its cases. Flag: `--limit <n>` — 200 by default, up to 1000. |
-| `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
-| `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
-| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
-| `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
-| `sql schema` | List every table and column available to read-only SQL. |
+The `sql` commands are documented in [Read-only SQL](/cli/sql).
 
-## What's next
+{/* [start:cli-commands] */}
+
+| Command | Description |
+| :--- | :--- |
+| `setup` | Connect this repository to traceroot and see your first trace. See [Tracing](/tracing/get-started). |
+| `setup doctor` | Diagnose a setup that did not complete. Flag: `--service <path>`. |
+| `login` | Sign in with the browser (device flow), or persist an explicit --api-key. |
+| `logout` | Revoke the session server-side (best-effort) and remove the local credential. |
+| `status` | Show the identity your credentials resolve to (email or key hint, workspace, project, and host). |
+| `doctor` | Check local environment, credentials, configuration, repository, and agent skills. |
+| `instrument` | Generate an agent prompt to instrument this repo with TraceRoot. |
+| `skills list` | List available AI agent skills and their capabilities. |
+| `skills install` | Install skills into your coding agent workspace. |
+| `traces list` | List recent traces for the caller's project (newest first). |
+| `traces get <id>` | Get a single trace for the caller's project. |
+| `traces export <id>` | Export the trace bundle (trace + spans + git_context + manifest) for the caller's project. |
+| `detectors list` | List the detectors in the caller's project (newest first). |
+| `detectors get <id>` | Get one detector's full configuration for the key's project. |
+| `findings list` | List recent detector findings for the caller's project (newest first). |
+| `findings get <finding-id>` | Get a single finding by id for the key's project. |
+| `alerts list` | List the alerts in the caller's project (oldest first) with its capacity. |
+| `alerts get <id>` | Get one alert with its full rule for the caller's project. |
+| `alerts create` | Create a threshold alert in a project the authenticated user can write to. |
+| `alerts update <id>` | Edit an alert's rule in a project the authenticated user can write to. |
+| `alerts status <id>` | Pause or resume an alert without touching its rule. |
+| `alerts delete <id>` | Hard-delete an alert. |
+| `dashboards list` | List the dashboards in the caller's project (default first). |
+| `dashboards get <id>` | Get one dashboard with its widgets for the caller's project. |
+| `dashboards create` | Create a dashboard in a project the authenticated user can write to. |
+| `dashboards update <id>` | Edit a dashboard's name or description. |
+| `dashboards delete <id>` | Hard-delete a dashboard together with its widgets. |
+| `workspaces list` | List the workspaces the authenticated user belongs to. |
+| `projects list` | List the projects the authenticated user can access, across workspaces. |
+| `workspaces create` | Create a workspace administered by the authenticated user. |
+| `workspaces update <workspace-id>` | Rename a workspace the authenticated user administers. |
+| `workspaces delete <workspace-id>` | Hard-delete a workspace and everything in it. |
+| `projects create` | Create a project in a workspace the authenticated user can write to. |
+| `projects update <project-id>` | Edit a project's name or trace retention. |
+| `projects delete <project-id>` | Soft-delete a project. |
+| `detectors create` | Create a detector in a project the authenticated user can write to. |
+| `detectors update <id>` | Edit a detector in a project the authenticated user can write to. |
+| `detectors delete <id>` | Hard-delete a detector; its existing findings stay readable. |
+| `widgets get <id>` | Get one saved widget's definition, with its dashboard, for the caller's project. |
+| `widgets data <id>` | Answer one saved widget for a window, with a status instead of an exception. |
+| `widgets create` | Create a widget on a dashboard the authenticated user can write to. |
+| `widgets update <id>` | Edit a widget's title, spec, or display config. |
+| `widgets delete <id>` | Hard-delete a widget and its entry in the dashboard's layout. |
+| `sql` | Run one read-only SQL query scoped to the caller's project. |
+| `sql schema` | Return the curated tables and columns available to public SQL. |
+| `datasets list` | List datasets, newest first. |
+| `datasets get <dataset-id>` | Read one dataset. |
+| `datasets versions list <dataset-id>` | List versions newest-first, each with its case count and whether it is current. |
+| `datasets versions get <version-id>` | Read an immutable snapshot: the version plus its cases, whole or a page at a time. |
+| `evals list` | List evaluations, newest first, each with its run count and latest run. |
+| `evals runs list` | List evaluation runs, newest first, optionally one evaluation's or one status's. |
+| `evals runs get <id>` | Read a run's own summary: status, result counts, and per-score and per-metric means over the run's results. |
+
+{/* [end:cli-commands] */}
+
+## Output and exit codes
+
+With `--json`, a command writes one JSON document to stdout. If it fails, stdout is empty and stderr gets `{"error":{"code":"...","message":"..."}}`. `doctor` and `setup doctor` instead write their report to stdout and exit 1 if a check fails, and `setup` writes one JSON event per line, ending in a `result` event with `ok` and `data.trace_url`. Without `--json`, setup writes everything to stderr, including the link to your first trace.
+
+| Exit code | Meaning |
+| :- | :- |
+| 0 | Success. For `setup`, also check for the link: it can exit 0 when it's paused or hasn't seen a trace yet |
+| 1 | Internal error, a failed `doctor` check, or an HTTP error not covered below, such as 409 or a 5xx |
+| 2 | Usage error, or input the server rejected (HTTP 400 or 422), including a missing `--project` after a browser login |
+| 3 | Not authenticated, or not allowed |
+| 4 | Not found |
+| 5 | Network error or rate limit, retry |
+| 10 | `setup`: it can't choose for you, usually because there are several projects or none. Follow the remedy it prints |
+| 11 | `setup`: unsupported language, service path, or coding agent |
+| 12 | `setup`: the coding agent failed |
+| 14 | `setup`: no trace arrived in time |
+| 15 | `setup`: this deployment doesn't support a step |
+| 16 | `setup`: it would overwrite something unsafely, or couldn't verify an existing key |
+| 130 | Interrupted |
+
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Tracing" icon="route" href="/tracing/get-started">
-    Instrument your app so traces show up for the CLI to read.
+    Set up tracing with one command, or instrument by hand.
   </Card>
   <Card title="Evaluations from the Terminal" icon="terminal" href="/evals/cli">
     Read datasets, evaluations, and past runs.
   </Card>
-  <Card title="TraceRoot Cloud" icon="cloud" href="https://app.traceroot.ai">
+  <Card title="traceroot Cloud" icon="cloud" href="https://app.traceroot.ai">
     Create API keys and open traces in the web app.
   </Card>
 </CardGroup>

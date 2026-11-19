@@ -1,7 +1,7 @@
 [project]
 name = "traceroot-platform"
 version = "0.1.0"
-description = "TraceRoot - open source AI agent improvement platform with observability, production monitoring, and evals"
+description = "traceroot: the open-source platform that continuously improves your ai agents."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -131,3 +131,8 @@ strict = false
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.uv]
+# bullmq 2.x pins msgpack==1.2.1; 1.2.3 is a patch release that fixes
+# CVE-2026-114613. Drop this once bullmq is on a release that allows it.
+override-dependencies = ["msgpack==1.2.3"]

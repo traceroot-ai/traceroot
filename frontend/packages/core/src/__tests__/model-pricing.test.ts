@@ -70,6 +70,11 @@ describe("calculateCostFromPricing — cache-write 1-hour portion", () => {
     expect(cost).toBeCloseTo(1000 * CLAUDE.input + 500 * CLAUDE.output, 12);
   });
 
+  it("prices cache reads at the cacheRead rate", () => {
+    const cost = calculateCostFromPricing(CLAUDE, 0, 0, 1000);
+    expect(cost).toBeCloseTo(1000 * CLAUDE.cacheRead!, 12);
+  });
+
   it("clamps negative counts to zero (mirrors the worker)", () => {
     const cost = calculateCostFromPricing(CLAUDE, -100, -50, -10, -900, -1);
     expect(cost).toBe(0);
@@ -168,6 +173,25 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   it("still returns null for a model the pattern genuinely does not cover", async () => {
     const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
     expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
+  });
+
+  // DeepSeek renamed Flash to `deepseek-flash`
+  const FLASH_ROW = {
+    modelName: "deepseek-v4-flash",
+    matchPattern:
+      "(?i)^(deepseek\\/)?(deepseek-flash|deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
+    prices: [
+      { usageType: "input", price: 0.00000015 },
+      { usageType: "output", price: 0.0000006 },
+    ],
+  };
+
+  it("resolves deepseek-flash to the Flash row's price", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([FLASH_ROW]);
+    const canonical = await lookup("deepseek-v4-flash");
+    const aliased = await lookup("deepseek-flash");
+    expect(aliased).not.toBeNull();
+    expect(aliased).toEqual(canonical);
   });
 });
 

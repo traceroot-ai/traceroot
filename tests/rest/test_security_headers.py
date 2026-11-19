@@ -1,7 +1,8 @@
 """Security headers on REST API responses.
 
 Browsers reach /api/v1 on the same host as the web app, and the application
-security scan of staging reported these responses without HSTS or nosniff.
+security scan of staging reported these responses without HSTS, nosniff or a
+Cache-Control that stops browsers and proxies from storing them.
 """
 
 from fastapi.testclient import TestClient
@@ -16,6 +17,7 @@ from rest.security_headers import SECURITY_HEADERS, SecurityHeadersMiddleware
 def _assert_secured(resp) -> None:
     assert resp.headers.get("strict-transport-security") == "max-age=63072000"
     assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert "no-store" in resp.headers.get("cache-control", "")
 
 
 def test_middleware_wraps_every_other_middleware():
@@ -75,3 +77,13 @@ def test_a_value_the_route_sets_is_kept():
     resp = _app_with(preload).get("/")
     assert resp.headers["strict-transport-security"] == "max-age=63072000; includeSubDomains"
     assert resp.headers["x-content-type-options"] == SECURITY_HEADERS["X-Content-Type-Options"]
+
+
+def test_a_route_cache_control_is_kept():
+    """/live sends no-cache for its event stream; the default must not replace it."""
+
+    async def live(_request):
+        return JSONResponse({}, headers={"Cache-Control": "no-cache"})
+
+    resp = _app_with(live).get("/")
+    assert resp.headers["cache-control"] == "no-cache"

@@ -13,7 +13,9 @@ const {
   mockCalculateCost,
   mockWithSelfTrace,
   mockEnqueueSignalHits,
+  mockDownloadSpans,
 } = vi.hoisted(() => ({
+  mockDownloadSpans: vi.fn(),
   mockEnqueueSignalHits: vi.fn(),
   mockRunDetection: vi.fn(),
   mockWriteRun: vi.fn(),
@@ -55,6 +57,7 @@ vi.mock("../../detection/clickhouse-writer.js", () => ({
   writeDetectorRun: mockWriteRun,
   writeDetectorFinding: mockWriteFinding,
 }));
+vi.mock("../../detection/spans-download.js", () => ({ downloadSpansJsonl: mockDownloadSpans }));
 vi.mock("../../detection/self-trace-emitter.js", () => ({
   withSelfTrace: mockWithSelfTrace,
 }));
@@ -72,21 +75,25 @@ import { handleDetectorRunJob, processTrace } from "../detector-run-processor.js
 
 const BASE_JOB: DetectorRunJob = { traceId: "t1", detectorIds: ["d1"], projectId: "p1" };
 
-/** Make the time-since-last-span fetch report `ms` of quiet; spans-jsonl returns `spans`. */
+/** Make the time-since-last-span fetch report `ms` of quiet; the spans download returns `spans`. */
 function mockFetches(ms: number, spans = "") {
-  mockFetch.mockImplementation((url: string) => {
-    if (String(url).includes("/time-since-last-span")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ time_since_last_span_ms: ms }),
-      });
-    }
-    return Promise.resolve({ ok: true, text: () => Promise.resolve(spans) });
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ time_since_last_span_ms: ms }),
   });
+  mockDownloadSpans.mockResolvedValue(spans);
 }
 
 function makeJob(over: Partial<Job<DetectorRunJob>> = {}): Job<DetectorRunJob> {
-  return { data: BASE_JOB, moveToDelayed: vi.fn(), ...over } as unknown as Job<DetectorRunJob>;
+  const job = {
+    data: { ...BASE_JOB },
+    moveToDelayed: vi.fn(),
+    updateData: vi.fn(async (data: DetectorRunJob) => {
+      job.data = data;
+    }),
+    ...over,
+  };
+  return job as unknown as Job<DetectorRunJob>;
 }
 
 type RecordedIo = { input?: string; output?: string; error?: string };
@@ -139,11 +146,8 @@ describe("handleDetectorRunJob — quiescence gate", () => {
     const job = makeJob();
     await handleDetectorRunJob(job);
     expect(job.moveToDelayed).not.toHaveBeenCalled();
-    // processTrace ran → it downloaded spans-jsonl
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining("/spans-jsonl"),
-      expect.anything(),
-    );
+    // processTrace ran → it downloaded the spans
+    expect(mockDownloadSpans).toHaveBeenCalledWith("p1", "t1");
   });
 
   it("re-delays to exactly EVALUATOR_DELAY after the last span when not quiet", async () => {
@@ -157,10 +161,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
     expect(at).toBeGreaterThanOrEqual(before + remaining);
     expect(at).toBeLessThan(before + remaining + 2_000);
     // did NOT evaluate
-    expect(mockFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/spans-jsonl"),
-      expect.anything(),
-    );
+    expect(mockDownloadSpans).not.toHaveBeenCalled();
   });
 
   it("returns without fetching when the job has no detector ids", async () => {
@@ -173,6 +174,245 @@ describe("handleDetectorRunJob — quiescence gate", () => {
   it("throws (for BullMQ retry) when time-since-last-span fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 });
     await expect(handleDetectorRunJob(makeJob())).rejects.toThrow();
+  });
+});
+
+describe("handleDetectorRunJob — result persistence", () => {
+  beforeEach(() => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [], enableSignals: true },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "found it",
+      data: { reason: "fixture" },
+      inferenceCost: 0,
+      inferenceInputTokens: 10,
+      inferenceOutputTokens: 5,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "anthropic",
+    });
+  });
+
+  function retryJob(job: Job<DetectorRunJob>) {
+    return makeJob({ data: JSON.parse(JSON.stringify(job.data)) });
+  }
+
+  it("acknowledges the result checkpoint before writing findings or runs", async () => {
+    const job = makeJob();
+    await handleDetectorRunJob(job);
+
+    expect(job.updateData).toHaveBeenCalledTimes(1);
+    const checkpointOrder = vi.mocked(job.updateData).mock.invocationCallOrder[0];
+    expect(checkpointOrder).toBeLessThan(mockWriteFinding.mock.invocationCallOrder[0]);
+    expect(checkpointOrder).toBeLessThan(mockWriteRun.mock.invocationCallOrder[0]);
+    expect(job.data.result).toMatchObject({
+      findingId: expect.any(String),
+      timestampMs: expect.any(Number),
+      detectors: [{ id: "d1", enableSignals: true }],
+      triggered: [{ detectorId: "d1", usedInference: true, selfTraced: true }],
+    });
+    expect(JSON.parse(job.data.result!.payload)[0].data).toEqual({ reason: "fixture" });
+  });
+
+  it("recovers a failed run write from serialized job data without inference or usage replay", async () => {
+    const failure = new Error("run insert unavailable");
+    mockWriteRun.mockRejectedValueOnce(failure);
+    const job = makeJob();
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    const firstRun = mockWriteRun.mock.calls[0][0];
+
+    mockFetch.mockRejectedValue(new Error("backend reads unavailable"));
+    mockPrisma.detector.findMany.mockRejectedValue(new Error("configuration unavailable"));
+    const retry = retryJob(job);
+    await handleDetectorRunJob(retry);
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockDownloadSpans).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.detector.findMany).toHaveBeenCalledTimes(1);
+    expect(retry.updateData).not.toHaveBeenCalled();
+    expect(mockWriteRun).toHaveBeenLastCalledWith(firstRun);
+    expect(mockWriteFinding.mock.calls[1][0]).toEqual(mockWriteFinding.mock.calls[0][0]);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries finding persistence without evaluating again", async () => {
+    const failure = new Error("finding insert unavailable");
+    mockWriteFinding.mockRejectedValueOnce(failure);
+    const job = makeJob();
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+    expect(mockWriteRun).not.toHaveBeenCalled();
+
+    await handleDetectorRunJob(retryJob(job));
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockWriteRun).toHaveBeenCalledTimes(1);
+    expect(mockWriteFinding.mock.calls[1][0]).toEqual(mockWriteFinding.mock.calls[0][0]);
+  });
+
+  it("does not write results when Redis refuses the checkpoint", async () => {
+    const failure = new Error("checkpoint unavailable");
+    const job = makeJob({ updateData: vi.fn().mockRejectedValue(failure) });
+
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+
+    expect(job.data.result).toBeUndefined();
+    expect(mockWriteFinding).not.toHaveBeenCalled();
+    expect(mockWriteRun).not.toHaveBeenCalled();
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+  });
+
+  it("replays a partial write using the same IDs and timestamps for every detector", async () => {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "First", prompt: "p", outputSchema: [], enableSignals: true },
+      { id: "d2", name: "Second", prompt: "p", outputSchema: [], enableSignals: false },
+    ]);
+    mockWriteRun.mockRejectedValueOnce(new Error("first insert failed"));
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+    await expect(handleDetectorRunJob(job)).rejects.toThrow("first insert failed");
+    expect(mockWriteRun).toHaveBeenCalledTimes(2);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith(
+      expect.objectContaining({ triggered: [expect.objectContaining({ detectorId: "d2" })] }),
+    );
+    const writes = mockWriteRun.mock.calls.map(([params]) => params);
+
+    await handleDetectorRunJob(retryJob(job));
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(2);
+    expect(mockWriteRun.mock.calls.slice(2).map(([params]) => params)).toEqual(writes);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(2);
+    expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        triggered: [
+          expect.objectContaining({ detectorId: "d1" }),
+          expect.objectContaining({ detectorId: "d2" }),
+        ],
+        detectors: [
+          { id: "d1", enableSignals: true },
+          { id: "d2", enableSignals: false },
+        ],
+      }),
+    );
+  });
+
+  it("keeps failing persistence attempts visible without further model calls", async () => {
+    mockWriteRun.mockRejectedValue(new Error("storage remains unavailable"));
+    const job = makeJob();
+    await expect(handleDetectorRunJob(job)).rejects.toThrow("storage remains unavailable");
+    for (let i = 0; i < 4; i++) {
+      await expect(handleDetectorRunJob(retryJob(job))).rejects.toThrow(
+        "storage remains unavailable",
+      );
+    }
+
+    expect(mockRunDetection).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockWriteRun).toHaveBeenCalledTimes(5);
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    expect(job.data.result).toBeDefined();
+  });
+
+  it.each(["d1", "d2"])(
+    "enqueues the healthy detector across exhausted retries when %s keeps failing",
+    async (failedId) => {
+      mockPrisma.detector.findMany.mockResolvedValue(
+        ["d1", "d2"].map((id) => ({
+          id,
+          name: id,
+          prompt: "p",
+          outputSchema: [],
+          enableSignals: true,
+        })),
+      );
+      const failure = new Error("one detector remains unavailable");
+      mockWriteRun.mockImplementation(async ({ detectorId }) => {
+        if (detectorId === failedId) throw failure;
+      });
+      const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+      const healthyId = failedId === "d1" ? "d2" : "d1";
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await expect(handleDetectorRunJob(attempt === 0 ? job : retryJob(job))).rejects.toBe(
+          failure,
+        );
+        expect(mockEnqueueSignalHits).toHaveBeenCalledTimes(attempt + 1);
+        expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith({
+          projectId: BASE_JOB.projectId,
+          detectors: [
+            { id: "d1", enableSignals: true },
+            { id: "d2", enableSignals: true },
+          ],
+          triggered: [expect.objectContaining({ detectorId: healthyId })],
+        });
+      }
+      expect(mockRunDetection).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+      expect(mockWriteRun).toHaveBeenCalledTimes(10);
+      const originalWrites = mockWriteRun.mock.calls.slice(0, 2);
+      for (let attempt = 1; attempt < 5; attempt++) {
+        expect(mockWriteRun.mock.calls.slice(attempt * 2, attempt * 2 + 2)).toEqual(originalWrites);
+      }
+      expect(job.data.result).toBeDefined();
+    },
+  );
+
+  it("still retries the failed write if enqueueing its healthy sibling also fails", async () => {
+    mockPrisma.detector.findMany.mockResolvedValue(
+      ["d1", "d2"].map((id) => ({
+        id,
+        name: id,
+        prompt: "p",
+        outputSchema: [],
+        enableSignals: true,
+      })),
+    );
+    const writeFailure = new Error("run insert unavailable");
+    mockWriteRun.mockRejectedValueOnce(writeFailure);
+    mockEnqueueSignalHits.mockRejectedValueOnce(new Error("signal enqueue unavailable"));
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+
+    await expect(handleDetectorRunJob(job)).rejects.toBe(writeFailure);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledWith(
+      expect.objectContaining({ triggered: [expect.objectContaining({ detectorId: "d2" })] }),
+    );
+    await handleDetectorRunJob(retryJob(job));
+    expect(mockRunDetection).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueSignalHits).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        triggered: [
+          expect.objectContaining({ detectorId: "d1" }),
+          expect.objectContaining({ detectorId: "d2" }),
+        ],
+      }),
+    );
+  });
+
+  it("does not create a result checkpoint for a clean evaluation", async () => {
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+    const job = makeJob();
+
+    await handleDetectorRunJob(job);
+
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteFinding).not.toHaveBeenCalled();
+    expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ findingId: null }));
   });
 });
 
@@ -426,15 +666,8 @@ describe("processTrace — self-trace emission", () => {
   });
 
   it("does not start a self-trace when the spans download fails before any run", async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (String(url).includes("/time-since-last-span")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ time_since_last_span_ms: 60_000 }),
-        });
-      }
-      return Promise.resolve({ ok: false, status: 500 });
-    });
+    mockFetches(60_000);
+    mockDownloadSpans.mockRejectedValue(new Error("Failed to download spans: HTTP 500"));
 
     await processTrace("t1", "p1", ["d1"]);
 
@@ -550,15 +783,8 @@ describe("processTrace — usage-meter classification", () => {
   });
 
   it("leaves a spans-download failure out of the meter", async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (String(url).includes("/time-since-last-span")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ time_since_last_span_ms: 60_000 }),
-        });
-      }
-      return Promise.resolve({ ok: false, status: 500 });
-    });
+    mockFetches(60_000);
+    mockDownloadSpans.mockRejectedValue(new Error("Failed to download spans: HTTP 500"));
 
     await processTrace("t1", "p1", ["d1"]);
 

@@ -190,7 +190,7 @@ describe("AlertForm", () => {
   }
 
   function saveButton() {
-    return screen.getByRole("button", { name: "Create Alert" });
+    return screen.getByRole("button", { name: "Create alert" });
   }
 
   function fillRequiredFields(name = "p95 latency", threshold = "500") {
@@ -279,6 +279,18 @@ describe("AlertForm", () => {
 
     fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "0" } });
     expect(saveButton().hasAttribute("disabled")).toBe(false);
+  });
+
+  it("blocks the save on a threshold the API would refuse, and says why", () => {
+    const reason = "Threshold must be zero or more: count can never be negative";
+    renderForm();
+    fillRequiredFields("p95 latency", "-3");
+    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(reason).className).toContain("text-destructive");
+
+    fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "3" } });
+    expect(saveButton().hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText(reason)).toBeNull();
   });
 
   it("posts the draft under the names the create endpoint reads", async () => {
@@ -420,12 +432,29 @@ describe("AlertForm", () => {
       expect(previewMetrics()).not.toContainEqual({ measure: "count", agg: "count" });
     });
 
+    it("saves a rename of a legacy negative threshold, and blocks a change to it with the reason", () => {
+      renderForm({ alertId: "alert-9", initialDraft: { ...SAVED_DRAFT, threshold: "-5" } });
+      const save = () => screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
+      const reason = "Threshold must be zero or more: latency can never be negative";
+
+      fireEvent.change(screen.getByLabelText("name"), { target: { value: "Renamed" } });
+      expect(save().disabled).toBe(false);
+      expect(screen.queryByText(reason)).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-6" } });
+      expect(save().disabled).toBe(true);
+      expect(screen.getByText(reason)).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText("threshold"), { target: { value: "-5.0" } });
+      expect(save().disabled).toBe(false);
+    });
+
     it("warns, without blocking the save, when the rule has an alert open", () => {
       const hint = /Saving a change to its conditions will close it and post an \[OK\]\s+to Slack/;
 
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT, hasOpenPage: true });
       expect(screen.getByText(hint)).toBeTruthy();
-      const save = screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      const save = screen.getByRole("button", { name: "Save alert" }) as HTMLButtonElement;
       expect(save.disabled).toBe(false);
       cleanup();
 
@@ -437,8 +466,8 @@ describe("AlertForm", () => {
       const fetchMock = stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
 
-      expect(screen.queryByRole("button", { name: "Create Alert" })).toBeNull();
-      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      expect(screen.queryByRole("button", { name: "Create alert" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Save alert" }));
 
       await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
       const [url, init] = writeCalls(fetchMock)[0];
@@ -474,7 +503,7 @@ describe("AlertForm", () => {
       cleanup();
       // Same client, so the settled capacity is there on the first edit render.
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT }, queryClient);
-      const save = screen.getByRole("button", { name: "Save Alert" });
+      const save = screen.getByRole("button", { name: "Save alert" });
 
       expect(save.hasAttribute("disabled")).toBe(false);
       expect(screen.queryByText(/This project has/)).toBeNull();
@@ -572,7 +601,7 @@ describe("AlertForm", () => {
       rememberListPage();
       stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
-      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save alert" }));
       await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(rememberedList));
     });
 
@@ -588,7 +617,7 @@ describe("AlertForm", () => {
     it("falls back to the bare list when no list page was recorded", async () => {
       stubFetch({ alert: { id: "alert-9" } });
       renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
-      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save alert" }));
       await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts"));
     });
   });

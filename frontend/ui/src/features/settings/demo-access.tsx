@@ -116,7 +116,7 @@ export function SettingsAccessGate({
     case "read-only":
       return (
         <>
-          <Card className="mb-4 border-border bg-muted/50 shadow-none">
+          <Card className="mb-4 border-border bg-muted shadow-none">
             <CardContent className="flex items-start gap-2 p-3">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <CardDescription className="text-[13px]">

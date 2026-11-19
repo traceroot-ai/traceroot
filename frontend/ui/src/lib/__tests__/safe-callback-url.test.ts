@@ -14,6 +14,25 @@ describe("safeCallbackUrl", () => {
     expect(safeCallbackUrl("/invites/abc#section")).toBe("/invites/abc#section");
   });
 
+  it("preserves a nested callback so the inner destination survives the round trip", () => {
+    // What a signed-out visitor to an onboarding link arrives at sign-in with:
+    // the outer path is where to return, the inner one is the `traceroot setup`
+    // run blocked waiting on them. The query is kept encoded, not re-decoded,
+    // so the onboarding page reads back exactly what the proxy sent.
+    expect(safeCallbackUrl("/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234")).toBe(
+      "/onboarding?callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234",
+    );
+  });
+
+  it("rejects a nested callback whose outer path is off-origin", () => {
+    // Nesting must not smuggle a foreign destination past the check: the outer
+    // value is the one that gets followed here, so it is the one validated.
+    expect(safeCallbackUrl("https://evil.example/onboarding?callbackUrl=%2Fdevice")).toBe("/");
+    expect(safeCallbackUrl("//evil.example/onboarding?callbackUrl=%2Fdevice")).toBe("/");
+    expect(safeCallbackUrl("/..//evil.example?callbackUrl=%2Fdevice")).toBe("/");
+    expect(safeCallbackUrl("/\\evil.example?callbackUrl=%2Fdevice")).toBe("/");
+  });
+
   it("normalizes a bare relative path onto the root", () => {
     expect(safeCallbackUrl("settings")).toBe("/settings");
   });

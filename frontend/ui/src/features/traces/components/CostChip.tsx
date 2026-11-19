@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { formatCost } from "@/lib/utils";
 import { CostBreakdown } from "./CostBreakdown";
 
 interface CostChipProps {
@@ -23,7 +24,7 @@ export function CostChip({ cost, costDetails, delta, baselineDetails }: CostChip
   const chip = (
     <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
       <DOMAIN_ICONS.cost className="h-3 w-3 text-muted-foreground" />
-      <span className="font-medium">{cost.toFixed(6)}</span>
+      <span className="font-medium">{formatCost(cost)}</span>
       {delta}
     </div>
   );
@@ -38,7 +39,7 @@ export function CostChip({ cost, costDetails, delta, baselineDetails }: CostChip
     <TooltipProvider delayDuration={150}>
       <Tooltip>
         <TooltipTrigger asChild>{chip}</TooltipTrigger>
-        <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
+        <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
           <CostBreakdown details={costDetails} baselineDetails={baselineDetails} />
         </TooltipContent>
       </Tooltip>

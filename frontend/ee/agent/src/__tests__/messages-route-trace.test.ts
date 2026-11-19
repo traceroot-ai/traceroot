@@ -1,3 +1,4 @@
+import { AUTH, TEST_SECRET } from "./internal-auth-support.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Route-level tests for the messages route's self-trace seam. Everything
@@ -91,7 +92,7 @@ async function post(
   const { app } = await import("../index.js");
   const res = await app.request("/api/v1/projects/p1/sessions/s1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-workspace-id": "w1", ...headers },
+    headers: { ...AUTH, "Content-Type": "application/json", "x-workspace-id": "w1", ...headers },
     body: JSON.stringify(body),
   });
   expect(res.status).toBe(200);
@@ -111,7 +112,7 @@ beforeEach(() => {
   vi.resetModules();
   delete process.env.AGENT_SELF_TRACE;
   delete process.env.AGENT_SELF_TRACE_KINDS;
-  process.env.INTERNAL_API_SECRET = "s";
+  process.env.INTERNAL_API_SECRET = TEST_SECRET;
   appendMessage.mockClear();
   stampTraceStatus.mockClear();
   flush.mockReset().mockResolvedValue(undefined);
@@ -230,7 +231,10 @@ describe("POST .../messages — enabled", () => {
       kind: "rca",
       metadata: { finding_id: "f1", execution_id: "exec-1", attempt: 1, detectors: ["det1"] },
     };
-    const { sse, traceArg, observeOpts } = await post({ message: "analyse", agentTrace }, {});
+    const { sse, traceArg, observeOpts } = await post(
+      { message: "analyse", agentTrace },
+      { "x-agent-system-call": "1" },
+    );
     expect(executionFindUnique).not.toHaveBeenCalled();
     // Every root is named after the agent that ran; the kind and the detectors stay in metadata.
     expect(observeOpts).toMatchObject({ traceId: "c".repeat(32), name: "pi-mono" });
@@ -256,7 +260,10 @@ describe("POST .../messages — enabled", () => {
       kind: "rca",
       metadata: { execution_id: "exec-1" },
     };
-    const { sse, traceArg } = await post({ message: "analyse", agentTrace }, {});
+    const { sse, traceArg } = await post(
+      { message: "analyse", agentTrace },
+      { "x-agent-system-call": "1" },
+    );
     expect(traceArg).toEqual({ traceId: "c".repeat(32), status: "failed" });
     expect(sse).toContain('"status":"failed"');
   });

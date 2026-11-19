@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { signupEmailError } from "@/lib/signup/email-policy";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -29,10 +30,16 @@ const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
+vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
+  signupAttributionProperties: signupAttributionPropertiesMock,
+}));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
-    BETTER_AUTH_URL: "http://localhost:3000",
+    BETTER_AUTH_URL: "https://cloud.example.com",
+    TRACEROOT_CLOUD_ENV: "production",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
@@ -51,6 +58,7 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
   databaseHooks: {
     user: {
       create: {
+        before: (user: { email: string }, context?: { path: string } | null) => Promise<void>;
         after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
       };
     };
@@ -58,6 +66,11 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
 };
 
 describe("auth options", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signupAttributionPropertiesMock.mockReturnValue({});
+  });
+
   it("passes the configured trusted proxies through to better-auth", () => {
     expect(options.advanced.ipAddress.trustedProxies).toEqual(["10.0.0.0/16"]);
   });
@@ -72,7 +85,35 @@ describe("auth options", () => {
 
   it("sends user_signed_up when a user is created", async () => {
     await options.databaseHooks.user.create.after({ id: "user-1" });
-    expect(captureServerEventMock).toHaveBeenCalledWith("user-1", "user_signed_up");
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith("user-1", "user_signed_up", {});
+  });
+
+  it("enriches the existing signup event instead of emitting a second one", async () => {
+    const properties = {
+      utm_source: "github",
+      marketing_attribution_model: "last_campaign_touch",
+    };
+    signupAttributionPropertiesMock.mockReturnValue(properties);
+    const context = { path: "/sign-up/email" };
+    await options.databaseHooks.user.create.after({ id: "user-1" }, context);
+    expect(signupAttributionPropertiesMock).toHaveBeenCalledWith(context);
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith(
+      "user-1",
+      "user_signed_up",
+      properties,
+    );
+  });
+
+  it("enforces the signup email policy through the Cloud auth configuration", async () => {
+    await expect(
+      options.databaseHooks.user.create.before(
+        { email: "a@example.com" },
+        { path: "/sign-up/email" },
+      ),
+    ).rejects.toMatchObject({
+      status: "BAD_REQUEST",
+      body: { code: "EMAIL_DOMAIN_RESERVED" },
+    });
   });
 
   it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
@@ -108,5 +149,19 @@ describe("auth options with an invalid trusted-proxy value", () => {
     } finally {
       delete process.env.TEST_TRUSTED_PROXY_CIDRS;
     }
+  });
+});
+
+describe("signup email policy boundaries", () => {
+  it.each([
+    ["a@mail.EXAMPLE.COM.", "EMAIL_DOMAIN_RESERVED"],
+    ["a@localhost", "EMAIL_DOMAIN_RESERVED"],
+    ["a@[127.0.0.1]", "EMAIL_DOMAIN_RESERVED"],
+    ["invalid", "EMAIL_DOMAIN_RESERVED"],
+    ['"a@b"@sub.YOPMAIL.COM ', "EMAIL_DOMAIN_DISPOSABLE"],
+    ["a@notmailinator.com", undefined],
+    ["a@mailinator.com.au", undefined],
+  ])("classifies %s as %s", (email, code) => {
+    expect(signupEmailError(email)?.code).toBe(code);
   });
 });

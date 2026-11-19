@@ -3,7 +3,7 @@ title: LangChain DeepAgents
 description: Trace multi-agent research pipelines built with DeepAgents
 ---
 
-Automatically capture the full multi-agent hierarchy of [DeepAgents](https://github.com/langchain-ai/deepagentsjs) pipelines. DeepAgents builds on LangChain, so TraceRoot instruments it via the LangChain callback manager.
+Automatically capture the full multi-agent hierarchy of [DeepAgents](https://github.com/langchain-ai/deepagentsjs) pipelines. DeepAgents builds on LangChain, so traceroot instruments it via the LangChain callback manager.
 
 ## Install
 
@@ -116,7 +116,7 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `research_session`, the name passed to `observe`.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `research_session`, the name passed to `observe`.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -128,7 +128,7 @@ Run your code and confirm the trace arrives:
 | Tool calls | Tool inputs and outputs within sub-agents |
 | LLM calls | All LLM calls across the full agent hierarchy |
 | Token usage | Aggregated across all agents and LLM calls |
-| Cost | Aggregated when the underlying model IDs match TraceRoot's pricing table |
+| Cost | Aggregated when the underlying model IDs match traceroot's pricing table |
 
 ## Limitations
 

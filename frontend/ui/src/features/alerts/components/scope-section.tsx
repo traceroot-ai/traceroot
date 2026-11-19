@@ -19,7 +19,7 @@ interface ScopeSectionProps {
 export function ScopeSection({ projectId, filters, onFiltersChange }: ScopeSectionProps) {
   return (
     <SectionBox label="Scope">
-      <div className="p-3">
+      <div className="p-4">
         <FieldLabel>Filter</FieldLabel>
         <AlertFilters projectId={projectId} filters={filters} onFiltersChange={onFiltersChange} />
       </div>
