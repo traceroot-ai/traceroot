@@ -269,6 +269,7 @@ KIMI_MODEL_CASES = [
 KIMI_K3_1_PRO_NON_MATCHES = [
     ("kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"),
     ("kimi-k3.1-pro", "kimi-k3"),
+    ("kimi-k3.1-pro", "moonshotai/kimi-k3.1-pro"),
 ]
 
 KIMI_K26_MODEL_CASES = [
