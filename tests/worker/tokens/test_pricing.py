@@ -217,6 +217,9 @@ XAI_NON_MATCHES = [
 
 
 GEMINI_MODEL_CASES = [
+    ("gemini-4-hydrogen", "gemini-4-hydrogen"),
+    ("google/gemini-4-hydrogen", "gemini-4-hydrogen"),
+    ("models/gemini-4-hydrogen", "gemini-4-hydrogen"),
     ("gemini-3.8-flash", "gemini-3.8-flash"),
     ("google/gemini-3.8-flash", "gemini-3.8-flash"),
     ("gemini-3.7-flash", "gemini-3.7-flash"),
@@ -426,6 +429,30 @@ class TestGpt6PublishedPrices:
         expected = dict(zip(("input", "cacheRead", "cacheWrite", "output"), rates))
         for usage, per_million in expected.items():
             assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+
+
+GEMINI_4_HYDROGEN_NON_MATCHES = [
+    ("gemini-4-hydrogen", "gemini-4-hydrogen-fast"),
+]
+
+
+class TestGemini4HydrogenPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-hydrogen")
+        assert entry["prices"]["input"] == pytest.approx(1.5e-06)  # $1.5 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(7.5e-06)  # $7.5 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(7.5e-08)  # $0.075 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_HYDROGEN_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestGemini3xFlashPublishedPrices:
