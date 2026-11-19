@@ -1,54 +1,136 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import { mockRetention } from "@/test/retention-mock";
 
-const mocks = vi.hoisted(() => ({ push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  search: "",
+  useDetectorList: vi.fn(),
+  clampToTotal: vi.fn(),
+  signalCounts: {
+    data: { counts: { "det-1": 2 } } as { counts: Record<string, number> } | undefined,
+  },
+}));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
   useRouter: () => ({ push: mocks.push }),
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
 // Controlled list state so the test asserts the exact range carried into the URL.
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
-    state: { dateFilter: { id: "7d" }, customStartDate: null, customEndDate: null, keyword: "" },
+    state: {
+      page: 1,
+      limit: 50,
+      dateFilter: { id: "7d" },
+      customStartDate: null,
+      customEndDate: null,
+      keyword: "",
+    },
     queryOptions: { page: 1, limit: 50 },
     updateDateFilter: vi.fn(),
     updateCustomRange: vi.fn(),
     updateKeyword: vi.fn(),
     updateLimit: vi.fn(),
     goToPage: vi.fn(),
+    clampToTotal: mocks.clampToTotal,
   }),
 }));
 
+const defaultDetectorList = {
+  data: {
+    data: [
+      {
+        id: "det-1",
+        name: "My Detector",
+        template: "failure",
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        sampleRate: 25,
+        createTime: "2026-06-15T00:00:00.000Z",
+        updateTime: "2026-06-15T00:00:00.000Z",
+      },
+      {
+        id: "det-2",
+        name: "Pinned Detector",
+        template: "failure",
+        detectionModel: "gpt-5.4",
+        detectionProvider: "OpenAI",
+        detectionSource: "system",
+        sampleRate: 100,
+        createTime: "2026-06-16T00:00:00.000Z",
+        updateTime: "2026-06-16T00:00:00.000Z",
+      },
+      {
+        id: "det-3",
+        name: "BYOK Detector",
+        template: "failure",
+        detectionModel: null,
+        detectionProvider: "Anthropic BYOK",
+        detectionSource: "byok",
+        sampleRate: 100,
+        createTime: "2026-06-17T00:00:00.000Z",
+        updateTime: "2026-06-17T00:00:00.000Z",
+      },
+      {
+        id: "det-4",
+        name: "Pinned BYOK Detector",
+        template: "failure",
+        detectionModel: "gpt-5.4",
+        detectionProvider: "OpenAI BYOK",
+        detectionSource: "byok",
+        sampleRate: 100,
+        createTime: "2026-06-18T00:00:00.000Z",
+        updateTime: "2026-06-18T00:00:00.000Z",
+      },
+      {
+        id: "det-5",
+        name: "Legacy Detector",
+        template: "failure",
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: null,
+        sampleRate: 100,
+        createTime: "2026-06-19T00:00:00.000Z",
+        updateTime: "2026-06-19T00:00:00.000Z",
+      },
+    ],
+    meta: { total: 5 },
+  },
+  isLoading: false,
+  error: null,
+};
+
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useDetectorList: () => ({
-    data: {
-      data: [
-        {
-          id: "det-1",
-          name: "My Detector",
-          template: "failure",
-          detectionModel: null,
-          sampleRate: 25,
-          createTime: "2026-06-15T00:00:00.000Z",
-          updateTime: "2026-06-15T00:00:00.000Z",
-        },
-      ],
-      meta: { total: 1 },
-    },
+  useDetectorList: (...args: unknown[]) => mocks.useDetectorList(...args),
+  useDetectorCounts: () => ({
+    data: { "det-1": { finding_count: 4, run_count: 9, agent_run_count: 3 } },
     isLoading: false,
-    error: null,
   }),
-  useDetectorCounts: () => ({ data: {}, isLoading: false }),
   useDeleteDetector: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+vi.mock("@/ee/features/signals/hooks", () => ({
+  useSignalCounts: () => mocks.signalCounts,
+}));
+
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => mockRetention(),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
-vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
+vi.mock("@/components/list-pagination", () => ({
+  ListPagination: ({ page, limit, total }: { page: number; limit: number; total: number }) => (
+    <div data-testid="pager">{`page ${page} limit ${limit} total ${total}`}</div>
+  ),
+}));
 vi.mock("@/features/detectors/components/delete-detector-dialog", () => ({
   DeleteDetectorDialog: () => null,
 }));
@@ -56,17 +138,180 @@ vi.mock("@/features/detectors/components/detector-panel", () => ({ DetectorPanel
 
 import DetectorsPage from "./page";
 
+mocks.useDetectorList.mockReturnValue(defaultDetectorList);
+
 afterEach(() => {
   cleanup();
   mocks.push.mockClear();
+  mocks.search = "";
+  sessionStorage.clear();
+  mocks.useDetectorList.mockReset();
+  mocks.useDetectorList.mockReturnValue(defaultDetectorList);
+  mocks.signalCounts = { data: { counts: { "det-1": 2 } } };
+  mocks.clampToTotal.mockClear();
 });
 
 describe("DetectorsPage", () => {
+  it("shows the resolved detector default model, unadorned", () => {
+    render(<DetectorsPage />);
+
+    const defaultRow = screen.getByText("My Detector").closest("tr");
+    expect(defaultRow).not.toBeNull();
+    expect(defaultRow?.textContent).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+    expect(defaultRow?.textContent).not.toContain("(default)");
+  });
+
+  it("shows the provider name for BYOK detectors without a model", () => {
+    render(<DetectorsPage />);
+
+    const byokRow = screen.getByText("BYOK Detector").closest("tr");
+    expect(byokRow).not.toBeNull();
+    expect(byokRow?.textContent).toContain("Anthropic BYOK");
+    expect(byokRow?.textContent).not.toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+  });
+
+  it("labels legacy null-source detectors with the screening default the worker uses", () => {
+    render(<DetectorsPage />);
+
+    const legacyRow = screen.getByText("Legacy Detector").closest("tr");
+    expect(legacyRow).not.toBeNull();
+    expect(legacyRow?.textContent).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+    expect(legacyRow?.textContent).not.toContain("Auto-selected");
+  });
+
+  it("shows a pinned model id verbatim", () => {
+    render(<DetectorsPage />);
+
+    const pinnedRow = screen.getByText("Pinned Detector").closest("tr");
+    expect(pinnedRow).not.toBeNull();
+    expect(pinnedRow?.textContent).toContain("gpt-5.4");
+  });
+
+  it("prefers a BYOK detector's pinned model over its provider name", () => {
+    render(<DetectorsPage />);
+
+    const pinnedByokRow = screen.getByText("Pinned BYOK Detector").closest("tr");
+    expect(pinnedByokRow).not.toBeNull();
+    expect(pinnedByokRow?.textContent).toContain("gpt-5.4");
+    expect(pinnedByokRow?.textContent).not.toContain("OpenAI BYOK");
+  });
+
   it("carries the selected time range into the detector detail URL on row click", () => {
     render(<DetectorsPage />);
 
     fireEvent.click(screen.getByText("My Detector"));
 
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors/det-1?date_filter=7d");
+  });
+
+  it("remembers its page, page size and effective range for the detector page's back link", () => {
+    // No date_filter in the URL: the range shown came from the default/stored one.
+    mocks.search = "page_index=2&page_limit=100";
+    render(<DetectorsPage />);
+
+    expect(sessionStorage.getItem("list-return:detectors:proj-1")).toBe(
+      "page_index=2&page_limit=100&date_filter=7d",
+    );
+  });
+
+  it("links each count to what it counts, in the same time range, without opening the row", () => {
+    render(<DetectorsPage />);
+
+    const href = (label: string) => {
+      const url = new URL(
+        screen.getByRole("link", { name: label }).getAttribute("href")!,
+        "http://x",
+      );
+      return { path: url.pathname, params: Object.fromEntries(url.searchParams) };
+    };
+    expect(
+      screen
+        .getAllByRole("columnheader")
+        .slice(4, 7)
+        .map((c) => c.textContent),
+    ).toEqual(["Judge runs", "Signals", "Agent runs"]);
+    const row = screen.getByText("My Detector").closest("tr")!;
+    expect(
+      Array.from(row.cells)
+        .slice(4, 7)
+        .map((c) => c.textContent),
+    ).toEqual(["9", "2", "3"]);
+    expect(screen.getByRole("link", { name: "View judge runs for My Detector" }).textContent).toBe(
+      "9",
+    );
+    expect(href("View judge runs for My Detector")).toEqual({
+      path: "/projects/proj-1/detectors/det-1",
+      params: { date_filter: "7d" },
+    });
+    expect(screen.getByRole("link", { name: "View signals for My Detector" }).textContent).toBe(
+      "2",
+    );
+    expect(href("View signals for My Detector")).toEqual({
+      path: "/projects/proj-1/signals",
+      params: {
+        date_filter: "7d",
+        filters: JSON.stringify([{ field: "detector", op: "in", value: ["My Detector"] }]),
+      },
+    });
+    // A detector with no signal shows 0, still linked.
+    expect(screen.getByRole("link", { name: "View signals for Legacy Detector" }).textContent).toBe(
+      "0",
+    );
+
+    // Following a count does not also run the row's own navigation.
+    fireEvent.click(screen.getByRole("link", { name: "View judge runs for My Detector" }));
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("shows a dash, not a clickable 0, when the signal counts could not be read", () => {
+    mocks.signalCounts = { data: undefined };
+    render(<DetectorsPage />);
+
+    expect(screen.queryByRole("link", { name: "View signals for My Detector" })).toBeNull();
+    // The other counts loaded, so they still link.
+    expect(screen.getByRole("link", { name: "View judge runs for My Detector" })).toBeTruthy();
+  });
+
+  it("shows the empty state with its glyph when the project has no detectors", () => {
+    mocks.useDetectorList.mockReturnValue({
+      data: { data: [], meta: { total: 0 } },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<DetectorsPage />);
+
+    const heading = screen.getByText("No detectors yet");
+    expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("drives the pager from the client page state, not the server's echo", () => {
+    // meta.page/limit are the previous query's echo while placeholder data is shown.
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: { ...defaultDetectorList.data, meta: { page: 0, limit: 100, total: 120 } },
+    });
+    render(<DetectorsPage />);
+    expect(screen.getByTestId("pager").textContent).toBe("page 1 limit 50 total 120");
+  });
+
+  it("clamps the page against the settled total", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: { ...defaultDetectorList.data, meta: { total: 30 } },
+      isPlaceholderData: false,
+    });
+    render(<DetectorsPage />);
+    expect(mocks.clampToTotal).toHaveBeenCalledWith(30);
+  });
+
+  it("does not clamp against a placeholder total from the previous query", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: { ...defaultDetectorList.data, meta: { total: 30 } },
+      isPlaceholderData: true,
+    });
+    render(<DetectorsPage />);
+    expect(mocks.clampToTotal).not.toHaveBeenCalled();
   });
 });

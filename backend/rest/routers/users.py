@@ -12,6 +12,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import clamp_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.users import UserListResponse
 from rest.services.trace_reader import get_trace_reader_service
@@ -35,8 +36,14 @@ async def list_users(
     search_query: str | None = Query(None, description="Search by user_id"),
     start_after: datetime | None = Query(None, description="Filter traces after this time"),
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
+    include_evaluations: bool = Query(
+        False,
+        description="Include offline-evaluation traces in the per-user counts and "
+        "totals. Excluded by default, matching the Traces list.",
+    ),
 ):
     """List unique users for a project with trace counts."""
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
         result = service.list_users(
@@ -46,6 +53,7 @@ async def list_users(
             search_query=search_query,
             start_after=start_after,
             end_before=end_before,
+            include_evaluations=include_evaluations,
         )
         return result
     except Exception as e:

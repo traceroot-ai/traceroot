@@ -64,18 +64,19 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!isControlled && (
-        <DialogTrigger asChild>{trigger || <AddButton>New Project</AddButton>}</DialogTrigger>
+        <DialogTrigger asChild>{trigger || <AddButton>New project</AddButton>}</DialogTrigger>
       )}
       <DialogContent>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Create Project</DialogTitle>
             <DialogDescription>
               Create a new project to start tracking your AI agent traces.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <Input
+              autoFocus
               placeholder="Project name"
               value={name}
               onChange={(e) => setName(e.target.value)}

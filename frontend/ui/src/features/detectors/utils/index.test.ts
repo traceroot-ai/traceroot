@@ -16,6 +16,7 @@ const baseDetector: Detector = {
   outputSchema: [],
   sampleRate: 50,
   enableRca: true,
+  enableSignals: true,
   detectionModel: "model-a",
   detectionProvider: "provider-a",
   detectionSource: "system",
@@ -33,6 +34,7 @@ describe("detectorToFormValues", () => {
       prompt: "Find slow spans",
       sampleRate: 50,
       enableRca: true,
+      enableSignals: true,
       detectionModel: "model-a",
       detectionProvider: "provider-a",
       detectionSource: "system",
@@ -63,6 +65,9 @@ describe("buildDetectorPatch", () => {
   it("includes only the toggled field", () => {
     const patch = buildDetectorPatch(baseForm, { ...baseForm, enableRca: false });
     expect(patch).toEqual({ enableRca: false });
+    expect(buildDetectorPatch(baseForm, { ...baseForm, enableSignals: false })).toEqual({
+      enableSignals: false,
+    });
   });
 
   it("includes only the edited prompt, leaving enableRca untouched", () => {
@@ -89,10 +94,31 @@ describe("buildDetectorPatch", () => {
     });
   });
 
+  it("omits triggerConditions for a name-only edit that rebuilt the conditions array", () => {
+    // The editor hands back a fresh array every render, so a save that only
+    // renamed the detector must still leave its filter rows out of the patch.
+    const patch = buildDetectorPatch(baseForm, {
+      ...baseForm,
+      name: "Renamed",
+      conditions: baseForm.conditions.map((c) => ({ ...c })),
+    });
+    expect(patch).toEqual({ name: "Renamed" });
+  });
+
   it("sends changed trigger conditions as triggerConditions", () => {
     const conditions = [{ field: "status", op: "eq", value: "error" }];
     const patch = buildDetectorPatch(baseForm, { ...baseForm, conditions });
     expect(patch).toEqual({ triggerConditions: conditions });
+  });
+
+  it("disables the detector when the sample rate drops to 0%", () => {
+    const patch = buildDetectorPatch(baseForm, { ...baseForm, sampleRate: 0 });
+    expect(patch).toEqual({ sampleRate: 0, enabled: false });
+  });
+
+  it("enables the detector when the sample rate is positive", () => {
+    const patch = buildDetectorPatch(baseForm, { ...baseForm, sampleRate: 10 });
+    expect(patch).toEqual({ sampleRate: 10, enabled: true });
   });
 });
 
@@ -101,6 +127,13 @@ describe("mergeDetectorIntoForm", () => {
 
   it("takes all server values when the form is untouched", () => {
     expect(mergeDetectorIntoForm(baseForm, next, { ...baseForm })).toEqual(next);
+  });
+
+  it("takes the server's signals switch unless the user changed it", () => {
+    const remote = { ...baseForm, enableSignals: false };
+    expect(mergeDetectorIntoForm(baseForm, remote, baseForm).enableSignals).toBe(false);
+    const edited = { ...baseForm, enableSignals: false };
+    expect(mergeDetectorIntoForm(baseForm, baseForm, edited).enableSignals).toBe(false);
   });
 
   it("keeps the user's prompt edit while applying the server's toggle", () => {

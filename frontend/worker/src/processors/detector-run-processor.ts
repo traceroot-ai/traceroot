@@ -1,19 +1,19 @@
-import { Worker, Queue, DelayedError, type Job } from "bullmq";
+import { Worker, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
-import { prisma, PlanType } from "@traceroot/core";
-import type {
-  DetectorRunJob,
-  DetectorRcaJob,
-  DetectorRcaFinding,
-} from "../queues/detector-run-queue.js";
+import { prisma, PlanType, calculateCost } from "@traceroot/core";
+import type { DetectorRunJob, DetectorRunResult } from "../queues/detector-run-queue.js";
 import {
   DETECTOR_RUN_QUEUE,
-  DETECTOR_RCA_QUEUE,
   EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
-import { runDetectionForTrace } from "../detection/sandbox-eval.js";
+import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../detection/sandbox-eval.js";
+import { buildJudgeInput, type JudgeInput } from "../detection/judge-input.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
+import { downloadSpansJsonl } from "../detection/spans-download.js";
+import { withSelfTrace } from "../detection/self-trace-emitter.js";
+import { boundedJson } from "../detection/traced-complete.js";
+import { enqueueSignalHits } from "../ee/signals/queue.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -39,13 +39,14 @@ async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Pro
   return body.time_since_last_span_ms;
 }
 
+/** Hash a string to 32 lowercase hex chars (first 128 bits of sha256). */
+function hash32(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 32);
+}
+
 /** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
 function hashToUuid(input: string): string {
-  return createHash("sha256")
-    .update(input)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  return hash32(input).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
 
 /**
@@ -53,23 +54,12 @@ function hashToUuid(input: string): string {
  * On a BullMQ retry, the same triple lands on the same runId — so re-writes
  * collapse with detector_findings.findingId rather than producing duplicate
  * run rows for the same (detector, trace).
+ *
+ * Dashless 32-hex, the same shape as a trace id: a self-traced run's trace_id
+ * is its run_id verbatim, and both render identically in the UI.
  */
 function deterministicRunId(projectId: string, traceId: string, detectorId: string): string {
-  return hashToUuid(`${projectId}:${traceId}:${detectorId}`);
-}
-
-/**
- * Decide whether to run the per-trace RCA. RCA is shared across all detectors
- * that fired on a trace; we run it when AT LEAST ONE triggered detector has
- * RCA enabled. A triggered detector missing from `detectors` defaults to "run"
- * so an unexpected gap never silently suppresses analysis.
- */
-export function shouldRunRca(
-  triggered: { detectorId: string }[],
-  detectors: { id: string; enableRca: boolean }[],
-): boolean {
-  const rcaEnabledById = new Map(detectors.map((d) => [d.id, d.enableRca]));
-  return triggered.some((t) => rcaEnabledById.get(t.detectorId) !== false);
+  return hash32(`${projectId}:${traceId}:${detectorId}`);
 }
 
 /**
@@ -78,45 +68,16 @@ export function shouldRunRca(
  * triggers on the same trace maps to the SAME finding, and therefore the SAME
  * RCA job (`rca-${findingId}`): exactly one RCA per trace, and a BullMQ retry
  * lands on the same row instead of duplicating it.
+ *
+ * The stored shape is uuid-hyphenated and must stay stable: a re-evaluation
+ * of a trace at any later time must land on the id its finding and RCA rows
+ * were written under, or it would duplicate both. Surfaces that want the
+ * dashless run/trace-id shape normalize at render, and the finding-detail
+ * lookup compares hyphen-insensitively, so display and copy-paste don't
+ * depend on the stored shape.
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
-}
-
-/**
- * Build the per-trace RCA payload from every detector that fired. The single
- * RCA job carries all triggered detectors' summaries, so one agent analyzes the
- * whole trace rather than one agent per detector.
- */
-export function buildRcaFindings(
-  triggered: { detectorId: string; detectorName: string; summary: string }[],
-): DetectorRcaFinding[] {
-  return triggered.map((r) => ({
-    detectorId: r.detectorId,
-    detectorName: r.detectorName,
-    summary: r.summary,
-  }));
-}
-
-let rcaQueue: Queue<DetectorRcaJob> | null = null;
-function getRcaQueue(): Queue<DetectorRcaJob> {
-  if (!rcaQueue) {
-    rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
-      connection: createRedisConnection(),
-    });
-  }
-  return rcaQueue;
-}
-
-async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
-  const response = await fetch(
-    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/spans-jsonl?project_id=${projectId}`,
-    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to download spans for trace ${traceId}: HTTP ${response.status}`);
-  }
-  return response.text();
 }
 
 interface TriggeredResult {
@@ -124,15 +85,63 @@ interface TriggeredResult {
   detectorName: string;
   summary: string;
   data: unknown;
+  /** Whether this run's eval recorded inference usage; persisted on the run. */
+  usedInference: boolean;
+  /** Whether this run's self-trace was emitted; carried to the triggered run write. */
+  selfTraced: boolean;
 }
 
 export interface ScanUsage {
   inferenceCost: number;
   inferenceInputTokens: number;
   inferenceOutputTokens: number;
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
+}
+
+async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
+  if (
+    usage.inferenceCost > 0 ||
+    !usage.inferenceModel ||
+    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
+  ) {
+    return usage.inferenceCost;
+  }
+
+  try {
+    const fallback = await calculateCost(
+      usage.inferenceModel,
+      usage.inferenceInputTokens,
+      usage.inferenceOutputTokens,
+    );
+    return fallback > 0 ? fallback : usage.inferenceCost;
+  } catch (err) {
+    console.error(
+      `[Detector] Failed to calculate local pricing fallback for model ${usage.inferenceModel}:`,
+      err,
+    );
+    return usage.inferenceCost;
+  }
+}
+
+/**
+ * Whether a scan recorded inference usage — the model was reached and billed,
+ * whatever the run's final status. Token counts are the reliable signal: a
+ * provider can be billed with a zero cost (free/system model, BYOK), and an
+ * error response can name a model without ever producing tokens, so neither a
+ * model id nor a positive cost alone proves a call. The sandbox eval
+ * accumulates tokens across attempts, so a run that burned calls and then
+ * failed (no submit_result, a rejected TypeSafe answer) still counts; a
+ * failure before any call (missing key, unknown model, span download) leaves
+ * both counts at zero.
+ *
+ * Persisted to detector_runs.used_inference, which the usage meter reads
+ * alongside status: a run consumes quota (and stays in the paid overage
+ * denominator) when its latest version completed OR used inference.
+ */
+function recordedInferenceUsage(usage: ScanUsage): boolean {
+  return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
 }
 
 interface SingleDetectorOutcome {
@@ -147,43 +156,95 @@ interface SingleDetectorOutcome {
  * returns the result WITHOUT writing anything — processTrace handles the
  * finding write and the run write so all triggered runs share the same
  * finding_id.
+ *
+ * The eval runs inside withSelfTrace, which records it live as the run's
+ * self-trace (the traced pi-ai call becomes a real LLM child span). The
+ * failed/not-triggered writes here stamp the resulting selfTraced flag
+ * directly; the triggered write in evaluateTrace reads it from the returned
+ * TriggeredResult.
  */
 async function runSingleDetector(params: {
   detector: {
     id: string;
     name: string;
     prompt: string;
-    outputSchema: Array<{ name: string; type: string }>;
+    outputSchema: ReadonlyArray<unknown>;
     detectionModel: string | null;
     detectionProvider: string | null;
     detectionSource: "system" | "byok" | null;
+    template: string | null;
   };
   traceId: string;
   projectId: string;
   spansJsonl: string;
+  getJudgeInput: () => JudgeInput;
   workspaceId: string;
 }): Promise<SingleDetectorOutcome> {
-  const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
+  const { detector, traceId, projectId, spansJsonl, getJudgeInput, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
-  let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
-  try {
-    result = await runDetectionForTrace({
-      traceId,
-      spansJsonl,
-      detector: {
-        id: detector.id,
-        name: detector.name,
-        prompt: detector.prompt,
-        outputSchema: detector.outputSchema,
-        detectionModel: detector.detectionModel,
-        detectionProvider: detector.detectionProvider,
-        detectionSource: detector.detectionSource,
+  // The eval runs inside the self-trace: the detector-run root span is live
+  // for its whole duration, and the traced pi-ai call inside becomes a real
+  // LLM child span. fn always runs exactly once; a tracing failure only
+  // degrades selfTraced to false.
+  const run = await withSelfTrace(
+    {
+      // The run id is already dashless 32-hex; the self-trace's trace_id is
+      // the run id verbatim.
+      traceId: runId.replaceAll("-", ""),
+      projectId,
+      // The trace record inherits this name, so both the trace node and the
+      // root row read "which detector's run" at a glance.
+      name: `detector-run: ${detector.name}`,
+      metadata: {
+        detectorId: detector.id,
+        detectorName: detector.name,
+        scannedTraceId: traceId,
       },
-      workspaceId,
-    });
-  } catch (e) {
-    console.error(`[Detector] Run failed for detector ${detector.id} on trace ${traceId}:`, e);
+    },
+    () =>
+      runDetectionForTrace({
+        traceId,
+        spansJsonl,
+        getJudgeInput,
+        detector: {
+          id: detector.id,
+          name: detector.name,
+          prompt: detector.prompt,
+          outputSchema: detector.outputSchema,
+          detectionModel: detector.detectionModel,
+          detectionProvider: detector.detectionProvider,
+          detectionSource: detector.detectionSource,
+          template: detector.template,
+        },
+        workspaceId,
+      }),
+    {
+      // Root boundary I/O — promoted to the trace record by the transform,
+      // so the trace header shows what the run asked and what it concluded.
+      // An eval that resolved with a failure result marks the root as errored
+      // so the linked trace reflects the failed run.
+      recordIo: (result) => ({
+        input: boundedJson({
+          detector: detector.name,
+          prompt: detector.prompt,
+          scannedTraceId: traceId,
+        }),
+        output: boundedJson({
+          identified: result.identified,
+          summary: result.summary,
+        }),
+        error: result.error,
+      }),
+    },
+  );
+
+  const selfTraced = run.selfTraced;
+  if (!run.ok) {
+    console.error(
+      `[Detector] Run failed for detector ${detector.id} on trace ${traceId}:`,
+      run.error,
+    );
     await writeDetectorRun({
       runId,
       detectorId: detector.id,
@@ -191,9 +252,14 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: "failed",
+      // The eval threw before it returned a usage record: nothing here proves
+      // a model call was billed, so the run stays out of the usage meter.
+      usedInference: false,
+      selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage: null };
   }
+  const result = run.value;
 
   const usage: ScanUsage = {
     inferenceCost: result.inferenceCost,
@@ -218,6 +284,8 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: result.error ? "failed" : "completed",
+      usedInference: recordedInferenceUsage(usage),
+      selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage };
   }
@@ -233,6 +301,8 @@ async function runSingleDetector(params: {
       detectorName: detector.name,
       summary: result.summary,
       data: result.data,
+      usedInference: recordedInferenceUsage(usage),
+      selfTraced,
     },
     usage,
   };
@@ -242,6 +312,7 @@ export async function processTrace(
   traceId: string,
   projectId: string,
   detectorIds: string[],
+  saveResult?: (result: DetectorRunResult) => Promise<void>,
 ): Promise<void> {
   console.log(`[Detector] Processing trace ${traceId} with ${detectorIds.length} detector(s)`);
 
@@ -259,13 +330,16 @@ export async function processTrace(
           traceId,
           findingId: null,
           status: "failed",
+          // No detector ever ran, so nothing was billed: this failure must not
+          // consume detector-scan quota.
+          usedInference: false,
         }).catch((err) => console.error("[Detector] Failed to write run:", err)),
       ),
     );
     return;
   }
 
-  await evaluateTrace(traceId, projectId, detectorIds, spansJsonl);
+  await evaluateTrace(traceId, projectId, detectorIds, spansJsonl, saveResult);
 }
 
 async function evaluateTrace(
@@ -273,6 +347,7 @@ async function evaluateTrace(
   projectId: string,
   detectorIds: string[],
   spansJsonl: string,
+  saveResult?: (result: DetectorRunResult) => Promise<void>,
 ): Promise<void> {
   const [detectors, project] = await Promise.all([
     prisma.detector.findMany({
@@ -281,20 +356,18 @@ async function evaluateTrace(
     prisma.project.findUnique({
       where: { id: projectId },
       select: {
-        name: true,
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
       },
     }),
   ]);
 
-  const projectName = project?.name ?? "";
   const workspaceId = project?.workspaceId ?? "";
 
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
   // flag set by the hourly billing job (same pattern as `aiBlocked` and
   // `ingestionBlocked`). Worst-case overshoot: ~1h of scans between cron
-  // runs, which costs us a few cents of haiku tokens — acceptable as
+  // runs, which costs us a few cents of judge tokens — acceptable as
   // customer-acquisition spend per the pricing rule "Free is truly free."
   const billingPlan = (project?.workspace?.billingPlan ?? "free") as PlanType;
   if (project?.workspace?.detectorBlocked && billingPlan === PlanType.FREE) {
@@ -305,12 +378,15 @@ async function evaluateTrace(
     return;
   }
 
+  // Built on first use and shared by this trace's detectors.
+  let judgeInput: JudgeInput | undefined;
+  const getJudgeInput = () =>
+    (judgeInput ??= buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS }));
+
   // Run all detectors in parallel; collect triggered results
   const settled = await Promise.allSettled(
     detectors.map((detector) => {
-      const outputSchema = Array.isArray(detector.outputSchema)
-        ? (detector.outputSchema as Array<{ name: string; type: string }>)
-        : [];
+      const outputSchema = Array.isArray(detector.outputSchema) ? detector.outputSchema : [];
 
       return runSingleDetector({
         detector: {
@@ -321,10 +397,12 @@ async function evaluateTrace(
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
           detectionSource: detector.detectionSource as "system" | "byok" | null,
+          template: detector.template,
         },
         traceId,
         projectId,
         spansJsonl,
+        getJudgeInput,
         workspaceId,
       });
     }),
@@ -337,21 +415,26 @@ async function evaluateTrace(
   // Persist one AIMessage row per scan with kind="detector". This is the
   // source of truth for detector by-model + cost aggregations in the hourly
   // billing cron — same role aIMessage plays for chat + RCA.
-  const usages = fulfilled.map((o) => o.usage).filter((u): u is ScanUsage => u !== null);
+  const usages = fulfilled
+    .map((o) => o.usage)
+    .filter((u): u is ScanUsage => u !== null && u.inferenceModel !== null);
   if (usages.length > 0 && workspaceId) {
-    const aiMessageRows = usages.map((u) => ({
-      workspaceId,
-      sessionId: null,
-      kind: "detector",
-      role: "assistant",
-      content: "", // detector scans don't have a chat-like content payload
-      model: u.inferenceModel,
-      provider: u.inferenceProvider,
-      isByok: u.inferenceSource === "byok",
-      inputTokens: u.inferenceInputTokens,
-      outputTokens: u.inferenceOutputTokens,
-      cost: u.inferenceCost,
-    }));
+    const aiMessageRows = await Promise.all(
+      usages.map(async (u) => ({
+        workspaceId,
+        sessionId: null,
+        kind: "detector",
+        turnKind: "detector" as const,
+        role: "assistant",
+        content: "", // detector scans don't have a chat-like content payload
+        model: u.inferenceModel,
+        provider: u.inferenceProvider,
+        isByok: u.inferenceSource === "byok",
+        inputTokens: u.inferenceInputTokens,
+        outputTokens: u.inferenceOutputTokens,
+        cost: await detectorInferenceCost(u),
+      })),
+    );
     try {
       await prisma.aIMessage.createMany({ data: aiMessageRows });
     } catch (err) {
@@ -382,16 +465,50 @@ async function evaluateTrace(
     })),
   );
 
+  // Single capture time for this finding. Stamped onto the finding row AND every
+  // triggered run below (timestampMs), and keys the per-finding digest flush
+  // scheduled below. Because the same value is both the row timestamp the flush
+  // counts and the window key, a finding always falls in exactly the window its
+  // flush covers — no boundary skew between the worker and server clocks.
+  const findingTimestamp = Date.now();
+
+  const result: DetectorRunResult = {
+    findingId,
+    summary: combinedSummary,
+    payload,
+    timestampMs: findingTimestamp,
+    detectors: detectors.map((d) => ({ id: d.id, enableSignals: d.enableSignals })),
+    triggered: triggered.map(({ detectorId, usedInference, selfTraced }) => ({
+      detectorId,
+      usedInference,
+      selfTraced,
+    })),
+  };
+  // Acknowledged before any result writes: subsequent attempts can finish
+  // persistence without repeating inference or its usage records.
+  await saveResult?.(result);
+  await persistTraceResult(traceId, projectId, result);
+}
+
+async function persistTraceResult(
+  traceId: string,
+  projectId: string,
+  result: DetectorRunResult,
+): Promise<void> {
+  const { findingId, summary, payload, timestampMs, detectors, triggered } = result;
   await writeDetectorFinding({
     findingId,
     projectId,
     traceId,
-    summary: combinedSummary,
+    summary,
     payload,
+    timestampMs,
   });
 
   // Write runs for all triggered detectors, all pointing to the same finding_id
-  await Promise.allSettled(
+  // and stamped with the saved timestampMs so the digest count window matches
+  // the flush key.
+  const writes = await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
         runId: deterministicRunId(projectId, traceId, r.detectorId),
@@ -400,48 +517,34 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
-      }).catch((err) => console.error("[Detector] Failed to write run:", err)),
+        usedInference: r.usedInference,
+        timestampMs,
+        selfTraced: r.selfTraced,
+      }),
     ),
   );
+  const failed = writes.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  const persisted = triggered.filter((_, i) => writes[i].status === "fulfilled");
+
+  // Signals (ee): enqueue assignment for detectors with signals on; the job
+  // reads the hits back from ClickHouse. Notifications come only from the
+  // signal digest, for new and reopened signals. A failure here must not fail
+  // the finding, which is written: the partition is on record in Postgres, or in
+  // Redis when Postgres refused it, and the sweeper picks the hits up later.
+  // A failed sibling must not strand these hits when retries are exhausted.
+  if (persisted.length > 0) {
+    await enqueueSignalHits({ projectId, detectors, triggered: persisted }).catch((err) =>
+      console.error(
+        `[Detector] Failed to enqueue signal assignment for finding ${findingId}:`,
+        err,
+      ),
+    );
+  }
+  if (failed) throw failed.reason;
 
   console.log(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
-
-  // RCA is shared per trace. Run it only when at least one triggered detector
-  // has RCA enabled; otherwise skip both the seed row and the queue job so a
-  // noisy RCA-disabled detector doesn't incur agent-model cost. Consumers
-  // null-check an absent DetectorRca record, so skipping the row is safe.
-  const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
-
-  if (shouldRunRca(triggered, detectors)) {
-    await prisma.detectorRca
-      .upsert({
-        where: { findingId },
-        create: { findingId, projectId, status: "pending" },
-        update: { projectId, status: "pending" },
-      })
-      .catch((e) =>
-        console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
-      );
-
-    await getRcaQueue().add(
-      `rca-${findingId}`,
-      {
-        findingId,
-        projectId,
-        traceId,
-        workspaceId,
-        projectName,
-        findings: rcaFindings,
-      },
-      { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
-    );
-  } else {
-    console.log(
-      `[Detector] All triggered detectors have RCA disabled; skipping RCA for finding ${findingId}`,
-    );
-  }
 }
 
 /**
@@ -455,6 +558,10 @@ export async function handleDetectorRunJob(
   token?: string,
 ): Promise<void> {
   const { traceId, detectorIds, projectId } = job.data;
+  if (job.data.result) {
+    await persistTraceResult(traceId, projectId, job.data.result);
+    return;
+  }
   if (!detectorIds || detectorIds.length === 0) return;
 
   // A time-since-last-span fetch failure is transient: throw and let the
@@ -462,7 +569,9 @@ export async function handleDetectorRunJob(
   const timeSinceLastSpanMs = await fetchTimeSinceLastSpanMs(projectId, traceId);
 
   if (timeSinceLastSpanMs >= EVALUATOR_DELAY) {
-    await processTrace(traceId, projectId, detectorIds);
+    await processTrace(traceId, projectId, detectorIds, (result) =>
+      job.updateData({ ...job.data, result }),
+    );
     return;
   }
 

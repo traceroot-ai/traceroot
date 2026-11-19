@@ -1,0 +1,1061 @@
+import { describe, expect, it } from "vitest";
+import { generateRegistry, type OpenApiDocument } from "../generate.js";
+import type { ParamSchema } from "../types.js";
+
+/** Minimal fake of the public OpenAPI document, in the shapes FastAPI emits. */
+function fakeDoc(): OpenApiDocument {
+  return {
+    paths: {
+      "/api/v1/public/traces": {
+        get: {
+          "x-tool": {
+            enabled: true,
+            name: "list_traces",
+            description: "List traces.",
+          },
+          parameters: [
+            {
+              name: "limit",
+              in: "query",
+              required: false,
+              description: "Items per page",
+              schema: {
+                type: "integer",
+                title: "Limit",
+                default: 50,
+                minimum: 1,
+                maximum: 200,
+                description: "Items per page",
+              },
+            },
+            {
+              name: "start_after",
+              in: "query",
+              required: false,
+              description: "Only traces after this time",
+              schema: {
+                anyOf: [{ type: "string", format: "date-time" }, { type: "null" }],
+                title: "Start After",
+                description: "Only traces after this time",
+              },
+            },
+            {
+              name: "filters",
+              in: "query",
+              required: false,
+              description: "JSON array of typed filter predicates",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: {
+                      anyOf: [
+                        {
+                          type: "object",
+                          properties: {
+                            field: { const: "model_name" },
+                            op: { enum: ["eq", "in"] },
+                            value: {},
+                          },
+                          required: ["field", "op", "value"],
+                          additionalProperties: false,
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        post: {
+          "x-tool": { enabled: false },
+        },
+      },
+      "/api/v1/public/traces/{trace_id}": {
+        get: {
+          "x-tool": {
+            enabled: true,
+            name: "get_trace",
+            description: "Fetch one trace.",
+          },
+          parameters: [
+            {
+              name: "trace_id",
+              in: "path",
+              required: true,
+              schema: { type: "string", title: "Trace Id" },
+            },
+            {
+              name: "ignored_header",
+              in: "header",
+              required: false,
+              schema: { type: "string" },
+            },
+          ],
+        },
+      },
+      "/api/v1/public/whoami": {
+        get: {
+          "x-tool": {
+            enabled: true,
+            name: "whoami",
+            description: "Identify the project.",
+          },
+        },
+      },
+    },
+  };
+}
+
+describe("generateRegistry", () => {
+  it("emits one entry per enabled operation, sorted by name, skipping disabled ops", () => {
+    const registry = generateRegistry(fakeDoc());
+    expect(registry.map((entry) => entry.name)).toEqual(["get_trace", "list_traces", "whoami"]);
+    expect(registry.map((entry) => entry.method)).toEqual(["get", "get", "get"]);
+    const whoami = registry.find((entry) => entry.name === "whoami")!;
+    expect(whoami.path).toBe("/api/v1/public/whoami");
+    expect(whoami.inputSchema).toEqual({
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    });
+  });
+
+  it("flattens anyOf [T, null] plain params and strips titles", () => {
+    const registry = generateRegistry(fakeDoc());
+    const listTraces = registry.find((entry) => entry.name === "list_traces")!;
+    expect(listTraces.inputSchema.properties.start_after).toEqual({
+      type: "string",
+      format: "date-time",
+      description: "Only traces after this time",
+    });
+    expect(listTraces.inputSchema.properties.limit).toEqual({
+      type: "integer",
+      default: 50,
+      minimum: 1,
+      maximum: 200,
+      description: "Items per page",
+    });
+  });
+
+  it("marks path params required and skips non-query/path params", () => {
+    const registry = generateRegistry(fakeDoc());
+    const getTrace = registry.find((entry) => entry.name === "get_trace")!;
+    expect(getTrace.inputSchema.required).toEqual(["trace_id"]);
+    expect(getTrace.inputSchema.properties.trace_id).toEqual({ type: "string" });
+    expect(getTrace.inputSchema.properties).not.toHaveProperty("ignored_header");
+  });
+
+  it("carries JSON-content params verbatim, merging the param description", () => {
+    const registry = generateRegistry(fakeDoc());
+    const listTraces = registry.find((entry) => entry.name === "list_traces")!;
+    expect(listTraces.inputSchema.properties.filters).toEqual({
+      type: "array",
+      items: {
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              field: { const: "model_name" },
+              op: { enum: ["eq", "in"] },
+              value: {},
+            },
+            required: ["field", "op", "value"],
+            additionalProperties: false,
+          },
+        ],
+      },
+      description: "JSON array of typed filter predicates",
+    });
+    expect(listTraces.inputSchema.required).toEqual([]);
+  });
+
+  it("drops column-range (int64/uint64) maxima but keeps small bounds", () => {
+    const doc = fakeDoc();
+    doc.paths["/api/v1/public/whoami"].get.parameters = [
+      {
+        name: "min_tokens",
+        in: "query",
+        schema: { type: "integer", minimum: 0, maximum: 9223372036854776000 },
+      },
+      {
+        name: "filters",
+        in: "query",
+        content: {
+          "application/json": {
+            schema: {
+              type: "array",
+              items: { properties: { value: { type: "integer", maximum: 18446744073709552000 } } },
+            },
+          },
+        },
+      },
+    ];
+    const whoami = generateRegistry(doc).find((entry) => entry.name === "whoami")!;
+    expect(whoami.inputSchema.properties.min_tokens).toEqual({ type: "integer", minimum: 0 });
+    expect(whoami.inputSchema.properties.filters).toEqual({
+      type: "array",
+      items: { properties: { value: { type: "integer" } } },
+    });
+  });
+
+  it("normalizes multi-variant anyOf params (null variant and titles dropped) and tolerates schema-less params", () => {
+    const doc = fakeDoc();
+    doc.paths["/api/v1/public/whoami"].get.parameters = [
+      {
+        name: "cursor",
+        in: "query",
+        required: false,
+        schema: {
+          anyOf: [{ type: "string", title: "Cursor Token" }, { type: "integer" }, { type: "null" }],
+          title: "Cursor",
+        },
+      },
+      { name: "bare", in: "query", required: false },
+    ];
+    const registry = generateRegistry(doc);
+    const whoami = registry.find((entry) => entry.name === "whoami")!;
+    // Same treatment as single-variant unions: optionality lives in `required`,
+    // so the null variant is dropped, and titles are stripped at every level.
+    expect(whoami.inputSchema.properties.cursor).toEqual({
+      anyOf: [{ type: "string" }, { type: "integer" }],
+    });
+    expect(whoami.inputSchema.properties.bare).toEqual({});
+  });
+
+  it("throws on an enabled operation missing its x-tool name or description", () => {
+    const doc = fakeDoc();
+    doc.paths["/api/v1/public/whoami"].get["x-tool"] = { enabled: true };
+    expect(() => generateRegistry(doc)).toThrow(/missing an x-tool name or description/);
+  });
+
+  it("throws on an enabled operation with an unsupported method", () => {
+    const doc = fakeDoc();
+    doc.paths["/api/v1/public/traces"].put = {
+      "x-tool": { enabled: true, name: "replace_traces", description: "Replace." },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on PUT /api/v1/public/traces: only GET, POST, PATCH and DELETE operations " +
+        "are supported (PUT is not supported yet)",
+    );
+    delete doc.paths["/api/v1/public/traces"].put;
+    doc.paths["/api/v1/public/traces"].head = {
+      "x-tool": { enabled: true, name: "head_traces", description: "Head." },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on HEAD /api/v1/public/traces: only GET, POST, PATCH and DELETE operations " +
+        "are supported",
+    );
+    expect(() => generateRegistry(doc)).not.toThrow("PUT");
+  });
+
+  it("emits GET entries without write-only keys", () => {
+    for (const entry of generateRegistry(fakeDoc())) {
+      expect("bodyParams" in entry).toBe(false);
+      expect("policy" in entry).toBe(false);
+    }
+  });
+
+  it("throws on an enabled GET that carries a policy", () => {
+    // The schema build rejects this too; dropping it silently here would let
+    // the two generators disagree about the same curation entry.
+    const doc = fakeDoc();
+    const get = Object.values(doc.paths).find((ops) => ops.get?.["x-tool"]?.enabled)!.get!;
+    get["x-tool"]!.policy = { approvalClass: "none", minRole: "VIEWER", tenancy: "account" };
+    expect(() => generateRegistry(doc)).toThrow("x-tool policy is write-only");
+  });
+});
+
+/** Minimal fake of the public document's write-operation shapes. */
+function fakeWriteDoc(): OpenApiDocument {
+  return {
+    paths: {
+      "/api/v1/public/workspaces": {
+        post: {
+          "x-tool": {
+            enabled: true,
+            name: "create_workspace",
+            description: "Create a workspace.",
+            policy: { approvalClass: "approval", minRole: "VIEWER", tenancy: "account" },
+          },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateWorkspaceRequest" },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        CreateWorkspaceRequest: {
+          type: "object",
+          title: "CreateWorkspaceRequest",
+          properties: {
+            name: { type: "string", title: "Name" },
+            plan: { anyOf: [{ type: "string" }, { type: "null" }], title: "Plan" },
+          },
+          required: ["name"],
+        },
+      },
+    },
+  };
+}
+
+describe("generateRegistry write operations", () => {
+  it("emits a post entry with flattened body properties, bodyParams, and verbatim policy", () => {
+    const registry = generateRegistry(fakeWriteDoc());
+    expect(registry).toHaveLength(1);
+    const entry = registry[0]!;
+    expect(entry.method).toBe("post");
+    expect(entry.path).toBe("/api/v1/public/workspaces");
+    expect(entry.inputSchema.properties.name).toEqual({ type: "string" });
+    expect(entry.inputSchema.properties.plan).toEqual({ type: "string" });
+    expect(entry.inputSchema.required).toEqual(["name"]);
+    expect(entry.bodyParams).toEqual(["name", "plan"]);
+    expect(entry.policy).toEqual({
+      approvalClass: "approval",
+      minRole: "VIEWER",
+      tenancy: "account",
+    });
+  });
+
+  it("declares a type on every body-derived property schema", () => {
+    const entry = generateRegistry(fakeWriteDoc())[0]!;
+    for (const name of entry.bodyParams!) {
+      expect(entry.inputSchema.properties[name]!.type).toBeTypeOf("string");
+    }
+  });
+
+  it("merges path params alongside body properties; bodyParams holds only body names", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!.parameters = [
+      {
+        name: "workspace_id",
+        in: "path",
+        required: true,
+        schema: { type: "string", title: "Workspace Id" },
+      },
+    ];
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.workspace_id).toEqual({ type: "string" });
+    expect(entry.inputSchema.properties.name).toEqual({ type: "string" });
+    expect(entry.inputSchema.required).toEqual(["workspace_id", "name"]);
+    expect(entry.bodyParams).toEqual(["name", "plan"]);
+  });
+
+  it("resolves property-level $refs and strips titles at every level", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      settings: { $ref: "#/components/schemas/WorkspaceSettings" },
+    };
+    doc.components!.schemas!.WorkspaceSettings = {
+      type: "object",
+      title: "WorkspaceSettings",
+      properties: { retention_days: { type: "integer", title: "Retention Days" } },
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.settings).toEqual({
+      type: "object",
+      properties: { retention_days: { type: "integer" } },
+    });
+    expect(entry.bodyParams).toEqual(["settings"]);
+  });
+
+  it("resolves nested $refs (items-level and through ref chains) inline", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      scorers: {
+        type: "array",
+        title: "Scorers",
+        items: { $ref: "#/components/schemas/ScorerRef" },
+      },
+    };
+    doc.components!.schemas!.ScorerRef = {
+      type: "object",
+      title: "ScorerRef",
+      properties: { target: { $ref: "#/components/schemas/ScorerTarget" } },
+    };
+    doc.components!.schemas!.ScorerTarget = { type: "string", title: "ScorerTarget" };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.scorers).toEqual({
+      type: "array",
+      items: { type: "object", properties: { target: { type: "string" } } },
+    });
+  });
+
+  it("keeps sibling keys of a $ref, overriding the target's", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      settings: {
+        $ref: "#/components/schemas/WorkspaceSettings",
+        description: "Per-workspace settings.",
+      },
+    };
+    doc.components!.schemas!.WorkspaceSettings = {
+      type: "object",
+      description: "The target's own description.",
+      properties: {},
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.settings).toEqual({
+      type: "object",
+      description: "Per-workspace settings.",
+      properties: {},
+    });
+  });
+
+  it("resolves anyOf-variant $refs and stamps type object on an all-object union", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      spec: {
+        anyOf: [
+          { $ref: "#/components/schemas/QueryVariant" },
+          { $ref: "#/components/schemas/FeedVariant" },
+        ],
+        title: "Spec",
+        description: "One of two dialects.",
+      },
+    };
+    doc.components!.schemas!.QueryVariant = {
+      type: "object",
+      title: "QueryVariant",
+      properties: { view: { type: "string" } },
+      required: ["view"],
+    };
+    doc.components!.schemas!.FeedVariant = {
+      type: "object",
+      title: "FeedVariant",
+      properties: { limit: { type: "integer" } },
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.spec).toEqual({
+      // The stamped type satisfies providers that reject untyped properties;
+      // the preserved anyOf keeps the variant structure for the model.
+      type: "object",
+      description: "One of two dialects.",
+      anyOf: [
+        { type: "object", properties: { view: { type: "string" } }, required: ["view"] },
+        { type: "object", properties: { limit: { type: "integer" } } },
+      ],
+    });
+  });
+
+  it("collapses nested anyOf [T, null] wrappers inside resolved schemas", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      settings: { $ref: "#/components/schemas/WorkspaceSettings" },
+    };
+    doc.components!.schemas!.WorkspaceSettings = {
+      type: "object",
+      properties: {
+        breakdown: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+      },
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.settings).toEqual({
+      type: "object",
+      properties: { breakdown: { type: "string", default: null } },
+    });
+  });
+
+  it("throws on a cyclic $ref chain, naming the cycle", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      node: { $ref: "#/components/schemas/TreeNode" },
+    };
+    doc.components!.schemas!.TreeNode = {
+      type: "object",
+      properties: { children: { type: "array", items: { $ref: "#/components/schemas/TreeNode" } } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(/cyclic \$ref TreeNode/);
+  });
+
+  it("throws when $ref nesting exceeds the depth cap", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      deep: { $ref: "#/components/schemas/Level0" },
+    };
+    for (let i = 0; i <= 10; i++) {
+      doc.components!.schemas![`Level${i}`] = {
+        type: "object",
+        properties: { next: { $ref: `#/components/schemas/Level${i + 1}` } },
+      };
+    }
+    doc.components!.schemas!.Level11 = { type: "string" };
+    expect(() => generateRegistry(doc)).toThrow(/\$ref nesting exceeds 10 levels/);
+  });
+
+  it("throws on an unresolvable nested $ref", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      scorers: { type: "array", items: { $ref: "#/components/schemas/Missing" } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "unresolvable requestBody $ref #/components/schemas/Missing",
+    );
+  });
+
+  const policyError =
+    "Enabled write tool on POST /api/v1/public/workspaces: " +
+    "x-tool policy {approvalClass, minRole, tenancy} is required and must be complete";
+
+  it("accepts every legal approval class verbatim", () => {
+    for (const approvalClass of ["none", "confirm", "approval"] as const) {
+      const doc = fakeWriteDoc();
+      doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy = {
+        approvalClass,
+        minRole: "VIEWER",
+        tenancy: "account",
+      };
+      expect(generateRegistry(doc)[0]!.policy!.approvalClass).toBe(approvalClass);
+    }
+  });
+
+  it("throws on an enabled POST without a policy", () => {
+    const doc = fakeWriteDoc();
+    delete doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy;
+    expect(() => generateRegistry(doc)).toThrow(policyError);
+  });
+
+  it("throws on a policy with an illegal value", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy = {
+      approvalClass: "sometimes",
+      minRole: "VIEWER",
+      tenancy: "account",
+    };
+    expect(() => generateRegistry(doc)).toThrow(policyError);
+  });
+
+  it("throws on a policy with an extra key", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy = {
+      approvalClass: "approval",
+      minRole: "VIEWER",
+      tenancy: "account",
+      audited: true,
+    };
+    expect(() => generateRegistry(doc)).toThrow(policyError);
+  });
+
+  it("still skips disabled non-GET operations", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"] = { enabled: false };
+    expect(generateRegistry(doc)).toEqual([]);
+  });
+
+  it("throws on an unresolvable requestBody $ref", () => {
+    const doc = fakeWriteDoc();
+    delete doc.components!.schemas!.CreateWorkspaceRequest;
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on POST /api/v1/public/workspaces: " +
+        "unresolvable requestBody $ref #/components/schemas/CreateWorkspaceRequest",
+    );
+  });
+
+  it("throws on a $ref outside #/components/schemas/", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!.requestBody!.content!["application/json"]!.schema =
+      { $ref: "#/definitions/CreateWorkspaceRequest" };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on POST /api/v1/public/workspaces: " +
+        "unresolvable requestBody $ref #/definitions/CreateWorkspaceRequest",
+    );
+  });
+
+  it("throws on a $ref in a position the resolver does not reach (allOf)", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      scorers: { allOf: [{ $ref: "#/components/schemas/ScorerRef" }], title: "Scorers" },
+    };
+    doc.components!.schemas!.ScorerRef = { type: "object", properties: {} };
+    expect(() => generateRegistry(doc)).toThrow(
+      'Enabled tool on POST /api/v1/public/workspaces: body property "scorers" contains an ' +
+        "unresolved $ref — extend the generator before enabling this operation",
+    );
+  });
+
+  it("does not flag ref-free nested body schemas (create-request shapes)", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      type: "object",
+      title: "CreateDetectorLikeRequest",
+      properties: {
+        name: { title: "Name", type: "string" },
+        cursor: { anyOf: [{ type: "string" }, { type: "integer" }], title: "Cursor" },
+        sample_rate: { anyOf: [{ type: "integer" }, { type: "null" }], title: "Sample Rate" },
+        output_schema: {
+          anyOf: [{ items: {}, type: "array" }, { type: "null" }],
+          title: "Output Schema",
+        },
+        trigger_conditions: {
+          anyOf: [{ items: { type: "object" }, type: "array" }, { type: "null" }],
+          title: "Trigger Conditions",
+        },
+      },
+      required: ["name"],
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.bodyParams).toEqual([
+      "cursor",
+      "name",
+      "output_schema",
+      "sample_rate",
+      "trigger_conditions",
+    ]);
+    expect(entry.inputSchema.properties.cursor).toEqual({
+      anyOf: [{ type: "string" }, { type: "integer" }],
+    });
+  });
+
+  it("carries a type list on a body property verbatim (the union form of a filter value)", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      type: "object",
+      properties: {
+        name: { title: "Name", type: "string" },
+        filters: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              field: { type: "string" },
+              value: { type: ["string", "number"] },
+            },
+            required: ["field", "value"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["name"],
+    };
+    const entry = generateRegistry(doc)[0]!;
+    const filters = entry.inputSchema.properties.filters!;
+    // The declared ParamSchema type admits the list form, so the generated
+    // entry is honest about what it carries rather than widened by a cast.
+    const value = (filters.items as { properties: Record<string, ParamSchema> }).properties.value!;
+    expect(value.type).toEqual(["string", "number"]);
+    expect(entry.bodyParams).toEqual(["filters", "name"]);
+  });
+
+  it("copies agentHiddenParams verbatim without filtering the schema or bodyParams", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.agentHiddenParams = ["plan"];
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.agentHiddenParams).toEqual(["plan"]);
+    // Visibility filtering is the consumer's job: the entry keeps full parity.
+    expect(entry.inputSchema.properties).toHaveProperty("plan");
+    expect(entry.bodyParams).toEqual(["name", "plan"]);
+  });
+
+  it("throws when agentHiddenParams names an unknown body property", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.agentHiddenParams = ["retention"];
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled write tool on POST /api/v1/public/workspaces: " +
+        'agentHiddenParams field "retention" is not a request-body property',
+    );
+  });
+
+  it("omits the agentHiddenParams key entirely on entries that declare none", () => {
+    const entry = generateRegistry(fakeWriteDoc())[0]!;
+    expect("agentHiddenParams" in entry).toBe(false);
+  });
+
+  it("emits empty bodyParams for an enabled POST without a JSON request body", () => {
+    const doc = fakeWriteDoc();
+    delete doc.paths["/api/v1/public/workspaces"].post!.requestBody;
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.bodyParams).toEqual([]);
+    expect(entry.inputSchema.properties).toEqual({});
+    expect(entry.inputSchema.required).toEqual([]);
+  });
+
+  it("throws on a union request-body schema instead of emitting empty bodyParams", () => {
+    // A discriminated create body has no top-level properties; silently
+    // emitting bodyParams [] would ship a write tool that POSTs no body.
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      anyOf: [{ $ref: "#/components/schemas/VariantA" }, { $ref: "#/components/schemas/VariantB" }],
+      discriminator: { propertyName: "kind" },
+    };
+    doc.components!.schemas!.VariantA = {
+      type: "object",
+      properties: { kind: { type: "string" } },
+    };
+    doc.components!.schemas!.VariantB = {
+      type: "object",
+      properties: { kind: { type: "string" } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on POST /api/v1/public/workspaces: request-body schema has no top-level " +
+        "properties — extend the generator before enabling this operation",
+    );
+  });
+
+  it("throws on a $ref-to-$ref alias request-body schema", () => {
+    const doc = fakeWriteDoc();
+    const real = doc.components!.schemas!.CreateWorkspaceRequest!;
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      $ref: "#/components/schemas/RealWorkspaceRequest",
+    };
+    doc.components!.schemas!.RealWorkspaceRequest = real;
+    expect(() => generateRegistry(doc)).toThrow("request-body schema has no top-level properties");
+  });
+
+  it("throws on an allOf wrapper request-body schema", () => {
+    const doc = fakeWriteDoc();
+    const real = doc.components!.schemas!.CreateWorkspaceRequest!;
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      allOf: [{ $ref: "#/components/schemas/RealWorkspaceRequest" }],
+    };
+    doc.components!.schemas!.RealWorkspaceRequest = real;
+    expect(() => generateRegistry(doc)).toThrow("request-body schema has no top-level properties");
+  });
+});
+
+/** Minimal fake of the public document's edit-operation shapes (PATCH + DELETE). */
+function fakeEditDoc(): OpenApiDocument {
+  return {
+    paths: {
+      "/api/v1/public/dashboards/{dashboard_id}": {
+        patch: {
+          "x-tool": {
+            enabled: true,
+            name: "update_dashboard",
+            description: "Update a dashboard.",
+            policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
+          },
+          parameters: [
+            {
+              name: "dashboard_id",
+              in: "path",
+              required: true,
+              schema: { type: "string", title: "Dashboard Id" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateDashboardRequest" },
+              },
+            },
+          },
+        },
+        delete: {
+          "x-tool": {
+            enabled: true,
+            name: "delete_dashboard",
+            description: "Delete a dashboard.",
+            policy: { approvalClass: "approval", minRole: "MEMBER", tenancy: "project" },
+          },
+          parameters: [
+            {
+              name: "dashboard_id",
+              in: "path",
+              required: true,
+              schema: { type: "string", title: "Dashboard Id" },
+            },
+            {
+              name: "project_id",
+              in: "query",
+              required: true,
+              schema: { type: "string", title: "Project Id" },
+            },
+            {
+              name: "reason",
+              in: "query",
+              required: true,
+              schema: { type: "string", title: "Reason", minLength: 3, maxLength: 500 },
+            },
+          ],
+        },
+      },
+    },
+    components: {
+      schemas: {
+        UpdateDashboardRequest: {
+          type: "object",
+          title: "UpdateDashboardRequest",
+          properties: {
+            project_id: { type: "string", title: "Project Id" },
+            name: { anyOf: [{ type: "string", maxLength: 50 }, { type: "null" }], title: "Name" },
+            description: {
+              anyOf: [{ type: "string", maxLength: 500 }, { type: "null" }],
+              title: "Description",
+              description: "Null clears it.",
+            },
+          },
+          required: ["project_id"],
+        },
+      },
+    },
+  };
+}
+
+describe("generateRegistry edit operations", () => {
+  it("emits a patch entry with flattened body params, path params, and its policy", () => {
+    const registry = generateRegistry(fakeEditDoc());
+    expect(registry.map((entry) => entry.name)).toEqual(["delete_dashboard", "update_dashboard"]);
+    const update = registry.find((entry) => entry.name === "update_dashboard")!;
+    expect(update.method).toBe("patch");
+    expect(update.path).toBe("/api/v1/public/dashboards/{dashboard_id}");
+    expect(update.inputSchema.properties.dashboard_id).toEqual({ type: "string" });
+    expect(update.inputSchema.properties.project_id).toEqual({ type: "string" });
+    expect(update.inputSchema.required).toEqual(["dashboard_id", "project_id"]);
+    expect(update.bodyParams).toEqual(["description", "name", "project_id"]);
+    expect(update.policy).toEqual({
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
+  });
+
+  it("emits a nullable PATCH body property as a type list so the model sees null is legal", () => {
+    const update = generateRegistry(fakeEditDoc()).find(
+      (entry) => entry.name === "update_dashboard",
+    )!;
+    // A type list, never a bare anyOf: some model providers reject typeless
+    // tool parameters. Every other constraint on T survives.
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"], maxLength: 50 });
+    expect(update.inputSchema.properties.description).toEqual({
+      type: ["string", "null"],
+      maxLength: 500,
+      description: "Null clears it.",
+    });
+  });
+
+  it("still collapses the same nullable property to T on a POST body", () => {
+    const doc = fakeEditDoc();
+    const ops = doc.paths["/api/v1/public/dashboards/{dashboard_id}"];
+    ops.post = { ...ops.patch, "x-tool": { ...ops.patch!["x-tool"], name: "create_dashboard" } };
+    delete ops.patch;
+    delete ops.delete;
+    const create = generateRegistry(doc)[0]!;
+    expect(create.method).toBe("post");
+    expect(create.inputSchema.properties.name).toEqual({ type: "string", maxLength: 50 });
+  });
+
+  it("applies the nullable type list at nested levels of a PATCH body", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      settings: { $ref: "#/components/schemas/DashboardSettings" },
+      spec: {
+        anyOf: [
+          { $ref: "#/components/schemas/QueryVariant" },
+          { $ref: "#/components/schemas/FeedVariant" },
+          { type: "null" },
+        ],
+        title: "Spec",
+      },
+      tags: {
+        anyOf: [{ type: "array", items: { type: ["string", "number"] } }, { type: "null" }],
+        title: "Tags",
+      },
+    };
+    doc.components!.schemas!.DashboardSettings = {
+      type: "object",
+      properties: {
+        breakdown: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+      },
+    };
+    doc.components!.schemas!.QueryVariant = {
+      type: "object",
+      properties: { view: { type: "string" } },
+    };
+    doc.components!.schemas!.FeedVariant = {
+      type: "object",
+      properties: { limit: { type: "integer" } },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.settings).toEqual({
+      type: "object",
+      properties: { breakdown: { type: ["string", "null"], default: null } },
+    });
+    // An all-object union keeps its stamped object type, now nullable too,
+    // and the preserved anyOf regains a null variant so a validator that
+    // checks the variants also admits null.
+    expect(update.inputSchema.properties.spec).toEqual({
+      type: ["object", "null"],
+      anyOf: [
+        { type: "object", properties: { view: { type: "string" } } },
+        { type: "object", properties: { limit: { type: "integer" } } },
+        { type: "null" },
+      ],
+    });
+    // A type that is already a list gains "null" instead of nesting.
+    expect(update.inputSchema.properties.tags).toEqual({
+      type: ["array", "null"],
+      items: { type: ["string", "number"] },
+    });
+  });
+
+  it("recognizes a `const: null` variant as the null branch of a PATCH body property", () => {
+    // Some OpenAPI emitters spell the null branch as `{const: null}` rather
+    // than `{type: "null"}`; both mean the field admits null.
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      name: { anyOf: [{ type: "string" }, { const: null }], title: "Name" },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"] });
+  });
+
+  it("collapses a `const: null` variant to T on a POST body", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      name: { anyOf: [{ type: "string" }, { const: null }], title: "Name" },
+    };
+    const ops = doc.paths["/api/v1/public/dashboards/{dashboard_id}"];
+    ops.post = { ...ops.patch, "x-tool": { ...ops.patch!["x-tool"], name: "create_dashboard" } };
+    delete ops.patch;
+    delete ops.delete;
+    const create = generateRegistry(doc)[0]!;
+    expect(create.method).toBe("post");
+    expect(create.inputSchema.properties.name).toEqual({ type: "string" });
+  });
+
+  it("does not double up null on a PATCH property whose type list already admits it", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      value: { anyOf: [{ type: ["string", "null"] }, { type: "null" }], title: "Value" },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.value).toEqual({ type: ["string", "null"] });
+  });
+
+  it("flattens an inline (non-$ref) PATCH body schema", () => {
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].patch!.requestBody = {
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: {
+              project_id: { type: "string", title: "Project Id" },
+              name: { anyOf: [{ type: "string" }, { type: "null" }], title: "Name" },
+            },
+            required: ["project_id"],
+          },
+        },
+      },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.bodyParams).toEqual(["name", "project_id"]);
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"] });
+  });
+
+  it("adds null to an enum on a nullable PATCH body property", () => {
+    // `enum` applies to every value, so a widened type alone would still
+    // reject null.
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      status: {
+        anyOf: [{ type: "string", enum: ["active", "paused"] }, { type: "null" }],
+        title: "Status",
+      },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.status).toEqual({
+      type: ["string", "null"],
+      enum: ["active", "paused", null],
+    });
+  });
+
+  const cannotWiden =
+    "Enabled tool on PATCH /api/v1/public/dashboards/{dashboard_id}: nullable body schema " +
+    'cannot be widened with "null" (it needs a type and no const, oneOf or allOf) — extend the ' +
+    "generator before enabling this operation";
+
+  it("throws when a nullable PATCH body property has no type to widen", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      value: { anyOf: [{ type: "string" }, { type: "integer" }, { type: "null" }], title: "Value" },
+    };
+    expect(() => generateRegistry(doc)).toThrow(cannotWiden);
+  });
+
+  it("throws when a nullable PATCH body property carries const, oneOf or allOf", () => {
+    for (const keyword of [
+      { const: "fixed" },
+      { oneOf: [{ type: "string" }] },
+      { allOf: [{ type: "string" }] },
+    ]) {
+      const doc = fakeEditDoc();
+      doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+        value: { anyOf: [{ type: "string", ...keyword }, { type: "null" }], title: "Value" },
+      };
+      expect(() => generateRegistry(doc)).toThrow(cannotWiden);
+    }
+  });
+
+  it("emits a delete entry with path and query params, its policy, and no bodyParams", () => {
+    const remove = generateRegistry(fakeEditDoc()).find(
+      (entry) => entry.name === "delete_dashboard",
+    )!;
+    expect(remove.method).toBe("delete");
+    expect("bodyParams" in remove).toBe(false);
+    expect(remove.inputSchema.properties).toEqual({
+      dashboard_id: { type: "string" },
+      project_id: { type: "string" },
+      reason: { type: "string", minLength: 3, maxLength: 500 },
+    });
+    expect(remove.inputSchema.required).toEqual(["dashboard_id", "project_id", "reason"]);
+    expect(remove.policy).toEqual({
+      approvalClass: "approval",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
+  });
+
+  it("throws on an enabled DELETE that declares a request body", () => {
+    // The public surface keeps DELETE bodies off the wire; silently ignoring
+    // one would ship a tool that drops arguments.
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].delete!.requestBody = {
+      content: { "application/json": { schema: { type: "object", properties: {} } } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on DELETE /api/v1/public/dashboards/{dashboard_id}: DELETE operations take " +
+        "no request body — declare its arguments as path or query parameters",
+    );
+  });
+
+  it("throws on an enabled PATCH or DELETE without a complete policy, naming the method", () => {
+    for (const method of ["patch", "delete"] as const) {
+      const doc = fakeEditDoc();
+      delete doc.paths["/api/v1/public/dashboards/{dashboard_id}"][method]!["x-tool"]!.policy;
+      expect(() => generateRegistry(doc)).toThrow(
+        `Enabled write tool on ${method.toUpperCase()} /api/v1/public/dashboards/{dashboard_id}: ` +
+          "x-tool policy {approvalClass, minRole, tenancy} is required and must be complete",
+      );
+    }
+  });
+
+  it("names the method in body-shape errors on a PATCH", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest = { type: "object" };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on PATCH /api/v1/public/dashboards/{dashboard_id}: request-body schema has " +
+        "no top-level properties — extend the generator before enabling this operation",
+    );
+  });
+
+  it("throws when agentHiddenParams is set on a DELETE, which has no body properties", () => {
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].delete!["x-tool"]!.agentHiddenParams = [
+      "reason",
+    ];
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled write tool on DELETE /api/v1/public/dashboards/{dashboard_id}: " +
+        'agentHiddenParams field "reason" is not a request-body property',
+    );
+  });
+});

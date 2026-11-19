@@ -1,0 +1,270 @@
+import { z } from "zod";
+
+export const DISPLAY_TYPES = [
+  "line",
+  "area",
+  "bar",
+  "pie",
+  "number",
+  "table",
+  "histogram",
+] as const;
+export type DisplayType = (typeof DISPLAY_TYPES)[number];
+
+// Enforced in the create dialog and by the dashboard API routes; sized so a
+// full-length name stays visible in the create dialog's input without
+// horizontal scrolling. Long names also display truncated in the tabs.
+export const DASHBOARD_NAME_MAX = 50;
+// Widget titles and dashboard descriptions are also route-enforced: without a
+// cap one member can persist arbitrarily large strings that every dashboard
+// read then ships to all project members.
+export const WIDGET_TITLE_MAX = 100;
+export const DASHBOARD_DESCRIPTION_MAX = 500;
+
+// The kinds of widget a dashboard can hold. Single source: the runtime check
+// on the write paths, the `WidgetType` union, and the grid's per-type tile
+// sizes all derive from this list, so adding a kind here fails to compile
+// until every one of them handles it.
+export const WIDGET_TYPES = ["query", "trace_feed"] as const;
+export type WidgetType = (typeof WIDGET_TYPES)[number];
+
+export const isWidgetType = (value: unknown): value is WidgetType =>
+  (WIDGET_TYPES as readonly unknown[]).includes(value);
+
+// The write API's rejection message. Its wording is part of that API's error
+// contract, but the type names come from the list above so a new kind can
+// never leave it naming the wrong set.
+export const WIDGET_TYPE_MESSAGE = `type must be ${WIDGET_TYPES.map((t) => `"${t}"`).join(" or ")}`;
+
+export const AGGS = [
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "p50",
+  "p75",
+  "p90",
+  "p95",
+  "p99",
+  "uniq",
+] as const;
+
+// Mirrors MAX_IN_VALUES in backend/rest/schemas/dashboards.py.
+export const MAX_IN_VALUES = 100;
+
+export const WidgetFilterSchema = z
+  .object({
+    field: z.string().min(1),
+    op: z.enum(["=", "contains", "in", ">", ">=", "<", "<="]),
+    // min(1): a filter whose value was never picked (the builder's rows start
+    // at "", an `in` row at []) must keep the spec incomplete, not save a
+    // widget that silently matches only empty-valued rows.
+    value: z.union([
+      z.string().min(1),
+      z.number(),
+      z.array(z.string().min(1)).min(1).max(MAX_IN_VALUES),
+    ]),
+    // Declared because the schema strips what it does not declare — without it a
+    // metadata filter reaches the engine keyless. Which fields require a key, and
+    // whether one belongs, is the engine's call.
+    key: z.string().min(1).optional(),
+  })
+  .superRefine((filter, ctx) => {
+    // A list belongs to `in` and only to `in`, as WidgetFilter enforces.
+    if ((filter.op === "in") !== Array.isArray(filter.value)) {
+      ctx.addIssue({ code: "custom", path: ["value"], message: 'only "in" takes a list' });
+    }
+  });
+export type WidgetFilterValue = z.infer<typeof WidgetFilterSchema>["value"];
+
+// Pie and bar plot one mark per category — without a breakdown dimension the
+// query collapses to a single unlabeled datum and there is nothing to chart.
+export const BREAKDOWN_REQUIRED_DISPLAYS: ReadonlySet<DisplayType> = new Set(["pie", "bar"]);
+
+// A number tile renders exactly one value and a histogram compiles to its own
+// bin shape — the query engine rejects a breakdown on either rather than
+// silently dropping every group but the first.
+export const BREAKDOWN_UNSUPPORTED_DISPLAYS: ReadonlySet<DisplayType> = new Set([
+  "number",
+  "histogram",
+]);
+
+export const WidgetSpecSchema = z
+  .object({
+    view: z.enum(["spans", "traces"]),
+    filters: z.array(WidgetFilterSchema).default([]),
+    metric: z.object({ measure: z.string().min(1), agg: z.enum(AGGS) }),
+    // min(1): an unpicked dropdown must read as "no breakdown", not as a
+    // (bogus) empty-string dimension that slips past the pie/bar check below.
+    breakdown: z.string().min(1).nullable().default(null),
+    display: z.object({ type: z.enum(DISPLAY_TYPES) }),
+  })
+  .superRefine((spec, ctx) => {
+    if (BREAKDOWN_REQUIRED_DISPLAYS.has(spec.display.type) && spec.breakdown === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["breakdown"],
+        message: `${spec.display.type} requires a breakdown dimension`,
+      });
+    }
+  });
+export type WidgetSpec = z.infer<typeof WidgetSpecSchema>;
+
+// Partial spec held by the builder while the user fills steps.
+export type DraftSpec = Partial<Omit<WidgetSpec, "metric" | "display">> & {
+  metric?: Partial<WidgetSpec["metric"]>;
+  display?: Partial<WidgetSpec["display"]>;
+};
+
+export function parseSpec(draft: unknown): WidgetSpec | null {
+  return WidgetSpecSchema.safeParse(draft).data ?? null;
+}
+
+export function isSpecComplete(draft: unknown): draft is WidgetSpec {
+  return parseSpec(draft) !== null;
+}
+
+export interface DashboardSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  createTime: string;
+  updateTime: string;
+}
+
+// A dashboards-list row: the summary plus the creator's display name (or
+// email), which only the list route resolves — dashboards are shared across
+// a project's members, so the list shows who made each one. Null when the
+// creating account is gone.
+export interface DashboardListItem extends DashboardSummary {
+  creator: string | null;
+}
+
+export interface LayoutItem {
+  i: string; // widget id
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Widget {
+  id: string;
+  dashboardId: string;
+  title: string;
+  type: WidgetType;
+  spec: Record<string, unknown>;
+  displayConfig: Record<string, unknown>;
+}
+
+export interface DashboardDetail extends DashboardSummary {
+  layout: LayoutItem[];
+  widgets: Widget[];
+}
+
+export interface WidgetQueryResult {
+  columns: string[];
+  rows: (string | number | null)[][];
+  // A number is a bucket width in milliseconds, reported when the caller asked
+  // for one specific grain rather than letting the range pick it.
+  meta: { granularity?: "hour" | "day" | number };
+}
+
+export interface WidgetSchemaField {
+  type: "string" | "number";
+  label: string;
+  filterOps: string[];
+  groupable: boolean;
+  aggs: string[];
+  // Whether the query engine can histogram this measure (numeric column, not
+  // the count(*) sentinel). Optional so older cached schemas keep working;
+  // treat absence as histogrammable.
+  histogrammable?: boolean;
+  // Whether a filter on this field carries a map key alongside op and value.
+  requiresKey?: boolean;
+  // Whether the widget builder offers this field. Optional so an older cached
+  // schema keeps working — treat absence as offered.
+  inBuilder?: boolean;
+}
+
+export type WidgetSchema = Record<
+  "spans" | "traces",
+  { fields: Record<string, WidgetSchemaField> }
+>;
+
+export interface WidgetFieldValue {
+  value: string;
+  count: number;
+}
+
+export interface WidgetFieldValuesResponse {
+  field: string;
+  values: WidgetFieldValue[];
+}
+
+/**
+ * Whether a filter's value is one of the field's stored values (so the builder
+ * offers a dropdown of them). Equality on a string dimension is enumerable;
+ * `contains` stays free text and numeric fields take a number input.
+ * A keyed field is never enumerable; see `requires_key` in widget_registry.py.
+ */
+export function isEnumerableFilter(field: WidgetSchemaField | undefined, op: string): boolean {
+  return !!field && field.type === "string" && !field.requiresKey && (op === "=" || op === "in");
+}
+
+// Numeric comparison symbols shared with the trace-list filter chips.
+const NUMERIC_OP_SYMBOL: Record<string, string> = { ">=": "≥", "<=": "≤" };
+
+/**
+ * Display label for a filter operator, matching the trace-list filter builder's
+ * vocabulary: string equality reads as "is"; numeric comparisons use the same
+ * symbols (≥ ≤). Presentation only — the wire op is unchanged.
+ */
+export function filterOpLabel(field: WidgetSchemaField | undefined, op: string): string {
+  if (field?.type === "string") {
+    if (op === "=") return "is";
+    if (op === "in") return "is any of";
+    return op;
+  }
+  return NUMERIC_OP_SYMBOL[op] ?? op;
+}
+
+// Display words for aggregations in generated widget titles.
+const AGG_TITLE: Record<string, string> = {
+  count: "Count",
+  sum: "Total",
+  avg: "Avg",
+  min: "Min",
+  max: "Max",
+  p50: "p50",
+  p95: "p95",
+  p99: "p99",
+};
+
+/**
+ * Auto-generated widget name for the builder: "{Agg} {measure label}" plus
+ * " by {breakdown label}" when a breakdown is set (e.g. "p95 Latency by Model",
+ * "Count of spans"). Empty until measure and agg are chosen. The builder shows
+ * this until the user edits the name, then never overwrites their text.
+ */
+export function generateWidgetTitle(
+  draft: DraftSpec,
+  viewFields: Record<string, WidgetSchemaField>,
+): string {
+  const measure = draft.metric?.measure;
+  const agg = draft.metric?.agg;
+  if (!measure || !agg) return "";
+  const base =
+    measure === "count"
+      ? `Count of ${draft.view ?? "rows"}`
+      : `${AGG_TITLE[agg] ?? agg} ${viewFields[measure]?.label ?? measure}`;
+  if (!draft.breakdown) return base;
+  return `${base} by ${viewFields[draft.breakdown]?.label ?? draft.breakdown}`;
+}
+
+export interface TimeRange {
+  start: Date;
+  end: Date;
+}

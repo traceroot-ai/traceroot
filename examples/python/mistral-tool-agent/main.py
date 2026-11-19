@@ -25,7 +25,7 @@ if dotenv_path:
 else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 import traceroot
 from traceroot import Integration, observe, using_attributes

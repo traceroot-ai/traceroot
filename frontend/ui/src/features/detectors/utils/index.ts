@@ -10,10 +10,11 @@ export interface DetectorFormValues {
   prompt: string;
   sampleRate: number;
   enableRca: boolean;
+  enableSignals: boolean;
   detectionModel: string;
   detectionProvider: string;
   detectionSource: "system" | "byok";
-  conditions: Array<{ field: string; op: string; value: unknown }>;
+  conditions: Array<{ field: string; op: string; value: unknown; key?: string }>;
 }
 
 export function detectorToFormValues(d: Detector): DetectorFormValues {
@@ -22,6 +23,7 @@ export function detectorToFormValues(d: Detector): DetectorFormValues {
     prompt: d.prompt,
     sampleRate: d.sampleRate,
     enableRca: d.enableRca ?? true,
+    enableSignals: d.enableSignals ?? true,
     detectionModel: d.detectionModel ?? "",
     detectionProvider: d.detectionProvider ?? "",
     detectionSource: d.detectionSource === "byok" ? "byok" : "system",
@@ -50,8 +52,16 @@ export function buildDetectorPatch(
   const patch: UpdateDetectorInput = {};
   if (form.name !== loaded.name) patch.name = form.name;
   if (form.prompt !== loaded.prompt) patch.prompt = form.prompt;
-  if (form.sampleRate !== loaded.sampleRate) patch.sampleRate = form.sampleRate;
+  if (form.sampleRate !== loaded.sampleRate) {
+    patch.sampleRate = form.sampleRate;
+    // The sampling rate is the only control on this form that governs whether
+    // the judge runs, so bind it to the enabled flag: 0% disables the detector
+    // (instead of leaving an "enabled but never fires" state on the list page),
+    // and any positive rate re-enables it.
+    patch.enabled = form.sampleRate > 0;
+  }
   if (form.enableRca !== loaded.enableRca) patch.enableRca = form.enableRca;
+  if (form.enableSignals !== loaded.enableSignals) patch.enableSignals = form.enableSignals;
   if (!conditionsEqual(form.conditions, loaded.conditions)) {
     patch.triggerConditions = form.conditions;
   }
@@ -91,6 +101,8 @@ export function mergeDetectorIntoForm(
     prompt: form.prompt === previous.prompt ? next.prompt : form.prompt,
     sampleRate: form.sampleRate === previous.sampleRate ? next.sampleRate : form.sampleRate,
     enableRca: form.enableRca === previous.enableRca ? next.enableRca : form.enableRca,
+    enableSignals:
+      form.enableSignals === previous.enableSignals ? next.enableSignals : form.enableSignals,
     detectionModel: touchedSelector ? form.detectionModel : next.detectionModel,
     detectionProvider: touchedSelector ? form.detectionProvider : next.detectionProvider,
     detectionSource: touchedSelector ? form.detectionSource : next.detectionSource,

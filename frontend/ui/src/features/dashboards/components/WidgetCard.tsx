@@ -1,0 +1,162 @@
+"use client";
+
+import { MoreVertical } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useWidgetData, type WidgetDataRefetchOptions } from "../hooks/use-widget-data";
+import { FIELD_UNIT } from "@/features/filters/filter-controls";
+import { parseSpec, type TimeRange, type Widget } from "../types";
+import { QueryWidgetRenderer } from "./renderers";
+import { TraceFeedWidget } from "./TraceFeedWidget";
+
+function QueryWidgetBody({
+  projectId,
+  widget,
+  range,
+  queryOptions,
+}: {
+  projectId: string;
+  widget: Widget;
+  range: TimeRange;
+  queryOptions?: WidgetDataRefetchOptions;
+}) {
+  const spec = parseSpec(widget.spec);
+
+  // Hooks cannot be conditional — pass a placeholder spec when invalid, but
+  // gate the query with enabled=false so no request is actually sent.
+  const { data, isPending, error } = useWidgetData(
+    projectId,
+    widget.id,
+    spec ?? {
+      view: "spans",
+      filters: [],
+      metric: { measure: "count", agg: "count" },
+      breakdown: null,
+      display: { type: "number" },
+    },
+    range,
+    spec !== null,
+    queryOptions,
+  );
+
+  if (!spec) {
+    return <div className="p-2 text-[12px] text-danger">Invalid widget spec — edit to fix</div>;
+  }
+  // isPending (no data yet), not isLoading (pending AND fetching): while the
+  // auth session is still resolving the query is disabled — not fetching — and
+  // isLoading would fall through to a blank body on every dashboard load.
+  if (isPending) {
+    return <div className="p-2 text-[12px] text-muted-foreground">Loading…</div>;
+  }
+  if (error) {
+    return (
+      <div className="p-2 text-[12px] text-danger">
+        Query failed{error instanceof Error ? `: ${error.message}` : ""}
+      </div>
+    );
+  }
+  if (!data) return null;
+  return (
+    <QueryWidgetRenderer
+      display={spec.display.type}
+      result={data}
+      unit={FIELD_UNIT[spec.metric.measure]}
+      seriesLabel={spec.metric.measure}
+      agg={spec.metric.agg}
+    />
+  );
+}
+
+/**
+ * A tile's body alone: the per-type dispatch every surface that draws a widget
+ * shares, so the dashboard's card and the assistant panel's scaled-down
+ * preview render one widget one way. `queryOptions` lets a caller drawing a
+ * frozen snapshot pin its queries' refetch behavior; the dashboard leaves it
+ * unset and keeps the live defaults.
+ */
+export function WidgetBody({
+  projectId,
+  widget,
+  range,
+  queryOptions,
+}: {
+  projectId: string;
+  widget: Widget;
+  range: TimeRange;
+  queryOptions?: WidgetDataRefetchOptions;
+}) {
+  return (
+    <>
+      {widget.type === "query" && (
+        <QueryWidgetBody
+          projectId={projectId}
+          widget={widget}
+          range={range}
+          queryOptions={queryOptions}
+        />
+      )}
+      {widget.type === "trace_feed" && (
+        <TraceFeedWidget
+          projectId={projectId}
+          spec={widget.spec as { limit?: number }}
+          range={range}
+          queryOptions={queryOptions}
+        />
+      )}
+    </>
+  );
+}
+
+export function WidgetCard({
+  projectId,
+  widget,
+  range,
+  onEdit,
+  onDelete,
+}: {
+  projectId: string;
+  widget: Widget;
+  range: TimeRange;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col rounded-md border bg-background p-3">
+      {/* Header: drag handle + title + menu */}
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="drag-handle cursor-move select-none text-muted-foreground/50">⠿</span>
+        <span className="flex-1 truncate text-[12px] font-medium" title={widget.title}>
+          {widget.title}
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+              aria-label="Widget options"
+            >
+              <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {widget.type === "query" && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
+            <DropdownMenuItem
+              onSelect={onDelete}
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Body */}
+      <div className="min-h-0 flex-1">
+        <WidgetBody projectId={projectId} widget={widget} range={range} />
+      </div>
+    </div>
+  );
+}

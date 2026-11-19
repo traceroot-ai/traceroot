@@ -3,8 +3,9 @@
 Uses FastAPI TestClient with mocked dependencies — no ClickHouse needed.
 """
 
+import asyncio
 import copy
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +13,10 @@ from fastapi.testclient import TestClient
 
 from rest.main import app
 from rest.routers.deps import ProjectAccessInfo, get_project_access
+from rest.routers.internal import detectors
+from rest.routers.public import traces_read as public_traces_read
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
+from shared.config import settings
 
 TRACE_LIST_ITEM = {
     "trace_id": "abc123",
@@ -78,8 +83,19 @@ def mock_trace_reader():
 
 
 @pytest.fixture()
-def client(mock_trace_reader):
-    """TestClient with mocked auth and trace reader."""
+def mock_trace_discovery():
+    """Mock TraceDiscoveryService.
+
+    Distinct-value and metadata-key routes read from discovery, not the reader. Left
+    unpatched they build a real service and open a real ClickHouse connection, so these
+    tests pass or fail on whether a container happens to be listening.
+    """
+    return MagicMock()
+
+
+@pytest.fixture()
+def client(mock_trace_reader, mock_trace_discovery):
+    """TestClient with mocked auth and trace services."""
 
     async def mock_get_access(project_id: str, x_user_id=None):
         # Mirror the validate-project-access contract (workspaceId + billingPlan)
@@ -90,7 +106,7 @@ def client(mock_trace_reader):
             user_id="test-user",
             role="ADMIN",
             workspace_id="ws-test",
-            billing_plan="free",
+            billing_plan="enterprise",
         )
 
     app.dependency_overrides[get_project_access] = mock_get_access
@@ -98,11 +114,28 @@ def client(mock_trace_reader):
     import rest.routers.traces as traces_mod
 
     original = traces_mod.get_trace_reader_service
+    original_discovery = traces_mod.get_trace_discovery_service
     traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+    traces_mod.get_trace_discovery_service = lambda: mock_trace_discovery
 
     yield TestClient(app)
 
     traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = original_discovery
+
+
+class TestTracesExist:
+    def test_returns_true_when_traces_exist(self, client, mock_trace_reader):
+        mock_trace_reader.has_traces.return_value = True
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": True}
+
+    def test_returns_false_when_no_traces(self, client, mock_trace_reader):
+        mock_trace_reader.has_traces.return_value = False
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": False}
 
 
 class TestListTraces:
@@ -190,6 +223,50 @@ class TestListTraces:
         assert response.status_code == 422
 
 
+class TestListTracesTraceIds:
+    """``?trace_ids=`` (repeatable): looks up a known, bounded set of traces —
+    e.g. a signal's member traces — rather than filtering a scan."""
+
+    def test_repeated_param_threads_the_list_to_the_service(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get("/api/v1/projects/test-project/traces?trace_ids=a&trace_ids=b")
+        assert response.status_code == 200
+        assert mock_trace_reader.list_traces.call_args.kwargs["trace_ids"] == ["a", "b"]
+
+    def test_absent_param_threads_none(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        assert mock_trace_reader.list_traces.call_args.kwargs["trace_ids"] is None
+
+    def test_over_100_values_is_422(self, client, mock_trace_reader):
+        params = [("trace_ids", f"t{i}") for i in range(101)]
+        response = client.get("/api/v1/projects/test-project/traces", params=params)
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()
+
+    def test_exactly_100_values_is_accepted(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        params = [("trace_ids", f"t{i}") for i in range(100)]
+        response = client.get("/api/v1/projects/test-project/traces", params=params)
+        assert response.status_code == 200
+        assert len(mock_trace_reader.list_traces.call_args.kwargs["trace_ids"]) == 100
+
+    def test_empty_value_is_422(self, client, mock_trace_reader):
+        response = client.get("/api/v1/projects/test-project/traces", params=[("trace_ids", "")])
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()
+
+
 class TestGetTrace:
     def test_200(self, client, mock_trace_reader):
         mock_trace_reader.get_trace.return_value = TRACE_DETAIL
@@ -204,6 +281,23 @@ class TestGetTrace:
         mock_trace_reader.get_trace.return_value = None
         response = client.get("/api/v1/projects/test-project/traces/nonexistent")
         assert response.status_code == 404
+
+    def test_source_param_reaches_the_service(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = TRACE_DETAIL
+        response = client.get("/api/v1/projects/test-project/traces/abc123?source=detector")
+        assert response.status_code == 200
+        assert mock_trace_reader.get_trace.call_args.kwargs["source"] == "detector"
+
+    def test_absent_source_passes_none(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = TRACE_DETAIL
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        assert mock_trace_reader.get_trace.call_args.kwargs["source"] is None
+
+    def test_invalid_source_is_rejected(self, client, mock_trace_reader):
+        response = client.get("/api/v1/projects/test-project/traces/abc123?source=banana")
+        assert response.status_code == 422
+        mock_trace_reader.get_trace.assert_not_called()
 
     def test_default_skeleton_io_is_null_and_no_bulk_query(self, client, mock_trace_reader):
         """Default (skeleton) projection: per-span I/O fields are present but null,
@@ -315,7 +409,8 @@ class TestGetSpanIO:
 
     def test_passes_through_path_params(self, client, mock_trace_reader):
         mock_trace_reader.get_span_io.return_value = SPAN_IO
-        client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        assert response.status_code == 200
         kw = mock_trace_reader.get_span_io.call_args.kwargs
         assert kw["project_id"] == "test-project"
         assert kw["trace_id"] == "abc123"
@@ -375,3 +470,338 @@ class TestGetSpanIO:
         assert len(spans) == 2
         assert spans[1]["model_name"] == "gpt-4o"
         assert spans[1]["cost"] == 0.005
+
+
+class TestDashboardKeepsSpanTreeMetadata:
+    """The dashboard route MUST return the reader's span-path metadata subset.
+
+    This is the delivery path the live-tree repair depends on: children are
+    exported before their parents, so mid-run the client only reconnects the
+    tree because these path attributes ride along on the skeleton. The public
+    routes deliberately drop them (their contract is `metadata: null`), which
+    makes "drop them on this route too, for consistency" an inviting cleanup —
+    one that would silently reintroduce the orphaned-tree bug. These tests fail
+    if anyone does that.
+    """
+
+    TREE_METADATA = '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+
+    def _trace_with_tree_metadata(self):
+        trace = copy.deepcopy(TRACE_DETAIL)
+        trace["spans"][0]["metadata"] = self.TREE_METADATA
+        return trace
+
+    def test_default_skeleton_preserves_the_subset(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        assert response.json()["spans"][0]["metadata"] == self.TREE_METADATA
+        mock_trace_reader.get_trace_spans_io.assert_not_called()
+
+    def test_fields_io_preserves_the_subset(self, client, mock_trace_reader):
+        """`fields=io` does not request metadata, so the subset stays — the
+        dashboard still needs it to build the tree."""
+        mock_trace_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        mock_trace_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "the-in", "output": "the-out"}
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=io")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert span["input"] == "the-in"
+        assert span["metadata"] == self.TREE_METADATA
+
+    def test_fields_full_replaces_subset_with_the_real_blob(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        mock_trace_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "i", "output": "o", "metadata": '{"user":"real-blob"}'}
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=full")
+        assert response.status_code == 200
+        assert response.json()["spans"][0]["metadata"] == '{"user":"real-blob"}'
+
+
+@pytest.fixture()
+def free_plan_client(mock_trace_reader, mock_trace_discovery):
+    """TestClient with free-plan billing for retention gate tests."""
+
+    async def mock_get_access(project_id: str, x_user_id=None):
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id="test-user",
+            role="ADMIN",
+            workspace_id="ws-test",
+            billing_plan="free",
+        )
+
+    app.dependency_overrides[get_project_access] = mock_get_access
+
+    import rest.routers.traces as traces_mod
+
+    original = traces_mod.get_trace_reader_service
+    original_discovery = traces_mod.get_trace_discovery_service
+    traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+    traces_mod.get_trace_discovery_service = lambda: mock_trace_discovery
+
+    yield TestClient(app)
+
+    traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = original_discovery
+
+
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+class TestRetentionGate:
+    """Retention access-window enforcement on trace endpoints."""
+
+    def test_list_traces_clamps_default_query(self, free_plan_client, mock_trace_reader):
+        """Default list (no start_after) clamps to the plan's cutoff."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = free_plan_client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
+
+    def test_list_traces_clamps_when_start_after_outside_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        """Old start_after is silently clamped to the retention cutoff."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        old = (_now_naive() - timedelta(days=30)).isoformat()
+        response = free_plan_client.get(f"/api/v1/projects/test-project/traces?start_after={old}")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
+
+    def test_trace_ids_lookup_still_clamped_on_free_plan(self, free_plan_client, mock_trace_reader):
+        """An id-only lookup is not a loophole around retention: a signal's older
+        member traces stay out of reach on a finite-retention plan, same as any
+        other read."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = free_plan_client.get("/api/v1/projects/test-project/traces?trace_ids=old-trace")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
+
+    def test_get_filter_values_clamps_when_outside_window(
+        self, free_plan_client, mock_trace_discovery
+    ):
+        mock_trace_discovery.get_distinct_span_values.return_value = []
+        old = (_now_naive() - timedelta(days=30)).isoformat()
+        response = free_plan_client.get(
+            f"/api/v1/projects/test-project/traces/filter-values/model_name?start_after={old}"
+        )
+        assert response.status_code == 200
+        kw = mock_trace_discovery.get_distinct_span_values.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
+
+    def test_get_trace_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
+        old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}
+        mock_trace_reader.get_trace.return_value = old_trace
+        response = free_plan_client.get("/api/v1/projects/test-project/traces/old-trace")
+        assert response.status_code == 403
+
+    def test_get_trace_200_when_trace_in_window(self, free_plan_client, mock_trace_reader):
+        recent_trace = {
+            **TRACE_DETAIL,
+            "trace_start_time": _now_naive() - timedelta(days=5),
+        }
+        mock_trace_reader.get_trace.return_value = recent_trace
+        response = free_plan_client.get("/api/v1/projects/test-project/traces/recent-trace")
+        assert response.status_code == 200
+
+    def test_get_span_io_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
+        mock_trace_reader.get_trace_start_time.return_value = datetime(2020, 1, 1)
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/old-trace/spans/span-1/io"
+        )
+        assert response.status_code == 403
+
+    def test_get_span_io_200_when_trace_in_window(self, free_plan_client, mock_trace_reader):
+        mock_trace_reader.get_trace_start_time.return_value = _now_naive() - timedelta(days=1)
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+
+
+class TestRetentionGateEnterprise:
+    """Enterprise plan has no retention limit — uses the main client fixture (enterprise)."""
+
+    def test_enterprise_list_no_clamp(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is None
+
+    def test_enterprise_old_start_after_passes(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get(
+            "/api/v1/projects/test-project/traces?start_after=2020-01-01T00:00:00"
+        )
+        assert response.status_code == 200
+
+    def test_enterprise_old_trace_accessible(self, client, mock_trace_reader):
+        old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}
+        mock_trace_reader.get_trace.return_value = old_trace
+        response = client.get("/api/v1/projects/test-project/traces/old")
+        assert response.status_code == 200
+
+
+class TestBlockingReadsRunOffTheEventLoop:
+    """The synchronous ClickHouse reads must be handed to a worker thread.
+
+    Nothing observable changes when this regresses. The endpoint returns the same body
+    with the same status; the only difference is that the whole process's event loop is
+    parked for the duration of the query, so every other in-flight request stalls behind
+    it (one uvicorn worker, one replica — there is no second process to absorb it). That
+    makes it exactly the kind of change a later refactor drops without noticing.
+
+    What IS observable is where the blocking call runs. Work handed to
+    ``asyncio.to_thread`` executes on a worker thread, which has no running event loop,
+    while a call awaited inline executes on the loop thread itself — so asking for the
+    running loop from inside the mocked service call distinguishes the two directly.
+    """
+
+    @staticmethod
+    def _loop_visible_to(recorder: list[bool], result):
+        """Service stub recording whether it ran somewhere an event loop was running."""
+
+        def _call(*_args, **_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                recorder.append(False)
+            else:
+                recorder.append(True)
+            return result
+
+        return _call
+
+    def test_the_sentinel_would_catch_a_call_left_on_the_loop(self):
+        """Guard on the guard: the two tests below only mean something if this stub
+        reports True when it really does run on the event loop."""
+        ran_on_loop: list[bool] = []
+        stub = self._loop_visible_to(ran_on_loop, None)
+
+        async def call_inline():
+            stub()
+
+        asyncio.run(call_inline())
+
+        assert ran_on_loop == [True]
+
+    def test_list_traces_reads_off_the_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.list_traces.side_effect = self._loop_visible_to(
+            ran_on_loop,
+            {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}},
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    def test_metadata_keys_reads_off_the_loop(self, client, mock_trace_discovery):
+        ran_on_loop: list[bool] = []
+        mock_trace_discovery.get_distinct_metadata_keys.side_effect = self._loop_visible_to(
+            ran_on_loop, []
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces/metadata-keys")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/projects/test-project/traces/abc123?fields=full",
+            "/api/v1/public/traces/abc123?fields=full",
+            "/api/v1/public/traces/abc123/export",
+        ],
+    )
+    def test_whole_trace_reads_off_the_loop(self, client, mock_trace_reader, monkeypatch, path):
+        monkeypatch.setattr(
+            public_traces_read, "get_trace_reader_service", lambda: mock_trace_reader
+        )
+        app.dependency_overrides[authenticate_public_caller] = lambda: AuthResult(
+            project_id="test-project",
+            workspace_id="ws-test",
+            billing_plan="enterprise",
+            ingestion_blocked=False,
+        )
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.get_trace.side_effect = self._loop_visible_to(
+            ran_on_loop, copy.deepcopy(TRACE_DETAIL)
+        )
+        mock_trace_reader.get_trace_spans_io.side_effect = self._loop_visible_to(ran_on_loop, {})
+
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False, False]
+
+    def test_spans_jsonl_reads_off_the_loop(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+        ran_on_loop: list[bool] = []
+        ch = MagicMock()
+        ch.query.side_effect = self._loop_visible_to(
+            ran_on_loop, MagicMock(column_names=["span_id"], result_rows=[("span-1",)])
+        )
+        monkeypatch.setattr(detectors, "get_clickhouse_client", lambda: ch)
+
+        response = client.get(
+            "/api/v1/internal/traces/abc123/spans-jsonl",
+            params={"project_id": "test-project"},
+            headers={"X-Internal-Secret": "test-secret"},
+        )
+
+        assert response.status_code == 200
+        assert response.text == '{"span_id": "span-1"}'
+        assert ran_on_loop == [False]
+
+    def test_a_read_that_raises_in_the_worker_thread_still_maps_to_500(
+        self, client, mock_trace_reader
+    ):
+        """The thread hop must not swallow or reshape the failure: the exception has to
+        propagate back out of the await and into the handler's own except block."""
+        mock_trace_reader.list_traces.side_effect = Exception("ClickHouse down")
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to list traces"
+
+    def test_a_bad_predicate_is_rejected_before_any_thread_is_taken(
+        self, client, mock_trace_reader
+    ):
+        """Filter parsing stays in front of the hop, so a malformed predicate is a 422
+        and never costs a worker thread or a query."""
+        response = client.get("/api/v1/projects/test-project/traces?filters=not-json")
+
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()

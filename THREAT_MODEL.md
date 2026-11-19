@@ -1,4 +1,4 @@
-# Threat Model — TraceRoot
+# Threat Model — traceroot
 
 > **Framework:** STRIDE + 4-question model
 > **Surfaces covered:** SaaS (app.traceroot.ai), Self-hosted, Python and TypeScript SDKs
@@ -9,7 +9,7 @@
 
 ## 1. What Are We Building?
 
-TraceRoot is an open-source observability and self-healing platform for AI agents. It captures LLM traces, filters signal from noise, and enables AI-assisted root cause analysis by connecting to a sandbox with production source code and GitHub history.
+traceroot is an open-source AI agent improvement platform. It captures LLM traces, filters signal from noise, and enables AI-assisted root cause analysis by connecting to a sandbox with production source code and GitHub history.
 
 ### System Components
 
@@ -18,7 +18,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 | **Browser client** | Next.js (TypeScript) | Web UI — trace explorer, debugger, onboarding |
 | **REST API** | FastAPI (Python) | Core backend — trace ingestion, trace reads, and internal service APIs; user-scoped reads are authorised via Next.js session headers |
 | **Celery worker** | Python / Redis | Async task queue — trace ingestion and detector trigger evaluation |
-| **TS agent service** | TypeScript (`frontend/packages/agent/`) | Drives the Daytona sandbox for AI debugging; runs `executors/daytona.ts` and `tools/sandbox.ts` |
+| **TS agent service** | TypeScript (`frontend/ee/agent/`) | Drives the Daytona sandbox for AI debugging; runs `executors/daytona.ts` and `tools/sandbox.ts` |
 | **ClickHouse** | ClickHouse DB | Columnar store for traces and spans |
 | **Redis** | Redis | Task queue broker + short-lived caching |
 | **Object storage** | AWS S3 | Trace payload storage for large spans |
@@ -29,7 +29,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 
 ### Deployment Surfaces
 
-- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
+- **SaaS** (`app.traceroot.ai`): traceroot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
 - **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
 - **SDK only**: User installs the Python or TypeScript SDK and points it at either SaaS or their own host.
@@ -40,7 +40,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 [ User's AI Agent Process ]
         |  SDK (OTLP/HTTP)
         v
-[ TraceRoot Ingestion API ]  <-- trust boundary: API key required
+[ traceroot Ingestion API ]  <-- trust boundary: API key required
         |
         v
 [ ClickHouse + S3 ]          <-- trust boundary: internal network only
@@ -48,7 +48,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
         v
 [ Celery Worker ]            (trace ingestion + detector trigger evaluation only)
 
-[ TS Agent Service ]         <-- separate process (frontend/packages/agent/)
+[ TS Agent Service ]         <-- separate process (frontend/ee/agent/)
         |  sandbox API
         v
 [ Daytona Sandbox ]          <-- trust boundary: ephemeral container, no persistent state
@@ -69,7 +69,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 |---|---|---|---|
 | S-01 | Attacker uses a stolen `TRACEROOT_API_KEY` to ingest fake traces or read another tenant's data | REST API | P0 |
 | S-02 | Attacker forges an auth or integration callback to hijack a session or attach the wrong GitHub installation | Browser client / Next.js API routes | P1 |
-| S-03 | Malicious SDK version published to PyPI or npm impersonates an official TraceRoot package (typosquatting) | PyPI / npm / SDK | P1 |
+| S-03 | Malicious SDK version published to PyPI or npm impersonates an official traceroot package (typosquatting) | PyPI / npm / SDK | P1 |
 | S-04 | In self-hosted mode, internal services (Redis, ClickHouse) accept connections without authentication if misconfigured | Self-hosted infra | P2 |
 
 ### 2.2 Tampering
@@ -139,7 +139,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | Threat ID | Gap | Recommended Action | Priority |
 |---|---|---|---|
 | T-03, T-04 | No GitHub Actions pinning — workflows use floating tags (e.g. `@v3`) | Pin all GitHub Actions to commit SHAs (see issue #762) | P1 |
-| T-04 | No systematic sanitisation of trace payloads before they reach the AI prompt | Add a payload sanitisation layer in the TS agent service (`frontend/packages/agent/`) before AI prompt construction | P0 |
+| T-04 | No systematic sanitisation of trace payloads before they reach the AI prompt | Add a payload sanitisation layer in the TS agent service (`frontend/ee/agent/`) before AI prompt construction | P0 |
 | I-01 | No automatic scrubbing of API key patterns in span attributes | Implement regex-based secret scrubbing in the SDK before payloads are sent | P0 |
 | I-03 | Row-level security in ClickHouse not formally verified | Audit all ClickHouse queries for tenant isolation; add integration tests asserting cross-tenant data is unreachable | P0 |
 | R-01 | No audit log table for sensitive operations (debug session start, trace delete, billing change) | Add `audit_log` table in ClickHouse; log actor, action, resource, timestamp | P1 |

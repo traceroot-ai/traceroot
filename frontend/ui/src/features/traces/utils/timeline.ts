@@ -1,5 +1,10 @@
 import type { Span } from "@/types/api";
-import { buildChildrenMap, getSpanDuration, parseTimestamp } from "../utils";
+import {
+  buildChildrenMap,
+  compareSpansForStableDisplay,
+  getSpanDuration,
+  parseTimestamp,
+} from "../utils";
 
 export interface TimelineMetrics {
   startOffsetPx: number;
@@ -53,16 +58,16 @@ export function flattenTreeWithMetrics(
   const childrenMap = buildChildrenMap(spans);
   const spanIds = new Set(spans.map((s) => s.span_id));
 
+  // Stable sibling order (start → end → span_id) — must match SpanTreeView's
+  // buildSpanTree so the scroll-synced timeline and tree panels stay row-aligned.
   for (const children of childrenMap.values()) {
-    children.sort((a, b) => startTimes.get(a.span_id)! - startTimes.get(b.span_id)!);
+    children.sort(compareSpansForStableDisplay);
   }
 
-  // True roots + orphan spans (parent not yet arrived), sorted by time
+  // True roots + orphan spans (parent not yet arrived), same stable order.
   const trueRoots = childrenMap.get(null) ?? [];
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
-  const topLevel = [...trueRoots, ...orphans].sort(
-    (a, b) => startTimes.get(a.span_id)! - startTimes.get(b.span_id)!,
-  );
+  const topLevel = [...trueRoots, ...orphans].sort(compareSpansForStableDisplay);
 
   const flatList: FlatTimelineItem[] = [];
   const safeTraceDuration = Math.max(1, traceDurationMs);
@@ -80,7 +85,10 @@ export function flattenTreeWithMetrics(
 
     const offsetMs = startTimes.get(span.span_id)! - traceStartMs;
     const durationMs = getSpanDuration(span) ?? 0;
-    const isInProgress = span.span_end_time === null;
+    // A pending placeholder has no end time because we never received it, not
+    // because it is still running — rendering it as in-progress would pulse a
+    // "live" bar on a trace that finished (or died) long ago.
+    const isInProgress = span.span_end_time === null && !span.pending;
 
     const startOffsetPx = (offsetMs / safeTraceDuration) * scaleWidth;
     const widthPx = (durationMs / safeTraceDuration) * scaleWidth;

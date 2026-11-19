@@ -1,0 +1,194 @@
+// @vitest-environment jsdom
+// Render-level coverage for SpanTreeView's token/cost icon badges (both the
+// trace-root rollup and the per-LLM-span badge). SpanTreeView.test.ts covers
+// the pure row-model logic; this file exercises the actual JSX, which needs
+// @tanstack/react-virtual mocked since jsdom has no real layout to measure.
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { SpanKind, SpanStatus } from "@traceroot/core";
+import type { TraceDetail } from "@/types/api";
+import type { TraceSelection } from "../types";
+import { SpanTreeView } from "./SpanTreeView";
+
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 28,
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({ index, start: index * 28, size: 28 })),
+    scrollToIndex: vi.fn(),
+  }),
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({ prefetchQuery: vi.fn() }),
+}));
+
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: undefined }),
+}));
+
+vi.mock("@/lib/api", () => ({
+  getSpanIO: vi.fn(),
+}));
+
+const trace: TraceDetail = {
+  trace_id: "trace-1",
+  project_id: "proj-1",
+  name: "root-trace",
+  trace_start_time: "2026-01-01T00:00:00.000Z",
+  user_id: null,
+  session_id: null,
+  git_ref: null,
+  git_repo: null,
+  environment: "production",
+  release: null,
+  input: null,
+  output: null,
+  metadata: null,
+  spans: [
+    {
+      span_id: "span-1",
+      trace_id: "trace-1",
+      parent_span_id: null,
+      name: "llm-call",
+      span_kind: SpanKind.LLM,
+      span_start_time: "2026-01-01T00:00:00.000Z",
+      span_end_time: "2026-01-01T00:00:01.000Z",
+      status: SpanStatus.OK,
+      status_message: null,
+      error_type: "",
+      model_name: "gpt-4o",
+      cost: 0.0123,
+      input_tokens: 100,
+      output_tokens: 50,
+      total_tokens: 150,
+      git_source_file: null,
+      git_source_line: null,
+      git_source_function: null,
+    },
+  ],
+};
+
+const selection: TraceSelection = { type: "trace" };
+
+// vitest runs without `globals`, so testing-library's automatic cleanup is
+// inactive and a second render would stack onto the first one's DOM — which
+// would also break the exact badge counts below, since jsdom applies no CSS and
+// the container-query classes that hide these badges at narrow widths never
+// take effect.
+afterEach(() => {
+  cleanup();
+});
+
+function renderTree(t: TraceDetail = trace) {
+  render(
+    <SpanTreeView
+      trace={t}
+      selection={selection}
+      onSelect={vi.fn()}
+      collapsedIds={new Set()}
+      onToggleCollapse={vi.fn()}
+      hoveredSpanId={null}
+      onHoverChange={vi.fn()}
+      scrollRef={{ current: null }}
+    />,
+  );
+}
+
+describe("SpanTreeView token/cost badges", () => {
+  it("renders the trace row and the LLM span row with their token/cost badges", () => {
+    renderTree();
+    // Trace root name and the one LLM span's name are both rendered.
+    expect(screen.getByText("root-trace")).toBeTruthy();
+    expect(screen.getByText("llm-call")).toBeTruthy();
+    // Cost appears twice: the trace rollup (0.0123) and the span's own (0.0123) —
+    // both format to the same 4-decimal string here since there's only one span.
+    expect(screen.getAllByText("0.0123")).toHaveLength(2);
+  });
+
+  it("draws a glyph alongside each token and cost badge", () => {
+    renderTree();
+
+    // The badge text nodes are wrapped in a span that also holds the icon, so
+    // a missing glyph shows up as a badge with no svg child.
+    for (const badge of screen.getAllByText("0.0123")) {
+      expect(badge.querySelector("svg")).toBeTruthy();
+    }
+    for (const badge of screen.getAllByText("100 → 50 (150)")) {
+      expect(badge.querySelector("svg")).toBeTruthy();
+    }
+  });
+
+  it("shows a tool span's cost from a narrower row, and no cost on an agent span", () => {
+    const llm = trace.spans[0];
+    const noTokens = {
+      model_name: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+    };
+    renderTree({
+      ...trace,
+      spans: [
+        llm,
+        {
+          ...llm,
+          ...noTokens,
+          span_id: "span-2",
+          name: "web-search",
+          span_kind: SpanKind.TOOL,
+          cost: 0.02,
+        },
+        {
+          ...llm,
+          ...noTokens,
+          span_id: "span-3",
+          name: "agent",
+          span_kind: SpanKind.AGENT,
+          cost: 0.5,
+        },
+      ],
+    });
+
+    expect(screen.getByText("0.0200").className).toContain("@[100px]:inline-flex");
+    expect(screen.getByText("0.0123").className).toContain("@[190px]:inline-flex");
+    expect(screen.queryByText("0.5000")).toBeNull();
+  });
+});
+
+describe("SpanTreeView selection", () => {
+  it("selects and highlights a span, then returns to the trace", () => {
+    const onSelect = vi.fn();
+    const onHoverChange = vi.fn();
+    const props = {
+      trace,
+      onSelect,
+      collapsedIds: new Set<string>(),
+      onToggleCollapse: vi.fn(),
+      onHoverChange,
+      scrollRef: { current: null },
+    };
+    const { rerender } = render(
+      <SpanTreeView {...props} selection={{ type: "trace" }} hoveredSpanId={null} />,
+    );
+    const spanRow = screen.getByText("llm-call").closest("div.group")!;
+    fireEvent.mouseEnter(spanRow);
+    expect(onHoverChange).toHaveBeenCalledWith("span-1");
+    fireEvent.click(spanRow);
+    expect(onSelect).toHaveBeenCalledWith({ type: "span", span: trace.spans[0] });
+
+    rerender(
+      <SpanTreeView
+        {...props}
+        selection={{ type: "span", span: trace.spans[0] }}
+        hoveredSpanId="span-1"
+      />,
+    );
+    expect(spanRow.className).toContain("bg-accent");
+    const traceRow = screen.getByText("root-trace").closest("div[style*='translate']")!;
+    fireEvent.click(traceRow);
+    expect(onSelect).toHaveBeenCalledWith({ type: "trace" });
+    fireEvent.mouseLeave(spanRow);
+    expect(onHoverChange).toHaveBeenLastCalledWith(null);
+  });
+});

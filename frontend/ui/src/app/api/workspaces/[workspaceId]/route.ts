@@ -1,21 +1,21 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, getRetentionDays } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-
-const updateWorkspaceSchema = z.object({
-  name: z.string().min(1, "Name is required").max(100, "Name too long"),
-});
+import { isDemoViewer, isDemoWorkspace } from "@/lib/demo-workspace";
+import { isPlainObject } from "@/lib/is-plain-object";
+import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
+import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId] - Get workspace details with projects
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -46,11 +46,25 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Workspace not found", 404);
   }
 
+  const isDemo = isDemoWorkspace(workspace.id);
+  // Demo viewers read this for the General page, but not the billing state.
+  const billing = isDemoViewer(workspace.id, membership.role)
+    ? {}
+    : {
+        billingPlan: workspace.billingPlan,
+        billingCustomerId: workspace.billingCustomerId,
+        billingSubscriptionId: workspace.billingSubscriptionId,
+        billingStatus: workspace.billingStatus,
+        currentUsage: workspace.currentUsage,
+      };
   return successResponse({
     id: workspace.id,
     name: workspace.name,
     role: membership.role,
-    member_count: workspace._count.members,
+    is_demo: isDemo,
+    retention_days: getRetentionDays(workspace.billingPlan),
+    // The demo workspace has every user as a member; that count is not shown.
+    member_count: isDemo ? undefined : workspace._count.members,
     projects: workspace.projects.map((p) => ({
       id: p.id,
       name: p.name,
@@ -59,17 +73,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       create_time: p.createTime,
     })),
     create_time: workspace.createTime,
-    // Billing fields
-    billingPlan: workspace.billingPlan,
-    billingCustomerId: workspace.billingCustomerId,
-    billingSubscriptionId: workspace.billingSubscriptionId,
-    billingStatus: workspace.billingStatus,
-    currentUsage: workspace.currentUsage,
+    ...billing,
   });
 }
 
 // PUT /api/workspaces/[workspaceId] - Update workspace (ADMIN+)
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+// Still a PUT for the web app, but a thin adapter over the write service,
+// which owns the validation, the ADMIN floor, the diff and the audit row.
+async function handlePUT(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -85,31 +96,29 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   } catch {
     return errorResponse("Invalid JSON", 400);
   }
+  const name = isPlainObject(body) ? body.name : undefined;
 
-  const result = updateWorkspaceSchema.safeParse(body);
-  if (!result.success) {
-    return errorResponse(result.error.issues[0].message, 400);
-  }
-
-  const { name } = result.data;
-
-  const workspace = await prisma.workspace.update({
-    where: { id: workspaceId },
-    data: {
-      name,
-      updateTime: new Date(),
-    },
+  const result = await updateWorkspace({
+    actorUserId: user.id,
+    workspaceId,
+    patch: { name } as { name?: string },
+    provenance: { transport: "ui" },
   });
+  if (!result.ok) return errorResponse(result.error, result.status);
 
   return successResponse({
-    id: workspace.id,
-    name: workspace.name,
-    update_time: workspace.updateTime,
+    id: result.data.id,
+    name: result.data.name,
+    update_time: result.data.updateTime,
   });
 }
 
 // DELETE /api/workspaces/[workspaceId] - Delete workspace (ADMIN only)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+// The service requires the workspace's name as a typed confirmation. The web
+// app's dialog is the confirmation step on this surface and sends no body
+// today, so a missing name is filled in from the row; a body carrying
+// `name` (and `reason`) is honored when one arrives.
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -119,10 +128,28 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
 
-  // Delete workspace (cascades to projects, memberships, invites, access keys)
-  await prisma.workspace.delete({
-    where: { id: workspaceId },
+  const body = await readJsonObject(request);
+  let name = typeof body.name === "string" ? body.name : undefined;
+  if (name === undefined) {
+    const current = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+    if (!current) return errorResponse("Workspace not found", 404);
+    name = current.name;
+  }
+
+  const result = await deleteWorkspace({
+    actorUserId: user.id,
+    workspaceId,
+    name,
+    reason: typeof body.reason === "string" ? body.reason : UI_DELETE_REASON,
+    provenance: { transport: "ui" },
   });
+  if (!result.ok) return errorResponse(result.error, result.status);
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PUT = withImpersonationPolicy(handlePUT);
+export const DELETE = withImpersonationPolicy(handleDELETE);

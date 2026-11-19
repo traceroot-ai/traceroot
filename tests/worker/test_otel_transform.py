@@ -2,10 +2,16 @@
 
 import base64
 from datetime import datetime
+from typing import ClassVar
 
 import pytest
 
-from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from tests.fixtures.otel_payloads import (
+    make_attr,
+    make_exception_event,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
@@ -326,6 +332,94 @@ class TestTransformOtelToClickhouse:
 
         assert traces[0]["user_id"] == "child-user"
 
+    def test_git_metadata_from_child_before_root_arrives(self):
+        """Repo/ref should be available during live streaming, not only at trace end."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    name="llm-call",
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/agent"),
+                        make_attr("traceroot.git.ref", "feature/live-debug"),
+                    ],
+                )
+            ]
+        )
+
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert len(traces) == 1
+        assert traces[0]["git_repo"] == "https://github.com/acme/agent"
+        assert traces[0]["git_ref"] == "feature/live-debug"
+
+    def test_root_git_metadata_overrides_child_candidate(self):
+        """If root and child disagree, root remains the authoritative trace value."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    name="tool-call",
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/stale-agent"),
+                        make_attr("traceroot.git.ref", "stale-ref"),
+                    ],
+                ),
+                make_span(
+                    trace_hex,
+                    root_hex,
+                    name="agent-run",
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/agent"),
+                        make_attr("traceroot.git.ref", "main"),
+                    ],
+                ),
+            ]
+        )
+
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert len(traces) == 1
+        assert traces[0]["git_repo"] == "https://github.com/acme/agent"
+        assert traces[0]["git_ref"] == "main"
+
+    def test_child_git_metadata_survives_when_root_has_none(self):
+        """Older or partial root spans should not clear git metadata from child spans."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    name="tool-call",
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/agent"),
+                        make_attr("traceroot.git.ref", "main"),
+                    ],
+                ),
+                make_span(trace_hex, root_hex, name="agent-run"),
+            ]
+        )
+
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert len(traces) == 1
+        assert traces[0]["git_repo"] == "https://github.com/acme/agent"
+        assert traces[0]["git_ref"] == "main"
+
     def test_skip_span_with_missing_ids(self):
         """Spans without traceId/spanId are skipped."""
         payload = {
@@ -455,6 +549,37 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
 
+    def test_decision_span_tokens_and_cost(self):
+        """OpenInference DECISION spans report model and usage under decision.*."""
+        from unittest.mock import patch
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("openinference.span.kind", "DECISION"),
+                        make_attr("decision.model_name", "jev-1.13.0"),
+                        make_attr("decision.token_count.input", 100),
+                        make_attr("decision.token_count.output", 50),
+                    ],
+                )
+            ]
+        )
+        mock_prices = {"input": 0.0000025, "output": 0.00001}
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["span_kind"] == "DECISION"
+        assert spans[0]["model_name"] == "jev-1.13.0"
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["total_tokens"] == 150
+        assert spans[0]["cost"] == pytest.approx(100 * 0.0000025 + 50 * 0.00001)
+
     @pytest.mark.parametrize(
         ("scope_name", "input_attr", "cache_read_attr", "cache_write_attr"),
         [
@@ -486,6 +611,16 @@ class TestTransformOtelToClickhouse:
                 "gen_ai.usage.input_tokens",
                 "gen_ai.usage.details.cache_read_input_tokens",
                 "gen_ai.usage.details.cache_write_tokens",
+            ),
+            # traceroot SDKs' Claude Agent SDK instrumentation spells cache-write
+            # with Anthropic's own "cache_creation" word (python and ts both emit
+            # this exact key); both sum input + cache_read + cache_creation into
+            # llm.token_count.prompt, so the prompt arrives GROSS.
+            (
+                "traceroot.claude-agent-sdk",
+                "llm.token_count.prompt",
+                "llm.token_count.prompt_details.cache_read",
+                "llm.token_count.prompt_details.cache_creation",
             ),
             # Vercel AI SDK: gen_ai totals are emitted natively on doGenerate
             # spans, but cache detail exists only under the raw ai.* namespace.
@@ -879,6 +1014,45 @@ class TestTransformOtelToClickhouse:
         expected = 100 * prices["input"] + 300 * prices["cacheWrite"] + 600 * prices["cacheWrite1h"]
         assert spans[0]["cost"] == pytest.approx(expected)
 
+    def test_cache_write_1h_survives_the_cache_creation_spelling(self):
+        """The 1h sub-bucket is reconciled against the write TOTAL (capped at it),
+        so a missed cache_creation-spelled total would zero the write bucket and
+        clamp the 1h portion away with it — the pair must land together."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000005,
+            "output": 0.000025,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000625,
+            "cacheWrite1h": 0.00001,
+        }
+        # gross input 1000 = 100 uncached + 900 write; of the 900: 600 @1h, 300 remainder.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-opus-4-7"),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 0),
+                        make_attr("llm.token_count.prompt_details.cache_creation", 900),
+                        make_attr("llm.token_count.prompt_details.cache_write_1h", 600),
+                    ],
+                )
+            ],
+            scope_name="traceroot.claude-agent-sdk",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        ud = spans[0]["usage_details"]
+        assert ud["cache_write_tokens"] == 900
+        assert ud["cache_write_1h_tokens"] == 600
+        expected = 100 * prices["input"] + 300 * prices["cacheWrite"] + 600 * prices["cacheWrite1h"]
+        assert spans[0]["cost"] == pytest.approx(expected)
+
     def test_no_1h_portion_omits_key_and_prices_at_combined_rate(self):
         """Regression guard: a span with no 1-hour portion keeps an identical
         usage_details map (key absent, not zero) and the whole write total prices at
@@ -1006,6 +1180,256 @@ class TestGetSpanKindGenAI:
             )
             == "SPAN"
         )
+
+    def test_gen_ai_operation_name_invoke_agent_is_agent(self):
+        assert get_span_kind({"gen_ai.operation.name": "invoke_agent"}, None) == "AGENT"
+
+    def test_invoke_agent_wins_over_model_presence(self):
+        # Semconv agent-invocation roots carry gen_ai.request.model too; the
+        # operation name must decide the kind before the model fallback flips
+        # the span to LLM. Pricing no longer depends on this (the usage gate
+        # keys on the operation name), but the stored kind does.
+        assert (
+            get_span_kind(
+                {
+                    "gen_ai.operation.name": "invoke_agent",
+                    "gen_ai.request.model": "claude-haiku-4-5-20251001",
+                },
+                None,
+            )
+            == "AGENT"
+        )
+
+
+# ── Vercel AI SDK semconv emitter (tracer scope "gen_ai") ──────────────
+
+
+def _semconv_agent_trace_spans(*, with_openinference_kinds: bool):
+    """Span shapes modeled on an ai@7 semconv-telemetry trace.
+
+    The operation root restates its LLM child's usage as an aggregate; the
+    step span carries no usage or model at all.
+
+    Args:
+        with_openinference_kinds (bool): Include openinference.span.kind attrs
+            (present when the openinference-vercel processor ran); omit them to
+            model a raw @ai-sdk/otel export.
+
+    Returns:
+        list: OTLP span dicts for make_otel_payload.
+    """
+    model = "claude-haiku-4-5-20251001"
+
+    def oi(kind):
+        return [make_attr("openinference.span.kind", kind)] if with_openinference_kinds else []
+
+    root = make_span(
+        "aa" * 16,
+        "bb" * 8,
+        name="example-agent.root",
+        attributes=oi("AGENT")
+        + [
+            make_attr("gen_ai.operation.name", "invoke_agent"),
+            make_attr("gen_ai.agent.name", "example-agent.root"),
+            make_attr("gen_ai.request.model", model),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("ai.usage.inputTokenDetails.noCacheTokens", 10),
+        ],
+    )
+    step = make_span(
+        "aa" * 16,
+        "cc" * 8,
+        name="step 1",
+        parent_span_id_hex="bb" * 8,
+        attributes=oi("LLM") + [make_attr("gen_ai.operation.name", "agent_step")],
+    )
+    chat = make_span(
+        "aa" * 16,
+        "dd" * 8,
+        name=f"chat {model}",
+        parent_span_id_hex="cc" * 8,
+        attributes=oi("LLM")
+        + [
+            make_attr("gen_ai.operation.name", "chat"),
+            make_attr("gen_ai.request.model", model),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("ai.usage.inputTokenDetails.noCacheTokens", 10),
+        ],
+    )
+    return [root, step, chat]
+
+
+class TestAggregateUsageSpans:
+    """Agent-invocation and step spans stamp aggregate gen_ai.usage.* totals
+    restating the SUM of their model-call descendants. They are identified by
+    their semconv operation name — not by tracer scope, which the emitting
+    application chooses, nor by span kind, which they do not consistently
+    carry — and neither their reported counts nor their text may be priced."""
+
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0,
+        "cacheWrite": 0.0,
+    }
+
+    def _transform(self, spans, scope_name="gen_ai"):
+        from unittest.mock import patch
+
+        payload = make_otel_payload(spans, scope_name=scope_name)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            return transform_otel_to_clickhouse(payload, "proj-1")
+
+    def _assert_only_chat_priced(self, spans):
+        by_name = {s["name"]: s for s in spans}
+        root = by_name["example-agent.root"]
+        chat = by_name["chat claude-haiku-4-5-20251001"]
+        step = by_name["step 1"]
+
+        # Root contributes nothing — its aggregate restates the chat span.
+        assert (root.get("input_tokens") or 0) == 0
+        assert (root.get("output_tokens") or 0) == 0
+        assert (root.get("cost") or 0) == 0
+        # The model name itself is still kept for display.
+        assert root["model_name"] == "claude-haiku-4-5-20251001"
+
+        # The chat span is priced from its own counts.
+        assert chat["input_tokens"] == 10
+        assert chat["output_tokens"] == 16
+        assert chat["total_tokens"] == 26
+        assert chat["cost"] == pytest.approx(10 * 0.000003 + 16 * 0.000015)
+
+        # The step span has no model and stores nothing.
+        assert (step.get("input_tokens") or 0) == 0
+
+        # Trace-wide sums equal the single real call, not 2x.
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 10
+        assert sum((s.get("output_tokens") or 0) for s in spans) == 16
+
+    def test_semconv_agent_root_aggregate_not_double_counted(self):
+        _, spans = self._transform(_semconv_agent_trace_spans(with_openinference_kinds=True))
+        self._assert_only_chat_priced(spans)
+
+    def test_semconv_shape_without_openinference_kinds(self):
+        """A raw @ai-sdk/otel export has no openinference.span.kind attrs, so the
+        root would otherwise infer LLM from its model attribute. Its usage is
+        skipped on the operation name either way; this pins the classification,
+        which the trace tree and span-kind filters also depend on."""
+        _, spans = self._transform(_semconv_agent_trace_spans(with_openinference_kinds=False))
+        by_name = {s["name"]: s for s in spans}
+        assert by_name["example-agent.root"]["span_kind"] == "AGENT"
+        self._assert_only_chat_priced(spans)
+
+    def test_other_scopes_still_price_agent_spans(self):
+        """Only aggregate operations are skipped. An AGENT span carrying no
+        aggregate operation name is an emitter reporting usage at the wrapper
+        level, which stays authoritative and priced."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="agent run",
+            attributes=[
+                make_attr("openinference.span.kind", "AGENT"),
+                make_attr("gen_ai.request.model", "gpt-4o-mini"),
+                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("gen_ai.usage.output_tokens", 50),
+            ],
+        )
+        _, spans = self._transform([span], scope_name="openinference.instrumentation.openai_agents")
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["cost"] == pytest.approx(100 * 0.000003 + 50 * 0.000015)
+
+    def test_agent_step_aggregate_is_not_priced(self):
+        """A step span aggregates the model calls made inside it, and the
+        emitter marks it LLM — so the span-kind half of the check cannot catch
+        it. The semconv operation name is what identifies the aggregate."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="step 1",
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.operation.name", "agent_step"),
+                make_attr("gen_ai.request.model", "claude-haiku-4-5-20251001"),
+                make_attr("gen_ai.usage.input_tokens", 10),
+                make_attr("gen_ai.usage.output_tokens", 16),
+            ],
+        )
+        _, spans = self._transform([span])
+        assert spans[0]["span_kind"] == "LLM"
+        assert (spans[0].get("input_tokens") or 0) == 0
+        assert (spans[0].get("cost") or 0) == 0
+        # The model name is still kept for display, as on the operation root.
+        assert spans[0]["model_name"] == "claude-haiku-4-5-20251001"
+
+    def test_aggregate_span_text_is_not_estimated_into_tokens(self):
+        """Refusing the aggregate's reported counts must not hand the span to the
+        estimation fallback instead. These spans are LLM-kind and carry the whole
+        conversation, so estimating them invents counts that are wrong twice over:
+        fabricated, and duplicating the children whose text they restate."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="step 1",
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.operation.name", "agent_step"),
+                make_attr("gen_ai.request.model", "claude-haiku-4-5-20251001"),
+                make_attr("gen_ai.usage.input_tokens", 10),
+                make_attr("gen_ai.usage.output_tokens", 16),
+                make_attr("gen_ai.input.messages", "some prompt text " * 40),
+                make_attr("gen_ai.output.messages", "a fairly long response " * 20),
+            ],
+        )
+        _, spans = self._transform([span])
+        assert spans[0].get("input_tokens") is None
+        assert spans[0].get("output_tokens") is None
+        assert spans[0].get("total_tokens") is None
+        assert spans[0].get("cost") is None
+
+    def test_invoke_agent_aggregate_skipped_even_when_labelled_llm(self):
+        """Pricing must not hinge on classification winning the race: an
+        operation root that a processor labelled LLM, under a scope other than
+        "gen_ai", still restates its children and must not be adopted."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="agent run",
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.operation.name", "invoke_agent"),
+                make_attr("gen_ai.request.model", "gpt-4o-mini"),
+                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("gen_ai.usage.output_tokens", 50),
+            ],
+        )
+        _, spans = self._transform([span], scope_name="some-other-emitter")
+        assert (spans[0].get("input_tokens") or 0) == 0
+        assert (spans[0].get("cost") or 0) == 0
+
+    def test_semconv_wrapper_without_an_operation_name_is_still_skipped(self):
+        """Fallback for an emitter version that stops setting the operation name.
+        A non-LLM span on the semconv scope carrying a model and aggregate counts
+        is a wrapper whatever it calls itself, and resuming double-pricing here
+        would be silent — nothing downstream reconciles a trace against its spans."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="some wrapper",
+            attributes=[
+                make_attr("openinference.span.kind", "AGENT"),
+                make_attr("gen_ai.request.model", "claude-haiku-4-5-20251001"),
+                make_attr("gen_ai.usage.input_tokens", 10),
+                make_attr("gen_ai.usage.output_tokens", 16),
+            ],
+        )
+        _, spans = self._transform([span])
+        assert spans[0].get("input_tokens") is None
+        assert spans[0].get("cost") is None
+        assert spans[0]["model_name"] == "claude-haiku-4-5-20251001"
 
 
 # ── GenAI semconv input/output fallback ────────────────────────────────
@@ -1386,8 +1810,8 @@ class TestCacheTokenMetadata:
         assert ud["cache_write_1h_tokens"] == 300
 
     def test_absent_1h_portion_keeps_usage_details_keys_unchanged(self):
-        # No 1-hour portion reported (every span today) -> no extra key is added, so the
-        # stored map is identical to before this change.
+        # No 1-hour portion reported -> no extra key is added, so the stored map
+        # is identical to a pre-split span's.
         payload = make_otel_payload(
             [
                 make_span(
@@ -1403,3 +1827,606 @@ class TestCacheTokenMetadata:
         ud = spans[0]["usage_details"]
         assert "cache_write_1h_tokens" not in ud
         assert set(ud) == {"cache_read_tokens", "cache_write_tokens", "reasoning_tokens"}
+
+
+MANUAL_USAGE_PRICES = {
+    "input": 0.000003,
+    "output": 0.000015,
+    "cacheRead": 0.0000003,
+    "cacheWrite": 0.00000375,
+}
+
+
+class TestManualUsageAttribute:
+    """The SDKs' update-span API serializes usage as JSON into traceroot.llm.usage
+    — the documented token source for self-instrumented spans (custom clients,
+    gateways, proxies), where no instrumentor maps the provider response. These
+    tests pin that the dict feeds the same bucket/pricing pipeline as instrumentor
+    attributes, loses to them whole-dict, and degrades safely when malformed."""
+
+    @staticmethod
+    def _manual_span(usage, *extra):
+        import json
+
+        return make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="custom_llm_call",
+            attributes=[
+                make_attr("traceroot.llm.model", "claude-3-5-sonnet"),
+                make_attr(
+                    "traceroot.llm.usage",
+                    json.dumps(usage) if not isinstance(usage, str) else usage,
+                ),
+                *extra,
+            ],
+        )
+
+    def test_manual_1h_cache_write_portion_is_priced_at_its_own_rate(self):
+        """The 1-hour portion is a sub-partition of the cache-write total, priced at
+        its own higher rate. Nothing else in this class reports it, so without this
+        the key could be dropped from the recognized set and only the cost would
+        move — silently, and in the direction that undercharges."""
+        from unittest.mock import patch
+
+        prices = {**MANUAL_USAGE_PRICES, "cacheWrite1h": 0.000006}
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 10,
+                        "cache_write_tokens": 800,
+                        "cache_write_1h_tokens": 300,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["usage_details"]["cache_write_1h_tokens"] == 300
+        assert span["usage_details"]["cache_write_tokens"] == 800
+        # 200 uncached (1000 gross - 800 written) + the write total split into its
+        # 1-hour portion and the remainder, each at its own rate.
+        expected = (
+            200 * prices["input"]
+            + 300 * prices["cacheWrite1h"]
+            + 500 * prices["cacheWrite"]
+            + 10 * prices["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_manual_usage_feeds_tokens_cache_and_cost(self):
+        from unittest.mock import patch
+
+        # Gross input: 1000 = 50 uncached + 900 cache-read + 50 cache-write.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 200,
+                        "cache_read_tokens": 900,
+                        "cache_write_tokens": 50,
+                        "reasoning_tokens": 150,
+                    },
+                    # Input text present: if estimation ran instead of the manual
+                    # dict, the token counts would come from tiktoken, not 1000/200.
+                    make_attr("traceroot.span.input", "some prompt text " * 50),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 1000
+        assert span["output_tokens"] == 200
+        assert span["usage_details"]["cache_read_tokens"] == 900
+        assert span["usage_details"]["cache_write_tokens"] == 50
+        assert span["usage_details"]["reasoning_tokens"] == 150
+        expected = (
+            50 * MANUAL_USAGE_PRICES["input"]
+            + 900 * MANUAL_USAGE_PRICES["cacheRead"]
+            + 50 * MANUAL_USAGE_PRICES["cacheWrite"]
+            + 200 * MANUAL_USAGE_PRICES["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        ("reported", "expected"),
+        [
+            (0.0123, 0.0123),
+            (0, 0.0),
+            # Unusable values fall back to the list price (None).
+            ("abc", None),
+            ("0.5", None),
+            (-1, None),
+            (True, None),
+            (float("nan"), None),
+        ],
+    )
+    def test_reported_cost_replaces_list_price(self, reported, expected):
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 1000, "output_tokens": 200},
+                    make_attr("llm.cost.total", reported),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        if expected is None:
+            expected = 1000 * MANUAL_USAGE_PRICES["input"] + 200 * MANUAL_USAGE_PRICES["output"]
+        assert span["cost"] == pytest.approx(expected)
+        assert span["input_tokens"] == 1000
+        assert span["output_tokens"] == 200
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "no-model",
+            "tool-span",
+            "agent-span",
+            "wrapper",
+            "wrapper-no-model",
+            "gen-ai-tool",
+            "gen-ai-no-operation",
+        ],
+    )
+    def test_reported_cost_scope(self, case):
+        from unittest.mock import patch
+
+        usage = {"input_tokens": 1000, "output_tokens": 200}
+        cost_attr = make_attr("llm.cost.total", 0.0123)
+        scope = "gen_ai" if case.startswith("gen-ai") else "traceroot"
+        if case == "agent-span":
+            span = self._manual_span(
+                usage, make_attr("openinference.span.kind", "AGENT"), cost_attr
+            )
+            expected = 0.0123
+        elif case == "wrapper":
+            span = self._manual_span(
+                usage, make_attr("gen_ai.operation.name", "invoke_agent"), cost_attr
+            )
+            expected = None
+        elif case == "wrapper-no-model":
+            span = make_span(
+                "aa" * 16,
+                "bb" * 8,
+                attributes=[make_attr("gen_ai.operation.name", "invoke_agent"), cost_attr],
+            )
+            expected = None
+        elif case == "gen-ai-tool":
+            span = make_span(
+                "aa" * 16,
+                "bb" * 8,
+                attributes=[make_attr("gen_ai.operation.name", "execute_tool"), cost_attr],
+            )
+            expected = 0.0123
+        elif case == "gen-ai-no-operation":
+            span = make_span("aa" * 16, "bb" * 8, attributes=[cost_attr])
+            expected = None
+        else:
+            kind = "llm" if case == "no-model" else "tool"
+            span = make_span(
+                "aa" * 16,
+                "bb" * 8,
+                attributes=[make_attr("traceroot.span.type", kind), cost_attr],
+            )
+            expected = 0.0123
+        payload = make_otel_payload([span], scope_name=scope)
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0].get("cost") == pytest.approx(expected)
+
+    def test_manual_net_input_floors_uncached_and_prices_cache_in_full(self):
+        from unittest.mock import patch
+
+        # Anthropic-style NET report: input_tokens excludes cache. The uncached
+        # bucket floors to zero and the gross input reconstructs from the buckets.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 2,
+                        "output_tokens": 204,
+                        "cache_read_tokens": 900,
+                        "cache_write_tokens": 50,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 950  # 0 uncached + 900 + 50
+        expected = (
+            900 * MANUAL_USAGE_PRICES["cacheRead"]
+            + 50 * MANUAL_USAGE_PRICES["cacheWrite"]
+            + 204 * MANUAL_USAGE_PRICES["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_instrumentor_attributes_win_whole_dict(self):
+        from unittest.mock import patch
+
+        # A span carrying both instrumentor totals and a conflicting manual dict
+        # must be priced from the instrumentor values only — including the cache
+        # fields, which must NOT be merged in from the manual dict.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 9999, "output_tokens": 9999, "cache_read_tokens": 9999},
+                    make_attr("gen_ai.usage.input_tokens", 100),
+                    make_attr("gen_ai.usage.output_tokens", 50),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 100
+        assert span["output_tokens"] == 50
+        assert span["usage_details"]["cache_read_tokens"] == 0
+
+    def test_lone_instrumentor_total_also_suppresses_manual_dict(self):
+        from unittest.mock import patch
+
+        # Even a single instrumentor total (only output here) means the span IS
+        # instrumented, so the manual dict must be suppressed whole — not used
+        # to fill the missing input or merge in cache fields.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 9999, "cache_read_tokens": 9999},
+                    make_attr("gen_ai.usage.output_tokens", 50),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 0
+        assert span["output_tokens"] == 50
+        assert span["usage_details"]["cache_read_tokens"] == 0
+
+    def test_malformed_usage_falls_back_to_estimation(self):
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    "not valid json {",
+                    make_attr("traceroot.span.input", "some prompt text " * 50),
+                    make_attr("traceroot.span.output", "a response"),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        # Estimation ran (text-derived counts), and no usage_details map is set
+        # on the estimation path — identical to before this change.
+        assert span["input_tokens"] > 0
+        assert "usage_details" not in span
+
+    def test_invalid_fields_dropped_and_negatives_clamped(self):
+        from worker.otel_transform import parse_manual_usage
+
+        assert parse_manual_usage(
+            '{"input_tokens": "abc", "output_tokens": -5, "cache_read_tokens": 900, '
+            '"unknown_key": 7, "reasoning_tokens": true}'
+        ) == {"output_tokens": 0, "cache_read_tokens": 900}
+        # json.loads accepts literal Infinity/NaN; int(inf) raises OverflowError
+        # (not ValueError), so non-finite fields must drop rather than crash.
+        assert parse_manual_usage(
+            '{"input_tokens": Infinity, "output_tokens": NaN, "cache_read_tokens": 5}'
+        ) == {"cache_read_tokens": 5}
+        # The token columns are Int64 and sums of fields are stored, so absurd
+        # magnitudes must drop — an unbounded int would reject the insert batch.
+        assert parse_manual_usage(
+            '{"input_tokens": 99999999999999999999999999, "output_tokens": 7}'
+        ) == {"output_tokens": 7}
+        assert parse_manual_usage(None) == {}
+        assert parse_manual_usage("[1, 2]") == {}
+        # Deeply-nested JSON raises RecursionError inside json.loads; it must
+        # degrade to "no usage", not crash the ingest task.
+        assert parse_manual_usage("[" * 200_000 + "]" * 200_000) == {}
+
+    def test_unrecognized_usage_fields_are_reported(self, caplog):
+        """A provider token type we do not model yet (audio, image, a new cache
+        variant) is never examined by the parser, so without a warning it vanishes
+        with no signal anywhere. The recognized fields must still parse."""
+        import logging
+
+        from worker.otel_transform import parse_manual_usage
+
+        with caplog.at_level(logging.WARNING):
+            usage = parse_manual_usage('{"input_tokens": 10, "audio_tokens": 7, "image_tokens": 3}')
+        assert usage == {"input_tokens": 10}
+        warning = "\n".join(r.getMessage() for r in caplog.records)
+        assert "audio_tokens" in warning
+        assert "image_tokens" in warning
+
+    def test_fully_recognized_usage_logs_no_warning(self, caplog):
+        import logging
+
+        from worker.otel_transform import parse_manual_usage
+
+        with caplog.at_level(logging.WARNING):
+            parse_manual_usage('{"input_tokens": 10, "output_tokens": 5}')
+        assert not caplog.records
+
+    def test_usage_without_priceable_totals_is_reported(self, caplog):
+        """A dict of only cache or reasoning counts parses cleanly but cannot be
+        priced, so the adoption guard drops it. Say so, rather than repeating the
+        silent discard the field-level warnings exist to prevent."""
+        import logging
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [self._manual_span({"cache_read_tokens": 900, "reasoning_tokens": 10})],
+            scope_name="traceroot",
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES),
+        ):
+            transform_otel_to_clickhouse(payload, "proj-1")
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "cache_read_tokens" in logged
+        assert "no input_tokens or output_tokens" in logged
+
+    def test_model_parameters_and_prompt_flow_to_metadata(self):
+        import json
+
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 10, "output_tokens": 5},
+                    make_attr("traceroot.llm.model_parameters", '{"temperature": 0.2}'),
+                    make_attr("traceroot.llm.prompt", '[{"role": "user"}]'),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        metadata = json.loads(spans[0]["metadata"])
+        assert metadata["traceroot.llm.model_parameters"] == '{"temperature": 0.2}'
+        assert metadata["traceroot.llm.prompt"] == '[{"role": "user"}]'
+        # Extracted keys stay out of metadata.
+        assert "traceroot.llm.model" not in metadata
+        assert "traceroot.llm.usage" not in metadata
+
+
+class TestEnvironmentAttributeTypeGuard:
+    """`traceroot.environment` feeds a Nullable(String) ClickHouse column. A
+    mis-typed SDK attribute (int/list/etc.) must degrade to "not set" rather
+    than reaching the insert layer, where a non-string value would fail
+    serialization and drop the entire batch."""
+
+    def test_string_environment_is_kept_on_span_and_root_trace(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[make_attr("traceroot.environment", "production")],
+                )
+            ]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["environment"] == "production"
+        assert traces[0]["environment"] == "production"
+
+    def test_int_environment_is_dropped_on_span(self):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, attributes=[make_attr("traceroot.environment", 5)])]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in spans[0]
+
+    def test_int_environment_is_dropped_on_root_trace(self):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, attributes=[make_attr("traceroot.environment", 5)])]
+        )
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in traces[0]
+
+    def test_list_environment_is_dropped_on_span_and_root_trace(self):
+        list_attr = {
+            "key": "traceroot.environment",
+            "value": {"arrayValue": {"values": [{"stringValue": "production"}]}},
+        }
+        payload = make_otel_payload([make_span("aa" * 16, "bb" * 8, attributes=[list_attr])])
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in spans[0]
+        assert "environment" not in traces[0]
+
+    def test_bool_environment_is_dropped_on_span(self):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, attributes=[make_attr("traceroot.environment", True)])]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in spans[0]
+
+
+class TestPiExtensionCacheWrite:
+    """traceroot-pi-extension (src/handlers/llm.ts:131-136) reports the write bucket
+    as ``gen_ai.usage.cache_write_input_tokens`` and the read bucket as
+    ``gen_ai.usage.cache_read_input_tokens``. Before the write spelling was
+    accepted, every Pi span stored cache_write_tokens=0 while reads landed.
+
+    Numbers are taken verbatim from a captured local Pi run on gpt-5.6-luna
+    (OpenAI GPT-5.6 writes the new suffix on every call and reads the prior
+    prefix on the next). Pi reports input NET of cache, so the tiny uncached
+    remainder floors to 0 under the buckets rule; that is documented behaviour,
+    not what these tests pin.
+    """
+
+    SCOPE = "@traceroot-ai/pi-extension"
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.00000125,
+        "output": 0.00001,
+        "cacheRead": 0.000000125,
+        "cacheWrite": 0.0000015625,
+    }
+
+    def _pi_span(self, *, input_tokens, output_tokens, cache_read, cache_write):
+        attrs = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("gen_ai.system", "openai"),
+            make_attr("gen_ai.request.model", "gpt-5.6-luna"),
+            make_attr("gen_ai.usage.input_tokens", input_tokens),
+            make_attr("gen_ai.usage.output_tokens", output_tokens),
+            make_attr("gen_ai.usage.cache_read_input_tokens", cache_read),
+            make_attr("gen_ai.usage.cache_write_input_tokens", cache_write),
+        ]
+        return make_span("aa" * 16, "bb" * 8, name="openai/gpt-5.6-luna", attributes=attrs)
+
+    def _transform(self, span):
+        from unittest.mock import patch
+
+        payload = make_otel_payload([span], scope_name=self.SCOPE)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        return spans[0]
+
+    def test_first_call_write_is_stored_not_zeroed(self):
+        # Call 1 of the capture: nothing to read yet, the whole prefix is written.
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=224, cache_read=0, cache_write=3326)
+        )
+        assert s["usage_details"]["cache_read_tokens"] == 0
+        assert s["usage_details"]["cache_write_tokens"] == 3326
+        assert s["input_tokens"] == 3326  # gross = uncached(0, floored) + read + write
+        assert s["output_tokens"] == 224
+        expected = 3326 * self.PRICES["cacheWrite"] + 224 * self.PRICES["output"]
+        assert s["cost"] == pytest.approx(expected)
+
+    def test_steady_state_read_and_write_both_stored(self):
+        # Call 3 of the capture. Its read (3581) is call 2's whole prompt and its
+        # write (834) is call 3's new suffix; call 4 then read 4415 = 3581 + 834.
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=27, cache_read=3581, cache_write=834)
+        )
+        assert s["usage_details"]["cache_read_tokens"] == 3581
+        assert s["usage_details"]["cache_write_tokens"] == 834
+        assert s["input_tokens"] == 4415
+        expected = (
+            3581 * self.PRICES["cacheRead"]
+            + 834 * self.PRICES["cacheWrite"]
+            + 27 * self.PRICES["output"]
+        )
+        assert s["cost"] == pytest.approx(expected)
+
+    def test_explicit_zero_write_is_stored_as_zero(self):
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=20, cache_read=7952, cache_write=0)
+        )
+        assert s["usage_details"]["cache_write_tokens"] == 0
+        assert s["usage_details"]["cache_read_tokens"] == 7952
+
+    def test_malformed_write_value_does_not_crash_or_shadow_read(self):
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=20, cache_read=7952, cache_write="n/a")
+        )
+        assert s["usage_details"]["cache_write_tokens"] == 0
+        assert s["usage_details"]["cache_read_tokens"] == 7952
+
+    def test_cache_creation_spelling_still_wins_when_both_present(self):
+        # Documents priority: the semconv/pi.js "cache_creation" spelling is listed
+        # before the extension's "cache_write" spelling. No emitter sends both today.
+        span = self._pi_span(input_tokens=3, output_tokens=20, cache_read=0, cache_write=999)
+        span["attributes"].append(make_attr("gen_ai.usage.cache_creation_input_tokens", 555))
+        s = self._transform(span)
+        assert s["usage_details"]["cache_write_tokens"] == 555
+
+
+class TestErrorType:
+    """error_type is a bounded group key derived at ingest from the exception event."""
+
+    TRACE = "aa" * 16
+    SPAN = "bb" * 8
+
+    def _transform(self, span: dict) -> dict:
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "proj-1")
+        return spans[0]
+
+    def test_error_span_with_exception_event_stores_type(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("TimeoutError")]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_error_span_without_event_is_unknown(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_error_span_with_event_lacking_type_is_unknown(self):
+        # The last exception event decides; an earlier typed one does not stand in.
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event(exception_type=None, time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_ok_span_ignores_exception_event(self):
+        # A caught-and-recovered exception is not an error.
+        span = make_span(self.TRACE, self.SPAN, status_code=0)
+        span["events"] = [make_exception_event("ValueError")]
+        s = self._transform(span)
+        assert s["status"] == "OK"
+        assert s["error_type"] == ""
+
+    def test_latest_exception_event_wins(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event("TimeoutError", time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_oversized_type_is_truncated(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("E" * 1500)]
+        assert self._transform(span)["error_type"] == "E" * 1024
+
+    def test_non_exception_events_are_skipped(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("TimeoutError"),
+            {"name": "log", "attributes": [make_attr("exception.type", "Decoy")]},
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_string_status_code_format(self):
+        span = make_span(self.TRACE, self.SPAN)
+        span["status"] = {"code": "STATUS_CODE_ERROR", "message": "something failed"}
+        span["events"] = [make_exception_event("KeyError")]
+        assert self._transform(span)["error_type"] == "KeyError"
+
+    def test_ok_span_always_carries_the_field(self):
+        span = make_span(self.TRACE, self.SPAN)
+        assert self._transform(span)["error_type"] == ""

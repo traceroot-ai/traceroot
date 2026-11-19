@@ -5,35 +5,53 @@ import Link from "next/link";
 import {
   type LucideIcon,
   SlidersHorizontal,
-  Users,
   Puzzle,
   CreditCard,
-  Bot,
   Key,
-  Eye,
   ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
-interface SettingsTab {
-  id: string;
+interface SettingsTab<Id extends string = string> {
+  id: Id;
   label: string;
   icon: LucideIcon;
   href: string;
 }
 
-export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
+export type WorkspaceSettingsTab =
+  | "general"
+  | "members"
+  | "model-providers"
+  | "integrations"
+  | "billing";
+export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
+
+export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
-  { id: "members", label: "Members", icon: Users, href: "members" },
-  { id: "model-providers", label: "Model Providers", icon: Bot, href: "model-providers" },
+  { id: "members", label: "Members", icon: DOMAIN_ICONS.user, href: "members" },
+  {
+    id: "model-providers",
+    label: "Model providers",
+    // The model concept, not the agent one — DOMAIN_ICONS.agent is the Bot glyph.
+    icon: DOMAIN_ICONS.model,
+    href: "model-providers",
+  },
   { id: "integrations", label: "Integrations", icon: Puzzle, href: "integrations" },
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ];
 
-export const PROJECT_SETTINGS_TABS: SettingsTab[] = [
+export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
-  { id: "accessKeys", label: "API Keys", icon: Key, href: "accessKeys" },
-  { id: "detectors", label: "Detectors", icon: Eye, href: "detectors" },
+  { id: "accessKeys", label: "API keys", icon: Key, href: "accessKeys" },
+  { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
+];
+
+// User-level (not workspace/project scoped) settings — sessions are a
+// per-account concept, so this tab set lives outside both of the above.
+export const ACCOUNT_SETTINGS_TABS: SettingsTab[] = [
+  { id: "sessions", label: "Active sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
 
 interface CrossLink {
@@ -59,7 +77,7 @@ export function SettingsLayout({
 }: SettingsLayoutProps) {
   return (
     <>
-      <nav className="flex w-40 flex-col border-r">
+      <nav className="flex w-56 shrink-0 flex-col border-r">
         <ul className="flex-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -68,8 +86,8 @@ export function SettingsLayout({
                 <Link
                   href={`${basePath}/${tab.href}`}
                   className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors",
-                    tab.id === activeTab ? "bg-muted" : "hover:bg-muted/50",
+                    "flex h-8 w-full items-center gap-2 px-4 text-[13px] transition-colors",
+                    tab.id === activeTab ? "bg-accent" : "hover:bg-muted",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -83,7 +101,7 @@ export function SettingsLayout({
             <li>
               <Link
                 href={crossLink.href}
-                className="flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors hover:bg-muted/50"
+                className="flex h-8 w-full items-center gap-2 px-4 text-[13px] transition-colors hover:bg-muted"
               >
                 <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{crossLink.label}</span>
@@ -93,7 +111,7 @@ export function SettingsLayout({
         </ul>
       </nav>
 
-      <div className="flex-1 overflow-auto p-6">{children}</div>
+      <div className="flex-1 overflow-auto p-4">{children}</div>
     </>
   );
 }

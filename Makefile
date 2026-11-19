@@ -1,11 +1,25 @@
 # =============================================================================
-# TraceRoot Development
+# traceroot Development
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
-APP_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
+# Secrets docker-compose.prod.yml marks required with ${VAR:?...}. Kept in sync
+# by tests/test_published_secrets.py, which reads both this list and the compose file.
+REQUIRED_SECRETS := INTERNAL_API_SECRET BETTER_AUTH_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD \
+	CLICKHOUSE_PASSWORD MINIO_ROOT_PASSWORD
+# Required too, but generated only when empty or absent and never replaced: stored
+# provider keys and Slack tokens are encrypted under the current value, so swapping it
+# in place would make them unreadable. `make rotate-encryption-key` changes it safely.
+FRESH_ONLY_SECRETS := ENCRYPTION_KEY
+# Values this repository published in .env.example or a compose file. Nobody chose
+# them, so an .env still carrying one is repaired rather than believed. Mirrors
+# PUBLISHED_PLACEHOLDERS in tmux_tools/launcher.py, which the same test pins to this.
+PUBLISHED_PLACEHOLDERS := dev-internal-secret internal-secret your-better-auth-secret \
+	local-dev-secret-change-in-production changeme dev-sql-gateway-bootstrap clickhouse minio-password
+# Only vX.Y.Z tags are platform versions; other tags must not become the label.
+APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset env-secrets env-secrets-unlocked rotate-encryption-key
 
 ## Install repository git hooks for contributors.
 install-hooks:
@@ -22,10 +36,9 @@ dev-autoreload: install-hooks
 
 ## Windows contributors: full dev env without tmux requirement.
 dev-lite: install-hooks
-	@test -f .env || cp .env.example .env
+	@uv run python tmux_tools/launcher.py --env-only
 	@test -d frontend/node_modules || pnpm --dir frontend install
-	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
-	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
+	@sh scripts/with-key-lock.sh sh -c '$(PROD_COMPOSE) run --rm preflight && echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop" && APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build'
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps. Run `make dev` to start again.
 dev-reset:
@@ -37,11 +50,65 @@ dev-reset:
 prod:
 	uv run python tmux_tools/launcher.py --prod
 
+## Give every required secret a value in .env. Needs only openssl, so the
+## self-hosting path stays free of the uv/python toolchain. The generated
+## value reaches awk through its environment, never argv: a process argument
+## list is readable by every local user, a process environment is not.
+##
+## Both awk passes trim carriage returns as well as spaces and tabs, and they
+## agree on where the key name ends. A CRLF .env otherwise compares a value as
+## "published-default\r", which matches no placeholder and reads as configured,
+## leaving the published secret in place for Compose to use.
+##
+## The rewrite happens inside a private directory from `mktemp -d`, not at a
+## path in the checkout. Shell redirection follows a symlink and umask does not
+## protect a target that already exists, so anyone able to write this directory
+## could point the rewrite's target at a file they own and read every secret
+## out of it. Neither removing a predictable name first nor asking mktemp for an
+## unpredictable one closes that: the name can be recreated between the removal
+## and the redirect, and an unpredictable name is still visible to anyone
+## watching the directory once it exists. A 0700 directory removes the
+## opportunity instead of narrowing it -- nobody else can traverse it, so the
+## file inside cannot be swapped.
+##
+## The recipe also refuses outright when `.env` is itself a symlink, checked
+## before it starts and again before each rename. `mv` replaces a symlink to a
+## regular file, but a symlink to a *directory* makes it move the file
+## **inside** that directory, so the secret lands somewhere the link's owner
+## chose. `mv -T` would say "never treat the target as a directory" but is GNU
+## only. Refusing is portable, and a `.env` that is a symlink is an ambiguity
+## this recipe has no business resolving silently.
+env-secrets:
+	@sh scripts/with-key-lock.sh $(MAKE) --no-print-directory env-secrets-unlocked
+
+env-secrets-unlocked:
+	@umask 077; if [ -L .env ]; then printf '%s\n' "env-secrets: .env is a symlink. Refusing to write secrets through it -- replace it with a regular file." >&2; exit 1; fi; test -f .env || cp .env.example .env; chmod 600 .env
+	@umask 077; for key in $(REQUIRED_SECRETS) $(FRESH_ONLY_SECRETS); do \
+		case " $(FRESH_ONLY_SECRETS) " in *" $$key "*) published=""; ;; *) published="$(PUBLISHED_PLACEHOLDERS)"; ;; esac; \
+		current=$$(sh scripts/env-value.sh get "$$key" .env) || exit 1; \
+		case "$$current" in "#"*) current="" ;; esac; \
+		lower=$$(printf '%s' "$$current" | tr 'A-Z' 'a-z'); \
+		placeholder=; for word in $$published; do [ "$$lower" = "$$word" ] && placeholder=1; done; \
+		if [ -n "$$current" ] && [ -z "$$placeholder" ]; then \
+			continue; \
+		fi; \
+		value=$$(openssl rand -hex 32) || exit 1; \
+		tmpdir=$$(mktemp -d "./.env.tmp.XXXXXX") || exit 1; \
+		ENV_VALUE_NEW="$$value" sh scripts/env-value.sh set "$$key" .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
+		if [ -L .env ]; then rm -rf "$$tmpdir"; printf '%s\n' "env-secrets: .env became a symlink while secrets were being generated. Refusing to write through it." >&2; exit 1; fi; \
+		mv "$$tmpdir/env" .env; \
+		rmdir "$$tmpdir"; \
+		echo "Generated $$key in .env"; \
+	done
+
+## Move stored provider keys and Slack tokens to a new encryption key. Needed once on an
+## install whose .env still has the example key; the stack refuses to start until it is done.
+rotate-encryption-key:
+	@MAKE="$(MAKE)" sh scripts/rotate-encryption-key.sh
+
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
-prod-lite:
-	@test -f .env || cp .env.example .env
-	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
-	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
+prod-lite: env-secrets
+	@sh scripts/with-key-lock.sh sh -c '$(PROD_COMPOSE) run --rm preflight && echo "Starting traceroot at http://localhost:3000 - Ctrl+C to stop" && APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build'
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
 prod-reset:

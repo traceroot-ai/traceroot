@@ -1,0 +1,108 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
+import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
+import { prisma, Role } from "@traceroot/core";
+import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { seedDefaultDashboard } from "@/lib/dashboard-seed";
+import { resolveCreatorNames } from "@/lib/dashboard-read";
+import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
+import { supportRequest } from "@/lib/support/request-context";
+
+type RouteParams = { params: Promise<{ projectId: string }> };
+
+const listArgs = (projectId: string) => ({
+  where: { projectId },
+  orderBy: [{ isDefault: "desc" as const }, { createTime: "asc" as const }],
+  select: {
+    id: true,
+    name: true,
+    description: true,
+    isDefault: true,
+    createdBy: true,
+    createTime: true,
+    updateTime: true,
+  },
+});
+
+// Dashboards are shared across a project's members, so the list shows who
+// created each one; a deleted account resolves to null and renders as "—".
+async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
+  const byId = await resolveCreatorNames(dashboards.map((d) => d.createdBy));
+  return dashboards.map(({ createdBy, ...d }) => ({
+    ...d,
+    creator: byId.get(createdBy) ?? null,
+  }));
+}
+
+// GET /api/projects/[projectId]/dashboards — list; lazily seeds the default
+// "Default" dashboard for projects that predate creation-time seeding.
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { user } = auth;
+  const { projectId } = auth.params;
+
+  let dashboards = await prisma.dashboard.findMany(listArgs(projectId));
+
+  // Opening a customer's page must not create resources as a side effect.
+  if (dashboards.length === 0 && !supportRequest.getStore()?.impersonation) {
+    try {
+      await seedDefaultDashboard(prisma, { projectId, actorUserId: user.id });
+    } catch (e) {
+      // Concurrent first-visit: another request already created it (PK clash).
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") throw e;
+    }
+    dashboards = await prisma.dashboard.findMany(listArgs(projectId));
+  }
+
+  return successResponse({ data: await withCreators(dashboards) });
+}
+
+// POST /api/projects/[projectId]/dashboards — create a named dashboard
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
+  const auth = await requireProjectAuth(params, Role.MEMBER);
+  if (auth.error) return auth.error;
+  const { user } = auth;
+  const { projectId } = auth.params;
+
+  const parsed = await parseJsonObject(req);
+  if (parsed.error) return parsed.error;
+  const { name, description } = parsed.body;
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return errorResponse("name must be a non-empty string", 400);
+  }
+  if (name.trim().length > DASHBOARD_NAME_MAX) {
+    return errorResponse(`name must be at most ${DASHBOARD_NAME_MAX} characters`, 400);
+  }
+  if (description !== undefined && description !== null && typeof description !== "string") {
+    return errorResponse("description must be a string", 400);
+  }
+  if (typeof description === "string" && description.length > DASHBOARD_DESCRIPTION_MAX) {
+    return errorResponse(
+      `description must be at most ${DASHBOARD_DESCRIPTION_MAX} characters`,
+      400,
+    );
+  }
+
+  // No duplicate pre-check: uq_dashboard_project_name is the check, and the
+  // only race-free one.
+  let dashboard;
+  try {
+    dashboard = await prisma.dashboard.create({
+      data: {
+        projectId,
+        name: name.trim(),
+        description: (description as string) ?? null,
+        createdBy: user.id,
+      },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A dashboard with this name already exists", 409);
+  }
+  return successResponse({ dashboard }, 201);
+}
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

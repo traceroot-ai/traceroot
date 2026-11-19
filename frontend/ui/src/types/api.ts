@@ -3,6 +3,7 @@
  */
 
 import type { Role, SpanKind, SpanStatus } from "@traceroot/core";
+import type { FilterValue } from "@/features/filters/registry";
 
 export type { Role };
 
@@ -12,6 +13,8 @@ export interface UsageStats {
   spans: number;
   tokens: number;
   updatedAt: string;
+  /** Same rows as traces/spans, split by writer. Absent on workspaces not yet re-metered. */
+  bySource?: Record<"user" | "detector" | "agent", { traces: number; spans: number }>;
   ai?: AIUsageData;
   rca?: RcaUsageData;
   detector?: DetectorUsageData;
@@ -22,10 +25,15 @@ export interface Workspace {
   id: string;
   name: string;
   role: Role;
+  // Public demo: new memberships are VIEWER; existing members retain their roles.
+  // It is not one of the user's own workspaces.
+  is_demo?: boolean;
   member_count?: number;
   project_count?: number;
   create_time: string;
   update_time?: string;
+  // Effective read window, including when billing details are hidden. Null means unlimited.
+  retention_days?: number | null;
   // Billing fields
   billingPlan?: string;
   billingCustomerId?: string | null;
@@ -48,6 +56,7 @@ export interface Project {
   rca_provider?: string | null;
   rca_source?: string | null;
   alert_emails?: string[];
+  alert_window?: string;
   access_key_count?: number;
   delete_time?: string | null;
   create_time: string;
@@ -108,6 +117,14 @@ export interface TraceListItem {
   total_input_tokens?: number;
   total_output_tokens?: number;
   total_cost?: number;
+  /**
+   * Trace-level metadata as an already-parsed map, the source for the list's single
+   * Metadata cell.
+   * Named for the ClickHouse column the backend selects (`metadata_map`), not the legacy
+   * JSON blob (`metadata`) it is derived from. Optional so a payload from an older server
+   * reads as "no metadata to show" rather than breaking the row.
+   */
+  metadata_map?: Record<string, string>;
 }
 
 export interface Span {
@@ -120,6 +137,9 @@ export interface Span {
   span_end_time: string | null;
   status: SpanStatus;
   status_message: string | null;
+  // Exception class name stamped at ingest; "unknown" on ERROR spans without one.
+  // "" when nothing was stamped: OK spans, and spans ingested before this column.
+  error_type: string;
   model_name: string | null;
   cost: number | null;
   input_tokens: number | null;
@@ -182,6 +202,24 @@ export interface TraceListResponse {
   };
 }
 
+/**
+ * A single trace-list filter predicate `{field, key?, op, value}` — the frontend mirror of
+ * the backend predicate IR, serialized into the `?filters=` JSON array. Explicit scalar
+ * operators: categorical `in` (a list of strings; the UI selects one),
+ * numeric `eq`/`gt`/`gte`/`lt`/`lte` (a single number), and text `eq`/`contains` (a string).
+ * A numeric range is two one-sided predicates the backend AND-combines.
+ *
+ * `key` is the metadata key slot: required on a field the registry marks `requires_key`
+ * (`metadata` is the only one), absent on every other field. It reaches ClickHouse as a
+ * bound parameter rather than an identifier, which is why any key the user types is safe
+ * to query and an unrecognized one simply matches nothing.
+ */
+export type Predicate =
+  | { field: string; key?: string; op: "in"; value: string[] }
+  | { field: string; key?: string; op: "gt" | "gte" | "lt" | "lte"; value: number }
+  | { field: string; key?: string; op: "eq"; value: number | string }
+  | { field: string; key?: string; op: "contains"; value: string };
+
 export interface TraceQueryOptions {
   page?: number;
   limit?: number;
@@ -193,6 +231,27 @@ export interface TraceQueryOptions {
   end_before?: string; // ISO timestamp - filter traces before this time
   // Multi-field keyword search (searches trace_id, name, session_id, user_id)
   search_query?: string;
+  // Structured attribute filters, serialized as one URL-encoded JSON array.
+  filters?: Predicate[];
+  // Include offline-evaluation traces, which the backend excludes from the default
+  // list. Keyed off the dedicated `is_evaluation` flag, not `environment`.
+  include_evaluations?: boolean;
+}
+
+/**
+ * One discovered metadata key with how many spans carried it inside the window.
+ *
+ * It IS the categorical distinct-value row — the backend serves both from one model, so
+ * this is an alias rather than a copy that could silently drift out of step with it.
+ */
+export type MetadataKey = FilterValue;
+
+/**
+ * GET /traces/metadata-keys response — the discovery answer behind the metadata filter's
+ * key combobox, its one consumer, frequency-ordered and capped.
+ */
+export interface MetadataKeysResponse {
+  keys: MetadataKey[];
 }
 
 // Session types

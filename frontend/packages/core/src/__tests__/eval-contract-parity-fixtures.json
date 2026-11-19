@@ -1,0 +1,835 @@
+{
+  "_comment": "Shared representative payloads for the eval reporting write contract. BOTH the Zod schemas (eval-contract-parity.drift.test.ts) and the gateway Pydantic models (tests/rest/test_eval_contract_parity.py) are asserted to agree on every verdict here, guarding against drift across the two-hop layers. Keep this the single source of truth; add a case here and both layers must agree. Three buckets: `valid` (both accept), `invalid` (both reject), and `degraded` (both accept AND normalize to the same value, for the display-only vocabularies that catch-to-null instead of rejecting and the non-strict scorer that strips unknown keys - an `expect` path reads `a.0.b` out of the parsed payload, and a missing key reads as null on both sides). What is worth a fixture: required/optional, nullability, enums, strict-unknown-key rejection, non-strict key stripping, numeric bounds, and above all JSON TYPE coercion, where the layers genuinely disagreed - pydantic's lax mode coerced `\"0.5\"`, `\"3\"`, `true` and `1` into numbers and booleans that Zod's non-coercive primitives reject, so the gateway accepted bodies the control plane 400s on. Note `24.0` and `24` are the same JSON value, so an integral float stays VALID on an integer field. Symmetric-by-construction max-length cases are still omitted; the structural roster in eval-contract-shape.json covers bounds, and catches the one-sided OPTIONAL field no fixture can.",
+  "register": {
+    "schema": "RegisterRunRequestSchema",
+    "valid": [
+      {
+        "name": "full",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "dataset_version_id": "dv1",
+          "candidate_version": "git:abc123",
+          "environment": "staging",
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "value_type": "numeric",
+              "direction": "higher_is_better",
+              "threshold": 0.8
+            },
+            {
+              "name": "helpfulness",
+              "version": "v2"
+            }
+          ],
+          "client_run_id": "client-1",
+          "baseline_run_id": "run-prev",
+          "case_count": 24,
+          "metadata": {
+            "model": "claude",
+            "git": {
+              "ref": "abc123"
+            }
+          }
+        }
+      },
+      {
+        "name": "minimal",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123"
+        }
+      },
+      {
+        "name": "explicit_nulls",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_version_id": null,
+          "client_run_id": null,
+          "baseline_run_id": null,
+          "case_count": null,
+          "metadata": null
+        }
+      },
+      {
+        "name": "scorer_with_ignored_extra_key",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "unknown_scorer_field": "x"
+            }
+          ]
+        }
+      },
+      {
+        "name": "llm_judge_scorer_definition",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "scorer_type": "llm_judge",
+              "output_type": "score",
+              "value_type": "numeric",
+              "direction": "higher_is_better",
+              "threshold": 0.7,
+              "model": "claude-sonnet",
+              "description": "Judges whether the answer is grounded in the retrieved context.",
+              "metadata": {
+                "temperature": 0
+              },
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "grade this"
+                },
+                {
+                  "role": "user",
+                  "content": "{{input}}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "code_scorer_definition",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "exact-match",
+              "version": "v1",
+              "scorer_type": "code",
+              "output_type": "classification",
+              "value_type": "boolean",
+              "language": "python",
+              "source": "def score(a, b):\n    return a == b"
+            }
+          ]
+        }
+      },
+      {
+        "name": "case_count_at_js_safe_integer_ceiling",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 9007199254740991
+        }
+      },
+      {
+        "name": "integral_float_case_count",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 24
+        }
+      },
+      {
+        "name": "explicit_evaluation_key",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "evaluation_key": "billing-routing-v2",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123"
+        }
+      },
+      {
+        "name": "scorer_with_semantic_key",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc",
+          "scorers": [
+            {
+              "key": "grade",
+              "name": "covers_both_cities",
+              "version": "v2",
+              "language": "python",
+              "value_type": "numeric",
+              "direction": "lower_is_better",
+              "threshold": 0.62
+            }
+          ]
+        }
+      },
+      {
+        "name": "scorer_with_emitted_metrics",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "value_type": "numeric",
+                  "direction": "lower_is_better",
+                  "threshold": 0.35
+                },
+                {
+                  "name": "coherence",
+                  "value_type": "boolean",
+                  "direction": "higher_is_better"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing_candidate_version",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1"
+        }
+      },
+      {
+        "name": "unknown_top_level_key",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "not_a_field": true
+        }
+      },
+      {
+        "name": "empty_evaluation_name",
+        "payload": {
+          "evaluation_name": "",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123"
+        }
+      },
+      {
+        "name": "negative_case_count",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": -1
+        }
+      },
+      {
+        "name": "scorer_missing_version",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "routing-accuracy"
+            }
+          ]
+        }
+      },
+      {
+        "name": "case_count_as_string",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": "24"
+        }
+      },
+      {
+        "name": "case_count_as_boolean",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": true
+        }
+      },
+      {
+        "name": "case_count_beyond_js_safe_integer",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 9007199254740992
+        }
+      },
+      {
+        "name": "evaluation_name_as_number",
+        "payload": {
+          "evaluation_name": 123,
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123"
+        }
+      },
+      {
+        "name": "scorer_threshold_as_string",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "threshold": "0.5"
+            }
+          ]
+        }
+      },
+      {
+        "name": "scorer_message_with_empty_role",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "messages": [
+                {
+                  "role": "",
+                  "content": "grade this"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "scorer_message_missing_content",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "messages": [
+                {
+                  "role": "system"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "emitted_metric_missing_name",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "value_type": "numeric"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "emitted_metric_bad_direction",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "direction": "up"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "degraded": [
+      {
+        "name": "unrecognised_display_only_vocabularies_become_null",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "scorer_type": "regex",
+              "output_type": "histogram",
+              "language": "go"
+            }
+          ]
+        },
+        "expect": {
+          "scorers.0.scorer_type": null,
+          "scorers.0.output_type": null,
+          "scorers.0.language": null,
+          "scorers.0.name": "faithfulness"
+        }
+      },
+      {
+        "name": "unknown_scorer_key_is_stripped",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "unknown_scorer_field": "x"
+            }
+          ]
+        },
+        "expect": {
+          "scorers.0.unknown_scorer_field": null
+        }
+      }
+    ]
+  },
+  "upsert_result": {
+    "schema": "UpsertResultRequestSchema",
+    "valid": [
+      {
+        "name": "passing_with_scores",
+        "payload": {
+          "test_case_id": "case-1",
+          "trace_id": "trace-aaa",
+          "input": "double charge refund?",
+          "candidate_output": "billing",
+          "expected_output": "billing",
+          "status": "passed",
+          "change": "improved",
+          "scores": [
+            {
+              "scorer_name": "routing-accuracy",
+              "scorer_version": "v3",
+              "numeric_value": 1
+            },
+            {
+              "scorer_name": "helpfulness",
+              "scorer_version": "v2",
+              "numeric_value": 0.9
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_error",
+        "payload": {
+          "test_case_id": "case-2",
+          "input": "invoice never arrived",
+          "candidate_output": null,
+          "status": "errored",
+          "task_error": "ToolTimeout: lookup_invoice timed out",
+          "scores": []
+        }
+      },
+      {
+        "name": "scorer_error",
+        "payload": {
+          "test_case_id": "case-3",
+          "input": "explain the tax line",
+          "candidate_output": "billing",
+          "status": "passed",
+          "scores": [
+            {
+              "scorer_name": "helpfulness",
+              "scorer_version": "v2",
+              "numeric_value": null,
+              "error": "Judge returned malformed JSON"
+            }
+          ]
+        }
+      },
+      {
+        "name": "not_scored",
+        "payload": {
+          "test_case_id": "case-4",
+          "input": "cancel and refund",
+          "candidate_output": "billing",
+          "status": "not_scored",
+          "scores": [
+            {
+              "scorer_name": "routing-accuracy",
+              "scorer_version": "v3",
+              "numeric_value": null,
+              "error": "KeyError"
+            }
+          ]
+        }
+      },
+      {
+        "name": "minimal",
+        "payload": {
+          "test_case_id": "case-5",
+          "input": "where is my order",
+          "status": "passed"
+        }
+      },
+      {
+        "name": "with_duration_cost_and_typed_scores",
+        "payload": {
+          "test_case_id": "case-6",
+          "input": "q",
+          "baseline_output": "old",
+          "status": "passed",
+          "duration_ms": 1200,
+          "cost": 0.0034,
+          "scores": [
+            {
+              "scorer_name": "categorical",
+              "scorer_version": "v1",
+              "string_value": "good",
+              "bool_value": true,
+              "passed": true,
+              "explanation": "looks right"
+            }
+          ]
+        }
+      },
+      {
+        "name": "integral_float_duration",
+        "payload": {
+          "test_case_id": "case-7",
+          "input": "q",
+          "status": "passed",
+          "duration_ms": 1200,
+          "cost": 0
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing_status",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x"
+        }
+      },
+      {
+        "name": "missing_input",
+        "payload": {
+          "test_case_id": "case-1",
+          "status": "passed"
+        }
+      },
+      {
+        "name": "bad_status_enum",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "kinda_passed"
+        }
+      },
+      {
+        "name": "bad_change_enum",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "change": "better"
+        }
+      },
+      {
+        "name": "unknown_top_level_key",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "nope": 1
+        }
+      },
+      {
+        "name": "unknown_score_key",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "bogus": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "negative_duration",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "duration_ms": -5
+        }
+      },
+      {
+        "name": "empty_test_case_id",
+        "payload": {
+          "test_case_id": "",
+          "input": "x",
+          "status": "passed"
+        }
+      },
+      {
+        "name": "input_as_number",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": 123,
+          "status": "passed"
+        }
+      },
+      {
+        "name": "cost_as_string",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "cost": "1.5"
+        }
+      },
+      {
+        "name": "duration_ms_as_boolean",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "duration_ms": true
+        }
+      },
+      {
+        "name": "score_bool_value_as_string",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "bool_value": "yes"
+            }
+          ]
+        }
+      },
+      {
+        "name": "score_passed_as_number",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "passed": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "score_numeric_value_as_string",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "numeric_value": "0.9"
+            }
+          ]
+        }
+      },
+      {
+        "name": "explicit_null_scores",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": null
+        }
+      }
+    ]
+  },
+  "complete": {
+    "schema": "CompleteRunRequestSchema",
+    "valid": [
+      {
+        "name": "full",
+        "payload": {
+          "status": "completed_with_errors",
+          "case_count": 24,
+          "scored_count": 22,
+          "task_error_count": 1,
+          "scorer_error_count": 1
+        }
+      },
+      {
+        "name": "minimal",
+        "payload": {
+          "status": "completed"
+        }
+      },
+      {
+        "name": "integral_float_counts",
+        "payload": {
+          "status": "completed",
+          "case_count": 24,
+          "scored_count": 22
+        }
+      },
+      {
+        "name": "explicit_nulls",
+        "payload": {
+          "status": "failed",
+          "case_count": null,
+          "scored_count": null,
+          "task_error_count": null,
+          "scorer_error_count": null
+        }
+      },
+      {
+        "name": "resolved_scorer_manifest",
+        "payload": {
+          "status": "completed",
+          "scored_count": 3,
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "value_type": "numeric",
+                  "direction": "lower_is_better",
+                  "threshold": 0.35
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing_status",
+        "payload": {}
+      },
+      {
+        "name": "bad_status_enum",
+        "payload": {
+          "status": "done"
+        }
+      },
+      {
+        "name": "unknown_key",
+        "payload": {
+          "status": "completed",
+          "extra": 1
+        }
+      },
+      {
+        "name": "negative_count",
+        "payload": {
+          "status": "completed",
+          "case_count": -2
+        }
+      },
+      {
+        "name": "fractional_count",
+        "payload": {
+          "status": "completed",
+          "scored_count": 1.5
+        }
+      },
+      {
+        "name": "case_count_as_string",
+        "payload": {
+          "status": "completed",
+          "case_count": "3"
+        }
+      },
+      {
+        "name": "scored_count_as_boolean",
+        "payload": {
+          "status": "completed",
+          "scored_count": true
+        }
+      },
+      {
+        "name": "status_as_number",
+        "payload": {
+          "status": 1
+        }
+      },
+      {
+        "name": "scorer_missing_version",
+        "payload": {
+          "status": "completed",
+          "scorers": [
+            {
+              "name": "grade"
+            }
+          ]
+        }
+      }
+    ],
+    "degraded": [
+      {
+        "name": "unknown_emitted_metric_key_is_stripped",
+        "payload": {
+          "status": "completed",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "weight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "expect": {
+          "scorers.0.emitted_metrics.0.weight": null
+        }
+      }
+    ]
+  }
+}

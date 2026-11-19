@@ -1,0 +1,602 @@
+"""Typed request/response models for the public offline-evaluation reporting API.
+
+These mirror the finalized Next.js/Zod contract in
+``frontend/packages/core/src/eval-contract.ts`` field-for-field, so the gateway
+can (a) validate SDK payloads before forwarding and (b) publish a useful,
+codegen-friendly OpenAPI schema. Persistence stays in the Prisma-owned Next.js
+handlers — the gateway forwards the (validated) body on and never duplicates it.
+
+Parity rules with the Zod source:
+- ``z.string().min(1).max(n)`` → ``Field(min_length=1, max_length=n)``.
+- ``z.number().int().nonnegative()`` → ``JsonNonNegativeInt``; ``z.number()`` →
+  ``JsonFloat``; ``z.boolean()`` → ``JsonBool`` (see the JSON-strict scalars below —
+  plain ``int``/``float``/``bool`` would coerce where Zod does not).
+- ``.nullable().optional()`` → ``T | None = None``; ``.default(x)`` → default ``x``.
+- ``z.array(X).max(n)`` → ``list[X]`` with ``max_length=n``.
+- A display-only enum with ``.catch(null)`` → ``Literal[...] | None`` plus a
+  ``mode="before"`` validator that degrades an unrecognised value to ``None``.
+
+Unknown keys: the Zod request schemas are ``.strict()``, but these models are
+deliberately NOT ``extra="forbid"``. They run in the *gateway*, which is contracted
+to forward bodies verbatim to the Prisma-owned Next.js handler that actually
+persists — and FastAPI validates the request model before the handler body runs, so
+a forbid here would 422 a field the gateway does not yet model and it would never
+reach persistence at all. That also breaks rolling deploys: a newer SDK's optional
+field would be rejected by every gateway instance older than it, while the Next.js
+handler it is talking to would have accepted it. Strictness stays on the Zod side,
+where the authoritative writer lives; the caps, vocabularies and shapes below are
+still enforced here so a malformed payload never reaches the control plane.
+
+A cross-language drift test (``tests/rest/test_eval_contract_parity.py`` +
+``eval-contract-parity.drift.test.ts``) feeds the same representative payloads to
+both layers and asserts identical accept/reject verdicts, and compares every model
+here against the shared structural roster (``eval-contract-shape.json``) so that a
+field added or re-bounded on one layer only fails without needing a fixture for it.
+"""
+
+import json
+from typing import Annotated, Any, Literal, get_args
+
+from pydantic import BaseModel, BeforeValidator, Field, ValidationInfo, field_validator
+
+# --- JSON-strict scalars ----------------------------------------------------
+#
+# Pydantic's default (lax) mode coerces across JSON types — ``"0.5"`` validates as
+# a float, ``"3"`` and ``true`` as an int, ``"yes"`` and ``1`` as a bool. Zod's
+# ``z.number()`` / ``z.boolean()`` do none of that. Left alone, the gateway would
+# ACCEPT a body the control plane then 400s on, which is the exact two-hop failure
+# this contract pairing exists to prevent (the gateway forwards the raw, un-normalized
+# bytes upstream, so its coercion never even reaches the writer).
+#
+# Blanket ``ConfigDict(strict=True)`` is the wrong tool: it also rejects ``24.0`` on
+# an int field, which Zod's ``z.number().int()`` accepts — JSON has no int/float
+# distinction, so ``24.0`` and ``24`` are the same wire value. These per-field types
+# reject only the cross-type coercions, keeping the integral-float case valid.
+
+
+def _json_number(v: Any) -> Any:
+    """Reject the values ``z.number()`` rejects: JSON strings and booleans."""
+    if isinstance(v, (bool, str)):
+        raise ValueError("must be a JSON number (a string or boolean is not coerced)")
+    return v
+
+
+def _json_int(v: Any) -> Any:
+    """As ``_json_number``, but also accept an integral float (``24.0`` == ``24`` on the wire)."""
+    if isinstance(v, (bool, str)):
+        raise ValueError("must be a JSON number (a string or boolean is not coerced)")
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    return v
+
+
+def _json_safe_int(v: Any) -> Any:
+    """As ``_json_int``, and within ``Number.isSafeInteger`` as ``z.number().int()`` requires."""
+    v = _json_int(v)
+    if isinstance(v, int) and not -JSON_SAFE_INT_MAX <= v <= JSON_SAFE_INT_MAX:
+        raise ValueError("must be a safe integer (beyond 2^53 - 1 a JSON client loses precision)")
+    return v
+
+
+def _json_bool(v: Any) -> Any:
+    """Reject the values ``z.boolean()`` rejects: everything that is not a JSON boolean."""
+    if not isinstance(v, bool):
+        raise ValueError("must be a JSON boolean (a string or number is not coerced)")
+    return v
+
+
+#: ``z.number()`` — a JSON number, never a coerced string/boolean.
+JsonFloat = Annotated[float, BeforeValidator(_json_number)]
+#: ``z.boolean()`` — a JSON boolean, never a coerced string/number.
+JsonBool = Annotated[bool, BeforeValidator(_json_bool)]
+#: ``Number.MAX_SAFE_INTEGER``. Zod's ``z.number().int()`` is ``Number.isSafeInteger``,
+#: so the control plane rejects anything past this — an unbounded ``int`` here would
+#: accept a count the control plane then 400s on. Python has no such ceiling of its own.
+JSON_SAFE_INT_MAX = 9_007_199_254_740_991
+# The bounds must precede the validator in the Annotated chain: applied after it,
+# pydantic cannot fold `ge`/`le` into the integer/number core schema and publishes raw
+# `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
+#: ``z.number().int().nonnegative()``.
+JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
+#: ``z.number().int()`` — a safe JSON integer, never a coerced string/boolean. Checked in
+#: the validator rather than with ``Field`` bounds, so the published schema stays as it is.
+JsonInt = Annotated[int, BeforeValidator(_json_safe_int)]
+#: ``z.number().nonnegative()``.
+JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
+
+# --- Payload caps (mirror the shared caps at the top of the Zod contract) ----
+
+#: Max characters of a stored text payload (``input``, ``*_output``).
+EVAL_PAYLOAD_TEXT_MAX = 1_000_000
+#: Max characters of a free-form ``metadata`` object once serialized to JSON.
+EVAL_METADATA_MAX = 64_000
+#: Max scorers declared on one run, and max scores sent with one result.
+EVAL_SCORER_LIST_MAX = 200
+#: Max prompt messages, and max characters of each, on an llm_judge descriptor.
+SCORER_MESSAGES_MAX = 50
+SCORER_MESSAGE_CONTENT_MAX = 20_000
+#: Max characters of a code scorer's ``source`` snippet.
+SCORER_SOURCE_MAX = 50_000
+#: Max number (and each length) of ``required_inputs`` a scorer may declare.
+SCORER_REQUIRED_INPUTS_MAX = 20
+SCORER_REQUIRED_INPUT_LEN_MAX = 100
+
+
+def _check_json_size(value: Any, max_chars: int, field: str) -> Any:
+    """Mirror of the Zod ``withinJsonSize`` refinement on free-form JSON fields."""
+    if value is None:
+        return value
+    try:
+        serialized = json.dumps(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be JSON-serializable") from exc
+    if len(serialized) > max_chars:
+        raise ValueError(f"{field} must serialize to at most {max_chars} characters")
+    return value
+
+
+# --- Status vocabularies (mirror the z.enum unions) -------------------------
+
+EvalRunStatus = Literal[
+    "running", "completed", "completed_with_errors", "failed", "incomplete", "cancelled"
+]
+# Inbound validation for the public result-upload route: do not narrow this set, and
+# keep it in step with EVAL_RESULT_STATUSES (the parity fixtures pin both).
+EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
+ResultChange = Literal["improved", "regressed", "unchanged"]
+ScorerValueType = Literal["numeric", "boolean", "categorical"]
+ScorerDirection = Literal["higher_is_better", "lower_is_better", "none"]
+#: Server-supplied metric units, so formatting is not reinvented per client.
+MetricUnit = Literal["$", "tok", "ms", "count"]
+ScorerType = Literal["llm_judge", "code"]
+ScorerOutputType = Literal["score", "classification"]
+ScorerLanguage = Literal["python", "typescript"]
+
+
+class ErrorResponse(BaseModel):
+    """The canonical public error envelope (matches the gateway's normalized shape)."""
+
+    detail: str
+
+
+# --- Scorer + score descriptors ---------------------------------------------
+
+
+class ScorerMessage(BaseModel):
+    """One prompt message of an LLM-judge scorer's definition."""
+
+    role: str = Field(min_length=1, max_length=50)
+    content: str = Field(max_length=SCORER_MESSAGE_CONTENT_MAX)
+
+
+#: The display-only vocabularies that degrade instead of rejecting (see ScorerRef).
+_DISPLAY_ONLY_VARIANTS: dict[str, frozenset[str]] = {
+    "scorer_type": frozenset(get_args(ScorerType)),
+    "output_type": frozenset(get_args(ScorerOutputType)),
+    "language": frozenset(get_args(ScorerLanguage)),
+}
+
+
+SCORER_EMITTED_METRICS_MAX = 20
+
+
+class EmittedMetric(BaseModel):
+    """One metric a scorer DEFINITION emits, with its own comparison policy. The metric
+    ``name`` is the EMITTED-METRIC identity (what a Score row reports as ``scorer_name``),
+    distinct from the scorer DEFINITION name. Mirrors ``EmittedMetricSchema``."""
+
+    name: str = Field(min_length=1, max_length=200)
+    value_type: ScorerValueType | None = None
+    direction: ScorerDirection | None = None
+    threshold: JsonFloat | None = None
+
+
+class ScorerRef(BaseModel):
+    """A scorer's descriptor. ``key`` is the stable SEMANTIC comparison identity
+    (it defaults to ``name`` when omitted — see below); ``name``/``version``/
+    ``language``/``source`` are provenance, NOT identity. The richer metadata is
+    optional and back-compatible (an old SDK sending only ``{name, version}`` stays
+    valid — its ``key`` falls back to ``name``). Mirrors the non-strict
+    ``ScorerRefSchema``, so unknown keys are ignored rather than rejected.
+
+    The DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only
+    Scorer detail render an LLM judge's model + messages or a code scorer's snippet.
+
+    ``scorer_type`` / ``output_type`` / ``language`` are display-only, so an
+    unrecognised value from a newer SDK degrades to ``None`` rather than failing
+    run registration (which would lose the run's every result and score) —
+    matching ``.catch(null)`` on the Zod side. The vocabularies that drive
+    persistence and aggregation still reject.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    version: str = Field(min_length=1, max_length=50)
+    # Stable SEMANTIC scorer identity, independent of function spelling and SDK language
+    # (e.g. `grade` for both `covers_both_cities` (py) and `coversBothCities` (ts)). Additive:
+    # defaults to `name` when omitted. name/language/source/version are provenance, NOT
+    # identity. Declared (not an unknown key) so it survives into the persisted manifest.
+    key: str | None = Field(default=None, min_length=1, max_length=200)
+    value_type: ScorerValueType | None = None
+    direction: ScorerDirection | None = None
+    threshold: JsonFloat | None = None
+    # Metrics this definition emits, each with its own policy. A Score is matched to a
+    # metric by name (Score.scorer_name == emitted_metrics[].name); the top-level
+    # name/value_type/direction/threshold stay valid as an older client's single metric.
+    emitted_metrics: (
+        Annotated[list[EmittedMetric], Field(max_length=SCORER_EMITTED_METRICS_MAX)] | None
+    ) = None
+    # SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
+    scorer_type: ScorerType | None = None
+    output_type: ScorerOutputType | None = None
+    description: str | None = Field(default=None, max_length=2000)
+    # The inputs the scorer actually reads (e.g. "input", "output", "expected"). Free
+    # strings, SDK-reported; the UI interprets known ones (notably whether "expected",
+    # the reference answer, is used). Absent = unknown, never "needs nothing".
+    required_inputs: (
+        Annotated[
+            list[Annotated[str, Field(min_length=1, max_length=SCORER_REQUIRED_INPUT_LEN_MAX)]],
+            Field(max_length=SCORER_REQUIRED_INPUTS_MAX),
+        ]
+        | None
+    ) = None
+    metadata: Any | None = None
+    # llm_judge
+    model: str | None = Field(default=None, max_length=200)
+    messages: list[ScorerMessage] | None = Field(default=None, max_length=SCORER_MESSAGES_MAX)
+    # code
+    language: ScorerLanguage | None = None
+    source: str | None = Field(default=None, max_length=SCORER_SOURCE_MAX)
+
+    @field_validator("scorer_type", "output_type", "language", mode="before")
+    @classmethod
+    def _degrade_unknown_variant(cls, v: Any, info: ValidationInfo) -> Any:
+        allowed = _DISPLAY_ONLY_VARIANTS[str(info.field_name)]
+        return v if isinstance(v, str) and v in allowed else None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _check_metadata_size(cls, v: Any) -> Any:
+        return _check_json_size(v, EVAL_METADATA_MAX, "metadata")
+
+
+class ScoreInput(BaseModel):
+    """One scorer's outcome on one result. ``error`` set = the scorer failed to judge."""
+
+    scorer_name: str = Field(min_length=1, max_length=200)
+    scorer_version: str = Field(min_length=1, max_length=50)
+    numeric_value: JsonFloat | None = None
+    bool_value: JsonBool | None = None
+    string_value: str | None = Field(default=None, max_length=2000)
+    passed: JsonBool | None = None
+    explanation: str | None = Field(default=None, max_length=5000)
+    error: str | None = Field(default=None, max_length=5000)
+
+
+# --- (a) Register / start a run ---------------------------------------------
+
+
+class RegisterRunRequest(BaseModel):
+    """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
+
+    evaluation_name: str = Field(min_length=1, max_length=200)
+    # Stable semantic identity of the evaluation, decoupled from the display name. Runs
+    # sharing (project, evaluation_key) group under one evaluation definition regardless of
+    # SDK language; two evaluations may share a display name under different keys. Additive:
+    # an older SDK omits it and the platform falls back to grouping by evaluation_name.
+    evaluation_key: str | None = Field(default=None, min_length=1, max_length=200)
+    dataset_id: str = Field(min_length=1, max_length=64)
+    # Omit to pin the dataset's current published version.
+    dataset_version_id: str | None = Field(default=None, min_length=1, max_length=64)
+    candidate_version: str = Field(min_length=1, max_length=200)
+    environment: str = Field(default="evaluation", min_length=1, max_length=64)
+    scorers: list[ScorerRef] = Field(default_factory=list, max_length=EVAL_SCORER_LIST_MAX)
+    # SDK-supplied idempotency key.
+    client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
+    baseline_run_id: str | None = Field(default=None, min_length=1, max_length=64)
+    case_count: JsonNonNegativeInt | None = None
+    # Free-form run metadata — arbitrary user key/values, kept verbatim.
+    metadata: dict[str, Any] | None = None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _check_metadata_size(cls, v: Any) -> Any:
+        return _check_json_size(v, EVAL_METADATA_MAX, "metadata")
+
+
+class RegisterRunResponse(BaseModel):
+    evaluation_id: str
+    evaluation_run_id: str
+    run_number: int
+    dataset_version_id: str
+    # UI-relative path "/projects/<projectId>/evaluations/<runId>". Kept for back-compat;
+    # prefer run_url for the printed link.
+    run_path: str
+    # Absolute clickable run URL — run_path resolved against the control plane's public
+    # app origin. Correct regardless of how the API/UI origins are split, so the SDK
+    # should print this verbatim rather than joining run_path to its own host_url. The
+    # gateway proxies the upstream body verbatim, so this is documentation/parity only.
+    run_url: str
+
+
+# --- Dataset reads -----------------------------------------------------------
+
+
+class PublicDataset(BaseModel):
+    """A dataset as the public API describes it.
+
+    Every field is REQUIRED and nullable rather than optional: the route always emits all
+    of them, and a default here would say the key may be absent, which is a different
+    contract from "present and null". The shape roster compares this to the Zod side
+    field-for-field, so the two cannot drift apart on that distinction.
+
+    ``dataset_id`` is the id a CLIENT addresses the dataset by — its own
+    ``client_dataset_id`` when it created the dataset, or the row id for one authored in
+    the UI. ``key`` is the pre-image of that id, so a pulled dataset recovers its key when
+    key and name differ.
+
+    No case count: no dataset read computes one, and deriving it would need an N+1 over
+    versions. It lives on a version, where it is one grouped aggregate.
+    """
+
+    dataset_id: str
+    name: str
+    description: str | None
+    current_dataset_version_id: str | None
+    key: str | None
+    # When the dataset row last changed (ISO 8601).
+    updated_at: str
+
+
+class ListDatasetsResponse(BaseModel):
+    datasets: list[PublicDataset]
+    # Opaque row id. Null at the end, so a client loops until null rather than counting.
+    next_cursor: str | None
+
+
+class PublicDatasetVersion(BaseModel):
+    dataset_version_id: str
+    version_number: JsonInt
+    label: str | None
+    note: str | None
+    case_count: JsonNonNegativeInt
+    created_at: str
+    # Whether this version is the dataset's currently-published one.
+    is_current: JsonBool
+
+
+class ListDatasetVersionsResponse(BaseModel):
+    versions: list[PublicDatasetVersion]
+    next_cursor: str | None
+
+
+class PublicTestCase(BaseModel):
+    """One test case in a version snapshot.
+
+    ``input``/``expected``/``metadata`` are NATIVE JSON values — an object stays an
+    object, a JSON-looking string stays a string — so they are ``Any``, not ``str``.
+    """
+
+    test_case_id: str
+    input: Any
+    expected: Any
+    metadata: Any
+    # Provenance when the case was captured from a trace. Null is normal, not an error.
+    source_trace_id: str | None
+    source_span_id: str | None
+
+
+class GetDatasetVersionResponse(BaseModel):
+    """A version snapshot: the version's identity plus a PAGE of its cases."""
+
+    dataset_version_id: str
+    dataset_id: str
+    version_number: JsonInt
+    label: str | None
+    items: list[PublicTestCase]
+    next_cursor: str | None
+
+
+# --- (a3) List evaluations and their runs ------------------------------------
+
+
+class EvaluationLatestRun(BaseModel):
+    """An evaluation's most recent run, so a listing answers "where does this stand?"."""
+
+    evaluation_run_id: str
+    run_number: JsonInt
+    status: EvalRunStatus
+    started_at: str
+
+
+class PublicEvaluation(BaseModel):
+    """One evaluation lineage: a stable purpose, re-run over time.
+
+    Identity and counts only. Scores belong to a run — a lineage has no single headline
+    score, and averaging across runs would invent one.
+    """
+
+    evaluation_id: str
+    name: str
+    # The SDK's own key for the lineage: what it re-uses to report the next run.
+    evaluation_key: str
+    # The id a CLIENT addresses the dataset by, as every dataset read reports it.
+    dataset_id: str
+    run_count: JsonNonNegativeInt
+    # Null for a lineage nothing has run yet: an empty lineage is information, not an error.
+    latest_run: EvaluationLatestRun | None
+    created_at: str
+    updated_at: str
+
+
+class ListEvaluationsResponse(BaseModel):
+    evaluations: list[PublicEvaluation]
+    # Opaque row id. Null at the end, so a client loops until null rather than counting.
+    next_cursor: str | None
+
+
+class PublicEvaluationRun(BaseModel):
+    """One run as the LISTING reports it: identity, where it ran, and how it ended.
+
+    No counts, means, cost or duration. Those are aggregates over a run's results, so a page
+    of runs would be a page of aggregate queries; the run read answers them one run at a
+    time.
+    """
+
+    evaluation_run_id: str
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_key: str
+    run_number: JsonInt
+    candidate_version: str
+    environment: str
+    status: EvalRunStatus
+    dataset_id: str
+    dataset_version_id: str
+    started_at: str
+    # Null while the run is still going, as on the run read.
+    completed_at: str | None
+
+
+class ListEvaluationRunsResponse(BaseModel):
+    runs: list[PublicEvaluationRun]
+    next_cursor: str | None
+
+
+# --- (a2) Read a run's summary ----------------------------------------------
+
+
+class RunMetricItem(BaseModel):
+    """One score or one derived metric. Identical shape for both: they differ in
+    PROVENANCE (a scorer reported it vs the platform derived it from the trace), not in
+    structure, and a client renders them the same way.
+
+    ``value`` is the run's own mean over ``observed_count`` results, and null rather than
+    0 when nothing was observed — "no data" and "measured zero" are different facts and
+    must stay distinguishable.
+    """
+
+    name: str
+    # Server-supplied so formatting is not reinvented per client. Null for a score: a
+    # [0,1] score is a CONVENTION, not a unit.
+    unit: MetricUnit | None = None
+    direction: ScorerDirection
+    value_type: ScorerValueType = Field(
+        description=(
+            "The scorer's declared kind, else the kind it stored. Every derived metric is numeric."
+        )
+    )
+    value: JsonFloat | None = Field(
+        default=None,
+        description=(
+            "The run's own mean over observed_count results. Null when nothing was observed, "
+            "and always for a categorical score or one that stored labels and numbers together."
+        ),
+    )
+    observed_count: JsonNonNegativeInt = Field(
+        description="How many results reported a usable value for this score or metric."
+    )
+
+
+class ReadRunResponse(BaseModel):
+    """A run's SUMMARY — deliberately no per-case rows, so the payload is bounded by
+    scorer count rather than case count and needs no truncation flag."""
+
+    evaluation_run_id: str
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_key: str | None = None
+    run_number: JsonInt
+    candidate_version: str
+    environment: str
+    status: EvalRunStatus
+    started_at: str
+    completed_at: str | None = None
+    dataset_id: str
+    dataset_version_id: str
+    # UI-relative path; the backend owns the route shape. Prefer run_url for a printed
+    # link — joining this to a client's own host only resolves on a shared origin.
+    run_path: str
+    # Absolute clickable URL, returned so a client never RECONSTRUCTS one: the run and
+    # compare pages are client-side routes whose only builders live in the browser UI.
+    run_url: str
+    # The OBSERVED population — every result the run reported, and a different fact
+    # from the run's DECLARED case_count.
+    result_count: JsonNonNegativeInt
+    # The SDK reports these three when the run completes. Null until then, so a count
+    # nobody has reported yet isn't read as a real 0.
+    scored_count: JsonNonNegativeInt | None
+    task_error_count: JsonNonNegativeInt | None
+    scorer_error_count: JsonNonNegativeInt | None
+    # A case is errored or not_scored; passed and failed are older statuses, so these two
+    # are usually 0. A scorer's own pass rate is in ``scores``.
+    passed_count: JsonNonNegativeInt
+    failed_count: JsonNonNegativeInt
+    errored_count: JsonNonNegativeInt
+    not_scored_count: JsonNonNegativeInt
+    scores: list[RunMetricItem] = Field(default_factory=list)
+    metrics: list[RunMetricItem] = Field(default_factory=list)
+
+
+# --- (b) Upsert one test-case result with scores ----------------------------
+
+
+class UpsertResultRequest(BaseModel):
+    """Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).
+    ``trace_id`` may be null now and set on a later call (out-of-order arrival).
+
+    ``scores`` is genuinely optional and carries three distinct meanings, so the
+    out-of-order flow (POST the result with its scores, then re-POST later just to
+    attach the OTel ``trace_id``) cannot destroy them: absent → leave the existing
+    scores untouched, ``[]`` → clear them, non-empty → replace them. Do not give
+    this a ``default_factory=list``, which would collapse the first two cases.
+
+    Every optional field is a *partial* update: a key the caller omits keeps its
+    stored value, while an explicit null clears it. Sending ``scores`` replaces
+    the result's scores (``[]`` clears them); omitting it leaves them alone.
+    """
+
+    test_case_id: str = Field(min_length=1, max_length=64)
+    trace_id: str | None = Field(default=None, min_length=1, max_length=64)
+    input: str = Field(max_length=EVAL_PAYLOAD_TEXT_MAX)
+    expected_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
+    candidate_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
+    baseline_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
+    status: EvalResultStatus
+    change: ResultChange | None = None
+    task_error: str | None = Field(default=None, max_length=10000)
+    duration_ms: JsonNonNegativeInt | None = None
+    cost: JsonNonNegativeFloat | None = None
+    # None (absent) and [] (explicit clear) mean different things to the writer, so
+    # this deliberately has no default_factory. The annotation is NOT ``| None``: the
+    # Zod field is ``.optional()`` and not ``.nullable()``, so an explicit
+    # ``"scores": null`` is a 400 upstream and must not be accepted (and forwarded)
+    # here. Absence is carried by the default, which pydantic never validates, so the
+    # attribute is still ``None`` when the key was omitted.
+    scores: list[ScoreInput] = Field(default=None, max_length=EVAL_SCORER_LIST_MAX)
+
+
+class UpsertResultResponse(BaseModel):
+    evaluation_result_id: str
+
+
+# --- (c) Complete / finalize a run ------------------------------------------
+
+
+class CompleteRunRequest(BaseModel):
+    """Complete/fail a run, reporting final completeness counts."""
+
+    status: EvalRunStatus
+    case_count: JsonNonNegativeInt | None = None
+    scored_count: JsonNonNegativeInt | None = None
+    task_error_count: JsonNonNegativeInt | None = None
+    scorer_error_count: JsonNonNegativeInt | None = None
+    # The RESOLVED scorer manifest discovered during execution — merged (by definition
+    # name) into the stored manifest so each emitted metric's policy is present for
+    # read-back. Additive + idempotent. Mirrors the Zod field.
+    scorers: Annotated[list[ScorerRef], Field(max_length=EVAL_SCORER_LIST_MAX)] | None = None
+
+
+class CompleteRunResponse(BaseModel):
+    evaluation_run_id: str
+    # Echoes the persisted run status.
+    status: EvalRunStatus

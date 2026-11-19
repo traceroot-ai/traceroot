@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { InlineMedia, mediaSrc } from "./inline-media";
+import { AttachmentImage, InlineMedia, attachmentHash, mediaSrc } from "./inline-media";
 import {
   STRING_TRUNCATE_AT,
   shouldAutoExpand,
@@ -84,7 +84,7 @@ function CollapsibleNode({
         className="cursor-pointer text-left align-baseline"
       >
         <span className="text-muted-foreground">{open}</span>
-        <span className="mx-0.5 text-[10px] text-muted-foreground">
+        <span className="mx-0.5 text-[12px] text-muted-foreground">
           {count} {count === 1 ? "item" : "items"}
         </span>
         <span className="text-muted-foreground">{close}</span>
@@ -135,6 +135,12 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     const media = mediaSrc(value);
     if (media) {
       return <InlineMedia {...media} />;
+    }
+
+    // A stored image's reference renders as the image when the span is known.
+    const hash = attachmentHash(value);
+    if (hash) {
+      return <AttachmentImage hash={hash} fallback={<TruncatableString value={value} />} />;
     }
 
     // Try to parse JSON strings and render them as structured objects
