@@ -59,7 +59,7 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
     }
 
     supervisor = create_deep_agent(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5-5",
         system_prompt="You are a research supervisor. Delegate tasks to sub-agents and synthesise their outputs.",
         subagents=[research_subagent],
     )
@@ -81,7 +81,7 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
     import { ChatAnthropic } from '@langchain/anthropic';
     import { HumanMessage } from '@langchain/core/messages';
 
-    const llm = new ChatAnthropic({ model: 'claude-sonnet-4-20250514', temperature: 0 });
+    const llm = new ChatAnthropic({ model: 'claude-sonnet-5-5' });
 
     const researchSubAgent: SubAgent = {
       name: 'research-agent',
