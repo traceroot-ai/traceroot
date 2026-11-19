@@ -1,208 +1,40 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
-
-const wordmark = vi.hoisted(() => ({ mount: vi.fn(), dispose: vi.fn() }));
-
-vi.mock("./footer-wordmark.runtime.js", () => {
-  (globalThis as Record<string, unknown>).TraceRootFooterWordmark = {
-    mountFooterWordmark: (canvas: HTMLCanvasElement) => {
-      wordmark.mount(canvas);
-      return wordmark.dispose;
-    },
-  };
-  return {};
-});
-
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render } from "@testing-library/react";
 import { PixelField, PixelWordmark, YCBadge } from "./pixel-art";
 
-const FACES = ["#9ee1db", "#2fbdb3", "#0f827d"];
-const ACCENT = "#14b8b0";
+afterEach(cleanup);
 
-type Fill = { style: string; alpha: number; x: number; y: number };
-
-let fills: Fill[];
-let nextFrame: FrameRequestCallback | null;
-let onVisibility: (entries: { isIntersecting: boolean }[]) => void;
-let onMotion: () => void;
-let onResize: () => void;
-let reduceMotion: boolean;
-let size: { width: number; height: number };
-const disconnects = { intersection: vi.fn(), resize: vi.fn() };
-
-function fakeContext() {
-  const ctx = {
-    globalAlpha: 1,
-    fillStyle: "",
-    clearRect: () => (fills = []),
-    setTransform: vi.fn(),
-    fillRect: (x: number, y: number) =>
-      fills.push({ style: String(ctx.fillStyle), alpha: ctx.globalAlpha, x, y }),
-  };
-  return ctx;
-}
-
-function runFrame(now: number) {
-  const frame = nextFrame;
-  nextFrame = null;
-  frame?.(now);
-}
-
-beforeEach(() => {
-  fills = [];
-  nextFrame = null;
-  reduceMotion = false;
-  size = { width: 800, height: 900 };
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () => fakeContext() as unknown as CanvasRenderingContext2D,
-  );
-  vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockImplementation(
-    () => ({ ...size }) as DOMRect,
-  );
-  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-    nextFrame = cb;
-    return 1;
-  });
-  vi.stubGlobal("cancelAnimationFrame", () => (nextFrame = null));
-  vi.stubGlobal(
-    "IntersectionObserver",
-    class {
-      constructor(cb: typeof onVisibility) {
-        onVisibility = cb;
-      }
-      observe() {
-        onVisibility([{ isIntersecting: true }]);
-      }
-      disconnect = disconnects.intersection;
-    },
-  );
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      constructor(cb: () => void) {
-        onResize = cb;
-      }
-      observe() {}
-      disconnect = disconnects.resize;
-    },
-  );
-  vi.stubGlobal("matchMedia", () => ({
-    get matches() {
-      return reduceMotion;
-    },
-    addEventListener: (_: string, handler: () => void) => (onMotion = handler),
-    removeEventListener: vi.fn(),
-  }));
-});
-
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+const asset = (name: string) =>
+  readFileSync(resolve(__dirname, "../../../public/images", name), "utf8");
 
 describe("PixelField", () => {
-  it("draws the three cube faces and the share-image field", () => {
-    render(<PixelField />);
-    runFrame(0);
-    const styles = new Set(fills.map((f) => f.style));
-    for (const face of FACES) expect(styles).toContain(face);
-    const field = fills.filter((f) => f.style === ACCENT);
-    expect(field.length).toBeGreaterThan(0);
-    // The field hangs from the top edge, no further than 45% down, around the logo's corner.
-    expect(Math.min(...field.map((f) => f.y))).toBe(0);
-    expect(Math.max(...field.map((f) => f.y))).toBeLessThan(size.height * 0.45);
-    expect(field.some((f) => f.x < 264 && f.y < 128)).toBe(false);
+  it("draws the design's field from the top edge at its own proportions", () => {
+    const { container } = render(<PixelField />);
+    const field = container.firstElementChild as HTMLElement;
+    expect(field.getAttribute("aria-hidden")).toBe("true");
+    expect(field.className).toContain("bg-[url(/images/auth-pixel-field.svg)]");
+    expect(field.className).toContain("aspect-[769/400]");
+    expect(field.className).toContain("top-0");
   });
 
-  it("leaves empty space around each cube", () => {
-    render(<PixelField />);
-    runFrame(0);
-    const cubeCells = fills.filter((f) => FACES.includes(f.style) && f.alpha === 1);
-    const field = fills.filter((f) => f.style === ACCENT);
-    expect(cubeCells.length).toBeGreaterThan(0);
-    // No field cell sits within two cells of a cube cell.
-    const crowded = field.filter((f) =>
-      cubeCells.some((c) => Math.abs(c.x - f.x) <= 16 && Math.abs(c.y - f.y) <= 16),
-    );
-    expect(crowded).toEqual([]);
-  });
-
-  it("keeps the field to the bottom edge on narrow panels", () => {
-    size = { width: 390, height: 232 };
-    render(<PixelField />);
-    runFrame(0);
-    const field = fills.filter((f) => f.style === ACCENT);
-    expect(field.length).toBeGreaterThan(0);
-    expect(Math.min(...field.map((f) => f.y))).toBeGreaterThanOrEqual(232 - 5 * 8);
-  });
-
-  it("sweeps comets across the field and wraps them back to the left", () => {
-    size = { width: 400, height: 80 };
-    render(<PixelField />);
-    let swept = false;
-    for (let i = 0; i < 60; i++) {
-      runFrame(i * 50);
-      swept ||= fills.some((f) => f.style === "#0f827d" && f.alpha < 1);
-    }
-    expect(swept).toBe(true);
-  });
-
-  it("draws one still frame and stops under reduced motion", () => {
-    reduceMotion = true;
-    render(<PixelField />);
-    runFrame(0);
-    expect(fills.length).toBeGreaterThan(0);
-    expect(nextFrame).toBeNull();
-    expect(fills.some((f) => f.style === "#0f827d" && f.alpha < 1)).toBe(false);
-  });
-
-  // Resizing clears the canvas; a still frame would otherwise stay blank.
-  it("repaints a still frame after a resize", () => {
-    reduceMotion = true;
-    render(<PixelField />);
-    runFrame(0);
-    size = { width: 600, height: 700 };
-    onResize();
-    fills = [];
-    runFrame(16);
-    expect(fills.length).toBeGreaterThan(0);
-  });
-
-  it("restarts when the motion preference changes", () => {
-    reduceMotion = true;
-    render(<PixelField />);
-    runFrame(0);
-    reduceMotion = false;
-    onMotion();
-    expect(nextFrame).not.toBeNull();
-  });
-
-  it("pauses offscreen and cleans up on unmount", () => {
-    const { unmount } = render(<PixelField />);
-    onVisibility([{ isIntersecting: false }]);
-    expect(nextFrame).toBeNull();
-    unmount();
-    expect(disconnects.intersection).toHaveBeenCalled();
-    expect(disconnects.resize).toHaveBeenCalled();
-  });
-
-  it("waits for a size before drawing", () => {
-    size = { width: 0, height: 0 };
-    render(<PixelField />);
-    runFrame(0);
-    expect(fills).toHaveLength(0);
+  it("ships the artwork at the size its classes assume", () => {
+    expect(asset("auth-pixel-field.svg")).toMatch(/^<svg [^>]*viewBox="0 0 769 400"/);
   });
 });
 
 describe("PixelWordmark", () => {
-  it("mounts the wordmark runtime on its canvas and disposes it on unmount", async () => {
-    const { getByRole, unmount } = render(<PixelWordmark />);
-    const canvas = getByRole("img", { name: "traceroot" });
-    await waitFor(() => expect(wordmark.mount).toHaveBeenCalledWith(canvas));
-    expect(canvas.style.getPropertyValue("--wm-ink")).toBe(ACCENT);
-    unmount();
-    expect(wordmark.dispose).toHaveBeenCalled();
+  it("is an image named traceroot drawn from the design's wordmark", () => {
+    const { getByRole } = render(<PixelWordmark />);
+    const wordmark = getByRole("img", { name: "traceroot" });
+    expect(wordmark.className).toContain("bg-[url(/images/auth-pixel-wordmark.svg)]");
+    expect(wordmark.className).toContain("aspect-[538/76]");
+  });
+
+  it("ships the artwork at the size its classes assume", () => {
+    expect(asset("auth-pixel-wordmark.svg")).toMatch(/^<svg [^>]*viewBox="0 0 538 76"/);
   });
 });
 

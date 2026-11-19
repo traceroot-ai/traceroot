@@ -2,7 +2,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRef } from "react";
-import { AuthBrandPanel, AuthError, AuthField, AuthLayout, PasswordInput } from "./auth-layout";
+import {
+  AgentIdNote,
+  AuthBrandPanel,
+  AuthError,
+  AuthField,
+  AuthLayout,
+  AuthProviderButton,
+  PasswordInput,
+} from "./auth-layout";
 
 afterEach(() => {
   cleanup();
@@ -19,13 +27,6 @@ describe("AuthBrandPanel", () => {
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual(["trace", "detect", "signals", "verify", "back to your agent in production"]);
-  });
-
-  // Browsers without a 2D canvas context (and jsdom) get the static panel.
-  it("renders without a canvas context", () => {
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-    expect(() => render(<AuthBrandPanel />)).not.toThrow();
-    expect(screen.getByText("Backed by Y Combinator")).toBeTruthy();
   });
 });
 
@@ -94,5 +95,38 @@ describe("AuthError", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     rerender(<AuthError message="Invalid credentials" />);
     expect(screen.getByRole("alert").textContent).toBe("Invalid credentials");
+  });
+});
+
+describe("AuthProviderButton", () => {
+  it("is disabled, with the reason as its tooltip, until it has a flow to start", () => {
+    render(<AuthProviderButton icon={null} label="Continue with X" unavailableReason="Not yet" />);
+    const button = screen.getByRole("button", { name: "Continue with X" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe("Not yet");
+  });
+
+  it("starts its flow once it has one", () => {
+    const onClick = vi.fn();
+    render(<AuthProviderButton icon={null} label="Continue with X" onClick={onClick} />);
+    const button = screen.getByRole("button", { name: "Continue with X" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.title).toBe("");
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+});
+
+describe("AgentIdNote", () => {
+  it("keeps its action disabled without a flow and runs it once given one", () => {
+    const { rerender } = render(<AgentIdNote />);
+    const action = () =>
+      screen.getByRole("button", { name: "Continue with AgentID" }) as HTMLButtonElement;
+    expect(action().disabled).toBe(true);
+    const onClick = vi.fn();
+    rerender(<AgentIdNote onClick={onClick} />);
+    expect(action().disabled).toBe(false);
+    fireEvent.click(action());
+    expect(onClick).toHaveBeenCalledOnce();
   });
 });

@@ -34,7 +34,7 @@ export function AuthLayout({
         </div>
       )}
       <AuthBrandPanel />
-      <main className="flex justify-center px-5 py-7 lg:items-center lg:p-8">
+      <main className="flex justify-center px-5 py-7 lg:items-center lg:p-8 lg:pb-[34px]">
         <div className="w-full max-w-[360px]">{children}</div>
       </main>
     </div>
@@ -46,7 +46,7 @@ const LOOP = ["trace", "detect", "signals", "verify"];
 /** Left side of the auth pages: the website's pixel art, tagline and improvement loop. */
 export function AuthBrandPanel() {
   return (
-    <section className="relative flex min-h-[264px] flex-col justify-between overflow-hidden border-b border-border bg-[radial-gradient(900px_520px_at_78%_12%,hsl(var(--brand-soft)),transparent_70%)] px-5 py-5 lg:min-h-screen lg:justify-start lg:border-b-0 lg:border-r lg:px-10 lg:py-10">
+    <section className="relative flex min-h-[264px] flex-col justify-between overflow-hidden border-b border-border px-5 py-5 lg:min-h-screen lg:justify-start lg:border-b-0 lg:border-r lg:px-10 lg:py-10">
       <PixelField />
 
       <div className="relative flex items-center">
@@ -54,15 +54,15 @@ export function AuthBrandPanel() {
       </div>
 
       <div className="relative mt-[100px] max-w-[560px] lg:mt-auto">
-        <PixelWordmark className="-ml-1.5 lg:max-w-[540px]" />
-        <p className="mt-[18px] hidden max-w-[560px] text-[17px] leading-[26px] text-muted-foreground lg:block">
+        <PixelWordmark className="lg:w-[538px]" />
+        <p className="mt-5 hidden max-w-[560px] text-[17px] leading-[26px] text-muted-foreground lg:-ml-px lg:block">
           The open-source platform that{" "}
           <span className="font-medium text-foreground">continuously improves</span> your AI agents.
         </p>
-        <LoopDiagram className="mt-[30px] hidden lg:block" />
+        <LoopDiagram className="mt-[30px] hidden lg:-ml-[0.5px] lg:block" />
       </div>
 
-      <div className="relative hidden lg:mt-[clamp(40px,15vh,134px)] lg:flex">
+      <div className="relative hidden lg:mt-[clamp(40px,15vh,132px)] lg:flex">
         <YCBadge />
       </div>
     </section>
@@ -133,9 +133,9 @@ function LoopDiagram({ className }: { className?: string }) {
 
 export function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="mb-8">
-      <h1 className="text-[24px] font-semibold leading-7 tracking-[-0.02em]">{title}</h1>
-      <p className="mt-2 text-[14px] text-muted-foreground">{subtitle}</p>
+    <div className="mb-[31px]">
+      <h1 className="text-[24px] font-[600] leading-7 tracking-[-0.02em]">{title}</h1>
+      <p className="mt-1.5 text-[14px] text-muted-foreground">{subtitle}</p>
     </div>
   );
 }
@@ -158,7 +158,7 @@ export function AuthField({
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between">
-        <label htmlFor={id} className="block text-[13px] font-medium">
+        <label htmlFor={id} className="block text-[13px] font-medium leading-5">
           {label}
         </label>
         {action}
@@ -181,6 +181,58 @@ export function AuthError({ message }: { message: string | null }) {
   );
 }
 
+/**
+ * One "Continue with …" button. A provider whose sign-in flow isn't available yet
+ * passes no `onClick`: the button still shows, disabled, so it never starts a flow
+ * that can't finish.
+ */
+export function AuthProviderButton({
+  icon,
+  label,
+  onClick,
+  isLoading = false,
+  unavailableReason,
+  className,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick?: () => void;
+  isLoading?: boolean;
+  /** Shown as a tooltip while the button is disabled for lack of a flow. */
+  unavailableReason?: string;
+  /** Merged into the button's classes. */
+  className?: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className={cn("h-8 w-full gap-2 text-[13px]", className)}
+      onClick={onClick}
+      disabled={!onClick || isLoading}
+      title={onClick ? undefined : unavailableReason}
+    >
+      {icon}
+      {isLoading ? "Redirecting..." : label}
+    </Button>
+  );
+}
+
+/** The "or" rule between the provider buttons and the email form. */
+export function AuthDivider({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        "my-5 flex items-center gap-2.5 font-mono text-[11px] uppercase leading-none tracking-[0.04em] text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border",
+        className,
+      )}
+    >
+      or
+    </div>
+  );
+}
+
 /** "Continue with Google" followed by the "or" divider that leads into the email form. */
 export function GoogleAuthOption({
   onClick,
@@ -197,26 +249,44 @@ export function GoogleAuthOption({
 }) {
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className={cn("h-8 w-full gap-2 text-[13px]", className)}
+      <AuthProviderButton
+        icon={<GoogleLogo />}
+        label="Continue with Google"
         onClick={onClick}
-        disabled={isLoading}
-      >
-        <GoogleLogo />
-        {isLoading ? "Redirecting..." : "Continue with Google"}
-      </Button>
-      <div
-        className={cn(
-          "my-5 flex items-center gap-2.5 font-mono text-[11px] uppercase leading-none tracking-[0.04em] text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border",
-          dividerClassName,
-        )}
-      >
-        or
-      </div>
+        isLoading={isLoading}
+        className={className}
+      />
+      <AuthDivider className={dividerClassName} />
     </>
+  );
+}
+
+/**
+ * "Signing up an AI agent? Continue with AgentID", under the sign-up button. Until
+ * the AgentID flow is available, `onClick` is left out and the action shows disabled.
+ */
+export function AgentIdNote({ onClick, className }: { onClick?: () => void; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-10 flex-wrap items-center justify-center gap-x-[10px] gap-y-1 rounded-[2px] border border-border bg-[#f7fafa] px-3 py-2 text-[13px] leading-4 text-[#35393b] dark:bg-muted dark:text-muted-foreground",
+        className,
+      )}
+    >
+      <AgentIdLogo className="h-[17.5px] w-[18px] shrink-0 text-[#0b1015] dark:text-foreground" />
+      <span>
+        Signing up an AI agent?{" "}
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={!onClick}
+          title={onClick ? undefined : "AgentID sign-in isn't available yet"}
+          className="font-[600] text-[#097c78] hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50 dark:text-primary"
+        >
+          Continue with AgentID
+        </button>
+      </span>
+    </div>
   );
 }
 
@@ -268,7 +338,7 @@ const PasswordInput = forwardRef<HTMLInputElement, Omit<InputProps, "type">>(
           type="button"
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? "Hide password" : "Show password"}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          className="absolute right-[14px] top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
         >
           {visible ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
@@ -300,6 +370,33 @@ export function GoogleLogo({ className }: { className?: string }) {
         fill="#1976D2"
         d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"
       />
+    </svg>
+  );
+}
+
+/** GitHub's mark, in the current text colour. */
+export function GitHubLogo({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={className ?? "h-4 w-4"}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+
+/** AgentID's mark, in the current text colour. */
+function AgentIdLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 351 340" className={className} fill="currentColor" aria-hidden="true">
+      <path d="M318.029 88.3407C196.474 115.33 153.48 115.321 33.9244 88.3271C30.6216 87.5814 27.1432 88.9727 25.3284 91.8313L1.24109 129.774C-1.76483 134.509 0.965276 140.798 6.46483 141.898C152.613 171.13 197.678 171.182 343.903 141.835C349.304 140.751 352.064 134.641 349.247 129.907L326.719 92.0479C324.95 89.0744 321.407 87.5907 318.029 88.3407Z" />
+      <path d="M75.9931 246.6L149.939 311.655C151.973 313.444 151.633 316.969 149.281 318.48L119.141 337.84C117.283 339.034 114.951 338.412 113.933 336.452L70.1276 252.036C68.0779 248.086 72.7553 243.751 75.9931 246.6Z" />
+      <path d="M274.025 246.6L200.08 311.655C198.046 313.444 198.385 316.969 200.737 318.48L230.877 337.84C232.736 339.034 235.068 338.412 236.085 336.452L279.891 252.036C281.941 248.086 277.263 243.751 274.025 246.6Z" />
+      <path d="M138.75 198.472L152.436 192.983C155.238 191.918 157.77 191.918 158.574 191.918C164.115 192.126 169.564 192.232 175.009 192.235C180.454 192.232 185.904 192.126 191.444 191.918C192.248 191.918 194.78 191.918 197.583 192.983L211.269 198.472C212.645 199.025 214.082 199.382 215.544 199.448C218.585 199.587 221.733 199.464 224.63 198.811C225.706 198.568 226.728 198.103 227.704 197.545L243.046 188.784C244.81 187.777 246.726 187.138 248.697 186.9L258.276 185.5H259.242H263.556L262.713 190.965L256.679 234.22C255.957 238.31 254.25 242.328 250.443 245.834L187.376 299.258C184.555 301.648 181.107 302.942 177.562 302.942H175.009H172.457C168.911 302.942 165.464 301.648 162.643 299.258L99.5761 245.834C95.7684 242.328 94.0614 238.31 93.3393 234.22L87.3059 190.965L86.4624 185.5H90.7771H91.7429L101.322 186.9C103.293 187.138 105.208 187.777 106.972 188.784L122.314 197.545C123.291 198.103 124.313 198.568 125.389 198.811C128.286 199.464 131.434 199.587 134.474 199.448C135.936 199.382 137.373 199.025 138.75 198.472Z" />
+      <path d="M102.47 0.847827C205.434 44.796 156.456 42.1015 248.434 1.63153C252.885 -1.09955 258.353 1.88915 259.419 7.69219L269.235 61.1686L270.819 69.7893L263.592 71.8231L263.582 71.8259C190.588 92.3069 165.244 92.0078 86.7576 71.7428L79.1971 69.7905L80.9925 60.8681L91.8401 6.91975C92.9559 1.3706 98.105 -1.55777 102.47 0.847827Z" />
     </svg>
   );
 }

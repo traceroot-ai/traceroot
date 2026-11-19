@@ -90,11 +90,38 @@ describe("SignUpPage", () => {
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
   });
 
-  it("offers only the sign-in options that are configured", () => {
+  it("shows GitHub and AgentID disabled until their sign-in flows exist", () => {
     render(<SignUpPage />);
+    expect(
+      (screen.getByRole("button", { name: "Continue with GitHub" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Continue with AgentID" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/Signing up an AI agent\?/)).toBeTruthy();
+    // Google keeps its existing rule: shown only when its client is configured.
     expect(screen.queryByRole("button", { name: "Continue with Google" })).toBeNull();
-    expect(screen.queryByText(/GitHub/)).toBeNull();
-    expect(screen.queryByText(/AgentID/)).toBeNull();
+  });
+
+  it("orders GitHub, then Google, then the form, then AgentID, as in the design", () => {
+    env.AUTH_GOOGLE_CLIENT_ID = "test-client";
+    env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
+    render(<SignUpPage />);
+    const google = screen.getByRole("button", {
+      name: "Continue with Google",
+    }) as HTMLButtonElement;
+    expect(google.disabled).toBe(false);
+    const order = [
+      screen.getByRole("button", { name: "Continue with GitHub" }),
+      google,
+      screen.getByRole("button", { name: "Sign up" }),
+      screen.getByRole("button", { name: "Continue with AgentID" }),
+    ];
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
   it("submits a test-domain signup and onboards outside TraceRoot Cloud", async () => {
