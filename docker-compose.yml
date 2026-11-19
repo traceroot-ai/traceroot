@@ -47,7 +47,7 @@ services:
       # Kept off the application account, which rest/worker/billing/detector all use.
       - ./backend/db/clickhouse/bootstrap/sql_gateway_bootstrap_user.xml:/etc/clickhouse-server/users.d/zz-sql-gateway-bootstrap.xml:ro
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      test: wget --no-verbose --tries=1 --spider http://clickhouse:8123/ping || exit 1
       interval: 5s
       timeout: 5s
       retries: 10
