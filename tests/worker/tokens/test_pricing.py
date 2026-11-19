@@ -808,6 +808,9 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
+    ("claude-opus-4-1-20250805", "claude-opus-4-1"),
+    ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
+    ("claude-opus-4-1@20250805", "claude-opus-4-1"),
 ]
 
 
@@ -819,8 +822,7 @@ class TestClaudeBedrockAndVertexIds:
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
 
-        expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different family than {expected_name}"
         )
 
@@ -858,6 +860,7 @@ class TestClaudeBedrockAndVertexIds:
             ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-opus-4-1", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
         ],
     )
     def test_published_rates(self, model_name, rates):
