@@ -58,6 +58,13 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/internal/signals/assignments"),
     ("POST", "/api/v1/internal/signals/reassign"),
     ("POST", "/api/v1/internal/signals/unsettled-runs"),
+    # Task groups: the worker reads sampling candidates and groups, and writes
+    # summaries and memberships.
+    ("GET", "/api/v1/internal/task-groups/candidates"),
+    ("POST", "/api/v1/internal/task-groups/digests"),
+    ("GET", "/api/v1/internal/task-groups/current-groups"),
+    ("GET", "/api/v1/internal/task-groups/unplaced"),
+    ("POST", "/api/v1/internal/task-groups/members"),
 }
 
 

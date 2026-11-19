@@ -196,6 +196,7 @@ model Project {
   alertConfig  DetectorAlertConfig?
   detectorRcas DetectorRca[]
   signals      Signal[]
+  taskGroupSettings TaskGroupSettings?
   dashboards   Dashboard[]
   alerts       Alert[]
   datasets     Dataset[]
@@ -1162,4 +1163,35 @@ model AuditLog {
   @@index([actorUserId], map: "ix_audit_actor_user_id")
   @@index([impersonationSessionId], map: "ix_audit_impersonation_session_id")
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Task groups ("Topics" in the UI): traces grouped by what they were asked to do.
+// Per-trace summaries, embeddings and the fitted groups live in ClickHouse;
+// Postgres holds the per-project switch, the spend cap and the spend itself.
+// ---------------------------------------------------------------------------
+
+model TaskGroupSettings {
+  projectId       String   @id @map("project_id") @db.VarChar
+  // Off by default. Nothing is summarized for a project until it is turned on.
+  enabled         Boolean  @default(false)
+  // Model spend per UTC day at which summarizing stops until the next day.
+  dailyCostCapUsd Float    @default(1) @map("daily_cost_cap_usd")
+  createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime @default(now()) @map("update_time") @db.Timestamp(6)
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("task_group_settings")
+}
+
+// What the task-group pipeline spent for a project on one UTC day.
+model TaskGroupSpendDay {
+  projectId  String   @map("project_id") @db.VarChar
+  day        DateTime @db.Date
+  summaries  Int      @default(0)
+  costUsd    Float    @default(0) @map("cost_usd")
+  updateTime DateTime @default(now()) @map("update_time") @db.Timestamp(6)
+
+  @@id([projectId, day])
+  @@map("task_group_spend_days")
 }
