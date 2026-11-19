@@ -6,6 +6,8 @@ interface StandardModelEntry {
   modelName: string;
   matchPattern: string;
   provider: string;
+  // Set on Claude 4.5+ cards. Applied to regional Bedrock ids, not to global.
+  regionalPremium?: number;
   prices: {
     input: number;
     output: number;
@@ -50,6 +52,7 @@ export async function syncStandardPrices(): Promise<void> {
           modelName: entry.modelName,
           matchPattern: entry.matchPattern,
           provider: entry.provider,
+          regionalPremium: entry.regionalPremium ?? null,
           prices: {
             create: priceRows.map((r) => ({
               usageType: r.usageType,
@@ -60,6 +63,7 @@ export async function syncStandardPrices(): Promise<void> {
         update: {
           matchPattern: entry.matchPattern,
           provider: entry.provider,
+          regionalPremium: entry.regionalPremium ?? null,
           prices: {
             deleteMany: {},
           },
