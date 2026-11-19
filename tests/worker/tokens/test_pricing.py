@@ -183,6 +183,7 @@ GLM_MODEL_CASES = [
 
 XAI_MODEL_CASES = [
     ("grok-4.20", "grok-4.20"),
+    ("grok-4-20", "grok-4.20"),
     ("xai/grok-4.20", "grok-4.20"),
     ("grok-4.20-20260601", "grok-4.20"),
     ("grok-4.20-0309-reasoning", "grok-4.20"),
@@ -196,15 +197,21 @@ XAI_MODEL_CASES = [
     ("xai/grok-4", "grok-4"),
     ("grok-4-0709", "grok-4"),
     ("grok-4.6", "grok-4.6"),
+    ("grok-4-6", "grok-4.6"),
     ("xai/grok-4.6", "grok-4.6"),
     ("grok-4.6-20260601", "grok-4.6"),
     ("grok-4.7", "grok-4.7"),
+    ("grok-4-7", "grok-4.7"),
     ("xai/grok-4.7", "grok-4.7"),
     ("grok-4.7-20260921", "grok-4.7"),
 ]
 
 # (pattern owner, id it must not absorb): adjacent versions, a longer version, -fast variants.
 XAI_NON_MATCHES = [
+    ("grok-4", "grok-4-5"),
+    ("grok-4", "grok-4-6"),
+    ("grok-4", "grok-4-7"),
+    ("grok-4", "grok-4-20"),
     ("grok-4.6", "grok-4"),
     ("grok-4.6", "grok-4.5"),
     ("grok-4.6", "grok-4.60"),
