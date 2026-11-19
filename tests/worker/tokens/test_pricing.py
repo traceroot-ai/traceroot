@@ -132,6 +132,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-4.1", "gpt-4.1"),
     ("gpt-4-1", "gpt-4.1"),
     ("openai/gpt-4-1", "gpt-4.1"),
+    ("gpt-4-1-2025-04-14", "gpt-4.1"),
     ("gpt-4.1-mini", "gpt-4.1-mini"),
     ("gpt-4.1-nano", "gpt-4.1-nano"),
     ("gpt-4o", "gpt-4o"),
