@@ -156,6 +156,13 @@ class TestExtractAttributeValue:
         )
         assert result == {"k1": "v1"}
 
+    def test_kvlist_entry_without_value_or_key(self):
+        # MessageToDict omits an unset value and an empty key.
+        result = extract_attribute_value(
+            {"kvlistValue": {"values": [{"key": "a"}, {"value": {"stringValue": "x"}}]}}
+        )
+        assert result == {"a": None, "": "x"}
+
     def test_unknown_returns_none(self):
         assert extract_attribute_value({}) is None
 
