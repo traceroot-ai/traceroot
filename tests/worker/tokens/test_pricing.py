@@ -262,10 +262,19 @@ KIMI_MODEL_CASES = [
     ("kimi-k3-20260716", "kimi-k3"),
 ]
 
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+KIMI_K3_1_PRO_HIGHSPEED_NON_MATCHES = [
+    ("kimi-k3.1-pro-highspeed", "kimi-k3.1-pro"),
+    ("kimi-k3.1-pro-highspeed", "kimi-k3"),
+]
+
 KIMI_K26_MODEL_CASES = [
     ("kimi-k2.6", "kimi-k2.6"),
     ("moonshot/kimi-k2.6", "kimi-k2.6"),
     ("kimi-k2.6-20260420", "kimi-k2.6"),
+    ("kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+    ("moonshot/kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+    ("kimi-k3-1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
 ]
 
 
@@ -582,6 +591,31 @@ class TestKimiK26ModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+# $ per 1M tokens: input, cache read, cache write, 1h cache write, output
+KIMI_K3_1_PRO_HIGHSPEED_RATES = (4.00, 0.20, 4.00, 8.00, 20.00)
+
+
+class TestKimiK31ProHighspeedModelIds:
+    @pytest.mark.parametrize("owner,model_id", KIMI_K3_1_PRO_HIGHSPEED_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+    def test_published_rates(self, real_cache):
+        """Provider-published rates (https://platform.kimi.ai/docs/pricing/chat)."""
+        entry = next(e for e in real_cache if e["model_name"] == "kimi-k3.1-pro-highspeed")
+        expected = dict(
+            zip(
+                ("input", "cacheRead", "cacheWrite", "cacheWrite1h", "output"),
+                KIMI_K3_1_PRO_HIGHSPEED_RATES,
+            )
+        )
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
 
 
 class TestGLMModelIds:
