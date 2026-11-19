@@ -16,6 +16,7 @@ import {
   isDecisionAdapter,
   LLMAdapter,
 } from "@traceroot/core/llm-providers";
+import { fencedTextNotice, fenceUntrustedText } from "./untrusted-text.js";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
 import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE, type JudgeInput } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
@@ -223,6 +224,10 @@ export async function runDetectionForTrace(params: {
 
   // 4. Build prompt + tool
   const submitTool = buildSubmitResultTool(detector.outputSchema);
+  const judgeInput =
+    params.getJudgeInput?.() ??
+    buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
+  const fencedTrace = fenceUntrustedText(judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS));
   const systemPrompt = `You are a production monitoring assistant analyzing AI agent traces.
 You are evaluating one trace to determine if it exhibits the problem described below.
 
@@ -232,12 +237,10 @@ RULES:
 - identified=true means you found the problem. identified=false means the trace is clean.
 - summary must be one sentence. If identified=true, describe what you found. If false, state why it is clean.
 - data fields are only required when identified=true.
+- ${fencedTextNotice(fencedTrace.marker)}
 
 ${JUDGE_INPUT_FORMAT_NOTE}`;
 
-  const judgeInput =
-    params.getJudgeInput?.() ??
-    buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
   console.log(
     `[sandbox-eval] judge input for trace ${traceId}: ${JSON.stringify(judgeInput.stats)}`,
   );
@@ -250,7 +253,7 @@ ${detector.prompt}
 TRACE ID: ${traceId}
 
 TRACE:
-${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
+${fencedTrace.block}`;
 
   // 5. Single-shot complete() with retry-once-on-text-response
   const messages: Message[] = [{ role: "user", content: userText, timestamp: Date.now() }];

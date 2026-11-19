@@ -8,6 +8,11 @@ import { createDownloadSessionTool } from "./download-session.js";
 import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
 import { createCheckGitHubAccessTool } from "./github-access.js";
 import { createGitCloneTool } from "./git-clone.js";
+import {
+  createGitHubCommitsTool,
+  createGitHubPullTool,
+  createGitHubPullsTool,
+} from "./github-read.js";
 import { createListDetectorModelsTool } from "./detector-models.js";
 import type { QueryWindow } from "./query-window.js";
 import { internalUiUrl } from "./origins.js";
@@ -61,6 +66,9 @@ export function createTools(params: {
   // GitHub tools (host-side, workspace-scoped — installation lives at workspace level)
   tools.push(createCheckGitHubAccessTool(params.workspaceId, internalUiUrl()));
   tools.push(createGitCloneTool(params.workspaceId, internalUiUrl(), params.executor));
+  tools.push(createGitHubCommitsTool(params.workspaceId, internalUiUrl()));
+  tools.push(createGitHubPullsTool(params.workspaceId, internalUiUrl()));
+  tools.push(createGitHubPullTool(params.workspaceId, internalUiUrl()));
 
   // Sandbox-side tools (run inside Docker container via executor)
   tools.push(createBashTool(params.executor));
