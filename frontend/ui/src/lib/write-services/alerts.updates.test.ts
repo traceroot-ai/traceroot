@@ -250,6 +250,9 @@ describe("updateAlert", () => {
         threshold: 500,
       }),
     });
+    // Read for the close gate, never answered: the stored row has it set.
+    expect(current().pageDeliveredAt).not.toBeNull();
+    expect(r.ok && r.data).not.toHaveProperty("pageDeliveredAt");
     expect(tx.alert.updateMany).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
@@ -766,10 +769,17 @@ describe("setAlertStatus", () => {
 
   it("answers the status it already has with 200 and an empty changed, writing nothing", async () => {
     mockAccess();
-    expect(await setStatus("ACTIVE")).toMatchObject({ ok: true, changed: [], stateReset: false });
+    const active = await setStatus("ACTIVE");
+    expect(active).toMatchObject({ ok: true, changed: [], stateReset: false });
     expect(current()).toEqual(baseRow);
     store.set("alert-1", row({ status: "PAUSED" }));
-    expect(await setStatus("PAUSED")).toMatchObject({ ok: true, changed: [] });
+    const paused = await setStatus("PAUSED");
+    expect(paused).toMatchObject({ ok: true, changed: [] });
+    // Read for the close gate, never answered: the stored row has it set.
+    expect(baseRow.pageDeliveredAt).not.toBeNull();
+    for (const r of [active, paused]) {
+      expect(r.ok && r.data).not.toHaveProperty("pageDeliveredAt");
+    }
     expect(tx.alert.updateMany).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
