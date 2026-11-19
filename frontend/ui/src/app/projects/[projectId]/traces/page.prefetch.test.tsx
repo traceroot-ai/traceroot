@@ -141,6 +141,5 @@ describe("TracesPage user_id filter badge", () => {
     expect(clearButton).toBeTruthy();
     fireEvent.click(clearButton!);
     expect(pushMock).toHaveBeenCalledWith("/projects/p1/traces?date_filter=all");
-    expect(pushMock).toHaveBeenCalledWith(expect.not.stringContaining("user_id"));
   });
 });

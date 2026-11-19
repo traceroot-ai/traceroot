@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-export function mockRetention(overrides?: Record<string, unknown>) {
+export function mockRetention() {
   return {
     retentionDays: 15,
     showPricing: false,
@@ -8,6 +8,5 @@ export function mockRetention(overrides?: Record<string, unknown>) {
     closePricing: vi.fn(),
     workspaceId: "ws-1",
     billingPlan: "free",
-    ...overrides,
   };
 }
