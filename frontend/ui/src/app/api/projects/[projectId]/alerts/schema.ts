@@ -7,6 +7,8 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   KEYED_ALERT_FILTER_FIELDS,
   SETTABLE_ALERT_STATUSES,
+  SpanKind,
+  SpanStatus,
   alertThresholdProblem,
   getMeasure,
   isAlertAggregation,
@@ -77,6 +79,30 @@ const filterSchema = z
         path: ["op"],
         message: `Operator "${filter.op}" is not valid for "${filter.field}"`,
       });
+    }
+    // Equality on span_kind/status is a match against values ingest writes, so
+    // anything outside the vocabulary matches nothing and the rule sits on No
+    // Data forever. `contains` is a substring match and stays unchecked, and
+    // lowercase is rejected rather than normalised: ingest stores uppercase.
+    if (filter.op === "=") {
+      // A plain string array: the two vocabularies are disjoint literal
+      // unions, so `.includes` on their union would take `never`.
+      const allowed: readonly string[] | undefined =
+        filter.field === "span_kind"
+          ? Object.values(SpanKind)
+          : filter.field === "status"
+            ? Object.values(SpanStatus)
+            : undefined;
+      if (
+        allowed !== undefined &&
+        (typeof filter.value !== "string" || !allowed.includes(filter.value))
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["value"],
+          message: `"${filter.field}" must be one of ${allowed.join(", ")}`,
+        });
+      }
     }
   });
 
