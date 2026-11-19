@@ -144,11 +144,13 @@ export async function runOpenAIDecisionDetection(params: {
       }
     },
     (done) => ({
-      model: done.model,
-      // The response's model, when it names one, is the identity on both keys.
+      // The span keeps the model we asked for, as pricing and the run do. The
+      // response's model is the provider's text, and a proxy at the BYOK base
+      // URL could put anything there, the key included.
+      model: null,
       attributes: {
         ...usageAttributes(done.usage, done.cost),
-        "decision.model_name": done.model ?? model,
+        "decision.model_name": model,
       },
       output: done.answers,
     }),

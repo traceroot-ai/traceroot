@@ -189,6 +189,29 @@ describe("OpenAI Decisions span", () => {
     expect(result?.inferenceCost).toBe(attributes["llm.cost.total"]);
   });
 
+  it("keeps the requested model on the span when the response names another, even the key", async () => {
+    mockCallDecisions.mockResolvedValueOnce({
+      model: "Bearer sk-key",
+      answers: {
+        gate: { type: "predicate", probability: 0.9 },
+        label: {
+          type: "choice",
+          choice: "problem",
+          confidence: 0.8,
+          probabilities: { problem: 0.8, none: 0.2 },
+        },
+      },
+      usage: { inputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    });
+
+    expect((await withSelfTrace(META, runOpenAI)).ok).toBe(true);
+
+    const { span, attributes } = decisionAttributes("decisions gpt-6-luna");
+    expect(attributes["traceroot.llm.model"]).toBe("gpt-6-luna");
+    expect(attributes["decision.model_name"]).toBe("gpt-6-luna");
+    expect(JSON.stringify([span.attributes, span.status, span.events])).not.toContain("sk-key");
+  });
+
   it("redacts a credential-shaped key inside the trace before recording it", async () => {
     mockCallDecisions.mockResolvedValueOnce({
       model: null,

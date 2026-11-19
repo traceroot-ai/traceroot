@@ -310,11 +310,13 @@ describe("runOpenAIDecisionDetection", () => {
     expect(
       finish({ ...result(0.97, FAILURE_PROBS), cost: null }).attributes["llm.cost.total"],
     ).toBe(0);
-    const dated = { ...result(0.97, FAILURE_PROBS), model: "gpt-6-luna-2026-09-30", cost: 0 };
-    expect(finish(dated)).toMatchObject({
-      model: "gpt-6-luna-2026-09-30",
-      attributes: { "decision.model_name": "gpt-6-luna-2026-09-30" },
-    });
+    // The response's model is provider text: neither a dated id nor an echoed key replaces ours.
+    for (const reported of ["gpt-6-luna-2026-09-30", "Bearer sk-secret-key"]) {
+      const done = finish({ ...result(0.97, FAILURE_PROBS), model: reported, cost: 0 });
+      expect(done.model).toBeNull();
+      expect(done.attributes["decision.model_name"]).toBe("gpt-6-luna");
+      expect(JSON.stringify(done)).not.toContain(reported);
+    }
     expect(
       failedUsage(Object.assign(new Error("refused"), { usage: USAGE, cost: 0.00003 })),
     ).toEqual({ ...usageAttributes, "llm.cost.total": 0.00003 });
