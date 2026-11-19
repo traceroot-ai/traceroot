@@ -111,8 +111,23 @@ describe("PixelField", () => {
     for (const face of FACES) expect(styles).toContain(face);
     const field = fills.filter((f) => f.style === ACCENT);
     expect(field.length).toBeGreaterThan(0);
-    // The field rises from the bottom: none of it reaches the top third.
-    expect(Math.min(...field.map((f) => f.y))).toBeGreaterThan(size.height / 3);
+    // The field hangs from the top edge, no further than 45% down, around the logo's corner.
+    expect(Math.min(...field.map((f) => f.y))).toBe(0);
+    expect(Math.max(...field.map((f) => f.y))).toBeLessThan(size.height * 0.45);
+    expect(field.some((f) => f.x < 264 && f.y < 128)).toBe(false);
+  });
+
+  it("leaves empty space around each cube", () => {
+    render(<PixelField />);
+    runFrame(0);
+    const cubeCells = fills.filter((f) => FACES.includes(f.style) && f.alpha === 1);
+    const field = fills.filter((f) => f.style === ACCENT);
+    expect(cubeCells.length).toBeGreaterThan(0);
+    // No field cell sits within two cells of a cube cell.
+    const crowded = field.filter((f) =>
+      cubeCells.some((c) => Math.abs(c.x - f.x) <= 16 && Math.abs(c.y - f.y) <= 16),
+    );
+    expect(crowded).toEqual([]);
   });
 
   it("keeps the field to the bottom edge on narrow panels", () => {
@@ -125,7 +140,7 @@ describe("PixelField", () => {
   });
 
   it("sweeps comets across the field and wraps them back to the left", () => {
-    size = { width: 40, height: 40 };
+    size = { width: 400, height: 80 };
     render(<PixelField />);
     let swept = false;
     for (let i = 0; i < 60; i++) {

@@ -17,8 +17,8 @@ describe("AuthBrandPanel", () => {
     expect(
       within(loop)
         .getAllByRole("listitem")
-        .map((li) => li.textContent?.replace("->", "")),
-    ).toEqual(["trace", "detect", "evaluate", "improve"]);
+        .map((li) => li.textContent),
+    ).toEqual(["trace", "detect", "signals", "verify", "back to your agent in production"]);
   });
 
   // Browsers without a 2D canvas context (and jsdom) get the static panel.
@@ -37,6 +37,23 @@ describe("AuthLayout", () => {
       </AuthLayout>,
     );
     expect(screen.getByRole("main").textContent).toContain("Sign in to traceroot");
+  });
+
+  it("puts the top action outside the form, and nothing when there is none", () => {
+    const { rerender } = render(
+      <AuthLayout topAction={<a href="/auth/sign-in">Sign in</a>}>
+        <h1>Create your account</h1>
+      </AuthLayout>,
+    );
+    const link = screen.getByRole("link", { name: "Sign in" });
+    expect(screen.getByRole("main").contains(link)).toBe(false);
+
+    rerender(
+      <AuthLayout>
+        <h1>Create your account</h1>
+      </AuthLayout>,
+    );
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
   });
 });
 

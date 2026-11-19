@@ -33,13 +33,9 @@ function setParams(params: Record<string, string>) {
 }
 
 function fillForm(email = "kai@acme.io") {
-  fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "Kai" } });
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: email },
-  });
-  const passwords = screen.getAllByPlaceholderText("********");
-  fireEvent.change(passwords[0], { target: { value: "password123" } });
-  fireEvent.change(passwords[1], { target: { value: "password123" } });
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Kai" } });
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
 }
 
 beforeEach(() => {
@@ -61,11 +57,44 @@ describe("SignUpPage", () => {
   it("shows a validation error and does not submit a signup without a name", async () => {
     render(<SignUpPage />);
     fillForm();
-    fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
     expect(await screen.findByText("Name is required")).toBeTruthy();
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
+  });
+
+  it("asks for the password once and sends it with the name and email", async () => {
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+
+    render(<SignUpPage />);
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(1);
+    fillForm("kai@workspace.test");
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.signUpEmail).toHaveBeenCalled());
+    expect(mocks.signUpEmail).toHaveBeenCalledWith({
+      name: "Kai",
+      email: "kai@workspace.test",
+      password: "password123",
+    });
+  });
+
+  it("rejects a password shorter than 8 characters", async () => {
+    render(<SignUpPage />);
+    fillForm("kai@workspace.test");
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(await screen.findByText("Password must be at least 8 characters")).toBeTruthy();
+    expect(mocks.signUpEmail).not.toHaveBeenCalled();
+  });
+
+  it("offers only the sign-in options that are configured", () => {
+    render(<SignUpPage />);
+    expect(screen.queryByRole("button", { name: "Continue with Google" })).toBeNull();
+    expect(screen.queryByText(/GitHub/)).toBeNull();
+    expect(screen.queryByText(/AgentID/)).toBeNull();
   });
 
   it("submits a test-domain signup and onboards outside TraceRoot Cloud", async () => {

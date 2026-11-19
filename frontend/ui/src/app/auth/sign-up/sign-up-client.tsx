@@ -8,30 +8,25 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   AuthError,
   AuthField,
-  AuthFooter,
   AuthHeader,
   AuthLayout,
+  AuthLegal,
   GoogleAuthOption,
   PasswordInput,
 } from "@/components/auth/auth-layout";
 import { signupEmailError } from "@/lib/signup/email-policy";
 
-const signUpSchema = z
-  .object({
-    name: z.string().min(1, "Name is required"),
-    email: z.string().email("Invalid email"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
+// The password is asked for once; the show/hide toggle is how to check it.
+const signUpSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
 
 const cloudSignUpSchema = signUpSchema.superRefine(({ email }, ctx) => {
   const error = signupEmailError(email);
@@ -98,7 +93,7 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
     formState: { errors },
   } = useForm<SignUpForm>({
     resolver: zodResolver(emailDomainPolicyEnabled ? cloudSignUpSchema : signUpSchema),
-    defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
+    defaultValues: { name: "", email: "", password: "" },
   });
 
   async function onSubmit(data: SignUpForm) {
@@ -132,61 +127,81 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
     });
   }
 
+  const field = "h-10 text-[14px]";
+
   return (
-    <AuthLayout>
+    <AuthLayout
+      topAction={
+        <>
+          <span className="hidden text-[13px] text-muted-foreground min-[400px]:inline">
+            Already have an account?
+          </span>
+          <Link
+            href={signInHref}
+            className={buttonVariants({ variant: "outline", size: "sm", className: "h-8 px-3" })}
+          >
+            Sign in
+          </Link>
+        </>
+      }
+    >
       <AuthHeader
         title="Create your account"
         subtitle="Start tracing and improving your AI agents."
       />
       {googleAuthConfigured && (
-        <GoogleAuthOption onClick={handleGoogleSignUp} isLoading={isGoogleLoading} />
+        <GoogleAuthOption
+          onClick={handleGoogleSignUp}
+          isLoading={isGoogleLoading}
+          className="h-10 text-[14px]"
+          dividerClassName="my-8"
+        />
       )}
       <div className="space-y-5">
         <AuthError message={error} />
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <AuthField label="Name" error={errors.name?.message}>
-            <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-          </AuthField>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <div className="space-y-4">
+            <AuthField label="Name" error={errors.name?.message}>
+              <Input
+                placeholder="Your name"
+                autoComplete="name"
+                className={field}
+                {...register("name")}
+              />
+            </AuthField>
 
-          <AuthField label="Email" error={errors.email?.message}>
-            <Input
-              type="email"
-              placeholder="you@example.com"
-              className="h-8 text-[13px]"
-              {...register("email")}
-            />
-          </AuthField>
+            <AuthField label="Email" error={errors.email?.message}>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                autoComplete="email"
+                className={field}
+                {...register("email")}
+              />
+            </AuthField>
 
-          <AuthField label="Password" error={errors.password?.message}>
-            <PasswordInput
-              placeholder="********"
-              autoComplete="new-password"
-              className="h-8 text-[13px]"
-              {...register("password")}
-            />
-          </AuthField>
+            <AuthField label="Password" error={errors.password?.message}>
+              <PasswordInput
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                className={field}
+                {...register("password")}
+              />
+            </AuthField>
+          </div>
 
-          <AuthField label="Confirm Password" error={errors.confirmPassword?.message}>
-            <PasswordInput
-              placeholder="********"
-              autoComplete="new-password"
-              className="h-8 text-[13px]"
-              {...register("confirmPassword")}
-            />
-          </AuthField>
-
-          <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
+          <Button
+            type="submit"
+            size="sm"
+            className="mt-6 h-10 w-full text-[14px] font-semibold text-primary-ink"
+            disabled={isLoading}
+          >
             {isLoading ? "Creating account..." : "Sign up"}
           </Button>
         </form>
       </div>
-      <AuthFooter>
-        Already have an account?{" "}
-        <Link href={signInHref} className="font-medium text-brand hover:underline">
-          Sign in
-        </Link>
-      </AuthFooter>
+      <AuthLegal className="mt-7" />
     </AuthLayout>
   );
 }

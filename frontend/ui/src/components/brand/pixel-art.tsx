@@ -51,6 +51,21 @@ const SHARE_FIELD_ROWS = [
   "000000000000000000000000000000000000000000000000000000000000010001000000000000000000000000000000000",
 ];
 
+// The field's reach down a wide panel, as a share of its height.
+const FIELD_DEPTH = 0.45;
+// The corner the field leaves empty around the logo on a wide panel, in px.
+const LOGO_CLEAR = { w: 264, h: 128 };
+// Empty space the field keeps around each cube: a cell is left out when any of
+// these offsets from its centre, HALO px out in eight directions, falls in the cube.
+const HALO = 24;
+const HALO_PROBES: Point[] = [
+  [0, 0],
+  ...Array.from({ length: 8 }, (_, i): Point => {
+    const angle = (i * Math.PI) / 4;
+    return [Math.round(Math.cos(angle) * HALO), Math.round(Math.sin(angle) * HALO)];
+  }),
+];
+
 type Frame = (now: number, reduce: boolean) => void;
 
 /**
@@ -152,7 +167,7 @@ function inside(x: number, y: number, poly: Point[]): boolean {
 
 /**
  * The panel background: solid pixel cubes in the brand teals that float
- * gently, the share image's pixel field rising from the bottom, and teal
+ * gently with empty space around them, the share image's pixel field, and teal
  * comets sweeping along the rows. Sized to the canvas element; refits on resize.
  */
 function mountPixelField(canvas: HTMLCanvasElement): (() => void) | undefined {
@@ -202,13 +217,31 @@ function mountPixelField(canvas: HTMLCanvasElement): (() => void) | undefined {
     const m = Math.min(W, H);
     const place = (x: number, y: number, size: number, k: number) =>
       cube(snap(x), snap(y) + bob(k), Math.max(1, Math.round(size / (2 * P))) * 2 * P);
-    const cubes = narrow
-      ? [...place(W * 0.66, H * 0.36, m * 0.2, 0), ...place(W * 0.88, H * 0.5, m * 0.07, 1.7)]
+    const placed = narrow
+      ? [
+          place(W * 0.66, H * 0.36, m * 0.2, 0),
+          place(W * 0.88, H * 0.5, m * 0.07, 1.7),
+          place(W * 0.4, H * 0.42, m * 0.06, 3.1),
+        ]
       : [
-          ...place(W * 0.7, H * 0.17, m * 0.15, 0),
-          ...place(W * 0.92, H * 0.31, m * 0.065, 1.7),
-          ...place(W * 0.48, H * 0.33, m * 0.05, 3.1),
+          place(W * 0.7, H * 0.17, m * 0.15, 0),
+          place(W * 0.92, H * 0.31, m * 0.065, 1.7),
+          place(W * 0.48, H * 0.33, m * 0.05, 3.1),
         ];
+    const cubes = placed.flat();
+    // Each cube's outline grown by HALO, which the field leaves empty around it.
+    const halos = placed.map((faces) => {
+      const [top, left, right] = faces.map((f) => f.poly);
+      return [top![0]!, top![1]!, right![3]!, left![2]!, left![3]!, top![3]!];
+    });
+    const inHalo = (x: number, y: number) =>
+      halos.some((poly) =>
+        HALO_PROBES.some(([dx, dy]) => inside(x + S / 2 + dx, y + S / 2 + dy, poly)),
+      );
+    // On wide panels the field hangs from the top edge, down to FIELD_DEPTH, and
+    // leaves the logo's corner clear; on the short mobile header only its dense
+    // edge fits, along the bottom below the wordmark.
+    const fieldRows = Math.round((H * FIELD_DEPTH) / P);
 
     if (!reduce)
       for (const c of comets) {
@@ -232,13 +265,17 @@ function mountPixelField(canvas: HTMLCanvasElement): (() => void) | undefined {
           g.fillRect(x, y, S, S);
           continue;
         }
-        // The share image's field, flipped so its dense edge sits on the bottom.
-        // On the short mobile header only the dense edge fits below the wordmark.
-        const fieldRow = rows - 1 - r;
-        if (narrow && fieldRow >= 4) continue;
+        let fieldRow: number;
+        if (narrow) {
+          fieldRow = rows - 1 - r;
+          if (fieldRow >= 4) continue;
+        } else {
+          if (r >= fieldRows || (x < LOGO_CLEAR.w && y < LOGO_CLEAR.h)) continue;
+          fieldRow = Math.floor((r * SHARE_FIELD_ROWS.length) / fieldRows);
+        }
         const level = SHARE_FIELD_ROWS[fieldRow]?.[c % SHARE_FIELD_ROWS[0]!.length];
         const opacity = SHARE_FIELD_OPACITY[Number(level ?? 0)] ?? 0;
-        if (!opacity) continue;
+        if (!opacity || inHalo(x, y)) continue;
 
         let color = ACCENT;
         let alpha = opacity;
