@@ -265,10 +265,11 @@ class RateLimitSettings(BaseSettings):
 
 
 class IngestSettings(BaseSettings):
-    """Size limits on a public OTLP trace ingest request, and budgets on its structure.
+    """Size limits on a public OTLP trace ingest request, budgets on its structure, and a
+    limit on redelivering a batch whose worker process died.
 
     Env vars: INGEST_MAX_REQUEST_BYTES, INGEST_MAX_UNZIPPED_BYTES, INGEST_MAX_SPANS,
-    INGEST_MAX_OBJECTS
+    INGEST_MAX_OBJECTS, INGEST_MAX_DELIVERIES
     """
 
     model_config = SettingsConfigDict(env_prefix="INGEST_")
@@ -281,6 +282,11 @@ class IngestSettings(BaseSettings):
     max_spans: int = Field(50_000, gt=0)
     # Repeated entries of any kind per batch (spans, events, attributes, ...), counted likewise.
     max_objects: int = Field(500_000, gt=0)
+    # Times one attempt at a batch may be delivered to a worker whose process then dies
+    # before finishing; the next delivery is refused, which fails the attempt (retried,
+    # then quarantined when the retries run out). With process_s3_traces' 5 retries, a
+    # batch that kills every process kills at most 6x this many (18 at the default).
+    max_deliveries: int = Field(3, gt=0)
 
 
 class WorkerSettings(BaseSettings):
