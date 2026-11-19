@@ -90,6 +90,11 @@ OPENAI_MODEL_CASES = [
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
     ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-6.1-terra", "gpt-6.1-terra"),
+    ("openai/gpt-6.1-terra", "gpt-6.1-terra"),
+    ("azure/gpt-6.1-terra", "gpt-6.1-terra"),
+    ("global.openai.gpt-6.1-terra", "gpt-6.1-terra"),
+    ("gpt-6-1-terra", "gpt-6.1-terra"),
     ("gpt-5.6-luna", "gpt-5.6-luna"),
     ("openai/gpt-5.6-luna", "gpt-5.6-luna"),
     ("azure/gpt-5.6-luna", "gpt-5.6-luna"),
@@ -433,6 +438,22 @@ class TestGpt56TerraPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(1.2e-5)  # $12 / 1M tokens
 
 
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+GPT_6_1_TERRA_NON_MATCHES = [
+    ("gpt-6.1-terra", "gpt-6.1-sol"),
+    ("gpt-6.1-terra", "gpt-5.6-terra"),
+]
+
+
+class TestGpt61TerraModelIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_6_1_TERRA_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
 class TestGpt56SolPublishedPrices:
     """Ratio checks alone let a wrong base price stay internally consistent and
     pass — gpt-5.6-sol was billed at $5/$30 per 1M tokens against a
@@ -463,6 +484,7 @@ GPT6_PUBLISHED_RATES = {
     "gpt-6-astra": (10.00, 1.00, 12.50, 50.00),
     "gpt-6-sol": (2.00, 0.20, 2.50, 10.00),
     "gpt-6-luna": (0.10, 0.01, 0.125, 0.50),
+    "gpt-6.1-terra": (1.00, 0.05, 1.25, 5.00),
 }
 
 
