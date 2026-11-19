@@ -169,6 +169,19 @@ def _live_text_models(
     return {key: rates for key, rates in sorted(found.items()) if key not in retired}
 
 
+def _dotted_models(
+    catalogs: dict[str, dict], today: datetime
+) -> dict[tuple[str, str], dict[str, dict]]:
+    """The live text models with a dotted version, such as gpt-5.5, whose dash spelling
+    gateways send, with their rates by catalog. Dated snapshots and aliases are left
+    out: they would only repeat what the base model's spelling shows."""
+    return {
+        (provider, model): found
+        for (provider, model), found in _live_text_models(catalogs, today).items()
+        if "." in model and not MINOR_MODELS.search(model)
+    }
+
+
 def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
     """Flags for catalog models that production prices through another row's
     matchPattern, compared with that row's rates. An older row's pattern can also match
@@ -176,12 +189,12 @@ def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) 
     the dash spelling of a dotted version, such as gpt-5-5 for gpt-5.5, which gateways
     send: a date group on the gpt-5 row's pattern also matches it."""
     flags = []
+    dotted = _dotted_models(catalogs, today)
     for (provider, model), found in _live_text_models(catalogs, today).items():
         row = lookup(rows, model)
         if row is not None and row["modelName"] != model:
             flags += _flag_rates(row, provider, model, found, priced_as=row["modelName"])
-        # Dated snapshots and aliases would only repeat what the base model's spelling shows.
-        if "." not in model or MINOR_MODELS.search(model):
+        if (provider, model) not in dotted:
             continue
         # The provider-prefixed spelling is tried only when the bare one finds no other
         # row, so each model is reported once.
@@ -191,6 +204,18 @@ def find_shadowed(rows: list[dict], catalogs: dict[str, dict], today: datetime) 
                 flags += _flag_rates(other, provider, dashed, found, priced_as=other["modelName"])
                 break
     return flags
+
+
+def priced_dash_spellings(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> dict:
+    """The row that prices each dotted model's dash spelling, such as grok-4-20 for
+    grok-4.20. No finding lists a dash spelling that no row prices, so --baseline and
+    --track compare these to catch an edit that stops pricing one."""
+    priced = {}
+    for _, model in _dotted_models(catalogs, today):
+        row = lookup(rows, _family(model))
+        if row is not None:
+            priced[_family(model)] = row["modelName"]
+    return dict(sorted(priced.items()))
 
 
 def find_missing(rows: list[dict], catalogs: dict[str, dict], today: datetime) -> list[dict]:
@@ -213,6 +238,18 @@ def _family(model_id: str) -> str:
     return model_id.lower().replace(".", "-")
 
 
+def _live_hosted(hosted: dict[str, dict], today: datetime) -> list[tuple[str, dict]]:
+    """The host IDs of live text models, sorted, leaving out the kinds of model the
+    missing-models list leaves out."""
+    return [
+        (model_id, entry)
+        for model_id, entry in sorted(hosted.items())
+        if (entry["retired_from"] is None or entry["retired_from"] > today)
+        and entry["text"]
+        and not IGNORED_MODELS.search(model_id)
+    ]
+
+
 def _variant_ids(
     rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
 ) -> list[tuple[str, str, dict]]:
@@ -221,10 +258,7 @@ def _variant_ids(
     catalog gives it a context window of 1M tokens or more."""
     by_family = {_family(row["modelName"]): row for row in rows}
     variants = []
-    for model_id, entry in sorted(hosted.items()):
-        retired = entry["retired_from"] is not None and entry["retired_from"] <= today
-        if retired or not entry["text"] or IGNORED_MODELS.search(model_id):
-            continue
+    for model_id, entry in _live_hosted(hosted, today):
         base = HOST_SUFFIX.sub("", HOST_PREFIX.sub("", model_id.rsplit("/", 1)[-1]))
         row = by_family.get(_family(base))
         if row is not None and model_id != row["modelName"]:
@@ -244,10 +278,16 @@ def find_unpriced_ids(
     rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
 ) -> list[dict]:
     """IDs a row should price that no row matches, so their spans record no cost, or that
-    another row billed at different rates matches, so they get the wrong price."""
+    another row billed at different rates matches, so they get the wrong price. A row named
+    exactly a host ID prices it on purpose, so the ID counts as priced: mispriced_host_ids
+    compares that row's rates with the host's. No catalog lists a [1m] ID, so a row named
+    one prices it right only at the model's own rates."""
     found = []
+    checked = {model_id for model_id, _ in _live_hosted(hosted, today)}
     for model_id, source, row in _variant_ids(rows, catalogs, hosted, today):
         priced_by = lookup(rows, model_id)
+        if model_id in checked and priced_by is not None and priced_by["modelName"] == model_id:
+            continue
         if priced_by is None or billed_rates(priced_by["prices"]) != billed_rates(row["prices"]):
             found.append(
                 {
@@ -258,6 +298,34 @@ def find_unpriced_ids(
                     "priced_as": priced_by and priced_by["modelName"],
                 }
             )
+    return found
+
+
+def mispriced_host_ids(
+    rows: list[dict], catalogs: dict[str, dict], hosted: dict[str, dict], today: datetime
+) -> dict:
+    """Each live host ID a row prices at an input or output rate that every catalog
+    listing that exact ID disagrees with, as a row at the model's own rates does for
+    Bedrock's GovCloud and regional profiles: the row, and each such rate. No finding
+    lists these, so --baseline and --track compare them to catch an edit that newly
+    prices such an ID. A row named the ID that a catalog lists under the row's provider
+    is compared by name instead; one named after a GovCloud ID is compared here."""
+    found = {}
+    for model_id, entry in _live_hosted(hosted, today):
+        row = lookup(rows, model_id)
+        if row is None:
+            continue
+        key = (row["provider"], row["modelName"])
+        if row["modelName"] == model_id and any(key in index for index in catalogs.values()):
+            continue
+        flags = _flag_rates(row, row["provider"], model_id, entry["rates"], priced_as=None)
+        rates = [
+            {key: flag[key] for key in ("field", "ours", "litellm", "modelsdev")}
+            for flag in flags
+            if flag["field"] in ("input", "output")
+        ]
+        if rates:
+            found[model_id] = {"row": row["modelName"], "rates": rates}
     return found
 
 
@@ -279,32 +347,69 @@ def find_overlaps(
     return overlaps
 
 
+def row_keys(rows: list[dict]) -> list[str]:
+    """What the report calls each row: its modelName, the name the worker prices with the
+    first row that has it, or, for each later row with that name, whose pattern can still
+    price other IDs, "<name> (2)", "<name> (3)" and so on, in file order. If another row
+    already has that name, one of the two would be hidden, so the run fails."""
+    names = {row["modelName"] for row in rows}
+    listed: dict[str, int] = {}
+    keys = []
+    for row in rows:
+        name = row["modelName"]
+        listed[name] = listed.get(name, 0) + 1
+        key = name if listed[name] == 1 else f"{name} ({listed[name]})"
+        if key != name and key in names:
+            raise CheckError(
+                f'a later "{name}" row is compared as "{key}", the name of another row'
+            )
+        keys.append(key)
+    return keys
+
+
 def find_row_problems(rows: list[dict]) -> list[dict]:
     """Problems in the price file itself, found without a catalog, so rows no catalog
-    lists are checked too."""
+    lists are checked too. Each names its row as row_keys does, and, in fields, the parts
+    of the row it is about."""
     problems = []
     seen: set[str] = set()
-    for row in rows:
+    for row, key in zip(rows, row_keys(rows), strict=True):
         name, pattern = row["modelName"], row["matchPattern"]
-        found = []
+        found: list[tuple[str, list[str]]] = []
         if name.lower() in seen:
-            found.append("modelName is listed twice")
+            found.append(("modelName is listed twice", []))
         seen.add(name.lower())
         if _compile(pattern) is None:
-            found.append("matchPattern does not compile, so the row matches its exact name only")
+            found.append(
+                (
+                    "matchPattern does not compile, so the row matches its exact name only",
+                    ["matchPattern"],
+                )
+            )
         else:
             if JS_INCOMPATIBLE.search(pattern):
-                found.append("matchPattern uses regex syntax the UI cannot read the same way")
+                found.append(
+                    (
+                        "matchPattern uses regex syntax the UI cannot read the same way",
+                        ["matchPattern"],
+                    )
+                )
             if not _matches(row, name):
-                found.append("matchPattern does not match the row's own modelName")
+                found.append(
+                    ("matchPattern does not match the row's own modelName", ["matchPattern"])
+                )
         rates = {field: _number(row["prices"].get(field)) for field in FIELDS}
         for field, rate in rates.items():
             if rate is not None and not 0 <= rate <= MAX_RATE:
-                found.append(f"{FIELD_LABELS[field]} rate is outside $0-$1,000 per 1M tokens")
+                found.append(
+                    (f"{FIELD_LABELS[field]} rate is outside $0-$1,000 per 1M tokens", [field])
+                )
         cache_read, input_ = rates["cacheRead"], rates["input"]
         if cache_read is not None and input_ is not None and cache_read > input_:
-            found.append("cache read rate is above the input rate")
-        problems += [{"row": name, "problem": problem} for problem in found]
+            found.append(("cache read rate is above the input rate", ["cacheRead", "input"]))
+        problems += [
+            {"row": key, "problem": problem, "fields": fields} for problem, fields in found
+        ]
     return problems
 
 
@@ -341,9 +446,9 @@ def build_report(
     hosted = hosted or {}
     today = datetime.fromisoformat(date)
     flagged: list[dict] = []
+    compared: list[str] = []
     no_match: list[str] = []
     unmapped: set[str] = set()
-    compared = 0
     for row in rows:
         provider, model = row["provider"], row["modelName"]
         if provider not in OUR_PROVIDERS:
@@ -358,11 +463,11 @@ def build_report(
         if not found:
             no_match.append(model)
             continue
-        compared += 1
+        compared.append(model)
         flagged += _flag_rates(row, provider, model, found, priced_as=None)
-    if compared < min_compared:
+    if len(compared) < min_compared:
         raise CheckError(
-            f"only {compared} of {len(rows)} rows matched a catalog, below the floor of "
+            f"only {len(compared)} of {len(rows)} rows matched a catalog, below the floor of "
             f"{min_compared}; a catalog's model IDs or format may have changed"
         )
     flagged += find_shadowed(rows, catalogs, today)
@@ -374,11 +479,22 @@ def build_report(
             kept.append(flag)
         else:
             left_as_is.append({**flag, "reason": entry["reason"], "pr": entry["pr"]})
+    # Each row as it was checked, so --baseline can list a change no finding shows and
+    # price an ID as the worker does.
+    checked = {
+        key: {
+            "modelName": row["modelName"],
+            "provider": row["provider"],
+            "matchPattern": row["matchPattern"],
+            "prices": {field: _number(row["prices"].get(field)) for field in FIELDS},
+        }
+        for row, key in zip(rows, row_keys(rows), strict=True)
+    }
     return {
         "date": date,
         "status": "ok",
         "total": len(rows),
-        "compared": compared,
+        "compared": len(compared),
         "flagged": kept,
         "reviewed": left_as_is,
         "unpriced_ids": find_unpriced_ids(rows, catalogs, hosted, today),
@@ -386,6 +502,10 @@ def build_report(
         "row_problems": find_row_problems(rows),
         "missing": find_missing(rows, catalogs, today),
         "long_context": find_long_context(rows, catalogs),
+        "dash_spellings": priced_dash_spellings(rows, catalogs, today),
+        "host_rates": mispriced_host_ids(rows, catalogs, hosted, today),
+        "compared_rows": compared,
         "no_match": no_match,
         "unmapped_providers": sorted(unmapped),
+        "rows": checked,
     }

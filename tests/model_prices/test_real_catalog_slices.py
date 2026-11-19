@@ -103,6 +103,15 @@ def test_bedrock_ids_from_every_litellm_route_map_to_bedrock():
         "host": "Bedrock",
         "text": True,
         "retired_from": datetime(2027, 4, 8),
+        "rates": {
+            "litellm": {
+                "input": 3.3e-06,
+                "output": 1.65e-05,
+                "cacheRead": 3.3e-07,
+                "cacheWrite": 4.125e-06,
+                "cacheWrite1h": 6.6e-06,
+            }
+        },
     }
     # bedrock/us-gov-west-1/<id>, bedrock_mantle/<id> and bedrock_mantle/us-gov-west-1/<id>
     # all land on the bare model ID.
@@ -117,6 +126,15 @@ def test_modelsdev_bedrock_and_openrouter_ids_carry_their_host():
         "host": "Bedrock",
         "text": True,
         "retired_from": None,
+        "rates": {
+            "modelsdev": {
+                "input": pytest.approx(2.2e-06),
+                "output": pytest.approx(1.1e-05),
+                "cacheRead": pytest.approx(1.1e-07),
+                "cacheWrite": pytest.approx(2.75e-06),
+                "cacheWrite1h": None,
+            }
+        },
     }
     assert hosted["us-gov.openai.gpt-oss-120b-1:0"]["host"] == "Bedrock"
     assert hosted["anthropic/claude-sonnet-5.5"]["host"] == "OpenRouter"

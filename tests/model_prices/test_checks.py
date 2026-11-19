@@ -503,13 +503,23 @@ def test_price_file_problems_are_found_without_a_catalog():
     ]
     report = report_for(rows, {"gpt-a": ll_entry("openai")}, md_catalog())
 
-    assert [(p["row"], p["problem"]) for p in report["row_problems"]] == [
-        ("GPT-A", "modelName is listed twice"),
-        ("gpt-b", "matchPattern does not compile, so the row matches its exact name only"),
-        ("gpt-c", "matchPattern uses regex syntax the UI cannot read the same way"),
-        ("gpt-d", "matchPattern does not match the row's own modelName"),
-        ("gpt-p", "input rate is outside $0-$1,000 per 1M tokens"),
-        ("gpt-q", "cache read rate is above the input rate"),
+    # Each problem names the parts of its row it is about, which --baseline lets a fix
+    # change.
+    assert [(p["row"], p["problem"], p["fields"]) for p in report["row_problems"]] == [
+        ("GPT-A", "modelName is listed twice", []),
+        (
+            "gpt-b",
+            "matchPattern does not compile, so the row matches its exact name only",
+            ["matchPattern"],
+        ),
+        (
+            "gpt-c",
+            "matchPattern uses regex syntax the UI cannot read the same way",
+            ["matchPattern"],
+        ),
+        ("gpt-d", "matchPattern does not match the row's own modelName", ["matchPattern"]),
+        ("gpt-p", "input rate is outside $0-$1,000 per 1M tokens", ["input"]),
+        ("gpt-q", "cache read rate is above the input rate", ["cacheRead", "input"]),
     ]
     assert format_report(report).startswith(
         f"*Model pricing audit, {DATE}*: 6 price file problems\n"

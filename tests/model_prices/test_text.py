@@ -111,6 +111,17 @@ def test_every_format_counts_what_its_words_say():
     assert "<h2>Also not priced: aliases, snapshots, realtime and search (1)</h2>" in page
 
 
+def test_baseline_shows_first_in_the_text_report():
+    report = report_for([row("gpt-a", "openai")], {"gpt-a": ll_entry("openai")}, md_catalog())
+    report["baseline"] = {"fixes": ["gpt-z input rate"], "adds": []}
+    text = format_report(report)
+
+    assert (
+        "\n\n*Compared with the baseline, this file fixes* (1)\n• gpt-z input rate"
+        "\n\n*Compared with the baseline, this file adds* (0)\n• nothing\n"
+    ) in text
+
+
 def test_reviewed_rates_are_counted_in_one_line_after_the_flags():
     rows = [row("gpt-a", "openai", input_=1e-6), row("gpt-b", "openai", input_=1e-6)]
     litellm = {name: ll_entry("openai", input_=2e-6) for name in ("gpt-a", "gpt-b")}

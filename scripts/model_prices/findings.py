@@ -1,18 +1,25 @@
-"""Findings by a key that stays the same between price files, so two reports can be
-compared: what one clears and what it adds."""
+"""Findings by key, so two reports can be compared: what one clears and what it adds.
+Also reads the report --baseline compares a run with."""
 
-from .catalogs import FIELD_LABELS
-from .text import _join
+import json
+from datetime import datetime
+from pathlib import Path
+
+from .catalogs import FIELD_LABELS, FIELDS, CheckError
+from .checks import _matches, lookup
+from .text import _amount, _catalog_amount, _join
 
 
 def finding_keys(report: dict) -> dict[tuple, dict]:
-    """Each finding by a key that stays the same from one price file to the next, so
-    two reports can be compared."""
+    """Each finding by a key: what it is about and, for a flagged rate or an unpriced
+    ID, the value it has: our stored rate and the rate we bill, or the row that prices
+    the ID. An edit that changes that value gives the finding a new key, so an omitted
+    rate that bills another rate through a fallback is told apart too."""
     keys: dict[tuple, dict] = {}
     for item in report["flagged"]:
-        keys[("rate", item["model"], item["field"])] = item
+        keys[("rate", item["model"], item["field"], item["ours"], item["billed"])] = item
     for item in report["unpriced_ids"]:
-        keys[("id", item["model"])] = item
+        keys[("id", item["model"], item["priced_as"])] = item
     for item in report["overlaps"]:
         keys[("overlap", item["model"])] = item
     for item in report["row_problems"]:
@@ -24,13 +31,23 @@ def finding_keys(report: dict) -> dict[tuple, dict]:
     return keys
 
 
+def _rate_text(ours: float | None, billed: float) -> str:
+    """Our stored rate, and the rate we bill when that is not what it bills, e.g.
+    "none, billed 4.00" for an omitted rate that falls back to another."""
+    if billed == (ours or 0):
+        return _amount(ours)
+    return f"{_amount(ours)}, billed {_amount(billed)}"
+
+
 def describe(key: tuple) -> str:
-    """A finding key in a few words, e.g. "claude-x cache read rate"."""
+    """A finding key in a few words, e.g. "claude-x cache read rate (ours 0.10)"."""
     match key:
-        case ("rate", model, field):
-            return f"{model} {FIELD_LABELS[field]} rate"
-        case ("id", model):
+        case ("rate", model, field, ours, billed):
+            return f"{model} {FIELD_LABELS[field]} rate (ours {_rate_text(ours, billed)})"
+        case ("id", model, None):
             return f"{model} not priced by its row"
+        case ("id", model, priced_as):
+            return f"{model} priced as {priced_as}"
         case ("overlap", model):
             return f"{model} matched by two rows"
         case ("row", row, problem):
@@ -44,16 +61,19 @@ def describe(key: tuple) -> str:
 
 def describe_all(keys: list[tuple]) -> list[str]:
     """Finding keys in a few words each, with one model's rates merged, e.g.
-    "claude-x input and cache read rates"."""
-    rates: dict[str, list[str]] = {}
+    "claude-x input and cache read rates (ours 1.00 and 0.10)"."""
+    rates: dict[str, list[tuple]] = {}
     others = []
     for key in keys:
         if key[0] == "rate":
-            rates.setdefault(key[1], []).append(FIELD_LABELS[key[2]])
+            rates.setdefault(key[1], []).append(key)
         else:
             others.append(describe(key))
     merged = [
-        f"{model} {_join(fields)} rate" + "s" * (len(fields) > 1) for model, fields in rates.items()
+        f"{model} {_join([FIELD_LABELS[key[2]] for key in found])} rate"
+        + "s" * (len(found) > 1)
+        + f" (ours {_join([_rate_text(key[3], key[4]) for key in found])})"
+        for model, found in rates.items()
     ]
     return merged + others
 
@@ -73,17 +93,221 @@ def _found_through(key: tuple, item: dict) -> str | None:
     return str(name)
 
 
+def _identity(key: tuple) -> tuple:
+    """A finding key without the value it has: a flagged rate by model and field, an
+    unpriced ID by the ID."""
+    match key[0]:
+        case "rate":
+            return key[:3]
+        case "id":
+            return key[:2]
+    return key
+
+
+def _host_rates_added(before: dict | None, after: dict, compared: set[str]) -> bool:
+    """Whether a host ID's entry in host_rates after an edit is new, given its entry
+    before, or None: no row priced the ID at rates its host disagrees with, or another
+    row did at other rates, or the same row did at other rates and no catalog compares
+    it. A change to a compared row's rates is judged by that row's own flags, and a row
+    that takes the ID over at the same rates leaves its price as it was."""
+    if before is None:
+        return True
+    rates = {(rate["field"], rate["ours"]) for rate in before["rates"]}
+    changed = any((rate["field"], rate["ours"]) not in rates for rate in after["rates"])
+    return changed and (before["row"] != after["row"] or after["row"] not in compared)
+
+
+def _row_names(report: dict) -> set[str]:
+    """Every row in the price file a report is on, compared with a catalog or not."""
+    return {*report["compared_rows"], *report["no_match"]}
+
+
 def changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
-    """The findings in report that the after report clears, and what it adds, in a few
-    words each. A finding found through a row is not cleared when the after report stops
-    comparing that row with any catalog, as when its provider changes to one no catalog
-    covers: that can hide the finding, so the row is an add instead."""
+    """The findings in report that the after report clears, and what it adds, each add
+    in a few words on a line of its own, so each can be checked on its own. A finding is
+    cleared only when the after report has nothing about the same rate or ID, and added
+    when its key is new, so a flagged rate changed to another wrong one, or an ID moved
+    from no row to the wrong row, is an add and not a fix. A finding found through a row
+    is not cleared when the after report stops comparing that row with any catalog, as
+    when its provider changes to one no catalog covers, or no longer has the row: that
+    hides the finding, so the row is an add instead. Two changes no finding shows are
+    adds too: a host ID newly priced at rates its host disagrees with (see
+    _host_rates_added), and a dash spelling a row priced before and none prices
+    after."""
     before, after_keys = finding_keys(report), finding_keys(after)
-    stopped = set(after["no_match"]) - set(report["no_match"])
+    removed = _row_names(report) - _row_names(after)
+    stopped = (set(after["no_match"]) - set(report["no_match"])) | removed
     rows = {key: _found_through(key, item) for key, item in before.items()}
     hidden = [key for key in before if rows[key] in stopped]
-    fixes = [key for key in before if key not in after_keys and key not in hidden]
-    adds = describe_all([key for key in after_keys if key not in before])
+    left = {_identity(key) for key in after_keys}
+    fixes = [key for key in before if _identity(key) not in left and key not in hidden]
+    adds = [describe(key) for key in after_keys if key not in before]
     for row in dict.fromkeys(rows[key] for key in hidden):
-        adds.append(f"{row} no longer compared with the catalogs")
+        gone = "row removed" if row in removed else "no longer compared with the catalogs"
+        adds.append(f"{row} {gone}")
+    compared = set(after["compared_rows"])
+    for model_id, found in after["host_rates"].items():
+        if not _host_rates_added(report["host_rates"].get(model_id), found, compared):
+            continue
+        listed = [
+            f"{FIELD_LABELS[r['field']]} {_catalog_amount(r)} (ours {_amount(r['ours'])})"
+            for r in found["rates"]
+        ]
+        adds.append(
+            f"{model_id} priced at {found['row']}'s rates, but the host lists {_join(listed)}"
+        )
+    for dashed, was in report["dash_spellings"].items():
+        if dashed not in after["dash_spellings"]:
+            adds.append(f"{dashed} no longer priced (was {was})")
     return fixes, adds
+
+
+def _unexplained(report: dict, after: dict) -> list[str]:
+    """Each change to a row of report that no finding the after report fixes or adds
+    explains, in a few words. A row removed or moved to another provider is never
+    explained. A rate change is explained by a flag on that rate found through the row,
+    for its own model or a dated snapshot or -latest alias it prices, fixed or added. A
+    flag on another model its pattern prices asks for a narrower pattern, not a new
+    rate: giving the row that model's rate clears the flag but bills the row's own model
+    at it. A row named after a [1m] or host ID that no catalog lists under it is checked
+    only through that ID, so a change to it is explained when that ID's own finding, or
+    a host rate on that field, is fixed or added. A row problem fixed or added explains
+    any new value of what it is about, as no catalog says which value is right: a
+    pattern problem the pattern, a rate out of range that rate, and a cache read rate
+    above the input rate those two rates. A matchPattern change is otherwise explained
+    only by an ID a finding fixed or added is about, a dash spelling or host ID priced
+    another way, or the name of a row the edit adds, and only when the new pattern
+    starts matching the ID and the worker now prices it with this row (see lookup), or
+    stops matching it and it moves away or stops being matched by two rows. One such ID
+    explains the whole change, so a pattern that drops one ID and matches others still
+    passes. Rows the edit adds are judged by their findings alone. Each later row of a
+    name listed twice is compared too, as "<name> (2)" and so on. No catalog compares
+    about a quarter of the rows, and a rate changed inside the tolerance shows no flag,
+    so without this an edit to either would pass unseen."""
+    old_keys, new_keys = finding_keys(report), finding_keys(after)
+    changed = {
+        key: item
+        for key, item in {**old_keys, **new_keys}.items()
+        if (key in old_keys) != (key in new_keys)
+    }
+    flags = {
+        (_found_through(key, item), key[2])
+        for key, item in changed.items()
+        if key[0] == "rate" and item["fix"] == "rate"
+    }
+    flags |= {
+        (key[1], field)
+        for key in changed
+        if key[0] == "id" and key[1] == key[2]
+        for field in FIELDS
+    }
+    # By ID and field, without our rate: a host rate still wrong, or right both times,
+    # explains nothing.
+    old_named, new_named = (
+        {
+            (model_id, rate["field"])
+            for model_id, entry in found["host_rates"].items()
+            if entry["row"] == model_id
+            for rate in entry["rates"]
+        }
+        for found in (report, after)
+    )
+    flags |= old_named ^ new_named
+    # A row problem names the rates, or the pattern, it is about.
+    flags |= {
+        (key[1], field)
+        for key, item in changed.items()
+        if key[0] == "row"
+        for field in item["fields"]
+    }
+    candidates = {item["model"] for key, item in changed.items() if key[0] != "row"}
+    for name in ("dash_spellings", "host_rates"):
+        was, now = report[name], after[name]
+        candidates |= {
+            model_id
+            for model_id in was.keys() | now.keys()
+            if was.get(model_id) != now.get(model_id)
+        }
+    old_rows, new_rows = list(report["rows"].values()), list(after["rows"].values())
+    candidates |= {row["modelName"] for row in new_rows} - {row["modelName"] for row in old_rows}
+    # The row the worker prices each candidate with, before and after.
+    picked = {
+        model_id: (lookup(old_rows, model_id), lookup(new_rows, model_id))
+        for model_id in candidates
+    }
+    overlaps = {key[1] for key in changed if key[0] == "overlap" and key in old_keys}
+    lines = []
+    for name, old in report["rows"].items():
+        new = after["rows"].get(name)
+        if new is None:
+            lines.append(f"{name} row removed")
+            continue
+        if new["provider"] != old["provider"]:
+            lines.append(f"{name} provider changed")
+        for field in FIELDS:
+            was, now = old["prices"][field], new["prices"][field]
+            if was != now and (name, field) not in flags:
+                lines.append(
+                    f"{name} {FIELD_LABELS[field]} rate changed with no finding to fix "
+                    f"(ours {_amount(was)} → {_amount(now)})"
+                )
+        # The worker prices a row's own name with that row, whatever the patterns, so a
+        # name both files list never moves, and a new row's name moves to the new row,
+        # not to a pattern widened to match it. A move explains the change only when the
+        # pattern change made it: the new pattern starts matching an ID the worker now
+        # prices with this row, or stops matching one it moves away from. An ID a new row
+        # takes from this row by name, or one this row gets through another row's
+        # narrowing, says nothing of this pattern. An overlap fixed that way needs no
+        # move, as the worker may have picked the other row.
+        if (
+            old["matchPattern"] != new["matchPattern"]
+            and (name, "matchPattern") not in flags
+            and not any(
+                (old_pick is not old and new_pick is new and not _matches(old, model_id))
+                or (old_pick is old and new_pick is not new and not _matches(new, model_id))
+                or (
+                    model_id in overlaps and _matches(old, model_id) and not _matches(new, model_id)
+                )
+                for model_id, (old_pick, new_pick) in picked.items()
+            )
+        ):
+            lines.append(f"{name} matchPattern changed with no finding to fix")
+    return lines
+
+
+def baseline_changes(report: dict, after: dict) -> tuple[list[tuple], list[str]]:
+    """What --baseline lists for an edit from report to after: what changes finds, and
+    each row change no finding explains (see _unexplained). A removed row with a finding
+    is listed once. --track lists only what changes finds, as an open PR is judged by its
+    findings."""
+    fixes, adds = changes(report, after)
+    return fixes, adds + [line for line in _unexplained(report, after) if line not in adds]
+
+
+def load_baseline(path: Path) -> dict:
+    """A report saved by --json from a completed run. Anything else fails the run."""
+    try:
+        baseline = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CheckError(f"could not read the baseline report ({type(exc).__name__})") from exc
+    if not isinstance(baseline, dict) or baseline.get("status") != "ok":
+        raise CheckError("the baseline report is not from a completed run")
+    try:
+        finding_keys(baseline)
+        datetime.fromisoformat(baseline["date"])
+        # Without these, an edit that stops pricing a dash spelling, prices a host ID at
+        # the wrong rate, deletes a flagged row, or changes a row no finding shows, would
+        # pass unseen. Without the catalog hashes, a catalog that moved between the two
+        # runs would read as a fix.
+        for key, kind in (
+            ("dash_spellings", dict),
+            ("host_rates", dict),
+            ("compared_rows", list),
+            ("rows", dict),
+            ("catalogs", dict),
+        ):
+            if not isinstance(baseline[key], kind):
+                raise TypeError(f"{key} is not a {kind.__name__}")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CheckError("the baseline report was written by a different version") from exc
+    return baseline
