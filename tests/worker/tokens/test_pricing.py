@@ -81,6 +81,7 @@ CODEX_MODEL_CASES = [
 
 OPENAI_MODEL_CASES = [
     ("gpt-5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5-6", "gpt-5.6-sol"),
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
     ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
@@ -118,13 +119,18 @@ OPENAI_MODEL_CASES = [
     ("gpt-5.5-pro", "gpt-5.5-pro"),
     ("azure/gpt-5.5-pro", "gpt-5.5-pro"),
     ("gpt-5.4", "gpt-5.4"),
+    ("gpt-5-4", "gpt-5.4"),
+    ("gpt-5-5", "gpt-5.5"),
     ("gpt-5.4-mini", "gpt-5.4-mini"),
     ("gpt-5.4-nano", "gpt-5.4-nano"),
     ("gpt-5.4-pro", "gpt-5.4-pro"),
     ("gpt-5.2", "gpt-5.2"),
+    ("gpt-5-2", "gpt-5.2"),
     ("gpt-5.2-pro", "gpt-5.2-pro"),
     ("gpt-5.1", "gpt-5.1"),
+    ("gpt-5-1", "gpt-5.1"),
     ("gpt-5", "gpt-5"),
+    ("gpt-5-2025-08-07", "gpt-5"),
     *CODEX_MODEL_CASES,
     ("gpt-5-mini", "gpt-5-mini"),
     ("gpt-5-nano", "gpt-5-nano"),
@@ -338,6 +344,27 @@ class TestOpenAIModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+# (pattern owner, id it must not absorb): dash spellings of later gpt-5 point releases.
+GPT_5_NON_MATCHES = [
+    ("gpt-5", "gpt-5-1"),
+    ("gpt-5", "gpt-5-2"),
+    ("gpt-5", "gpt-5-3"),
+    ("gpt-5", "gpt-5-4"),
+    ("gpt-5", "gpt-5-5"),
+    ("gpt-5", "gpt-5-6"),
+]
+
+
+class TestGpt5PointReleaseIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_5_NON_MATCHES)
+    def test_gpt_5_pattern_does_not_absorb_point_releases(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestGpt56CyberPublishedPrices:
