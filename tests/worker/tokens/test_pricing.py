@@ -272,9 +272,6 @@ KIMI_K26_MODEL_CASES = [
     ("kimi-k2.6", "kimi-k2.6"),
     ("moonshot/kimi-k2.6", "kimi-k2.6"),
     ("kimi-k2.6-20260420", "kimi-k2.6"),
-    ("kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
-    ("moonshot/kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
-    ("kimi-k3-1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
 ]
 
 
@@ -593,11 +590,27 @@ class TestKimiK26ModelIds:
         assert result["cost"] > 0
 
 
+KIMI_K3_1_PRO_HIGHSPEED_MODEL_CASES = [
+    ("kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+    ("moonshot/kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+    ("kimi-k3-1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+]
+
 # $ per 1M tokens: input, cache read, cache write, 1h cache write, output
 KIMI_K3_1_PRO_HIGHSPEED_RATES = (4.00, 0.20, 4.00, 8.00, 20.00)
 
 
 class TestKimiK31ProHighspeedModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", KIMI_K3_1_PRO_HIGHSPEED_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
     @pytest.mark.parametrize("owner,model_id", KIMI_K3_1_PRO_HIGHSPEED_NON_MATCHES)
     def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
         entry = next(e for e in real_cache if e["model_name"] == owner)
