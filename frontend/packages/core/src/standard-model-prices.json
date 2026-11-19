@@ -1382,6 +1382,19 @@
     }
   },
   {
+    "id": "tr-kimi-k3-1-pro",
+    "modelName": "kimi-k3.1-pro",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k3[.-]1-pro$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.000002,
+      "cacheWrite1h": 0.000004
+    }
+  },
+  {
     "id": "tr-grok-4-6",
     "modelName": "grok-4.6",
     "matchPattern": "(?i)^(xai\\/)?grok-4\\.6(-[\\d-]+)?$",
