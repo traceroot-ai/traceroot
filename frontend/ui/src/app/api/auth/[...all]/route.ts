@@ -52,21 +52,28 @@ async function endImpersonation(request: NextRequest, path: string) {
 }
 
 async function handle(request: NextRequest) {
-  const path = new URL(request.url).pathname.replace("/api/auth", "");
+  let req = request;
+  const path = new URL(req.url).pathname.replace("/api/auth", "");
+  // Alias /forget-password to Better-Auth's /request-password-reset endpoint
+  if (path === "/forget-password") {
+    const url = new URL(req.url);
+    url.pathname = url.pathname.replace("/forget-password", "/request-password-reset");
+    req = new NextRequest(url, req);
+  }
   // Preserve old clients' exit URL, but use the audited stop/recovery flow.
-  if (path === "/admin/stop-impersonating" && request.method === "POST")
-    return auth.api.supportStop({ headers: request.headers, asResponse: true });
+  if (path === "/admin/stop-impersonating" && req.method === "POST")
+    return auth.api.supportStop({ headers: req.headers, asResponse: true });
   // The console owns grants and audited starts. Never leave the built-in admin
   // endpoints as an alternate, unaudited privilege-management surface.
   if (path.startsWith("/admin/"))
     return Response.json({ error: "Use the support console" }, { status: 403 });
   if (path !== "/support/stop") {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session && path === "/get-session" && hasSupportRestoreCookie(request.headers))
-      return endImpersonation(request, path);
+    const session = await auth.api.getSession({ headers: req.headers });
+    if (!session && path === "/get-session" && hasSupportRestoreCookie(req.headers))
+      return endImpersonation(req, path);
     if (session?.session.impersonatedBy) {
       const context = await impersonationContext(session.session);
-      if (!context?.valid) return endImpersonation(request, path);
+      if (!context?.valid) return endImpersonation(req, path);
       if (path !== "/get-session")
         return Response.json(
           { error: "Exit impersonation before managing authentication" },
@@ -74,7 +81,7 @@ async function handle(request: NextRequest) {
         );
     }
   }
-  return request.method === "GET" ? handlers.GET(request) : handlers.POST(request);
+  return req.method === "GET" ? handlers.GET(req) : handlers.POST(req);
 }
 export const GET = handle;
 export const POST = handle;

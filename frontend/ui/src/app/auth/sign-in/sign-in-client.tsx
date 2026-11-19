@@ -111,7 +111,15 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-[13px] font-medium">Password</label>
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-[12px] text-muted-foreground hover:text-foreground"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}

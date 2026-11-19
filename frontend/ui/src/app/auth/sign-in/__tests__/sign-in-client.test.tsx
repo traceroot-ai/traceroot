@@ -129,4 +129,10 @@ describe("SignInClient", () => {
     // is treated as "no real callback" — so the link stays bare.
     expect(link.getAttribute("href")).toBe("/auth/sign-up");
   });
+
+  it("renders a link to the forgot-password page", () => {
+    render(<SignInClient googleAuthConfigured={false} />);
+    const link = screen.getByRole("link", { name: "Forgot password?" });
+    expect(link.getAttribute("href")).toBe("/auth/forgot-password");
+  });
 });
