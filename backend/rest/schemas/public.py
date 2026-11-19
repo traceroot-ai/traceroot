@@ -1,12 +1,11 @@
 """Response schemas for the public, API-key-authenticated API."""
 
 import json
-from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import PaginationMeta, UtcDatetime
 from rest.schemas.dashboards import QueryWindow
 from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
 
@@ -154,7 +153,7 @@ class FindingSummary(BaseModel):
     project_id: str
     trace_id: str
     summary: str
-    timestamp: datetime
+    timestamp: UtcDatetime
     detectors: list[str]
     # The producing detector runs. A finding is per-trace but a run is
     # per-(trace, detector), so a finding that fired N detectors has N runs —
@@ -191,7 +190,7 @@ class DetectorItem(BaseModel):
     name: str
     template: str
     enabled: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class DetectorDetail(DetectorItem):
@@ -209,7 +208,7 @@ class DetectorDetail(DetectorItem):
     detection_model: str | None
     detection_provider: str | None
     detection_source: str | None
-    updated_at: datetime
+    updated_at: UtcDatetime
     trigger_conditions: Any | None
 
 
@@ -281,8 +280,8 @@ class DashboardSummary(BaseModel):
     description: str | None
     is_default: bool
     creator: str | None
-    create_time: datetime
-    update_time: datetime
+    create_time: UtcDatetime
+    update_time: UtcDatetime
 
 
 class DashboardListItem(DashboardSummary):
@@ -301,7 +300,7 @@ class DashboardWidgetItem(BaseModel):
     title: str
     type: str
     spec: Any
-    create_time: datetime
+    create_time: UtcDatetime
 
 
 class DashboardLayoutItem(BaseModel):
@@ -385,7 +384,7 @@ class WidgetDetail(DashboardWidgetItem):
     dashboard_id: str
     dashboard_name: str
     display_config: Any
-    update_time: datetime
+    update_time: UtcDatetime
 
 
 class WidgetRef(BaseModel):
@@ -560,16 +559,16 @@ class AlertSummary(BaseModel):
     threshold: float
     status: str
     severity: str
-    severity_changed_at: datetime | None
-    alerted_at: datetime | None
-    last_evaluated_at: datetime | None
+    severity_changed_at: UtcDatetime | None
+    alerted_at: UtcDatetime | None
+    last_evaluated_at: UtcDatetime | None
     last_error: str | None
-    last_error_at: datetime | None
+    last_error_at: UtcDatetime | None
     last_notify_status: str | None
     last_notify_error: str | None
-    last_notify_at: datetime | None
-    create_time: datetime
-    update_time: datetime
+    last_notify_at: UtcDatetime | None
+    create_time: UtcDatetime
+    update_time: UtcDatetime
     creator: str | None
 
 
@@ -669,9 +668,9 @@ class SignalSummary(BaseModel):
     status: SignalStatus
     hit_count: int
     reopen_count: int
-    first_seen_at: datetime
-    last_seen_at: datetime
-    created_at: datetime
+    first_seen_at: UtcDatetime
+    last_seen_at: UtcDatetime
+    created_at: UtcDatetime
     rca_state: str | None = None
 
 
@@ -682,7 +681,7 @@ class SignalDetail(SignalSummary):
     its findings moved to; lists leave merged signals out.
     """
 
-    resolved_at: datetime | None
+    resolved_at: UtcDatetime | None
     merged_into_id: str | None
 
 

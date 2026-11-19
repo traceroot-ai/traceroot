@@ -1,10 +1,8 @@
 """Detector finding/run response schemas."""
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import PaginationMeta, UtcDatetime
 
 
 class RunItem(BaseModel):
@@ -16,7 +14,7 @@ class RunItem(BaseModel):
     trace_id: str
     finding_id: str | None
     status: str
-    timestamp: datetime
+    timestamp: UtcDatetime
     summary: str
     # False for rows written before the flag existed (reads default it).
     self_traced: bool = False
