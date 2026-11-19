@@ -400,7 +400,7 @@ class TestGpt56SolPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(2e-5)  # $20 / 1M tokens
 
 
-# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+# (pattern owner, id it must not absorb): sibling ids the pattern must leave unmatched.
 GPT_6_2_SOL_NON_MATCHES = [
     ("gpt-6.2-sol", "gpt-6.2-astra"),
     ("gpt-6.2-sol", "gpt-6.1-sol"),
