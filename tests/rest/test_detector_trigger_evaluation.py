@@ -7,32 +7,12 @@ from decimal import Decimal
 
 import worker.detector_tasks as detector_tasks
 from worker.detector_tasks import (
-    _claim_and_enqueue,
     _eval_condition,
     _get_trace_summaries,
     _merge_metadata_values,
     _passes_trigger,
+    select_triggered_detectors,
 )
-
-
-class _FakeRedis:
-    """The NX claim and the sticky-state writes, with no server."""
-
-    def __init__(self) -> None:
-        self.store: dict[str, str] = {}
-
-    def set(self, key: str, value: str, nx: bool = False, ex: int | None = None):
-        if nx and key in self.store:
-            return None
-        self.store[key] = value
-        return True
-
-    def eval(self, script: str, numkeys: int, key: str, expected: str) -> int:
-        if self.store.get(key) == expected:
-            del self.store[key]
-            return 1
-        return 0
-
 
 # A trace whose spans disagree about environment — the case that separates
 # membership from the old root-span reading.
@@ -160,13 +140,8 @@ def test_a_value_the_field_cannot_be_compared_to_evaluates_false():
 
 def test_one_detectors_malformed_condition_does_not_cost_another_detector(monkeypatch):
     """The reason the evaluator must not raise: every detector for a trace is
-    evaluated inside one claim, so a single bad condition on a detector nobody is
-    looking at takes every other detector's finding for that trace with it."""
-    enqueued: list[dict] = []
-    monkeypatch.setattr(
-        detector_tasks, "_add_bullmq_job", lambda job_id, data: enqueued.append(data)
-    )
-
+    evaluated in one call, so a single bad condition on a detector nobody is
+    looking at would take every other detector's finding for that trace with it."""
     detectors = [
         {"id": "legacy", "sample_rate": 100, "conditions": [None]},
         {
@@ -175,9 +150,16 @@ def test_one_detectors_malformed_condition_does_not_cost_another_detector(monkey
             "conditions": [{"field": "environment", "op": "=", "value": "prod"}],
         },
     ]
-    _claim_and_enqueue(_FakeRedis(), "proj-1", "trace-1", detectors, UNIFORM)
+    monkeypatch.setattr(detector_tasks, "_get_active_detectors", lambda project_id: detectors)
+    monkeypatch.setattr(
+        detector_tasks,
+        "_get_trace_summaries",
+        lambda project_id, trace_ids, **kwargs: {"trace-1": UNIFORM},
+    )
 
-    assert enqueued == [{"traceId": "trace-1", "detectorIds": ["healthy"], "projectId": "proj-1"}]
+    selected = select_triggered_detectors("proj-1", "trace-1", ["legacy", "healthy"])
+
+    assert selected == ["healthy"]
 
 
 # --- Merging the two metadata scopes ---

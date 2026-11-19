@@ -469,6 +469,47 @@ class TestGetTraceFindings:
 # =============================================================================
 
 
+class TestTriggeredDetectors:
+    URL = "/api/v1/internal/traces/trace-abc/triggered-detectors"
+
+    def test_returns_the_detectors_the_settled_trace_triggers(self, client, secret, monkeypatch):
+        calls = []
+
+        def select(project_id, trace_id, detector_ids):
+            calls.append((project_id, trace_id, detector_ids))
+            return ["d2"]
+
+        monkeypatch.setattr("worker.detector_tasks.select_triggered_detectors", select)
+
+        resp = client.post(
+            self.URL,
+            json={"projectId": "p1", "detectorIds": ["d1", "d2"]},
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"detectorIds": ["d2"]}
+        assert calls == [("p1", "trace-abc", ["d1", "d2"])]
+
+    def test_missing_secret_rejected(self, client, monkeypatch):
+        select = MagicMock()
+        monkeypatch.setattr("worker.detector_tasks.select_triggered_detectors", select)
+
+        resp = client.post(self.URL, json={"projectId": "p1", "detectorIds": ["d1"]})
+
+        assert resp.status_code == 403
+        select.assert_not_called()
+
+    def test_body_without_detector_ids_is_rejected(self, client, secret):
+        resp = client.post(
+            self.URL,
+            json={"projectId": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 422
+
+
 class TestInternalAuth:
     def test_missing_secret_rejected(self, client, mock_ch):
         resp = client.get(
