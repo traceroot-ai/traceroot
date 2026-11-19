@@ -21,33 +21,35 @@ Start at the evaluation, narrow to its runs, then read one. Each step prints the
 traceroot evals list
 
 # That evaluation's runs, newest first — the RUN ID column is what you read next
-traceroot evals runs list --evaluation-id ev_… --limit 20
+traceroot evals runs list --evaluation-id <evaluation-id> --limit 20
 
 # Only the runs that went wrong
 traceroot evals runs list --status failed
 ```
 
-`--status` takes `running`, `completed`, `completed_with_errors`, `failed`, `incomplete`, or `cancelled`. Both lists take `--name <substring>` filtering, case-insensitively, on the evaluation name.
+`--status` takes `running`, `completed`, `completed_with_errors`, `failed`, `incomplete`, or `cancelled`. `evals list` takes `--name <substring>`, which filters case-insensitively on the evaluation name.
 
 A run row is identity and outcome only — which run it is, what it was testing, and when it started. Scores and counts are aggregates over a run's results, so they come from reading the run itself.
 
 ## Read a run
 
 ```bash
-traceroot evals runs get run_…
+traceroot evals runs get <run-id>
 ```
 
 ```
 support-triage · run #12 · completed
 candidate: git:9f2a1c        environment: ci
-dataset:   ds_2a97  @ dsv_1
+dataset:   ds_2a97c1e04b6d8f3a5c7e9b1d20  @ 7345120984467456
 
-results    26 reported · 25 scored · 1 task error · 0 scorer errors · 0 not scored
+results    26 reported · 25 scored · 1 task error · 0 scorer errors · 1 errored · 0 not scored
 
-METRIC     VALUE   UNIT  CASES
-accuracy   0.84    —     25
-duration   1,205   ms    25    (mean per case)
-cost       0.0123  $     25    (mean per case)
+METRIC    VALUE   UNIT  CASES
+accuracy  0.84    —     25
+duration  1,205   ms    25     (mean per case)
+cost      0.0123  $     25     (mean per case)
+
+https://app.traceroot.ai/projects/…/evaluations/…
 ```
 
 Each score is a **mean over the results that carried it**, not a headline number for the run:
@@ -63,9 +65,9 @@ Datasets read from the dataset down to the cases inside one published version.
 
 ```bash
 traceroot datasets list --name triage        # newest first, with each one's current version
-traceroot datasets get ds_…                  # name, key, description, current version
-traceroot datasets versions list ds_…        # every published version; * marks the current one
-traceroot datasets versions get dsv_… --limit 50
+traceroot datasets get <dataset-id>          # name, key, description, current version
+traceroot datasets versions list <dataset-id>  # published versions; * marks the current one
+traceroot datasets versions get <version-id> --limit 50
 ```
 
 `datasets versions get` prints the version's cases — case id, input, expected, and the trace a case was captured from where it has one. Versions are immutable, so this is exactly what a run measured: take `dataset_version_id` off a run and read the cases behind it.
@@ -74,10 +76,10 @@ A dataset with nothing published yet has no version to read. The CLI says so ins
 
 ## Scripting
 
-Every command takes `--json` and prints the API response verbatim on stdout. Warnings and counts go to stderr, so a redirect stays valid JSON.
+Every evaluation and dataset command takes `--json` and prints the API response verbatim on stdout. Warnings and counts go to stderr, so a redirect stays valid JSON.
 
 ```bash
-traceroot evals runs get run_… --json > run.json
+traceroot evals runs get <run-id> --json > run.json
 traceroot evals runs list --status failed --json | jq -r '.runs[].evaluation_run_id'
 ```
 
