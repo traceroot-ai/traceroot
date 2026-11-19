@@ -269,6 +269,15 @@ export class MalformedDecisionsResponseError extends Error {}
 /** OpenAI declined to answer a question; the run fails with the billed usage. */
 export class DecisionRefusedError extends Error {}
 
+/** Longest provider-sent value an error message quotes; it ends up in the span status. */
+const MAX_QUOTED_VALUE = 100;
+
+/** A provider-controlled value as an error message quotes it: bounded, never whole. */
+function providerValue(text: string | undefined): string {
+  const value = text ?? "undefined";
+  return value.length > MAX_QUOTED_VALUE ? `${value.slice(0, MAX_QUOTED_VALUE)}…` : value;
+}
+
 function malformed(reason: string): Error {
   return new MalformedDecisionsResponseError(
     `OpenAI decisions returned a malformed response: ${reason}`,
@@ -335,7 +344,9 @@ function parseResult<Q extends DecisionsQuestions>(text: string, questions: Q): 
         throw new DecisionRefusedError(`OpenAI decisions refused to answer question "${name}"`);
       }
       if (raw.type !== question.type) {
-        throw malformed(`answer "${name}" has type ${String(raw.type)}, expected ${question.type}`);
+        throw malformed(
+          `answer "${name}" has type ${providerValue(String(raw.type))}, expected ${question.type}`,
+        );
       }
       answers[name] =
         question.type === "predicate"
@@ -370,14 +381,17 @@ function parsePredicate(name: string, raw: Record<string, unknown>): PredicateAn
 
 function parseChoice(name: string, raw: Record<string, unknown>, options: string[]): ChoiceAnswer {
   if (typeof raw.choice !== "string" || !options.includes(raw.choice)) {
-    throw malformed(`answer "${name}" choice ${JSON.stringify(raw.choice)} is not an option`);
+    throw malformed(
+      `answer "${name}" choice ${providerValue(JSON.stringify(raw.choice))} is not an option`,
+    );
   }
   if (!isProbability(raw.confidence)) {
     throw malformed(`answer "${name}" confidence is not in [0,1]`);
   }
   if (!Array.isArray(raw.probabilities)) throw malformed(`answer "${name}" has no probabilities`);
 
-  // The docs don't promise every option is listed, so an omitted one is 0.
+  // The docs don't promise every option is listed, so an omitted one is 0;
+  // the chosen one has to be there (checked below).
   const probabilities: Record<string, number> = Object.fromEntries(options.map((o) => [o, 0]));
   const seen = new Set<string>();
   for (const entry of raw.probabilities) {
@@ -392,6 +406,11 @@ function parseChoice(name: string, raw: Record<string, unknown>, options: string
     }
     seen.add(entry.value);
     probabilities[entry.value] = entry.probability;
+  }
+  // Without it every option reads 0 and the finding would name the first one
+  // asked, not the one the answer chose.
+  if (!seen.has(raw.choice)) {
+    throw malformed(`answer "${name}" has no probability for its choice "${raw.choice}"`);
   }
   return { type: "choice", choice: raw.choice, confidence: raw.confidence, probabilities };
 }

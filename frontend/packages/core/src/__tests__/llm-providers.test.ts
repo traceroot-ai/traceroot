@@ -10,6 +10,7 @@ import {
   defaultAdapterModel,
   defaultApiProtocol,
   decisionModelAlias,
+  DECISION_MODEL_ALIASES,
   isDecisionModelId,
   ADAPTER_CONFIG,
 } from "../llm-providers.ts";
@@ -53,6 +54,18 @@ describe("decisionModelAlias", () => {
       model: "gpt-6-luna",
     });
     expect(ADAPTER_MODELS.openai?.map((m) => m.id)).toContain("gpt-6-luna-decisions");
+  });
+
+  it("has exactly the catalog entries that set decisionModel, and no others", () => {
+    const fromCatalog = Object.entries(ADAPTER_MODELS).flatMap(([adapter, models]) =>
+      (models ?? [])
+        .filter((m) => m.decisionModel)
+        .map((m) => [m.id, { adapter, model: m.decisionModel }]),
+    );
+    expect(fromCatalog).toEqual([
+      ["gpt-6-luna-decisions", { adapter: "openai", model: "gpt-6-luna" }],
+    ]);
+    expect(Object.entries(DECISION_MODEL_ALIASES)).toEqual(fromCatalog);
   });
 
   it("returns null for chat ids, Jev ids, inherited keys and empty input", () => {

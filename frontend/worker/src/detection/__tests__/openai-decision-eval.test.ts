@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockCallDecisions, mockCalculateCost, mockTracedDecision } = vi.hoisted(() => ({
+const { mockCallDecisions, mockCalculateCost, mockTracedDecision, mockScope } = vi.hoisted(() => ({
   mockCallDecisions: vi.fn(),
   mockCalculateCost: vi.fn(),
   // Runs the call untraced; the test reads the meta and callbacks it was given.
   mockTracedDecision: vi.fn((_meta: unknown, call: () => Promise<unknown>) => call()),
+  // No self-trace scope unless a test opens one.
+  mockScope: vi.fn((): unknown => undefined),
 }));
 
 vi.mock("../openai-decisions-client.js", async (importOriginal) => ({
@@ -13,6 +15,7 @@ vi.mock("../openai-decisions-client.js", async (importOriginal) => ({
 }));
 vi.mock("@traceroot/core", () => ({ calculateCost: mockCalculateCost }));
 vi.mock("../traced-system-one.js", () => ({ tracedDecision: mockTracedDecision }));
+vi.mock("../self-trace-emitter.js", () => ({ currentSelfTraceScope: mockScope }));
 
 import {
   decisionsCost,
@@ -193,6 +196,25 @@ describe("runOpenAIDecisionDetection", () => {
     expect(questions.label.choices.map((c: { value: string }) => c.value)).toEqual(
       Object.keys(FAILURE_PROBS),
     );
+  });
+
+  it("builds the redacted state preview only when a self-trace will record it", async () => {
+    const preview = () => {
+      const meta = mockTracedDecision.mock.calls.at(-1)![0] as {
+        input: { state_preview: unknown };
+      };
+      return String(meta.input.state_preview);
+    };
+
+    mockCallDecisions.mockResolvedValueOnce(result(0.2, FAILURE_PROBS));
+    await run();
+    expect(preview()).not.toContain("agent.run");
+
+    mockScope.mockReturnValueOnce({ projectId: "proj-1" });
+    mockCallDecisions.mockResolvedValueOnce(result(0.2, FAILURE_PROBS));
+    await run();
+    expect(preview()).toContain("agent.run");
+    expect(preview()).toContain("tool.get_weather");
   });
 
   it("fits a deep or value-heavy trace to the API's JSON limits and records how", async () => {

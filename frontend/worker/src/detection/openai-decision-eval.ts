@@ -27,6 +27,7 @@ import {
   type DecisionsUsage,
 } from "./openai-decisions-client.js";
 import { boundedJson } from "./traced-complete.js";
+import { currentSelfTraceScope } from "./self-trace-emitter.js";
 import { tracedDecision } from "./traced-system-one.js";
 
 /** The API model a detector's decision alias calls, or null if it names none. */
@@ -98,11 +99,15 @@ export async function runOpenAIDecisionDetection(params: {
   // to the span's own redaction. The request above keeps the full trace, as
   // Jev's does. Redaction can lengthen a value, so a trace right at the budget
   // may not fit twice; the preview is then left out rather than failing the run.
+  // Only built when a self-trace will record it: the span is the only reader,
+  // and redacting the full trace is not free.
   let preview: unknown = null;
-  try {
-    preview = buildJevState(spansJsonl, { redact: true }).state;
-  } catch {
-    /* no preview */
+  if (currentSelfTraceScope()) {
+    try {
+      preview = buildJevState(spansJsonl, { redact: true }).state;
+    } catch {
+      /* no preview */
+    }
   }
 
   const result = await tracedDecision(

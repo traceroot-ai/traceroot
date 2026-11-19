@@ -214,6 +214,16 @@ describe("callDecisions (stubbed fetch)", () => {
         withLabel({ probabilities: [{ value: "timeout", probability: 2 }] }),
         /"timeout" is not in/,
       ],
+      [
+        "the chosen option has no probability",
+        withLabel({ probabilities: [{ value: "timeout", probability: 0.9 }] }),
+        /no probability for its choice "tool_error"/,
+      ],
+      [
+        "the probabilities list is empty",
+        withLabel({ probabilities: [] }),
+        /no probability for its choice "tool_error"/,
+      ],
       ["usage missing", { answers: OK_BODY.answers }, /usage/],
       [
         "cache tokens above input_tokens",
@@ -255,6 +265,34 @@ describe("callDecisions (stubbed fetch)", () => {
       expect(err).toBeInstanceOf(MalformedDecisionsResponseError);
       expect(err.message).toMatch(message);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("provider values quoted in an error", () => {
+    const LONG = "x".repeat(5_000);
+
+    it("caps an unknown choice at 100 characters", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, withLabel({ choice: LONG })));
+      const err = await callError();
+      expect(err.message).toBe(
+        `OpenAI decisions returned a malformed response: answer "label" choice "${"x".repeat(99)}… is not an option`,
+      );
+    });
+
+    it("caps an unexpected answer type at 100 characters", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { ...OK_BODY, answers: [{ ...GATE_ANSWER, type: LONG }, LABEL_ANSWER] }),
+      );
+      const err = await callError();
+      expect(err.message).toBe(
+        `OpenAI decisions returned a malformed response: answer "gate" has type ${"x".repeat(100)}…, expected predicate`,
+      );
+    });
+
+    it("quotes a short value whole", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, withLabel({ choice: "other" })));
+      const err = await callError();
+      expect(err.message).toContain('choice "other" is not an option');
     });
   });
 
