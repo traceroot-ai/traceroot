@@ -80,6 +80,13 @@ export function isCustomerTraffic(source?: TraceSource): source is "user" | unde
   return source === undefined || source === "user";
 }
 
+/**
+ * Upper bound on one trace-detail request. A healthy read answers in seconds (the
+ * backend caps its interactive reads at 10s), so a request still open past this is
+ * hung, and failing it lets the viewer offer a retry instead of loading forever.
+ */
+export const TRACE_FETCH_TIMEOUT_MS = 20_000;
+
 export async function getTrace(
   projectId: string,
   traceId: string,
@@ -88,7 +95,13 @@ export async function getTrace(
   source?: TraceSource,
 ): Promise<TraceDetail> {
   const query = source ? `?source=${source}` : "";
-  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}${query}`, {}, user);
+  // Bounded here, not in one hook: every reader of this trace shares one cache entry,
+  // and whichever reader's fetch runs is the one the viewer waits on.
+  return fetchTraceApi<TraceDetail>(
+    `/projects/${projectId}/traces/${traceId}${query}`,
+    { signal: AbortSignal.timeout(TRACE_FETCH_TIMEOUT_MS) },
+    user,
+  );
 }
 
 /** Registry of filterable fields driving the filter dropdown (Python source of truth). */

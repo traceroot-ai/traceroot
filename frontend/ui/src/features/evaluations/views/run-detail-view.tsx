@@ -3,8 +3,8 @@
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
-import { Loader2, Plus, Search, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CircleAlert, Clock, Loader2, Lock, LogIn, Plus, Search, X } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { useEvaluationRun } from "../hooks";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
+import { classifyTraceLoadFailure, type TraceLoadFailure } from "../trace-load-failure";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
@@ -191,16 +192,47 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // Prefer the result's REAL ingested trace. Probe it — this shares TraceViewerPanel's
   // ["trace", projectId, traceId] cache key, so opening the real panel does not refetch.
   // A result trace id means telemetry was emitted: show the real trace when it's
-  // available, and a pending state (retry) while it is still ingesting. When no trace
-  // id was emitted (fully-local run), fall back to a clearly-labeled reconstructed trace.
+  // available, and a panel saying why it isn't (with a way on) when it fails to load.
+  // When no trace id was emitted (fully-local run), fall back to a clearly-labeled
+  // reconstructed trace — never for a result that reported one.
   const realTraceId = openResult?.traceId ?? null;
   const realTrace = useTrace(projectId, realTraceId ?? "", !!realTraceId);
-  // Only treat a reported trace as "pending" when its fetch genuinely fails (not yet
-  // ingested → 404). While it's merely loading, keep the trace panel mounted and let it
-  // show its own loading — so navigating between results updates in place instead of
-  // flickering through the pending panel and re-animating the slide-in.
-  const tracePending = !!realTraceId && realTrace.isError;
-  const useRealTrace = !!realTraceId && !realTrace.isError;
+  // Only swap in the unavailable panel when the fetch genuinely fails, and say why: a
+  // 404 is ingest lag (or, past a point, a trace that may never arrive), while a
+  // refused session or a server error is not. While it's merely loading, keep the
+  // trace panel mounted and let it show its own loading — so navigating between
+  // results updates in place instead of flickering through this panel and
+  // re-animating the slide-in.
+  const traceFailure =
+    realTraceId && realTrace.isError
+      ? classifyTraceLoadFailure({
+          error: realTrace.error,
+          failedLoads: realTrace.errorUpdateCount,
+          recordedAt: openResult?.createTime,
+        })
+      : null;
+  // A retry of a trace that never loaded resets the query to pending and clears its
+  // error, so hold the last failure while it runs: the panel stays put with Retry
+  // spinning instead of swapping to the loading trace viewer and back.
+  const [heldFailure, setHeldFailure] = React.useState<{
+    traceId: string;
+    failure: TraceLoadFailure;
+  } | null>(null);
+  if (
+    realTraceId &&
+    traceFailure &&
+    (heldFailure?.traceId !== realTraceId || heldFailure.failure !== traceFailure)
+  ) {
+    setHeldFailure({ traceId: realTraceId, failure: traceFailure });
+  }
+  const shownFailure =
+    traceFailure ??
+    (realTrace.isLoading && heldFailure && heldFailure.traceId === realTraceId
+      ? heldFailure.failure
+      : null);
+  // A retention refusal is the trace viewer's to explain (it has the plan banner).
+  const unavailableFailure = shownFailure === "retention" ? null : shownFailure;
+  const useRealTrace = !!realTraceId && !unavailableFailure;
 
   // Reconstructed eval-shaped trace — the labeled fallback, only for results that
   // emitted no real trace. Seed span I/O just for those so the detail panel has it.
@@ -261,10 +293,14 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         )}
       </div>
 
-      {/* Telemetry for this result is still ingesting — pending state with retry. */}
-      {openResult && run && tracePending && (
-        <PendingTracePanel
+      {/* The result reported a trace that failed to load — say why, with a way on. */}
+      {openResult && run && unavailableFailure && (
+        <TraceUnavailablePanel
+          failure={unavailableFailure}
           traceId={realTraceId as string}
+          signInHref={`/auth/sign-in?callbackUrl=${encodeURIComponent(
+            `/projects/${projectId}/evaluations/${runId}`,
+          )}`}
           isFetching={realTrace.isFetching}
           onRetry={() => realTrace.refetch()}
           onClose={closeResult}
@@ -274,7 +310,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
       {/* The result opens directly in the REAL trace viewer (span tree + span detail)
           when its trace is available; otherwise a clearly-labeled reconstructed trace.
           The evaluation context, scores, and human review are the span-actions panel. */}
-      {openResult && run && !tracePending && panelTraceId && (
+      {openResult && run && !unavailableFailure && panelTraceId && (
         <TraceViewerPanel
           // No key on panelTraceId: navigating results updates the panel in place
           // (TraceViewerPanel resets its selection on traceId change), matching the
@@ -346,18 +382,75 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   );
 }
 
-/** Slide-in panel shown while a result's real trace is still ingesting. */
-function PendingTracePanel({
+/**
+ * Slide-in panel shown when a result's real trace failed to load. It says why in
+ * the terms the failure supports: a recent miss reads as still ingesting, an old or
+ * repeated one only as not available yet — never a promise that it will appear.
+ */
+function TraceUnavailablePanel({
+  failure,
   traceId,
+  signInHref,
   isFetching,
   onRetry,
   onClose,
 }: {
+  failure: Exclude<TraceLoadFailure, "retention">;
   traceId: string;
+  signInHref: string;
   isFetching: boolean;
   onRetry: () => void;
   onClose: () => void;
 }) {
+  const traceRef = <span className="font-mono">{traceId.slice(0, 12)}…</span>;
+  const { icon, title, body } = {
+    ingesting: {
+      icon: <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />,
+      title: "Trace is still being ingested",
+      body: (
+        <>
+          This result reported a trace ({traceRef}), but it hasn&apos;t finished ingesting yet.
+          Retry in a moment.
+        </>
+      ),
+    },
+    delayed: {
+      icon: <Clock className="h-5 w-5 text-muted-foreground" aria-hidden />,
+      title: "Trace isn't available yet",
+      body: (
+        <>
+          This result reported a trace ({traceRef}), but it can&apos;t be found. Ingestion may be
+          delayed, or the trace may not have been exported.
+        </>
+      ),
+    },
+    "signed-out": {
+      icon: <LogIn className="h-5 w-5 text-muted-foreground" aria-hidden />,
+      title: "Sign in to view this trace",
+      body: <>Your session has expired or you&apos;ve been signed out.</>,
+    },
+    forbidden: {
+      icon: <Lock className="h-5 w-5 text-muted-foreground" aria-hidden />,
+      title: "You don't have access to this trace",
+      body: (
+        <>
+          Your account can&apos;t read traces in this project. Ask a workspace admin for access,
+          then retry.
+        </>
+      ),
+    },
+    failed: {
+      icon: <CircleAlert className="h-5 w-5 text-destructive" aria-hidden />,
+      title: "Couldn't load the trace",
+      body: (
+        <>
+          This result reported a trace ({traceRef}), but loading it failed: the server returned an
+          error or didn&apos;t respond.
+        </>
+      ),
+    },
+  }[failure];
+
   return (
     <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
@@ -373,21 +466,28 @@ function PendingTracePanel({
         </Button>
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-[12px]">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
-        <p className="text-[13px] font-medium">Trace is still being ingested</p>
-        <p className="max-w-[360px] leading-relaxed text-muted-foreground">
-          This result reported a trace (<span className="font-mono">{traceId.slice(0, 12)}…</span>),
-          but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it lands.
-        </p>
-        <Button
-          variant="outline"
-          className="h-7 gap-1.5 text-[12px]"
-          disabled={isFetching}
-          onClick={onRetry}
-        >
-          <Loader2 className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} aria-hidden />
-          Retry
-        </Button>
+        {icon}
+        <p className="text-[13px] font-medium">{title}</p>
+        <p className="max-w-[360px] leading-relaxed text-muted-foreground">{body}</p>
+        {failure === "signed-out" ? (
+          <Link
+            href={signInHref}
+            className={cn(buttonVariants({ variant: "outline" }), "h-7 gap-1.5 text-[12px]")}
+          >
+            <LogIn className="h-3.5 w-3.5" aria-hidden />
+            Sign in
+          </Link>
+        ) : (
+          <Button
+            variant="outline"
+            className="h-7 gap-1.5 text-[12px]"
+            disabled={isFetching}
+            onClick={onRetry}
+          >
+            <Loader2 className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} aria-hidden />
+            Retry
+          </Button>
+        )}
       </div>
     </div>
   );
