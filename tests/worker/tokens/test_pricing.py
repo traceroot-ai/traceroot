@@ -470,6 +470,7 @@ class TestGemini4NeonPublishedPrices:
         assert entry["prices"]["input"] == pytest.approx(3e-06)  # $3 / 1M tokens
         assert entry["prices"]["output"] == pytest.approx(1.5e-05)  # $15 / 1M tokens
         assert entry["prices"]["cacheRead"] == pytest.approx(1.5e-07)  # $0.15 / 1M tokens
+        assert entry["prices"]["cacheWrite"] is None
 
     @pytest.mark.parametrize("owner,model_id", GEMINI_4_NEON_NON_MATCHES)
     def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
