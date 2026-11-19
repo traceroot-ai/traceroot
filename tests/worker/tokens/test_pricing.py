@@ -902,6 +902,7 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("claude-haiku-4.5", "claude-haiku-4-5"),
     # Mythos 5.2 — bare, gateway slug and Bedrock global ids
     ("claude-mythos-5-2", "claude-mythos-5-2"),
+    ("claude-mythos-5-2[1m]", "claude-mythos-5-2"),
     ("anthropic/claude-mythos-5-2", "claude-mythos-5-2"),
     ("global.anthropic.claude-mythos-5-2", "claude-mythos-5-2"),
     # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
