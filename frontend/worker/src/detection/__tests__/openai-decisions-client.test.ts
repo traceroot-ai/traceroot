@@ -289,6 +289,36 @@ describe("callDecisions (stubbed fetch)", () => {
       );
     });
 
+    it("scrubs a key the provider echoes into the choice or the type", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse(200, withLabel({ choice: `Authorization: Bearer ${API_KEY}` })),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse(200, {
+            ...OK_BODY,
+            answers: [{ ...GATE_ANSWER, type: `Bearer ${API_KEY}` }, LABEL_ANSWER],
+          }),
+        );
+      for (let i = 0; i < 2; i++) {
+        const err = await callError();
+        expect(err.message).not.toContain(API_KEY);
+        expect(err.message).toContain("Bearer [REDACTED]");
+      }
+    });
+
+    it("scrubs before the cut, so a key straddling it leaves nothing behind", async () => {
+      const key = "gw7f3a9c2e1b5d4";
+      // The key starts a few characters before the 100-character cut.
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, withLabel({ choice: `${"x".repeat(95)}${key}${"y".repeat(50)}` })),
+      );
+      const err = await callError({ apiKey: key });
+      expect(err.message).not.toContain(key.slice(0, 4));
+      // The cut lands inside the marker, never inside the key.
+      expect(err.message).toContain(`choice "${"x".repeat(95)}[RED…`);
+    });
+
     it("quotes a short value whole", async () => {
       fetchMock.mockResolvedValue(jsonResponse(200, withLabel({ choice: "other" })));
       const err = await callError();

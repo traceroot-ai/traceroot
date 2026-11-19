@@ -170,7 +170,7 @@ export async function callDecisions<Q extends DecisionsQuestions>(
         throw new Error(`OpenAI decisions request failed: ${scrubErrorText(reason, apiKey)}`);
       }
 
-      if (response.ok) return parseResult(text, questions);
+      if (response.ok) return parseResult(text, questions, apiKey);
 
       const error = statusError(response.status, text, apiKey);
       const retryable = response.status === 429 || response.status >= 500;
@@ -272,9 +272,14 @@ export class DecisionRefusedError extends Error {}
 /** Longest provider-sent value an error message quotes; it ends up in the span status. */
 const MAX_QUOTED_VALUE = 100;
 
-/** A provider-controlled value as an error message quotes it: bounded, never whole. */
-function providerValue(text: string | undefined): string {
-  const value = text ?? "undefined";
+/**
+ * A provider-controlled value as an error message quotes it: scrubbed like
+ * any provider error text (a proxy can echo the Authorization header into an
+ * answer field), then bounded. Scrubbed first, so the cut can't leave part of
+ * a key behind for the patterns to miss.
+ */
+function providerValue(text: string | undefined, apiKey: string): string {
+  const value = scrubErrorText(text ?? "undefined", apiKey);
   return value.length > MAX_QUOTED_VALUE ? `${value.slice(0, MAX_QUOTED_VALUE)}…` : value;
 }
 
@@ -315,7 +320,11 @@ function parseUsage(raw: unknown): DecisionsUsage {
   };
 }
 
-function parseResult<Q extends DecisionsQuestions>(text: string, questions: Q): DecisionsResult<Q> {
+function parseResult<Q extends DecisionsQuestions>(
+  text: string,
+  questions: Q,
+  apiKey: string,
+): DecisionsResult<Q> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -345,7 +354,7 @@ function parseResult<Q extends DecisionsQuestions>(text: string, questions: Q): 
       }
       if (raw.type !== question.type) {
         throw malformed(
-          `answer "${name}" has type ${providerValue(String(raw.type))}, expected ${question.type}`,
+          `answer "${name}" has type ${providerValue(String(raw.type), apiKey)}, expected ${question.type}`,
         );
       }
       answers[name] =
@@ -355,6 +364,7 @@ function parseResult<Q extends DecisionsQuestions>(text: string, questions: Q): 
               name,
               raw,
               question.choices.map((c) => c.value),
+              apiKey,
             );
     }
     if (parsed.model !== undefined && parsed.model !== null && typeof parsed.model !== "string") {
@@ -379,10 +389,15 @@ function parsePredicate(name: string, raw: Record<string, unknown>): PredicateAn
   return { type: "predicate", probability: raw.probability };
 }
 
-function parseChoice(name: string, raw: Record<string, unknown>, options: string[]): ChoiceAnswer {
+function parseChoice(
+  name: string,
+  raw: Record<string, unknown>,
+  options: string[],
+  apiKey: string,
+): ChoiceAnswer {
   if (typeof raw.choice !== "string" || !options.includes(raw.choice)) {
     throw malformed(
-      `answer "${name}" choice ${providerValue(JSON.stringify(raw.choice))} is not an option`,
+      `answer "${name}" choice ${providerValue(JSON.stringify(raw.choice), apiKey)} is not an option`,
     );
   }
   if (!isProbability(raw.confidence)) {
