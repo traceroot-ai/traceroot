@@ -317,7 +317,9 @@ class TraceReaderService:
         self._trace_start_lock = threading.Lock()
         # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
         # -> (expiry, rows). Short TTL; bounded to DISTINCT_VALUES_CACHE_MAX entries.
+        # The public filter read writes it from a worker thread.
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
+        self._distinct_lock = threading.Lock()
 
     def get_distinct_span_values(
         self,
@@ -439,9 +441,10 @@ class TraceReaderService:
             _floor_minute(normalized_end),
         )
         now = time.time()
-        cached = self._distinct_cache.get(cache_key)
-        if cached is not None and cached[0] > now:
-            return cached[1]
+        with self._distinct_lock:
+            cached = self._distinct_cache.get(cache_key)
+            if cached is not None and cached[0] > now:
+                return cached[1]
 
         params: dict = {"project_id": project_id}
         # Detector self-traces carry their own model/environment/name values; excluding
@@ -483,11 +486,13 @@ class TraceReaderService:
         """
         result = self._client.query(query, parameters=params)
         rows = [{"value": str(row[0]), "count": int(row[1])} for row in result.result_rows]
-        # Bound the cache: drop expired entries, then evict oldest if still at capacity.
-        self._distinct_cache = {k: v for k, v in self._distinct_cache.items() if v[0] > now}
-        if len(self._distinct_cache) >= DISTINCT_VALUES_CACHE_MAX:
-            self._distinct_cache.pop(next(iter(self._distinct_cache)))
-        self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
+        # Two writes rebuilding from the same snapshot would drop one answer, and
+        # the filter read now runs on a worker thread. Same guard as the other caches.
+        with self._distinct_lock:
+            self._distinct_cache = {k: v for k, v in self._distinct_cache.items() if v[0] > now}
+            if len(self._distinct_cache) >= DISTINCT_VALUES_CACHE_MAX:
+                self._distinct_cache.pop(next(iter(self._distinct_cache)))
+            self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
         return rows
 
     _HAS_TRACES_CACHE_MAX = 1024
