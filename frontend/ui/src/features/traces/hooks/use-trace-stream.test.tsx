@@ -87,6 +87,58 @@ describe("useTraceStream", () => {
     expect(result.current.isStreaming).toBe(true);
   });
 
+  it.each([
+    { label: "JSON null", metadata: "null" },
+    {
+      label: "a non-array name path",
+      metadata: JSON.stringify({
+        "traceroot.span.ids_path": ["invalid-parent"],
+        "traceroot.span.path": { 0: "parent", 1: "child", length: 2 },
+      }),
+    },
+    {
+      label: "a non-string ancestor name",
+      metadata: JSON.stringify({
+        "traceroot.span.ids_path": ["invalid-parent"],
+        "traceroot.span.path": [{}, "child"],
+      }),
+    },
+  ])("keeps a mixed live batch when one child has $label", ({ metadata }) => {
+    const key = traceQueryKey("p1", "t1", "user");
+    client.setQueryData<TraceDetail>(key, traceDetail([span("root")]));
+    const { result } = renderHook(() => useTraceStream("p1", "t1", true, "user"), { wrapper });
+    const validChild = span("valid", {
+      parent_span_id: "pending",
+      metadata: JSON.stringify({
+        "traceroot.span.ids_path": ["root", "pending"],
+        "traceroot.span.path": ["root", "pending", "valid"],
+      }),
+    });
+    const malformedChild = span("malformed", { parent_span_id: "root", metadata });
+
+    emit(FakeEventSource.instances[0], "spans", { spans: [validChild, malformedChild] });
+
+    const spans = client.getQueryData<TraceDetail>(key)?.spans ?? [];
+    expect(spans.map((s) => s.span_id)).toEqual(["root", "valid", "malformed", "pending"]);
+    expect(spans.find((s) => s.span_id === "malformed")).toEqual(malformedChild);
+    expect(spans.find((s) => s.span_id === "pending")).toMatchObject({
+      name: "pending",
+      parent_span_id: "root",
+      pending: true,
+    });
+    expect(result.current.isStreaming).toBe(true);
+
+    // The preserved malformed metadata must not poison subsequent live events.
+    emit(FakeEventSource.instances[0], "spans", { spans: [span("later")] });
+    const updated = client.getQueryData<TraceDetail>(key)?.spans ?? [];
+    expect(updated.filter((s) => !s.pending).map((s) => s.span_id)).toEqual([
+      "root",
+      "valid",
+      "malformed",
+      "later",
+    ]);
+  });
+
   it("writes nothing to the unscoped key when a source was given", () => {
     client.setQueryData<TraceDetail>(traceQueryKey("p1", "t1", "detector"), traceDetail([]));
     client.setQueryData<TraceDetail>(traceQueryKey("p1", "t1"), traceDetail([]));

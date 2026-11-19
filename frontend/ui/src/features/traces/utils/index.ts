@@ -5,6 +5,7 @@ import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 import { parseAsUTC } from "@/lib/utils";
+import { isPlainObject } from "@/lib/is-plain-object";
 
 export function parseTimestamp(ts: string): number {
   return parseAsUTC(ts.trim()).getTime();
@@ -44,7 +45,8 @@ export function compareSpansForStableDisplay(a: Span, b: Span): number {
 function parseMetadata(metadata: string | null): Record<string, unknown> {
   if (!metadata) return {};
   try {
-    return JSON.parse(metadata) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(metadata);
+    return isPlainObject(parsed) ? parsed : {};
   } catch {
     return {};
   }
@@ -75,10 +77,20 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
     // that set explicit user metadata, which the ingest transform merges the
     // paths into rather than replacing.
     const meta = parseMetadata(span.metadata ?? null);
-    const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
-    const namePath = meta["traceroot.span.path"] as string[] | undefined;
+    const idsPath = meta["traceroot.span.ids_path"];
+    const namePath = meta["traceroot.span.path"];
 
-    if (!idsPath || !namePath || idsPath.length === 0) continue;
+    // Exporters can send arbitrary metadata. Ignore malformed ancestor paths
+    // without dropping the real span or the rest of its live batch.
+    if (
+      !Array.isArray(idsPath) ||
+      !Array.isArray(namePath) ||
+      idsPath.length === 0 ||
+      !idsPath.every((id): id is string => typeof id === "string") ||
+      !namePath.every((name): name is string => typeof name === "string")
+    ) {
+      continue;
+    }
     const ancestorNames = namePath.slice(0, -1);
     if (idsPath.length !== ancestorNames.length) continue;
 
