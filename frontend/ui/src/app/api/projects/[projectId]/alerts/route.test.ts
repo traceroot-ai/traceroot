@@ -413,6 +413,25 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
+  it("rejects a filter on a span_kind or status no span has", async () => {
+    // #2550: an edit that stores a dead filter is the same dead rule as a
+    // create, so the merged rule goes through the same validation.
+    const res = await patch({ filters: [{ field: "span_kind", op: "=", value: "GENERATION" }] });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        '"span_kind" must be one of LLM, AGENT, TOOL, SPAN, DECISION, EVALUATION, TASK, SCORER',
+    });
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+
+    const statusRes = await patch({ filters: [{ field: "status", op: "=", value: "PENDING" }] });
+
+    expect(statusRes.status).toBe(400);
+    expect(await statusRes.json()).toEqual({ error: '"status" must be one of OK, ERROR' });
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
   describe("the merged rule, not the patch alone, is what must be evaluable", () => {
     const spanFilter = [{ field: "span_kind", op: "=", value: "LLM" }];
 
@@ -600,6 +619,13 @@ describe("POST /api/projects/[projectId]/alerts", () => {
         { field: "is_root", op: "contains", value: "true" },
         'Operator "contains" is not valid for "is_root"',
       ],
+      // #2550: span_kind and status are match-against-ingest values, so a
+      // value ingest never writes matches nothing and the rule sits on No Data.
+      [
+        { field: "span_kind", op: "=", value: "GENERATION" },
+        '"span_kind" must be one of LLM, AGENT, TOOL, SPAN, DECISION, EVALUATION, TASK, SCORER',
+      ],
+      [{ field: "status", op: "=", value: "PENDING" }, '"status" must be one of OK, ERROR'],
       // The evaluator has no set operator and no empty-value predicate.
       [{ field: "model_name", op: "in", value: ["api", "web"] }, null],
       [{ field: "model_name", op: "=", value: "" }, null],
