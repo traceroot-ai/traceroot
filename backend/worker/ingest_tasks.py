@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 #: merges and FINAL then keep the row inserted last.
 PLACEHOLDER_TRACE_VERSION = datetime(1970, 1, 1, tzinfo=UTC)
 
+#: Maximum number of spans to accumulate and process per chunk to bound worker memory.
+SPAN_CHUNK_SIZE = 500
+
 
 def _json_serializer(obj: object) -> str:
     """JSON serializer for datetime objects in span dicts."""
@@ -29,10 +32,52 @@ def _json_serializer(obj: object) -> str:
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
+_REDIS_CONTEXT = threading.local()
+
+
+def _flush_span_chunk(
+    chunk: list[dict],
+    ch_client,
+    s3_service,
+    project_id: str,
+    attachments_enabled: bool,
+    attachment_extractor=None,
+) -> None:
+    """Insert one chunk of span records to ClickHouse and publish to the live view.
+
+    Attachment extraction (if enabled) mutates the span dicts in-place before they
+    are inserted. After inserting, the chunk is published to Redis for live trace
+    streaming.
+
+    Args:
+        chunk: Span record dicts to insert. Modified in-place by attachment
+            extraction; ``ch_update_time`` must already be stamped.
+        ch_client: ClickHouse client with ``insert_spans_batch``.
+        s3_service: S3 service for attachment extraction.
+        project_id: Project that owns the spans.
+        attachments_enabled: Whether to run attachment extraction on this chunk.
+        attachment_extractor: Optional batch-level extractor sharing image budget
+            and deduplication state across chunks and traces.
+    """
+    if attachments_enabled:
+        from worker.attachment_extraction import extract_attachments
+
+        extract_attachments(s3_service, project_id, [], chunk, extractor=attachment_extractor)
+
+    ch_client.insert_spans_batch(list(chunk))
+    # Strip internal versioning before publishing — callers that monkeypatch
+    # _publish_live_spans (tests) receive clean payloads without ch_update_time.
+    clean_spans = [{k: v for k, v in s.items() if k != "ch_update_time"} for s in chunk]
+    _publish_live_spans(clean_spans, project_id)
+
+
 def _publish_live_spans(spans: list[dict], project_id: str) -> None:
     """Publish spans to Redis for live trace streaming.
 
     Groups spans by trace_id and publishes to per-trace channels.
+    Excludes internal ClickHouse fields like ``ch_update_time`` from the payload.
+    Reuses a task-scoped Redis client when available in thread-local storage;
+    otherwise opens and closes a fresh connection.
     Never raises — Redis failures must not break the ingest pipeline.
     """
     try:
@@ -40,15 +85,21 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
 
         from shared.config import settings
 
-        # Create a fresh Redis connection per call — do NOT use the singleton
-        # get_redis_client() here because Celery uses prefork and module-level
-        # singletons created before/across fork() crash on macOS (SIGABRT).
-        redis_client = redis_lib.from_url(settings.redis.url, decode_responses=True)
+        client = getattr(_REDIS_CONTEXT, "client", None)
+        close_client = False
+        if client is None:
+            # Create a fresh Redis connection when not in a task context.
+            client = redis_lib.from_url(settings.redis.url, decode_responses=True)
+            close_client = True
 
-        # Group spans by trace_id
+        defer_completions = getattr(_REDIS_CONTEXT, "defer_completions", False)
+        completed_traces = getattr(_REDIS_CONTEXT, "completed_traces", None)
+
+        # Group spans by trace_id, stripping internal ClickHouse versioning
         by_trace: dict[str, list[dict]] = defaultdict(list)
         for span in spans:
-            by_trace[span["trace_id"]].append(span)
+            clean_span = {k: v for k, v in span.items() if k != "ch_update_time"}
+            by_trace[span["trace_id"]].append(clean_span)
 
         for trace_id, trace_spans in by_trace.items():
             channel = f"trace:live:{project_id}:{trace_id}"
@@ -58,18 +109,22 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
                 {"type": "spans", "spans": trace_spans},
                 default=_json_serializer,
             )
-            redis_client.publish(channel, payload)
+            client.publish(channel, payload)
 
-            # Check if trace is complete (root span with end time)
-            for span in trace_spans:
-                if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
-                    redis_client.publish(
-                        channel,
-                        json.dumps({"type": "trace_complete"}),
-                    )
-                    break
+            # Detect root span completion only AFTER spans are successfully
+            # published, so a later trace_complete never arrives without its data.
+            has_root = any(
+                s.get("parent_span_id") is None and s.get("span_end_time") is not None
+                for s in trace_spans
+            )
+            if has_root:
+                if completed_traces is not None:
+                    completed_traces.add(trace_id)
+                if not defer_completions:
+                    client.publish(channel, json.dumps({"type": "trace_complete"}))
 
-        redis_client.close()
+        if close_client:
+            client.close()
 
     except Exception:
         logger.warning("Failed to publish live spans to Redis", exc_info=True)
@@ -360,7 +415,7 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
     # Import here to avoid circular imports and ensure fresh connections
     from db.clickhouse.client import get_clickhouse_client
     from rest.services.s3 import get_s3_service
-    from worker.otel_transform import transform_otel_to_clickhouse
+    from worker.otel_transform import TransformContext, iter_transform_spans
 
     logger.info(f"Processing S3 traces: {s3_key} for project {project_id}")
 
@@ -370,87 +425,190 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         otel_data = load_staged_batch(s3_service, s3_key)
         logger.debug(f"Downloaded OTEL data from {s3_key}")
 
-        # 2. Transform to ClickHouse format
-        traces, spans = transform_otel_to_clickhouse(otel_data, project_id)
-        logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
-
-        # Before anything reads the rows, so every reader sees references, not images.
-        # Off unless ATTACHMENT_ENABLED is set; ATTACHMENT_PROJECT_IDS can narrow it.
         from shared.config import settings
 
-        if settings.attachments.applies_to(project_id):
-            from worker.attachment_extraction import extract_attachments
-
-            extract_attachments(s3_service, project_id, traces, spans)
-
-        root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
         # None falls back to the insert time; #2863 removes this by storing it on the object.
         version = datetime.fromisoformat(received_at) if received_at else None
+        attachments_enabled = settings.attachments.applies_to(project_id)
+        attachment_extractor = None
+        if attachments_enabled:
+            from worker.attachment_extraction import AttachmentExtractor
 
-        # 3. Insert into ClickHouse
-        if traces or spans:
-            ch_client = get_clickhouse_client()
+            attachment_extractor = AttachmentExtractor(s3_service, project_id, settings.attachments)
+
+        # 2. Stream-transform and insert spans in bounded-memory chunks.
+        #
+        # iter_transform_spans yields one span_record at a time while accumulating
+        # lightweight trace metadata in ctx. Spans are consumed in chunks of
+        # SPAN_CHUNK_SIZE: each chunk is attachment-extracted, inserted into
+        # ClickHouse, published to the live view, and then freed — so peak memory
+        # is O(chunk_size) instead of O(batch_size).
+        span_chunk_size = SPAN_CHUNK_SIZE
+        ctx = TransformContext(project_id=project_id)
+        ch_client = None  # Lazy — avoids connecting when the batch is empty.
+        total_spans = 0
+        eval_trace_ids: set[str] = set()
+        chunk: list[dict] = []
+
+        # Set up task-scoped Redis publisher context for connection reuse and deferred completion
+        redis_client = None
+        _REDIS_CONTEXT.client = None
+        _REDIS_CONTEXT.defer_completions = True
+        _REDIS_CONTEXT.completed_traces = set()
+
+        try:
+            for span_record in iter_transform_spans(otel_data, project_id, ctx):
+                # Stamp version in-place — zero copy, no {**s, ...} needed.
+                span_record["ch_update_time"] = version
+                # Track evaluation traces for cost derivation below.
+                if span_record.get("is_evaluation"):
+                    eval_trace_ids.add(span_record["trace_id"])
+
+                chunk.append(span_record)
+
+                if len(chunk) >= span_chunk_size:
+                    if ch_client is None:
+                        ch_client = get_clickhouse_client()
+                        try:
+                            import redis as redis_lib
+
+                            redis_client = redis_lib.from_url(
+                                settings.redis.url,
+                                decode_responses=True,
+                            )
+                            _REDIS_CONTEXT.client = redis_client
+                        except Exception:
+                            pass
+                    _flush_span_chunk(
+                        chunk,
+                        ch_client,
+                        s3_service,
+                        project_id,
+                        attachments_enabled,
+                        attachment_extractor=attachment_extractor,
+                    )
+                    total_spans += len(chunk)
+                    chunk = []
+
+            # Flush remaining spans in the last (partial) chunk.
+            if chunk:
+                if ch_client is None:
+                    ch_client = get_clickhouse_client()
+                    try:
+                        import redis as redis_lib
+
+                        redis_client = redis_lib.from_url(
+                            settings.redis.url,
+                            decode_responses=True,
+                        )
+                        _REDIS_CONTEXT.client = redis_client
+                    except Exception:
+                        pass
+                _flush_span_chunk(
+                    chunk,
+                    ch_client,
+                    s3_service,
+                    project_id,
+                    attachments_enabled,
+                    attachment_extractor=attachment_extractor,
+                )
+                total_spans += len(chunk)
+                chunk = []
+
+            # Signal completion on completed traces only AFTER all chunks are flushed.
+            # Per-trace error handling ensures one failure doesn't skip remaining traces.
+            if _REDIS_CONTEXT.completed_traces and redis_client is not None:
+                for trace_id in _REDIS_CONTEXT.completed_traces:
+                    try:
+                        channel = f"trace:live:{project_id}:{trace_id}"
+                        redis_client.publish(
+                            channel,
+                            json.dumps({"type": "trace_complete"}),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to publish trace_complete for %s",
+                            trace_id,
+                            exc_info=True,
+                        )
+        finally:
+            _REDIS_CONTEXT.client = None
+            _REDIS_CONTEXT.defer_completions = False
+            _REDIS_CONTEXT.completed_traces = None
+            if redis_client is not None:
+                try:
+                    redis_client.close()
+                except Exception:
+                    pass
+
+        logger.info(f"Inserted {total_spans} spans from {s3_key}")
+
+        # 3. Finalize and insert traces — lightweight, typically 10-20 records.
+        traces = ctx.finalize_traces()
+        root_bearing_trace_ids = ctx.root_bearing_trace_ids
+
+        if traces:
+            if ch_client is None:
+                ch_client = get_clickhouse_client()
+            if attachments_enabled:
+                from worker.attachment_extraction import extract_attachments
+
+                extract_attachments(
+                    s3_service, project_id, traces, [], extractor=attachment_extractor
+                )
+
+            # Only insert a trace record if this batch contains the root span
+            # OR the trace is genuinely new (no existing ClickHouse record).
+            # Intermediate batches without the root span must not overwrite a
+            # correctly-named trace record with a wrong name.
+            trace_records_missing_root = [
+                t for t in traces if t["trace_id"] not in root_bearing_trace_ids
+            ]
+            if trace_records_missing_root:
+                ids = [t["trace_id"] for t in trace_records_missing_root]
+                # project_id is the sort-key prefix, and trace_id carries no skip
+                # index — so without this predicate the probe cannot prune and
+                # becomes a FINAL scan of every project in the table to answer a
+                # question about one. Still O(project), not O(batch): nothing
+                # bounds trace_start_time here.
+                result = ch_client.query(
+                    "SELECT DISTINCT trace_id FROM traces FINAL"
+                    " WHERE project_id = {project_id:String}"
+                    " AND trace_id IN {ids:Array(String)}",
+                    parameters={"ids": ids, "project_id": project_id},
+                )
+                existing_ids = {row[0] for row in result.result_rows}
+                traces = [
+                    t
+                    for t in traces
+                    if t["trace_id"] in root_bearing_trace_ids or t["trace_id"] not in existing_ids
+                ]
 
             if traces:
-                # Only insert a trace record if this batch contains the root span
-                # OR the trace is genuinely new (no existing ClickHouse record).
-                # Intermediate batches without the root span must not overwrite a
-                # correctly-named trace record with a wrong name.
-                trace_records_missing_root = [
-                    t for t in traces if t["trace_id"] not in root_bearing_trace_ids
-                ]
-                if trace_records_missing_root:
-                    ids = [t["trace_id"] for t in trace_records_missing_root]
-                    # project_id is the sort-key prefix, and trace_id carries no skip
-                    # index — so without this predicate the probe cannot prune and
-                    # becomes a FINAL scan of every project in the table to answer a
-                    # question about one. Still O(project), not O(batch): nothing
-                    # bounds trace_start_time here.
-                    result = ch_client.query(
-                        "SELECT DISTINCT trace_id FROM traces FINAL"
-                        " WHERE project_id = {project_id:String}"
-                        " AND trace_id IN {ids:Array(String)}",
-                        parameters={"ids": ids, "project_id": project_id},
-                    )
-                    existing_ids = {row[0] for row in result.result_rows}
-                    traces = [
-                        t
-                        for t in traces
+                for t in traces:
+                    t["ch_update_time"] = (
+                        version
                         if t["trace_id"] in root_bearing_trace_ids
-                        or t["trace_id"] not in existing_ids
-                    ]
+                        else PLACEHOLDER_TRACE_VERSION
+                    )
+                ch_client.insert_traces_batch(traces)
+                logger.info(f"Inserted {len(traces)} traces into ClickHouse")
 
-                if traces:
-                    for t in traces:
-                        t["ch_update_time"] = (
-                            version
-                            if t["trace_id"] in root_bearing_trace_ids
-                            else PLACEHOLDER_TRACE_VERSION
-                        )
-                    ch_client.insert_traces_batch(traces)
-                    logger.info(f"Inserted {len(traces)} traces into ClickHouse")
+        # 4. Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
+        #
+        # Gated on the batch actually containing evaluation spans. The batch
+        # already knows the answer in memory (otel_transform set is_evaluation
+        # from the span kind), so gating costs nothing — whereas calling
+        # unconditionally puts a Postgres connect + round trip on the main
+        # product's ingest hot path, per S3 object, per worker, only to learn
+        # "no eval results" for the >99% of batches that carry ordinary traces.
+        if eval_trace_ids:
+            try:
+                _update_eval_result_costs(project_id, eval_trace_ids, ch_client)
+            except Exception as e:
+                logger.error(f"eval cost derivation errored: {e}", exc_info=True)
 
-            if spans:
-                # Copies, so the spans published to the live view below don't gain the field.
-                ch_client.insert_spans_batch([{**s, "ch_update_time": version} for s in spans])
-                logger.info(f"Inserted {len(spans)} spans into ClickHouse")
-
-                # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
-                #
-                # Gated on the batch actually containing evaluation spans. The batch
-                # already knows the answer in memory (otel_transform set is_evaluation
-                # from the span kind), so gating costs nothing — whereas calling
-                # unconditionally puts a Postgres connect + round trip on the main
-                # product's ingest hot path, per S3 object, per worker, only to learn
-                # "no eval results" for the >99% of batches that carry ordinary traces.
-                eval_trace_ids = {s["trace_id"] for s in spans if s.get("is_evaluation")}
-                if eval_trace_ids:
-                    try:
-                        _update_eval_result_costs(project_id, eval_trace_ids, ch_client)
-                    except Exception as e:
-                        logger.error(f"eval cost derivation errored: {e}", exc_info=True)
-
-        # Trigger detector runs (fire-and-forget, non-blocking). The batch that
+        # 5. Trigger detector runs (fire-and-forget, non-blocking). The batch that
         # carries a trace's root span triggers detection exactly once — a Redis
         # lock keyed on (project, trace) dedups against ingest-task retries and
         # duplicate root delivery. Batches without the root span are ignored
@@ -464,15 +622,11 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
             except Exception as e:
                 logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
 
-        # 4. Publish to Redis for live trace streaming
-        if spans:
-            _publish_live_spans(spans, project_id)
-
         return {
             "s3_key": s3_key,
             "project_id": project_id,
             "traces": len(traces),
-            "spans": len(spans),
+            "spans": total_spans,
         }
 
     except Exception as e:

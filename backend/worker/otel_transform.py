@@ -35,6 +35,8 @@ import base64
 import json
 import logging
 import math
+from collections.abc import Generator
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -688,60 +690,122 @@ def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
     return error_type[:_MAX_ERROR_TYPE_LENGTH]
 
 
-def transform_otel_to_clickhouse(
+@dataclass
+class TransformContext:
+    """Lightweight accumulator for trace-level metadata collected across all spans.
+
+    Spans are streamed and discarded chunk-by-chunk by the caller. This context
+    survives the entire batch to finalize trace records after all spans have been
+    consumed. Memory cost: O(unique_traces_in_batch), typically 10-20 entries.
+
+    Usage::
+
+        ctx = TransformContext(project_id="proj-1")
+        for span_record in iter_transform_spans(otel_data, "proj-1", ctx):
+            # ... consume span_record in chunks ...
+        traces = ctx.finalize_traces()
+    """
+
+    project_id: str
+    traces: dict[str, dict] = field(default_factory=dict)
+    trace_attrs: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    trace_git_attrs: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    _trace_name_candidates: dict[str, tuple[int, str]] = field(default_factory=dict)
+    _trace_is_evaluation: set[str] = field(default_factory=set)
+    _trace_environment: dict[str, str] = field(default_factory=dict)
+    root_bearing_trace_ids: set[str] = field(default_factory=set)
+
+    def finalize_traces(self) -> list[dict]:
+        """Apply cross-span corrections after all spans have been consumed.
+
+        Must be called exactly once, after the ``iter_transform_spans`` generator
+        is exhausted. The corrections reconcile trace-level fields that depend on
+        information spread across multiple spans (name, evaluation classification,
+        environment, user/session identity, git source).
+
+        Returns:
+            list[dict]: Finalized trace records ready for ClickHouse insertion.
+        """
+        traces = self.traces
+
+        # Correct eager trace names: the first span processed may not be the shallowest.
+        # Apply the best candidate (shortest ids_path) found across all spans in this batch.
+        for trace_id, (_, best_name) in self._trace_name_candidates.items():
+            if trace_id in traces:
+                traces[trace_id]["name"] = best_name
+
+        # Classify the trace from ANY eval-kind span in the batch, not just the root, so a
+        # batch of {SCORER, TASK} whose EVALUATION root has not been exported yet still
+        # writes a classified trace row. The trace record is then never less classified than
+        # its own spans, and the flag only ever goes 0 -> 1.
+        for trace_id in self._trace_is_evaluation:
+            if trace_id in traces:
+                traces[trace_id]["is_evaluation"] = True
+
+        # Same for the user's environment tag: the shallow record would otherwise carry no
+        # environment until the root arrives. The root-upgrade block above already set it
+        # authoritatively when the root IS in this batch, so only fill the gap here.
+        for trace_id, env in self._trace_environment.items():
+            if trace_id in traces and not traces[trace_id].get("environment"):
+                traces[trace_id]["environment"] = env
+
+        # Update trace records with user_id/session_id collected from child spans (in
+        # case child spans with these attrs came after the root span was processed).
+        for trace_id, attrs in self.trace_attrs.items():
+            if trace_id in traces:
+                if attrs["user_id"] and not traces[trace_id].get("user_id"):
+                    traces[trace_id]["user_id"] = attrs["user_id"]
+                if attrs["session_id"] and not traces[trace_id].get("session_id"):
+                    traces[trace_id]["session_id"] = attrs["session_id"]
+
+        # Git repo/ref are stamped on every SDK span, but the root span often arrives
+        # last in live streaming. Promote the first child values so repo/ref are visible
+        # while the trace is still running, then let root values overwrite when present.
+        for trace_id, attrs in self.trace_git_attrs.items():
+            if trace_id in traces:
+                if attrs["git_ref"] is not None:
+                    traces[trace_id]["git_ref"] = attrs["git_ref"]
+                if attrs["git_repo"] is not None:
+                    traces[trace_id]["git_repo"] = attrs["git_repo"]
+
+        return list(traces.values())
+
+
+def iter_transform_spans(
     otel_data: dict,
     project_id: str,
-) -> tuple[list[dict], list[dict]]:
-    """Transform OTEL JSON to ClickHouse traces and spans.
+    ctx: TransformContext,
+) -> Generator[dict, None, None]:
+    """Stream-transform OTLP JSON spans one at a time.
 
-    Never sets `source` on a record. Classification belongs to the ingest route, not
-    the payload: the internal route stamps the authenticated caller's source ('detector'
-    or 'agent') after this returns, and every
-    other row is written as 'user' by the insert helpers (the column's DEFAULT is the
-    backfill backstop for pre-migration rows, not the path live writes take). That makes the anti-spoof
-    guarantee structural — a tenant-supplied traceroot.source is simply never read
-    into a record, so there is no flag that could honor it by mistake.
+    Yields individual span-record dicts ready for ClickHouse insertion. Trace-level
+    metadata is accumulated in *ctx* (lightweight, O(unique_traces)) and finalized
+    separately by calling ``ctx.finalize_traces()`` after this generator is exhausted.
 
-    Do not reintroduce a "trust the payload marker" path for a new caller. `source` is a
-    trust label with two readers: reads exclude non-'user' rows, and one endpoint selects
-    them (the runs surface opens a self-trace by asking for source='detector'). A
-    tenant-settable value would therefore not merely hide their traffic from their own
-    lists — it would inject it into a surface presented as internal telemetry. Metering is
-    unaffected either way, since it counts every stored row. A future internal emitter
-    should be classified by its ingest route, as the detector one is, never by an attribute
-    travelling in the payload.
+    This is the streaming counterpart of :func:`transform_otel_to_clickhouse`: the
+    per-span transform logic is identical, but spans are yielded instead of collected
+    into a list, so the caller can consume them in bounded-memory chunks.
+
+    Never sets ``source`` on a record — see :func:`transform_otel_to_clickhouse`.
 
     Args:
-        otel_data: Parsed OTEL JSON data (camelCase format with resourceSpans)
-        project_id: The project ID to associate with all records
+        otel_data: Parsed OTEL JSON data (camelCase format with resourceSpans).
+        project_id: The project ID to associate with all records.
+        ctx: A :class:`TransformContext` that accumulates trace metadata across
+            all yielded spans.
 
-    Returns:
-        Tuple of (traces, spans) lists ready for ClickHouse insertion
+    Yields:
+        dict: One span record per OTLP span, ready for ClickHouse insertion.
     """
-    traces: dict[str, dict] = {}  # trace_id -> trace record
-    spans: list[dict] = []
-
-    # Track user_id/session_id per trace, collected from ANY span
-    # Priority: root span values > first child span values
-    trace_attrs: dict[
-        str, dict[str, str | None]
-    ] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
-
-    # Best-known root name per trace: (ids_path_length, name).
-    # Shortest ids_path = closest to root. Used to correct eager trace names
-    # when the first span in a batch isn't the closest-to-root span for that trace.
-    _trace_name_candidates: dict[str, tuple[int, str]] = {}
-    trace_git_attrs: dict[str, dict[str, str | None]] = {}
-
-    # Trace-level fields collected from ANY span in the batch and applied post-loop.
-    # Both are attached to the shallow (eager) trace record as well as the root-upgraded
-    # one: OTel's BatchSpanProcessor exports a span when it ENDS, so children routinely
-    # export in an earlier batch than their parent and the root is usually the LAST span
-    # of a trace to arrive. Reading these only off the root would leave every trace
-    # unclassified until the root lands — and permanently unclassified if the process
-    # dies first, a state nothing reconciles.
-    _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
-    _trace_environment: dict[str, str] = {}  # first non-null environment seen
+    # Alias ctx fields as local variables — the loop body below is unchanged from
+    # the original monolithic transform. All are mutable containers, so mutations
+    # update ctx in place and are visible to ctx.finalize_traces() after exhaustion.
+    traces = ctx.traces
+    trace_attrs = ctx.trace_attrs
+    trace_git_attrs = ctx.trace_git_attrs
+    _trace_name_candidates = ctx._trace_name_candidates
+    _trace_is_evaluation = ctx._trace_is_evaluation
+    _trace_environment = ctx._trace_environment
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -1255,7 +1319,11 @@ def transform_otel_to_clickhouse(
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
 
-                spans.append(span_record)
+                yield span_record
+
+                # Track root-bearing traces for the caller (detector enqueue, etc.)
+                if parent_span_id is None:
+                    ctx.root_bearing_trace_ids.add(trace_id)
 
                 # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
@@ -1381,46 +1449,36 @@ def transform_otel_to_clickhouse(
                             else span_output
                         )
 
-    # Correct eager trace names: the first span processed may not be the shallowest.
-    # Apply the best candidate (shortest ids_path) found across all spans in this batch.
-    for trace_id, (_, best_name) in _trace_name_candidates.items():
-        if trace_id in traces:
-            traces[trace_id]["name"] = best_name
 
-    # Classify the trace from ANY eval-kind span in the batch, not just the root, so a
-    # batch of {SCORER, TASK} whose EVALUATION root has not been exported yet still
-    # writes a classified trace row. The trace record is then never less classified than
-    # its own spans, and the flag only ever goes 0 -> 1.
-    for trace_id in _trace_is_evaluation:
-        if trace_id in traces:
-            traces[trace_id]["is_evaluation"] = True
+def transform_otel_to_clickhouse(
+    otel_data: dict,
+    project_id: str,
+) -> tuple[list[dict], list[dict]]:
+    """Transform OTEL JSON to ClickHouse traces and spans.
 
-    # Same for the user's environment tag: the shallow record would otherwise carry no
-    # environment until the root arrives. The root-upgrade block above already set it
-    # authoritatively when the root IS in this batch, so only fill the gap here.
-    for trace_id, env in _trace_environment.items():
-        if trace_id in traces and not traces[trace_id].get("environment"):
-            traces[trace_id]["environment"] = env
+    Backward-compatible wrapper around :func:`iter_transform_spans` and
+    :class:`TransformContext`. Accumulates all spans in memory and returns the
+    complete result in one shot.
 
-    # Update trace records with user_id/session_id collected from child spans
-    # (in case child spans with these attrs came after the root span was processed)
-    # Update trace records with user_id/session_id collected from child spans (in
-    # case child spans with these attrs came after the root span was processed).
-    for trace_id, attrs in trace_attrs.items():
-        if trace_id in traces:
-            if attrs["user_id"] and not traces[trace_id].get("user_id"):
-                traces[trace_id]["user_id"] = attrs["user_id"]
-            if attrs["session_id"] and not traces[trace_id].get("session_id"):
-                traces[trace_id]["session_id"] = attrs["session_id"]
+    For memory-efficient processing of large batches, prefer calling
+    ``iter_transform_spans`` directly with a chunked consumer pattern.
 
-    # Git repo/ref are stamped on every SDK span, but the root span often arrives
-    # last in live streaming. Promote the first child values so repo/ref are visible
-    # while the trace is still running, then let root values overwrite when present.
-    for trace_id, attrs in trace_git_attrs.items():
-        if trace_id in traces:
-            if attrs["git_ref"] is not None:
-                traces[trace_id]["git_ref"] = attrs["git_ref"]
-            if attrs["git_repo"] is not None:
-                traces[trace_id]["git_repo"] = attrs["git_repo"]
+    Never sets ``source`` on a record. Classification belongs to the ingest route,
+    not the payload: the internal route stamps the authenticated caller's source
+    ('detector' or 'agent') after this returns, and every other row is written as
+    'user' by the insert helpers (the column's DEFAULT is the backfill backstop for
+    pre-migration rows, not the path live writes take). That makes the anti-spoof
+    guarantee structural — a tenant-supplied traceroot.source is simply never read
+    into a record, so there is no flag that could honor it by mistake.
 
-    return list(traces.values()), spans
+    Args:
+        otel_data: Parsed OTEL JSON data (camelCase format with resourceSpans)
+        project_id: The project ID to associate with all records
+
+    Returns:
+        Tuple of (traces, spans) lists ready for ClickHouse insertion
+    """
+    ctx = TransformContext(project_id=project_id)
+    spans = list(iter_transform_spans(otel_data, project_id, ctx))
+    traces = ctx.finalize_traces()
+    return traces, spans
