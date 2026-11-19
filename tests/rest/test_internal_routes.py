@@ -23,6 +23,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/detector-runs"),
     ("GET", "/api/v1/internal/traces/{trace_id}/spans-jsonl"),
     ("GET", "/api/v1/internal/traces/{trace_id}/time-since-last-span"),
+    ("POST", "/api/v1/internal/traces/{trace_id}/triggered-detectors"),
     ("GET", "/api/v1/internal/traces/{trace_id}/findings"),
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
     ("GET", "/api/v1/internal/detector-window-summary"),

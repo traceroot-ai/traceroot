@@ -5,10 +5,13 @@ Called from process_s3_traces after ClickHouse insert.
 Non-blocking: exceptions are caught and logged, never re-raised.
 
 Exactly-once triggering: the ingest batch carrying a trace's root span claims
-the trace via a Redis lock, evaluates trigger conditions plus deterministic
-sampling, and enqueues a single delayed BullMQ job. The worker waits until the
-trace has been quiet for EVALUATOR_DELAY (no new span) before evaluating, so
-later batches need no extra enqueue work.
+the trace via a Redis lock, applies deterministic sampling, and enqueues a
+single delayed BullMQ job for the sampled detectors. The worker waits until the
+trace has been quiet for EVALUATOR_DELAY (no new span), then asks
+``select_triggered_detectors`` which of those detectors' trigger conditions the
+settled trace meets. Conditions are evaluated then, not at enqueue: the root
+span can arrive before the rest of the trace, so cost, tokens, errors, duration
+and span-membership fields are incomplete at that point.
 """
 
 import asyncio
@@ -225,6 +228,11 @@ def _eval_condition(trace_summary: dict, condition: dict) -> bool:
 
     op = condition.get("op")
     value = condition.get("value")
+
+    if field == "metadata":
+        key = condition.get("key")
+        if not isinstance(key, str) or not key.strip() or not isinstance(value, str) or not value:
+            return False
 
     actual = trace_summary.get(field)
     if isinstance(actual, dict):
@@ -460,11 +468,19 @@ def _claim_and_enqueue(
 ) -> None:
     """Root-bearing batch: claim the trace and enqueue at most one detection job.
 
-    Takes the NX claim for ``(project_id, trace_id)``; if it wins, evaluates the
-    trigger conditions plus deterministic sampling and enqueues a single delayed
-    BullMQ job for the detectors that fire. A lost claim (ingest-task retry
-    replay, duplicate root delivery, or a concurrent batch) is a no-op, keeping
-    enqueue exactly-once.
+    Takes the NX claim for ``(project_id, trace_id)``; if it wins, applies
+    deterministic sampling and enqueues a single delayed BullMQ job for the
+    sampled detectors. A lost claim (ingest-task retry replay, duplicate root
+    delivery, or a concurrent batch) is a no-op, keeping enqueue exactly-once.
+
+    Trigger conditions are deliberately NOT evaluated here. This batch may hold
+    only the root span, so aggregates such as cost and errors are not final yet;
+    evaluating them now would permanently drop a trace that meets the condition
+    once its later batches land (#3065). The worker evaluates them against the
+    settled trace through ``select_triggered_detectors``.
+
+    The evaluation-trace skip stays here because ``is_evaluation`` is monotonic:
+    once any span carries the flag no later span can clear it.
 
     Args:
         redis_client (redis.Redis): Redis client for the NX claim and
@@ -473,8 +489,8 @@ def _claim_and_enqueue(
         trace_id (str): Trace whose root span arrived in this batch.
         detectors (list[dict]): Active detectors, each a dict with ``id``,
             ``sample_rate`` and ``conditions``.
-        summary (dict): Trace summary fields used for trigger evaluation (e.g.
-            ``environment``).
+        summary (dict): Trace summary as of this batch. Only the monotonic
+            ``is_evaluation`` flag is read from it here.
 
     Returns:
         None: On an enqueue failure the lock value this attempt wrote is
@@ -499,12 +515,11 @@ def _claim_and_enqueue(
             d["id"]
             for d in detectors
             if _detector_runs_on_trace(summary, d)
-            and _passes_trigger(summary, d["conditions"])
             and _sample_passes(trace_id, d["id"], d["sample_rate"])
         ]
 
         if not triggered_ids:
-            # Sticky no: a replay must not re-roll conditions or sampling.
+            # Sticky no: a replay must not re-roll sampling.
             redis_client.set(
                 key,
                 json.dumps({"state": "sampled_out", "token": token}),
@@ -560,7 +575,10 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             _get_trace_summaries(
                 project_id,
                 root_traces,
-                include_trace_metadata=_has_metadata_condition(detectors),
+                # Enqueue reads only the customer-traffic gate and is_evaluation from
+                # the summary; metadata conditions are judged later on the settled
+                # trace, so the traces-table read is never needed here.
+                include_trace_metadata=False,
             )
             if detectors
             else {}
@@ -597,3 +615,53 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             f"Failed to enqueue detector runs for project {project_id}: {e}",
             exc_info=True,
         )
+
+
+def select_triggered_detectors(
+    project_id: str,
+    trace_id: str,
+    detector_ids: list[str],
+) -> list[str]:
+    """Return the detectors among ``detector_ids`` whose trigger conditions the
+    trace meets now.
+
+    Called by the detector worker once the trace has been quiet for
+    EVALUATOR_DELAY, so the summary reflects every batch rather than only the
+    root-bearing one. This is the single place trigger conditions are evaluated.
+
+    A detector disabled or deleted since enqueue is dropped, as is every detector
+    when the trace has no customer summary. Order follows ``detector_ids``.
+
+    Unlike ``enqueue_detector_runs`` this raises on a database or ClickHouse
+    failure, so the caller can retry rather than mistake an outage for "no
+    detector triggered".
+
+    Args:
+        project_id (str): Project that owns the trace.
+        trace_id (str): The settled trace.
+        detector_ids (list[str]): Detectors the enqueue step sampled in.
+
+    Returns:
+        list[str]: The subset of ``detector_ids`` to run, in their given order.
+    """
+    if not detector_ids:
+        return []
+
+    active = {d["id"]: d for d in _get_active_detectors(project_id)}
+    candidates = [active[i] for i in dict.fromkeys(detector_ids) if i in active]
+    if not candidates:
+        return []
+
+    summary = _get_trace_summaries(
+        project_id,
+        [trace_id],
+        include_trace_metadata=_has_metadata_condition(candidates),
+    ).get(trace_id)
+    if summary is None:
+        return []
+
+    return [
+        d["id"]
+        for d in candidates
+        if _detector_runs_on_trace(summary, d) and _passes_trigger(summary, d["conditions"])
+    ]

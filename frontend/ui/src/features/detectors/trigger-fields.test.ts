@@ -30,6 +30,14 @@ describe("validateTriggerConditions — what the write path accepts", () => {
     expect(validateTriggerConditions(VALID_CONDITIONS)).toBeNull();
   });
 
+  it("accepts a metadata exclusion the worker can evaluate", () => {
+    expect(
+      validateTriggerConditions([
+        { field: "metadata", op: "!=", key: "traffic_type", value: "healthcheck" },
+      ]),
+    ).toBeNull();
+  });
+
   it("accepts none through the filter cap, and refuses past it", () => {
     // No conditions is valid: the detector then runs on every completed trace.
     expect(validateTriggerConditions([])).toBeNull();
