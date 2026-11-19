@@ -24,10 +24,14 @@ vi.mock("./ModelProviderBlock", () => ({
   ModelProviderBlock: () => <div data-testid="model-provider-block" />,
 }));
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
+
 import { GettingStarted } from "./index";
 
 afterEach(() => {
   cleanup();
+  capture.mockReset();
   projectQuery.data = { workspace_id: "ws_1" };
   projectQuery.isLoading = false;
 });
@@ -50,6 +54,19 @@ describe("the empty traces page", () => {
     expect(screen.queryByText("Select your stack")).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
     expect(container.textContent).not.toContain("Pick what you are building on");
+  });
+
+  it("records a change of tab, and not a click on the tab already showing", () => {
+    render(<GettingStarted projectId="proj_1" />);
+
+    pickMode("Using AI");
+    pickMode("Manual");
+    pickMode("Using AI");
+
+    expect(capture.mock.calls).toEqual([
+      ["setup_route_chosen", { project_id: "proj_1", surface: "project", route: "manual" }],
+      ["setup_route_chosen", { project_id: "proj_1", surface: "project", route: "command" }],
+    ]);
   });
 
   it("opens on the setup command", () => {

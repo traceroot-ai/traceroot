@@ -6,6 +6,7 @@ import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { setupCommand } from "./commands";
 import { SectionLink } from "./SectionLink";
+import { useSetupCommandCopied } from "./use-setup-command-copied";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 
 interface AITabProps {
@@ -73,6 +74,7 @@ export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const setup = setupCommand({ projectId });
+  const onCommandCopied = useSetupCommandCopied(projectId, "project");
 
   return (
     <div className="space-y-6">
@@ -84,7 +86,7 @@ export function AITab({ projectId }: AITabProps) {
               View the tracing docs
             </SectionLink>
           </div>
-          <CodeBlock label="bash" value={setup.command} />
+          <CodeBlock label="bash" value={setup.command} onCopy={onCommandCopied} />
           <p className="text-[12px] text-muted-foreground">
             It asks before editing your code. Needs Node.js 20.12 or later.
           </p>
