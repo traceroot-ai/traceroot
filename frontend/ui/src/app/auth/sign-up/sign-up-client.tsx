@@ -51,11 +51,12 @@ type SignUpClientProps = {
 // to onboarding; a new user shouldn't be dropped deep in the app.
 //
 // This is a shortcut, not the enforcement, and the difference matters because
-// both buttons below share this destination while only one of them is a sign-up:
-// `signIn.social` is better-auth's only social entry point, so Google here signs
-// an existing account straight in, and account linking makes it answer for an
-// existing email account at the same address too. Those land on onboarding
-// without being new. /onboarding and /device each check the account rather than
+// the form and the social buttons below share this destination while only the
+// form is always a sign-up: `signIn.social` is better-auth's only social entry
+// point, so Google or AgentID here signs an existing account straight in, and
+// account linking (Google only) makes Google answer for an existing email
+// account at the same address too. Those land on onboarding without being new.
+// /onboarding and /device each check the account rather than
 // the route, so a wrong guess here normally costs a redirect rather than a
 // second workspace — normally, because /onboarding deliberately falls through to
 // its form when that lookup *fails* (a new account that cannot reach the form

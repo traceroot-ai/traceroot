@@ -8,6 +8,7 @@ import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
 import { isSelfSignup } from "./attribution";
@@ -49,8 +50,9 @@ export async function onUserCreated(
   // Every account can look at the demo workspace, however it was created.
   const demo = ensureDemoMembership(user.id);
 
-  // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (!isSelfSignup(context)) {
+  // Staff-provisioned users are not sign-ups; agents sign up in bulk, so they
+  // get no welcome email or Slack post.
+  if (!isSelfSignup(context) || signupProvider(context) === AGENTID_PROVIDER_ID) {
     await demo;
     return;
   }
