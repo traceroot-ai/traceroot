@@ -479,7 +479,7 @@ async function evaluateTrace(
     summary: combinedSummary,
     payload,
     timestampMs: findingTimestamp,
-    detectors: detectors.map((d) => ({ id: d.id, enableSignals: Boolean(d.enableSignals) })),
+    detectors: detectors.map((d) => ({ id: d.id, enableSignals: d.enableSignals })),
     triggered: triggered.map(({ detectorId, usedInference, selfTraced }) => ({
       detectorId,
       usedInference,
@@ -508,8 +508,8 @@ async function persistTraceResult(
   });
 
   // Write runs for all triggered detectors, all pointing to the same finding_id
-  // and stamped with the shared findingTimestamp so the digest count window
-  // matches the flush key.
+  // and stamped with the saved timestampMs so the digest count window matches
+  // the flush key.
   const writes = await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
