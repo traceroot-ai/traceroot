@@ -99,11 +99,15 @@ describe("AuthError", () => {
 });
 
 describe("AuthProviderButton", () => {
-  it("is disabled, with the reason as its tooltip, until it has a flow to start", () => {
+  it("is disabled until it has a flow to start, and says why on hover and to screen readers", () => {
     render(<AuthProviderButton icon={null} label="Continue with X" unavailableReason="Not yet" />);
-    const button = screen.getByRole("button", { name: "Continue with X" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", {
+      name: "Continue with X",
+      description: "Not yet",
+    }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.title).toBe("Not yet");
+    // The disabled button gets no pointer events, so the tooltip sits on its wrapper.
+    expect(screen.getByTitle("Not yet").contains(button)).toBe(true);
   });
 
   it("starts its flow once it has one", () => {
@@ -111,7 +115,8 @@ describe("AuthProviderButton", () => {
     render(<AuthProviderButton icon={null} label="Continue with X" onClick={onClick} />);
     const button = screen.getByRole("button", { name: "Continue with X" }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
-    expect(button.title).toBe("");
+    expect(button.getAttribute("aria-describedby")).toBeNull();
+    expect(screen.queryByTitle(/./)).toBeNull();
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledOnce();
   });
@@ -123,9 +128,17 @@ describe("AgentIdNote", () => {
     const action = () =>
       screen.getByRole("button", { name: "Continue with AgentID" }) as HTMLButtonElement;
     expect(action().disabled).toBe(true);
+    expect(
+      screen.getByRole("button", {
+        name: "Continue with AgentID",
+        description: "AgentID sign-in isn't available yet",
+      }),
+    ).toBe(action());
+    expect(screen.getByTitle("AgentID sign-in isn't available yet").contains(action())).toBe(true);
     const onClick = vi.fn();
     rerender(<AgentIdNote onClick={onClick} />);
     expect(action().disabled).toBe(false);
+    expect(action().getAttribute("aria-describedby")).toBeNull();
     fireEvent.click(action());
     expect(onClick).toHaveBeenCalledOnce();
   });

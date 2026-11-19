@@ -54,7 +54,7 @@ export function AuthBrandPanel() {
       </div>
 
       <div className="relative mt-[100px] max-w-[560px] lg:mt-auto">
-        <PixelWordmark className="lg:w-[538px]" />
+        <PixelWordmark className="lg:max-w-[538px]" />
         <p className="mt-5 hidden max-w-[560px] text-[17px] leading-[26px] text-muted-foreground lg:-ml-px lg:block">
           The open-source platform that{" "}
           <span className="font-medium text-foreground">continuously improves</span> your AI agents.
@@ -198,12 +198,14 @@ export function AuthProviderButton({
   label: string;
   onClick?: () => void;
   isLoading?: boolean;
-  /** Shown as a tooltip while the button is disabled for lack of a flow. */
+  /** Said on hover and to screen readers while the button is disabled for lack of a flow. */
   unavailableReason?: string;
   /** Merged into the button's classes. */
   className?: string;
 }) {
-  return (
+  const reasonId = useId();
+  const unavailable = !onClick && unavailableReason;
+  const button = (
     <Button
       type="button"
       variant="outline"
@@ -211,11 +213,43 @@ export function AuthProviderButton({
       className={cn("h-8 w-full gap-2 text-[13px]", className)}
       onClick={onClick}
       disabled={!onClick || isLoading}
-      title={onClick ? undefined : unavailableReason}
+      aria-describedby={unavailable ? reasonId : undefined}
     >
       {icon}
       {isLoading ? "Redirecting..." : label}
     </Button>
+  );
+  if (!unavailable) return button;
+  return (
+    <UnavailableReason id={reasonId} reason={unavailableReason} className="block">
+      {button}
+    </UnavailableReason>
+  );
+}
+
+/**
+ * Wraps a disabled control so its reason still reaches people: the wrapper takes the
+ * hover tooltip (a disabled control gets no pointer events or focus), and a hidden
+ * description that the control points at with aria-describedby is read aloud.
+ */
+function UnavailableReason({
+  id,
+  reason,
+  className,
+  children,
+}: {
+  id: string;
+  reason: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span title={reason} className={cn("cursor-not-allowed", className)}>
+      {children}
+      <span id={id} className="sr-only">
+        {reason}
+      </span>
+    </span>
   );
 }
 
@@ -266,6 +300,18 @@ export function GoogleAuthOption({
  * the AgentID flow is available, `onClick` is left out and the action shows disabled.
  */
 export function AgentIdNote({ onClick, className }: { onClick?: () => void; className?: string }) {
+  const reasonId = useId();
+  const agentIdAction = (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      aria-describedby={onClick ? undefined : reasonId}
+      className="font-[600] text-[#097c78] hover:underline disabled:pointer-events-none disabled:opacity-50 dark:text-primary"
+    >
+      Continue with AgentID
+    </button>
+  );
   return (
     <div
       className={cn(
@@ -276,19 +322,19 @@ export function AgentIdNote({ onClick, className }: { onClick?: () => void; clas
       <AgentIdLogo className="h-[17.5px] w-[18px] shrink-0 text-[#0b1015] dark:text-foreground" />
       <span>
         Signing up an AI agent?{" "}
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={!onClick}
-          title={onClick ? undefined : "AgentID sign-in isn't available yet"}
-          className="font-[600] text-[#097c78] hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50 dark:text-primary"
-        >
-          Continue with AgentID
-        </button>
+        {onClick ? (
+          agentIdAction
+        ) : (
+          <UnavailableReason id={reasonId} reason={AGENTID_UNAVAILABLE}>
+            {agentIdAction}
+          </UnavailableReason>
+        )}
       </span>
     </div>
   );
 }
+
+const AGENTID_UNAVAILABLE = "AgentID sign-in isn't available yet";
 
 export function AuthFooter({
   children,
