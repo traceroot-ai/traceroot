@@ -538,6 +538,18 @@ class TestKimiModelIds:
             f"{model_id} matched a different entry than {expected_name}"
         )
 
+    def test_kimi_k3_absolute_rates(self):
+        # Pin the published rates (USD per token, from Moonshot's direct-API price page on
+        # platform.kimi.ai): cache writes are billed by TTL, 5 minutes and 1 hour.
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == "kimi-k3"), None)
+        assert entry is not None, "kimi-k3 missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(0.000003)
+        assert prices["output"] == pytest.approx(0.000015)
+        assert prices["cacheRead"] == pytest.approx(0.0000003)
+        assert prices["cacheWrite"] == pytest.approx(0.000003)
+        assert prices["cacheWrite1h"] == pytest.approx(0.000006)
+
     def test_kimi_k3_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             result = calculate_cost("kimi-k3", "Hello world", "Hi there")
