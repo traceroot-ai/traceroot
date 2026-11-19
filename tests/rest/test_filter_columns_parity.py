@@ -15,6 +15,9 @@ import pytest
 from rest.services.filters import columns as reg
 
 MEMBERSHIP_FIELDS = {"model_name", "environment", "span_kind", "status", "error_type", "name"}
+# Array membership: "has a span whose array column holds any of these values" (hasAny), its
+# own tier because an array column is not a scalar the widget builder can group by.
+ARRAY_MEMBERSHIP_FIELDS = {"tags"}
 # Keyed map: its own tier, because the predicate carries a map key as well as a value and
 # lowers to a shape no membership field lowers to. One parameterized field over a Map
 # column, never one registry row per key.
@@ -26,10 +29,15 @@ SIGNAL_FIELDS = {"signal_id"}
 
 
 def test_registry_column_set_is_exactly_the_declared_tiers():
-    """The registry holds precisely the membership, keyed-map, aggregate, trace,
-    and signal fields."""
+    """The registry holds precisely the membership, array-membership, keyed-map,
+    aggregate, trace, and signal fields."""
     assert {c.name for c in reg.FILTER_COLUMNS} == (
-        MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS | SIGNAL_FIELDS
+        MEMBERSHIP_FIELDS
+        | ARRAY_MEMBERSHIP_FIELDS
+        | KEYED_MAP_FIELDS
+        | AGGREGATE_FIELDS
+        | TRACE_FIELDS
+        | SIGNAL_FIELDS
     )
 
 
@@ -161,7 +169,13 @@ def test_aggregate_source_columns_name_the_referenced_spans_columns():
     assert reg.get_column("total_tokens").source_columns == ("total_tokens",)
     assert reg.get_column("duration_ms").source_columns == ("span_start_time", "span_end_time")
     assert reg.get_column("errors").source_columns == ("status",)
-    for name in MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | TRACE_FIELDS | SIGNAL_FIELDS:
+    for name in (
+        MEMBERSHIP_FIELDS
+        | ARRAY_MEMBERSHIP_FIELDS
+        | KEYED_MAP_FIELDS
+        | TRACE_FIELDS
+        | SIGNAL_FIELDS
+    ):
         assert reg.get_column(name).source_columns == ()
 
 
@@ -182,6 +196,12 @@ _DERIVED_FIELDS = {"errors"}
 # Fields read from a table the Gateway does not curate: signal_id comes from
 # signal_assignments, not from the traces or spans the Gateway exposes.
 _NON_GATEWAY_TABLE_FIELDS = {"signal_id"}
+
+# Stored spans columns the Gateway does not curate yet. `tags` (#1748) is filterable on the
+# trace list, but exposing it through SQL also needs the spans view restated and array
+# functions (has/hasAny) added to the validator allowlist, which is its own change. Listed
+# by name so the next field cannot slip through the same gap unnoticed.
+_NOT_YET_IN_GATEWAY_FIELDS = {"tags"}
 
 # --- Cross-check against the SQL Gateway curated columns (lights up on merge) ---
 
@@ -211,5 +231,6 @@ def test_registry_columns_exist_in_gateway_public_tables():
         - gateway_cols
         - _DERIVED_FIELDS
         - _NON_GATEWAY_TABLE_FIELDS
+        - _NOT_YET_IN_GATEWAY_FIELDS
     )
     assert not missing, f"registry columns absent from Gateway curated schema: {missing}"

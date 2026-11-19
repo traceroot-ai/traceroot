@@ -20,6 +20,10 @@ class FilterLevel(StrEnum):
 
     TRACE = "TRACE"  # inline predicate on the traces row (t.*)
     SPAN_MEMBERSHIP = "SPAN_MEMBERSHIP"  # trace_id IN (SELECT … FROM spans WHERE …)
+    # trace_id IN (SELECT … FROM spans WHERE hasAny(<array column>, …)). Its own level, not
+    # a flag on SPAN_MEMBERSHIP: an array column is not a scalar the widget builder can
+    # group by, which every SPAN_MEMBERSHIP field is required to be.
+    SPAN_ARRAY_MEMBERSHIP = "SPAN_ARRAY_MEMBERSHIP"
     SPAN_AGGREGATE = "SPAN_AGGREGATE"  # trace_id IN (SELECT … GROUP BY trace_id HAVING …)
     KEYED_MAP = "KEYED_MAP"  # inline traces-row Map match OR the span semi-join, by key
     SIGNAL = "SIGNAL"  # trace_id IN (SELECT … FROM signal_assignments WHERE …)
@@ -232,6 +236,20 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         value_source=ValueSource.DISTINCT_QUERY,
         detector_trigger=False,
     ),
+    # Array membership tier — "trace has >=1 span whose tags include any of …" (#1748).
+    # ch_type is the ELEMENT type: the value binds as Array(String) and lowers to hasAny.
+    # Two Tags predicates are two semi-joins ANDed, so a trace must carry both tags. Not a
+    # detector trigger: the evaluator does not fetch tags (#811).
+    FilterColumn(
+        name="tags",
+        label="Tags",
+        ch_type="String",
+        level=FilterLevel.SPAN_ARRAY_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+        detector_trigger=False,
+    ),
     # Aggregate tier — time-bounded GROUP BY trace_id HAVING <agg> <op> <value>.
     FilterColumn(
         name="cost",
@@ -307,6 +325,12 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
 )
 
 FILTER_COLUMNS_BY_NAME: dict[str, FilterColumn] = {c.name: c for c in FILTER_COLUMNS}
+
+# Span columns that hold arrays. The distinct-value pickers unnest these after deduping
+# spans, so the picker offers single tags rather than whole tag lists.
+ARRAY_SPAN_COLUMNS: frozenset[str] = frozenset(
+    c.name for c in FILTER_COLUMNS if c.level is FilterLevel.SPAN_ARRAY_MEMBERSHIP
+)
 
 
 def get_column(name: str) -> FilterColumn | None:

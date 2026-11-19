@@ -235,6 +235,7 @@ class ClickHouseClient:
                     s.get("ch_update_time") or now,  # ch_update_time
                     s.get("environment"),
                     1 if s.get("is_evaluation") else 0,
+                    s.get("tags") or [],
                 ]
             )
 
@@ -270,6 +271,7 @@ class ClickHouseClient:
                 "ch_update_time",
                 "environment",
                 "is_evaluation",
+                "tags",
             ],
         )
 
