@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const postMessage = vi.fn();
 const createSlackClient = vi.fn((_token: string) => ({ chat: { postMessage } }));
-const buildDigestAlertBlocks = vi.fn(() => [
+const buildDigestAlertBlocks = vi.fn((..._a: unknown[]) => [
   { type: "section", text: { type: "mrkdwn", text: "digest" } },
 ]);
 const findUnique = vi.fn();
@@ -45,11 +45,13 @@ describe("sendDigestAlertSlack", () => {
     postMessage.mockResolvedValue({ ok: true, ts: "1.2" });
 
     const { sendDigestAlertSlack } = await import("../slack.js");
-    await sendDigestAlertSlack(baseParams);
+    await sendDigestAlertSlack({ ...baseParams, summary: "S." });
 
     expect(hasEntitlement).toHaveBeenCalledWith("starter", "slack-integration");
     expect(createSlackClient).toHaveBeenCalledWith("decrypted(enc-tok)");
     expect(buildDigestAlertBlocks).toHaveBeenCalledTimes(1);
+    // the sender must thread the summary through to the block builder
+    expect(buildDigestAlertBlocks.mock.calls[0][0]).toMatchObject({ summary: "S." });
     expect(postMessage).toHaveBeenCalledTimes(1);
     const arg = postMessage.mock.calls[0][0];
     expect(arg.channel).toBe("C1");

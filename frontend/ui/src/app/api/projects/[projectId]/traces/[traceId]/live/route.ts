@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess } from "@/lib/auth-helpers";
 
@@ -6,7 +7,7 @@ const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL || "http://localho
 type RouteParams = { params: Promise<{ projectId: string; traceId: string }> };
 
 // GET /api/projects/[projectId]/traces/[traceId]/live — SSE proxy for live trace streaming
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -16,10 +17,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (traceId === "." || traceId === "..") {
+    return Response.json({ error: "Invalid trace ID" }, { status: 400 });
+  }
+
   const backendRes = await fetch(
-    `${BACKEND_INTERNAL_URL}/api/v1/projects/${projectId}/traces/${traceId}/live`,
+    `${BACKEND_INTERNAL_URL}/api/v1/projects/${encodeURIComponent(projectId)}/traces/${encodeURIComponent(traceId)}/live`,
     {
-      headers: { "x-user-id": user.id },
+      headers: { cookie: _request.headers.get("cookie") ?? "" },
+      signal: _request.signal,
     },
   );
 
@@ -39,3 +46,4 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     },
   });
 }
+export const GET = withImpersonationPolicy(handleGET);

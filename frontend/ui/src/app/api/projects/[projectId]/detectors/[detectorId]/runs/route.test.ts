@@ -1,15 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("next/server", () => ({ NextRequest: class {} }));
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
+vi.mock("next/server", () => ({
+  NextRequest: class {},
+  NextResponse: { json: (body: unknown, init?: { status?: number }) => Response.json(body, init) },
+}));
 
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
-const rcaFindManyMock = vi.fn();
+const signalsForRunsMock = vi.fn();
+vi.mock("@traceroot/core/signals", () => ({
+  signalsForRuns: (...args: unknown[]) => signalsForRunsMock(...args),
+}));
+
+const workspaceFindUniqueMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   prisma: {
-    detectorRca: {
-      findMany: (...args: unknown[]) => rcaFindManyMock(...args),
+    workspace: {
+      findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args),
     },
+  },
+  PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
+  getRetentionDays: (plan: string) => {
+    const days: Record<string, number | null> = {
+      free: 15,
+      starter: 30,
+      pro: 90,
+      enterprise: null,
+    };
+    return Object.prototype.hasOwnProperty.call(days, plan) ? days[plan] : 15;
   },
 }));
 
@@ -54,12 +77,14 @@ function run(findingId: string | null, extra: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  rcaFindManyMock.mockReset();
+  signalsForRunsMock.mockReset();
+  workspaceFindUniqueMock.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   backendFetchMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
-  requireProjectAccessMock.mockResolvedValue({});
+  requireProjectAccessMock.mockResolvedValue({ project: { workspaceId: "ws-1" } });
+  workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "free" });
 });
 
 describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
@@ -85,7 +110,7 @@ describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
     backendFetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
     const res = await GET(makeRequest(), makeParams());
     expect(res.status).toBe(502);
-    expect(rcaFindManyMock).not.toHaveBeenCalled();
+    expect(signalsForRunsMock).not.toHaveBeenCalled();
   });
 
   it("passes a backend error through without attempting enrichment", async () => {
@@ -94,7 +119,7 @@ describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
     const res = await GET(makeRequest(), makeParams());
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual(body);
-    expect(rcaFindManyMock).not.toHaveBeenCalled();
+    expect(signalsForRunsMock).not.toHaveBeenCalled();
   });
 
   it("clamps limit to [1,200] and page to >=0, defaulting NaN", async () => {
@@ -126,48 +151,105 @@ describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
   });
 });
 
-describe("GET .../runs — RCA status enrichment", () => {
-  it("attaches each triggered run's stored RCA status; absent row maps to null (skipped)", async () => {
+describe("GET .../runs — retention clamp", () => {
+  it("clamps start_after to retention cutoff when outside the free plan window", async () => {
+    const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest({ start_after: old }), makeParams());
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    const proxiedStart = url.searchParams.get("start_after")!;
+    const cutoffMs = Date.now() - 15 * 86_400_000 - 3_600_000;
+    expect(Math.abs(new Date(proxiedStart).getTime() - cutoffMs)).toBeLessThan(5000);
+  });
+
+  it("passes through when start_after is within the retention window", async () => {
+    const recent = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest({ start_after: recent }), makeParams());
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("start_after")).toBe(recent);
+  });
+
+  it("clamps to retention cutoff when no start_after is provided", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest(), makeParams());
+    expect(res.status).toBe(200);
+    expect(workspaceFindUniqueMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.has("start_after")).toBe(true);
+  });
+
+  it("clamps malformed start_after to retention cutoff", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest({ start_after: "not-a-date" }), makeParams());
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    const proxiedStart = url.searchParams.get("start_after")!;
+    const cutoffMs = Date.now() - 15 * 86_400_000 - 3_600_000;
+    expect(Math.abs(new Date(proxiedStart).getTime() - cutoffMs)).toBeLessThan(5000);
+  });
+
+  it("allows wider window for enterprise plans", async () => {
+    workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "enterprise" });
+    const old = new Date(Date.now() - 365 * 86_400_000).toISOString();
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest({ start_after: old }), makeParams());
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("start_after")).toBe(old);
+  });
+});
+
+describe("GET .../runs — signal enrichment", () => {
+  it("attaches each triggered run's signal and its RCA's agent trace in one lookup", async () => {
     backendFetchMock.mockResolvedValue(
       backendResponse({ data: [run("f1"), run("f2"), run("f3")], meta: {} }),
     );
-    rcaFindManyMock.mockResolvedValue([
-      { findingId: "f1", status: "done" },
-      { findingId: "f3", status: "failed" },
+    signalsForRunsMock.mockResolvedValue([
+      { runId: "run-f1", signalId: "s1", agentTraceId: "t1" },
+      { runId: "run-f3", signalId: "s2", agentTraceId: null },
     ]);
 
     const res = await GET(makeRequest(), makeParams());
-    const body = (await res.json()) as { data: Array<{ rca_status: unknown }> };
+    const body = (await res.json()) as { data: Array<Record<string, unknown>> };
 
     expect(res.status).toBe(200);
-    expect(body.data.map((r) => r.rca_status)).toEqual(["done", null, "failed"]);
-    // One batched lookup with all triggered ids — never one query per run.
-    expect(rcaFindManyMock).toHaveBeenCalledTimes(1);
-    expect(rcaFindManyMock.mock.calls[0][0]).toMatchObject({
-      where: { findingId: { in: ["f1", "f2", "f3"] } },
+    // A triggered run that is not (yet) a signal hit gets explicit nulls.
+    expect(body.data.map((r) => [r.signal_id, r.agent_trace_id])).toEqual([
+      ["s1", "t1"],
+      [null, null],
+      ["s2", null],
+    ]);
+    expect(signalsForRunsMock).toHaveBeenCalledTimes(1);
+    expect(signalsForRunsMock.mock.calls[0][1]).toEqual({
+      projectId: "proj-1",
+      runIds: ["run-f1", "run-f2", "run-f3"],
     });
   });
 
   it("leaves runs that never triggered (null finding_id) untouched", async () => {
     backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1"), run(null)], meta: {} }));
-    rcaFindManyMock.mockResolvedValue([{ findingId: "f1", status: "done" }]);
+    signalsForRunsMock.mockResolvedValue([{ runId: "run-f1", signalId: "s1", agentTraceId: null }]);
 
     const res = await GET(makeRequest(), makeParams());
     const body = (await res.json()) as { data: Array<Record<string, unknown>> };
 
-    expect(body.data[0].rca_status).toBe("done");
-    // The non-triggered run is never enriched — no rca_status key at all.
-    expect("rca_status" in body.data[1]).toBe(false);
-    expect(rcaFindManyMock.mock.calls[0][0]).toMatchObject({
-      where: { findingId: { in: ["f1"] } },
-    });
+    expect(body.data[0].signal_id).toBe("s1");
+    expect("signal_id" in body.data[1]).toBe(false);
+    expect(signalsForRunsMock.mock.calls[0][1]).toMatchObject({ runIds: ["run-f1"] });
   });
 
   it("skips the lookup entirely when no run on the page triggered", async () => {
     backendFetchMock.mockResolvedValue(backendResponse({ data: [run(null)], meta: {} }));
     const res = await GET(makeRequest(), makeParams());
     expect(res.status).toBe(200);
-    expect(rcaFindManyMock).not.toHaveBeenCalled();
+    expect(signalsForRunsMock).not.toHaveBeenCalled();
   });
 
   it("leaves a malformed body untouched (data not an array)", async () => {
@@ -175,25 +257,26 @@ describe("GET .../runs — RCA status enrichment", () => {
     backendFetchMock.mockResolvedValue(backendResponse(body));
     const res = await GET(makeRequest(), makeParams());
     expect(await res.json()).toEqual(body);
-    expect(rcaFindManyMock).not.toHaveBeenCalled();
+    expect(signalsForRunsMock).not.toHaveBeenCalled();
   });
 
   it("leaves a null body untouched", async () => {
     backendFetchMock.mockResolvedValue(backendResponse(null));
     const res = await GET(makeRequest(), makeParams());
     expect(await res.json()).toBeNull();
-    expect(rcaFindManyMock).not.toHaveBeenCalled();
+    expect(signalsForRunsMock).not.toHaveBeenCalled();
   });
 
-  it("returns triggered runs WITHOUT rca_status when the lookup fails (absent, not Skipped)", async () => {
+  it("returns the runs without signal fields when the lookup fails", async () => {
     backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1")], meta: {} }));
-    rcaFindManyMock.mockRejectedValue(new Error("pg down"));
+    signalsForRunsMock.mockRejectedValue(new Error("db down"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await GET(makeRequest(), makeParams());
     const body = (await res.json()) as { data: Array<Record<string, unknown>> };
 
     expect(res.status).toBe(200);
-    // Field absent — the UI renders "—", never a misleading "Skipped".
-    expect("rca_status" in body.data[0]).toBe(false);
+    expect("signal_id" in body.data[0]).toBe(false);
+    spy.mockRestore();
   });
 });

@@ -1,32 +1,73 @@
 /**
- * Pure helpers for the trace-list filter predicate IR (`{field, op, value}`).
+ * Pure helpers for the trace-list filter predicate IR (`{field, key?, op, value}`).
  *
  * Kept framework-free so the canonicalization, URL serialization, and validation
  * are unit-testable without React or the DOM, and reused by both the query-key
  * builder and the URL-synced state hook.
  */
 import type { Predicate } from "@/types/api";
+import { STATIC_FILTER_FIELDS } from "./registry";
 
 const VALID_OPS = new Set<Predicate["op"]>(["in", "eq", "gt", "gte", "lt", "lte", "contains"]);
+
+// Fields whose predicate carries a key slot. Read off the static registry rather than
+// hard-coded so `requires_key` has one frontend source of truth; the live `/filter-fields`
+// payload can't serve here because URL predicates are validated before any fetch resolves.
+const KEY_REQUIRED_FIELDS = new Set(
+  STATIC_FILTER_FIELDS.filter((f) => f.requires_key).map((f) => f.field),
+);
+
+// Mirrors MAX_KEY_LENGTH in backend/rest/services/filters/translate.py. Rejecting here
+// keeps an over-long key out of state entirely: admitted, it would persist to the URL and
+// to storage and then 422 every list request until the user found and removed it by hand.
+export const MAX_KEY_LENGTH = 256;
+
+// Mirrors MAX_VALUE_LENGTH in the same backend module, and rejected here for the same reason
+// as the key cap: admitted, an over-long value persists to the URL and 422s every list request
+// until the user removes the chip by hand. Larger than the key cap because a value is compared
+// rather than looked up, so a legitimate one can be a prompt fragment or a URL. Both numbers
+// are duplicated rather than served from the backend because a hand-edited `?filters=` is
+// validated before any fetch resolves; if either moves, the two files move together.
+export const MAX_VALUE_LENGTH = 1024;
+
+// Mirrors MAX_FILTERS in the same backend module, which 422s an array longer than this. Unlike
+// the two length caps, this one is reachable by clicking alone -- adding one more chip than the
+// backend accepts wedges the list with no paste and no hand-edited URL -- so the ceiling is
+// enforced where the array grows as well as where it is parsed.
+export const MAX_FILTERS = 20;
 
 /** Shape-guard for a single predicate parsed from untrusted input (e.g. a URL). */
 export function isValidPredicate(p: unknown): p is Predicate {
   if (typeof p !== "object" || p === null) return false;
-  const { field, op, value } = p as Record<string, unknown>;
+  const { field, key, op, value } = p as Record<string, unknown>;
   if (typeof field !== "string" || !VALID_OPS.has(op as Predicate["op"])) return false;
+  // A keyed field needs a non-empty key, and every other field must carry none. Rejecting a
+  // stray key rather than ignoring it keeps the chip, the URL, and the query the backend runs
+  // describing the same filter. Any key VALUE is legal: it binds as a parameter, so an
+  // unrecognized key is an empty result, never a rejection.
+  if (KEY_REQUIRED_FIELDS.has(field)) {
+    if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY_LENGTH) return false;
+  } else if (key !== undefined) {
+    return false;
+  }
   if (op === "in") {
     // Non-empty list of strings: an empty `in` matches nothing and the backend 422s it,
     // so a hand-edited/degenerate empty-`in` is dropped here rather than sinking the fetch.
-    return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "string");
+    // Every element is capped, not just the list: the backend caps them individually too.
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((v) => typeof v === "string" && v.length <= MAX_VALUE_LENGTH)
+    );
   }
   if (op === "contains") {
-    return typeof value === "string" && value.length > 0;
+    return typeof value === "string" && value.length > 0 && value.length <= MAX_VALUE_LENGTH;
   }
   if (op === "eq") {
     // Numeric equality OR a text exact match — a finite number or a non-empty string.
     return (
       (typeof value === "number" && Number.isFinite(value)) ||
-      (typeof value === "string" && value.length > 0)
+      (typeof value === "string" && value.length > 0 && value.length <= MAX_VALUE_LENGTH)
     );
   }
   // gt/gte/lt/lte: a single FINITE number. Number.isFinite rejects Infinity/NaN — e.g. a
@@ -47,7 +88,10 @@ export function canonicalizeFilters(filters?: Predicate[]): string {
       // matched values is order-independent, so hover-prefetch and the list hook must
       // agree on the same cache entry. Scalar values (numbers/strings) are left as-is.
       const value = p.op === "in" && Array.isArray(p.value) ? [...p.value].sort() : p.value;
-      return JSON.stringify({ field: p.field, op: p.op, value });
+      // The key is part of a keyed predicate's identity: `metadata[session_id] = x` and
+      // `metadata[user_id] = x` select different traces. An absent key stringifies away,
+      // so keyless predicates keep the shape their cache entries were written under.
+      return JSON.stringify({ field: p.field, key: p.key, op: p.op, value });
     })
     .sort()
     .join("|");
@@ -59,7 +103,7 @@ export function canonicalizeFilters(filters?: Predicate[]): string {
  * in), so a malformed shape — e.g. an empty `in` — can't reach the URL/backend and 422.
  */
 export function serializeFiltersParam(filters?: Predicate[]): string | null {
-  const valid = (filters ?? []).filter(isValidPredicate);
+  const valid = (filters ?? []).filter(isValidPredicate).slice(0, MAX_FILTERS);
   return valid.length === 0 ? null : JSON.stringify(valid);
 }
 
@@ -77,5 +121,9 @@ export function parseFiltersParam(raw: string | null): Predicate[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isValidPredicate);
+  // Truncating past the cap rather than discarding the whole array keeps a hand-edited URL
+  // showing most of what it asked for instead of nothing, which is the same trade the
+  // per-predicate drops above already make: a filter the backend would reject is dropped,
+  // and the list comes back broader than the URL described rather than not at all.
+  return parsed.filter(isValidPredicate).slice(0, MAX_FILTERS);
 }

@@ -5,11 +5,18 @@ names trace/sessions/users use), the COUNT-driven pagination metadata, and
 the {data, meta} response envelope.
 """
 
+import gzip
+import inspect
+import logging
+import typing
 from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+)
 
 from rest.main import app
 from shared.config import settings
@@ -22,12 +29,16 @@ def secret(monkeypatch):
     return "test-secret"
 
 
+DEFAULT_CH_FAMILY = "detectors"
+
+
 @pytest.fixture()
-def mock_ch(monkeypatch):
-    """Mock the ClickHouse client used by the internal router."""
+def mock_ch(monkeypatch, request):
+    """Mock the ClickHouse client the endpoint family under test binds."""
     mock = MagicMock()
+    family = getattr(request.cls, "CH_FAMILY", DEFAULT_CH_FAMILY)
     monkeypatch.setattr(
-        "rest.routers.internal.get_clickhouse_client",
+        f"rest.routers.internal.{family}.get_clickhouse_client",
         lambda: mock,
     )
     return mock
@@ -84,6 +95,24 @@ class TestListDetectorRuns:
         body = resp.json()
         assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
         assert body["data"][0]["run_id"] == "r1"
+        assert body["data"][0]["signal_gave_up"] is False
+        page_query = " ".join(mock_ch.query.call_args_list[0].args[0].split())
+        assert "ORDER BY r.timestamp DESC, r.run_id DESC LIMIT" in page_query
+
+    def test_flags_a_hit_signal_assignment_gave_up_on(self, client, mock_ch, secret):
+        data = self._fake_data()
+        data.column_names = [*data.column_names, "signal_gave_up"]
+        data.result_rows = [(*data.result_rows[0], 1)]
+        mock_ch.query.side_effect = [data, self._fake_count(1)]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.json()["data"][0]["signal_gave_up"] is True
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        # Only the give-up row (empty signal_id) of this detector's hit counts.
+        assert "signal_id = ''" in data_sql and "AS signal_gave_up" in data_sql
 
     def test_search_query_hits_trace_id_and_joined_summary(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_data(), self._fake_count(0)]
@@ -183,8 +212,8 @@ class TestListTraceDetectorRuns:
     def _fake_data(self):
         return _make_query_result(
             rows=[
-                ("r1", "d-a", "p1", "trace-1", "f1", "triggered", self.TS, "Found it"),
-                ("r2", "d-b", "p1", "trace-1", None, "clean", self.TS, ""),
+                ("r1", "d-a", "p1", "trace-1", "f1", "triggered", self.TS, "Found it", True),
+                ("r2", "d-b", "p1", "trace-1", None, "clean", self.TS, "", False),
             ],
             column_names=[
                 "run_id",
@@ -195,6 +224,9 @@ class TestListTraceDetectorRuns:
                 "status",
                 "timestamp",
                 "summary",
+                # The endpoint selects this; without it here the fixture pins a shape
+                # production can no longer produce, and the field goes untested.
+                "self_traced",
             ],
         )
 
@@ -220,6 +252,7 @@ class TestListTraceDetectorRuns:
             "status": "triggered",
             "timestamp": self.TS.isoformat(),
             "summary": "Found it",
+            "self_traced": True,
         }
         assert runs[1] == {
             "run_id": "r2",
@@ -230,7 +263,23 @@ class TestListTraceDetectorRuns:
             "status": "clean",
             "timestamp": self.TS.isoformat(),
             "summary": "",
+            "self_traced": False,
         }
+
+    def test_query_selects_self_traced(self, client, mock_ch, secret):
+        """The envelope assertions above can't see the SELECT list.
+
+        The endpoint builds its dicts with ``dict(zip(result.column_names, row))``
+        and the fixture supplies ``column_names`` itself, so dropping the column
+        from the query leaves every field assertion passing. Pin the SQL directly.
+        """
+        mock_ch.query.return_value = self._fake_data()
+        client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert "r.self_traced" in mock_ch.query.call_args_list[0].args[0]
 
     def test_filters_by_trace_and_project(self, client, mock_ch, secret):
         mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
@@ -362,6 +411,28 @@ class TestWriteDetectorRun:
         assert "fromUnixTimestamp64Milli" not in sql
         assert "timestamp_ms" not in params
 
+    def test_writes_used_inference_flag(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={**self._body(), "status": "failed", "usedInference": True},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "used_inference" in sql
+        assert params["used_inference"] is True
+
+    def test_defaults_used_inference_to_false_when_absent(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json=self._body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert params["used_inference"] is False
+
 
 # =============================================================================
 # /traces/{trace_id}/findings
@@ -444,8 +515,18 @@ class TestListDetectorWindowSummary:
         body = resp.json()
         assert body == {
             "data": {
-                "d-a": {"finding_count": 7, "run_count": 100, "sample_trace_ids": ["t-a"]},
-                "d-b": {"finding_count": 0, "run_count": 25, "sample_trace_ids": []},
+                "d-a": {
+                    "finding_count": 7,
+                    "run_count": 100,
+                    "sample_trace_ids": ["t-a"],
+                    "sample_summaries": [],
+                },
+                "d-b": {
+                    "finding_count": 0,
+                    "run_count": 25,
+                    "sample_trace_ids": [],
+                    "sample_summaries": [],
+                },
             }
         }
 
@@ -528,9 +609,16 @@ class TestListDetectorWindowSummary:
         sql = mock_ch.query.call_args.args[0]
         # No FINAL — the OOM-shaped merge-on-read is gone.
         assert "FINAL" not in sql
-        # Dedup is an argMax aggregate per run_id.
+        # Dedup is an argMax aggregate per run_id. The finding pick must be
+        # tuple-wrapped (bare argMax skips NULL rows) so a run whose newest
+        # row is a clean re-eval stops counting as identified — the count
+        # retracts exactly when the digest sample does.
         assert "GROUP BY detector_id, run_id" in sql
-        assert "argMax(finding_id, timestamp)" in sql
+        assert "tupleElement(argMax(" in sql
+        assert "tuple(finding_id)" in sql
+        # Deterministic tie-break: on equal timestamps the non-null finding
+        # must win, and identically so in the summaries probe.
+        assert "(timestamp, coalesce(finding_id, ''))" in sql
         # Finding count straight off the collapsed run; no findings JOIN.
         assert "countIf(latest_finding_id IS NOT NULL)" in sql
         assert "JOIN" not in sql
@@ -584,5 +672,1168 @@ class TestListDetectorWindowSummary:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.json() == {
-            "data": {"d-a": {"finding_count": 0, "run_count": 10, "sample_trace_ids": []}}
+            "data": {
+                "d-a": {
+                    "finding_count": 0,
+                    "run_count": 10,
+                    "sample_trace_ids": [],
+                    "sample_summaries": [],
+                }
+            }
         }
+
+    # ── include_summaries (digest LLM-summary sample) ────────────────────────
+
+    def _fake_summaries(self, rows: list[tuple]):
+        # Rows are (detector_id, summary) from the capped summaries query,
+        # already rank-major ordered by the SQL.
+        return _make_query_result(rows=rows, column_names=["detector_id", "summary"])
+
+    def _get(self, client, secret, **extra_params):
+        return client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                **extra_params,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+    def test_include_summaries_appends_rows_in_order(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7, "t-a"), ("d-b", 25, 0, "")]),
+            self._fake_summaries([("d-a", "newest sentence"), ("d-a", "older sentence")]),
+        ]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["d-a"]["sample_summaries"] == ["newest sentence", "older sentence"]
+        assert data["d-b"]["sample_summaries"] == []
+        # Counts are untouched by the summaries read.
+        assert data["d-a"]["finding_count"] == 7
+
+    def test_summaries_query_is_capped_and_time_bounded(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 10, 3, "t-a")]),
+            self._fake_summaries([]),
+        ]
+        self._get(client, secret, include_summaries="true")
+        assert mock_ch.query.call_count == 2
+        second = mock_ch.query.call_args_list[1]
+        sql = second.args[0] if second.args else second.kwargs.get("query")
+        # SQL-side caps: per-detector LIMIT BY, total LIMIT, UTF8-safe substring
+        # (a byte-based cut can hex-garble a multibyte summary), rank-major order.
+        assert "LIMIT 10 BY detector_id" in sql
+        assert "LIMIT 40" in sql
+        assert "substringUTF8" in sql
+        assert "ORDER BY rank ASC, ts DESC" in sql
+        # Semi-join: the FINAL read must touch only the sampled findings'
+        # payloads, never the project's whole finding history.
+        assert "finding_id IN (" in sql
+        # NULL-preserving dedup: the probe must wrap finding_id in a tuple —
+        # bare argMax skips NULL rows, so a newer clean re-eval of a run
+        # would never retract its older finding from the sample.
+        assert "tupleElement(argMax(" in sql
+        assert "tuple(finding_id)" in sql
+        # Deterministic tie-break: the probe is evaluated twice (FROM + IN),
+        # so equal timestamps must resolve identically in both.
+        assert "(timestamp, coalesce(finding_id, ''))" in sql
+        # Bounded read: a stalled query degrades to counts-only via the except
+        # path rather than holding the caller open.
+        assert second.kwargs.get("settings") == {"max_execution_time": 10}
+
+    def test_include_summaries_defaults_off(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 100, 7, "t-a")])]
+        resp = self._get(client, secret)
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 1
+        assert resp.json()["data"]["d-a"]["sample_summaries"] == []
+
+    def test_include_summaries_skips_query_when_nothing_triggered(self, client, mock_ch, secret):
+        # finding_count == 0 everywhere -> there is nothing to sample, so the
+        # second query is never issued even with the flag set.
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 0, "")])]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 1
+        assert resp.json()["data"]["d-a"]["sample_summaries"] == []
+
+    def test_summaries_read_failure_degrades_to_counts_only(self, client, mock_ch, secret):
+        # The summaries read is best-effort: a ClickHouse error (including the
+        # execution-time cap) must never fail the endpoint — counts still return.
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7, "t-a")]),
+            RuntimeError("TIMEOUT_EXCEEDED"),
+        ]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["d-a"]["finding_count"] == 7
+        assert data["d-a"]["sample_summaries"] == []
+
+    def test_summaries_for_unknown_detector_ids_are_dropped(self, client, mock_ch, secret):
+        # Defensive: a summaries row whose detector is absent from the counts
+        # map (shouldn't happen — same window) is ignored, not KeyError'd.
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7, "t-a")]),
+            self._fake_summaries([("d-ghost", "orphan sentence"), ("d-a", "kept sentence")]),
+        ]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["d-a"]["sample_summaries"] == ["kept sentence"]
+        assert "d-ghost" not in data
+
+
+# =============================================================================
+# /trace-counts
+# =============================================================================
+
+
+class TestListTraceCounts:
+    URL = "/api/v1/internal/trace-counts"
+
+    def _rows(self, rows: list[tuple]):
+        # Rows are (bucket, count) from the bucketed query.
+        return _make_query_result(rows=rows, column_names=["bucket", "count"])
+
+    def _get(self, client, secret, **extra_params):
+        return client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+                **extra_params,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+    def _sql(self, client, mock_ch, secret, **extra_params):
+        mock_ch.query.side_effect = [self._rows([])]
+        self._get(client, secret, **extra_params)
+        return mock_ch.query.call_args.args[0], mock_ch.query.call_args.kwargs["parameters"]
+
+    def test_returns_counts_per_bucket(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._rows([("2026-04-20", 3), ("2026-04-21", 5)])]
+        resp = self._get(client, secret, detector_id="d-a")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "data": [
+                {"bucket": "2026-04-20", "count": 3},
+                {"bucket": "2026-04-21", "count": 5},
+            ]
+        }
+
+    def test_with_a_detector_counts_checked_traces(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FROM detector_runs" in sql
+        assert "detector_id = {detector_id:String}" in sql
+        assert params["project_id"] == "p1"
+        assert params["detector_id"] == "d-a"
+
+    def test_retries_and_trace_versions_count_once_at_latest_trace_start(
+        self, client, mock_ch, secret
+    ):
+        sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FINAL" not in sql
+        assert "argMax(t.trace_start_time, t.ch_update_time) AS ts" in sql
+        assert "GROUP BY t.trace_id" in sql
+        assert "uniqExact(id)" in sql
+        assert "max(timestamp)" not in sql
+        assert sql.index("GROUP BY t.trace_id") < sql.index("ts >=")
+
+    def test_requires_a_detector(self, client, mock_ch, secret):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_scans_only_the_window(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret)
+        # The inner range keeps the scan inside the window's partitions.
+        assert "trace_start_time >= {start_after:DateTime64(3)}" in sql
+
+    def test_day_buckets_by_local_day(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, tz="America/New_York")
+        assert "toString(toDate(ts, {tz:String}))" in sql
+        assert "GROUP BY bucket" in sql
+        assert "ORDER BY bucket" in sql
+        assert params["tz"] == "America/New_York"
+
+    def test_hour_buckets_by_local_hour(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret, granularity="hour")
+        assert "toStartOfHour(ts, {tz:String})" in sql
+        assert "'%Y-%m-%dT%H:00'" in sql
+
+    def test_unknown_granularity_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, granularity="week")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_tz_defaults_to_utc(self, client, mock_ch, secret):
+        _, params = self._sql(client, mock_ch, secret)
+        assert params["tz"] == "UTC"
+
+    def test_invalid_tz_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="Not/AZone")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_malformed_tz_is_422_not_500(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="../../etc/passwd")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_window_bounds_both_ends(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "ts >= {start_after:DateTime64(3)}" in sql
+        assert "ts < {end_before:DateTime64(3)}" in sql
+        assert "start_after" in params and "end_before" in params
+
+    def test_requires_internal_secret(self, client, mock_ch):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_requires_both_bounds(self, client, mock_ch, secret):
+        for missing in ("start_after", "end_before"):
+            params = {
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            }
+            del params[missing]
+            resp = client.get(self.URL, params=params, headers={"X-Internal-Secret": secret})
+            assert resp.status_code == 422
+
+
+# =============================================================================
+# /traces (internal OTLP ingest for detector self-traces)
+# =============================================================================
+
+
+def _otlp_body(
+    trace_id: bytes = b"\xab" * 16,
+    compress: bool = False,
+    extra_trace_ids: tuple[bytes, ...] = (),
+    span_id: bytes = b"\x01" * 8,
+    parent_span_id: bytes | None = None,
+    span_project_ids: tuple[str | None, ...] = (),
+) -> bytes:
+    """Serialize an OTLP ExportTraceServiceRequest with one span per trace id.
+
+    ``span_project_ids`` optionally stamps the Nth span with a per-span
+    ``traceroot.project_id`` attribute (None leaves that span unattributed).
+    """
+    request = ExportTraceServiceRequest()
+    resource_spans = request.resource_spans.add()
+    scope_spans = resource_spans.scope_spans.add()
+    scope_spans.scope.name = "test-internal-ingest"
+    for index, tid in enumerate((trace_id, *extra_trace_ids)):
+        span = scope_spans.spans.add()
+        span.trace_id = tid
+        span.span_id = span_id if index == 0 else bytes([index + 1]) * 8
+        if index == 0 and parent_span_id is not None:
+            span.parent_span_id = parent_span_id
+        if index < len(span_project_ids) and span_project_ids[index]:
+            attr = span.attributes.add()
+            attr.key = "traceroot.project_id"
+            attr.value.string_value = span_project_ids[index]
+        span.name = "detector-run"
+        span.start_time_unix_nano = 1700000000000000000
+        span.end_time_unix_nano = 1700000001000000000
+    body = request.SerializeToString()
+    return gzip.compress(body) if compress else body
+
+
+class TestInternalTraceIngest:
+    CH_FAMILY = "ingest"
+    URL = "/api/v1/internal/traces?project_id=proj-1"
+    AGENT_URL = "/api/v1/internal/traces/agent?project_id=proj-1"
+
+    def test_rejects_missing_secret(self, client):
+        resp = client.post(self.URL, content=_otlp_body())
+        assert resp.status_code == 403
+
+    def test_accepts_project_id_via_header(self, client, secret, mock_ch):
+        """The OTLP exporter strips query strings from its endpoint URL, so the
+        worker SDK sends X-Project-Id; the route must honor it without a query."""
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-hdr" for s in spans)
+
+    def test_header_wins_over_query_param(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,  # carries project_id=proj-1 in the query
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-hdr" for s in spans)
+
+    def test_missing_project_id_everywhere_is_rejected(self, client, secret, mock_ch):
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_rejects_malformed_trace_id(self, client, secret, mock_ch):
+        """An 8-byte trace id decodes to 16 hex chars and must be rejected."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(trace_id=b"\xab" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_rejects_empty_and_invalid_bodies(self, client, secret, mock_ch, caplog):
+        resp = client.post(self.URL, content=b"", headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 400
+
+        # An undecodable body means a bug in our own tracer — it must leave
+        # a warning breadcrumb, not fail silently.
+        with caplog.at_level(logging.WARNING):
+            resp = client.post(
+                self.URL, content=b"not-protobuf-at-all", headers={"X-Internal-Secret": secret}
+            )
+        assert resp.status_code == 400
+        assert any("protobuf" in record.getMessage().lower() for record in caplog.records)
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_zero_span_payload_is_ok(self, client, secret, mock_ch):
+        """A valid payload with no spans no-ops cleanly instead of erroring."""
+        request = ExportTraceServiceRequest()
+        request.resource_spans.add().scope_spans.add().scope.name = "empty-batch"
+
+        resp = client.post(
+            self.URL,
+            content=request.SerializeToString(),
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        assert mock_ch.insert_spans_batch.call_args[0][0] == []
+        assert mock_ch.insert_traces_batch.call_args[0][0] == []
+
+    def test_rejects_malformed_span_id(self, client, secret, mock_ch):
+        """A 4-byte span id decodes to 8 hex chars and must be rejected."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(span_id=b"\x01" * 4),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_rejects_malformed_parent_span_id(self, client, secret, mock_ch):
+        """parent_span_id must be absent (root span) or a full 16-hex id."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 4),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_accepts_valid_parent_span_id(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans[0]["parent_span_id"] == "02" * 8
+
+    def test_multi_trace_payload_validates_every_id(self, client, secret, mock_ch):
+        """One malformed id among several traces rejects the whole payload."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(extra_trace_ids=(b"\xcd" * 8,)),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_inserts_detector_source_spans_before_trace(self, client, secret, mock_ch):
+        """Rows land with source='detector'; spans insert before the trace row."""
+        resp = client.post(self.URL, content=_otlp_body(), headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "detector" for s in spans)
+        assert traces and all(t["source"] == "detector" for t in traces)
+        assert all(s["project_id"] == "proj-1" for s in spans)
+        assert all(t["project_id"] == "proj-1" for t in traces)
+        assert all(t["trace_id"] == "ab" * 16 for t in traces)
+
+        # Spans first: a partial failure must not leave a trace row that
+        # points at missing spans.
+        call_order = [name for name, _args, _kw in mock_ch.method_calls]
+        assert call_order.index("insert_spans_batch") < call_order.index("insert_traces_batch")
+
+    def test_the_agent_path_stamps_agent_source(self, client, secret, mock_ch):
+        """The agent service's own path, same secret, different stored source."""
+        resp = client.post(
+            self.AGENT_URL, content=_otlp_body(), headers={"X-Internal-Secret": secret}
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "agent" for s in spans)
+        assert traces and all(t["source"] == "agent" for t in traces)
+
+    def test_the_agent_path_needs_the_secret_too(self, client, mock_ch):
+        resp = client.post(self.AGENT_URL, content=_otlp_body())
+        assert resp.status_code == 403
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_source_header_is_ignored(self, client, secret, mock_ch):
+        """The client cannot choose its source: the path decides, a header naming
+        another source changes nothing."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Internal-Source": "agent"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert all(s["source"] == "detector" for s in spans)
+
+    def test_rejects_corrupt_gzip_body(self, client, secret, mock_ch, caplog):
+        with caplog.at_level(logging.WARNING):
+            resp = client.post(
+                self.URL,
+                content=b"\x1f\x8b-not-actually-gzip",
+                headers={"X-Internal-Secret": secret, "Content-Encoding": "gzip"},
+            )
+        assert resp.status_code == 400
+        assert any("gzip" in record.getMessage().lower() for record in caplog.records)
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_accepts_gzip_body(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(compress=True),
+            headers={"X-Internal-Secret": secret, "Content-Encoding": "gzip"},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.insert_spans_batch.called
+
+    def test_route_never_references_detection_enqueue(self):
+        """Anti-recursion by construction: the module cannot enqueue detection."""
+        from rest.routers.internal import ingest as ingest_module
+
+        source = inspect.getsource(ingest_module)
+        # The package __init__ only mounts sub-routers, so scanning it would assert nothing.
+        assert 'router.post("/traces"' in source
+        assert "enqueue_detector_runs" not in source
+
+
+class TestPerSpanProjectAttribution:
+    """Attribute-at-source routing: the worker stamps traceroot.project_id
+    per span; the request-level project id is only a single-project fallback."""
+
+    CH_FAMILY = "ingest"
+    URL = "/api/v1/internal/traces"
+
+    def test_mixed_project_batch_fans_each_trace_to_its_own_project(self, client, secret, mock_ch):
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            span_project_ids=("proj-a", "proj-b"),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert {s["trace_id"]: s["project_id"] for s in spans} == {
+            "ab" * 16: "proj-a",
+            "cd" * 16: "proj-b",
+        }
+        assert {t["trace_id"]: t["project_id"] for t in traces} == {
+            "ab" * 16: "proj-a",
+            "cd" * 16: "proj-b",
+        }
+        # Force-stamping still applies to every routed record.
+        assert all(s["source"] == "detector" for s in spans)
+        assert all(t["source"] == "detector" for t in traces)
+
+    def test_span_attribute_wins_over_request_fallback(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(span_project_ids=("proj-span",)),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-span" for s in spans)
+
+    def test_unattributed_span_falls_back_to_request_project(self, client, secret, mock_ch):
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            span_project_ids=("proj-a", None),
+        )
+        resp = client.post(
+            f"{self.URL}?project_id=proj-fb",
+            content=body,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert {s["trace_id"]: s["project_id"] for s in spans} == {
+            "ab" * 16: "proj-a",
+            "cd" * 16: "proj-fb",
+        }
+
+    def test_partially_unattributable_batch_is_rejected_whole(self, client, secret, mock_ch):
+        """One span with no attribute and no fallback rejects the whole batch —
+        a project is never guessed."""
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            span_project_ids=("proj-a", None),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_id_validation_applies_across_all_project_groups(self, client, secret, mock_ch):
+        """A malformed trace id in another project's group still rejects everything."""
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 8,),  # 8 bytes -> 16 hex chars: invalid
+            span_project_ids=("proj-a", "proj-b"),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_non_string_project_attribute_is_a_400_not_a_500(self, client, secret, mock_ch):
+        """A malformed traceroot.project_id value (an OTLP array/int, not a
+        string) must reject the batch cleanly (400), not crash grouping with an
+        unhashable-key TypeError surfacing as a 500."""
+        request = ExportTraceServiceRequest()
+        span = request.resource_spans.add().scope_spans.add().spans.add()
+        span.trace_id = b"\xab" * 16
+        span.span_id = b"\x01" * 8
+        span.name = "detector-run"
+        span.start_time_unix_nano = 1700000000000000000
+        span.end_time_unix_nano = 1700000001000000000
+        attr = span.attributes.add()
+        attr.key = "traceroot.project_id"
+        attr.value.array_value.values.add().string_value = "proj-x"
+
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=request.SerializeToString(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+
+# =============================================================================
+# /usage/* (billing metering)
+# =============================================================================
+
+
+def _source_filters(sql: str) -> str:
+    """The SQL with its legitimate `source` uses (select list, GROUP BY) removed.
+
+    What is left must not mention `source`: any remaining occurrence is a WHERE
+    predicate, and a predicate on source would stop billing self-traces again.
+    """
+    return sql.replace("SELECT source,", "").replace("GROUP BY source", "")
+
+
+def _collapse_scopes(sql: str) -> tuple[str, str]:
+    """Split the detector-runs meter SQL into (inner, outer) scopes.
+
+    The meter is ``SELECT count() FROM (<collapse subquery>) WHERE ...``: the
+    inner scope ends at the GROUP BY over the table's dedup key and the outer
+    scope is everything after it. Normalized for case/whitespace-insensitive
+    matching so assertions pin predicate *placement*, not formatting.
+    """
+    norm = " ".join(sql.lower().split())
+    marker = "group by project_id, detector_id, run_id"
+    assert marker in norm, f"collapse subquery missing full dedup key: {sql}"
+    inner, outer = norm.split(marker, 1)
+    return inner, outer
+
+
+def _meter_fake_query(versions: list[tuple[str, str, str, str, bool, str]]):
+    """A mock ``ch.query`` evaluating the meter over fixture versions.
+
+    Mirrors the production query's semantics: collapse each
+    (project_id, detector_id, run_id) to its latest version by
+    (timestamp, status, used_inference) — same-millisecond ties resolve to
+    'failed', and to a billed row — window on the collapsed timestamp, then
+    count runs whose latest version completed or recorded inference usage.
+    Project and window bounds are read from the bound parameters, matching the
+    SQL's parameterized filters; the scope assertions in the tests check the
+    SQL's predicate placement independently.
+
+    Args:
+        versions (list[tuple]): ``(project_id, detector_id, run_id, status,
+            used_inference, timestamp)``; timestamps are the endpoint's
+            normalized ``"YYYY-MM-DD HH:MM:SS"`` strings, so string comparison
+            orders them exactly as ClickHouse would.
+
+    Returns:
+        Callable: A side_effect for ``mock_ch.query``.
+    """
+
+    def fake_query(sql, parameters=None):
+        if "FROM detector_runs" not in sql:
+            return _make_query_result([], ["source", "traces", "spans"])
+        assert parameters is not None
+        wanted = set(parameters["project_ids"])
+        start, end = parameters["start"], parameters["end"]
+        latest: dict[tuple, tuple] = {}
+        for project_id, detector_id, run_id, status, used_inference, ts in versions:
+            if project_id not in wanted:
+                continue
+            key = (project_id, detector_id, run_id)
+            candidate = (ts, status, used_inference)
+            if key not in latest or candidate >= latest[key]:
+                latest[key] = candidate
+        total = sum(
+            1
+            for ts, status, used in latest.values()
+            if start <= ts < end and (status == "completed" or used)
+        )
+        return _make_query_result([(total,)], ["total"])
+
+    return fake_query
+
+
+class TestUsageBillsEveryStoredRow:
+    CH_FAMILY = "usage"
+    PARAMS: typing.ClassVar[dict[str, str]] = {
+        "project_ids": "p1",
+        "start": "2026-07-01T00:00:00Z",
+        "end": "2026-08-01T00:00:00Z",
+    }
+
+    def test_usage_details_counts_rows_from_every_source(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            _make_query_result(
+                [("user", 3, 0), ("agent", 0, 9)], ["source", "traces", "spans"]
+            ),  # traces + spans, grouped by writer
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["traces"] == 3 and resp.json()["spans"] == 9
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        runs_sql = mock_ch.query.call_args_list[1].args[0]
+        # Storage is billed whoever produced it, so metering must not filter on source
+        # at all. Asserted rather than left to the commit message: re-adding a filter here
+        # would silently stop billing self-traces again.
+        assert "source" not in _source_filters(rows_sql)
+        # detector_runs is filtered by its collapsed latest status/usage, never
+        # by writer: a completed scan counts, and so does a failed scan whose
+        # latest version still reached the model and recorded inference usage —
+        # but BYOK and system scans both count, so no source predicate. The
+        # count predicate applies to the collapsed latest version, never to the
+        # raw rows (see test_usage_details_collapses_retries_before_counting).
+        assert "source" not in runs_sql
+        assert "latest_status = 'completed' OR latest_used_inference" in runs_sql
+        assert "AND status = 'completed'" not in runs_sql
+
+    def test_usage_details_collapses_retries_before_counting(self, client, mock_ch, secret):
+        """Each run counts once, by its latest version's status or usage (#2033).
+
+        detector_runs is a ReplacingMergeTree keyed on
+        (project_id, detector_id, run_id) with timestamp as the version
+        column, and a BullMQ retry reuses the run's deterministic run_id — so
+        a stale 'completed' row can sit next to a newer 'failed' one until
+        background merge. The meter must collapse each run to its latest
+        version first (argMax over (timestamp, status)), window on that
+        collapsed timestamp, and only then apply the count predicate: the
+        latest version completed OR recorded inference usage.
+
+        The mock below honors that contract over fixture rows — mirroring the
+        live ClickHouse behavior verified for this query — so the count
+        assertion pins the endpoint plumbing. The mock reads its project and
+        window bounds from the bound parameters, not from the SQL text, so it
+        cannot catch a dropped or misplaced predicate on its own: the
+        scope assertions below do that independently by inspecting the
+        generated SQL's inner (pre-collapse) vs outer (post-collapse) scopes.
+        """
+        # (project_id, detector_id, run_id, status, used_inference, timestamp);
+        # timestamps are the endpoint's normalized "YYYY-MM-DD HH:MM:SS"
+        # strings, so plain string comparison orders them exactly as
+        # ClickHouse would.
+        versions = [
+            ("p1", "d1", "run-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed", "failed", False, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-retry-ok", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-retry-ok", "completed", False, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-twice", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-twice", "completed", False, "2026-07-10 10:05:00"),
+            ("p1", "d2", "run-other-detector", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-tie", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-tie", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-failed-billed", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed-billed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-stale-completed-billed", "failed", True, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-billed-then-completed", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-billed-then-completed", "completed", False, "2026-07-10 10:05:00"),
+            ("p1", "d1", "run-billed-tie", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-billed-tie", "failed", False, "2026-07-10 10:00:00"),
+            (
+                "p1",
+                "d1",
+                "run-billed-stale-unbilled-latest",
+                "failed",
+                True,
+                "2026-07-10 10:00:00",
+            ),
+            (
+                "p1",
+                "d1",
+                "run-billed-stale-unbilled-latest",
+                "failed",
+                False,
+                "2026-07-10 10:05:00",
+            ),
+            ("p1", "d1", "run-legacy-failed", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-legacy-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-at-start", "completed", False, "2026-07-01 00:00:00"),
+            ("p1", "d1", "run-at-end", "completed", False, "2026-08-01 00:00:00"),
+            ("p1", "d1", "run-cross-project", "completed", False, "2026-07-10 10:00:00"),
+            ("p2", "d1", "run-cross-project", "failed", False, "2026-07-10 10:05:00"),
+            ("p2", "d1", "run-other-project-billed", "failed", True, "2026-07-10 10:00:00"),
+        ]
+
+        mock_ch.query.side_effect = _meter_fake_query(versions)
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        # Counted: run-completed, run-retry-ok, run-twice, run-other-detector,
+        # run-failed-billed, run-stale-completed-billed, run-billed-then-completed,
+        # run-billed-tie, run-legacy-completed, run-at-start (inclusive bound),
+        # run-cross-project (p1's completed version; p2's rows are separate
+        # sort keys and p2 is not in the project filter). Excluded:
+        # run-stale-completed (latest is failed and unbilled), run-tie (failed
+        # wins the tie), run-billed-stale-unbilled-latest (the latest version
+        # supersedes the older billed one, exactly as it supersedes status),
+        # run-legacy-failed (pre-016 default classification), run-at-end
+        # (exclusive bound).
+        assert resp.json()["detector_runs"] == 11
+
+        runs_sql = mock_ch.query.call_args_list[1].args[0]
+        inner, outer = _collapse_scopes(runs_sql)
+        # Deduplication: one row per sort-key tuple via the version column,
+        # latest status picked over (timestamp, status) — the same-ms tiebreak
+        # keeps the deterministic failed-wins ordering — and the usage
+        # classification picked with the same ordering, preferring a billed
+        # row on a full tie so a billed call is never forgotten.
+        assert "argmax(status, (timestamp, status))" in inner
+        assert "argmax(used_inference, (timestamp, status, used_inference))" in inner
+        # Project isolation: the parameterized project filter lives in the
+        # inner scope so the collapse sees every version of the project's
+        # runs; the outer scope must not see (or leak) other projects' rows.
+        assert "project_id in {project_ids:array(string)}" in inner
+        assert "project_id" not in outer
+        # Window on the collapsed timestamp, not raw rows: inclusive start,
+        # exclusive end, in the outer scope; no raw timestamp window inside,
+        # so a retry that re-stamps across a boundary is placed by its latest
+        # version instead of being split across windows.
+        assert "ts >= {start:string}" in outer
+        assert "ts < {end:string}" in outer
+        assert "timestamp >=" not in inner
+        assert "timestamp <" not in inner
+        # Counting predicate: latest version completed OR recorded inference
+        # usage, on the collapsed aliases in the outer scope. No raw-row
+        # status/usage filter may appear inside — filtering raw rows first
+        # would count a stale 'completed' version after a retry wrote the run
+        # as 'failed' (P1), and would drop a failed run's billed calls.
+        assert "latest_status = 'completed' or latest_used_inference" in outer
+        assert "status = 'completed'" not in inner
+        assert "used_inference =" not in inner
+        assert "and status = 'completed'" not in runs_sql.lower()
+        # BYOK and system scans both count: never filter by writer.
+        assert "source" not in runs_sql
+
+    def _meter_count(self, client, mock_ch, secret, versions) -> int:
+        """Run /usage/details over ``versions`` and return the detector count."""
+        mock_ch.query.side_effect = _meter_fake_query(versions)
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        return resp.json()["detector_runs"]
+
+    def test_usage_details_counts_a_failed_run_that_used_inference(self, client, mock_ch, secret):
+        """A failure after billed calls is still a scan (maintainer feedback)."""
+        versions = [("p1", "d1", "run-1", "failed", True, "2026-07-10 10:00:00")]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_excludes_a_failed_run_without_inference(self, client, mock_ch, secret):
+        versions = [("p1", "d1", "run-1", "failed", False, "2026-07-10 10:00:00")]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_excludes_failures_before_any_model_call(self, client, mock_ch, secret):
+        """Missing key, unknown model and span-download failures burn no tokens."""
+        versions = [
+            ("p1", "d1", "no-api-key", "failed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "unknown-model", "failed", False, "2026-07-10 10:01:00"),
+            ("p1", "d1", "span-download", "failed", False, "2026-07-10 10:02:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_stale_completed_loses_to_newer_unbilled_failure(
+        self, client, mock_ch, secret
+    ):
+        versions = [
+            ("p1", "d1", "run-1", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "failed", False, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_completed_then_billed_failure_counts_once(self, client, mock_ch, secret):
+        versions = [
+            ("p1", "d1", "run-1", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "failed", True, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_billed_failure_then_completed_counts_once(self, client, mock_ch, secret):
+        versions = [
+            ("p1", "d1", "run-1", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "completed", False, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_latest_version_supersedes_an_older_billed_failure(
+        self, client, mock_ch, secret
+    ):
+        versions = [
+            ("p1", "d1", "run-1", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "run-1", "failed", False, "2026-07-10 10:05:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 0
+
+    def test_usage_details_same_timestamp_ties_are_deterministic(self, client, mock_ch, secret):
+        """A completed/failed tie resolves to failed; a billed tie to billed."""
+        tie_status = [
+            ("p1", "d1", "tie-status", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "tie-status", "failed", False, "2026-07-10 10:00:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, tie_status) == 0
+        tie_billed = [
+            ("p1", "d1", "tie-billed", "failed", True, "2026-07-10 10:00:00"),
+            ("p1", "d1", "tie-billed", "failed", False, "2026-07-10 10:00:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, tie_billed) == 1
+
+    def test_usage_details_legacy_rows_follow_the_default_classification(
+        self, client, mock_ch, secret
+    ):
+        """Pre-016 rows read used_inference=false: completed counts, failed not."""
+        versions = [
+            ("p1", "d1", "legacy-completed", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "d1", "legacy-failed", "failed", False, "2026-07-10 10:00:00"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+
+    def test_usage_details_scans_each_table_once(self, client, mock_ch, secret):
+        """The breakdown is the count: one grouped scan per table, not a second pass."""
+        mock_ch.query.side_effect = [
+            _make_query_result([], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 2
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        assert rows_sql.count("FROM traces") == 1 and rows_sql.count("FROM spans") == 1
+
+    def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        combined_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "source" not in combined_sql
+
+    def test_usage_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        """An aware non-UTC offset must bill the UTC instant, not the wall clock sent."""
+        mock_ch.query.side_effect = [
+            _make_query_result([], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        for call in mock_ch.query.call_args_list:
+            params = call.kwargs["parameters"]
+            assert params["start"] == "2026-07-01 00:00:00"
+            assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_usage_total_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args_list[0].kwargs["parameters"]
+        assert params["start"] == "2026-07-01 00:00:00"
+        assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_non_ascii_secret_header_is_rejected_not_500(self, client, mock_ch, secret):
+        """Starlette decodes headers as latin-1; a 0x80-0xFF byte must still 403."""
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            # Raw bytes: httpx would refuse the non-ASCII str client-side.
+            headers={b"X-Internal-Secret": "sécret\xff".encode("latin-1")},
+        )
+        assert resp.status_code == 403
+
+    def test_non_ascii_configured_secret_matches_its_utf8_wire_bytes(
+        self, client, mock_ch, monkeypatch
+    ):
+        """The wire carries the secret's UTF-8 bytes; Starlette's latin-1 str must still match."""
+        monkeypatch.setattr(settings, "internal_api_secret", "sécret")
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={b"X-Internal-Secret": "sécret".encode()},
+        )
+        assert resp.status_code == 200
+
+    def test_details_totals_are_the_sum_of_the_per_source_buckets(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            _make_query_result(  # (source, traces, spans), one row per table and writer
+                [("user", 7, 0), ("detector", 3, 0), ("user", 0, 80), ("detector", 0, 20)],
+                ["source", "traces", "spans"],
+            ),
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # A row id belongs to exactly one source, so the buckets partition the total.
+        assert body["traces"] == 10 and body["spans"] == 100
+        assert body["by_source"] == {
+            "user": {"traces": 7, "spans": 80},
+            "detector": {"traces": 3, "spans": 20},
+            "agent": {"traces": 0, "spans": 0},
+        }
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "GROUP BY source" in rows_sql
+        assert "source" not in _source_filters(rows_sql)
+
+    def test_details_keeps_a_bucket_for_a_source_it_did_not_seed(self, client, mock_ch, secret):
+        """A new writer must show up, and count toward the total, without a code change."""
+        mock_ch.query.side_effect = [
+            _make_query_result([("user", 1, 0), ("digest", 4, 0)], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        body = resp.json()
+        assert body["traces"] == 5
+        assert body["by_source"]["digest"] == {"traces": 4, "spans": 0}
+
+    def test_details_for_no_projects_returns_seeded_breakdown_without_querying(
+        self, client, mock_ch, secret
+    ):
+        """The projectless short-circuit must return the same shape as the
+        queried path — all three buckets present — so consumers never see two
+        shapes for one field."""
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={**self.PARAMS, "project_ids": ""},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "traces": 0,
+            "spans": 0,
+            "detector_runs": 0,
+            "by_source": {
+                "user": {"traces": 0, "spans": 0},
+                "detector": {"traces": 0, "spans": 0},
+                "agent": {"traces": 0, "spans": 0},
+            },
+        }
+        mock_ch.query.assert_not_called()
+
+
+# =============================================================================
+# self_traced flag on detector runs
+# =============================================================================
+
+
+class TestSelfTracedFlag:
+    def test_write_carries_self_traced(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={
+                "runId": "r-1",
+                "detectorId": "d-1",
+                "projectId": "p-1",
+                "traceId": "t-1",
+                "status": "completed",
+                "selfTraced": True,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "self_traced" in sql
+        assert params["self_traced"] is True
+
+    def test_write_defaults_self_traced_false(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={
+                "runId": "r-2",
+                "detectorId": "d-1",
+                "projectId": "p-1",
+                "traceId": "t-2",
+                "status": "completed",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert params["self_traced"] is False
+
+    def test_runs_list_surfaces_self_traced(self, client, mock_ch, secret):
+        ts = datetime(2026, 7, 1, 12, 0, 0)
+        data = _make_query_result(
+            rows=[("r1", "d1", "p1", "t1", None, "completed", ts, "", True)],
+            column_names=[
+                "run_id",
+                "detector_id",
+                "project_id",
+                "trace_id",
+                "finding_id",
+                "status",
+                "timestamp",
+                "summary",
+                "self_traced",
+            ],
+        )
+        count = _make_query_result([(1,)], ["count()"])
+        mock_ch.query.side_effect = [data, count]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["self_traced"] is True
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "r.self_traced" in data_sql
+
+    def test_runs_list_defaults_self_traced_false_for_old_rows(self, client, mock_ch, secret):
+        """A result set without the column validates with the False default.
+
+        (The SQL itself references r.self_traced unconditionally, so this pins
+        Pydantic's default for absent keys — the deploy still requires the
+        migration before this code serves reads, same as the source column.)
+        """
+        ts = datetime(2026, 7, 1, 12, 0, 0)
+        data = _make_query_result(
+            rows=[("r1", "d1", "p1", "t1", None, "completed", ts, "")],
+            column_names=[
+                "run_id",
+                "detector_id",
+                "project_id",
+                "trace_id",
+                "finding_id",
+                "status",
+                "timestamp",
+                "summary",
+            ],
+        )
+        count = _make_query_result([(1,)], ["count()"])
+        mock_ch.query.side_effect = [data, count]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["self_traced"] is False

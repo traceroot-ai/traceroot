@@ -30,6 +30,17 @@ export async function writeDetectorRun(params: {
   traceId: string;
   findingId: string | null;
   status: "completed" | "failed";
+  // True when the eval recorded inference usage for this run version — the
+  // model was reached and billed, whatever the final status. The usage meter
+  // counts a run when its latest version completed OR used inference; failures
+  // before any model call (missing key, unknown model, span download) leave
+  // this omitted/false. Omitted reads as false server-side (migration 016).
+  usedInference?: boolean;
+  // True when the worker emitted a self-trace for this run — set
+  // optimistically at emit time, before ingestion is guaranteed; gates the
+  // runs-tab link to the run's own trace. Omitted (false) when no emit
+  // happened, e.g. the spans download failed before any detector ran.
+  selfTraced?: boolean;
   // Worker epoch-ms time to store as the row timestamp. Omit to let ClickHouse
   // default to now64(3). Set for triggered runs so the digest window count
   // shares the clock that keys the flush.

@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
+import { X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
-import { AgentModelLink } from "./agent-model-link";
-import { RcaToggle } from "./rca-toggle";
+import { normalizeTriggerConditions, validateTriggerConditions } from "../trigger-fields";
+import { SignalsCard } from "./signals-card";
 import {
   detectorToFormValues,
   buildDetectorPatch,
@@ -55,12 +57,14 @@ export function DetectorPanel({
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
   const [editEnableRca, setEditEnableRca] = useState(true);
+  const [editEnableSignals, setEditEnableSignals] = useState(true);
 
   const emptyForm: DetectorFormValues = {
     name: "",
     prompt: "",
     sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
     enableRca: true,
+    enableSignals: true,
     detectionModel: "",
     detectionProvider: "",
     detectionSource: "system",
@@ -72,10 +76,11 @@ export function DetectorPanel({
     prompt: editPrompt,
     sampleRate: editSampleRate,
     enableRca: editEnableRca,
+    enableSignals: editEnableSignals,
     detectionModel: editModelSelection.model,
     detectionProvider: editModelSelection.provider,
     detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
-    conditions: editConditions as DetectorFormValues["conditions"],
+    conditions: normalizeTriggerConditions(editConditions) as DetectorFormValues["conditions"],
   });
 
   const applyForm = (values: DetectorFormValues) => {
@@ -83,6 +88,7 @@ export function DetectorPanel({
     setEditPrompt(values.prompt);
     setEditSampleRate(values.sampleRate);
     setEditEnableRca(values.enableRca);
+    setEditEnableSignals(values.enableSignals);
     setEditModelSelection({
       model: values.detectionModel,
       provider: values.detectionProvider,
@@ -139,6 +145,18 @@ export function DetectorPanel({
 
   const updateMutation = useUpdateDetector(projectId, detectorId);
 
+  // Block Save while a filter row is incomplete (missing value or metadata
+  // key) — the write path rejects such payloads, and the fetch layer would
+  // surface only a generic failure. Scoped to a save that actually writes the
+  // conditions: a detector stored before this registry existed can hold a row
+  // the registry now rejects, and that must not lock its name or prompt.
+  const loadedValues = loadedRef.current?.values;
+  const savesConditions =
+    !!loadedValues && buildDetectorPatch(loadedValues, readForm()).triggerConditions !== undefined;
+  const conditionsError = savesConditions
+    ? validateTriggerConditions(normalizeTriggerConditions(editConditions))
+    : null;
+
   const handleSave = () => {
     // Guard against saving while the new detector's data is still loading.
     // Edit state would be the previous detector's, but the mutation targets
@@ -158,11 +176,11 @@ export function DetectorPanel({
   };
 
   return (
-    <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] flex-col border-l border-border bg-background shadow-xl">
+    <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       {/* Header — same style as trace viewer */}
-      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
+      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <DOMAIN_ICONS.detector className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-[13px] font-medium">Detector</span>
           <span className="truncate text-[13px] text-muted-foreground">
             {detector?.name ?? detectorId}
@@ -170,11 +188,11 @@ export function DetectorPanel({
           <button
             type="button"
             onClick={copyId}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[12px] text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
             title="Copy detector ID"
           >
             {detectorId}
-            {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+            {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
           </button>
         </div>
         <div className="flex items-center gap-1">
@@ -212,60 +230,42 @@ export function DetectorPanel({
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {/* Name */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Name</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Name</span>
           </div>
           <div className="p-3">
             <Input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              className="h-7 text-[13px]"
+              className="h-8 text-[13px]"
             />
           </div>
         </div>
 
         {/* Models */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Model</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Model</span>
           </div>
-          <div className="divide-y divide-border">
-            {/* Detector Model — per-detector, editable */}
-            <div className="p-3">
-              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Detector Model</p>
-              <ModelSelector
-                value={editModelSelection}
-                onChange={setEditModelSelection}
-                workspaceId={workspaceId}
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Used to evaluate each trace for this detector.
-              </p>
-            </div>
-            {/* Agent Model — project-scoped, click to configure in settings */}
-            <div className="p-3">
-              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Agent Model</p>
-              <AgentModelLink
-                projectId={projectId}
-                rcaModel={project?.rca_model}
-                workspaceId={workspaceId}
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Used for deep analysis when findings are triggered. Shared across all detectors.
-              </p>
-              <RcaToggle
-                id="edit-enable-rca"
-                checked={editEnableRca}
-                onCheckedChange={setEditEnableRca}
-              />
-            </div>
+          {/* Detector Model — per-detector, editable */}
+          <div className="p-3">
+            <ModelSelector
+              value={editModelSelection}
+              onChange={setEditModelSelection}
+              workspaceId={workspaceId}
+              defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+              allowDecisionModels
+            />
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Used to evaluate each trace for this detector.
+            </p>
           </div>
         </div>
 
         {/* Prompt */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Prompt</span>
           </div>
           <div className="p-3">
             <textarea
@@ -279,13 +279,18 @@ export function DetectorPanel({
 
         {/* Filter */}
         <div className="border border-border">
-          <TriggerEditor conditions={editConditions} onChange={setEditConditions} asCard />
+          <TriggerEditor
+            conditions={editConditions}
+            projectId={projectId}
+            onChange={setEditConditions}
+            asCard
+          />
         </div>
 
         {/* Sampling */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Sampling</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Sampling</span>
           </div>
           <div className="flex items-center gap-3 p-3">
             <input
@@ -294,7 +299,7 @@ export function DetectorPanel({
               max={100}
               value={editSampleRate}
               onChange={(e) => setEditSampleRate(Number(e.target.value))}
-              className="flex-1 cursor-pointer accent-foreground"
+              className="flex-1 cursor-pointer accent-brand"
             />
             <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
               {editSampleRate}%
@@ -302,15 +307,34 @@ export function DetectorPanel({
           </div>
         </div>
 
+        <SignalsCard
+          idPrefix="edit-detector"
+          enableSignals={editEnableSignals}
+          onEnableSignalsChange={setEditEnableSignals}
+          enableRca={editEnableRca}
+          onEnableRcaChange={setEditEnableRca}
+          projectId={projectId}
+          rcaModel={project?.rca_model}
+          workspaceId={workspaceId}
+        />
+
         {/* Save / Cancel */}
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex items-center justify-end gap-2 pt-1">
+          {conditionsError && (
+            <span className="text-[12px] text-destructive">{conditionsError}</span>
+          )}
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
             Cancel
           </Button>
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={updateMutation.isPending || !detector || detector.id !== detectorId}
+            disabled={
+              updateMutation.isPending ||
+              !detector ||
+              detector.id !== detectorId ||
+              conditionsError !== null
+            }
             className="h-7 text-[12px]"
           >
             {updateMutation.isPending ? "Saving..." : "Save"}

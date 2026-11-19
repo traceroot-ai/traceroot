@@ -16,12 +16,15 @@ vi.mock("../lib/encryption", () => ({
 
 import {
   resolvePiModel,
+  isSystemModelId,
   fetchProviderConfig,
   findByokKeyForPiProvider,
   invalidateProviderConfigCache,
   type ProviderModelConfig,
 } from "../model-resolver.ts";
+import { SYSTEM_MODELS, DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "../llm-providers.ts";
 import { prisma } from "../lib/prisma.ts";
+import { decryptKey } from "../lib/encryption.ts";
 
 describe("resolvePiModel", () => {
   it("uses anthropic-messages for system Claude", () => {
@@ -30,11 +33,59 @@ describe("resolvePiModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
-  it("uses openai-responses for system gpt-5.3-codex (per-model override)", () => {
-    const m = resolvePiModel("gpt-5.3-codex", null);
+  it("leaves thinking mode to the provider for hosted Sonnet 5.5", () => {
+    expect(resolvePiModel("claude-sonnet-5-5", null)).toMatchObject({
+      id: "claude-sonnet-5-5",
+      api: "anthropic-messages",
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      reasoning: false,
+      compat: { supportsTemperature: false },
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      cost: { input: 2, output: 10, cacheRead: expect.closeTo(0.1), cacheWrite: 2.5 },
+    });
+  });
+
+  it("uses openai-responses for system OpenAI models", () => {
+    for (const id of [
+      "gpt-5",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-6-sol",
+    ]) {
+      const m = resolvePiModel(id, null);
+      expect(m.api, id).toBe("openai-responses");
+      expect(m.provider).toBe("openai");
+      expect(m.id).toBe(id);
+    }
+  });
+
+  it("keeps the o-series on openai-completions (per-model catalog override)", () => {
+    for (const id of ["o3"]) {
+      expect(resolvePiModel(id, null).api, `system ${id}`).toBe("openai-completions");
+      const cfg: ProviderModelConfig = {
+        adapter: "openai",
+        key: "sk-test",
+        baseUrl: null,
+        config: null,
+      };
+      expect(resolvePiModel(id, cfg).api, `byok ${id}`).toBe("openai-completions");
+    }
+  });
+
+  it("uses openai-responses for BYOK OpenAI with no override", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    const m = resolvePiModel("gpt-5.6-sol", cfg);
     expect(m.api).toBe("openai-responses");
     expect(m.provider).toBe("openai");
-    expect(m.id).toBe("gpt-5.3-codex");
   });
 
   it("uses openai-completions for BYOK DeepSeek with provider mapped to openai", () => {
@@ -63,6 +114,16 @@ describe("resolvePiModel", () => {
     expect(m.id).not.toMatch(/claude/i);
   });
 
+  it("falls back to the adapter default for Anthropic BYOK with no model id", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "anthropic",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(resolvePiModel(undefined, cfg).id).toBe("claude-opus-5-5");
+  });
+
   it("throws (instead of substituting an Anthropic default) for free-text adapter with no model id", () => {
     // azure, amazon-bedrock, openrouter aren't in ADAPTER_MODELS; without explicit
     // modelId the resolver would have nothing sensible to use, so it must throw
@@ -73,28 +134,30 @@ describe("resolvePiModel", () => {
     }
   });
 
-  it("respects per-model modelProtocols override over adapter default", () => {
+  it("throws (instead of substituting a system model) for a decision adapter", () => {
     const cfg: ProviderModelConfig = {
-      adapter: "openai",
-      key: "sk-test",
-      baseUrl: null,
-      config: { modelProtocols: { "gpt-5": "openai-responses" } },
-    };
-    const m = resolvePiModel("gpt-5", cfg);
-    expect(m.api).toBe("openai-responses");
-  });
-
-  it("uses catalog apiProtocol for BYOK Codex when no modelProtocols override is set", () => {
-    // gpt-5.3-codex has apiProtocol: "openai-responses" in ADAPTER_MODELS.openai;
-    // resolver should pick that up before the openai adapter default ("openai-completions").
-    const cfg: ProviderModelConfig = {
-      adapter: "openai",
-      key: "sk-test",
+      adapter: "typesafe",
+      key: "ts-secret-key",
       baseUrl: null,
       config: null,
     };
-    const m = resolvePiModel("gpt-5.3-codex", cfg);
-    expect(m.api).toBe("openai-responses");
+    expect(() => resolvePiModel(undefined, cfg)).toThrow(/decision model/i);
+  });
+
+  it("throws (instead of substituting a system model) for a decision model id with no BYOK row", () => {
+    expect(() => resolvePiModel("jev-1.13.0", null)).toThrow(/decision model/i);
+  });
+
+  it("respects per-model modelProtocols override over adapter default", () => {
+    // The escape hatch for OpenAI-compatible proxies that only speak chat completions.
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: "https://proxy.example.com/v1",
+      config: { modelProtocols: { "gpt-5": "openai-completions" } },
+    };
+    const m = resolvePiModel("gpt-5", cfg);
+    expect(m.api).toBe("openai-completions");
   });
 
   it("uses caller-supplied baseUrl over adapter default", () => {
@@ -154,9 +217,55 @@ describe("fetchProviderConfig", () => {
     const cfg = await fetchProviderConfig("ws-1", "deepseek");
     expect(cfg).toBeNull();
   });
+
+  it.each([" ", "\t\n ", "\u00a0"])(
+    "returns null for a stored key that is blank (%j), so it never reaches pi-ai",
+    async (blank) => {
+      invalidateProviderConfigCache("ws-blank", "collector");
+      vi.mocked(decryptKey).mockReturnValueOnce(blank);
+      (prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        adapter: "anthropic",
+        keyCipher: "cipher",
+        enabled: true,
+        baseUrl: "https://collector.invalid",
+        config: { modelProtocols: { "claude-opus-4-8": "openai-completions" } },
+      });
+      expect(await fetchProviderConfig("ws-blank", "collector")).toBeNull();
+    },
+  );
 });
 
 describe("findByokKeyForPiProvider", () => {
+  it("skips a row whose stored key is blank and uses the next matching row", async () => {
+    invalidateProviderConfigCache("ws-7", "blank-claude");
+    invalidateProviderConfigCache("ws-7", "real-claude");
+    (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { provider: "blank-claude", adapter: "anthropic" },
+      { provider: "real-claude", adapter: "anthropic" },
+    ]);
+    // Keyed by row rather than queued, so a failure here cannot leave mock
+    // values behind for the tests that follow.
+    const findUnique = prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>;
+    findUnique.mockImplementation(
+      async (args: { where: { workspaceId_provider: { provider: string } } }) => ({
+        adapter: "anthropic",
+        keyCipher: args.where.workspaceId_provider.provider,
+        enabled: true,
+        baseUrl: null,
+        config: null,
+      }),
+    );
+    vi.mocked(decryptKey).mockImplementation((cipher) =>
+      cipher === "blank-claude" ? " " : "sk-real",
+    );
+    try {
+      expect(await findByokKeyForPiProvider("ws-7", "anthropic")).toBe("sk-real");
+    } finally {
+      findUnique.mockReset();
+      vi.mocked(decryptKey).mockReset().mockReturnValue("decrypted-key");
+    }
+  });
+
   it("returns key from first BYOK row whose adapter maps to the requested pi-ai provider", async () => {
     invalidateProviderConfigCache("ws-2", "my-claude");
     (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
@@ -190,6 +299,23 @@ describe("findByokKeyForPiProvider", () => {
     expect(key).toBe("decrypted-key");
   });
 
+  it("skips OpenAI-compatible adapters when nativeOnly is set", async () => {
+    invalidateProviderConfigCache("ws-6", "my-deepseek");
+    (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { provider: "my-deepseek", adapter: "deepseek" },
+    ]);
+    // A usable DeepSeek row: without nativeOnly this resolves to its key.
+    (prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      adapter: "deepseek",
+      keyCipher: "cipher",
+      enabled: true,
+      baseUrl: null,
+      config: null,
+    });
+    const key = await findByokKeyForPiProvider("ws-6", "openai", { nativeOnly: true });
+    expect(key).toBeNull();
+  });
+
   it("returns null when no BYOK row's adapter maps to the requested provider", async () => {
     (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { provider: "my-openai", adapter: "openai" },
@@ -204,5 +330,26 @@ describe("findByokKeyForPiProvider", () => {
     );
     const key = await findByokKeyForPiProvider("ws-5", "anthropic");
     expect(key).toBeNull();
+  });
+});
+
+describe("isSystemModelId", () => {
+  it("accepts every id the catalog offers", () => {
+    const ids = SYSTEM_MODELS.flatMap((s) => s.models.map((m) => m.id));
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(isSystemModelId(id)).toBe(true);
+    }
+  });
+
+  // Callers reject ids this returns false for, so a default that fell out of
+  // the catalog would fail every unpinned detector rather than degrade.
+  it("accepts the detector screening default", () => {
+    expect(isSystemModelId(DETECTOR_SYSTEM_DEFAULT_MODEL_ID)).toBe(true);
+  });
+
+  it("rejects a retired or invented id", () => {
+    expect(isSystemModelId("claude-retired-1")).toBe(false);
+    expect(isSystemModelId("")).toBe(false);
   });
 });

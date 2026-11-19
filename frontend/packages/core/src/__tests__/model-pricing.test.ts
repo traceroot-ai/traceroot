@@ -70,6 +70,11 @@ describe("calculateCostFromPricing — cache-write 1-hour portion", () => {
     expect(cost).toBeCloseTo(1000 * CLAUDE.input + 500 * CLAUDE.output, 12);
   });
 
+  it("prices cache reads at the cacheRead rate", () => {
+    const cost = calculateCostFromPricing(CLAUDE, 0, 0, 1000);
+    expect(cost).toBeCloseTo(1000 * CLAUDE.cacheRead!, 12);
+  });
+
   it("clamps negative counts to zero (mirrors the worker)", () => {
     const cost = calculateCostFromPricing(CLAUDE, -100, -50, -10, -900, -1);
     expect(cost).toBe(0);
@@ -110,5 +115,100 @@ describe("getModelPricing + calculateCost (prisma-backed)", () => {
   it("returns 0 when the model is not in the pricing table", async () => {
     const cost = await calculateCost("totally-unknown-model-2099", 100, 50);
     expect(cost).toBe(0);
+  });
+});
+
+// lookup.ts caches the price table in module scope for the process lifetime, so a
+// fresh catalogue needs a fresh module instance — otherwise these fixtures are
+// shadowed by whichever describe loaded the cache first.
+async function loadWithCatalogue(rows: unknown[]) {
+  vi.resetModules();
+  vi.doMock("../lib/prisma", () => ({
+    prisma: { standardModel: { findMany: vi.fn().mockResolvedValue(rows) } },
+  }));
+  return import("../model-pricing/lookup.ts");
+}
+
+// The catalogue authors matchPattern for the Python worker, so every one of the 92
+// entries in standard-model-prices.json begins with the PCRE inline flag `(?i)`.
+// JavaScript's RegExp rejects that prefix, so these fixtures use the real catalogue
+// shape — an `(?i)`-less fixture passes even when the fallback is entirely dead.
+describe("getModelPricing — regex fallback over catalogue-shaped patterns", () => {
+  const CANONICAL = "claude-opus-4-7";
+  // Verbatim catalogue shape: leading (?i), optional provider prefix, optional
+  // Bedrock region/version decoration.
+  const CATALOGUE_ROW = {
+    modelName: CANONICAL,
+    matchPattern: "(?i)^(anthropic\\/|us\\.anthropic\\.)?claude-opus-4-7(-v\\d+:\\d+)?$",
+    prices: [
+      { usageType: "input", price: 0.000005 },
+      { usageType: "output", price: 0.000025 },
+      { usageType: "cacheRead", price: 0.0000005 },
+      { usageType: "cacheWrite", price: 0.00000625 },
+      { usageType: "cacheWrite1h", price: 0.00001 },
+    ],
+  };
+
+  it("resolves a provider-prefixed alias to the canonical price", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    const canonical = await lookup(CANONICAL);
+    const aliased = await lookup("anthropic/claude-opus-4-7");
+    expect(aliased).not.toBeNull();
+    expect(aliased).toEqual(canonical);
+  });
+
+  it("resolves a Bedrock-style alias to the canonical price", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    const canonical = await lookup(CANONICAL);
+    const aliased = await lookup("us.anthropic.claude-opus-4-7-v1:0");
+    expect(aliased).not.toBeNull();
+    expect(aliased).toEqual(canonical);
+  });
+
+  it("matches case-insensitively, the behaviour the inline (?i) intended", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    expect(await lookup("Anthropic/Claude-Opus-4-7")).not.toBeNull();
+  });
+
+  it("still returns null for a model the pattern genuinely does not cover", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    expect(await lookup("anthropic/claude-sonnet-9")).toBeNull();
+  });
+
+  // DeepSeek renamed Flash to `deepseek-flash`
+  const FLASH_ROW = {
+    modelName: "deepseek-v4-flash",
+    matchPattern:
+      "(?i)^(deepseek\\/)?(deepseek-flash|deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
+    prices: [
+      { usageType: "input", price: 0.00000015 },
+      { usageType: "output", price: 0.0000006 },
+    ],
+  };
+
+  it("resolves deepseek-flash to the Flash row's price", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([FLASH_ROW]);
+    const canonical = await lookup("deepseek-v4-flash");
+    const aliased = await lookup("deepseek-flash");
+    expect(aliased).not.toBeNull();
+    expect(aliased).toEqual(canonical);
+  });
+});
+
+describe("getModelPricing — uncompilable pattern", () => {
+  it("reports the catalogue defect instead of failing silently", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { getModelPricing: lookup } = await loadWithCatalogue([
+      {
+        modelName: "broken-entry",
+        matchPattern: "^(unclosed", // genuinely invalid in any flavour
+        prices: [{ usageType: "input", price: 0.000005 }],
+      },
+    ]);
+
+    // Does not throw; the bad entry is skipped and the defect is surfaced.
+    expect(await lookup("anything")).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken-entry"), expect.anything());
+    warn.mockRestore();
   });
 });

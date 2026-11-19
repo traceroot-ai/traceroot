@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { signupEmailError } from "@/lib/signup/email-policy";
 
 const signUpSchema = z
   .object({
@@ -25,14 +27,61 @@ const signUpSchema = z
     path: ["confirmPassword"],
   });
 
+const cloudSignUpSchema = signUpSchema.superRefine(({ email }, ctx) => {
+  const error = signupEmailError(email);
+  if (error) ctx.addIssue({ code: "custom", message: error.message, path: ["email"] });
+});
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
   googleAuthConfigured: boolean;
+  emailDomainPolicyEnabled: boolean;
 };
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+// A brand-new account always finishes at onboarding. The one thing that can
+// need to happen first is a pending device authorization — the CLI login flow
+// sends the user through /device before they sign up. Onboarding runs *before*
+// that approval, not after: approving releases the waiting terminal, and the
+// CLI's very next call asks which project to use. Approve first and it reads an
+// account that owns nothing, because the workspace does not exist until a human
+// submits the form on the page it was about to be sent to. So onboarding comes
+// first and carries the device URL as its callback. Anything else goes straight
+// to onboarding; a new user shouldn't be dropped deep in the app.
+//
+// This is a shortcut, not the enforcement, and the difference matters because
+// both buttons below share this destination while only one of them is a sign-up:
+// `signIn.social` is better-auth's only social entry point, so Google here signs
+// an existing account straight in, and account linking makes it answer for an
+// existing email account at the same address too. Those land on onboarding
+// without being new. /onboarding and /device each check the account rather than
+// the route, so a wrong guess here normally costs a redirect rather than a
+// second workspace — normally, because /onboarding deliberately falls through to
+// its form when that lookup *fails* (a new account that cannot reach the form
+// could never finish signing up), and a wrong guess plus a failed lookup is the
+// one case where an existing account is offered the duplicate. What the guess
+// buys is two fewer navigations on the common path: a genuine new account goes
+// straight to the form instead of touching /device first only to be sent back.
+function postSignUpDestination(callbackUrl: string): string {
+  // Match the /device path exactly, not by prefix: a startsWith check would also
+  // catch an unrelated future route like /device-settings and wrongly funnel a
+  // new account into the device-authorization flow.
+  const [path] = callbackUrl.split("?");
+  if (path !== "/device") {
+    return "/onboarding";
+  }
+  return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+}
+
+function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignUpClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Attacker-suppliable query param; only same-origin destinations may pass.
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
+  const destination = postSignUpDestination(callbackUrl);
+  const signInHref =
+    callbackUrl !== "/"
+      ? `/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`
+      : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -44,7 +93,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
     handleSubmit,
     formState: { errors },
   } = useForm<SignUpForm>({
-    resolver: zodResolver(signUpSchema),
+    resolver: zodResolver(emailDomainPolicyEnabled ? cloudSignUpSchema : signUpSchema),
     defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
   });
 
@@ -61,7 +110,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
       if (error) {
         setError(error.message || "Failed to create account");
       } else {
-        router.push("/onboarding");
+        router.push(destination);
         router.refresh();
       }
     } catch {
@@ -75,7 +124,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
     setIsGoogleLoading(true);
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: "/onboarding",
+      callbackURL: destination,
     });
   }
 
@@ -86,11 +135,11 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Create your account</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
-            <div className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
               {error}
             </div>
           )}
@@ -99,9 +148,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
             <div>
               <label className="mb-1 block text-[13px] font-medium">Name</label>
               <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-              {errors.name && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.name.message}</p>
-              )}
+              {errors.name && <p className="mt-1 text-[12px] text-danger">{errors.name.message}</p>}
             </div>
 
             <div>
@@ -113,7 +160,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
               )}
             </div>
 
@@ -135,7 +182,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
               )}
             </div>
 
@@ -157,7 +204,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.confirmPassword.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.confirmPassword.message}</p>
               )}
             </div>
 
@@ -172,7 +219,7 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t" />
                 </div>
-                <div className="relative flex justify-center text-[11px] uppercase">
+                <div className="relative flex justify-center text-[12px] uppercase">
                   <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
                 </div>
               </div>
@@ -191,12 +238,20 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/auth/sign-in" className="font-medium text-primary hover:underline">
+            <Link href={signInHref} className="font-medium text-brand hover:underline">
               Sign in
             </Link>
           </p>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export function SignUpClient(props: SignUpClientProps) {
+  return (
+    <Suspense>
+      <SignUpContent {...props} />
+    </Suspense>
   );
 }

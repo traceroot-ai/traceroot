@@ -142,6 +142,35 @@ export const SEAT_LIMITS: Record<PlanType, number> = {
 };
 
 // =============================================================================
+// DATA RETENTION
+// =============================================================================
+// Query-access window per plan, in days. null = unlimited. Data is never
+// deleted — retention only restricts how far back a query may reach. This is
+// the single source of truth for the numbers; the backend gate mirrors them in
+// backend/rest/retention.py (Python cannot import this module).
+export const RETENTION_DAYS: Record<PlanType, number | null> = {
+  [PlanType.FREE]: 15,
+  [PlanType.STARTER]: 30,
+  [PlanType.PRO]: 90,
+  [PlanType.ENTERPRISE]: null,
+};
+
+// Most-restrictive fallback for an unknown or missing plan — fail closed.
+export const FAIL_CLOSED_RETENTION_DAYS = 15;
+
+/**
+ * Retention window (days) for a plan, or null if unlimited. Accepts a raw
+ * string (billingPlan often arrives untyped) and fails closed to the most
+ * restrictive window for anything unrecognized. hasOwnProperty guards against
+ * prototype-chain keys (e.g. "constructor") resolving to a bogus window.
+ */
+export function getRetentionDays(plan: string): number | null {
+  return Object.prototype.hasOwnProperty.call(RETENTION_DAYS, plan)
+    ? RETENTION_DAYS[plan as PlanType]
+    : FAIL_CLOSED_RETENTION_DAYS;
+}
+
+// =============================================================================
 // FEATURE ENTITLEMENTS
 // =============================================================================
 const ENTITLEMENT_CONFIG = {
@@ -191,27 +220,25 @@ export const PLANS: Record<
 > = {
   [PlanType.FREE]: {
     name: "Free",
-    description: "Get started with core features",
+    description: "Get started with core features.",
     price: 0,
     billingPriceId: "",
     highlighted: false,
     badge: null,
     features: [
       "2 seats",
-      "50k events/month included",
+      "50k events / month included",
       "15-day retention",
-      "30 chat runs/month",
-      "30 RCA runs/month",
-      "100 detector runs/month",
-      "Slack alerts for detectors",
-      "BYOK or hosted LLM",
+      "100 detector runs / month",
+      "30 chat + 30 RCA runs / month",
+      "Slack alerts · BYOK or hosted LLM",
     ],
     support: "Discord",
     entitlements: getEntitlementsForPlan(PlanType.FREE),
   },
   [PlanType.STARTER]: {
     name: "Starter",
-    description: "For small teams",
+    description: "For small teams.",
     price: 30,
     billingPriceId: process.env.STRIPE_PRICE_ID_STARTER || "",
     highlighted: false,
@@ -219,38 +246,34 @@ export const PLANS: Record<
     features: [
       "Everything in Free",
       "Unlimited seats",
-      "150k events/month included",
-      "$4 per 50k overage events",
+      "150k events / month, $4 per 50k over",
       "30-day retention",
-      "100 chat runs/month",
-      "$10 per 100 overage chat runs",
-      "100 RCA runs/month",
-      "$10 per 100 overage RCA runs",
+      "100 chat + 100 RCA runs / month, $10 per 100 over each",
       "Unlimited detector runs",
-      "Hosted LLM: token cost × 1.05 on overage",
+      "Hosted LLM token cost × 1.05 on overage",
     ],
     support: "Discord",
     entitlements: getEntitlementsForPlan(PlanType.STARTER),
   },
   [PlanType.PRO]: {
     name: "Pro",
-    description: "For growing teams",
+    description: "For growing teams.",
     price: 200,
     billingPriceId: process.env.STRIPE_PRICE_ID_PRO || "",
     highlighted: true,
-    badge: "Popular",
+    badge: "popular",
     features: [
       "Everything in Starter",
       "90-day retention",
-      "20k ingest + 1k dashboard requests/min rate limits",
-      "SOC2 compliance",
+      "Higher rate limits",
+      "SOC 2 report & HIPAA BAA",
     ],
     support: "Discord + Slack",
     entitlements: getEntitlementsForPlan(PlanType.PRO),
   },
   [PlanType.ENTERPRISE]: {
     name: "Enterprise",
-    description: "For scaling organizations",
+    description: "For scaling organizations.",
     price: null, // custom pricing
     billingPriceId: "",
     highlighted: false,

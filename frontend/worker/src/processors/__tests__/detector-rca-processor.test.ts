@@ -1,9 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret-0123456789abcdef");
+
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
 const digestAddMock = vi.fn().mockResolvedValue(undefined);
+// processRcaJob allocates an execution before every run and records its
+// trace status after. Defaulted here so every pre-existing test in this file
+// (none of which cares about executions) doesn't hit the real transactional
+// allocateExecution against a real Postgres connection.
+const allocateExecutionMock = vi
+  .fn()
+  .mockResolvedValue({ executionId: "exec-1", attempt: 1, traceId: "f".repeat(32) });
+const detectorRcaExecutionUpdateMock = vi.fn().mockResolvedValue({});
+// Default true: every test in this file has a single attempt, which is always
+// the latest. The older-attempt cases live in rca-execution-allocation.test.ts.
+const finishFindingIfLatestMock = vi.fn().mockResolvedValue(true);
+const markFindingRunningIfLatestMock = vi.fn().mockResolvedValue(true);
+// The execution identity processRcaJob passes to runRcaSession; direct
+// runRcaSession calls below supply the same.
+const EXEC = { executionId: "exec-1", attempt: 1, executionTraceId: "f".repeat(32) };
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
@@ -15,6 +32,25 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
   return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
 });
 
+const loadSignalRcaContextMock = vi.fn();
+const hasUncoveredOpeningsMock = vi.fn().mockResolvedValue(false);
+const closeEmptySignalRcaMock = vi.fn().mockResolvedValue(true);
+const settledFindingsMock = vi.fn();
+vi.mock("../../ee/signals/rca.js", async (importOriginal) => ({
+  // The section parsing is pure: the real one shows what the finish receives.
+  rootCausesByOpening: (await importOriginal<typeof import("../../ee/signals/rca.js")>())
+    .rootCausesByOpening,
+  loadSignalRcaContext: (...a: any[]) => loadSignalRcaContextMock(...a),
+  hasUncoveredOpenings: (...a: any[]) => hasUncoveredOpeningsMock(...a),
+  closeEmptySignalRca: (...a: any[]) => closeEmptySignalRcaMock(...a),
+  settledFindings: (...a: any[]) => settledFindingsMock(...a),
+}));
+
+vi.mock("@traceroot/core/rca-executions", () => ({
+  allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
+  finishFindingIfLatest: (...a: any[]) => finishFindingIfLatestMock(...a),
+  markFindingRunningIfLatest: (...a: any[]) => markFindingRunningIfLatestMock(...a),
+}));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
@@ -25,16 +61,34 @@ vi.mock("@traceroot/core", async (importOriginal) => {
         ...actual.prisma.modelProvider,
         findMany: (...a: any[]) => modelProviderFindMany(...a),
       },
+      detectorRcaExecution: {
+        ...actual.prisma.detectorRcaExecution,
+        update: (...a: any[]) => detectorRcaExecutionUpdateMock(...a),
+      },
     },
   };
 });
 
 afterEach(() => {
+  // vitest 4 returns the same spy when vi.spyOn is called on an already-spied method, so
+  // call history and implementations would leak between tests without this.
+  vi.restoreAllMocks();
   fetchProviderConfigMock.mockReset();
   resolvePiModelMock.mockReset();
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
   digestAddMock.mockReset().mockResolvedValue(undefined);
+  allocateExecutionMock
+    .mockReset()
+    .mockResolvedValue({ executionId: "exec-1", attempt: 1, traceId: "f".repeat(32) });
+  detectorRcaExecutionUpdateMock.mockReset().mockResolvedValue({});
+  finishFindingIfLatestMock.mockReset().mockResolvedValue(true);
+  markFindingRunningIfLatestMock.mockReset().mockResolvedValue(true);
+  loadSignalRcaContextMock.mockReset();
+  hasUncoveredOpeningsMock.mockReset().mockResolvedValue(false);
+  closeEmptySignalRcaMock.mockReset().mockResolvedValue(true);
+  // Every hit of the trace is settled unless a test says otherwise.
+  settledFindingsMock.mockReset().mockImplementation(async (_db, _b, _p, ids) => new Set(ids));
 });
 
 describe("resolveProjectModel", () => {
@@ -77,6 +131,30 @@ describe("resolveProjectModel", () => {
       providerName: "anthropic",
       source: "system",
     });
+  });
+
+  it("honors the source for a model available in both hosted and BYOK catalogs", async () => {
+    const model = "gpt-5.6-terra";
+    const config = { adapter: "openai", key: "sk-xxx", baseUrl: null, config: null };
+    modelProviderFindMany.mockResolvedValue([{ provider: "my-openai", customModels: [model] }]);
+    fetchProviderConfigMock.mockResolvedValue(config);
+    resolvePiModelMock.mockReturnValue({ id: model, provider: "openai" });
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    expect(await resolveProjectModel(model, "OpenAI", "system", "ws-123")).toEqual({
+      model,
+      providerName: "openai",
+      source: "system",
+    });
+    expect(resolvePiModelMock).toHaveBeenLastCalledWith(model, null);
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+
+    expect(await resolveProjectModel(model, null, null, "ws-123")).toEqual({
+      model,
+      providerName: "my-openai",
+      source: "byok",
+    });
+    expect(resolvePiModelMock).toHaveBeenLastCalledWith(model, config);
   });
 
   it("resolves legacy BYOK via model provider lookup when rcaSource is null", async () => {
@@ -127,6 +205,50 @@ describe("resolveProjectModel", () => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// Encodes SSE frames the way hono's streamSSE/writeSSE does: event: <name>\n
+// data: <json>\n\n.
+function sseText(frames: Array<{ event?: string; data: unknown }>): string {
+  return frames
+    .map((f) => `${f.event ? `event: ${f.event}\n` : ""}data: ${JSON.stringify(f.data)}\n\n`)
+    .join("");
+}
+
+// Delivers pre-split string chunks one per reader.read() call, then a
+// terminal `done` read — lets tests simulate SSE bytes arriving split at
+// arbitrary (including hostile) boundaries across the underlying TCP stream.
+function chunkedSseBody(chunks: string[]) {
+  const encoded = chunks.map((c) => new TextEncoder().encode(c));
+  let i = 0;
+  return {
+    ok: true,
+    body: {
+      getReader: () => ({
+        read: () => {
+          if (i < encoded.length) {
+            const value = encoded[i];
+            i += 1;
+            return Promise.resolve({ done: false, value });
+          }
+          return Promise.resolve({ done: true, value: undefined });
+        },
+      }),
+    },
+  };
+}
+
+// Single-chunk delivery — the common case exercised by most tests below.
+function sseBody(frames: Array<{ event?: string; data: unknown }>) {
+  return chunkedSseBody([sseText(frames)]);
+}
+
+const textDeltaFrame = {
+  event: "message_update",
+  data: {
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "Root cause: found it." },
+  },
+};
+
 describe("runRcaSession", () => {
   it("calls resolveProjectModel and builds message body", async () => {
     fetchProviderConfigMock.mockResolvedValue({
@@ -139,12 +261,7 @@ describe("runRcaSession", () => {
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     const { prisma: p } = await import("@traceroot/core");
     vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
@@ -157,6 +274,7 @@ describe("runRcaSession", () => {
       traceId: "t1",
       findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       hasGitHub: false,
+      ...EXEC,
       rcaModel: "gpt-5.3",
       rcaProvider: "my-openai",
       rcaSource: "byok",
@@ -164,6 +282,317 @@ describe("runRcaSession", () => {
 
     expect(result.sessionId).toBe("s1");
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws1", "my-openai");
+  });
+
+  it("calls the agent service with the internal credential, as a system call", async () => {
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      ...EXEC,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of mockFetch.mock.calls) {
+      const headers = new Headers(init.headers);
+      expect(headers.get("X-Internal-Secret")).toBe("unit-test-internal-secret-0123456789abcdef");
+      expect(headers.get("x-agent-system-call")).toBe("1");
+      expect(headers.get("x-workspace-id")).toBe("ws1");
+      expect(headers.get("x-user-id")).toBeNull();
+    }
+  });
+
+  it("throws with the agent's message when the stream carries an `event: error` frame", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([{ event: "error", data: { message: "Invalid API key for provider" } }]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        ...EXEC,
+      }),
+    ).rejects.toThrow(/Invalid API key for provider/);
+  });
+
+  it('throws when message_end reports stopReason "error"', async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          {
+            event: "message_end",
+            data: {
+              type: "message_end",
+              message: { stopReason: "error", errorMessage: "Model overloaded" },
+            },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        ...EXEC,
+      }),
+    ).rejects.toThrow(/Model overloaded/);
+  });
+
+  it("throws when the stream ends with no accumulated text", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          {
+            event: "message_end",
+            data: { type: "message_end", message: { stopReason: "end_turn" } },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        ...EXEC,
+      }),
+    ).rejects.toThrow(/no output/i);
+  });
+
+  it("returns accumulated text unchanged for a healthy stream (regression guard)", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          textDeltaFrame,
+          {
+            event: "message_update",
+            data: {
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: " Code location: foo.ts:12." },
+            },
+          },
+          {
+            event: "message_end",
+            data: { type: "message_end", message: { stopReason: "end_turn" } },
+          },
+          // The real producer's onDone handler writes this terminal frame
+          // (frontend/ee/agent/src/index.ts) after a successful run.
+          { event: "done", data: {} },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    const result = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      ...EXEC,
+    });
+
+    expect(result.result).toBe("Root cause: found it. Code location: foo.ts:12.");
+    expect(result.sessionId).toBe("s1");
+  });
+
+  it("accumulates identical text when the same frames arrive split across multiple chunks at hostile boundaries", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const frame1 = textDeltaFrame;
+    const frame2 = {
+      event: "message_update",
+      data: {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: " Code location: foo.ts:12." },
+      },
+    };
+    const frame3 = {
+      event: "message_end",
+      data: { type: "message_end", message: { stopReason: "end_turn" } },
+    };
+    const frame4 = { event: "done", data: {} };
+    const frames = [frame1, frame2, frame3, frame4];
+
+    // Split hostilely: (1) frame1's `event:` line from its `data:` line, and
+    // (2) frame2's `data:` line mid-JSON, inside the delta string itself.
+    const f1Text = sseText([frame1]);
+    const f1SplitAt = f1Text.indexOf("data: ");
+    const f2Json = JSON.stringify(frame2.data);
+    const f2SplitInJson = f2Json.indexOf("Code location") + 5;
+
+    const chunks = [
+      f1Text.slice(0, f1SplitAt), // "event: message_update\n" only
+      f1Text.slice(f1SplitAt) + // rest of frame1
+        "event: message_update\ndata: " +
+        f2Json.slice(0, f2SplitInJson), // frame2's event + data prefix + half its JSON
+      f2Json.slice(f2SplitInJson) + "\n\n" + sseText([frame3, frame4]), // rest of frame2 + frame3 + frame4
+    ];
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(chunkedSseBody(chunks))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s2" }) })
+      .mockResolvedValueOnce(sseBody(frames));
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    const chunkedResult = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      ...EXEC,
+    });
+    const singleChunkResult = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      ...EXEC,
+    });
+
+    expect(chunkedResult.result).toBe("Root cause: found it. Code location: foo.ts:12.");
+    expect(chunkedResult.result).toBe(singleChunkResult.result);
+  });
+
+  it("throws with the agent's message when an `event: error` frame is split across chunks", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const errorText = sseText([
+      { event: "error", data: { message: "Invalid API key for provider" } },
+    ]);
+    const splitAt = errorText.indexOf("data: ");
+    const chunks = [errorText.slice(0, splitAt), errorText.slice(splitAt)];
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(chunkedSseBody(chunks));
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        ...EXEC,
+      }),
+    ).rejects.toThrow(/Invalid API key for provider/);
+  });
+
+  it("resets the current event name at the blank line so an event-less frame after an error isn't misread as another error", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          { event: "error", data: { message: "Invalid API key for provider" } },
+          // No `event:` line — if the blank line terminating the previous
+          // frame failed to reset currentEventName, this would be
+          // misclassified as another "error" data payload and its lack of a
+          // `message` field would overwrite the real error with
+          // "unknown agent error".
+          {
+            data: {
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: "some text" },
+            },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        ...EXEC,
+      }),
+    ).rejects.toThrow(/Invalid API key for provider/);
+  });
+
+  it("surfaces the raw message when the error frame's data isn't JSON", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    // hono's own generic streamSSE `run()` wrapper (triggered when the route
+    // callback throws outside runAgent's own onError handling) writes
+    // `event: error` with a RAW string data payload — not our JSON shape.
+    const rawFrame = "event: error\ndata: Unexpected token in provider response\n\n";
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(chunkedSseBody([rawFrame]));
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        ...EXEC,
+      }),
+    ).rejects.toThrow(/Unexpected token in provider response/);
   });
 });
 
@@ -188,12 +617,7 @@ describe("processRcaJob", () => {
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await processRcaJob({
@@ -215,6 +639,7 @@ describe("processRcaJob", () => {
 
   it("skips RCA when workspace is free plan and rcaBlocked", async () => {
     const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
     vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
       billingPlan: "free",
       rcaBlocked: true,
@@ -233,12 +658,27 @@ describe("processRcaJob", () => {
       },
     } as any);
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({ status: "failed" }),
-      }),
-    );
+    // A quota-skipped run is still a run: it allocates and records an
+    // execution (marked disabled — no agent run happened), then writes the
+    // finding ONLY through the latest-attempt-guarded helper. It never writes
+    // detectorRca directly (that bypassed the guard — see the High finding
+    // this replaces: a delayed quota check redelivered after a newer attempt
+    // completed could clobber that attempt's result).
+    expect(allocateExecutionMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      projectId: "p1",
+    });
+    expect(detectorRcaExecutionUpdateMock).toHaveBeenCalledWith({
+      where: { id: "exec-1" },
+      data: { traceStatus: "disabled", finishedAt: expect.any(Date) },
+    });
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      attempt: 1,
+      status: "failed",
+      result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+    });
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
     expect(projectFindUnique).not.toHaveBeenCalled();
   });
 
@@ -249,7 +689,10 @@ describe("processRcaJob", () => {
       rcaBlocked: false,
     } as any);
     vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
-    const detectorRcaUpdate = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    const detectorRcaUpdate = vi
+      .spyOn(p.detectorRca, "update")
+      .mockClear()
+      .mockResolvedValue({} as any);
     vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
 
     const { processRcaJob } = await import("../detector-rca-processor.js");
@@ -265,12 +708,120 @@ describe("processRcaJob", () => {
       } as any),
     ).rejects.toThrow("Prisma error");
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+    // The finding is failed through the conditional helper, so a superseded
+    // attempt cannot overwrite a newer one's result.
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      attempt: 1,
+      status: "failed",
+      result: "RCA failed: Prisma error",
+    });
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
+    // A failed RCA must still alert: scheduleDigestFlush runs from the catch
+    // block so the finding isn't silently dropped from the digest.
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the RCA agent's error message into result when the agent stream fails", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const detectorRcaUpdate = vi
+      .spyOn(p.detectorRca, "update")
+      .mockClear()
+      .mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([{ event: "error", data: { message: "Invalid API key for provider" } }]),
+      );
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        },
+      } as any),
+    ).rejects.toThrow(/Invalid API key for provider/);
+
+    // The persisted result goes through publicErrorMessage (sanitised, capped,
+    // first-line-only); this particular message happens to have no secret or
+    // second line, so it survives unchanged — the case below proves the
+    // sanitiser actually does something.
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        where: { findingId: "f1" },
-        data: { status: "failed" },
+        findingId: "f1",
+        status: "failed",
+        result: expect.stringContaining("Invalid API key for provider"),
       }),
     );
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
+    // A failed RCA must still alert: scheduleDigestFlush runs from the catch
+    // block so the finding isn't silently dropped from the digest.
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitises a secret-shaped, multi-line agent error before persisting it", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    const rawMessage =
+      "Auth failed for sk-abcdefghijklmnopqrstuvwxyz0123456789\nRetrying with backup key at internal-host:5432";
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([{ event: "error", data: { message: rawMessage } }]));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        },
+      } as any),
+    ).rejects.toThrow();
+
+    const [, data] = finishFindingIfLatestMock.mock.calls[0] as [unknown, { result: string }];
+    // The credential is redacted, the second line (an internal host) is
+    // dropped entirely — only the first line survives, sanitised.
+    expect(data.result).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(data.result).not.toContain("internal-host");
+    expect(data.result).toContain("sk-[REDACTED]");
+    // The full raw error — secret and all — is still logged server-side.
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("run failed"), expect.anything());
+    errorSpy.mockRestore();
   });
 });
 
@@ -297,15 +848,10 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
       alertConfig,
     } as any);
 
-    // Agent session create + empty SSE stream → RCA completes with "".
+    // Agent session create + a healthy SSE stream → RCA completes with text.
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await processRcaJob({
@@ -379,12 +925,7 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     // RCA completes, then the digest enqueue fails on the success path.
     digestAddMock.mockRejectedValueOnce(new Error("redis down"));
@@ -404,8 +945,218 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
     ).rejects.toThrow("redis down"); // propagates so BullMQ retries
 
     // The RCA was marked done; the enqueue failure must NOT flip it to failed.
-    const statuses = updateSpy.mock.calls.map((c) => (c[0] as any)?.data?.status);
-    expect(statuses).toContain("done");
-    expect(statuses).not.toContain("failed");
+    const statuses = finishFindingIfLatestMock.mock.calls.map((c) => c[1].status);
+    expect(statuses).toEqual(["done"]);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("signal RCAs", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  const context = {
+    traceId: "trace-9",
+    workspaceId: "ws1",
+    findingTimestamp: 1_700_000_000_000,
+    findings: [
+      {
+        detectorId: "d1",
+        detectorName: "Failure",
+        summary: "tool timed out",
+        signalTitle: "Timeout swallowed",
+      },
+      {
+        detectorId: "d2",
+        detectorName: "Logic",
+        summary: "wrong city",
+        signalTitle: "Wrong destination",
+      },
+    ],
+    covered: ["s1:0", "s2:1"],
+    coveredDetectors: { "s1:0": "d1", "s2:1": "d2" },
+  };
+
+  async function stubRun() {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: null,
+    } as any);
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
+  }
+
+  const signalJob = (over: Record<string, unknown> = {}) =>
+    ({
+      data: { kind: "signals", findingId: "f1", projectId: "p1" },
+      moveToDelayed: vi.fn(),
+      ...over,
+    }) as any;
+
+  it("runs nothing while a hit of the trace is still being assigned", async () => {
+    settledFindingsMock.mockResolvedValue(new Set());
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob(signalJob(), "tok");
+    expect(settledFindingsMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), "p1", [
+      "f1",
+    ]);
+    // Left pending, and no rerun scheduled: the round that settles the last hit starts it.
+    expect(loadSignalRcaContextMock).not.toHaveBeenCalled();
+    expect(closeEmptySignalRcaMock).not.toHaveBeenCalled();
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("runs nothing when no signal of the finding needs an RCA, and closes a pending row", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(null);
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob(signalJob());
+    expect(closeEmptySignalRcaMock).toHaveBeenCalledWith(expect.anything(), "f1", "p1");
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("retries if an opening arrived after the empty-context read", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(null);
+    closeEmptySignalRcaMock.mockResolvedValue(false);
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob();
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(digestAddMock).not.toHaveBeenCalled();
+  });
+
+  it("analyses the hits whose signals the trace opened, one section per hit", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob(signalJob(), "tok");
+
+    expect(loadSignalRcaContextMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "f1",
+      "p1",
+    );
+    const body = JSON.parse(mockFetch.mock.calls[1][1].body);
+    expect(body.traceId).toBe("trace-9");
+    expect(body.message).toContain(
+      'Detector "Failure" fired (recurring problem: "Timeout swallowed")',
+    );
+    expect(body.message).toContain(
+      'Detector "Logic" fired (recurring problem: "Wrong destination")',
+    );
+    expect(body.message).toContain("Output one section per hit");
+    expect(body.message).toContain('"Insufficient evidence"');
+    expect(body.message).not.toContain("shared across these findings");
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        findingId: "f1",
+        status: "done",
+        coveredOpenings: ["s1:0", "s2:1"],
+        // The stub answer has no section per hit: no opening gets a misaligned root cause.
+        openingResults: [
+          { opening: "s1:0", rootCause: null },
+          { opening: "s2:1", rootCause: null },
+        ],
+        sessionId: expect.any(String),
+      }),
+    );
+  });
+
+  it("runs again when another hit of the trace opened a signal during the run", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    hasUncoveredOpeningsMock.mockResolvedValue(true);
+    await stubRun();
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob();
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(hasUncoveredOpeningsMock).toHaveBeenCalledWith(expect.anything(), "f1", [
+      "s1:0",
+      "s2:1",
+    ]);
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+  });
+
+  it("keeps a failed attempt pending, without a digest, while BullMQ will retry it", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const updateMany = vi.spyOn(p.detectorRca, "updateMany").mockResolvedValue({ count: 1 } as any);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob(signalJob({ attemptsMade: 1, opts: { attempts: 3 } }), "tok"),
+    ).rejects.toThrow("Prisma error");
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { findingId: "f1", executions: { none: { attempt: { gt: 1 } } } },
+      data: { status: "pending" },
+    });
+    expect(finishFindingIfLatestMock).not.toHaveBeenCalled();
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("fails the RCA on the last attempt without scheduling a digest", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob(signalJob({ attemptsMade: 2, opts: { attempts: 3 } }), "tok"),
+    ).rejects.toThrow("Prisma error");
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ findingId: "f1", status: "failed" }),
+    );
+    // The signal digest goes out on the project's window whatever the RCA's
+    // state; an RCA finishing, or failing, never sends another notification.
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("keeps a final failed job alive when a new opening was added", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    hasUncoveredOpeningsMock.mockResolvedValue(true);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob({ attemptsMade: 2, opts: { attempts: 3 } });
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: "failed", coveredOpenings: ["s1:0", "s2:1"] }),
+    );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("builds a prompt for a single hit", async () => {
+    const { signalRcaPrompt } = await import("../detector-rca-processor.js");
+    const prompt = signalRcaPrompt([context.findings[0]], "t", "");
+    expect(prompt).toMatch(/^A detector fired on this trace/);
+    expect(prompt).toContain("### <number>. <detector name>");
   });
 });

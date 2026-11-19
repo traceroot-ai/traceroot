@@ -1,5 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
+import { ApiError } from "@/lib/api/client";
 
 export interface Detector {
   id: string;
@@ -10,12 +11,16 @@ export interface Detector {
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate: number;
   enableRca: boolean;
+  /** Group this detector's hits into signals. */
+  enableSignals: boolean;
   detectionModel: string | null;
   detectionProvider: string | null;
   detectionSource: "system" | "byok" | null;
   createTime: string;
   updateTime: string;
-  trigger?: { conditions: Array<{ field: string; op: string; value: unknown }> } | null;
+  trigger?: {
+    conditions: Array<{ field: string; op: string; value: unknown; key?: string }>;
+  } | null;
 }
 
 interface PaginationMeta {
@@ -43,7 +48,8 @@ export interface CreateDetectorInput {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
-  triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
+  enableSignals?: boolean;
+  triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
   detectionSource?: "system" | "byok";
@@ -61,7 +67,12 @@ async function fetchDetectorList(
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch detectors: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch detectors: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch detectors: ${res.status}`);
+  }
   return res.json() as Promise<DetectorListResponse>;
 }
 
@@ -72,13 +83,27 @@ async function fetchDetector(projectId: string, detectorId: string): Promise<Det
   return data.detector;
 }
 
+function extractErrorMessage(body: unknown, fallback: string): string {
+  if (typeof body === "object" && body !== null) {
+    const b = body as Record<string, unknown>;
+    if (typeof b.error === "string") return b.error;
+    if (typeof b.message === "string") return b.message;
+    if (typeof b.detail === "string") return b.detail;
+  }
+  return fallback;
+}
+
 async function createDetector(projectId: string, input: CreateDetectorInput): Promise<Detector> {
   const res = await fetch(`/api/projects/${projectId}/detectors`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to create detector: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message = extractErrorMessage(body, `Failed to create detector: ${res.status}`);
+    throw new ApiError(res.status, message);
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
@@ -89,7 +114,8 @@ export interface UpdateDetectorInput {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
-  triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
+  enableSignals?: boolean;
+  triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
   detectionSource?: "system" | "byok";
@@ -105,7 +131,11 @@ async function updateDetector(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message = extractErrorMessage(body, `Failed to update detector: ${res.status}`);
+    throw new ApiError(res.status, message);
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
@@ -134,6 +164,40 @@ export function useDetectorList(projectId: string, query: DetectorListQuery = {}
   });
 }
 
+/** Just the id and name the Signals page's Detector filter needs. */
+export interface DetectorNameItem {
+  id: string;
+  name: string;
+}
+
+/**
+ * Every detector's id and name, paging through the list endpoint (which caps
+ * `limit` at 200) so a project with more detectors than that still gets a
+ * complete filter. Reads page 0 first for `meta.total`, then the rest in
+ * parallel; the endpoint's own page is unaffected.
+ */
+async function fetchAllDetectorNames(projectId: string): Promise<DetectorNameItem[]> {
+  const limit = 200;
+  const first = await fetchDetectorList(projectId, { page: 0, limit });
+  const pageCount = Math.ceil(first.meta.total / limit);
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(pageCount - 1, 0) }, (_, i) =>
+      fetchDetectorList(projectId, { page: i + 1, limit }),
+    ),
+  );
+  return [first, ...rest].flatMap((page) => page.data.map((d) => ({ id: d.id, name: d.name })));
+}
+
+/** Every detector's name in the project, for the Signals page's Detector filter options. */
+export function useAllDetectorNames(projectId: string) {
+  return useQuery({
+    queryKey: ["detectors", "allNames", projectId],
+    queryFn: () => fetchAllDetectorNames(projectId),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+}
+
 /** Look up a single detector by ID (used by detail page + edit panel). */
 export function useDetector(projectId: string, detectorId: string) {
   return useQuery({
@@ -146,6 +210,7 @@ export function useDetector(projectId: string, detectorId: string) {
 interface DetectorCountsItem {
   finding_count: number;
   run_count: number;
+  agent_run_count: number;
 }
 
 async function fetchDetectorCounts(
@@ -156,12 +221,17 @@ async function fetchDetectorCounts(
   const params = new URLSearchParams({ start_after: startAfter });
   if (endBefore) params.set("end_before", endBefore);
   const res = await fetch(`/api/projects/${projectId}/detector-counts?${params.toString()}`);
-  if (!res.ok) throw new Error(`Failed to fetch detector counts: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch detector counts: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch detector counts: ${res.status}`);
+  }
   const body = (await res.json()) as { data: Record<string, DetectorCountsItem> };
   return body.data;
 }
 
-/** Aggregated finding/run counts per detector for a project + window. */
+/** Aggregated finding, judge-run and agent-run counts for a project + window. */
 export function useDetectorCounts(
   projectId: string,
   opts: { start_after?: string; end_before?: string },
@@ -174,14 +244,22 @@ export function useDetectorCounts(
   });
 }
 
+/**
+ * After a detector changes: its lists, and the Signals page's setup check,
+ * which reads how far the project's detectors are set up.
+ */
+function invalidateDetectorReads(queryClient: QueryClient, projectId: string) {
+  for (const queryKey of [["detectors"], ["signals", "setup", projectId]]) {
+    void queryClient.invalidateQueries({ queryKey });
+    broadcastQueryInvalidation(queryKey);
+  }
+}
+
 export function useCreateDetector(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateDetectorInput) => createDetector(projectId, input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["detectors"] });
-      broadcastQueryInvalidation(["detectors"]);
-    },
+    onSuccess: () => invalidateDetectorReads(queryClient, projectId),
   });
 }
 
@@ -189,10 +267,7 @@ export function useUpdateDetector(projectId: string, detectorId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateDetectorInput) => updateDetector(projectId, detectorId, input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["detectors"] });
-      broadcastQueryInvalidation(["detectors"]);
-    },
+    onSuccess: () => invalidateDetectorReads(queryClient, projectId),
   });
 }
 
@@ -200,9 +275,6 @@ export function useDeleteDetector(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (detectorId: string) => deleteDetector(projectId, detectorId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["detectors"] });
-      broadcastQueryInvalidation(["detectors"]);
-    },
+    onSuccess: () => invalidateDetectorReads(queryClient, projectId),
   });
 }

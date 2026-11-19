@@ -2,7 +2,13 @@
  * Trace API functions (Python backend - ClickHouse)
  */
 import { fetchTraceApi, type TraceApiUser } from "./client";
-import type { SpanIO, TraceDetail, TraceListResponse, TraceQueryOptions } from "@/types/api";
+import type {
+  MetadataKeysResponse,
+  SpanIO,
+  TraceDetail,
+  TraceListResponse,
+  TraceQueryOptions,
+} from "@/types/api";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import type { FilterFieldsResponse, FilterValuesResponse } from "@/features/filters/registry";
 
@@ -21,6 +27,7 @@ export async function getTraces(
   if (options.start_after) params.set("start_after", options.start_after);
   if (options.end_before) params.set("end_before", options.end_before);
   if (options.search_query) params.set("search_query", options.search_query);
+  if (options.include_evaluations) params.set("include_evaluations", "true");
   const filtersParam = serializeFiltersParam(options.filters);
   if (filtersParam) params.set("filters", filtersParam);
 
@@ -30,13 +37,58 @@ export async function getTraces(
   return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
+/**
+ * Summaries (name, errors, cost, latency) of a known set of traces, at most 100,
+ * whatever their age: no default time window applies to an id list.
+ */
+export async function getTracesByIds(
+  projectId: string,
+  traceIds: string[],
+  user?: TraceApiUser,
+): Promise<TraceListResponse> {
+  // No ids means no request: `limit=0` would violate the backend's `ge=1` bound.
+  if (traceIds.length === 0) {
+    return { data: [], meta: { page: 0, limit: 0, total: 0 } };
+  }
+  // Backend cap for ?trace_ids= (see backend/rest/routers/traces.py MAX_TRACE_IDS).
+  const ids = traceIds.slice(0, 100);
+  const params = new URLSearchParams({ limit: String(ids.length) });
+  for (const id of ids) params.append("trace_ids", id);
+  return fetchTraceApi<TraceListResponse>(`/projects/${projectId}/traces?${params}`, {}, user);
+}
+
+export async function tracesExist(
+  projectId: string,
+  user?: TraceApiUser,
+): Promise<{ exists: boolean }> {
+  return fetchTraceApi<{ exists: boolean }>(`/projects/${projectId}/traces/exists`, {}, user);
+}
+
+/** Opt-in read scopes for internal telemetry; omit for customer traffic. */
+export type TraceSource = "detector" | "agent" | "user";
+
+/**
+ * Whether a trace read scope is customer traffic. The UI's one definition of the
+ * rule, mirroring the backend's `customer_traffic_only()`: it names the value that
+ * IS customer traffic rather than listing the internal ones, so a new internal
+ * source is treated as internal the day it is added instead of falling through to
+ * the customer branch. An omitted source counts as customer traffic, because that
+ * is what the reader returns for it. Typed as a guard so the internal branch
+ * narrows to a defined source (the viewer's new-tab link passes it as a string).
+ */
+export function isCustomerTraffic(source?: TraceSource): source is "user" | undefined {
+  return source === undefined || source === "user";
+}
+
 export async function getTrace(
   projectId: string,
   traceId: string,
   _apiKey: string,
   user?: TraceApiUser,
+  source?: TraceSource,
 ): Promise<TraceDetail> {
-  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`, {}, user);
+  const query = source ? `?source=${source}` : "";
+  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}${query}`, {}, user);
 }
 
 /** Registry of filterable fields driving the filter dropdown (Python source of truth). */
@@ -65,6 +117,32 @@ export async function getFilterValues(
   const query = params.toString() ? `?${params.toString()}` : "";
   return fetchTraceApi<FilterValuesResponse>(
     `/projects/${projectId}/traces/filter-values/${encodeURIComponent(field)}${query}`,
+    {},
+    user,
+  );
+}
+
+/**
+ * Metadata keys observed in the active window, frequency-ordered — the discovery answer
+ * behind the metadata filter's key combobox, its one consumer.
+ *
+ * The window is passed exactly as the distinct-values fetcher passes it, and for the same
+ * reason: a key list gathered outside the window the user is looking at would suggest keys
+ * that return zero rows the moment they are picked. The response carries the keys and
+ * nothing else — it does not echo the bounds back.
+ */
+export async function getMetadataKeys(
+  projectId: string,
+  startAfter: string | undefined,
+  endBefore: string | undefined,
+  user?: TraceApiUser,
+): Promise<MetadataKeysResponse> {
+  const params = new URLSearchParams();
+  if (startAfter) params.set("start_after", startAfter);
+  if (endBefore) params.set("end_before", endBefore);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return fetchTraceApi<MetadataKeysResponse>(
+    `/projects/${projectId}/traces/metadata-keys${query}`,
     {},
     user,
   );

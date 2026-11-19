@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import type { TraceStatus } from "@traceroot/core";
+import { ApiError } from "@/lib/api/client";
 
 /** Snake-case shape returned by the backend for a trace's findings */
 export interface BackendFinding {
@@ -8,38 +10,6 @@ export interface BackendFinding {
   timestamp: string;
   summary: string;
   payload: string;
-}
-
-/** How a run's `rca_status` renders in the "Agent analysis" column. */
-export interface RcaStatusPresentation {
-  label: string;
-  className: string;
-  title?: string;
-}
-
-/**
- * Single source of truth for the agent-analysis status vocabulary:
- * absent field (enrichment unavailable) -> "—", null (no stored RCA row) ->
- * "Skipped", terminal/in-flight statuses -> their labels. An unrecognized
- * future status renders as its raw value rather than a misleading "Running…".
- */
-export function describeRcaStatus(status: BackendRun["rca_status"]): RcaStatusPresentation {
-  if (status === undefined) {
-    return { label: "—", className: "font-mono text-[11px] text-muted-foreground" };
-  }
-  if (status === null) {
-    return {
-      label: "Skipped",
-      className: "text-muted-foreground",
-      title: "Root cause analysis was off for the detector(s) that fired",
-    };
-  }
-  if (status === "failed") return { label: "Failed", className: "text-destructive" };
-  if (status === "done") return { label: "Done", className: "text-foreground" };
-  if (status === "pending" || status === "running") {
-    return { label: "Running…", className: "text-muted-foreground" };
-  }
-  return { label: status, className: "text-muted-foreground" };
 }
 
 /** Pagination metadata returned alongside data arrays. */
@@ -55,7 +25,12 @@ async function fetchTraceFindings(
 ): Promise<{ findings: BackendFinding[] }> {
   const url = `/api/projects/${projectId}/traces/${traceId}/findings`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch trace findings: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch trace findings: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch trace findings: ${res.status}`);
+  }
   return res.json() as Promise<{ findings: BackendFinding[] }>;
 }
 
@@ -67,6 +42,16 @@ export interface DetectorRca {
   result: string | null;
   completedAt: string | null;
   createTime: string;
+  /**
+   * Agent trace of the newest execution whose trace is `available`, so the link
+   * survives a pending retry; when none is, the current (highest-attempt)
+   * execution's trace and its pending/failed/disabled status. Null when the
+   * finding has no execution row.
+   */
+  traceId: string | null;
+  traceStatus: TraceStatus | null;
+  /** Current (highest) attempt; null when the finding has no execution row. */
+  attempt: number | null;
 }
 
 async function fetchRca(
@@ -75,7 +60,10 @@ async function fetchRca(
 ): Promise<{ rca: DetectorRca | null }> {
   const url = `/api/projects/${projectId}/findings/${findingId}/rca`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch RCA: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: `Failed to fetch RCA: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch RCA: ${res.status}`);
+  }
   return res.json() as Promise<{ rca: DetectorRca | null }>;
 }
 
@@ -109,11 +97,34 @@ export interface BackendRun {
    */
   name?: string;
   /**
-   * Stored RCA status for a triggered run, enriched by the runs proxy route.
-   * null = no DetectorRca row (RCA skipped — disabled on every detector that
-   * fired); absent = enrichment unavailable or the run never triggered.
+   * The signal this triggered run's hit belongs to, enriched by the runs proxy.
+   * null = not grouped (yet); absent = enrichment unavailable or the run never
+   * triggered.
    */
-  rca_status?: "pending" | "running" | "done" | "failed" | null;
+  signal_id?: string | null;
+  /** Signal assignment gave up on this hit after repeated unusable model answers. */
+  signal_gave_up?: boolean;
+  /**
+   * The agent trace of the RCA that analysed this run's own judge output,
+   * enriched by the runs proxy; null when the run only joined a signal analysed
+   * on another trace, or no attempt's trace has landed yet.
+   */
+  agent_trace_id?: string | null;
+  /**
+   * True when the worker emitted a self-trace for this run (trace_id = run_id);
+   * gates the runs-tab link to the run's own trace. Optional for back-compat
+   * with reads from an un-migrated backend, which imply false.
+   */
+  self_traced?: boolean;
+}
+
+/**
+ * A run's self-trace id is its dashless run_id (trace_id = run_id by
+ * construction on the emit side). One shared helper so every self-trace
+ * opener and matcher derives the id the same way.
+ */
+export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
+  return run.run_id.replaceAll("-", "");
 }
 
 export interface RunsQuery {
@@ -147,7 +158,10 @@ async function fetchRuns(
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors/${detectorId}/runs${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: `Failed to fetch runs: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch runs: ${res.status}`);
+  }
   return res.json() as Promise<RunsResponse>;
 }
 
@@ -183,7 +197,15 @@ async function fetchTraceDetectorRuns(
 ): Promise<{ runs: BackendRun[] }> {
   const url = `/api/projects/${projectId}/traces/${traceId}/detector-runs`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch trace detector runs: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch trace detector runs: ${res.status}` }));
+    throw new ApiError(
+      res.status,
+      body.detail ?? `Failed to fetch trace detector runs: ${res.status}`,
+    );
+  }
   return res.json() as Promise<{ runs: BackendRun[] }>;
 }
 

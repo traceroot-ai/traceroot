@@ -1,6 +1,8 @@
 # Vercel AI SDK Agent
 
-Multi-step tool-use agent built with the [Vercel AI SDK](https://sdk.vercel.ai/), instrumented with [TraceRoot](https://traceroot.ai).
+Multi-step tool-use agent built with the [Vercel AI SDK](https://ai-sdk.dev/), instrumented with [TraceRoot](https://traceroot.ai).
+
+This example pins **AI SDK 6 (legacy)** (`ai@^6`) and enables tracing with `experimental_telemetry`. AI SDK 7 needs `@ai-sdk/otel` and `registerTelemetry` instead — see [docs/integrations/vercel-ai](https://traceroot.ai/docs/integrations/vercel-ai).
 
 ## Setup
 
@@ -12,19 +14,28 @@ pnpm install
 ## Usage
 
 ```bash
-pnpm demo
+pnpm demo            # agent.ts — multi-step tool-use agent (generateText)
+pnpm demo:streaming  # agent-streaming.ts — streamed handler with deferred work
+pnpm demo:agent      # tool-loop-agent.ts — ToolLoopAgent + generateObject + embeddings
 ```
 
-## What it does
+## What the demos show
 
-Runs two demo queries that exercise multi-step tool use:
+**`pnpm demo`** — two queries that exercise multi-step tool use:
 1. Weather comparison (San Francisco vs Tokyo)
 2. Stock price lookup + calculation (NVDA +10%)
 
 Tools: `getWeather`, `getStockPrice`, `calculate`
 
+**`pnpm demo:agent`** — a support-triage assistant that proves TraceRoot traces
+far more than `generateText`. In one run it exercises four AI SDK surfaces, all
+captured automatically:
+- `embedMany` + `embed` + `cosineSimilarity` (semantic routing over a small KB)
+- the **`ToolLoopAgent`** class — `.generate()` (tool loop) and `.stream()`
+- `generateObject` (schema-validated triage record)
+
 ## Why no `instrumentModules` config?
 
-Unlike LangChain / OpenAI / Anthropic, the Vercel AI SDK emits OpenTelemetry spans natively when `experimental_telemetry: { isEnabled: true }` is set on each call. TraceRoot enriches those spans through the OpenInference span processor registered inside `TraceRoot.initialize()` — no `instrumentModules` entry needed.
+Unlike LangChain / OpenAI / Anthropic, AI SDK 6 emits OpenTelemetry spans natively when `experimental_telemetry: { isEnabled: true }` is set on each call. TraceRoot enriches those spans through the OpenInference span processor registered inside `TraceRoot.initialize()` — no `instrumentModules` entry needed.
 
 See [docs/integrations/vercel-ai](https://traceroot.ai/docs/integrations/vercel-ai) for details.

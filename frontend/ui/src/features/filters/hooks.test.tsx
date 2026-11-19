@@ -2,9 +2,9 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, cleanup, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useFilterFields, useFilterValues } from "./hooks";
+import { useFilterFields, useFilterValues, useMetadataKeys } from "./hooks";
 import { STATIC_FILTER_FIELDS } from "./registry";
-import { getFilterValues } from "@/lib/api/traces";
+import { getFilterValues, getMetadataKeys } from "@/lib/api/traces";
 
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e@x.com" } }, isPending: false }),
@@ -26,6 +26,16 @@ vi.mock("@/lib/api/traces", () => ({
   getFilterValues: vi.fn().mockResolvedValue({
     field: "model_name",
     values: [{ value: "gpt-4", count: 2 }],
+  }),
+  // The wire shape the endpoint actually answers with: a `keys` list and nothing else,
+  // each row a `{value, count}` pair — the same row the categorical distinct-values list
+  // uses. Spelling the field `key` here would make the suite agree with itself and
+  // disagree with the server.
+  getMetadataKeys: vi.fn().mockResolvedValue({
+    keys: [
+      { value: "session_id", count: 12 },
+      { value: "tenant", count: 3 },
+    ],
   }),
 }));
 
@@ -54,6 +64,19 @@ function ValuesProbe({
 }) {
   const { values } = useFilterValues("p1", "model_name", startAfter, endBefore, enabled);
   return <div data-testid="values">{values.map((v) => v.value).join(",")}</div>;
+}
+
+function MetadataKeysProbe({
+  enabled = true,
+  startAfter,
+  endBefore,
+}: {
+  enabled?: boolean;
+  startAfter?: string;
+  endBefore?: string;
+}) {
+  const { keys } = useMetadataKeys("p1", startAfter, endBefore, enabled);
+  return <div data-testid="keys">{keys.map((k) => `${k.value}:${k.count}`).join(",")}</div>;
 }
 
 describe("useFilterFields", () => {
@@ -94,5 +117,38 @@ describe("useFilterValues", () => {
         expect.anything(),
       ),
     );
+  });
+});
+
+describe("useMetadataKeys", () => {
+  it("returns the discovered keys in the order the backend ranked them", async () => {
+    render(<MetadataKeysProbe />, { wrapper: wrapper() });
+    await waitFor(() =>
+      expect(screen.getByTestId("keys").textContent).toBe("session_id:12,tenant:3"),
+    );
+  });
+
+  it("passes both window bounds to the discovery request", async () => {
+    // The key list is only valid inside the window it was gathered in, so the window the
+    // user is looking at is the question that gets asked.
+    render(
+      <MetadataKeysProbe startAfter="2026-06-01T00:00:00Z" endBefore="2026-06-02T00:00:00Z" />,
+      {
+        wrapper: wrapper(),
+      },
+    );
+    await waitFor(() =>
+      expect(getMetadataKeys).toHaveBeenCalledWith(
+        "p1",
+        "2026-06-01T00:00:00Z",
+        "2026-06-02T00:00:00Z",
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("stays empty while disabled (the discovery fetch is opt-in)", () => {
+    render(<MetadataKeysProbe enabled={false} />, { wrapper: wrapper() });
+    expect(screen.getByTestId("keys").textContent).toBe("");
   });
 });

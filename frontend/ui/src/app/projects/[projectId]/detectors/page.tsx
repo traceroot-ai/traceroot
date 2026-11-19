@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -15,20 +20,72 @@ import {
   useDeleteDetector,
 } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
+import { serializeFiltersParam } from "@/features/filters/predicate";
+import { useSignalCounts } from "@/ee/features/signals/hooks";
+
+function formatDetectorModel(detector: {
+  detectionModel: string | null;
+  detectionProvider: string | null;
+  detectionSource: "system" | "byok" | null;
+}) {
+  if (detector.detectionModel) {
+    return detector.detectionModel;
+  }
+
+  if (detector.detectionSource === "byok") {
+    return detector.detectionProvider ?? "configured provider";
+  }
+
+  // Both "system" and a never-set null source resolve to the screening
+  // default at eval time, so an unpinned detector reads the same either way.
+  return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
+}
+
+/**
+ * A count that opens what it counts. It stops the click from reaching the row,
+ * whose own click opens the detector unfiltered. A dash while loading.
+ */
+function CountLink({ href, label, value }: { href: string; label: string; value: number | null }) {
+  if (value === null) return <>—</>;
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      title={label}
+      onClick={(e) => e.stopPropagation()}
+      className="hover:text-foreground hover:underline"
+    >
+      {value}
+    </Link>
+  );
+}
+
+/** "failure" / "FAILURE" -> "Failure". */
+const capitalizeLabel = (label: string) =>
+  label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
 
 export default function DetectorsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
   const [selectedDetectorId, setSelectedDetectorId] = useState<string | null>(null);
+
+  const { data: project } = useProject(projectId);
+  const retention = useRetention(projectId);
 
   const {
     state,
@@ -38,35 +95,67 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+    clampToTotal,
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected time range into the detail page so it stays consistent
   // across the list <-> detail navigation, mirroring how the Traces tabs
   // propagate the range via the URL. Arriving from the sidebar carries no
   // param, so the section resets to its default — the same as Traces.
-  const buildUrl = (path: string) =>
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
       dateFilter: state.dateFilter,
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
+      extraParams,
     });
 
-  const { data: project } = useProject(projectId);
+  // Remember this page, page size and filters so the detector page's "Detectors"
+  // link returns here. The effective date window is recorded too (it can come from
+  // the stored per-project range, not the URL); the detector page overlays its own.
+  useRememberListQuery(
+    `detectors:${projectId}`,
+    withDateWindow(searchParams.toString(), buildUrl("")),
+  );
 
-  const { data, isLoading, error } = useDetectorList(projectId, {
+  const { data, isLoading, error, isPlaceholderData } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
 
-  const { data: counts, isLoading: countsLoading } = useDetectorCounts(projectId, {
+  // Every new page of rows, or a new search, starts at the top of the list. The time
+  // range only changes the count columns, not which detectors are listed.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.search_query]),
+  );
+
+  // A count shows only once it has loaded: a dash while loading or when its
+  // query failed, never a clickable 0 that is not a real count.
+  const { data: counts } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
 
+  // Every signal a detector has, as the Signals page lists it for that detector.
+  const { data: signalCounts } = useSignalCounts(projectId);
+
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
   const meta = data?.meta;
+
+  // A delete (or a deep link) can leave the page past the end of the list; pull it back
+  // to the last page with rows. Skipped while the previous query's rows are shown as
+  // placeholder: their total belongs to a different query and would clamp a valid page.
+  useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(meta?.total ?? 0);
+  }, [clampToTotal, meta?.total, isLoading, isPlaceholderData]);
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
@@ -98,16 +187,14 @@ export default function DetectorsPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Detectors</h1>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-          >
-            New Detector
-          </Button>
-        </div>
+        <PageHeader
+          title="Detectors"
+          actions={
+            <Button size="sm" onClick={() => router.push(`/projects/${projectId}/detectors/new`)}>
+              New detector
+            </Button>
+          }
+        />
 
         {/* Search / time-range filter */}
         <SearchFilterBar
@@ -119,13 +206,15 @@ export default function DetectorsPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Table */}
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading detectors...</p>
+              <LoadingState label="Loading detectors..." />
             </div>
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
@@ -133,7 +222,7 @@ export default function DetectorsPage() {
             </div>
           ) : isEmptyProject ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Eye className="h-8 w-8 text-muted-foreground/40" />
+              <DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">No detectors yet</p>
               <p className="text-[12px] text-muted-foreground">
                 Create a detector to automatically analyze your traces.
@@ -143,7 +232,7 @@ export default function DetectorsPage() {
                 className="mt-1 h-7 text-[12px]"
                 onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
               >
-                New Detector
+                New detector
               </Button>
             </div>
           ) : isEmptySearch ? (
@@ -161,84 +250,119 @@ export default function DetectorsPage() {
               </Button>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="data-table w-full">
               <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Name
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[8rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Template
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[8rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Model
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[6.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Sampling
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Findings
+                  <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Judge runs
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Runs
+                  <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Signals
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Created At
+                  <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Agent runs
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Updated At
+                  <th className="w-[11.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                    Created at
                   </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="hidden w-[11.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground 2xl:table-cell">
+                    Updated at
+                  </th>
+                  <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Detector ID
                   </th>
-                  <th className="w-[56px] px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Actions
+                  <th className="col-sticky-end-head w-[56px] whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {detectors.map((detector) => {
                   const template = getTemplate(detector.template);
+                  const modelLabel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
-                  const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
+                  const agentRunCount = c?.agent_run_count ?? 0;
+                  const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
-                    "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                    "border-r border-border px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                  const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
+                  // Judge runs open the detector page; signals open the
+                  // Signals page narrowed to this detector.
+                  const countLinks = {
+                    runs: buildUrl(detectorPath),
+                    signals: buildUrl(`/projects/${projectId}/signals`, {
+                      filters: serializeFiltersParam([
+                        { field: "detector", op: "in", value: [detector.name] },
+                      ])!,
+                    }),
+                  };
                   return (
                     <tr
                       key={detector.id}
                       onClick={() =>
                         router.push(buildUrl(`/projects/${projectId}/detectors/${detector.id}`))
                       }
+                      data-selected={selectedDetectorId === detector.id ? "true" : undefined}
                       className={cn(
-                        "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                        selectedDetectorId === detector.id ? "bg-muted" : "hover:bg-muted/50",
+                        "cursor-pointer border-b border-border transition-colors",
+                        selectedDetectorId === detector.id ? "bg-accent" : "hover:bg-muted",
                       )}
                     >
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-foreground">
                         {detector.name}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {template?.label ?? detector.template}
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+                        {capitalizeLabel(template?.label ?? detector.template)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detector.detectionModel ?? "Default"}
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+                        {modelLabel}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
                       </td>
-                      <td className={countClass}>{countsLoading ? "—" : findingCount}</td>
-                      <td className={countClass}>{countsLoading ? "—" : runCount}</td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.runs}
+                          label={`View judge runs for ${detector.name}`}
+                          value={counts ? runCount : null}
+                        />
+                      </td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.signals}
+                          label={`View signals for ${detector.name}`}
+                          value={signalCounts ? signalCount : null}
+                        />
+                      </td>
+                      <td
+                        className={countClass}
+                        title="RCA agent runs started in the selected time range, including retries"
+                      >
+                        {counts ? agentRunCount : "—"}
+                      </td>
+                      <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <td className="hidden whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground 2xl:table-cell">
                         {formatDate(detector.updateTime)}
                       </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                      <td className="max-w-[10rem] truncate whitespace-nowrap border-r border-border px-3 py-1.5 font-mono text-[12px] text-muted-foreground">
                         {detector.id}
                       </td>
-                      <td className="px-2 text-right">
+                      <td className="col-sticky-end px-2 text-right">
                         <Popover
                           open={actionsOpen === detector.id}
                           onOpenChange={(open) => setActionsOpen(open ? detector.id : null)}
@@ -247,7 +371,7 @@ export default function DetectorsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-5 w-6 p-0 text-muted-foreground hover:text-foreground"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <MoreHorizontal className="h-3.5 w-3.5" />
@@ -255,7 +379,7 @@ export default function DetectorsPage() {
                           </PopoverTrigger>
                           <PopoverContent align="end" className="w-36 p-1">
                             <button
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-muted/60"
+                              className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] hover:bg-muted"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openPanel(detector.id);
@@ -266,7 +390,7 @@ export default function DetectorsPage() {
                               Edit
                             </button>
                             <button
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
+                              className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive hover:bg-destructive/10"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setDeleteTarget({ id: detector.id, name: detector.name });
@@ -289,8 +413,8 @@ export default function DetectorsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}
@@ -322,6 +446,13 @@ export default function DetectorsPage() {
           isDeleting={deleteMutation.isPending}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

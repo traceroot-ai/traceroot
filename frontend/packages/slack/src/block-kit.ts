@@ -1,12 +1,30 @@
-const SECTION_LIMIT = 3000;
+export const SECTION_LIMIT = 3000;
 
-function escapeMrkdwn(text: string): string {
+// Render cap for the LLM digest paragraph — readability bound, far under the
+// 3000-char Slack section limit. Shared with the email digest.
+export const DIGEST_SUMMARY_RENDER_CAP = 700;
+
+export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function truncate(text: string, max = SECTION_LIMIT): string {
+export function truncate(text: string, max = SECTION_LIMIT): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + "…";
+}
+
+/**
+ * `truncate`, but for text that has already been through `escapeMrkdwn`: strips
+ * a trailing partial escape entity from the cut string so a cap-hitting text
+ * never ends "…&am…". Only safe on escaped text — `escapeMrkdwn` never leaves a
+ * bare "&" behind, so any "&" this pattern can still match there is the start of
+ * one of its three entities, cut short. On raw text a trailing "&" is just
+ * text (a URL's own "&start=" separator, "Ben & co", …), and this would delete
+ * it instead of fixing anything — callers with raw text want plain `truncate`.
+ */
+export function truncateEscaped(text: string, max = SECTION_LIMIT): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1).replace(/&[a-z]*$/, "") + "…";
 }
 
 export interface DigestEntry {
@@ -24,6 +42,8 @@ export interface DigestAlertParams {
   windowEnd: Date;
   total: number;
   entries: DigestEntry[];
+  /** Optional LLM-written paragraph; untrusted text — escaped + capped at render. */
+  summary?: string;
 }
 
 // Human-readable UTC window range for the digest footer, e.g.
@@ -46,8 +66,15 @@ export function formatWindowRange(start: Date, end: Date): string {
 }
 
 // Slack rejects a message with more than 50 blocks. The digest spends 4 on the
-// header, two dividers, and the footer, leaving 46 for the per-detector lines.
+// header, two dividers, and the footer, leaving 46 for the per-detector lines
+// (one fewer when a summary section is rendered).
 const MAX_DIGEST_LINES = 46;
+
+// Leaves comfortable headroom under SECTION_LIMIT for the fixed URL and count
+// text around a detector name in its row, so the row's own truncate() below
+// is a last-resort net over raw text — not the thing actually shaping a
+// pathologically long name.
+const DETECTOR_NAME_CAP = 2000;
 
 // Deep-link to a detector's findings page, scoped to the digest window. Shared by
 // the Slack and email digests so the URL contract lives in one place.
@@ -74,15 +101,33 @@ export function traceUrl(appBaseUrl: string, projectId: string, traceId: string)
 }
 
 export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
-  const { appBaseUrl, projectId, projectName, windowStart, windowEnd, total, entries } = params;
+  const { appBaseUrl, projectId, projectName, windowStart, windowEnd, total, entries, summary } =
+    params;
   const noun = total === 1 ? "finding" : "findings";
   const headerText = truncate(`${total} ${noun} in ${projectName}`, 150);
 
+  const summaryText = summary?.trim();
+  const summaryBlocks = summaryText
+    ? [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: truncateEscaped(escapeMrkdwn(summaryText), DIGEST_SUMMARY_RENDER_CAP),
+          },
+        },
+      ]
+    : [];
+
+  // The summary consumes one of Slack's 50 blocks: shrink the row budget so
+  // the total never exceeds the limit.
+  const maxLines = summaryBlocks.length ? MAX_DIGEST_LINES - 1 : MAX_DIGEST_LINES;
+
   // Cap the rendered detector lines so a project with many triggered detectors
   // can't blow the 50-block limit and fail the whole send. When we truncate,
-  // one line is spent on an overflow note, so only 45 detectors are listed.
-  const overflow = entries.length > MAX_DIGEST_LINES;
-  const shown = overflow ? entries.slice(0, MAX_DIGEST_LINES - 1) : entries;
+  // one line is spent on an overflow note, so one fewer detector is listed.
+  const overflow = entries.length > maxLines;
+  const shown = overflow ? entries.slice(0, maxLines - 1) : entries;
 
   const lines = shown.map((e) => {
     const findingsUrl = detectorFindingsUrl(
@@ -95,8 +140,12 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     const shortTrace = e.latestTraceId.slice(0, 8);
     // Escape the detector name (user-controlled); URLs are built from encoded
     // params, so escaping them would mangle the query-string separators and
-    // break the Slack <url|text> link syntax.
-    const name = escapeMrkdwn(e.detectorName);
+    // break the Slack <url|text> link syntax. The row mixes that escaped name
+    // with raw URLs, so it needs its own entity-aware cap before it goes into
+    // the row: a cap over the whole row could just as easily split the name's
+    // own entity (truncate) or strip a raw URL "&" (truncateEscaped) — capping
+    // the name here keeps each kind of cut in its own lane.
+    const name = truncateEscaped(escapeMrkdwn(e.detectorName), DETECTOR_NAME_CAP);
     const text =
       `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
       (e.latestTraceId
@@ -121,6 +170,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
   return [
     { type: "header", text: { type: "plain_text", text: headerText, emoji: true } },
     { type: "divider" },
+    ...summaryBlocks,
     ...lines,
     { type: "divider" },
     { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
