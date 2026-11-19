@@ -105,6 +105,10 @@ OPENAI_MODEL_CASES = [
     ("openai/gpt-6-astra", "gpt-6-astra"),
     ("azure/gpt-6-astra", "gpt-6-astra"),
     ("gpt-6-astra-2026-07-09", "gpt-6-astra"),
+    ("gpt-6.2-astra", "gpt-6.2-astra"),
+    ("openai/gpt-6.2-astra", "gpt-6.2-astra"),
+    ("azure/gpt-6.2-astra", "gpt-6.2-astra"),
+    ("gpt-6-2-astra", "gpt-6.2-astra"),
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("openai/gpt-6.1-sol", "gpt-6.1-sol"),
     ("azure/gpt-6.1-sol", "gpt-6.1-sol"),
@@ -482,6 +486,7 @@ class TestGpt56LunaPublishedPrices:
 GPT6_PUBLISHED_RATES = {
     "gpt-6.1-sol": (2.00, 0.10, 2.50, 10.00),
     "gpt-6-astra": (10.00, 1.00, 12.50, 50.00),
+    "gpt-6.2-astra": (8.00, 0.40, 10.00, 40.00),
     "gpt-6-sol": (2.00, 0.20, 2.50, 10.00),
     "gpt-6-luna": (0.10, 0.01, 0.125, 0.50),
     "gpt-6.1-terra": (1.00, 0.05, 1.25, 5.00),
@@ -498,6 +503,23 @@ class TestGpt6PublishedPrices:
         expected = dict(zip(("input", "cacheRead", "cacheWrite", "output"), rates))
         for usage, per_million in expected.items():
             assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+
+
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+GPT_6_2_ASTRA_NON_MATCHES = [
+    ("gpt-6.2-astra", "gpt-6.2-astra-law"),
+    ("gpt-6.2-astra", "gpt-6.2-sol"),
+    ("gpt-6.2-astra", "gpt-6-astra"),
+]
+
+
+class TestGpt62AstraModelIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_6_2_ASTRA_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestGemini3xFlashPublishedPrices:

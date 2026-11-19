@@ -355,6 +355,18 @@
     }
   },
   {
+    "id": "tr-gpt-6-2-astra",
+    "modelName": "gpt-6.2-astra",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-astra)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000008,
+      "output": 0.00004,
+      "cacheRead": 0.0000004,
+      "cacheWrite": 0.00001
+    }
+  },
+  {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5[.-]5)(-[\\d-]+)?$",
