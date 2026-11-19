@@ -256,7 +256,7 @@ async def export_trace(
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.
+    """Export the trace bundle (trace + spans + git_context + manifest) for the caller's project.
 
     Defaults to the `full` projection — an export is explicit intent to take the
     complete trace, so per-span input/output/metadata are included unless the
@@ -276,7 +276,7 @@ async def export_trace(
             projection.
 
     Returns:
-        PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,
+        PublicTraceExportResponse: The export bundle (manifest, trace, spans,
             git_context) at the requested projection.
 
     Raises:

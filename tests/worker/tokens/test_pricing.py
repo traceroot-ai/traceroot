@@ -244,6 +244,8 @@ GEMINI_MODEL_CASES = [
 ]
 
 DEEPSEEK_MODEL_CASES = [
+    ("deepseek-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),
@@ -474,6 +476,30 @@ class TestGeminiModelIds:
     def test_unpriced_gemini_ids_do_not_inherit_a_price(self, real_cache, model_id):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price(model_id) is None
+
+
+# $ per 1M tokens, off-peak: input, cache hit, output
+DEEPSEEK_PUBLISHED_RATES = {
+    "deepseek-v4-flash": (0.15, 0.003, 0.60),
+    "deepseek-v4-pro": (0.66, 0.022, 1.98),
+}
+
+
+class TestDeepSeekPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://api-docs.deepseek.com/quick_start/pricing).
+
+    Peak hours cost twice the off-peak rate; the table has no time-of-day
+    pricing, so peak-hour calls record half their cost.
+    """
+
+    @pytest.mark.parametrize("model_name,rates", DEEPSEEK_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+        assert entry["prices"]["cacheWrite"] is None
 
 
 class TestDeepSeekModelIds:
@@ -737,6 +763,15 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("apac.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    # Japan, Australia, and India profiles. Same price row as us/eu/apac/global.
+    # Issue #2938; the India prefix was added on the issue after the report.
+    ("jp.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("au.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("in.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("jp.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("au.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("jp.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+    ("in.anthropic.claude-opus-5", "claude-opus-5"),
     # Bedrock — no CRIS prefix
     ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
@@ -773,6 +808,9 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
+    ("claude-opus-4-1-20250805", "claude-opus-4-1"),
+    ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
+    ("claude-opus-4-1@20250805", "claude-opus-4-1"),
 ]
 
 
@@ -784,8 +822,7 @@ class TestClaudeBedrockAndVertexIds:
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
 
-        expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different family than {expected_name}"
         )
 
@@ -814,15 +851,17 @@ class TestClaudeBedrockAndVertexIds:
     @pytest.mark.parametrize(
         "model_name,rates",
         [
-            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            # input, output, cacheRead, cacheWrite, cacheWrite1h.
             ("claude-fable-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
             # Fable 5.1 / 5.2 read cache at 0.025x input.
             ("claude-fable-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
             ("claude-fable-5-2", (8e-6, 4e-5, 2e-7, 1e-5, 1.6e-5)),
+            # Opus 5.5 and Sonnet 5.5 read cache at 0.05x input.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
             ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-opus-4-1", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
         ],
     )
     def test_published_rates(self, model_name, rates):
@@ -1216,3 +1255,45 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+def test_the_price_check_picks_the_row_the_worker_prices_with(real_cache):
+    # scripts/model_prices repeats get_model_price's row lookup to check the price file,
+    # so both must pick the same row for every kind of ID.
+    from scripts.model_prices.checks import lookup
+
+    ids = [
+        # Exact names, one an earlier row's pattern also matches, and one in another case.
+        "gpt-5.5",
+        "claude-sonnet-5-5",
+        "claude-sonnet-4-5",
+        "gemini-2.5-pro",
+        "GPT-5.5",
+        # Pattern matches: a provider prefix, a date, [1m].
+        "openai/gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-4o-2024-08-06",
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-6[1m]",
+        # Dash spellings of a dotted version, and the reverse.
+        "gpt-5-5",
+        "claude-sonnet-5.5",
+        # IDs other hosts serve a model under.
+        "anthropic/claude-sonnet-4.5",
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "deepseek/deepseek-v4-pro",
+        "eu.anthropic.claude-sonnet-5-5",
+        # An unknown ID.
+        "not-a-model",
+    ]
+    # The worker reads rows ordered by model name.
+    cache = sorted(real_cache, key=lambda entry: entry["model_name"])
+    with patch("worker.tokens.pricing._load_cache", lambda: cache):
+        worker = {
+            model_id: (get_model_price(model_id) or {}).get(MATCHED_MODEL_NAME) for model_id in ids
+        }
+    rows = _standard_price_entries()
+    script = {model_id: (lookup(rows, model_id) or {}).get("modelName") for model_id in ids}
+
+    assert script == worker
+    assert sum(name is not None for name in worker.values()) > len(ids) // 2

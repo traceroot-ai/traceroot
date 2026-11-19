@@ -61,12 +61,12 @@ export function CreateDashboardDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Create Dashboard</DialogTitle>
             <DialogDescription>Create a new dashboard to organize your widgets.</DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-3 py-4">
+          <div className="flex flex-col gap-3">
             <Input
               autoFocus
               maxLength={DASHBOARD_NAME_MAX}

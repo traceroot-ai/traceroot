@@ -55,3 +55,6 @@ export {
   type UsageNotificationState,
   type UsageNotificationDecision,
 } from "./usageNotifications.ts";
+
+// Promo codes: plan-bound Stripe promotion codes (entered on hosted Checkout)
+export { discountsToKeepForPlan } from "./promoCodes.ts";

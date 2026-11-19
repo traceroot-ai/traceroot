@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { signupEmailError } from "@/lib/signup/email-policy";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -30,13 +31,15 @@ vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventM
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
-vi.mock("@/lib/signup/attribution", () => ({
+vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
   signupAttributionProperties: signupAttributionPropertiesMock,
 }));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
-    BETTER_AUTH_URL: "http://localhost:3000",
+    BETTER_AUTH_URL: "https://cloud.example.com",
+    TRACEROOT_CLOUD_ENV: "production",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
@@ -55,6 +58,7 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
   databaseHooks: {
     user: {
       create: {
+        before: (user: { email: string }, context?: { path: string } | null) => Promise<void>;
         after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
       };
     };
@@ -100,6 +104,18 @@ describe("auth options", () => {
     );
   });
 
+  it("enforces the signup email policy through the Cloud auth configuration", async () => {
+    await expect(
+      options.databaseHooks.user.create.before(
+        { email: "a@example.com" },
+        { path: "/sign-up/email" },
+      ),
+    ).rejects.toMatchObject({
+      status: "BAD_REQUEST",
+      body: { code: "EMAIL_DOMAIN_RESERVED" },
+    });
+  });
+
   it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
     const { after } = options.databaseHooks.user.create;
     await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
@@ -133,5 +149,19 @@ describe("auth options with an invalid trusted-proxy value", () => {
     } finally {
       delete process.env.TEST_TRUSTED_PROXY_CIDRS;
     }
+  });
+});
+
+describe("signup email policy boundaries", () => {
+  it.each([
+    ["a@mail.EXAMPLE.COM.", "EMAIL_DOMAIN_RESERVED"],
+    ["a@localhost", "EMAIL_DOMAIN_RESERVED"],
+    ["a@[127.0.0.1]", "EMAIL_DOMAIN_RESERVED"],
+    ["invalid", "EMAIL_DOMAIN_RESERVED"],
+    ['"a@b"@sub.YOPMAIL.COM ', "EMAIL_DOMAIN_DISPOSABLE"],
+    ["a@notmailinator.com", undefined],
+    ["a@mailinator.com.au", undefined],
+  ])("classifies %s as %s", (email, code) => {
+    expect(signupEmailError(email)?.code).toBe(code);
   });
 });

@@ -5,6 +5,17 @@ export interface DetectorRunJob {
   traceId: string;
   detectorIds: string[];
   projectId: string;
+  /** Produced once; persistence retries reuse this Redis-backed result. */
+  result?: DetectorRunResult;
+}
+
+export interface DetectorRunResult {
+  findingId: string;
+  summary: string;
+  payload: string;
+  timestampMs: number;
+  detectors: { id: string; enableSignals: boolean }[];
+  triggered: { detectorId: string; usedInference: boolean; selfTraced: boolean }[];
 }
 
 export interface DetectorRcaFinding {
