@@ -194,6 +194,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gpt-6.2-sol", label: "gpt-6.2-sol" },
     { id: "gpt-6.2-astra", label: "gpt-6.2-astra" },
     { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
+    { id: "gpt-6.1-terra", label: "gpt-6.1-terra" },
     { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-6-sol", label: "gpt-6-sol" },
     { id: "gpt-6-luna", label: "gpt-6-luna" },
@@ -258,6 +259,8 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   ],
   moonshot: [
     { id: "kimi-k3", label: "kimi-k3" },
+    { id: "kimi-k3.1-pro", label: "kimi-k3.1-pro" },
+    { id: "kimi-k3.1-pro-highspeed", label: "kimi-k3.1-pro-highspeed" },
     { id: "kimi-k2.7-code", label: "kimi-k2.7-code" },
     { id: "kimi-k2.7-code-highspeed", label: "kimi-k2.7-code-highspeed" },
     { id: "kimi-k2.6", label: "kimi-k2.6" },
