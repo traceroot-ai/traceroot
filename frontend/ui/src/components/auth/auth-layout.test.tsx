@@ -124,7 +124,7 @@ describe("AuthProviderButton", () => {
 
 describe("AgentIdNote", () => {
   it("keeps its action disabled without a flow and runs it once given one", () => {
-    const { rerender } = render(<AgentIdNote />);
+    const { rerender } = render(<AgentIdNote intent="sign-up" />);
     const action = () =>
       screen.getByRole("button", { name: "Continue with AgentID" }) as HTMLButtonElement;
     expect(action().disabled).toBe(true);
@@ -136,7 +136,7 @@ describe("AgentIdNote", () => {
     ).toBe(action());
     expect(screen.getByTitle("AgentID sign-in isn't available yet").contains(action())).toBe(true);
     const onClick = vi.fn();
-    rerender(<AgentIdNote onClick={onClick} />);
+    rerender(<AgentIdNote intent="sign-up" onClick={onClick} />);
     expect(action().disabled).toBe(false);
     expect(action().getAttribute("aria-describedby")).toBeNull();
     fireEvent.click(action());

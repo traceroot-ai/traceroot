@@ -53,6 +53,34 @@ function fillAndSubmit() {
 }
 
 describe("SignInClient", () => {
+  it("offers sign-up's options in its order: GitHub, Google, the form, then AgentID", () => {
+    render(<SignInClient googleAuthConfigured />);
+    const github = screen.getByRole("button", {
+      name: "Continue with GitHub",
+    }) as HTMLButtonElement;
+    const google = screen.getByRole("button", {
+      name: "Continue with Google",
+    }) as HTMLButtonElement;
+    const agentId = screen.getByRole("button", {
+      name: "Continue with AgentID",
+    }) as HTMLButtonElement;
+    expect([github.disabled, google.disabled, agentId.disabled]).toEqual([true, false, true]);
+    expect(screen.getByText(/Signing in as an AI agent\?/)).toBeTruthy();
+    const order = [github, google, screen.getByRole("button", { name: "Sign in" }), agentId];
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
+  it("leaves Google out when it is not configured and keeps the email form", () => {
+    render(<SignInClient googleAuthConfigured={false} />);
+    expect(screen.queryByRole("button", { name: "Continue with Google" })).toBeNull();
+    expect(screen.getByPlaceholderText("you@example.com")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+  });
+
   it("titles the card with the product name", () => {
     render(<SignInClient googleAuthConfigured={false} />);
     expect(screen.getByRole("heading", { name: "Welcome back" })).toBeTruthy();

@@ -267,39 +267,59 @@ export function AuthDivider({ className }: { className?: string }) {
   );
 }
 
-/** "Continue with Google" followed by the "or" divider that leads into the email form. */
-export function GoogleAuthOption({
-  onClick,
-  isLoading,
-  className,
-  dividerClassName,
-}: {
-  onClick: () => void;
-  isLoading: boolean;
-  /** Merged into the button's classes. */
-  className?: string;
-  /** Merged into the divider's classes, e.g. to change its margins. */
-  dividerClassName?: string;
-}) {
+type GoogleOption = { onClick: () => void; isLoading: boolean };
+
+/**
+ * The provider buttons above the email form, then the "or" divider. Sign-in and
+ * sign-up both render this, so an option is available on both pages or on
+ * neither. GitHub has no sign-in provider yet and stays disabled; Google shows
+ * when its client is configured (`google` is null otherwise).
+ */
+export function AuthProviderOptions({ google }: { google: GoogleOption | null }) {
+  const button = "h-10 gap-[10px] text-[14px]";
   return (
     <>
-      <AuthProviderButton
-        icon={<GoogleLogo />}
-        label="Continue with Google"
-        onClick={onClick}
-        isLoading={isLoading}
-        className={className}
-      />
-      <AuthDivider className={dividerClassName} />
+      <div className="space-y-2">
+        <AuthProviderButton
+          icon={<GitHubLogo />}
+          label="Continue with GitHub"
+          unavailableReason="GitHub sign-in isn't available yet"
+          className={button}
+        />
+        {google && (
+          <AuthProviderButton
+            icon={<GoogleLogo />}
+            label="Continue with Google"
+            onClick={google.onClick}
+            isLoading={google.isLoading}
+            className={button}
+          />
+        )}
+      </div>
+      <AuthDivider className="my-[26.5px]" />
     </>
   );
 }
 
+const AGENTID_PROMPT = {
+  "sign-up": "Signing up an AI agent?",
+  "sign-in": "Signing in as an AI agent?",
+};
+
 /**
- * "Signing up an AI agent? Continue with AgentID", under the sign-up button. Until
- * the AgentID flow is available, `onClick` is left out and the action shows disabled.
+ * "Signing up an AI agent? Continue with AgentID" under the sign-up button, and its
+ * sign-in wording under the sign-in button. Until the AgentID flow is available,
+ * `onClick` is left out and the action shows disabled on both pages.
  */
-export function AgentIdNote({ onClick, className }: { onClick?: () => void; className?: string }) {
+export function AgentIdNote({
+  intent,
+  onClick,
+  className,
+}: {
+  intent: keyof typeof AGENTID_PROMPT;
+  onClick?: () => void;
+  className?: string;
+}) {
   const reasonId = useId();
   const agentIdAction = (
     <button
@@ -315,13 +335,13 @@ export function AgentIdNote({ onClick, className }: { onClick?: () => void; clas
   return (
     <div
       className={cn(
-        "flex min-h-10 flex-wrap items-center justify-center gap-x-[10px] gap-y-1 rounded-[2px] border border-border bg-[#f7fafa] px-3 py-2 text-[13px] leading-4 text-[#35393b] dark:bg-muted dark:text-muted-foreground",
+        "flex min-h-10 items-center justify-center gap-[10px] rounded-[2px] border border-border bg-[#f7fafa] px-3 py-2 text-[13px] leading-4 text-[#35393b] dark:bg-muted dark:text-muted-foreground",
         className,
       )}
     >
       <AgentIdLogo className="h-[17.5px] w-[18px] shrink-0 text-[#0b1015] dark:text-foreground" />
       <span>
-        Signing up an AI agent?{" "}
+        {AGENTID_PROMPT[intent]}{" "}
         {onClick ? (
           agentIdAction
         ) : (

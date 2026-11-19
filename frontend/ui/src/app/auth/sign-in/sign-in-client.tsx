@@ -11,12 +11,13 @@ import { z } from "zod/v3";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  AgentIdNote,
   AuthError,
   AuthField,
   AuthFooter,
   AuthHeader,
   AuthLayout,
-  GoogleAuthOption,
+  AuthProviderOptions,
   PasswordInput,
 } from "@/components/auth/auth-layout";
 
@@ -87,54 +88,68 @@ function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: S
     });
   }
 
+  const field = "h-10 pl-[13px] text-[14px]";
+
   return (
     <AuthLayout>
       <AuthHeader
         title="Welcome back"
         subtitle="Sign in to traceroot to see your traces and agents."
       />
-      {googleAuthConfigured && (
-        <GoogleAuthOption onClick={handleGoogleSignIn} isLoading={isGoogleLoading} />
-      )}
+      <AuthProviderOptions
+        google={
+          googleAuthConfigured ? { onClick: handleGoogleSignIn, isLoading: isGoogleLoading } : null
+        }
+      />
       <div className="space-y-5">
         <AuthError message={error} />
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <AuthField label="Email" error={errors.email?.message}>
-            <Input
-              type="email"
-              placeholder="you@example.com"
-              className="h-8 text-[13px]"
-              {...register("email")}
-            />
-          </AuthField>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <div className="space-y-4">
+            <AuthField label="Email" error={errors.email?.message}>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                autoComplete="email"
+                className={field}
+                {...register("email")}
+              />
+            </AuthField>
 
-          <AuthField
-            label="Password"
-            error={errors.password?.message}
-            action={
-              passwordResetEnabled && (
-                <Link
-                  href="/auth/forgot-password"
-                  className="text-[12px] text-brand hover:underline"
-                >
-                  Forgot?
-                </Link>
-              )
-            }
+            <AuthField
+              label="Password"
+              error={errors.password?.message}
+              action={
+                passwordResetEnabled && (
+                  <Link
+                    href="/auth/forgot-password"
+                    className="text-[12px] text-brand hover:underline"
+                  >
+                    Forgot?
+                  </Link>
+                )
+              }
+            >
+              <PasswordInput
+                placeholder="********"
+                autoComplete="current-password"
+                className={field}
+                {...register("password")}
+              />
+            </AuthField>
+          </div>
+
+          <Button
+            type="submit"
+            size="sm"
+            className="mt-6 h-10 w-full text-[14px] font-[600] text-primary-ink"
+            disabled={isLoading}
           >
-            <PasswordInput
-              placeholder="********"
-              className="h-8 text-[13px]"
-              {...register("password")}
-            />
-          </AuthField>
-
-          <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
             {isLoading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
       </div>
+      <AgentIdNote intent="sign-in" className="mt-4" />
       <AuthFooter>
         Don&apos;t have an account?{" "}
         <Link href={signUpHref} className="font-medium text-brand hover:underline">

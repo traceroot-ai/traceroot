@@ -12,15 +12,12 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   AgentIdNote,
-  AuthDivider,
   AuthError,
   AuthField,
   AuthHeader,
   AuthLayout,
   AuthLegal,
-  AuthProviderButton,
-  GitHubLogo,
-  GoogleLogo,
+  AuthProviderOptions,
   PasswordInput,
 } from "@/components/auth/auth-layout";
 import { signupEmailError } from "@/lib/signup/email-policy";
@@ -132,7 +129,6 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
   }
 
   const field = "h-10 pl-[13px] text-[14px]";
-  const provider = "h-10 gap-[10px] text-[14px]";
 
   return (
     <AuthLayout
@@ -154,25 +150,11 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
         title="Create your account"
         subtitle="Start tracing and improving your AI agents."
       />
-      <div className="space-y-2">
-        {/* No GitHub sign-in provider exists yet (#3030 adds one), so this stays disabled. */}
-        <AuthProviderButton
-          icon={<GitHubLogo />}
-          label="Continue with GitHub"
-          unavailableReason="GitHub sign-in isn't available yet"
-          className={provider}
-        />
-        {googleAuthConfigured && (
-          <AuthProviderButton
-            icon={<GoogleLogo />}
-            label="Continue with Google"
-            onClick={handleGoogleSignUp}
-            isLoading={isGoogleLoading}
-            className={provider}
-          />
-        )}
-      </div>
-      <AuthDivider className="my-[26.5px]" />
+      <AuthProviderOptions
+        google={
+          googleAuthConfigured ? { onClick: handleGoogleSignUp, isLoading: isGoogleLoading } : null
+        }
+      />
       <div className="space-y-5">
         <AuthError message={error} />
 
@@ -217,8 +199,7 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
           </Button>
         </form>
       </div>
-      {/* The AgentID flow (#3031) isn't on this branch yet, so its action stays disabled. */}
-      <AgentIdNote className="mt-4" />
+      <AgentIdNote intent="sign-up" className="mt-4" />
       <AuthLegal className="mt-6" />
     </AuthLayout>
   );
