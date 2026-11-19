@@ -186,7 +186,7 @@ describe("a project's first trace", () => {
     expect(outcomes.map(firstTrace)).toEqual([true, false, false]);
     expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0));
     expect(events("first_trace_received")).toEqual([
-      ["user_sam", "first_trace_received", { project_id: "proj_a", workspace_id: "ws_sam" }],
+      ["user_sam", "first_trace_received", { project_id: "proj_a", workspace_id: "ws_sam" }, at(0)],
     ]);
   });
 
@@ -342,8 +342,10 @@ describe("projects with traces from before reporting started", () => {
     expect(events("first_trace_received")).toEqual([]);
   });
 
-  it("sends it for a first trace after the start, recorded at the store's receive time", async () => {
-    // The report gets through two hours after the trace arrived, after retries.
+  it("sends it for a first trace after the start, at the store's receive time", async () => {
+    // The report gets through two hours after the trace was stored, after retries. The
+    // event is placed at the store's receive time, so a funnel from an earlier step
+    // counts it within its window by that time, not by the report's.
     startedRecording();
     readFirstTraceReceiveTime.mockResolvedValue(at(0, "10:30:00"));
 
@@ -351,7 +353,14 @@ describe("projects with traces from before reporting started", () => {
 
     expect(firstTrace(outcome)).toBe(true);
     expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0, "10:30:00"));
-    expect(events("first_trace_received")).toHaveLength(1);
+    expect(events("first_trace_received")).toEqual([
+      [
+        "user_sam",
+        "first_trace_received",
+        { project_id: "proj_a", workspace_id: "ws_sam" },
+        at(0, "10:30:00"),
+      ],
+    ]);
   });
 
   it("fills a project's time quietly when its report is the first the web app receives", async () => {
@@ -410,6 +419,7 @@ describe("projects with traces from before reporting started", () => {
 
     expect(firstTrace(await recordTraceActivity("proj_a", at(0)))).toBe(true);
     expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0));
+    expect(events("first_trace_received").map(([, , , timestamp]) => timestamp)).toEqual([at(0)]);
   });
 
   it("is looked up only while the project's time is empty", async () => {

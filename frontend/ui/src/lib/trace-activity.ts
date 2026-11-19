@@ -8,7 +8,9 @@
  *
  * - The project's first trace. `first_trace_receive_time` is set only while it is
  *   empty, and `first_trace_received` is sent only by the call whose update filled
- *   it, so a project sends the event once. A project whose earliest stored trace
+ *   it, so a project sends the event once. The event carries the time recorded as
+ *   its timestamp, so a report that gets through hours late, after retries, still
+ *   places it at that time. A project whose earliest stored trace
  *   was received before the worker started reporting (the cutoff it records before
  *   its first report) is not receiving its first: its time is filled from the trace
  *   store without an event (lib/first-trace-backfill.ts). A report that needs the
@@ -82,16 +84,18 @@ export async function recordTraceActivity(
   const ownerId = project.workspace.createdBy ?? (await earliestAdmin(project.workspaceId));
   const properties = { project_id: projectId, workspace_id: project.workspaceId };
 
-  const firstTrace =
-    trackingStart !== null && (await recordFirstTrace(projectId, trackingStart, now));
-  if (firstTrace && ownerId) captureServerEvent(ownerId, "first_trace_received", properties);
+  const firstTraceAt =
+    trackingStart === null ? null : await recordFirstTrace(projectId, trackingStart, now);
+  if (firstTraceAt && ownerId) {
+    captureServerEvent(ownerId, "first_trace_received", properties, firstTraceAt);
+  }
 
   const week = ownerId ? await countFirstWeekDay(ownerId, now) : { counted: false, active: false };
   if (week.active && ownerId) captureServerEvent(ownerId, "active_first_week", properties);
 
   return {
     kind: "recorded",
-    firstTrace,
+    firstTrace: firstTraceAt !== null,
     activeDayCounted: week.counted,
     activeFirstWeek: week.active,
   };
@@ -100,7 +104,8 @@ export async function recordTraceActivity(
 /**
  * Records the project's first trace, unless its earliest stored customer trace was
  * received before `trackingStart`, the cutoff: then that time is filled in quietly.
- * True when this call recorded a new first trace.
+ * Returns the time this call recorded as a new first trace, or null when it recorded
+ * none.
  *
  * The time recorded is the trace store's earliest receive time, so a report that
  * gets through only after retries still records when the trace arrived. A failed
@@ -111,13 +116,14 @@ async function recordFirstTrace(
   projectId: string,
   trackingStart: Date,
   now: Date,
-): Promise<boolean> {
+): Promise<Date | null> {
   const receivedAt = await readFirstTraceReceiveTime(projectId);
   if (receivedAt && receivedAt < trackingStart) {
     await fillFirstTraceReceiveTime(projectId, receivedAt);
-    return false;
+    return null;
   }
-  return markFirstTrace(projectId, receivedAt ?? now);
+  const at = receivedAt ?? now;
+  return (await markFirstTrace(projectId, at)) ? at : null;
 }
 
 /** Fills the project's first-trace time if it is still empty; true when this call filled it. */
