@@ -148,6 +148,18 @@ describe("resolvePiModel", () => {
     expect(() => resolvePiModel("jev-1.13.0", null)).toThrow(/decision model/i);
   });
 
+  it("throws for the OpenAI decision alias on an OpenAI row, but still resolves gpt-6-luna", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(() => resolvePiModel("gpt-6-luna-decisions", cfg)).toThrow(/decision model/i);
+    expect(() => resolvePiModel("gpt-6-luna-decisions", null)).toThrow(/decision model/i);
+    expect(resolvePiModel("gpt-6-luna", cfg).id).toBe("gpt-6-luna");
+  });
+
   it("respects per-model modelProtocols override over adapter default", () => {
     // The escape hatch for OpenAI-compatible proxies that only speak chat completions.
     const cfg: ProviderModelConfig = {
