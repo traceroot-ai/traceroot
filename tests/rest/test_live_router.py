@@ -623,6 +623,56 @@ class TestRetentionGate:
         finally:
             app.dependency_overrides.clear()
 
+    @pytest.mark.parametrize(
+        "earliest_span",
+        [_utcnow_naive() - timedelta(days=1), None],
+        ids=["recent_earliest_span", "no_spans_yet"],
+    )
+    def test_live_stream_200_when_root_missing(self, earliest_span):
+        """A running trace usually has no root stored yet; inside the window, or with
+        no span at all, the live view still streams."""
+
+        async def mock_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="u1",
+                role="ADMIN",
+                workspace_id="ws-test",
+                billing_plan="free",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_access
+
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        try:
+            mock_service = MagicMock()
+            mock_service.get_trace_start_time.return_value = None
+            mock_service.get_trace_earliest_span_time.return_value = earliest_span
+            test_client = TestClient(app)
+            with (
+                patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+                patch(
+                    "rest.routers.live.get_trace_reader_service",
+                    return_value=mock_service,
+                ),
+                patch(
+                    "rest.routers.live._completion_state_in_clickhouse",
+                    return_value=(_utcnow_naive(), _utcnow_naive()),
+                ),
+                patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+            ):
+                resp = test_client.get(ENDPOINT)
+
+            assert resp.status_code == 200
+            events = parse_sse_events(resp.text)
+            assert "event: trace_complete" in events
+            mock_service.get_trace_earliest_span_time.assert_called_once_with(PROJECT_ID, TRACE_ID)
+        finally:
+            app.dependency_overrides.clear()
+
 
 class TestTimezoneAwareTimestamps:
     """ClickHouse's DateTime64 columns here carry no explicit timezone, and

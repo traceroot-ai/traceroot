@@ -569,16 +569,6 @@ class TraceReaderService:
             cache[cache_key] = (now + 3600.0, ts)
         return ts
 
-    def get_customer_trace_earliest_span_time(
-        self, project_id: str, trace_id: str
-    ) -> datetime | None:
-        """The earliest start of any customer span in the trace, or ``None`` if it has none.
-
-        A span stored under an internal source never counts. See
-        ``get_trace_earliest_span_time``.
-        """
-        return self.get_trace_earliest_span_time(project_id, trace_id, customer_only=True)
-
     def get_trace_earliest_span_time(
         self, project_id: str, trace_id: str, *, customer_only: bool = False
     ) -> datetime | None:

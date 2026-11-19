@@ -56,7 +56,7 @@ ALLOW_UNFILTERED_METHODS = {
     ),
     ("rest/services/trace_reader.py", "get_trace_earliest_span_time"): (
         "retention fallback for a rootless trace, scoped by its customer_only flag to "
-        "match the caller's read; get_customer_trace_earliest_span_time passes True"
+        "match the caller's read; the attachment route passes True"
     ),
     ("rest/services/trace_reader.py", "get_trace_spans_io"): (
         "per-span I/O keyed by trace_id; reached through a trace get_trace already scoped"
