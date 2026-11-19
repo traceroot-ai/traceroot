@@ -136,6 +136,9 @@ OPENAI_MODEL_CASES = [
     ("gpt-5-nano", "gpt-5-nano"),
     ("gpt-5-pro", "gpt-5-pro"),
     ("gpt-4.1", "gpt-4.1"),
+    ("gpt-4-1", "gpt-4.1"),
+    ("openai/gpt-4-1", "gpt-4.1"),
+    ("gpt-4-1-2025-04-14", "gpt-4.1"),
     ("gpt-4.1-mini", "gpt-4.1-mini"),
     ("gpt-4.1-nano", "gpt-4.1-nano"),
     ("gpt-4o", "gpt-4o"),
@@ -165,6 +168,12 @@ OPENAI_MODEL_CASES = [
     ("gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-16k-0613"),
     ("davinci-002", "davinci-002"),
     ("babbage-002", "babbage-002"),
+]
+
+# (pattern owner, id it must not absorb): gpt-4.1 spelled with a dash is its own model.
+GPT_4_NON_MATCHES = [
+    ("gpt-4", "gpt-4-1"),
+    ("gpt-4", "openai/gpt-4-1"),
 ]
 
 GLM_MODEL_CASES = [
@@ -311,6 +320,14 @@ class TestOpenAIModelIds:
         assert "input" in price and "output" in price
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    @pytest.mark.parametrize("owner,model_id", GPT_4_NON_MATCHES)
+    def test_gpt_4_pattern_does_not_absorb_gpt_4_1(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
         )
 
     @pytest.mark.parametrize(
