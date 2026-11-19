@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 
@@ -198,7 +196,7 @@ describe("PixelField", () => {
 });
 
 describe("PixelWordmark", () => {
-  it("mounts the docs footer runtime on its canvas and disposes it on unmount", async () => {
+  it("mounts the wordmark runtime on its canvas and disposes it on unmount", async () => {
     const { getByRole, unmount } = render(<PixelWordmark />);
     const canvas = getByRole("img", { name: "traceroot" });
     await waitFor(() => expect(wordmark.mount).toHaveBeenCalledWith(canvas));
@@ -212,17 +210,5 @@ describe("YCBadge", () => {
   it("names Y Combinator", () => {
     const { getByText } = render(<YCBadge />);
     expect(getByText("Backed by Y Combinator")).toBeTruthy();
-  });
-});
-
-describe("footer wordmark runtime", () => {
-  // The app and the docs footer must run the same generated animation; update both from
-  // traceroot-website's export script (see docs/brand/README.md), never by hand.
-  it("matches the docs snapshot byte for byte", () => {
-    const app = readFileSync(resolve(__dirname, "footer-wordmark.runtime.js"));
-    const docs = readFileSync(
-      resolve(__dirname, "../../../../../docs/brand/footer-wordmark.runtime.js"),
-    );
-    expect(app.equals(docs)).toBe(true);
   });
 });

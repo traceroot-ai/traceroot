@@ -323,8 +323,8 @@ const WORDMARK_STYLE = {
 } as CSSProperties;
 
 /**
- * The website's animated pixel "traceroot" wordmark, run by the same generated
- * runtime the docs footer uses (docs/brand/footer-wordmark.runtime.js).
+ * The website's animated pixel "traceroot" wordmark, run by its generated
+ * runtime (footer-wordmark.runtime.js).
  */
 export function PixelWordmark({ className }: { className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
