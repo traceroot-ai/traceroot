@@ -431,6 +431,49 @@ describe("updateAlert", () => {
       });
       expect(current().measure).toBe("unique_user_ids");
     });
+
+    it("refuses a name-only rename of a rule stored with a span_kind or status no span has", async () => {
+      mockAccess();
+      // #2550: the stored dead value blocks any edit, even one that does not
+      // touch the filters — the rename would otherwise save the rule again
+      // with the dead filter still in it.
+      store.set(
+        "alert-1",
+        row({ filters: [{ field: "span_kind", op: "=", value: "GENERATION" }] }),
+      );
+      expect(await update({ name: "Renamed" })).toEqual({
+        ok: false,
+        status: 400,
+        error:
+          '"span_kind" must be one of LLM, AGENT, TOOL, SPAN, DECISION, EVALUATION, TASK, SCORER',
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current().name).toBe(baseRow.name);
+
+      store.set("alert-1", row({ filters: [{ field: "status", op: "=", value: "PENDING" }] }));
+      expect(await update({ name: "Renamed" })).toEqual({
+        ok: false,
+        status: 400,
+        error: '"status" must be one of OK, ERROR',
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current().name).toBe(baseRow.name);
+    });
+
+    it("still renames a rule stored with valid span_kind and status filters", async () => {
+      mockAccess();
+      store.set(
+        "alert-1",
+        row({
+          filters: [
+            { field: "span_kind", op: "=", value: "LLM" },
+            { field: "status", op: "=", value: "ERROR" },
+          ],
+        }),
+      );
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(current().name).toBe("Renamed");
+    });
   });
 
   describe("the merged condition, not the patch alone, is what must be able to fire and clear", () => {
