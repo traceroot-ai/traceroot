@@ -521,9 +521,9 @@ class TraceReaderService:
         """When the project's earliest stored customer span was received.
 
         ``ch_create_time`` is when the ingest worker wrote a span, so its minimum is
-        when the project first received a trace, as far as stored spans go: spans
-        past retention are gone, and for them this is the oldest one kept. Scoped
-        like ``has_traces``.
+        when the project first received a trace, as far as stored spans go. Plan
+        retention narrows reads and deletes nothing, so this ignores it; once spans
+        are deleted, it is the oldest one left. Scoped like ``has_traces``.
 
         Args:
             project_id (str): Project whose customer spans to read.

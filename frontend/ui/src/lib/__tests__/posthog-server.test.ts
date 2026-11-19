@@ -46,6 +46,18 @@ describe("captureServerEvent", () => {
     });
   });
 
+  it("captures an event that happened earlier at the time it happened", async () => {
+    const { captureServerEvent } = await import("../posthog-server");
+    const receivedAt = new Date("2026-11-18T10:30:00Z");
+    captureServerEvent("user-1", "first_trace_received", { project_id: "p1" }, receivedAt);
+    expect(capture).toHaveBeenCalledWith({
+      distinctId: "user-1",
+      event: "first_trace_received",
+      properties: { project_id: "p1" },
+      timestamp: receivedAt,
+    });
+  });
+
   it("logs and swallows a capture error", async () => {
     capture.mockImplementation(() => {
       throw new Error("boom");

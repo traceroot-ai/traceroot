@@ -15,6 +15,12 @@
  * Nothing runs as a separate backfill, on our cloud or on a self-hosted install:
  * a project is filled the first time its first-trace time is read, or the first
  * time the worker reports its traces after the cutoff.
+ *
+ * The time is only as old as the project's oldest stored span. Plan retention
+ * narrows reads and deletes nothing, but a project whose spans are deleted before
+ * its time is filled cannot get the original back, since nothing else keeps it.
+ * With no spans left, its next trace counts as its first: the event is sent and
+ * that trace's time recorded. With some left, it is filled from the oldest one.
  */
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
