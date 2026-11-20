@@ -549,3 +549,9 @@ class TestTraceSummaryEvaluationFlag:
         # ingest flag does not — the trace is NOT an evaluation trace.
         assert summaries[TRACE]["is_evaluation"] is False
         assert summaries[TRACE]["environment"] == ["evaluation"]
+
+    def test_eval_condition_contains_non_string_actual():
+        """contains on a scalar non-string field coerces via str() before matching."""
+        trace_summary = {"error_code": 404}
+        condition = {"field": "error_code", "op": "contains", "value": "40"}
+        assert dt._eval_condition(trace_summary, condition) is True
