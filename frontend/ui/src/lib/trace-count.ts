@@ -7,15 +7,17 @@
  * its earliest admin where `createdBy` is empty; the shared demo workspace is
  * nobody's. Run by the web app's scheduled tick (`POST /api/internal/scheduled-tick`).
  *
- * Overlapping ticks never send a person the count twice in a UTC day. A tick
- * claims the person (`trace_count_claimed_at`) with a conditional write, sends the
- * count and waits for PostHog to accept it, then marks the day done
- * (`trace_count_reported_on`). A claim held by another tick is skipped; one older
- * than the lease belongs to a tick that died, and is taken over. A tick that dies
- * after PostHog accepted the count but before marking the day done has its person
- * sent the same count again by that later tick; setting the property twice is
- * harmless. A send PostHog does not accept gives the claim back and ends the tick,
- * leaving the rest to the next one.
+ * A tick claims each owner (`trace_count_claimed_at`) with a conditional write,
+ * sends the count and waits for PostHog to accept it, then marks the day done
+ * (`trace_count_reported_on`), so overlapping ticks do not both send to the same
+ * person. A claim held by another tick is skipped; one older than the lease
+ * belongs to a tick that died, and is taken over. A send PostHog does not accept
+ * gives the claim back and ends the tick, leaving the rest to the next one.
+ *
+ * The same count can still reach PostHog twice in a day: when a tick dies after
+ * PostHog accepted it but before marking the day done, or when PostHog accepts a
+ * send after the tick stopped waiting for it (below). Setting the property again
+ * to the same value is harmless.
  *
  * A tick sends to at most TRACE_COUNT_BATCH_SIZE people within
  * TRACE_COUNT_TIME_BUDGET_MS, so it answers well inside the caller's timeout; a send
