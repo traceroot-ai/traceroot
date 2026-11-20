@@ -179,8 +179,8 @@ const dayCounted = (outcome: TraceActivityOutcome) =>
 beforeEach(() => {
   for (const table of Object.values(db.tables)) table.length = 0;
   captureServerEvent.mockReset();
-  // By default the store does not show the batch yet, and the report is taken at its word.
-  readFirstTraceReceiveTime.mockReset().mockResolvedValue(null);
+  // By default the store holds the project's first customer span, received at noon on day 0.
+  readFirstTraceReceiveTime.mockReset().mockResolvedValue(at(0));
   db.tables.tracking.push({ id: 1, startedAt: REPORTING_STARTED });
   db.tables.users.push({ id: "user_sam", createdAt: SIGNED_UP });
   db.tables.workspaces.push({ id: "ws_sam", createdBy: "user_sam" });
@@ -531,14 +531,6 @@ describe("projects with traces from before reporting started", () => {
     expect(readFirstTraceReceiveTime).not.toHaveBeenCalled();
   });
 
-  it("records the first trace at the report's time when the store shows none yet", async () => {
-    startedRecording();
-
-    expect(firstTrace(await recordTraceActivity("proj_a", at(0)))).toBe(true);
-    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0));
-    expect(events("first_trace_received").map(([, , , timestamp]) => timestamp)).toEqual([at(0)]);
-  });
-
   it("is looked up only while the project's time is empty", async () => {
     await recordTraceActivity("proj_a", at(0));
     await recordTraceActivity("proj_a", at(0, "13:00:00"));
@@ -557,5 +549,52 @@ describe("projects with traces from before reporting started", () => {
     expect(db.tables.projects[0].firstTraceReceiveTime).toBeNull();
     expect(db.tables.onboarding).toEqual([]);
     expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("a project whose stored traces are all internal", () => {
+  // Detector and agent self-traces are stored under the project with an internal
+  // source, and the trace store's first-trace lookup skips them: for such a project
+  // it shows no customer span.
+  beforeEach(() => {
+    readFirstTraceReceiveTime.mockResolvedValue(null);
+  });
+
+  it("records neither a first trace nor an active day for a report", async () => {
+    const outcome = await recordTraceActivity("proj_a", at(0));
+
+    expect(outcome).toEqual({
+      kind: "recorded",
+      firstTrace: false,
+      activeDayCounted: false,
+      activeFirstWeek: false,
+    });
+    expect(db.tables.projects[0].firstTraceReceiveTime).toBeNull();
+    expect(db.tables.onboarding).toEqual([]);
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("still counts a customer trace that arrives later, at the time it was stored", async () => {
+    await recordTraceActivity("proj_a", at(0, "09:00:00"));
+    // The customer's batch is stored at 10:30; its report gets through at 12:30.
+    readFirstTraceReceiveTime.mockResolvedValue(at(0, "10:30:00"));
+
+    const outcome = await recordTraceActivity("proj_a", at(0, "12:30:00"));
+    await recordTraceActivity("proj_a", at(0, "12:35:00")); // a retry
+
+    expect(outcome).toMatchObject({ firstTrace: true, activeDayCounted: true });
+    expect(db.tables.projects[0].firstTraceReceiveTime).toEqual(at(0, "10:30:00"));
+    expect(events("first_trace_received")).toEqual([
+      [
+        "user_sam",
+        "first_trace_received",
+        { project_id: "proj_a", workspace_id: "ws_sam" },
+        at(0, "10:30:00"),
+      ],
+    ]);
+    expect(db.tables.onboarding[0]).toMatchObject({
+      activeDaysFirstWeek: 1,
+      countedDays: [utcDay(at(0))],
+    });
   });
 });

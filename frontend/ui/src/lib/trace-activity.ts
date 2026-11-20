@@ -16,6 +16,9 @@
  *   store without an event (lib/first-trace-backfill.ts). A report that needs the
  *   cutoff before any is recorded is refused; the worker records its start and
  *   retries.
+ * - Only customer traces count. A report for a project the trace store shows no
+ *   customer trace for (its stored traces, if any, are detector and agent
+ *   self-traces) records neither a first trace nor an active day.
  * - The days in the owner's first week on which traces arrived. The day is the UTC
  *   day the API received the batch, which the worker keeps through queueing and
  *   retries, so a report that arrives after midnight still counts the day before.
@@ -81,19 +84,29 @@ export async function recordTraceActivity(
   if (!project) return { kind: "unknown_project" };
   if (isDemoWorkspace(project.workspaceId)) return { kind: "demo_project" };
 
-  // A first trace is placed against the cutoff, read before anything is written so
-  // that a refused report changes nothing.
-  let trackingStart: Date | null = null;
+  // A first trace is placed against the cutoff and the trace store's earliest customer
+  // span, both read before anything is written so that a refused or failed report
+  // changes nothing.
+  let firstTrace: { receivedAt: Date; trackingStart: Date } | null = null;
   if (!project.firstTraceReceiveTime) {
-    trackingStart = await firstTraceTrackingStart();
+    const trackingStart = await firstTraceTrackingStart();
     if (!trackingStart) return { kind: "tracking_not_started" };
+    // A failed lookup throws, so the worker retries the report rather than guessing.
+    const receivedAt = await readFirstTraceReceiveTime(projectId);
+    // The store shows no customer trace: whatever it holds for the project is internal
+    // (detector and agent self-traces, which the lookup skips). That is neither the
+    // project's first trace nor a day its owner used it. A customer span not visible
+    // yet is recorded by the project's next report, at its stored time.
+    if (!receivedAt) return NOTHING_RECORDED;
+    firstTrace = { receivedAt, trackingStart };
   }
 
   const ownerId = project.workspace.createdBy ?? (await earliestAdmin(project.workspaceId));
   const properties = { project_id: projectId, workspace_id: project.workspaceId };
 
-  const firstTraceAt =
-    trackingStart === null ? null : await recordFirstTrace(projectId, trackingStart, now);
+  const firstTraceAt = firstTrace
+    ? await recordFirstTrace(projectId, firstTrace.receivedAt, firstTrace.trackingStart)
+    : null;
   if (firstTraceAt && ownerId) {
     captureServerEvent(ownerId, "first_trace_received", properties, firstTraceAt);
   }
@@ -111,29 +124,32 @@ export async function recordTraceActivity(
   };
 }
 
+const NOTHING_RECORDED: TraceActivityOutcome = {
+  kind: "recorded",
+  firstTrace: false,
+  activeDayCounted: false,
+  activeFirstWeek: false,
+};
+
 /**
- * Records the project's first trace, unless its earliest stored customer trace was
- * received before `trackingStart`, the cutoff: then that time is filled in quietly.
- * Returns the time this call recorded as a new first trace, or null when it recorded
- * none.
+ * Records the project's first trace at `receivedAt`, the trace store's earliest
+ * customer span, unless that was before `trackingStart`, the cutoff: then the time
+ * is filled in quietly. Returns the time this call recorded as a new first trace, or
+ * null when it recorded none.
  *
- * The time recorded is the trace store's earliest receive time, so a report that
- * gets through only after retries still records when the trace arrived. A failed
- * lookup throws, so the worker retries the report rather than guessing either way.
- * A project the store shows no customer spans for is taken at the worker's word.
+ * The time recorded is the store's, so a report that gets through only after
+ * retries still records when the trace arrived.
  */
 async function recordFirstTrace(
   projectId: string,
+  receivedAt: Date,
   trackingStart: Date,
-  now: Date,
 ): Promise<Date | null> {
-  const receivedAt = await readFirstTraceReceiveTime(projectId);
-  if (receivedAt && receivedAt < trackingStart) {
+  if (receivedAt < trackingStart) {
     await fillFirstTraceReceiveTime(projectId, receivedAt);
     return null;
   }
-  const at = receivedAt ?? now;
-  return (await markFirstTrace(projectId, at)) ? at : null;
+  return (await markFirstTrace(projectId, receivedAt)) ? receivedAt : null;
 }
 
 /** Fills the project's first-trace time if it is still empty; true when this call filled it. */
