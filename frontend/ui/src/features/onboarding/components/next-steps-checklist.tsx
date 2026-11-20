@@ -18,6 +18,8 @@ interface Step {
   description?: string;
   /** Where the title leads while the step is still to do. */
   href?: (projectId: string) => string;
+  /** The title still leads there once the step is done. */
+  linkWhenDone?: boolean;
   action?: { label: string; href: (projectId: string) => string; external?: boolean };
 }
 
@@ -44,6 +46,8 @@ export const NEXT_STEPS: readonly Step[] = [
     optional: true,
     description: "Shows up once a detector finds a pattern",
     href: (projectId) => `/projects/${projectId}/signals`,
+    // Once one has arrived, it is the thing to go and read.
+    linkWhenDone: true,
   },
   {
     id: "eval_run",
@@ -56,8 +60,17 @@ export const NEXT_STEPS: readonly Step[] = [
 /** What this browser remembers for one project: the steps skipped and whether the card is folded. */
 interface Choices {
   skipped: StepId[];
-  /** Absent until the person folds or opens the card themselves. */
+  /**
+   * Folded or opened by the person, while some step is still to do. Absent
+   * until they do either.
+   */
   hidden?: boolean;
+  /**
+   * Opened again after every step left was skipped, to undo a skip: the steps
+   * left at that moment. The card stays open for them; any other set of steps
+   * left, all skipped, folds it again.
+   */
+  reopenedFor?: string;
 }
 
 export const nextStepsStorageKey = (projectId: string) =>
@@ -102,13 +115,22 @@ export function NextStepsChecklist({
   const skipped = new Set(choices.skipped);
   const isLeftSkipped = (ids: Set<StepId>) =>
     NEXT_STEPS.every((step) => done[step.id] || ids.has(step.id));
-  const folded = choices.hidden ?? isLeftSkipped(skipped);
+  // Every step left is skipped, however it got there (the last skip, or the last
+  // required step done): the card folds, and opens again to undo a skip. An
+  // earlier "Show" does not hold it open, because it was about other steps.
+  const settled = isLeftSkipped(skipped);
+  const settledFor = NEXT_STEPS.filter((step) => !done[step.id])
+    .map((step) => step.id)
+    .join(",");
+  const folded = settled ? choices.reopenedFor !== settledFor : (choices.hidden ?? false);
+  const toggle = () =>
+    setChoices(
+      settled
+        ? { ...choices, hidden: !folded, reopenedFor: folded ? settledFor : undefined }
+        : { ...choices, hidden: !folded },
+    );
 
-  const skip = (id: StepId) => {
-    const next = new Set(skipped).add(id);
-    // Skipping the last step left folds the card; it opens again to undo.
-    setChoices({ skipped: [...next], hidden: isLeftSkipped(next) ? true : choices.hidden });
-  };
+  const skip = (id: StepId) => setChoices({ ...choices, skipped: [...new Set(skipped).add(id)] });
   const undo = (id: StepId) =>
     setChoices({ ...choices, skipped: choices.skipped.filter((other) => other !== id) });
 
@@ -122,7 +144,7 @@ export function NextStepsChecklist({
         <button
           type="button"
           aria-expanded={!folded}
-          onClick={() => setChoices({ ...choices, hidden: !folded })}
+          onClick={toggle}
           className="ml-auto text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
           {folded ? "Show" : "Hide"}
@@ -161,10 +183,15 @@ function StepRow({
   onUndo: () => void;
 }) {
   const title =
-    state === "todo" && step.href ? (
+    step.href && (state === "todo" || (state === "done" && step.linkWhenDone)) ? (
       <Link
         href={step.href(projectId)}
-        className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        className={cn(
+          "font-medium",
+          state === "done"
+            ? "text-muted-foreground line-through hover:text-foreground"
+            : "text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground",
+        )}
       >
         {step.title}
       </Link>

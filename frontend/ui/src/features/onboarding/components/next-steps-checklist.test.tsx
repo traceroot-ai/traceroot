@@ -19,10 +19,11 @@ import { EVALS_DOCS_URL, NextStepsChecklist, nextStepsStorageKey } from "./next-
 type Done = { first_trace: boolean; detector: boolean; signal: boolean; eval_run: boolean };
 const NONE: Done = { first_trace: false, detector: false, signal: false, eval_run: false };
 
+let client: QueryClient;
 function renderChecklist(done: Done | Error, { projectId = "proj_1", readOnly = false } = {}) {
   if (done instanceof Error) api.getProjectNextSteps.mockRejectedValue(done);
   else api.getProjectNextSteps.mockResolvedValue(done);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <NextStepsChecklist projectId={projectId} readOnly={readOnly} />
@@ -172,6 +173,52 @@ describe("hiding", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show" }));
     expect(document.querySelectorAll("[data-step]")).toHaveLength(4);
+  });
+});
+
+describe("the signal step, once a signal has arrived", () => {
+  it("is done and still leads to the signals", async () => {
+    renderChecklist({ ...NONE, first_trace: true, detector: true, signal: true });
+    await card();
+
+    expect(row("signal").dataset.state).toBe("done");
+    const title = within(row("signal")).getByRole("link", { name: "Receive your first signal" });
+    expect(title.getAttribute("href")).toBe("/projects/proj_1/signals");
+    expect(title.className).toContain("line-through");
+    // The other done steps stay plain text.
+    expect(within(row("first_trace")).queryByRole("link")).toBeNull();
+  });
+});
+
+describe("hidden and reopened, then the optional steps skipped and the last required one done", () => {
+  it("folds, and still opens to undo a skip", async () => {
+    renderChecklist({ ...NONE, first_trace: true });
+    await card();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(document.querySelectorAll("[data-step]")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(document.querySelectorAll("[data-step]")).toHaveLength(4);
+
+    fireEvent.click(screen.getByRole("button", { name: 'Skip "Create your first detector"' }));
+    fireEvent.click(screen.getByRole("button", { name: 'Skip "Receive your first signal"' }));
+    // The eval is still to do, so the card stays open.
+    expect(document.querySelectorAll("[data-step]")).toHaveLength(4);
+
+    // The project runs its first eval.
+    api.getProjectNextSteps.mockResolvedValue({ ...NONE, first_trace: true, eval_run: true });
+    await client.invalidateQueries({ queryKey: ["project-next-steps", "proj_1"] });
+
+    await waitFor(() => expect(count()).toBe("2 of 4 done"));
+    expect(document.querySelectorAll("[data-step]")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(document.querySelectorAll("[data-step]")).toHaveLength(4);
+    fireEvent.click(
+      screen.getByRole("button", { name: 'Undo skipping "Create your first detector"' }),
+    );
+    expect(row("detector").dataset.state).toBe("todo");
+    expect(screen.getByRole("button", { name: "Hide" })).toBeDefined();
   });
 });
 
