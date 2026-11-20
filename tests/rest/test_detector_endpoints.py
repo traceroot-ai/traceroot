@@ -49,6 +49,19 @@ def client(secret, mock_ch):
     return TestClient(app)
 
 
+@pytest.fixture()
+def trace_reader(monkeypatch):
+    """Patch the trace reader. Its root span has not arrived unless a test sets one.
+
+    With no root span the row timestamp is the only bound, so the start_after tests
+    that don't set one also cover that fallback.
+    """
+    reader = MagicMock()
+    reader.get_trace_start_time.return_value = None
+    monkeypatch.setattr("rest.routers.internal.detectors.get_trace_reader_service", lambda: reader)
+    return reader
+
+
 def _make_query_result(rows: list[tuple], column_names: list[str]) -> MagicMock:
     """Helper: shape ClickHouse-client-style result object."""
     r = MagicMock()
@@ -206,6 +219,7 @@ class TestListDetectorRuns:
 # =============================================================================
 
 
+@pytest.mark.usefixtures("trace_reader")
 class TestListTraceDetectorRuns:
     TS = datetime(2026, 6, 24, 12, 30, 45)
 
@@ -310,7 +324,7 @@ class TestListTraceDetectorRuns:
         assert "r.timestamp >= {start_after:DateTime64(3)}" in sql
         assert params["start_after"] == datetime(2026, 4, 1, 0, 0)
 
-    def test_no_start_after_leaves_query_unbounded(self, client, mock_ch, secret):
+    def test_no_start_after_leaves_query_unbounded(self, client, mock_ch, secret, trace_reader):
         """Omitting start_after adds no run timestamp lower bound to SQL or params."""
         mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
         resp = client.get(
@@ -323,6 +337,35 @@ class TestListTraceDetectorRuns:
         params = mock_ch.query.call_args.kwargs["parameters"]
         assert "start_after" not in sql
         assert "start_after" not in params
+        trace_reader.get_trace_start_time.assert_not_called()
+
+    def test_old_trace_returns_no_runs_without_querying(
+        self, client, mock_ch, secret, trace_reader
+    ):
+        """A trace that started before the cutoff gets no detector runs, even recent ones."""
+        trace_reader.get_trace_start_time.return_value = datetime(2026, 1, 1)
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1", "start_after": "2026-04-01T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"runs": []}
+        mock_ch.query.assert_not_called()
+
+    def test_trace_inside_window_keeps_the_row_bound(self, client, mock_ch, secret, trace_reader):
+        """A trace that started inside the window still runs the runs query, row-bounded."""
+        trace_reader.get_trace_start_time.return_value = datetime(2026, 4, 2)
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1", "start_after": "2026-04-01T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        assert "r.timestamp >= {start_after:DateTime64(3)}" in sql
+        trace_reader.get_trace_start_time.assert_called_once_with("p1", "trace-1")
 
     def test_uses_final_on_both_tables(self, client, mock_ch, secret):
         mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
@@ -467,6 +510,7 @@ class TestWriteDetectorRun:
 # =============================================================================
 
 
+@pytest.mark.usefixtures("trace_reader")
 class TestGetTraceFindings:
     def test_dedups_with_final(self, client, mock_ch, secret):
         ts = datetime(2026, 5, 1, 12, 0, 0)
@@ -505,7 +549,7 @@ class TestGetTraceFindings:
         assert "timestamp >= {start_after:DateTime64(3)}" in sql
         assert params["start_after"] == datetime(2026, 4, 1, 0, 0)
 
-    def test_no_start_after_leaves_query_unbounded(self, client, mock_ch, secret):
+    def test_no_start_after_leaves_query_unbounded(self, client, mock_ch, secret, trace_reader):
         """Omitting start_after (the worker's call) adds no lower bound to SQL or params."""
         mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
         resp = client.get(
@@ -518,6 +562,35 @@ class TestGetTraceFindings:
         params = mock_ch.query.call_args.kwargs["parameters"]
         assert "start_after" not in sql
         assert "start_after" not in params
+        trace_reader.get_trace_start_time.assert_not_called()
+
+    def test_old_trace_returns_no_findings_without_querying(
+        self, client, mock_ch, secret, trace_reader
+    ):
+        """A trace that started before the cutoff gets no findings, even recent ones."""
+        trace_reader.get_trace_start_time.return_value = datetime(2026, 1, 1)
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/findings",
+            params={"project_id": "p1", "start_after": "2026-04-01T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"findings": []}
+        mock_ch.query.assert_not_called()
+
+    def test_trace_inside_window_keeps_the_row_bound(self, client, mock_ch, secret, trace_reader):
+        """A trace that started inside the window still runs the findings query, row-bounded."""
+        trace_reader.get_trace_start_time.return_value = datetime(2026, 4, 2)
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/findings",
+            params={"project_id": "p1", "start_after": "2026-04-01T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        assert "timestamp >= {start_after:DateTime64(3)}" in sql
+        trace_reader.get_trace_start_time.assert_called_once_with("p1", "trace-1")
 
 
 # =============================================================================
