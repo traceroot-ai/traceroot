@@ -37,6 +37,13 @@ vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMoc
 const sendPasswordResetEmailMock = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => undefined),
 );
+// Work handed to Next's after() runs once the response has been sent; the tests
+// hold it here and run it themselves.
+const afterResponse = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => void afterResponse.push(task),
+}));
 vi.mock("@/lib/email/send-password-reset-email", () => ({
   sendPasswordResetEmail: sendPasswordResetEmailMock,
 }));
@@ -191,32 +198,39 @@ describe("auth options", () => {
 });
 
 describe("password reset", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    afterResponse.length = 0;
+  });
 
-  it("emails the reset link better-auth generated", async () => {
+  // Only known emails reach this callback, so any work in it would make their
+  // responses slower than unknown ones.
+  it("prepares and sends nothing until the response has been sent", async () => {
     await options.emailAndPassword.sendResetPassword({
       user: { email: "a@example.com" },
       url: "https://cloud.example.com/api/auth/reset-password/tok",
     });
+    expect(sendPasswordResetEmailMock).not.toHaveBeenCalled();
+    expect(afterResponse).toHaveLength(1);
+
+    await afterResponse[0]!();
     expect(sendPasswordResetEmailMock).toHaveBeenCalledExactlyOnceWith({
       to: "a@example.com",
       resetUrl: "https://cloud.example.com/api/auth/reset-password/tok",
     });
   });
 
-  // An await here would make known emails answer slower than unknown ones.
-  it("resolves before the email is sent and logs a send failure", async () => {
-    let reject!: (error: Error) => void;
-    sendPasswordResetEmailMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(
-      options.emailAndPassword.sendResetPassword({ user: { email: "b@example.com" }, url: "u" }),
-    ).resolves.toBeUndefined();
+  it("logs a failed send", async () => {
     const error = new Error("smtp down");
-    reject(error);
-    await vi.waitFor(() =>
-      expect(spy).toHaveBeenCalledWith("[auth] password reset email failed:", error),
-    );
+    sendPasswordResetEmailMock.mockRejectedValueOnce(error);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "b@example.com" },
+      url: "u",
+    });
+
+    await expect(afterResponse[0]!()).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith("[auth] password reset email failed:", error);
     spy.mockRestore();
   });
 
