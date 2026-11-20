@@ -4,13 +4,8 @@ import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
-import {
-  isWidgetType,
-  WIDGET_TITLE_MAX,
-  WIDGET_TYPES,
-  WidgetSpecSchema,
-} from "@/features/dashboards/types";
-import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
+import { isWidgetType, WIDGET_TITLE_MAX, WIDGET_TYPES } from "@/features/dashboards/types";
+import { parseWidgetSpec } from "@/lib/write-services/dashboards";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -50,21 +45,12 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
   // A query spec the schema can't read, or that names fields the registry
   // doesn't know, stores fine and then fails at query time forever, with no UI
   // path to repair it. Refuse both and store the parsed spec (defaults filled,
-  // undeclared keys dropped), as parseWidgetSpec does on the API/agent path.
+  // undeclared keys dropped), through the same check the API/agent path uses.
   let storedSpec = spec as object;
   if (type === "query") {
-    const parsedSpec = WidgetSpecSchema.safeParse(spec);
-    if (!parsedSpec.success) {
-      const issue = parsedSpec.error.issues[0];
-      const path = issue.path.join(".");
-      return errorResponse(
-        `spec is not a valid widget spec: ${path ? `${path}: ` : ""}${issue.message}`,
-        400,
-      );
-    }
-    const vocabulary = validateWidgetSpecVocabulary(parsedSpec.data);
-    if (!vocabulary.ok) return errorResponse(vocabulary.error, 400);
-    storedSpec = parsedSpec.data;
+    const parsedSpec = parseWidgetSpec(type, spec as Record<string, unknown>);
+    if (!parsedSpec.ok) return errorResponse(parsedSpec.error, 400);
+    storedSpec = parsedSpec.spec;
   }
 
   // The widget row and its grid placement land together — a widget with no
