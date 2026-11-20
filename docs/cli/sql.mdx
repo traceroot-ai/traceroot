@@ -144,7 +144,7 @@ The gateway rejects:
 - `FINAL`, `SETTINGS`, and `FORMAT` clauses;
 - any reference or alias named `project_id`;
 - a CTE named `spans` or `traces`;
-- a `WHERE` that filters on a time column in any other form than a direct comparison with a constant (`>=`, `>`, `<`, `<=`, `=`, or `BETWEEN`), joined to the rest of the clause by `AND`; and
+- a `WHERE` that filters on `span_start_time` or `trace_start_time` in any other form than a direct comparison with a constant (`>=`, `>`, `<`, `<=`, `=`, or `BETWEEN`), joined to the rest of the clause by `AND`; and
 - parameter names `project_id` or beginning with `scope_`, which are reserved for server-side scoping.
 
 Queries are limited to 65,536 characters. A request can bind at most 100 parameters, whose serialized JSON is limited to 16,384 characters.
