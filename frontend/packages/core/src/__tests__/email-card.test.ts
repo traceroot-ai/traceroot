@@ -35,6 +35,15 @@ describe("renderEmailCard", () => {
     expect(html).toContain('alt="TraceRoot"');
   });
 
+  it("sizes the logo by its height, so a wordmark keeps its proportions", () => {
+    const logo = renderEmailCard(params).match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+
+    // A fixed width as well would stretch any logo that is not exactly 127:24.
+    expect(logo).toMatch(/style="[^"]*height: 24px; width: auto;/);
+    // Outlook ignores that CSS and sizes the image from these.
+    expect(logo).toContain('width="127" height="24"');
+  });
+
   it("places the body rows between the title and the button", () => {
     const html = renderEmailCard(params);
     const titleAt = html.indexOf("Card title");

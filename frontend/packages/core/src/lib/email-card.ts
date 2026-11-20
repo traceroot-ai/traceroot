@@ -15,8 +15,9 @@
 
 /**
  * Hosted PNG of the wordmark (mark + "traceroot"); mail clients drop SVG.
- * NEXT_PUBLIC_LOGO_URL overrides it and is rendered at 127x24, so an override
- * must be wordmark-shaped (about 5.3:1), not the square icon.
+ * NEXT_PUBLIC_LOGO_URL overrides it. The logo is 24px tall and keeps its own
+ * proportions in clients that read CSS; Outlook sizes it from the 127x24
+ * attributes, so an override should still be wordmark-shaped (about 5.3:1).
  */
 export const EMAIL_LOGO_URL =
   process.env.NEXT_PUBLIC_LOGO_URL ||
@@ -89,7 +90,7 @@ export function renderEmailCard(params: {
       <!-- Logo section -->
       <tr>
         <td style="padding: 32px 40px 0 40px;">
-          <img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="127" height="24" style="display: block; border: 0; height: 24px; width: 127px;" />
+          <img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="127" height="24" style="display: block; border: 0; height: 24px; width: auto; max-width: 100%;" />
         </td>
       </tr>
 
