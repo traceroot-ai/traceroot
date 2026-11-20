@@ -16,6 +16,8 @@ import { Logo } from "@/components/Logo";
 import { signupEmailError } from "@/lib/signup/email-policy";
 import type { SocialProvider } from "@/lib/social-providers";
 import { SocialSignInButtons } from "../social-sign-in-buttons";
+import { ClientVerifiedBy, UnverifiedClientNotice } from "@/features/oauth-connect";
+import { CONTINUE_PATH, type OAuthClientDisplay } from "@/lib/oauth/client-display";
 
 const signUpSchema = z
   .object({
@@ -38,6 +40,8 @@ type SignUpForm = z.infer<typeof signUpSchema>;
 type SignUpClientProps = {
   socialProviders: SocialProvider[];
   emailDomainPolicyEnabled: boolean;
+  // Set when this sign-up is part of connecting an assistant (lib/oauth/client-display).
+  connection?: OAuthClientDisplay | null;
 };
 
 // A brand-new account always finishes at onboarding. The one thing that can
@@ -68,14 +72,20 @@ function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a
   // new account into the device-authorization flow.
+  // An assistant's authorization (CONTINUE_PATH) waits the same way: a new
+  // account sets up its first project, then picks it for the assistant.
   const [path] = callbackUrl.split("?");
-  if (path !== "/device") {
+  if (path !== "/device" && path !== CONTINUE_PATH) {
     return "/onboarding";
   }
   return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClientProps) {
+function SignUpContent({
+  socialProviders,
+  emailDomainPolicyEnabled,
+  connection = null,
+}: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -129,9 +139,14 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
+          <CardTitle className="text-[15px] font-medium">
+            {connection ? `Create an account to connect ${connection.name}` : "Create your account"}
+          </CardTitle>
+          <ClientVerifiedBy client={connection} />
         </CardHeader>
         <CardContent className="space-y-5">
+          <UnverifiedClientNotice client={connection} />
+
           {error && (
             <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
               {error}

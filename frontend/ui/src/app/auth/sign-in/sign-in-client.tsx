@@ -15,6 +15,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import type { SocialProvider } from "@/lib/social-providers";
 import { SocialSignInButtons } from "../social-sign-in-buttons";
+import { ClientVerifiedBy, UnverifiedClientNotice } from "@/features/oauth-connect";
+import type { OAuthClientDisplay } from "@/lib/oauth/client-display";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -25,9 +27,11 @@ type SignInForm = z.infer<typeof signInSchema>;
 
 type SignInContentProps = {
   socialProviders: SocialProvider[];
+  // Set when this sign-in is part of connecting an assistant (lib/oauth/client-display).
+  connection?: OAuthClientDisplay | null;
 };
 
-function SignInContent({ socialProviders }: SignInContentProps) {
+function SignInContent({ socialProviders, connection = null }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -80,9 +84,14 @@ function SignInContent({ socialProviders }: SignInContentProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-[15px] font-medium">Sign in to traceroot</CardTitle>
+          <CardTitle className="text-[15px] font-medium">
+            {connection ? `Sign in to connect ${connection.name}` : "Sign in to traceroot"}
+          </CardTitle>
+          <ClientVerifiedBy client={connection} />
         </CardHeader>
         <CardContent className="space-y-5">
+          <UnverifiedClientNotice client={connection} />
+
           {error && (
             <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
               {error}
@@ -148,10 +157,10 @@ function SignInContent({ socialProviders }: SignInContentProps) {
   );
 }
 
-export function SignInClient({ socialProviders }: SignInContentProps) {
+export function SignInClient({ socialProviders, connection }: SignInContentProps) {
   return (
     <Suspense>
-      <SignInContent socialProviders={socialProviders} />
+      <SignInContent socialProviders={socialProviders} connection={connection} />
     </Suspense>
   );
 }

@@ -1,13 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { LoadingState } from "@/components/ui/loading-state";
+import { MCP_DOCS_URL } from "@/features/oauth-connect";
 import { formatRelativeTime } from "@/lib/utils";
 
 interface Connection {
   id: string;
   clientName: string;
+  // The host that vouches for the assistant; null when it registered itself.
+  verifiedHost?: string | null;
   projectId: string | null;
   projectName: string | null;
   createdAt: string;
@@ -30,9 +42,10 @@ async function disconnect(id: string): Promise<void> {
 
 // The assistants (Claude, ChatGPT and others) this user has connected to a
 // project with a sign-in. Disconnecting removes the grant and its tokens; the
-// assistant loses access on its next call.
+// assistant loses access on its next call, so it asks first.
 export function ConnectedAssistants() {
   const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState<Connection | null>(null);
   const query = useQuery({
     queryKey: QUERY_KEY,
     queryFn: listConnections,
@@ -42,17 +55,19 @@ export function ConnectedAssistants() {
   const remove = useMutation({
     mutationFn: disconnect,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+    onSettled: () => setConfirming(null),
   });
   const connections = query.data ?? [];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Connected assistants</h2>
-        <p className="text-sm text-muted-foreground">
-          Assistants you have allowed to read a project&apos;s data. Each can read one project and
-          cannot change anything. Disconnect one to cut its access at once.
-        </p>
+      <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 className="text-[15px] font-medium">Connected assistants</h2>
+          <p className="truncate text-sm text-muted-foreground">
+            Assistants with read-only access to one of your projects.
+          </p>
+        </div>
       </div>
 
       {remove.error && (
@@ -61,7 +76,7 @@ export function ConnectedAssistants() {
         </p>
       )}
 
-      <div className="border">
+      <div className="overflow-x-auto border">
         {query.isLoading ? (
           <div className="px-3 py-4">
             <LoadingState label="Loading connections..." />
@@ -72,28 +87,45 @@ export function ConnectedAssistants() {
           </div>
         ) : connections.length === 0 ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">
-            No assistants are connected.
+            <span>No assistants are connected.</span>{" "}
+            <a
+              href={MCP_DOCS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-foreground"
+            >
+              Set up the MCP server
+            </a>{" "}
+            in Claude, ChatGPT, Cursor or another assistant to let it read a project.
           </div>
         ) : (
-          <table className="w-full text-[13px]">
+          <table className="data-table w-full">
             <thead>
-              <tr className="border-b bg-muted/30 text-left">
+              <tr className="border-b text-left">
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
                   Assistant
                 </th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Project</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  Verified by
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
                   Connected
                 </th>
-                <th className="w-28 px-3 py-2" />
+                <th className="w-28 px-3 py-2 text-[12px] font-medium text-muted-foreground" />
               </tr>
             </thead>
             <tbody>
               {connections.map((connection) => (
-                <tr key={connection.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                <tr key={connection.id} className="border-b last:border-b-0 hover:bg-muted">
                   <td className="px-3 py-2">{connection.clientName}</td>
+                  <td className="px-3 py-2">
+                    {connection.projectName ?? (
+                      <span className="text-muted-foreground">Deleted project</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {connection.projectName ?? "A project that no longer exists"}
+                    {connection.verifiedHost ?? "Self-registered"}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {formatRelativeTime(connection.createdAt)}
@@ -103,12 +135,12 @@ export function ConnectedAssistants() {
                       variant="outline"
                       size="sm"
                       className="h-7 text-[12px]"
-                      onClick={() => remove.mutate(connection.id)}
-                      disabled={remove.isPending && remove.variables === connection.id}
+                      onClick={() => {
+                        remove.reset();
+                        setConfirming(connection);
+                      }}
                     >
-                      {remove.isPending && remove.variables === connection.id
-                        ? "Disconnecting..."
-                        : "Disconnect"}
+                      Disconnect
                     </Button>
                   </td>
                 </tr>
@@ -117,6 +149,43 @@ export function ConnectedAssistants() {
           </table>
         )}
       </div>
+
+      <Dialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open && !remove.isPending) setConfirming(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Disconnect {confirming?.clientName}</DialogTitle>
+          </DialogHeader>
+          <DialogDescription>
+            {confirming?.clientName} loses access to{" "}
+            <span className="font-medium text-foreground">
+              {confirming?.projectName ?? "this project"}
+            </span>{" "}
+            on its next request, and its tokens are deleted. To use it again, connect it from the
+            assistant.
+          </DialogDescription>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirming(null)}
+              disabled={remove.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => confirming && remove.mutate(confirming.id)}
+              disabled={remove.isPending}
+            >
+              {remove.isPending ? "Disconnecting..." : "Disconnect"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
