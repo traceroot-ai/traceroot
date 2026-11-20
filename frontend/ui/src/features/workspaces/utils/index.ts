@@ -42,3 +42,14 @@ export function workspaceSwitchHref(pathname: string, targetWorkspaceId: string)
   if (!match) return `/workspaces/${targetWorkspaceId}/projects`;
   return `/workspaces/${targetWorkspaceId}/${match[1]}`;
 }
+
+/**
+ * A viewer of the public demo workspace: a member below ADMIN (every visitor,
+ * not our team). The client-side twin of isDemoViewer in lib/demo-workspace;
+ * the API routes stay the real check.
+ */
+export function isDemoWorkspaceViewer(
+  workspace: { is_demo?: boolean; role?: string } | undefined,
+): boolean {
+  return !!workspace?.is_demo && workspace.role !== Role.ADMIN;
+}

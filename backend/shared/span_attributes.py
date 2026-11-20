@@ -45,7 +45,10 @@ TRUNCATED = "traceroot.truncated"
 CAPTURE_BUDGET_EXCEEDED = "traceroot.capture_budget_exceeded"
 """Set by a sender that withheld this span's content: the run's capture budget was spent."""
 
-CAPTURE_MARKER_ATTRIBUTES = (TRUNCATED, CAPTURE_BUDGET_EXCEEDED)
+REDACTED = "traceroot.redacted"
+"""Set by an SDK whose redaction function ran on this span before export."""
+
+CAPTURE_MARKER_ATTRIBUTES = (TRUNCATED, CAPTURE_BUDGET_EXCEEDED, REDACTED)
 """Why a span's recorded content is not the whole of it — preserved into `metadata`.
 
 Ingest keeps these next to a span's user metadata for the same reason it keeps

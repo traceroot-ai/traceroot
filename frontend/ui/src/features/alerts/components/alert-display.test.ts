@@ -30,19 +30,19 @@ describe("resolveAlertDisplayState", () => {
 
     expect(badge("OK")).toEqual({ label: "OK", tone: "ok" });
     expect(badge("ALERT")).toEqual({ label: "Alert", tone: "alert" });
-    expect(badge("NO_DATA")).toEqual({ label: "No Data", tone: "warning" });
-    expect(badge("UNKNOWN")).toEqual({ label: "No Data", tone: "warning" });
+    expect(badge("NO_DATA")).toEqual({ label: "No data", tone: "warning" });
+    expect(badge("UNKNOWN")).toEqual({ label: "No data", tone: "warning" });
   });
 
   it("waits for a first check only when the row says the rule has never run", () => {
     const waiting = stateOf({ severity: "UNKNOWN", lastEvaluatedAt: null });
 
-    expect(waiting.label).toBe("No Data");
+    expect(waiting.label).toBe("No data");
     expect(waiting.tone).toBe("warning");
     expect(waiting.detail).toContain("has not run yet");
 
     // An omitted timestamp is not the claim that the rule never ran.
-    expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No Data");
+    expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No data");
   });
 
   it("ranks Parked over Paused, Paused over Failing, and Failing over a rule that has never run", () => {

@@ -22,7 +22,7 @@ import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./preview-constants";
 
 function Note({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
-    <div className="p-2 text-[11px] text-muted-foreground" title={title}>
+    <div className="p-2 text-[12px] text-muted-foreground" title={title}>
       {children}
     </div>
   );

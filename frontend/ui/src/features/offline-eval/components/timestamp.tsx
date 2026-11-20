@@ -14,7 +14,11 @@ import { formatStamp } from "../utils";
  */
 export function Timestamp({ iso, className }: { iso: string; className?: string }) {
   return (
-    <time dateTime={iso} suppressHydrationWarning className={cn("whitespace-nowrap", className)}>
+    <time
+      dateTime={iso}
+      suppressHydrationWarning
+      className={cn("whitespace-nowrap tabular-nums", className)}
+    >
       {formatStamp(iso)}
     </time>
   );

@@ -8,13 +8,16 @@ afterEach(() => {
   cleanup();
 });
 
-const renderDialog = (overrides: { isOpen?: boolean; isDeleting?: boolean } = {}) => {
+const renderDialog = (
+  overrides: { isOpen?: boolean; isDeleting?: boolean; hasOpenPage?: boolean } = {},
+) => {
   const onClose = vi.fn();
   const onConfirm = vi.fn();
 
   render(
     <DeleteAlertDialog
       alertName="P95 latency"
+      hasOpenPage={overrides.hasOpenPage}
       isOpen={overrides.isOpen ?? true}
       onClose={onClose}
       onConfirm={onConfirm}
@@ -33,6 +36,17 @@ describe("DeleteAlertDialog", () => {
     expect(text).toContain("P95 latency");
     expect(text).toContain("Evaluation and notifications stop immediately");
     expect(text).toContain("cannot be undone");
+  });
+
+  it("says an open alert will be closed in Slack, and says nothing when none is open", () => {
+    renderDialog({ hasOpenPage: true });
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "This alert is open. Deleting it will close it and post an [OK] to Slack.",
+    );
+    cleanup();
+
+    renderDialog({ hasOpenPage: false });
+    expect(screen.getByRole("dialog").textContent).not.toContain("This alert is open");
   });
 
   it("confirms once the alert's name is typed", () => {

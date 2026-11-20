@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import type { SocialProvider } from "@/lib/social-providers";
+import { SocialSignInButtons } from "../social-sign-in-buttons";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -22,10 +24,10 @@ const signInSchema = z.object({
 type SignInForm = z.infer<typeof signInSchema>;
 
 type SignInContentProps = {
-  googleAuthConfigured: boolean;
+  socialProviders: SocialProvider[];
 };
 
-function SignInContent({ googleAuthConfigured }: SignInContentProps) {
+function SignInContent({ socialProviders }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -39,7 +41,6 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
@@ -72,14 +73,6 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
     }
   }
 
-  async function handleGoogleSignIn() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: callbackUrl,
-    });
-  }
-
   return (
     <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
@@ -87,11 +80,11 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Sign in to product</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Sign in to traceroot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
-            <div className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
               {error}
             </div>
           )}
@@ -106,7 +99,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
               )}
             </div>
 
@@ -128,7 +121,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
               )}
             </div>
 
@@ -137,32 +130,15 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
             </Button>
           </form>
 
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[11px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignIn}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
+          <SocialSignInButtons
+            providers={socialProviders}
+            callbackURL={callbackUrl}
+            onError={setError}
+          />
 
           <p className="text-center text-[12px] text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href={signUpHref} className="font-medium text-primary hover:underline">
+            <Link href={signUpHref} className="font-medium text-brand hover:underline">
               Sign up
             </Link>
           </p>
@@ -172,10 +148,10 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   );
 }
 
-export function SignInClient({ googleAuthConfigured }: SignInContentProps) {
+export function SignInClient({ socialProviders }: SignInContentProps) {
   return (
     <Suspense>
-      <SignInContent googleAuthConfigured={googleAuthConfigured} />
+      <SignInContent socialProviders={socialProviders} />
     </Suspense>
   );
 }

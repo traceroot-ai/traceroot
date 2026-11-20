@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, CompleteRunRequestSchema } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import { mergeScorerManifests, scorerManifestsEqual } from "@/lib/eval/metrics";
 
 type RouteParams = { params: Promise<{ runId: string }> };
@@ -17,7 +17,7 @@ type RouteParams = { params: Promise<{ runId: string }> };
 // Completion is one-way and idempotent: a replay keeps the completion timestamp the first
 // call stamped, and a finished run cannot be moved back to running.
 export async function POST(request: Request, { params }: RouteParams) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
   const { runId } = await params;

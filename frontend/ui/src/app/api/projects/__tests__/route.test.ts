@@ -23,7 +23,10 @@ vi.mock("@traceroot/core", () => ({
 describe("GET /api/projects/[projectId]", () => {
   it("includes rca_provider and rca_source in response", async () => {
     mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
-    mockRequireProjectAccess.mockResolvedValue({ error: null });
+    mockRequireProjectAccess.mockResolvedValue({
+      project: { id: "p1", workspaceId: "ws1" },
+      membership: { workspaceId: "ws1", role: "MEMBER" },
+    });
     mockFindFirst.mockResolvedValue({
       id: "p1",
       workspaceId: "ws1",

@@ -7,6 +7,7 @@ import {
   requireWorkspaceMembership,
   successResponse,
 } from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 
 // GET /api/github/status?workspaceId=...
 // Returns the workspace's GitHub App installations.
@@ -22,6 +23,9 @@ async function handleGET(request: NextRequest) {
 
   const memberCheck = await requireWorkspaceMembership(user.id, workspaceId);
   if (memberCheck.error) return memberCheck.error;
+  if (isDemoViewer(workspaceId, memberCheck.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const installations = await prisma.gitHubInstallation.findMany({
     where: { workspaceId },

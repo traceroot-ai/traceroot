@@ -3195,6 +3195,12 @@
             "title": "Workspace Id",
             "type": "string"
           },
+          "workspace_is_demo": {
+            "default": false,
+            "description": "True when the project is in the public demo workspace.",
+            "title": "Workspace Is Demo",
+            "type": "boolean"
+          },
           "workspace_name": {
             "title": "Workspace Name",
             "type": "string"
@@ -3588,6 +3594,27 @@
           "data"
         ],
         "title": "PublicProjectListResponse",
+        "type": "object"
+      },
+      "PublicSignalListResponse": {
+        "description": "Paginated list of the project's signals for the public API (newest first).",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SignalSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicSignalListResponse",
         "type": "object"
       },
       "PublicTestCase": {
@@ -5147,6 +5174,368 @@
         "title": "SessionTraceItem",
         "type": "object"
       },
+      "SignalDetail": {
+        "description": "One signal, including when it was resolved, whether it was merged and the\ntraces it hit most recently.\n\nA merged signal is still answered, with ``merged_into_id`` naming the signal\nits findings moved to; lists leave merged signals out. ``recent_hits`` holds\nup to 20 hits, latest trace start first, whose trace started inside the\nplan's retention window, so each ``trace_id`` can be fetched.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Name"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "merged_into_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged Into Id"
+          },
+          "rca_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rca State"
+          },
+          "recent_hits": {
+            "items": {
+              "$ref": "#/components/schemas/SignalHit"
+            },
+            "title": "Recent Hits",
+            "type": "array"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "detector_id",
+          "detector_name",
+          "title",
+          "status",
+          "hit_count",
+          "reopen_count",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at",
+          "resolved_at",
+          "merged_into_id",
+          "recent_hits"
+        ],
+        "title": "SignalDetail",
+        "type": "object"
+      },
+      "SignalHit": {
+        "description": "One trace a signal hit, with the finding its detector produced on it.\n\n``trace_start_time`` is when the trace started: the time the hits are sorted\nand bounded on, and the one ``GET /api/v1/public/traces/{trace_id}`` checks\nagainst the retention window.",
+        "properties": {
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "trace_start_time": {
+            "format": "date-time",
+            "title": "Trace Start Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "finding_id",
+          "trace_start_time"
+        ],
+        "title": "SignalHit",
+        "type": "object"
+      },
+      "SignalStatusRequest": {
+        "additionalProperties": false,
+        "description": "Body for resolving or reopening a signal.\n\nOnly ``resolved`` and ``open`` are settable here. A dismissed signal never\nreopens on a new finding, so dismissing stays a decision a person makes in\nthe web app. Resolving needs a ``reason``; the reason ``other`` also needs\na ``note``. The write service is the single validator of those rules.",
+        "properties": {
+          "expected_status": {
+            "description": "The status the caller last read. When the signal's current status differs, nothing is written and the answer is a 409.",
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Expected Status",
+            "type": "string"
+          },
+          "note": {
+            "description": "A free-text note; required when reason is \"other\"",
+            "maxLength": 4000,
+            "title": "Note",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the signal is resolved; required when status is \"resolved\"",
+            "enum": [
+              "fixed_elsewhere",
+              "fixed_by_pr",
+              "already_fixed_before",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "resolved",
+              "open"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "status"
+        ],
+        "title": "SignalStatusRequest",
+        "type": "object"
+      },
+      "SignalStatusResponse": {
+        "description": "The signal after the write. ``changed`` is empty when it already had that status.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "signal": {
+            "$ref": "#/components/schemas/SignalStatusRow"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "signal"
+        ],
+        "title": "SignalStatusResponse",
+        "type": "object"
+      },
+      "SignalStatusRow": {
+        "description": "A signal as the status write returns it.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "date-time",
+            "title": "Resolved At"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "project_id",
+          "detector_id",
+          "title",
+          "status",
+          "resolved_at",
+          "reopen_count"
+        ],
+        "title": "SignalStatusRow",
+        "type": "object"
+      },
+      "SignalSummary": {
+        "description": "A signal: a recurring problem that one detector's findings are grouped into.\n\n``reopen_count`` counts the automatic reopens (a new finding after the\nsignal was resolved). ``rca_state`` is the state of the root cause analysis\nof the current opening, null when none ran for it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Name"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "rca_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rca State"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "detector_id",
+          "detector_name",
+          "title",
+          "status",
+          "hit_count",
+          "reopen_count",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at"
+        ],
+        "title": "SignalSummary",
+        "type": "object"
+      },
       "SpanResponse": {
         "description": "A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).\n\nThe projection-capable superset returned by the trace get/export endpoints.\nThe blobs default to ``None`` and are populated only when the caller requests\nthe matching field group (``io``/``metadata``; see\n``rest.projection``). The default ``skeleton`` projection leaves them ``None``\nand never runs the bulk span-I/O query, so there is no payload or query-cost\nregression for the dashboard. Keeping the fields present (as ``null``) rather\nthan omitting them is additive: a few bytes per span, and it matches the\nfields the shipped CLI's generated types already declare.\n\nOne internal-only exception: the dashboard's trace-detail read leaves a small\nSDK span-path subset in ``metadata`` on the skeleton, which it needs to\nrebuild the tree of an in-flight trace. The public routes drop it (see\n``rest.projection.drop_span_tree_metadata``), so for API clients the contract\nabove holds exactly: ``metadata`` is ``null`` unless requested.",
         "properties": {
@@ -5372,7 +5761,7 @@
         "type": "object"
       },
       "SqlColumn": {
-        "description": "One column of a result, named and typed as ClickHouse reported it.",
+        "description": "One column of a result, named and typed as ClickHouse reported it.\n\nA result with no rows carries no metadata from the driver, so the service\nasks the server to describe the statement it just ran. Either way the name\nand the type are the server's own, so neither is ever absent.",
         "properties": {
           "name": {
             "title": "Name",
@@ -6701,7 +7090,7 @@
         "type": "object"
       },
       "WhoamiResponse": {
-        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.",
+        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.\n\n``key_scope`` is the exception to the nullability above, deliberately. A\nholder asking what their key may do needs an answer, not a maybe: a null\nwould have to be handled by every caller and would mean the same thing the\nnarrow scope already means. It is a closed set of values rather than a free\nstring so a client can exhaust it.",
         "properties": {
           "host": {
             "title": "Host",
@@ -6728,6 +7117,14 @@
               }
             ],
             "title": "Key Name"
+          },
+          "key_scope": {
+            "enum": [
+              "ingest",
+              "admin"
+            ],
+            "title": "Key Scope",
+            "type": "string"
           },
           "project_id": {
             "title": "Project Id",
@@ -6771,6 +7168,7 @@
           "workspace_name",
           "key_name",
           "key_hint",
+          "key_scope",
           "host",
           "ui_base_url"
         ],
@@ -7272,6 +7670,12 @@
             "title": "Id",
             "type": "string"
           },
+          "is_demo": {
+            "default": false,
+            "description": "True for the public demo workspace, which every user can read. It is listed last and is not one of the user's own workspaces.",
+            "title": "Is Demo",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -7449,6 +7853,12 @@
         "tags": [
           "Alerts"
         ],
+        "x-mint": {
+          "content": "Alerts are ordered oldest first.",
+          "metadata": {
+            "description": "List the threshold alerts in a traceroot project with each alert's rule summary, status, and current severity, plus the project's alert capacity."
+          }
+        },
         "x-tool": {
           "description": "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name \u2014 never guess an alert id.",
           "enabled": true,
@@ -7559,6 +7969,12 @@
         "tags": [
           "Alerts"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.\n\nEach call creates a new alert, even when its name matches an existing one.",
+          "metadata": {
+            "description": "Create a threshold alert in a traceroot project: a span measure aggregated over a time window and compared against a threshold you set."
+          }
+        },
         "x-tool": {
           "description": "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
           "enabled": true,
@@ -7691,6 +8107,12 @@
         "tags": [
           "Alerts"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Permanently delete a threshold alert from a traceroot project. An open page is discarded rather than resolved, and the response reports it."
+          }
+        },
         "x-tool": {
           "description": "Permanently delete an alert. An open page is discarded, not resolved (the response says when one was). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's alerts and matching the name; never delete more than the user named.",
           "enabled": true,
@@ -7795,6 +8217,11 @@
         "tags": [
           "Alerts"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch one traceroot alert by id with its full rule: view, measure, aggregation, filters, window, threshold, and current evaluation state."
+          }
+        },
         "x-tool": {
           "description": "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name \u2014 never guess an id.",
           "enabled": true,
@@ -7906,6 +8333,12 @@
         "tags": [
           "Alerts"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.\n\nChanging an evaluated field resets evaluation, clears an open page, and re-arms a parked alert. Renaming the alert alone leaves its evaluation state unchanged.",
+          "metadata": {
+            "description": "Update a threshold alert in a TraceRoot project. Changes to evaluated fields reset its state, while changing only the alert name preserves it."
+          }
+        },
         "x-tool": {
           "description": "Edit an alert's rule: name, view, measure, aggregation, filters, window, threshold_operator, threshold, renotify, no_data_mode. Fields left out are untouched; the patch is validated against the stored rule, so an aggregation edit must fit the stored measure. Any edit to an evaluated field (everything but name) resets the alert's evaluation state and clears any open page \u2014 the response reports state_reset and page_cleared, and lists the fields that actually changed. To pause or resume, use set_alert_status instead.",
           "enabled": true,
@@ -8034,6 +8467,12 @@
         "tags": [
           "Alerts"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.\n\nSetting the current status again returns 200 without changing the alert.",
+          "metadata": {
+            "description": "Pause or resume a traceroot alert without changing its rule. Pausing keeps the current severity, and resuming restarts evaluation from a clean state."
+          }
+        },
         "x-tool": {
           "description": "Pause (PAUSED) or resume (ACTIVE) an alert without touching its rule \u2014 prefer this over update_alert for pause and resume. Pausing keeps the severity the alert stopped at; resuming is a cold start (evaluation state reset, due now). PARKED is the evaluator's verdict and cannot be requested; pausing a parked alert is a conflict, resume it to run it again. Setting the status the alert already has changes nothing.",
           "enabled": true,
@@ -8121,6 +8560,11 @@
         "tags": [
           "Dashboards"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the dashboards in a traceroot project, default dashboard first, with each one's name, description, creator, widget count, and timestamps."
+          }
+        },
         "x-tool": {
           "description": "List the project's dashboards (id, name, description, default flag, creator, widget count, timestamps). To resolve a dashboard by name, list here and match its name \u2014 never guess a dashboard id.",
           "enabled": true,
@@ -8221,6 +8665,12 @@
         "tags": [
           "Dashboards"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Create a dashboard in a traceroot project. The call is idempotent on the dashboard name, so repeating it does not create a duplicate."
+          }
+        },
         "x-tool": {
           "description": "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
           "enabled": true,
@@ -8363,6 +8813,12 @@
         "tags": [
           "Dashboards"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Permanently delete a traceroot dashboard together with all of its widgets. The last remaining dashboard in a project cannot be deleted."
+          }
+        },
         "x-tool": {
           "description": "Permanently delete a dashboard together with its widgets. A project's last dashboard cannot be deleted. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's dashboards and matching the name; never delete more than the user named.",
           "enabled": true,
@@ -8467,6 +8923,11 @@
         "tags": [
           "Dashboards"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch one traceroot dashboard by id together with its widgets, including each widget's title, type, query spec, and creation time."
+          }
+        },
         "x-tool": {
           "description": "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name \u2014 never guess an id.",
           "enabled": true,
@@ -8588,6 +9049,12 @@
         "tags": [
           "Dashboards"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Rename a traceroot dashboard or change its description. Fields you leave out stay unchanged, and a null description clears the current one."
+          }
+        },
         "x-tool": {
           "description": "Rename a dashboard or change its description. Fields left out are untouched; a null description clears it. Tile layout is not editable here. The response lists the fields that actually changed.",
           "enabled": true,
@@ -8758,6 +9225,12 @@
         "tags": [
           "Dashboards"
         ],
+        "x-mint": {
+          "content": "Each widget has its own result. Feeds are skipped, and query widgets beyond the per-request limit return an inline error.",
+          "metadata": {
+            "description": "Run the query widgets on a traceroot dashboard for one time window and return their results, so you can read what the dashboard shows."
+          }
+        },
         "x-tool": {
           "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
           "enabled": true,
@@ -8929,6 +9402,12 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "content": "Without `limit`, the response includes all cases. For large versions, pass `limit` and follow `next_cursor` until it is null.",
+          "metadata": {
+            "description": "Read one immutable evaluation dataset version and its test cases, whole or one page at a time, with inputs and expected values as JSON."
+          }
+        },
         "x-tool": {
           "description": "Read one immutable dataset version and its test cases (input, expected, metadata, and trace provenance where the case was captured from one). Always pass limit (for example 20) and follow next_cursor until it is null: without limit the whole version comes back in one response, which can be very large.",
           "enabled": true,
@@ -9105,6 +9584,11 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the evaluation datasets in a traceroot project, newest first, with each dataset's current published version and cursor-based paging."
+          }
+        },
         "x-tool": {
           "description": "List the project's evaluation datasets, newest first, with each dataset's current published version. Filter by a case-insensitive substring of the name. Use this for discovery before reading a specific dataset.",
           "enabled": true,
@@ -9236,6 +9720,11 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Read one evaluation dataset by id, including its name, description, key, and current published version, which is null until one is published."
+          }
+        },
         "x-tool": {
           "description": "Read one evaluation dataset by id: its name, description, key, and current published version. A dataset with no published version has none, and its cases cannot be read until one exists.",
           "enabled": true,
@@ -9401,6 +9890,11 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the published versions of an evaluation dataset, newest first, each with its test case count and whether it is the current version."
+          }
+        },
         "x-tool": {
           "description": "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots: editing a dataset's test cases publishes a new version rather than changing an old one, while renaming a dataset or changing its description publishes nothing.",
           "enabled": true,
@@ -9545,6 +10039,11 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the detectors in a traceroot project, newest first, with each detector's id, name, template, enabled flag, and creation time."
+          }
+        },
         "x-tool": {
           "description": "List the project's detectors (id, name, template, enabled flag, creation time).",
           "enabled": true,
@@ -9645,6 +10144,12 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.\n\nStandard templates use their built-in instructions when you omit `prompt`. For the `blank` template, supply your own prompt.",
+          "metadata": {
+            "description": "Create a detector using a template's built-in instructions or your own prompt. Creating a detector by name is idempotent within a project."
+          }
+        },
         "x-tool": {
           "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions \u2014 a supplied prompt is stored verbatim and overrides the template default.",
           "enabled": true,
@@ -9830,6 +10335,11 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List recent detector findings for a traceroot project, newest first, optionally filtered by detector, trace id, or time range."
+          }
+        },
         "x-tool": {
           "description": "List detector findings for the project, optionally filtered by detector (id, name, or template), trace id, or time range.",
           "enabled": true,
@@ -9941,6 +10451,11 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch a single detector finding by id from a traceroot project, including the full analysis detail the detector produced for the trace."
+          }
+        },
         "x-tool": {
           "description": "Fetch one detector finding by id, with its full analysis detail.",
           "enabled": true,
@@ -10052,6 +10567,11 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch the detector finding attached to a specific trace in a traceroot project. Each trace has at most one finding, so you get one or none."
+          }
+        },
         "x-tool": {
           "description": "Fetch the detector finding attached to a specific trace, if any.",
           "enabled": true,
@@ -10179,6 +10699,12 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Permanently delete a detector from a traceroot project. Findings it already produced stay readable, and a repeated delete returns 404."
+          }
+        },
         "x-tool": {
           "description": "Permanently delete a detector; its existing findings stay readable. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's detectors and matching the name; never delete more than the user named.",
           "enabled": true,
@@ -10293,6 +10819,11 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, root cause analysis settings, and trigger conditions."
+          }
+        },
         "x-tool": {
           "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
           "enabled": true,
@@ -10414,6 +10945,12 @@
         "tags": [
           "Detectors"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Edit a traceroot detector's name, prompt, enabled state, sample rate, or model settings. Only the fields you send change; the template is fixed."
+          }
+        },
         "x-tool": {
           "description": "Edit a detector: name, prompt, enabled (the pause switch), sample_rate, enable_rca, output_schema, trigger_conditions, or the detection model settings. Send only the fields the user asked to change \u2014 fields left out are untouched, and a null detection_model/detection_provider/detection_source clears it. output_schema and trigger_conditions replace the whole array; [] removes the trigger. The template cannot change. Read the detector first so the proposal names its current values; the response lists the fields that actually changed.",
           "enabled": true,
@@ -10621,6 +11158,12 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "content": "Use the run detail endpoint to read result counts and scores.",
+          "metadata": {
+            "description": "List the evaluation runs in a traceroot project, newest first, optionally filtered by evaluation or status, with cursor-based paging."
+          }
+        },
         "x-tool": {
           "description": "List evaluation runs, newest first. Filter by evaluation_id to see one evaluation's runs, or by status to see only runs in that state. Each row is identity and outcome only: which run it is, what was evaluated, the dataset version it pinned, its status, and when it started and finished. A run's counts and per-scorer means come from get_evaluation_run. Use this to find a run id.",
           "enabled": true,
@@ -10722,7 +11265,10 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>"
+          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
+          "metadata": {
+            "description": "Register and start an evaluation run in traceroot. The call is idempotent on the client run id within an evaluation, so retries are safe."
+          }
         },
         "x-tool": {
           "enabled": false
@@ -10853,6 +11399,12 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "content": "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, or unobserved scores return null. This endpoint summarizes a single run.",
+          "metadata": {
+            "description": "Read an evaluation run's status and counts. Numeric scores are averaged, boolean scores are pass rates, and scores without a supported aggregate are null."
+          }
+        },
         "x-tool": {
           "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
           "enabled": true,
@@ -10967,7 +11519,10 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>"
+          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
+          "metadata": {
+            "description": "Mark an evaluation run as completed or failed in traceroot and report its final completeness counts. The traceroot SDKs call this for you."
+          }
         },
         "x-tool": {
           "enabled": false
@@ -11081,7 +11636,10 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>"
+          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
+          "metadata": {
+            "description": "Create or update one test case result and its scores in an evaluation run. The call is idempotent for each run and test case pair."
+          }
         },
         "x-tool": {
           "enabled": false
@@ -11257,6 +11815,11 @@
         "tags": [
           "Offline Eval"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the evaluations in a traceroot project, newest first, each with its run count and latest run, using cursor-based paging."
+          }
+        },
         "x-tool": {
           "description": "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation that has never been run reports a null latest_run. Use this to find an evaluation before listing its runs.",
           "enabled": true,
@@ -11266,7 +11829,7 @@
     },
     "/api/v1/public/projects": {
       "get": {
-        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
+        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name, workspace_is_demo).",
         "operationId": "list_projects",
         "parameters": [
           {
@@ -11339,6 +11902,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential. Each project includes its owning workspace.",
+          "metadata": {
+            "description": "List the traceroot projects the signed-in user can access across all workspaces, to find the project id that project-scoped requests need."
+          }
+        },
         "x-tool": {
           "description": "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
           "enabled": true,
@@ -11439,6 +12008,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Create a project in a traceroot workspace you can write to. The call is idempotent on the project name within the workspace."
+          }
+        },
         "x-tool": {
           "agentHiddenParams": [
             "trace_ttl_days"
@@ -11563,6 +12138,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `ADMIN` role in the workspace.",
+          "metadata": {
+            "description": "Delete a traceroot project. It disappears from lists and reads and its access keys stop working, while its data stays for the retention window."
+          }
+        },
         "x-tool": {
           "description": "Delete a project: it drops out of every list and read and its API keys stop authenticating (its data stays for the retention window). Requires ADMIN in the workspace and a reason (3-500 characters) that is recorded on the audit row.",
           "enabled": true,
@@ -11689,6 +12270,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `ADMIN` role in the workspace.",
+          "metadata": {
+            "description": "Edit a traceroot project's name or trace retention period. Setting the retention to null returns it to the default for your plan."
+          }
+        },
         "x-tool": {
           "agentHiddenParams": [
             "trace_ttl_days"
@@ -11859,6 +12446,11 @@
         "tags": [
           "Sessions"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the sessions in a traceroot project, where a session groups the traces that share a session id, with the trace count for each session."
+          }
+        },
         "x-tool": {
           "description": "List recent sessions (groups of traces sharing a session id) for the project, with trace counts and durations. Search by session id substring.",
           "enabled": true,
@@ -12008,10 +12600,411 @@
         "tags": [
           "Sessions"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch one traceroot session with all of its traces. Traces older than your plan's retention window are left out instead of causing an error."
+          }
+        },
         "x-tool": {
           "description": "Fetch one session with all its traces (ids, names, status, I/O summaries). Use before deep-diving individual traces of a conversation.",
           "enabled": true,
           "name": "get_session"
+        }
+      }
+    },
+    "/api/v1/public/signals": {
+      "get": {
+        "description": "List the signals in the caller's project (newest first). Merged signals are left out.",
+        "operationId": "list_signals",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "0-based page index",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "0-based page index",
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only signals with this status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "resolved",
+                    "dismissed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only signals with this status",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Only signals of this detector",
+            "in": "query",
+            "name": "detector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only signals of this detector",
+              "title": "Detector Id"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSignalListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Signals",
+        "tags": [
+          "Signals"
+        ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the signals in a traceroot project, newest first. Signals group the recurring problems that detectors find; merged signals are left out."
+          }
+        },
+        "x-tool": {
+          "description": "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
+          "enabled": true,
+          "name": "list_signals"
+        }
+      }
+    },
+    "/api/v1/public/signals/{signal_id}": {
+      "get": {
+        "description": "Get one signal of the caller's project.\n\nLists up to 20 of the signal's recent traces inside the plan's retention\nwindow, latest trace start first. A merged signal names the signal it moved to.",
+        "operationId": "get_signal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signal_id",
+            "required": true,
+            "schema": {
+              "title": "Signal Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Signal not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Signal",
+        "tags": [
+          "Signals"
+        ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch one signal by id from a traceroot project, including when it was resolved. A signal that was merged names the signal its findings moved to."
+          }
+        },
+        "x-tool": {
+          "description": "Fetch one signal by id, including when it was resolved and the traces it hit most recently. recent_hits lists up to 20 hits, latest trace start first, each with its trace_id, finding_id and trace_start_time; only traces that started inside the plan's retention window are listed, so each trace_id can be fetched with get_trace. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals \u2014 never guess an id.",
+          "enabled": true,
+          "name": "get_signal"
+        }
+      }
+    },
+    "/api/v1/public/signals/{signal_id}/status": {
+      "patch": {
+        "description": "Resolve or reopen a signal. Dismissing is not possible here.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Resolving needs a ``reason``; the reason ``other`` also\nneeds a ``note``. A resolved signal opens again by itself when its\ndetector finds the problem in a trace that started after the resolve. Send\n``expected_status`` to refuse the change when someone else changed the\nstatus first. Setting the status the signal already has changes nothing.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    signal_id (str): The signal to change.\n    payload (SignalStatusRequest): The project, the target status, and\n        the reason, note and expected status.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    SignalStatusResponse: The signal with its new status.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "set_signal_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signal_id",
+            "required": true,
+            "schema": {
+              "title": "Signal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The status changed since the caller read it, or the signal was merged"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resolve or reopen a signal",
+        "tags": [
+          "Signals"
+        ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.\n\nResolving requires a reason. For `other`, include a `note`. To guard against a concurrent change, send `expected_status`. You cannot dismiss a signal here.",
+          "metadata": {
+            "description": "Resolve or reopen a signal. After resolution, the detector can reopen the signal only for a matching finding on a trace that started after resolution."
+          }
+        },
+        "x-tool": {
+          "description": "Resolve or reopen a signal. Resolving needs a reason (fixed_elsewhere, fixed_by_pr, already_fixed_before, other); 'other' also needs a note. A resolved signal opens again by itself when its detector finds the problem in a trace that started after the resolve. Dismissing is not possible here: a dismissed signal never reopens, so a person dismisses in the web app. Send expected_status to refuse the change when the status changed since you read it (a conflict). Setting the current status changes nothing.",
+          "enabled": true,
+          "name": "set_signal_status",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -12150,6 +13143,11 @@
         "tags": [
           "SQL"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Run one read-only SQL query over the spans and traces of your traceroot project and get the rows back. Results are capped and may be truncated."
+          }
+        },
         "x-tool": {
           "description": "Run one read-only SQL query over the project's own spans and traces and return the rows. Use get_sql_schema first to see the columns available; the query may only read the curated spans and traces tables, and results are capped and may be truncated.",
           "enabled": true,
@@ -12267,6 +13265,11 @@
         "tags": [
           "SQL"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the tables and columns, with their types, that a SQL query against your traceroot project may reference. Read it before writing a query."
+          }
+        },
         "x-tool": {
           "description": "List the tables and columns available to run_sql, with their types. Read this before writing a query: it is the whole surface a query may reference.",
           "enabled": true,
@@ -12899,6 +13902,11 @@
         "tags": [
           "Traces"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List recent traces in a traceroot project, newest first. Offline evaluation traces are excluded unless you set include_evaluations to true."
+          }
+        },
         "x-tool": {
           "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace. Structured filters (model, environment, cost, tokens, latency, error count, keyed metadata) are available via the typed filters parameter.",
           "enabled": true,
@@ -12906,7 +13914,7 @@
         }
       },
       "post": {
-        "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nProtobuf is converted to camelCase JSON before storage in S3.\n\nS3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
+        "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nThe body is stored in S3 exactly as received and decoded asynchronously,\nso a 200 means the batch was stored and queued, not that it decoded.\n\nS3 path: events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz\n(``.pb`` when the body is not gzip-compressed)\n\nSize limits: by default the body may be at most 16 MiB as sent and 32 MiB\nonce unzipped. A larger request gets 413.\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional; any other coding gets 400)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
         "operationId": "ingest_traces",
         "requestBody": {
           "content": {
@@ -12960,6 +13968,16 @@
             },
             "description": "Free plan limit exceeded"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "415": {
             "content": {
               "application/json": {
@@ -12998,7 +14016,15 @@
                 }
               }
             },
-            "description": "Authentication service unavailable"
+            "description": "Authentication service unavailable, or the batch could not be queued",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before sending the batch again. Sent only when the batch could not be queued.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -13011,7 +14037,10 @@
           "Traces"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, optionally gzip-compressed with `Content-Encoding: gzip`."
+          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, optionally gzip-compressed with `Content-Encoding: gzip`.\n\nThe default limits are 16 MiB as sent and 32 MiB after decompression. Larger requests return 413.",
+          "metadata": {
+            "description": "Send OTLP trace data to traceroot as protobuf, optionally gzip-compressed. A 200 response means the batch was stored and queued for decoding."
+          }
         },
         "x-tool": {
           "enabled": false
@@ -13160,6 +14189,11 @@
         "tags": [
           "Traces"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "List the distinct values currently present for a categorical trace filter field, such as model name or environment, in a traceroot project."
+          }
+        },
         "x-tool": {
           "description": "Discover the current values of a categorical trace filter field (e.g. model_name, environment) for the project \u2014 use before filtering the trace list by that field.",
           "enabled": true,
@@ -13299,6 +14333,12 @@
         "tags": [
           "Traces"
         ],
+        "x-mint": {
+          "content": "Use `fields=full` or `fields=io,metadata` to include span inputs and outputs.",
+          "metadata": {
+            "description": "Fetch a single trace with its span tree from a traceroot project. The default view is lightweight; request full fields for span input and output."
+          }
+        },
         "x-tool": {
           "description": "Fetch one trace with its span tree. Defaults to the lightweight skeleton projection; pass fields=full for per-span input/output/metadata.",
           "enabled": true,
@@ -13308,7 +14348,7 @@
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Export the trace bundle (trace + spans + git_context + manifest) for the caller's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "export_trace",
         "parameters": [
           {
@@ -13438,6 +14478,12 @@
         "tags": [
           "Traces"
         ],
+        "x-mint": {
+          "content": "The default projection is `full`. Use `fields` to narrow the export. Exports have their own rate limit.",
+          "metadata": {
+            "description": "Export a trace, its spans, git context, and a manifest. Span input and output are included by default and can be excluded with the fields parameter."
+          }
+        },
         "x-tool": {
           "description": "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
           "enabled": true,
@@ -13500,6 +14546,11 @@
         "tags": [
           "Whoami"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Check which traceroot project and workspace an API key belongs to. Useful for confirming that a credential is valid and correctly scoped."
+          }
+        },
         "x-tool": {
           "description": "Identify the project and workspace the current credential belongs to.",
           "enabled": true,
@@ -13602,6 +14653,12 @@
         "tags": [
           "Widgets"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Add a widget to a traceroot dashboard: a query widget that charts a metric, or a feed of recent traces. Every call creates a new widget."
+          }
+        },
         "x-tool": {
           "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types \u2014 nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting. Pick the view first \u2014 spans and traces expose different fields, and the enums in this schema are the complete field vocabulary for each view. If the user asks for a dimension or metric that exists on neither view, say so and propose the closest available one (for example \"traces by model\" is built on the spans view via model_name).",
           "enabled": true,
@@ -13699,6 +14756,11 @@
         "tags": [
           "Widgets"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Run a widget query spec for a time window and get its rows back, to answer a metric question without saving a widget to a dashboard."
+          }
+        },
         "x-tool": {
           "description": "Run a widget query and return its rows \u2014 the way to answer a metric question (error counts, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, \u2026) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
           "enabled": true,
@@ -13831,6 +14893,12 @@
         "tags": [
           "Widgets"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Permanently delete one widget from a traceroot dashboard. The widget's slot in the dashboard layout is removed along with it."
+          }
+        },
         "x-tool": {
           "description": "Permanently delete one widget from its dashboard (its layout slot is removed with it). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id from the dashboard's detail; never delete more than the user named.",
           "enabled": true,
@@ -13935,6 +15003,11 @@
         "tags": [
           "Widgets"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Fetch one saved widget's definition by id, including its title, type, stored query spec, display settings, and the dashboard it belongs to."
+          }
+        },
         "x-tool": {
           "description": "Fetch one saved widget's definition by id: its title, type, the query spec exactly as stored (what get_widget_data runs), display config, timestamps, and the id and name of the dashboard it sits on. Resolve a widget id from get_dashboard (which lists a dashboard's widgets) \u2014 never guess an id. For what the widget shows, use get_widget_data.",
           "enabled": true,
@@ -14046,6 +15119,12 @@
         "tags": [
           "Widgets"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `MEMBER` role or higher in the workspace.",
+          "metadata": {
+            "description": "Edit a traceroot dashboard widget's title, spec, or display settings. A new spec replaces the old one entirely, and the widget type is fixed."
+          }
+        },
         "x-tool": {
           "description": "Edit a widget's title, spec, or display_config. Fields left out are untouched; a sent spec replaces the whole spec and must be in the dialect of the widget's existing type (query: view/filters/metric/breakdown/display; trace_feed: predicate filters + limit) \u2014 the type itself cannot change. A null display_config resets it. Read the widget's dashboard first so the new spec starts from the current one; the spec schema enumerates the only available views, metrics, filter operators, and display types. The response lists the fields that actually changed.",
           "enabled": true,
@@ -14216,6 +15295,11 @@
         "tags": [
           "Widgets"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Run one saved traceroot dashboard widget for a time window and return its results, without having to send the widget's query spec again."
+          }
+        },
         "x-tool": {
           "description": "Answer one saved widget for a window \u2014 the way to say what a widget shows without re-sending its spec. Prefer this over run_widget_query whenever the widget already exists on a dashboard; run_widget_query is for a spec that is saved nowhere. Takes a widget id plus a window like run_widget_query (range preset or explicit start_time/end_time; neither means the site's default). The answer carries a status: ok with every row the engine returns (a series comes back whole; no row cap), skipped for a trace feed or legacy detector widget (read those with list_traces and the feed's filters), or error with a reason when the stored spec no longer runs. Every figure you report must come from these rows, and name the window it was answered for \u2014 the response echoes it and says when retention clamped it.",
           "enabled": true,
@@ -14225,7 +15309,7 @@
     },
     "/api/v1/public/workspaces": {
       "get": {
-        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
+        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role,\n        is_demo); the public demo workspace, when present, comes last.",
         "operationId": "list_workspaces",
         "responses": {
           "200": {
@@ -14278,6 +15362,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential. This request does not take a project ID.",
+          "metadata": {
+            "description": "List the traceroot workspaces the signed-in user belongs to. Use it with the project list to find the project a later request should target."
+          }
+        },
         "x-tool": {
           "description": "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
           "enabled": true,
@@ -14388,6 +15478,11 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "metadata": {
+            "description": "Create a traceroot workspace that you administer. Creating one with a name you already administer returns the existing workspace."
+          }
+        },
         "x-tool": {
           "description": "Create a workspace administered by the logged-in user. Idempotent: re-creating a same-named workspace the caller already administers returns it instead of duplicating.",
           "enabled": true,
@@ -14530,6 +15625,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `ADMIN` role in the workspace.\n\nSend the workspace's current name to confirm deletion. You cannot delete your only workspace.",
+          "metadata": {
+            "description": "Permanently delete a traceroot workspace and everything in it, including projects, access keys, memberships, and invites. Requires the ADMIN role."
+          }
+        },
         "x-tool": {
           "description": "Permanently delete a workspace and everything in it: every project, its access keys, memberships and invites. Requires ADMIN, the workspace's current name typed as confirmation, and a reason (3-500 characters) that is recorded on the audit row. The caller's only workspace cannot be deleted. Not reversible.",
           "enabled": true,
@@ -14656,6 +15757,12 @@
         "tags": [
           "Account"
         ],
+        "x-mint": {
+          "content": "Use a user credential with the `ADMIN` role in the workspace.\n\nA name that matches another workspace you administer returns 409. A workspace outside your memberships returns 403.",
+          "metadata": {
+            "description": "Rename a traceroot workspace that you administer. Requires the ADMIN role, and the new name cannot match another workspace you administer."
+          }
+        },
         "x-tool": {
           "description": "Rename a workspace the logged-in user administers. Fields left out are untouched. The response lists the fields that actually changed; a name the caller already uses for another workspace is a conflict.",
           "enabled": true,

@@ -5,6 +5,7 @@ import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
+import { useSetupRouteChosen } from "./use-setup-command-copied";
 
 type Tab = "ai" | "manual";
 
@@ -12,28 +13,46 @@ interface GettingStartedProps {
   projectId: string;
 }
 
+/**
+ * Two routes to the same outcome, named for what the reader gets.
+ *
+ * "Using AI" says what the automatic route actually is — a coding agent edits
+ * the repository — which is the thing a reader weighs before choosing it. The
+ * pairing with "Manual" is looser than a strict antonym, and that is the trade:
+ * naming the mechanism costs a little symmetry and buys an informed choice.
+ *
+ * Nothing sits above the switch. The stack is picked inside the manual tab, as
+ * one of its steps, and the model key is asked for during onboarding rather
+ * than on this page.
+ */
 export function GettingStarted({ projectId }: GettingStartedProps) {
   const [tab, setTab] = useState<Tab>("ai");
+  const recordRoute = useSetupRouteChosen(projectId, "project");
+
+  // Records only an actual change of tab.
+  const switchTo = (next: Tab) => {
+    if (next === tab) return;
+    recordRoute(next === "ai" ? "command" : "manual");
+    setTab(next);
+  };
 
   return (
-    <div className="w-full py-10">
-      <div className="mx-auto w-full max-w-[600px] px-7 lg:max-w-3xl xl:max-w-4xl">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">
-          Get started with Tracing
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
+    <div className="w-full p-4">
+      <div className="w-full max-w-4xl">
+        <h2 className="text-[15px] font-medium">Get started with tracing</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">
+          No traces in this project yet. Get started in a few minutes with the command below.
         </p>
 
-        <div className="mt-6 inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
+        <div className="mt-4 flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setTab("ai")}
+            onClick={() => switchTo("ai")}
             className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
               tab === "ai"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             <Sparkle className="h-3.5 w-3.5" />
@@ -41,12 +60,12 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           </button>
           <button
             type="button"
-            onClick={() => setTab("manual")}
+            onClick={() => switchTo("manual")}
             className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
               tab === "manual"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             <Code2 className="h-3.5 w-3.5" />
@@ -54,7 +73,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           </button>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-4">
           {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
         </div>
       </div>

@@ -9,7 +9,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
-  sidebarCollapsed: false,
   trace: {} as unknown,
   traceError: null as unknown,
   traceLoading: false,
@@ -17,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   lastQuery: undefined as { queryKey: unknown[]; queryFn: () => unknown } | undefined,
 }));
 
-// Layout context drives the fullscreen width math (sidebar width).
+// Layout context: AI panel state only; fullscreen sizing comes from CSS variables.
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
     aiPanelOpen: mocks.aiPanelOpen,
@@ -25,7 +24,6 @@ vi.mock("@/components/layout/app-layout", () => ({
     setAiContext: vi.fn(),
     setAiInitialSessionId: vi.fn(),
     registerAiHost: () => () => {},
-    sidebarCollapsed: mocks.sidebarCollapsed,
   }),
 }));
 
@@ -65,6 +63,7 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { ApiError } from "@/lib/api/errors";
+import type { TraceSource } from "@/lib/api/traces";
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
 function renderPanel(
@@ -91,7 +90,6 @@ function renderPanel(
 
 afterEach(() => {
   cleanup();
-  mocks.sidebarCollapsed = false;
   mocks.trace = {};
   mocks.traceError = null;
   mocks.traceLoading = false;
@@ -99,17 +97,10 @@ afterEach(() => {
 });
 
 describe("TraceViewerPanel layout", () => {
-  it("clears the expanded sidebar (w-48 / 12rem) when fullscreen", () => {
-    mocks.sidebarCollapsed = false;
+  it("clears the shell header and sidebar when fullscreen", () => {
     const panel = renderPanel({ initialFullscreen: true });
-    expect(panel.className).toContain("w-[calc(100%-12rem)]");
-    expect(panel.className).toContain("top-14");
-  });
-
-  it("clears the collapsed sidebar (w-14 / 3.5rem) when fullscreen", () => {
-    mocks.sidebarCollapsed = true;
-    const panel = renderPanel({ initialFullscreen: true });
-    expect(panel.className).toContain("w-[calc(100%-3.5rem)]");
+    expect(panel.className).toContain("top-[var(--app-header-h)]");
+    expect(panel.className).toContain("w-[calc(100%-var(--app-nav-w))]");
   });
 
   it("uses the default 70% width when not fullscreen", () => {
@@ -285,6 +276,18 @@ describe("detector self-trace not-yet-ingested state", () => {
     renderPanel({ source: "user" });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("keeps an unknown internal source on the plain error, not the detector copy", () => {
+    // Stands in for an internal source added later: it is internal, so its 404 is
+    // not a customer error, but without a run timestamp the detector branch would
+    // report it as "still being recorded" forever.
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "assistant" as TraceSource });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+    expect(screen.queryByText(/analysis trace has been exported/i)).toBeNull();
   });
 });
 

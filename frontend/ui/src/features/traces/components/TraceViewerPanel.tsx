@@ -21,7 +21,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
 import type { TraceDetail } from "@/types/api";
-import type { TraceSource } from "@/lib/api/traces";
+import { isCustomerTraffic, type TraceSource } from "@/lib/api/traces";
 import { ApiError } from "@/lib/api/errors";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
@@ -218,14 +218,8 @@ export function TraceViewerPanel({
   // intentionally persists while navigating between traces, since the panel
   // instance stays mounted across ↑/↓ navigation.
   const [isFullscreen, setIsFullscreen] = useState(initialFullscreen ?? false);
-  const {
-    aiPanelOpen,
-    setAiPanelOpen,
-    setAiContext,
-    setAiInitialSessionId,
-    registerAiHost,
-    sidebarCollapsed,
-  } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
+    useLayout();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -259,7 +253,7 @@ export function TraceViewerPanel({
   // is always empty.
   const { data: traceFindingsData } = useTraceFindings(
     projectId,
-    traceOverride || source === "detector" || source === "agent" ? "" : traceId,
+    traceOverride || !isCustomerTraffic(source) ? "" : traceId,
   );
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
@@ -269,8 +263,7 @@ export function TraceViewerPanel({
   // source = 'user' server-side), so a detector self-trace or an agent (RCA)
   // trace can never carry findings — the tab would only ever render empty.
   // Also hidden under an eval override, whose synthetic id backs no rows.
-  const detectorsHidden =
-    !!traceOverride || !!hideDetectors || source === "detector" || source === "agent";
+  const detectorsHidden = !!traceOverride || !!hideDetectors || !isCustomerTraffic(source);
   // If the tab disappears while active (the detectors page keeps one panel
   // mounted and re-points it from an original trace to a self/agent trace),
   // fall back to the tree view instead of a blank pane.
@@ -417,26 +410,23 @@ export function TraceViewerPanel({
         embedded
           ? "flex h-full w-full flex-col border-l border-border bg-background"
           : cn(
-              "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
-              // Fullscreen stays clear of the chrome it would otherwise cover: it
-              // starts below the top breadcrumb/header bar (h-14) and to the right of
-              // the left navbar. Width = 100% minus the sidebar's width, which differs
-              // when the sidebar is collapsed.
+              "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200",
+              // Fullscreen stays clear of the header and sidebar; AppLayout sets their sizes.
               isFullscreen
-                ? sidebarCollapsed
-                  ? "top-14 w-[calc(100%-3.5rem)]"
-                  : "top-14 w-[calc(100%-12rem)]"
+                ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))] border-l-0 shadow-none max-md:w-full"
                 : cn("top-0", overlayWidthClassName ?? "w-[70%]"),
             ),
       )}
     >
       <div className="flex h-full flex-col bg-background">
         {/* ── MAIN HEADER ── */}
-        <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
+        <div className="flex h-11 items-center justify-between border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-1.5">
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
+            <span className="shrink-0 text-[13px] font-medium">
+              {headerIdentity?.label ?? "Trace"}
+            </span>
+            <span className="truncate text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}
             </span>
             {/* Copy affordance for the header id. Only offered when an identity is
@@ -453,7 +443,7 @@ export function TraceViewerPanel({
           <div className="flex items-center gap-1">
             {headerStatus}
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => onNavigate("up")}
               disabled={!canNavigateUp}
@@ -463,7 +453,7 @@ export function TraceViewerPanel({
               <ArrowUp className="h-4 w-4" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => onNavigate("down")}
               disabled={!canNavigateDown}
@@ -473,7 +463,7 @@ export function TraceViewerPanel({
               <ArrowDown className="h-4 w-4" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => setIsFullscreen((v) => !v)}
               className="h-7 w-7 p-0"
@@ -485,7 +475,7 @@ export function TraceViewerPanel({
                 which nothing downstream can resolve from a URL. */}
             {!traceOverride && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() =>
                   window.open(
@@ -496,10 +486,9 @@ export function TraceViewerPanel({
                       // A self-trace or agent trace's id matches no list row's
                       // trace_id, so the receiving page needs the source to
                       // reopen it as one instead of looking it up as an original.
-                      extraParams:
-                        source === "detector" || source === "agent"
-                          ? { ...newTabParams, traceId: traceId, fullscreen: "1", source: source }
-                          : { ...newTabParams, traceId: traceId, fullscreen: "1" },
+                      extraParams: !isCustomerTraffic(source)
+                        ? { ...newTabParams, traceId: traceId, fullscreen: "1", source: source }
+                        : { ...newTabParams, traceId: traceId, fullscreen: "1" },
                     }),
                     "_blank",
                   )
@@ -518,7 +507,7 @@ export function TraceViewerPanel({
                 container. */}
             {!embedded && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() => {
                   // The customer trace: the assistant's tools read customer
@@ -543,15 +532,15 @@ export function TraceViewerPanel({
         </div>
 
         {/* ── VIEW TOGGLE SUB-HEADER ── */}
-        <div className="flex h-10 items-center border-b border-border">
-          <div className="flex items-center rounded-lg px-2 py-1">
+        <div className="flex h-11 items-center border-b border-border">
+          <div className="flex items-center gap-1 px-4">
             <button
               onClick={() => setViewMode("tree")}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                 viewMode === "tree"
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
               <ListTree className="h-3.5 w-3.5" /> Trace
@@ -559,10 +548,10 @@ export function TraceViewerPanel({
             <button
               onClick={() => setViewMode("timeline")}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                 viewMode === "timeline"
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
               <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
@@ -571,10 +560,10 @@ export function TraceViewerPanel({
               <button
                 onClick={() => setViewMode("detectors")}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                  "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                   viewMode === "detectors"
-                    ? "bg-muted text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
@@ -597,13 +586,13 @@ export function TraceViewerPanel({
                   defaultSize="32%"
                   minSize="260px"
                   maxSize="50%"
-                  className="flex min-w-0 flex-col bg-muted/30"
+                  className="flex min-w-0 flex-col"
                 >
                   <div
-                    className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
-                    style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+                    className="flex flex-shrink-0 items-center border-b border-border px-3"
+                    style={{ height: TREE_LAYOUT.HEADER_HEIGHT }}
                   >
-                    <span className="text-[11px] font-medium text-muted-foreground">
+                    <span className="text-[12px] font-medium text-muted-foreground">
                       Trace Tree
                     </span>
                   </div>
@@ -654,7 +643,7 @@ export function TraceViewerPanel({
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      {(source === "detector" || source === "agent") &&
+                      {!isCustomerTraffic(source) &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
                         source === "agent" ? (
                           // Every way into an agent trace — a Finding ID cell, a tool
@@ -668,23 +657,30 @@ export function TraceViewerPanel({
                             This analysis trace has been exported but isn&rsquo;t ingested yet.
                             Check back in a moment.
                           </p>
-                        ) : // self_traced is set optimistically at emit time, and the SDK
-                        // export is batched, so the trace may not be ingested yet and a
-                        // 404 miss here is expected, not an error. A non-404 failure
-                        // still surfaces as a real error below. Once the export window
-                        // has passed, the stamp is stale: the export failed and nothing
-                        // will arrive, so say so instead of telling the user to keep
-                        // waiting.
-                        isSelfTracePending(runTimestamp) ? (
-                          <p className="text-sm text-muted-foreground">
-                            This detector run&rsquo;s trace is still being recorded. Check back in a
-                            moment.
-                          </p>
+                        ) : source === "detector" ? (
+                          // self_traced is set optimistically at emit time, and the SDK
+                          // export is batched, so the trace may not be ingested yet and a
+                          // 404 miss here is expected, not an error. A non-404 failure
+                          // still surfaces as a real error below. Once the export window
+                          // has passed, the stamp is stale: the export failed and nothing
+                          // will arrive, so say so instead of telling the user to keep
+                          // waiting.
+                          isSelfTracePending(runTimestamp) ? (
+                            <p className="text-sm text-muted-foreground">
+                              This detector run&rsquo;s trace is still being recorded. Check back in
+                              a moment.
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              No trace was recorded for this run — the self-trace export
+                              didn&rsquo;t reach the backend.
+                            </p>
+                          )
                         ) : (
-                          <p className="text-sm text-muted-foreground">
-                            No trace was recorded for this run — the self-trace export didn&rsquo;t
-                            reach the backend.
-                          </p>
+                          // Only the internal kinds above know why their trace can be
+                          // missing; any other internal source gets the plain error
+                          // rather than borrowing a detector run's copy.
+                          <p className="text-sm text-destructive">Error loading trace</p>
                         )
                       ) : (
                         <p className="text-sm text-destructive">Error loading trace</p>

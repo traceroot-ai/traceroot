@@ -23,10 +23,10 @@ export function mapDeviceErrorMessage(err: DeviceErrorLike | null | undefined): 
   const description = err?.error_description;
 
   if (code === "expired_token") {
-    return "This code has expired. Go back to your terminal and run the login command again.";
+    return "This code has expired. Go back to your terminal and run the command again.";
   }
   if (code === "access_denied") {
-    return "This code was already opened by a different account and is locked to it. Go back to your terminal and run the login command again to get a fresh code.";
+    return "This code was already opened by a different account and is locked to it. Go back to your terminal and run the command again to get a fresh code.";
   }
   if (code === "unauthorized") {
     return "You need to sign in again before continuing.";
@@ -41,9 +41,7 @@ export function mapDeviceErrorMessage(err: DeviceErrorLike | null | undefined): 
     return "That code doesn't match a pending request. Double-check it and try again.";
   }
 
-  return (
-    description || "Something went wrong. Go back to your terminal and run the login command again."
-  );
+  return description || "Something went wrong. Go back to your terminal and run the command again.";
 }
 
 /**

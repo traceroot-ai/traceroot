@@ -2,6 +2,7 @@
 
 import { useRetention } from "@/lib/hooks/use-retention";
 import { createContext, useContext, ReactNode } from "react";
+import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
 import { useAiChat } from "../hooks/use-ai-chat";
 import type { AiTraceContext } from "../types";
 
@@ -35,7 +36,9 @@ export function AiChatProvider({
   // The plan's retention clamps the window sent with each message, the same
   // way the picker's own pages clamp theirs.
   const { retentionDays } = useRetention(projectId ?? "");
+  const { readOnly } = useDemoAgentAccess(projectId);
   const chat = useAiChat({
+    demoReadOnly: readOnly,
     projectId,
     traceId: initialContext?.traceId,
     traceSessionId: initialContext?.traceSessionId,

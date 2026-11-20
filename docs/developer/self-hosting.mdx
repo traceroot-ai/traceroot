@@ -1,20 +1,20 @@
 ---
 title: Self-Hosting
-description: Run TraceRoot on your own infrastructure
+description: Run traceroot on your own infrastructure
 ---
 
 <Note>
-  Prefer a managed solution? [TraceRoot Cloud](https://app.traceroot.ai) is maintained by the TraceRoot team — no setup required.
+  Prefer a managed solution? [traceroot Cloud](https://app.traceroot.ai) is maintained by the traceroot team — no setup required.
 </Note>
 
-TraceRoot is open source and supports self-hosting. Run it on your own infrastructure for full control over your data and deployment. Some features require an enterprise license key.
+traceroot is open source and supports self-hosting. Run it on your own infrastructure for full control over your data and deployment. Some features require an enterprise license key.
 
 ## Deployment Options
 
 
 ### Local Developer Deployment
 
-Best for: contributing to TraceRoot, local development, and debugging.
+Best for: contributing to traceroot, local development, and debugging.
 
 Starts PostgreSQL, ClickHouse, MinIO, and Redis in Docker, then runs the API, UI, and workers locally via a tmux session.
 
@@ -25,7 +25,7 @@ make dev
 ```
 
 <Frame>
-  <img src="/images/local_dev_mode_v1.png" alt="TraceRoot local dev environment running in tmux" />
+  <img src="/images/local_dev_mode_v1.png" alt="traceroot local dev environment running in tmux" />
 </Frame>
 
 See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) and [CONTRIBUTING.md](https://github.com/traceroot-ai/traceroot/blob/main/CONTRIBUTING.md) for details.
@@ -33,7 +33,7 @@ See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) 
 
 ### Local Docker Deployment
 
-Best for: trying TraceRoot locally, integration testing, or running a full stack without local dependencies.
+Best for: trying traceroot locally, integration testing, or running a full stack without local dependencies.
 
 Runs the entire stack in containers using Docker Compose — no need to install Python, Node, or other runtimes locally.
 
@@ -45,12 +45,32 @@ make prod
 
 See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) for details.
 
+### Credentials
+
+`make prod` and `make prod-lite` create a `.env` file and fill in credentials for your install: the database and object store passwords, the auth and internal API secrets, and the key that encrypts stored model provider keys and Slack tokens (`ENCRYPTION_KEY`). Each install gets its own values. To use your own, set them in `.env` before starting; a value copied from `.env.example` is not accepted and the stack stops with a message naming the variable to change.
+
+<Warning>
+  Keep a backup of `.env`. If `ENCRYPTION_KEY` is lost, stored model provider keys and Slack tokens can no longer be read and have to be entered again.
+</Warning>
+
+The object store API is published on `127.0.0.1` only. Put a reverse proxy in front of it deliberately if you need access from another machine.
+
+### Upgrading an existing install
+
+1. Pull the latest version and run `make prod-lite` (or `make prod`). This replaces any database or object store password in `.env` that was copied from `.env.example` with a generated one.
+2. If the stack stops and names `ENCRYPTION_KEY`, your `.env` still has the key from `.env.example`. Run `make rotate-encryption-key` once. It re-encrypts the stored model provider keys and Slack tokens under a new key in a single transaction, writes the new key to `.env`, and saves the previous one in the `.env.encryption-key.d` directory. If it fails before the database is updated, nothing is changed and you can run it again. If the database was updated but `.env` could not be written, the command says so and keeps the new key in `.env.encryption-key.d/pending`; fix the problem and run it again to finish. It refuses to run while `ENCRYPTION_KEY` is set in your shell environment or `COMPOSE_ENV_FILES` is set, because Docker Compose would then not use the key in `.env`. While a rotation is running, or has not finished, the `make` targets that start the stack wait or refuse, so the services never run with a key the database is being moved away from; to start the stack with `docker compose` yourself, finish the rotation first.
+3. Start the stack again with `make prod-lite` (or `make prod`). If you started it with `make prod` before, its tmux session is still there and `make prod` offers to re-attach to it; answer `N` so a new session is started. Re-attaching skips the setup and would leave the stopped services stopped.
+
+Rotation stops the web, worker, agent, detector and billing services first. If it fails they stay stopped, and starting is refused until the rotation has finished: fix the problem and run `make rotate-encryption-key` again (to abandon an unfinished rotation that did not change the database, remove `.env.encryption-key.d/pending` and start as in step 3).
+
+An install that never set `ENCRYPTION_KEY` has nothing stored under it and simply gets a generated one.
+
 
 ### Production Deployment
 
 Best for: production workloads on AWS.
 
-Deploy TraceRoot on Kubernetes using Helm charts and Terraform. Configuration lives in the [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) directory.
+Deploy traceroot on Kubernetes using Helm charts and Terraform. Configuration lives in the [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) directory.
 
 <Warning>
   Terraform deployment is currently experimental. We recommend testing thoroughly before production use.

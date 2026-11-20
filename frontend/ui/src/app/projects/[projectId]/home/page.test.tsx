@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user" } }, isPending: false }),
+}));
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
@@ -11,6 +14,7 @@ const mocks = vi.hoisted(() => {
     setAiContext: vi.fn(),
     aiContext: null as { traceId?: string } | null,
     aiInitialSessionId: undefined as string | undefined,
+    workspaceData: { is_demo: false, role: "ADMIN" },
     handleSend: vi.fn(),
     messages: [] as Array<{ id: string; role: string; content: string }>,
     projectData: undefined as { workspace_id: string } | undefined,
@@ -54,6 +58,7 @@ vi.mock("@/features/projects/components", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
+    if (queryKey[0] === "workspace") return { data: mocks.workspaceData };
     if (queryKey[0] === "project") return { data: mocks.projectData };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
     return { data: undefined };
@@ -106,6 +111,7 @@ afterEach(() => {
   mocks.aiContext = null;
   mocks.aiInitialSessionId = undefined;
   mocks.messages = [];
+  mocks.workspaceData = { is_demo: false, role: "ADMIN" };
   mocks.projectData = undefined;
   mocks.llmModels = undefined;
 });
@@ -220,3 +226,27 @@ describe("Home page", () => {
     expect(mocks.setAiContext).not.toHaveBeenCalled();
   });
 });
+
+it.each(["VIEWER", "MEMBER"])(
+  "shows normal starter prompts and rejects demo %s sends without a model",
+  (role) => {
+    mocks.workspaceData = { is_demo: true, role };
+    mocks.projectData = { workspace_id: "demo" };
+    render(<HomePage />);
+    expect(screen.getByText("How can I help?")).toBeTruthy();
+    expect(screen.queryByTitle("New session")).toBeNull();
+    expect(screen.getByTitle("History")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    for (const text of [
+      "Investigate the most recent errored trace",
+      "Summarize today's sessions",
+      "What did detector findings flag this week?",
+    ]) {
+      const button = screen.getByRole("button", { name: text }) as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      fireEvent.click(button);
+      expect(screen.getByRole("alert").textContent).toContain("demo project");
+    }
+    expect(mocks.handleSend).not.toHaveBeenCalled();
+  },
+);

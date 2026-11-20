@@ -24,8 +24,8 @@ const LOCAL = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
 
 // Jev is pinned to a release (not jev-latest) so runs stay reproducible.
 const JUDGE_MODELS = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-opus-5',
+  openai: 'gpt-6-luna',
+  anthropic: 'claude-opus-5-5',
   jev: 'jev-1.13.0',
 } as const;
 type JudgeProvider = keyof typeof JUDGE_MODELS;
