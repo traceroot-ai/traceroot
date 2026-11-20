@@ -36,6 +36,7 @@ vi.mock("@traceroot/core", () => ({
   isAiRunBlocked: () => false,
   isRcaRunBlocked: () => false,
   isDetectorRunBlocked: () => false,
+  findPlanItem: () => undefined,
   DETECTOR_HOSTED_LLM_FREE_THRESHOLD: 100,
   AI_RUN_QUOTAS: { starter: { included: 100 } },
   RCA_RUN_QUOTAS: { starter: { included: 100 } },
