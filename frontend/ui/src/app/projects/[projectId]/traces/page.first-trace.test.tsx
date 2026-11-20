@@ -10,6 +10,14 @@ const store = vi.hoisted(() => ({
   projectId: "p1",
   exists: false,
   traces: [] as { trace_id: string }[],
+  // The list query's own state: refetching, and when it last answered.
+  isFetching: false,
+  dataUpdatedAt: 0,
+}));
+const listState = vi.hoisted(() => ({
+  updateFilters: vi.fn(),
+  updateDateFilter: vi.fn(),
+  updateCustomRange: vi.fn(),
 }));
 
 vi.mock("@/features/traces/hooks", () => ({
@@ -25,6 +33,8 @@ vi.mock("@/features/traces/hooks", () => ({
       meta: { page: 1, limit: 50, total: store.traces.length },
     },
     isLoading: false,
+    isFetching: store.isFetching,
+    dataUpdatedAt: store.dataUpdatedAt,
     error: null,
   }),
   useSpanIO: () => ({ data: undefined, isLoading: false, error: null }),
@@ -36,8 +46,9 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
     state: { dateFilter: "all", customStartDate: null, customEndDate: null, keyword: "" },
     goToPage: vi.fn(),
     updateLimit: vi.fn(),
-    updateDateFilter: vi.fn(),
-    updateCustomRange: vi.fn(),
+    updateDateFilter: listState.updateDateFilter,
+    updateCustomRange: listState.updateCustomRange,
+    updateFilters: listState.updateFilters,
     updateKeyword: vi.fn(),
     queryOptions: { page: 1, limit: 50 },
   }),
@@ -112,6 +123,9 @@ afterEach(() => {
   store.projectId = "p1";
   store.exists = false;
   store.traces = [];
+  store.isFetching = false;
+  store.dataUpdatedAt = 0;
+  vi.clearAllMocks();
 });
 
 describe("the traces page of a project with no traces yet", () => {
@@ -150,6 +164,64 @@ describe("the traces page of a project with no traces yet", () => {
 
     expect(screen.getByTestId("getting-started").dataset.wait).toBe("waiting");
     expect(screen.queryByTestId("trace-panel")).toBeNull();
+  });
+});
+
+describe("a first trace the list's filters leave out", () => {
+  it("leaves setup for the filtered list, says why it is empty, and keeps the filters", () => {
+    const { rerender } = render(<TracesPage />, { wrapper: Wrapper });
+
+    // The trace exists; the list refetches for it.
+    store.exists = true;
+    store.isFetching = true;
+    rerender(<TracesPage />);
+    expect(screen.getByTestId("getting-started").dataset.wait).toBe("waiting");
+
+    // The refetch answers, still empty: the filters hide the trace.
+    store.isFetching = false;
+    store.dataUpdatedAt = Date.now() + 1000;
+    rerender(<TracesPage />);
+
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+    expect(
+      screen.getByText("Your first trace arrived, but the current filters hide it"),
+    ).toBeDefined();
+    expect(screen.getByText("Try adjusting your filters or date range.")).toBeDefined();
+    expect(screen.queryByTestId("trace-panel")).toBeNull();
+    expect(listState.updateFilters).not.toHaveBeenCalled();
+    expect(listState.updateDateFilter).not.toHaveBeenCalled();
+    expect(listState.updateCustomRange).not.toHaveBeenCalled();
+  });
+
+  it("does not leave on an answer from before the trace existed", () => {
+    store.dataUpdatedAt = Date.now() - 60_000;
+    const { rerender } = render(<TracesPage />, { wrapper: Wrapper });
+    store.exists = true;
+    rerender(<TracesPage />);
+    rerender(<TracesPage />);
+
+    expect(screen.getByTestId("getting-started").dataset.wait).toBe("waiting");
+  });
+});
+
+describe("an unfiltered first trace, listed after a refetch", () => {
+  it("still says it arrived, then opens it", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<TracesPage />, { wrapper: Wrapper });
+
+    store.exists = true;
+    store.isFetching = true;
+    rerender(<TracesPage />);
+    expect(screen.getByTestId("getting-started").dataset.wait).toBe("waiting");
+
+    store.isFetching = false;
+    store.dataUpdatedAt = Date.now() + 1000;
+    store.traces = [{ trace_id: "t-first" }];
+    rerender(<TracesPage />);
+    expect(screen.getByTestId("getting-started").dataset.wait).toBe("found");
+
+    act(() => vi.advanceTimersByTime(1500));
+    expect(screen.getByTestId("trace-panel").getAttribute("data-trace-id")).toBe("t-first");
   });
 });
 

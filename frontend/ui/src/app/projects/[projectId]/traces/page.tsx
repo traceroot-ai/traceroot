@@ -121,7 +121,7 @@ export default function TracesPage() {
   );
   // Fetch traces with combined query options + user filter from URL.
   // Evaluation traces are excluded from this default list.
-  const { data, isLoading, error } = useTraces(
+  const { data, isLoading, isFetching, dataUpdatedAt, error } = useTraces(
     projectId,
     {
       ...queryOptions,
@@ -181,9 +181,12 @@ export default function TracesPage() {
   // trace that arrives while the page watches; a project that already had
   // traces opens on its list as before.
   // Held per project, so a watch never carries over to another project's page.
+  // `hidden`: it arrived, but the list's filters or time range leave it out, so
+  // the page leaves setup for the list as filtered, and says why it is empty.
   const [firstTraceState, setFirstTrace] = useState<
     { projectId: string } & (
-      | { kind: "idle" | "watching" | "opened" }
+      | { kind: "idle" | "opened" | "hidden" }
+      | { kind: "watching"; existsSince?: number }
       | { kind: "arrived"; traceId: string }
     )
   >({ projectId, kind: "idle" });
@@ -195,11 +198,28 @@ export default function TracesPage() {
     if (noTracesYet && firstTrace.kind === "idle") setFirstTrace({ projectId, kind: "watching" });
   }, [noTracesYet, firstTrace.kind, projectId]);
   const newestTraceId = traces[0]?.trace_id;
+  const existsSince = firstTrace.kind === "watching" ? firstTrace.existsSince : undefined;
   useEffect(() => {
-    if (firstTrace.kind === "watching" && hasEverTraced && newestTraceId) {
+    if (firstTrace.kind !== "watching" || !hasEverTraced) return;
+    if (newestTraceId) {
       setFirstTrace({ projectId, kind: "arrived", traceId: newestTraceId });
+    } else if (existsSince === undefined) {
+      // The project has a trace; the list is refetched for it (see above).
+      setFirstTrace({ projectId, kind: "watching", existsSince: Date.now() });
+    } else if (!isFetching && dataUpdatedAt >= existsSince) {
+      // Refetched since, and still empty: the filters leave the trace out.
+      // They are the person's, so they stay as they are.
+      setFirstTrace({ projectId, kind: "hidden" });
     }
-  }, [firstTrace.kind, hasEverTraced, newestTraceId, projectId]);
+  }, [
+    firstTrace.kind,
+    existsSince,
+    hasEverTraced,
+    newestTraceId,
+    isFetching,
+    dataUpdatedAt,
+    projectId,
+  ]);
   const arrivedTraceId = firstTrace.kind === "arrived" ? firstTrace.traceId : null;
   useEffect(() => {
     if (!arrivedTraceId) return;
@@ -348,7 +368,11 @@ export default function TracesPage() {
           ) : traces.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <Inbox className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No traces found</p>
+              <p className="text-[13px] text-muted-foreground">
+                {firstTrace.kind === "hidden"
+                  ? "Your first trace arrived, but the current filters hide it"
+                  : "No traces found"}
+              </p>
               <p className="text-[12px] text-muted-foreground">
                 Try adjusting your filters or date range.
               </p>
