@@ -112,6 +112,10 @@ describe("auth options", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
   });
 
+  it("caps client registration high enough for an assistant's shared egress", () => {
+    expect(options.rateLimit.customRules["/oauth2/register"]).toEqual({ window: 60, max: 60 });
+  });
+
   it("sends user_signed_up when a user is created", async () => {
     await options.databaseHooks.user.create.after({ id: "user-1" });
     expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith("user-1", "user_signed_up", {});

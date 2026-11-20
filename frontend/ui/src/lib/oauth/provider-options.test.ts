@@ -32,6 +32,16 @@ describe("mcpOAuthProviderOptions", () => {
     expect(options.allowUnauthenticatedClientRegistration).toBe(true);
   });
 
+  it("registers a loopback or custom-scheme client as native when it does not say", () => {
+    expect(options.clientRegistrationDefaultApplicationType).toBe("infer");
+  });
+
+  it("rotates refresh tokens, replaying a lost response for two minutes", () => {
+    // Seconds. Registration, authorization and refresh run end to end in
+    // provider-flow.integration.test.ts.
+    expect(options.refreshTokenReuseInterval).toBe(120);
+  });
+
   describe("the project picker", () => {
     const { shouldRedirect } = options.postLogin;
 
