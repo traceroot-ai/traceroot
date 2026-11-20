@@ -12933,7 +12933,8 @@
             "approvalClass": "none",
             "minRole": "VIEWER",
             "tenancy": "project"
-          }
+          },
+          "readOnly": true
         }
       }
     },
@@ -14497,7 +14498,8 @@
             "approvalClass": "none",
             "minRole": "VIEWER",
             "tenancy": "project"
-          }
+          },
+          "readOnly": true
         }
       }
     },

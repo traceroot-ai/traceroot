@@ -120,6 +120,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Create alert",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "create_dashboard",
@@ -148,6 +154,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
+    },
+    annotations: {
+      title: "Create dashboard",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -224,6 +236,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Create detector",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "create_project",
@@ -253,6 +271,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "workspace",
+    },
+    annotations: {
+      title: "Create project",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -649,6 +673,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Create widget",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "create_workspace",
@@ -671,6 +701,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "VIEWER",
       tenancy: "account",
+    },
+    annotations: {
+      title: "Create workspace",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -704,6 +740,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Delete alert",
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: "delete_dashboard",
@@ -735,6 +777,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "approval",
       minRole: "MEMBER",
       tenancy: "project",
+    },
+    annotations: {
+      title: "Delete dashboard",
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
     },
   },
   {
@@ -768,6 +816,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Delete detector",
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: "delete_project",
@@ -795,6 +849,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "approval",
       minRole: "ADMIN",
       tenancy: "workspace",
+    },
+    annotations: {
+      title: "Delete project",
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
     },
   },
   {
@@ -828,6 +888,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Delete widget",
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: "delete_workspace",
@@ -860,6 +926,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "ADMIN",
       tenancy: "account",
     },
+    annotations: {
+      title: "Delete workspace",
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: "export_trace",
@@ -886,6 +958,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["trace_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Export trace",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_alert",
@@ -908,6 +986,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["alert_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get alert",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_dashboard",
@@ -929,6 +1013,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["dashboard_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get dashboard",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -966,6 +1056,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["dashboard_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get dashboard data",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_dataset",
@@ -987,6 +1083,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["dataset_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get dataset",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1023,6 +1125,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["version_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get dataset version",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_detector",
@@ -1044,6 +1152,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["detector_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get detector",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1067,6 +1181,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["run_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get evaluation run",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_finding",
@@ -1088,6 +1208,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["finding_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get finding",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_finding_by_trace",
@@ -1108,6 +1234,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["trace_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get finding by trace",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1141,6 +1273,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["session_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get session",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_signal",
@@ -1163,6 +1301,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["signal_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get signal",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_sql_schema",
@@ -1181,6 +1325,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get sql schema",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1209,6 +1359,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: ["trace_id"],
       additionalProperties: false,
     },
+    annotations: {
+      title: "Get trace",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "get_widget",
@@ -1230,6 +1386,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["widget_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get widget",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1266,6 +1428,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["widget_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Get widget data",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1305,6 +1473,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: [],
       additionalProperties: false,
     },
+    annotations: {
+      title: "List alerts",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "list_dashboards",
@@ -1323,6 +1497,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List dashboards",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1358,6 +1538,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["dataset_id"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List dataset versions",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1397,6 +1583,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: [],
       additionalProperties: false,
     },
+    annotations: {
+      title: "List datasets",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "list_detectors",
@@ -1431,6 +1623,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List detectors",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1482,6 +1680,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: [],
       additionalProperties: false,
     },
+    annotations: {
+      title: "List evaluation runs",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "list_evaluations",
@@ -1519,6 +1723,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List evaluations",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1564,6 +1774,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: [],
       additionalProperties: false,
     },
+    annotations: {
+      title: "List findings",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "list_projects",
@@ -1581,6 +1797,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List projects",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1621,6 +1843,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List sessions",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -1664,6 +1892,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: [],
       additionalProperties: false,
     },
+    annotations: {
+      title: "List signals",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "list_trace_filter_values",
@@ -1695,6 +1929,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       },
       required: ["field"],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List trace filter values",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2054,6 +2294,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       required: [],
       additionalProperties: false,
     },
+    annotations: {
+      title: "List traces",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "list_workspaces",
@@ -2066,6 +2312,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {},
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "List workspaces",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2109,6 +2361,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "none",
       minRole: "VIEWER",
       tenancy: "project",
+    },
+    annotations: {
+      title: "Run sql",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2251,6 +2509,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "VIEWER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Run widget query",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "set_alert_status",
@@ -2280,6 +2544,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
+    },
+    annotations: {
+      title: "Set alert status",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2326,6 +2596,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
+    },
+    annotations: {
+      title: "Set signal status",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2438,6 +2714,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Update alert",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "update_dashboard",
@@ -2470,6 +2752,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
+    },
+    annotations: {
+      title: "Update dashboard",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2549,6 +2837,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Update detector",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "update_project",
@@ -2579,6 +2873,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       approvalClass: "confirm",
       minRole: "ADMIN",
       tenancy: "workspace",
+    },
+    annotations: {
+      title: "Update project",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
   {
@@ -2973,6 +3273,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "MEMBER",
       tenancy: "project",
     },
+    annotations: {
+      title: "Update widget",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "update_workspace",
@@ -2999,6 +3305,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       minRole: "ADMIN",
       tenancy: "account",
     },
+    annotations: {
+      title: "Update workspace",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
   },
   {
     name: "whoami",
@@ -3010,6 +3322,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {},
       required: [],
       additionalProperties: false,
+    },
+    annotations: {
+      title: "Whoami",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
     },
   },
 ];
