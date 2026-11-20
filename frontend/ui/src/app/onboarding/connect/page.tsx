@@ -68,6 +68,7 @@ function Connect() {
                   result: searchParams.get("slack"),
                   reason: searchParams.get("reason"),
                 }}
+                githubOutcome={searchParams.get("github")}
                 onContinue={next}
                 onSkip={next}
               />
