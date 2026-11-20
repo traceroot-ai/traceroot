@@ -720,9 +720,33 @@ def _verify_view_call(
     return arguments["project_id"]
 
 
+def _cte_reference_ids(tree: exp.Expression) -> set[int]:
+    """Return the ids of ``exp.Table`` nodes that name a CTE visible in their own scope.
+
+    Layer 1 resolves CTE references the same way. Layer 3 repeats it on the
+    rewritten tree rather than trusting Layer 1, because a query-wide alias set
+    lets a CTE defined in one subquery or UNION arm vouch for a same-named
+    physical table in another. Fails closed if scope analysis fails.
+    """
+    try:
+        root_scope = build_scope(tree)
+    except Exception as exc:
+        raise SqlValidationError(
+            "Post-rewrite verification failed: table scopes could not be analyzed"
+        ) from exc
+    if root_scope is None:
+        raise SqlValidationError(
+            "Post-rewrite verification failed: table scopes could not be analyzed"
+        )
+    ids: set[int] = set()
+    for scope in root_scope.traverse():
+        visible = {name.lower() for name in scope.cte_sources}
+        ids.update(id(table) for table in scope.tables if table.name.lower() in visible)
+    return ids
+
+
 def _verify_rewritten_ast(
     tree: exp.Expression,
-    cte_aliases: set[str],
     param_value: exp.Expression,
     floor: exp.Expression | None = None,
 ) -> None:
@@ -733,8 +757,8 @@ def _verify_rewritten_ast(
 
     Invariants:
     1. No whitelisted physical table survived un-rewritten (``exp.Table`` with
-       ``Identifier`` ``this`` whose name is in ``TABLE_VIEW_MAP`` and is not a
-       CTE alias).
+       ``Identifier`` ``this`` whose name is in ``TABLE_VIEW_MAP``), and every
+       other plain table names a CTE visible in its own scope.
     2. Every injected table node names a known curated view (the ``Anonymous``
        ``this.this`` value must be in ``_VIEW_NAMES``).
     3. No blocked function was introduced: re-scan every node with the
@@ -761,6 +785,8 @@ def _verify_rewritten_ast(
             and _call_name(node.this) in _VIEW_NAMES
         ):
             tenant_arguments.add(id(_verify_view_call(node.this, param_value, floor=floor)))
+
+    cte_reference_ids = _cte_reference_ids(tree)
 
     for node in tree.walk():
         # --- Invariant 6: no unsafe identifier characters ----------------------
@@ -796,14 +822,18 @@ def _verify_rewritten_ast(
         # --- Invariant 1 & 2: Table node shape checks -------------------------
         if isinstance(node, exp.Table):
             if isinstance(node.this, exp.Identifier):
-                # Plain table reference — must be an unqualified CTE alias,
-                # never a whitelisted physical table or an unverified table.
-                table_name = node.name.lower()
-                if table_name in TABLE_VIEW_MAP and table_name not in cte_aliases:
+                # Plain table reference — must be an unqualified reference to a
+                # CTE in its own scope, never a whitelisted physical table (a CTE
+                # cannot shadow one: the rewriter rewrites every such name).
+                if node.name.lower() in TABLE_VIEW_MAP:
                     raise SqlValidationError(
                         "Post-rewrite verification failed: a whitelisted table was not rewritten"
                     )
-                if node.args.get("db") or node.args.get("catalog") or table_name not in cte_aliases:
+                if (
+                    node.args.get("db")
+                    or node.args.get("catalog")
+                    or id(node) not in cte_reference_ids
+                ):
                     raise SqlValidationError(
                         "Post-rewrite verification failed: unverified table reference detected"
                     )
@@ -895,9 +925,11 @@ def scope_and_render(
     # This is a flat, query-wide set, deliberately narrower in one respect than
     # the validator's scope-aware resolution: a public table name is removed from
     # it outright. Without that subtraction, a CTE named `spans` anywhere in the
-    # query would exempt every `FROM spans` from rewriting -- and Layer 3 would
-    # forgive the survivor, because it consults this same set. That query cannot
-    # reach here today: validator check 6 rejects a CTE shadowing a public table.
+    # query would exempt every `FROM spans` from rewriting (Layer 3 would then
+    # refuse the survivor, but the rewrite should not depend on that). Only
+    # Layer 2 uses this set; Layer 3 resolves CTE references per scope itself.
+    # That query cannot reach here today: validator check 6 rejects a CTE
+    # shadowing a public table.
     # But that is an invariant in another module with nothing tying the two
     # together, and the rewriter is the layer holding the tenant boundary. It
     # should not depend on being handed only well-formed input.
@@ -932,7 +964,7 @@ def scope_and_render(
     )
 
     # Step 6 — Layer-3 post-rewrite verification (AST-based, fail closed).
-    _verify_rewritten_ast(rewritten, cte_aliases, param_value, floor=floor_node)
+    _verify_rewritten_ast(rewritten, param_value, floor=floor_node)
 
     # Only emit the scope bind when the rewritten tree actually carries the
     # `{scope_project_id: String}` placeholder (i.e. at least one curated view

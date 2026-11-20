@@ -587,6 +587,17 @@ class TestLayer3Hardening:
             pytest.param("SELECT 1 WHERE 1 IN system.numbers", id="in-system-table"),
             pytest.param("SELECT 1 WHERE 1 IN (spans)", id="in-parenthesized-table"),
             pytest.param("SELECT 1 WHERE 1 GLOBAL IN (SELECT 1 FROM spans)", id="global-in"),
+            # ClickHouse substitutes an Identifier placeholder as a name and looks
+            # a lone name up as a table, so these read whatever table is bound.
+            pytest.param("SELECT 1 WHERE 1 IN {t:Identifier}", id="in-identifier-placeholder"),
+            pytest.param(
+                "SELECT 1 WHERE 1 IN ({t:Identifier})", id="in-parenthesized-identifier-placeholder"
+            ),
+            pytest.param("SELECT 1 WHERE 1 IN loop('system', 'one')", id="in-unlisted-function"),
+            pytest.param(
+                "SELECT 1 WHERE 1 IN (loop('system', 'one'))",
+                id="in-parenthesized-unlisted-function",
+            ),
         ],
     )
     def test_layer3_rejects_unsafe_in_clauses_even_if_layer1_is_bypassed(
@@ -609,6 +620,29 @@ class TestLayer3Hardening:
     ) -> None:
         _bypass_layer1(monkeypatch)
         with pytest.raises(SqlValidationError, match=r"unverified table|not rewritten"):
+            scope_and_render(sql, PID)
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            pytest.param(
+                "SELECT * FROM t WHERE 1 IN (WITH t AS (SELECT 1 AS n) SELECT n FROM t)",
+                id="cte-defined-in-a-subquery",
+            ),
+            pytest.param(
+                "SELECT n FROM (WITH t AS (SELECT 1 AS n) SELECT n FROM t) AS s"
+                " UNION ALL SELECT n FROM t",
+                id="cte-defined-in-another-union-arm",
+            ),
+        ],
+    )
+    def test_layer3_rejects_a_table_named_after_an_out_of_scope_cte(
+        self, sql: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The outer `t` is a physical table: the CTE named `t` is not visible in
+        # its scope. A query-wide alias set would let that CTE vouch for it.
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match="unverified table"):
             scope_and_render(sql, PID)
 
     def test_safe_clickhouse_generator_escapes_backslashes_in_identifiers(self) -> None:

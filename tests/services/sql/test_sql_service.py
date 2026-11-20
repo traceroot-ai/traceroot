@@ -715,7 +715,7 @@ class TestCallerParameters:
         monkeypatch.setattr(
             service_module,
             "scope_and_render",
-            lambda _q, _p: ("SELECT 'hello %(x)s'", {"scope_project_id": PID}),
+            lambda _q, _p, **_kw: ("SELECT 'hello %(x)s'", {"scope_project_id": PID}),
         )
         client = FakeClient(rows=[[1]])
         with pytest.raises(SqlExecutionError) as exc_info:
@@ -740,7 +740,7 @@ class TestRetentionFloor:
         client = FakeClient(rows=[["s1"]])
         with patch(
             "rest.services.sql.service.scope_and_render",
-            return_value=("SELECT 1", {"scope_project_id": "p"}),
+            return_value=("SELECT 1", {}),
         ) as render:
             _service(client).run("SELECT span_id FROM spans", PID, retention_floor=floor)
         render.assert_called_once()
@@ -750,7 +750,7 @@ class TestRetentionFloor:
         client = FakeClient(rows=[["s1"]])
         with patch(
             "rest.services.sql.service.scope_and_render",
-            return_value=("SELECT 1", {"scope_project_id": "p"}),
+            return_value=("SELECT 1", {}),
         ) as render:
             _service(client).run("SELECT span_id FROM spans", PID)
         assert render.call_args.kwargs == {"retention_floor": None}

@@ -392,13 +392,35 @@ def _unwrap_parens(node: exp.Expression) -> exp.Expression:
     return node
 
 
+def _in_operand_error(node: exp.Expression) -> str | None:
+    """Return a sanitized error message if the lone ``IN`` operand *node* is unsafe.
+
+    Only placeholders and callable functions are judged here; anything else
+    returns ``None`` for the caller to decide. ClickHouse substitutes a
+    ``{t:Identifier}`` placeholder as a name, and a lone name on the right of
+    ``IN`` is looked up as a table, so ``expr IN {t:Identifier}`` and
+    ``expr IN ({t:Identifier})`` read whatever table the caller names. Layer 3
+    calls this helper without assuming Layer 1 ran, and Layer 3 has no
+    placeholder or function allowlist of its own, so both are checked here.
+    """
+    if isinstance(node, exp.Placeholder):
+        if not isinstance(node.args.get("kind"), exp.DataType):
+            return "Query parameters must be typed as values"
+    elif isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):
+        if is_blocked_function(node):
+            return "Function is blocked by the security policy"
+        if _func_name(node) not in ALLOWED_FUNCTIONS:
+            return "Function is not in the allowed list"
+    return None
+
+
 def is_unsafe_in_clause(node: exp.In) -> str | None:
     """Return a sanitized error message if *node* uses a disallowed ``IN`` form.
 
     ClickHouse resolves ``expr IN table``, ``expr IN db.table``, and single
     parenthesised identifiers ``expr IN (db.table)`` / ``expr IN ((table))`` as
     table lookups without producing an ``exp.Table`` node in sqlglot. Value
-    lists, subqueries (``query``), typed value placeholders, and allowlisted
+    lists, subqueries (``query``), value-typed placeholders, and allowlisted
     functions (such as ``mapKeys(metadata)``) remain permitted.
     """
     if node.args.get("is_global"):
@@ -412,10 +434,12 @@ def is_unsafe_in_clause(node: exp.In) -> str | None:
             unwrapped, _SKIP_FUNC_TYPES
         ):
             return "Table references in IN clauses are not allowed; use a value list or subquery"
+        return _in_operand_error(unwrapped)
     if len(node.expressions) == 1:
         only = _unwrap_parens(node.expressions[0])
         if isinstance(only, exp.Column):
             return "Table references in IN clauses are not allowed; use a value list or subquery"
+        return _in_operand_error(only)
     return None
 
 
