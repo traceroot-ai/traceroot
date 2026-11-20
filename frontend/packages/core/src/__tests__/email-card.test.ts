@@ -38,10 +38,24 @@ describe("renderEmailCard", () => {
   it("sizes the logo by its height, so a wordmark keeps its proportions", () => {
     const logo = renderEmailCard(params).match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
 
-    // A fixed width as well would stretch any logo that is not exactly 127:24.
-    expect(logo).toMatch(/style="[^"]*height: 24px; width: auto;/);
+    // A fixed width as well would stretch any logo that is not exactly 143:36.
+    expect(logo).toMatch(/style="[^"]*height: 36px; width: auto;/);
     // Outlook ignores that CSS and sizes the image from these.
-    expect(logo).toContain('width="127" height="24"');
+    expect(logo).toContain('width="143" height="36"');
+  });
+
+  it("stays readable when a mail client darkens it", () => {
+    const html = renderEmailCard(params);
+
+    // Clients that honor it keep the card light.
+    expect(html).toContain('<meta name="color-scheme" content="light only">');
+    // Clients that darken anyway leave images alone: the default logo brings its
+    // own white plate.
+    if (!process.env.NEXT_PUBLIC_LOGO_URL) {
+      expect(html).toContain("/images/traceroot_wordmark_email.png");
+    }
+    // The button's border, in its own color, turns into an outline on a dark card.
+    expect(html).toMatch(/background-color: #0B1015; border: 1px solid #0B1015;/);
   });
 
   it("places the body rows between the title and the button", () => {

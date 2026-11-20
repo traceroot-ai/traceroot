@@ -11,17 +11,25 @@
  * CSS stripping. The card lets long unbroken words wrap (detector names such
  * as "hallucination_detector", workspace names, emails), so a single token
  * can't widen it past a 320px screen; the setting inherits into body rows.
+ *
+ * Dark mode: the card asks to stay light (color-scheme "light only"), which Apple
+ * Mail honors. Gmail and the Outlook apps darken it anyway. They recolor the
+ * card and the button but never an image, so the default logo carries its own
+ * white plate (invisible on the white card) and the button has a border in its
+ * own color, which those clients lighten into an outline on the dark card.
  */
 
 /**
- * Hosted PNG of the wordmark (mark + "traceroot"); mail clients drop SVG.
- * NEXT_PUBLIC_LOGO_URL overrides it. The logo is 24px tall and keeps its own
- * proportions in clients that read CSS; Outlook sizes it from the 127x24
- * attributes, so an override should still be wordmark-shaped (about 5.3:1).
+ * Hosted PNG of the wordmark (mark + "traceroot") on a white rounded plate, so
+ * it stays visible when a mail client darkens the email; mail clients drop SVG.
+ * NEXT_PUBLIC_LOGO_URL overrides it. The logo is 36px tall and keeps its own
+ * proportions in clients that read CSS; Outlook sizes it from the 143x36
+ * attributes, so an override should have the same shape (about 4:1) and its
+ * own light background.
  */
 export const EMAIL_LOGO_URL =
   process.env.NEXT_PUBLIC_LOGO_URL ||
-  "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_wordmark.png";
+  "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_wordmark_email.png";
 
 /** Email-safe PNG of the green website footer wordmark, rendered at 2×. */
 export const EMAIL_PIXEL_WORDMARK_URL =
@@ -81,6 +89,8 @@ export function renderEmailCard(params: {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light only">
+    <meta name="supported-color-schemes" content="light only">
     <!--[if mso]>
     <style>h1, p, td, a { word-break: break-all; }</style>
     <![endif]-->
@@ -89,14 +99,14 @@ export function renderEmailCard(params: {
     <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto; background: ${c.white}; border: 1px solid ${c.border}; border-top: 3px solid ${c.accent}; border-radius: 8px; border-collapse: separate; word-break: break-word; overflow-wrap: anywhere;">
       <!-- Logo section -->
       <tr>
-        <td style="padding: 32px 40px 0 40px;">
-          <img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="127" height="24" style="display: block; border: 0; height: 24px; width: auto; max-width: 100%;" />
+        <td style="padding: 26px 32px 0 32px;">
+          <img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="143" height="36" style="display: block; border: 0; height: 36px; width: auto; max-width: 100%;" />
         </td>
       </tr>
 
       <!-- Title -->
       <tr>
-        <td style="padding: 32px 40px 16px 40px;">
+        <td style="padding: 26px 40px 16px 40px;">
           <h1 style="font-size: 22px; line-height: 1.3; font-weight: 600; margin: 0; color: ${c.ink}; letter-spacing: -0.4px;">
             ${title}
           </h1>
@@ -108,7 +118,7 @@ ${bodyHtml}
         <td style="padding: 0 40px 36px 40px;">
           <table cellpadding="0" cellspacing="0" border="0">
             <tr>
-              <td style="background-color: ${c.ink}; border-radius: 6px;">
+              <td bgcolor="${c.ink}" style="background-color: ${c.ink}; border: 1px solid ${c.ink}; border-radius: 6px;">
                 <a href="${buttonUrl}" style="display: inline-block; padding: 11px 20px; color: ${c.white}; text-decoration: none; font-weight: 500; font-size: 14px; border-radius: 6px;">
                   ${buttonLabel}
                 </a>
