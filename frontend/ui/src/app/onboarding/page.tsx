@@ -8,14 +8,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
-import { createWorkspace, createProject, getProjects, getWorkspaces } from "@/lib/api";
+import {
+  createWorkspace,
+  createProject,
+  getProjects,
+  getWorkspace,
+  getWorkspaces,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api/errors";
 import type { Project, Workspace } from "@/types/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
 import { questionsStepUrl } from "@/features/onboarding/step-urls";
-import { onboardingSignInUrl, useSwitchAccount } from "@/features/onboarding/use-switch-account";
+import {
+  onboardingReturnUrl,
+  onboardingSignInUrl,
+  useSwitchAccount,
+} from "@/features/onboarding/use-switch-account";
 import { isPersonalEmail } from "@/lib/personal-email";
 
 /** The first project's name. Renamed, like the workspace, in settings. */
@@ -257,11 +267,30 @@ function OnboardingContent() {
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
-  // Ready to create once the session is known and the setup check has settled
-  // on "this account needs a workspace" (or a failed check fell through — see
-  // the render guard below), or this is project-only mode.
+  // Project-only mode adds to a workspace that already exists, named by the
+  // address. Anyone can send such a link, so nothing is created on opening it:
+  // the workspace is looked up as this account (its name from the API, never
+  // from the address), and the project is made only on an explicit click.
+  const { data: target, isError: targetError } = useQuery({
+    queryKey: ["workspace", existingWorkspaceId, userId],
+    queryFn: () => getWorkspace(existingWorkspaceId!),
+    enabled: !!userId && isProjectOnlyMode,
+    retry: false,
+  });
+  const canAddProject =
+    !!target && !target.is_demo && (target.role === "ADMIN" || target.role === "MEMBER");
+
+  // A new account's own workspace and project are created by themselves once the
+  // session is known and the setup check has settled on "this account needs a
+  // workspace" (or a failed check fell through — see the render guard below).
+  // Never in project-only mode: that waits for the click above.
   const readyToCreate =
-    !!session && !isPending && !workspacesLoading && !setupComplete && !addProjectUrl;
+    !isProjectOnlyMode &&
+    !!session &&
+    !isPending &&
+    !workspacesLoading &&
+    !setupComplete &&
+    !addProjectUrl;
   useEffect(() => {
     if (!readyToCreate || started.current) return;
     started.current = true;
@@ -285,7 +314,7 @@ function OnboardingContent() {
         workspaceId = workspace.id;
       }
 
-      if (!workspaceId) {
+      if (!workspaceId || (isProjectOnlyMode && !canAddProject)) {
         setError("Workspace not found");
         setIsLoading(false);
         return;
@@ -384,7 +413,9 @@ function OnboardingContent() {
                 does. */}
             <h1 className="text-[15px] font-medium">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
-              Setting up your workspace and first project
+              {isProjectOnlyMode
+                ? "Add a project to an existing workspace"
+                : "Setting up your workspace and first project"}
             </p>
           </div>
         </div>
@@ -398,7 +429,64 @@ function OnboardingContent() {
 
         <Card>
           <CardContent className="p-4">
-            {error ? (
+            {isProjectOnlyMode ? (
+              targetError || (target && !canAddProject) ? (
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <p className="text-[12px] text-muted-foreground">
+                    {target
+                      ? `You can't add a project to ${target.name}. Set up a workspace of your own instead.`
+                      : "This workspace can't be found for your account. Set up a workspace of your own instead."}
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 px-4 text-[12px]"
+                      onClick={() => router.push(onboardingReturnUrl(returnTo))}
+                    >
+                      Set up my workspace
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-4 text-[12px]"
+                      onClick={() => router.push(returnTo ?? "/workspaces")}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : target ? (
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <p className="text-[12px] text-muted-foreground">
+                    Create a project named{" "}
+                    <span className="font-medium text-foreground">{DEFAULT_PROJECT_NAME}</span> in{" "}
+                    <span className="font-medium text-foreground">{target.name}</span>? You can
+                    rename it later.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 px-4 text-[12px]"
+                      onClick={handleSubmit}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? "Creating…" : "Create project"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-4 text-[12px]"
+                      onClick={() => router.push(returnTo ?? "/workspaces")}
+                      disabled={isLoading}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="py-2 text-center text-[12px] text-muted-foreground">Loading…</p>
+              )
+            ) : error ? (
               <div className="flex items-center justify-center gap-2">
                 <Button
                   size="sm"
@@ -423,9 +511,7 @@ function OnboardingContent() {
               </div>
             ) : (
               <p className="py-2 text-center text-[12px] text-muted-foreground">
-                {isProjectOnlyMode
-                  ? "Creating your first project…"
-                  : "Creating your workspace and first project…"}
+                Creating your workspace and first project…
               </p>
             )}
 

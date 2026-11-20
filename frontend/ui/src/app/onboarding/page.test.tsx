@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   createWorkspace: vi.fn(),
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
+  getWorkspace: vi.fn(),
   getProjects: vi.fn(),
   getTraces: vi.fn(),
   params: new URLSearchParams(),
@@ -99,6 +100,7 @@ vi.mock("@/lib/api", () => ({
   createWorkspace: mocks.createWorkspace,
   createProject: mocks.createProject,
   getWorkspaces: mocks.getWorkspaces,
+  getWorkspace: mocks.getWorkspace,
   getProjects: mocks.getProjects,
 }));
 // Not mocked, and deliberately: the page tells a name collision from any other
@@ -186,6 +188,12 @@ async function clickTryAgain() {
   fireEvent.click(retry);
 }
 
+// Adding to an existing workspace waits for this click.
+async function clickCreateProject() {
+  const create = await waitFor(() => screen.getByRole("button", { name: "Create project" }));
+  fireEvent.click(create);
+}
+
 /** Wait for the page to move on to the questions step; answers where. */
 async function reachHandback(): Promise<string> {
   await waitFor(() =>
@@ -242,6 +250,14 @@ beforeEach(() => {
   // Only reached when a project create collides, so an empty list is the honest
   // default: a test that expects an adoption says what the workspace holds.
   mocks.getProjects.mockResolvedValue([]);
+  // GET /api/workspaces/[id] as a member sees it: the name is the stored one.
+  mocks.getWorkspace.mockImplementation(async (id: string) => ({
+    id,
+    name: "Example",
+    role: "ADMIN",
+    is_demo: false,
+    projects: [],
+  }));
   // Creating starts by itself, so a test that does not say how it goes sees it
   // fail, and the page stop on its error.
   mocks.createWorkspace.mockRejectedValue(new Error("workspace create not set up"));
@@ -259,6 +275,7 @@ afterEach(() => {
   mocks.layoutAccess.mockReset();
   mocks.signOut.mockReset();
   mocks.getProjects.mockReset();
+  mocks.getWorkspace.mockReset();
   mocks.params = new URLSearchParams();
   demo.workspaces = [];
   signedInAs("user-1", "kai@example.com");
@@ -303,6 +320,7 @@ describe("OnboardingPage", () => {
     setParams({ workspaceId: "ws-existing", workspaceName: "Example" });
     mocks.createProject.mockResolvedValue({ id: "proj-2", name: "my-llm-project" });
     renderPage();
+    await clickCreateProject();
 
     expect(await reachHandback()).toBe("/onboarding/questions?projectId=proj-2&created=project");
     expect(mocks.createWorkspace).not.toHaveBeenCalled();
@@ -563,12 +581,113 @@ describe("OnboardingPage", () => {
     expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
   });
 
+  describe("a link that names an existing workspace", () => {
+    const LINK = { workspaceId: "ws-team", workspaceName: "Name From The Link" };
+    const TEAM = { id: "ws-team", name: "Acme Team", role: "MEMBER", is_demo: false, projects: [] };
+
+    it("creates nothing on opening, and names the workspace as stored, not as the link says", async () => {
+      setParams(LINK);
+      mocks.getWorkspace.mockResolvedValue(TEAM);
+      renderPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create project" })).toBeDefined(),
+      );
+      expect(screen.getByText("Acme Team")).toBeDefined();
+      expect(screen.queryByText("Name From The Link")).toBeNull();
+      expect(mocks.getWorkspace).toHaveBeenCalledWith("ws-team");
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mocks.createProject).not.toHaveBeenCalled();
+      expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    });
+
+    it("creates nothing on Cancel, and goes back to whatever is waiting", async () => {
+      setParams({ ...LINK, callbackUrl: "/device?user_code=ABCD1234" });
+      mocks.getWorkspace.mockResolvedValue(TEAM);
+      renderPage();
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Cancel" })));
+      expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234");
+      expect(mocks.createProject).not.toHaveBeenCalled();
+    });
+
+    it("creates one project however often Create is clicked, and keeps the terminal's hand-back", async () => {
+      setParams({ ...LINK, callbackUrl: "/device?user_code=ABCD1234" });
+      mocks.getWorkspace.mockResolvedValue(TEAM);
+      const project = deferred<{ id: string; name: string }>();
+      mocks.createProject.mockReturnValue(project.promise);
+      renderPage();
+
+      await clickCreateProject();
+      fireEvent.click(screen.getByRole("button", { name: "Creating…" }));
+      project.resolve({ id: "proj-1", name: "my-llm-project" });
+
+      expect(await reachHandback()).toBe(
+        "/onboarding/questions?projectId=proj-1&created=project&callbackUrl=%2Fdevice%3Fuser_code%3DABCD1234",
+      );
+      expect(mocks.createProject).toHaveBeenCalledTimes(1);
+      expect(mocks.createProject).toHaveBeenCalledWith("ws-team", "my-llm-project");
+    });
+
+    it("asks again after a refresh, still creating nothing", async () => {
+      setParams(LINK);
+      mocks.getWorkspace.mockResolvedValue(TEAM);
+      const first = renderPage();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create project" })).toBeDefined(),
+      );
+      first.unmount();
+
+      renderPage();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create project" })).toBeDefined(),
+      );
+      expect(mocks.createProject).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, () => void, string]>([
+      [
+        "a read-only member",
+        () => mocks.getWorkspace.mockResolvedValue({ ...TEAM, role: "VIEWER" }),
+        "You can't add a project to Acme Team",
+      ],
+      [
+        "someone outside it",
+        () =>
+          mocks.getWorkspace.mockRejectedValue(new ApiError(403, "Not a member of this workspace")),
+        "This workspace can't be found for your account",
+      ],
+      [
+        "the demo workspace",
+        () => mocks.getWorkspace.mockResolvedValue({ ...TEAM, role: "VIEWER", is_demo: true }),
+        "You can't add a project to Acme Team",
+      ],
+    ])(
+      "offers %s no way to create there, only their own workspace",
+      async (_who, arrange, says) => {
+        setParams({ ...LINK, callbackUrl: "/device?user_code=ABCD1234" });
+        arrange();
+        renderPage();
+
+        await waitFor(() => expect(screen.getByText(new RegExp(says))).toBeDefined());
+        expect(screen.queryByRole("button", { name: "Create project" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Set up my workspace" }));
+        expect(mocks.push).toHaveBeenCalledWith(
+          `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+        );
+        expect(mocks.createProject).not.toHaveBeenCalled();
+        expect(mocks.createWorkspace).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   it("does not check for a workspace when adding a project to one", async () => {
     // `?workspaceId=` means "add a project to this workspace I already own", so
     // owning one is the precondition here rather than a reason to leave.
     setParams({ workspaceId: "ws-existing", workspaceName: "Example" });
     mocks.createProject.mockResolvedValue({ id: "proj-2", name: "my-llm-project" });
     renderPage();
+    await clickCreateProject();
 
     await reachHandback();
     expect(mocks.getWorkspaces).not.toHaveBeenCalled();
@@ -731,6 +850,7 @@ describe("OnboardingPage", () => {
     mocks.createProject.mockRejectedValue(PROJECT_NAME_TAKEN());
     mocks.getProjects.mockResolvedValue([LIVE_PROJECT]);
     renderPage();
+    await clickCreateProject();
 
     await waitFor(() =>
       expect(screen.getByText("A project with this name already exists")).toBeDefined(),

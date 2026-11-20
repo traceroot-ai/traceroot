@@ -14,7 +14,7 @@ import { authClient } from "@/lib/auth-client";
 // back as someone else — who cannot add a project to it. An account that signs
 // back in as itself gets the parameter re-derived from /onboarding's setup
 // check, so nothing is lost either way.
-function onboardingReturnUrl(returnTo: string | null): string {
+export function onboardingReturnUrl(returnTo: string | null): string {
   return returnTo === null
     ? "/onboarding"
     : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
