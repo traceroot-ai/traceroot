@@ -69,7 +69,7 @@ const mastra = new Mastra({
 // Demo
 // Note: in Mastra, each agent.generate() call is its own root trace.
 // We pass a consistent threadId so both calls are grouped under the same
-// session in TraceRoot's Sessions view.
+// session in traceroot's Sessions view.
 // ---------------------------------------------------------------------------
 
 const QUERIES = [
@@ -78,7 +78,7 @@ const QUERIES = [
 ];
 
 // A stable ID shared across all calls in this demo run.
-// Both traces will appear grouped under the same session in TraceRoot.
+// Both traces will appear grouped under the same session in traceroot.
 const SESSION_ID = `demo-${Date.now()}`;
 const USER_ID = 'demo-user';
 
@@ -88,7 +88,7 @@ async function main() {
   for (const query of QUERIES) {
     console.log(`\nQuery: ${query}`);
     const result = await agent.generate(query, {
-      // tracingOptions.metadata is what TraceRoot reads for session/user/custom fields.
+      // tracingOptions.metadata is what traceroot reads for session/user/custom fields.
       // Note: threadId/resourceId are for Mastra memory only — not telemetry.
       tracingOptions: {
         metadata: {

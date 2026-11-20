@@ -333,7 +333,7 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // TraceRoot has no sparkline display. The tool description tells the model
+    // traceroot has no sparkline display. The tool description tells the model
     // to disclose the substitution instead of quietly picking something else.
     name: "sparkline",
     messages: ["Create a dashboard called Token Watch with a sparkline of total tokens over time."],

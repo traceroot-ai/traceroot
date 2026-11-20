@@ -162,7 +162,7 @@ function highlightCommands(value: string) {
 /**
  * The onboarding code-snippet box: a bordered card with a header row carrying a
  * sub-heading label and the copy button, and the content in a <pre> below. This
- * mirrors the Manual tab's "Initialize TraceRoot" block so every snippet across
+ * mirrors the Manual tab's "Initialize traceroot" block so every snippet across
  * onboarding shares one style and copy-button placement.
  */
 export function CodeBlock({ label, value, mono = true, language, onCopy }: CodeBlockProps) {

@@ -211,7 +211,7 @@ describe("CliHandbackStep", () => {
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {
     // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
     // like this reaches the step. The command it renders carries no `--host`,
-    // and that line is the TraceRoot Cloud one — so a self-hosted operator
+    // and that line is the traceroot Cloud one — so a self-hosted operator
     // pasting it would sign this machine in against someone else's deployment
     // and send their first traces there, on the last page of signing up.
     const { container } = await renderStepWith({ apiUrl: "http://:8000" });

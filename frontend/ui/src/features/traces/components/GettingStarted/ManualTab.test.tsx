@@ -300,7 +300,7 @@ describe("ManualTab with no stack chosen above it", () => {
 });
 
 describe("the environment step", () => {
-  // Neither SDK loads a `.env` file, and both default to TraceRoot Cloud when
+  // Neither SDK loads a `.env` file, and both default to traceroot Cloud when
   // `TRACEROOT_HOST_URL` is unset, so a walkthrough that stops at the key sends
   // a self-hosted reader's key and first traces to Cloud.
   it("sets the host to the origin the setup command uses, on a self-hosted deployment", async () => {
