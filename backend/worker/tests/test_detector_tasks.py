@@ -195,8 +195,9 @@ def test_trace_summaries_query_scopes_to_user_source():
     assert "AND source = 'user'" in sql
     assert "!= 'detector'" not in sql
 
-    def test_eval_condition_contains_non_string_actual():
-        """contains on a scalar non-string field coerces via str() before matching."""
-        trace_summary = {"error_code": 404}
-        condition = {"field": "error_code", "op": "contains", "value": "40"}
-        assert _eval_condition(trace_summary, condition) is True
+
+def test_eval_condition_contains_non_string_actual():
+    """contains on a scalar non-string field coerces via str() before matching."""
+    trace_summary = {"error_code": 404}
+    condition = {"field": "error_code", "op": "contains", "value": "40"}
+    assert _eval_condition(trace_summary, condition) is True
