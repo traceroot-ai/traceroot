@@ -29,6 +29,8 @@ export function slackFailureMessage(reason: string | null): string {
       return "Slack wasn't connected: Slack didn't accept the authorization. Try again, or skip and connect it later.";
     case "store_failed":
       return "Slack wasn't connected: we couldn't save the connection. Try again, or skip and connect it later.";
+    case "not_configured":
+      return "Slack can't be connected here yet: this deployment has no Slack app set up. Skip for now; an admin can connect it later in Workspace settings → Integrations.";
     case "invalid_state":
     case "missing_params":
       return "Slack wasn't connected: the authorization expired or came back incomplete. Try again, or skip and connect it later.";
@@ -78,6 +80,8 @@ export function ConnectStep({
   const [changingChannel, setChangingChannel] = useState(false);
 
   const slackFailed = slackOutcome.result === "error" && !slack?.connected;
+  // Trying again cannot work until the deployment has a Slack app set up.
+  const slackUnavailable = slackFailed && slackOutcome.reason === "not_configured";
   const pickingChannel = !!slack?.connected && (!slack.channel || changingChannel);
 
   return (
@@ -148,7 +152,7 @@ export function ConnectStep({
               </span>
             ) : !canManage ? (
               <AdminsOnly />
-            ) : (
+            ) : slackUnavailable ? null : (
               <ConnectLink href={slackInstallHref(workspaceId, returnTo)} label="Connect Slack">
                 {slackFailed ? "Try again" : "Connect"}
               </ConnectLink>
