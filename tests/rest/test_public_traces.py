@@ -100,7 +100,8 @@ class TestIngestTraces:
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid gzip payload"
 
-    def test_s3_failure_returns_500(self, client):
+    def test_s3_failure_returns_503_with_retry_after(self, client):
+        """OTLP exporters resend a batch on 503 but drop it on 500."""
         test_client, mock_s3, _ = client
         mock_s3.upload_bytes.side_effect = Exception("S3 connection refused")
         response = test_client.post(
@@ -108,7 +109,20 @@ class TestIngestTraces:
             content=b"fake-protobuf",
             headers={"Content-Type": "application/x-protobuf"},
         )
-        assert response.status_code == 500
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "5"
+        # A fixed message: the storage client's error text stays in the server log.
+        assert response.json() == {"detail": "Could not store the batch. Retry shortly."}
+
+    def test_s3_failure_does_not_queue_a_task(self, client):
+        test_client, mock_s3, mock_task = client
+        mock_s3.upload_bytes.side_effect = Exception("S3 connection refused")
+        test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        mock_task.delay.assert_not_called()
 
     def test_s3_key_time_partitioned_format(self, client):
         test_client, mock_s3, _ = client
