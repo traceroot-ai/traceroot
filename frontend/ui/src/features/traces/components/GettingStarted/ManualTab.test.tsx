@@ -222,20 +222,6 @@ describe("ManualTab", () => {
     expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
   });
 
-  it("groups GitHub and Slack into the external integrations card, unnumbered", () => {
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("External integrations")).toBeDefined();
-    expect(screen.getByTestId("github-connect")).toBeDefined();
-    expect(screen.getByTestId("slack-connect")).toBeDefined();
-  });
-
-  it("leaves GitHub and Slack out where the caller hides them", () => {
-    // Sign-up does: they move into a sign-up step of their own.
-    render(<ManualTab projectId="proj_1" showExternalIntegrations={false} />);
-    expect(screen.queryByText("External integrations")).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-  });
-
   it("follows its own picker: the snippets and the docs link under it", () => {
     const { container } = render(<ManualTab projectId="proj_1" />);
     chooseStack("Mastra");
@@ -260,28 +246,8 @@ describe("ManualTab", () => {
       expect(screen.queryByText(/model key/i)).toBeNull();
       expect(screen.queryByTestId("model-provider-block")).toBeNull();
     }
-    expect(screen.getByText("External integrations")).toBeDefined();
-    expect(screen.getByTestId("github-connect")).toBeDefined();
-  });
-
-  it("says the workspace step is unavailable when the project fetch fails", () => {
-    projectQuery.isLoading = false;
-    projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    // The picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeDefined();
-  });
-
-  it("shows a placeholder for the integrations while the project loads", () => {
-    projectQuery.isLoading = true;
-    projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("Loading integrations...")).toBeDefined();
-    expect(screen.queryByText("Loading model providers...")).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
+    // GitHub and Slack are connected elsewhere: their own sign-up step, and settings.
+    expect(screen.queryByText("External integrations")).toBeNull();
   });
 });
 
