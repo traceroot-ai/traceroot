@@ -11,10 +11,16 @@ const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 /**
  * Make an authenticated GET request to the internal backend API.
  */
-async function internalGet<T>(path: string, params: Record<string, string>): Promise<T> {
+async function internalGet<T>(path: string, params: Record<string, string | string[]>): Promise<T> {
   const url = new URL(path, BACKEND_URL);
   for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
+    // An array is sent as a repeated parameter (`?k=a&k=b`), which is how FastAPI
+    // reads a `list[str]` query parameter.
+    if (Array.isArray(value)) {
+      for (const item of value) url.searchParams.append(key, item);
+    } else {
+      url.searchParams.set(key, value);
+    }
   }
 
   const response = await fetch(url.toString(), {
@@ -48,6 +54,46 @@ export type DetectorWindowSummary = Record<
   }
 >;
 
+/** A window summary plus the number of distinct findings behind it. */
+export interface DetectorWindowCounts {
+  data: DetectorWindowSummary;
+  /**
+   * Distinct findings across the detectors counted. A finding is shared by every
+   * detector that fired on its trace, so this is NOT the sum of the per-detector
+   * `finding_count` values (which counts a shared finding once per detector).
+   * `undefined` when the backend predates the field, so a caller can tell "zero"
+   * from "not reported".
+   */
+  distinctFindingCount: number | undefined;
+}
+
+/**
+ * Read the per-detector window summary together with the distinct finding total.
+ * Detectors with zero runs in the window are absent from the map.
+ *
+ * `detectorIds` restricts both to those detectors; omit it to count every
+ * detector in the project.
+ */
+export async function readDetectorWindowCounts(
+  projectId: string,
+  start: Date,
+  end: Date,
+  opts: { includeSummaries?: boolean; detectorIds?: string[] } = {},
+): Promise<DetectorWindowCounts> {
+  const params: Record<string, string | string[]> = {
+    project_id: projectId,
+    start_after: start.toISOString(),
+    end_before: end.toISOString(),
+  };
+  if (opts.includeSummaries) params.include_summaries = "true";
+  if (opts.detectorIds) params.detector_ids = opts.detectorIds;
+  const body = await internalGet<{
+    data: DetectorWindowSummary;
+    distinct_finding_count?: number;
+  }>("/api/v1/internal/detector-window-summary", params);
+  return { data: body.data, distinctFindingCount: body.distinct_finding_count };
+}
+
 /**
  * Read the per-detector window summary (finding counts + each detector's sample
  * triggered traces) for a project over a time window. Detectors with zero runs
@@ -59,15 +105,5 @@ export async function readDetectorWindowSummary(
   end: Date,
   opts: { includeSummaries?: boolean } = {},
 ): Promise<DetectorWindowSummary> {
-  const params: Record<string, string> = {
-    project_id: projectId,
-    start_after: start.toISOString(),
-    end_before: end.toISOString(),
-  };
-  if (opts.includeSummaries) params.include_summaries = "true";
-  const body = await internalGet<{ data: DetectorWindowSummary }>(
-    "/api/v1/internal/detector-window-summary",
-    params,
-  );
-  return body.data;
+  return (await readDetectorWindowCounts(projectId, start, end, opts)).data;
 }

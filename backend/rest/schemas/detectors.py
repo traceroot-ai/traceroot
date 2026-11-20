@@ -50,9 +50,17 @@ class DetectorWindowSummary(BaseModel):
 
 class DetectorWindowSummaryResponse(BaseModel):
     """Map of detector_id -> window summary. Detectors with zero runs in the
-    window are omitted; the frontend defaults absent entries to {0, 0}."""
+    window are omitted; the frontend defaults absent entries to {0, 0}.
+
+    ``distinct_finding_count`` is the number of *distinct* findings across the
+    detectors counted (all of them, or just ``detector_ids`` when that scope is
+    given). A finding is shared by every detector that fired on its trace, so it
+    is not the sum of the per-detector ``finding_count`` values, which counts a
+    shared finding once per detector.
+    """
 
     data: dict[str, DetectorWindowSummary]
+    distinct_finding_count: int = 0
 
 
 class TraceCountsItem(BaseModel):

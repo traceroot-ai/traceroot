@@ -492,12 +492,38 @@ class TestInternalAuth:
 
 
 class TestListDetectorWindowSummary:
-    def _fake_aggregate(self, rows: list[tuple]):
-        # Rows are (detector_id, run_count, finding_count, latest_trace_id).
-        return _make_query_result(
-            rows=rows,
-            column_names=["detector_id", "run_count", "finding_count", "latest_trace_id"],
-        )
+    def _fake_aggregate(self, rows: list[tuple], distinct: int | None = None):
+        """Shape the GROUPING SETS result.
+
+        ``rows`` are the per-detector rows (detector_id, run_count, finding_count,
+        latest_trace_id). The grand-total row (the ``()`` grouping set, flagged by
+        ``is_total``) is appended the way ClickHouse returns it: empty detector_id,
+        runs/findings summed, and ``distinct`` distinct findings. ``distinct``
+        defaults to the sum of finding_count, i.e. no finding is shared. An empty
+        window returns no rows at all, total row included.
+        """
+        columns = [
+            "detector_id",
+            "is_total",
+            "run_count",
+            "finding_count",
+            "latest_trace_id",
+            "distinct_findings",
+        ]
+        out = [(d, 0, runs, found, trace, found) for d, runs, found, trace in rows]
+        if rows:
+            total_findings = sum(found for _, _, found, _ in rows)
+            out.append(
+                (
+                    "",
+                    1,
+                    sum(runs for _, runs, _, _ in rows),
+                    total_findings,
+                    "",
+                    total_findings if distinct is None else distinct,
+                )
+            )
+        return _make_query_result(rows=out, column_names=columns)
 
     def test_returns_per_detector_counts(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [
@@ -527,7 +553,8 @@ class TestListDetectorWindowSummary:
                     "sample_trace_ids": [],
                     "sample_summaries": [],
                 },
-            }
+            },
+            "distinct_finding_count": 7,
         }
 
     def test_empty_when_no_runs_in_window(self, client, mock_ch, secret):
@@ -541,7 +568,7 @@ class TestListDetectorWindowSummary:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"data": {}}
+        assert resp.json() == {"data": {}, "distinct_finding_count": 0}
 
     def test_passes_end_before_when_provided(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([])]
@@ -679,8 +706,98 @@ class TestListDetectorWindowSummary:
                     "sample_trace_ids": [],
                     "sample_summaries": [],
                 }
-            }
+            },
+            "distinct_finding_count": 0,
         }
+
+    # ── distinct_finding_count (a shared finding is not counted once per detector) ──
+
+    def test_distinct_total_is_not_the_sum_of_per_detector_counts(self, client, mock_ch, secret):
+        """Three detectors co-trigger on one trace: each carries the same finding, so
+        every per-detector count is 1 but the window holds a single finding."""
+        mock_ch.query.side_effect = [
+            self._fake_aggregate(
+                [("d-a", 1, 1, "t-1"), ("d-b", 1, 1, "t-1"), ("d-c", 1, 1, "t-1")],
+                distinct=1,
+            )
+        ]
+        resp = self._get(client, secret)
+        body = resp.json()
+        assert sum(v["finding_count"] for v in body["data"].values()) == 3
+        assert body["distinct_finding_count"] == 1
+
+    def test_total_row_is_not_returned_as_a_detector(self, client, mock_ch, secret):
+        """The () grouping set has an empty detector_id; it must feed the total only,
+        never appear as a "" key in the per-detector map."""
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 5, 2, "t-a")])]
+        body = self._get(client, secret).json()
+        assert set(body["data"]) == {"d-a"}
+        assert "" not in body["data"]
+
+    def test_total_row_is_identified_by_grouping_not_by_empty_id(self, client, mock_ch, secret):
+        """A row is the total because grouping() says so, whatever its detector_id."""
+        columns = [
+            "detector_id",
+            "is_total",
+            "run_count",
+            "finding_count",
+            "latest_trace_id",
+            "distinct_findings",
+        ]
+        mock_ch.query.side_effect = [
+            _make_query_result(
+                rows=[("", 0, 4, 2, "t-x", 2), ("d-a", 1, 4, 2, "", 2)],
+                column_names=columns,
+            )
+        ]
+        body = self._get(client, secret).json()
+        # The empty-id row is a real (if odd) detector; only the is_total row is the total.
+        assert set(body["data"]) == {""}
+        assert body["distinct_finding_count"] == 2
+
+    def test_uses_one_grouping_sets_scan(self, client, mock_ch, secret):
+        """The total comes from the same scan as the per-detector rows: one query, a
+        GROUPING SETS over (detector_id) and (), and an exact distinct count."""
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 1, 1, "t-a")])]
+        self._get(client, secret)
+        assert mock_ch.query.call_count == 1
+        sql = mock_ch.query.call_args.args[0]
+        assert "GROUP BY GROUPING SETS ((detector_id), ())" in sql
+        assert "grouping(detector_id)" in sql
+        assert "uniqExact(latest_finding_id)" in sql
+
+    def test_scope_filters_counts_to_the_given_detectors(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 1, 1, "t-a")])]
+        resp = self._get(client, secret, detector_ids=["d-a", "d-b"])
+        assert resp.status_code == 200
+        call = mock_ch.query.call_args
+        assert "detector_id IN {detector_ids:Array(String)}" in call.args[0]
+        assert call.kwargs["parameters"]["detector_ids"] == ["d-a", "d-b"]
+
+    def test_scope_is_applied_after_the_per_run_dedup(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        self._get(client, secret, detector_ids="d-a")
+        sql = mock_ch.query.call_args.args[0]
+        assert sql.index("GROUP BY detector_id, run_id") < sql.index("detector_id IN")
+
+    def test_no_scope_means_every_detector(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 1, 1, "t-a")])]
+        self._get(client, secret)
+        call = mock_ch.query.call_args
+        assert "detector_id IN" not in call.args[0]
+        assert "detector_ids" not in call.kwargs["parameters"]
+
+    def test_scope_does_not_reach_the_summaries_probe(self, client, mock_ch, secret):
+        """The scope is for the counts. The capped summaries read keeps the plain window
+        (and must not be handed a parameter its SQL never references)."""
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 10, 3, "t-a")]),
+            self._fake_summaries([("d-a", "a sentence")]),
+        ]
+        self._get(client, secret, detector_ids="d-a", include_summaries="true")
+        summaries_call = mock_ch.query.call_args_list[1]
+        assert "detector_ids" not in summaries_call.kwargs["parameters"]
+        assert "detector_id IN" not in summaries_call.args[0]
 
     # ── include_summaries (digest LLM-summary sample) ────────────────────────
 

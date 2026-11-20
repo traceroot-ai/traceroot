@@ -147,7 +147,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     // the name here keeps each kind of cut in its own lane.
     const name = truncateEscaped(escapeMrkdwn(e.detectorName), DETECTOR_NAME_CAP);
     const text =
-      `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
+      `*<${findingsUrl}|${name}>* — flagged ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
       (e.latestTraceId
         ? ` · latest: <${traceUrl(appBaseUrl, projectId, e.latestTraceId)}|${shortTrace}>`
         : "");

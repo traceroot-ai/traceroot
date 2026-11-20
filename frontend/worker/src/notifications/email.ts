@@ -105,7 +105,7 @@ export async function sendDigestAlertEmail(params: {
     // builder), so we never emit a blank/broken trace link.
     const latest = e.latestTraceId ? ` · latest ${e.latestTraceId.slice(0, 8)}` : "";
     textParts.push(
-      `- ${e.detectorName} — ${e.findingCount} ${findingNoun}${latest}`,
+      `- ${e.detectorName} — flagged ${e.findingCount} ${findingNoun}${latest}`,
       `  ${findingsUrlFor(e.detectorId)}`,
     );
   }
@@ -127,7 +127,7 @@ export async function sendDigestAlertEmail(params: {
       const rule = i === 0 ? "" : `border-top: 1px solid ${C.border};`;
       return `<tr>
               <td style="padding: 12px 8px 12px 12px; ${rule} font-size: 14px; line-height: 1.5;"><a href="${findingsUrlFor(e.detectorId)}" style="color: ${C.ink}; font-weight: 600; text-decoration: none;">${escapeHtml(e.detectorName).replace(/_/g, "_<wbr>")}</a>${latest}</td>
-              <td align="right" style="padding: 12px 12px 12px 4px; ${rule} vertical-align: top; word-break: normal; overflow-wrap: normal; font-size: 14px; line-height: 1.5;"><strong style="color: ${C.ink};">${e.findingCount}</strong> <span style="color: ${C.muted};">${findingNoun}</span></td>
+              <td align="right" style="padding: 12px 12px 12px 4px; ${rule} vertical-align: top; word-break: normal; overflow-wrap: normal; font-size: 14px; line-height: 1.5;"><span style="color: ${C.muted};">flagged</span> <strong style="color: ${C.ink};">${e.findingCount}</strong> <span style="color: ${C.muted};">${findingNoun}</span></td>
             </tr>`;
     })
     .concat(

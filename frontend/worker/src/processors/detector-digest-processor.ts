@@ -7,7 +7,7 @@ import {
   createRedisConnection,
 } from "../queues/digest-queue.js";
 import {
-  readDetectorWindowSummary,
+  readDetectorWindowCounts,
   type DetectorWindowSummary,
 } from "../detection/findings-reader.js";
 import { sendDigestAlertSlack } from "../notifications/slack.js";
@@ -56,9 +56,10 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
     (process.env.DIGEST_SUMMARY_ENABLED ?? "").trim().toLowerCase() === "false";
   const summaryAllowed =
     !summariesKilled && !(recipients.rcaBlocked && recipients.billingPlan === PlanType.FREE);
-  const summary = await readDetectorWindowSummary(projectId, start, end, {
-    includeSummaries: summaryAllowed,
-  });
+  const { data: summary, distinctFindingCount: allDistinctFindings } =
+    await readDetectorWindowCounts(projectId, start, end, {
+      includeSummaries: summaryAllowed,
+    });
   const triggeredIds = Object.keys(summary).filter((id) => summary[id].finding_count > 0);
   if (triggeredIds.length === 0) {
     console.log(`[Digest] skip project=${projectId} window=${window} reason=no-findings`);
@@ -83,7 +84,16 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   }
 
   const entries = buildEntries(detectorIds, nameById, summary);
-  const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
+  const total = await countDistinctFindings({
+    projectId,
+    start,
+    end,
+    window,
+    summary,
+    triggeredIds,
+    reportedIds: detectorIds,
+    allDistinctFindings,
+  });
 
   // Best-effort LLM paragraph. Never blocks the digest: any failure inside
   // generateDigestSummary resolves to null and the digest sends as before.
@@ -173,6 +183,53 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
       `detectors=${entries.length} slack=${recipients.slackChannelId ? "yes" : "no"} ` +
       `email=${recipients.emailAddresses.length} summary=${digestSummary ? "yes" : "no"}`,
   );
+}
+
+/**
+ * The digest header's finding count: the number of DISTINCT findings among the
+ * detectors the digest reports.
+ *
+ * A finding is shared by every detector that fired on its trace (one finding_id
+ * on each detector's run), so summing the per-detector counts counts a shared
+ * finding once per detector: three co-triggering detectors turn one finding into
+ * "3 findings". The backend returns the distinct total alongside the per-detector
+ * counts, over all detectors; it equals the reported scope whenever every detector
+ * that produced a finding is reported, which is the common case and needs no
+ * further read. When some fired detectors are dropped (RCA disabled, or grouping
+ * into signals) a finding they share with a reported detector must still count
+ * once, and one only they carry must not count, so the total is re-read scoped to
+ * the reported detectors.
+ *
+ * Falls back to the old sum only if the backend does not report the field (a
+ * worker that rolled out ahead of the API), rather than failing the digest.
+ */
+async function countDistinctFindings(args: {
+  projectId: string;
+  start: Date;
+  end: Date;
+  window: string;
+  summary: DetectorWindowSummary;
+  triggeredIds: string[];
+  reportedIds: string[];
+  allDistinctFindings: number | undefined;
+}): Promise<number> {
+  const { projectId, start, end, window, summary, triggeredIds, reportedIds } = args;
+  const sumOfPerDetector = () => reportedIds.reduce((n, id) => n + summary[id].finding_count, 0);
+
+  let distinct = args.allDistinctFindings;
+  if (distinct !== undefined && reportedIds.length < triggeredIds.length) {
+    ({ distinctFindingCount: distinct } = await readDetectorWindowCounts(projectId, start, end, {
+      detectorIds: reportedIds,
+    }));
+  }
+  if (distinct === undefined) {
+    console.warn(
+      `[Digest] project=${projectId} window=${window} distinct finding count not reported by ` +
+        `the backend; falling back to the per-detector sum (may over-count shared findings)`,
+    );
+    return sumOfPerDetector();
+  }
+  return distinct;
 }
 
 /**
