@@ -243,6 +243,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     const trimmedBaseUrl = baseUrl.trim();
     if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
+    const models = [...new Set(customModels.map((m) => m.trim()).filter(Boolean))];
+    if (models.length) testData.models = models;
     setTestResult(null);
     testMutation.mutate(testData as any);
   }
