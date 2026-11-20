@@ -8,10 +8,23 @@
  *
  * - The project's first trace. `first_trace_receive_time` is set only while it is
  *   empty, and `first_trace_received` is sent only by the call whose update filled
- *   it, so a project sends the event once.
- * - The days in the owner's first week on which traces arrived. A UTC day counts
- *   once, on the first report that day from any of the owner's projects. The week
- *   is the owner's sign-up day and the six days after it.
+ *   it, so a project sends the event once. The event carries the time recorded as
+ *   its timestamp, so a report that gets through hours late, after retries, still
+ *   places it at that time. A project whose earliest stored trace
+ *   was received before the worker started reporting (the cutoff it records before
+ *   its first report) is not receiving its first: its time is filled from the trace
+ *   store without an event (lib/first-trace-backfill.ts). A report that needs the
+ *   cutoff before any is recorded is refused; the worker records its start and
+ *   retries.
+ * - Only customer traces count. A report for a project the trace store shows no
+ *   customer trace for (its stored traces, if any, are detector and agent
+ *   self-traces) records neither a first trace nor an active day.
+ * - The days in the owner's first week on which traces arrived. The day is the UTC
+ *   day the API received the batch, which the worker keeps through queueing and
+ *   retries, so a report that arrives after midnight still counts the day before.
+ *   Each day counts once, from any of the owner's projects, whatever order the
+ *   reports for different days arrive in. The week is the owner's sign-up day and
+ *   the six days after it.
  * - An active first week, `active_first_week`: sent once, by the call that finds
  *   the threshold reached and marks it.
  *
@@ -22,6 +35,11 @@
 import { prisma, Role } from "@traceroot/core";
 import { isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import {
+  fillFirstTraceReceiveTime,
+  firstTraceTrackingStart,
+  readFirstTraceReceiveTime,
+} from "@/lib/first-trace-backfill";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { utcDay } from "@/lib/utc-day";
 
@@ -34,6 +52,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export type TraceActivityOutcome =
   | { kind: "unknown_project" }
   | { kind: "demo_project" }
+  /** The project's first trace needs the cutoff, which the worker has not recorded. */
+  | { kind: "tracking_not_started" }
   | {
       kind: "recorded";
       /** This call recorded the project's first trace. */
@@ -44,39 +64,99 @@ export type TraceActivityOutcome =
       activeFirstWeek: boolean;
     };
 
+/**
+ * Records one report. `day` is midnight UTC of the day the traces were received, as
+ * the worker reports it; a report without one counts the day it arrives.
+ */
 export async function recordTraceActivity(
   projectId: string,
   now: Date = new Date(),
+  day: Date = utcDay(now),
 ): Promise<TraceActivityOutcome> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, deleteTime: null },
-    select: { workspaceId: true, workspace: { select: { createdBy: true } } },
+    select: {
+      workspaceId: true,
+      firstTraceReceiveTime: true,
+      workspace: { select: { createdBy: true } },
+    },
   });
   if (!project) return { kind: "unknown_project" };
   if (isDemoWorkspace(project.workspaceId)) return { kind: "demo_project" };
 
+  // A first trace is placed against the cutoff and the trace store's earliest customer
+  // span, both read before anything is written so that a refused or failed report
+  // changes nothing.
+  let firstTrace: { receivedAt: Date; trackingStart: Date } | null = null;
+  if (!project.firstTraceReceiveTime) {
+    const trackingStart = await firstTraceTrackingStart();
+    if (!trackingStart) return { kind: "tracking_not_started" };
+    // A failed lookup throws, so the worker retries the report rather than guessing.
+    const receivedAt = await readFirstTraceReceiveTime(projectId);
+    // The store shows no customer trace: whatever it holds for the project is internal
+    // (detector and agent self-traces, which the lookup skips). That is neither the
+    // project's first trace nor a day its owner used it. A customer span not visible
+    // yet is recorded by the project's next report, at its stored time.
+    if (!receivedAt) return NOTHING_RECORDED;
+    firstTrace = { receivedAt, trackingStart };
+  }
+
   const ownerId = project.workspace.createdBy ?? (await earliestAdmin(project.workspaceId));
   const properties = { project_id: projectId, workspace_id: project.workspaceId };
 
-  const firstTrace = await markFirstTrace(projectId, now);
-  if (firstTrace && ownerId) captureServerEvent(ownerId, "first_trace_received", properties);
+  const firstTraceAt = firstTrace
+    ? await recordFirstTrace(projectId, firstTrace.receivedAt, firstTrace.trackingStart)
+    : null;
+  if (firstTraceAt && ownerId) {
+    captureServerEvent(ownerId, "first_trace_received", properties, firstTraceAt);
+  }
 
-  const week = ownerId ? await countFirstWeekDay(ownerId, now) : { counted: false, active: false };
+  const week = ownerId
+    ? await countFirstWeekDay(ownerId, utcDay(day), now)
+    : { counted: false, active: false };
   if (week.active && ownerId) captureServerEvent(ownerId, "active_first_week", properties);
 
   return {
     kind: "recorded",
-    firstTrace,
+    firstTrace: firstTraceAt !== null,
     activeDayCounted: week.counted,
     activeFirstWeek: week.active,
   };
 }
 
+const NOTHING_RECORDED: TraceActivityOutcome = {
+  kind: "recorded",
+  firstTrace: false,
+  activeDayCounted: false,
+  activeFirstWeek: false,
+};
+
+/**
+ * Records the project's first trace at `receivedAt`, the trace store's earliest
+ * customer span, unless that was before `trackingStart`, the cutoff: then the time
+ * is filled in quietly. Returns the time this call recorded as a new first trace, or
+ * null when it recorded none.
+ *
+ * The time recorded is the store's, so a report that gets through only after
+ * retries still records when the trace arrived.
+ */
+async function recordFirstTrace(
+  projectId: string,
+  receivedAt: Date,
+  trackingStart: Date,
+): Promise<Date | null> {
+  if (receivedAt < trackingStart) {
+    await fillFirstTraceReceiveTime(projectId, receivedAt);
+    return null;
+  }
+  return (await markFirstTrace(projectId, receivedAt)) ? receivedAt : null;
+}
+
 /** Fills the project's first-trace time if it is still empty; true when this call filled it. */
-async function markFirstTrace(projectId: string, now: Date): Promise<boolean> {
+async function markFirstTrace(projectId: string, at: Date): Promise<boolean> {
   const { count } = await prisma.project.updateMany({
     where: { id: projectId, firstTraceReceiveTime: null },
-    data: { firstTraceReceiveTime: now },
+    data: { firstTraceReceiveTime: at },
   });
   return count === 1;
 }
@@ -92,16 +172,16 @@ async function earliestAdmin(workspaceId: string): Promise<string | null> {
 
 async function countFirstWeekDay(
   userId: string,
+  day: Date,
   now: Date,
 ): Promise<{ counted: boolean; active: boolean }> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { createdAt: true } });
   if (!user) return { counted: false, active: false };
 
-  const today = utcDay(now);
-  const dayOfWeek = Math.round((today.getTime() - utcDay(user.createdAt).getTime()) / DAY_MS);
+  const dayOfWeek = Math.round((day.getTime() - utcDay(user.createdAt).getTime()) / DAY_MS);
   if (dayOfWeek < 0 || dayOfWeek >= FIRST_WEEK_DAYS) return { counted: false, active: false };
 
-  const counted = await countDay(userId, today);
+  const counted = await countDay(userId, day);
   // Tried on every report in the week, not only the one that counted the third
   // day, so a call that stopped between the two writes is finished by the next.
   const { count } = await prisma.userOnboarding.updateMany({
@@ -111,32 +191,43 @@ async function countFirstWeekDay(
   return { counted, active: count === 1 };
 }
 
-/** Counts `today` for the user unless it is already counted; true when this call counted it. */
-async function countDay(userId: string, today: Date): Promise<boolean> {
-  const notCountedToday = {
-    userId,
-    OR: [{ lastActiveDay: null }, { lastActiveDay: { lt: today } }],
-  };
-  const countToday = { lastActiveDay: today, activeDaysFirstWeek: { increment: 1 } };
-
-  if (
-    (await prisma.userOnboarding.updateMany({ where: notCountedToday, data: countToday })).count
-  ) {
-    return true;
-  }
+/**
+ * Counts `day` for the user unless it is already counted; true when this call counted it.
+ *
+ * The counted days are kept as a list, so a report that arrives after a later day's
+ * (a retry past midnight, a batch that waited in the queue) still counts its day
+ * once. `lastActiveDay` stays the latest day counted: it is all a receiver from
+ * before the list checks, so the two can run side by side during a rollout, and a
+ * day equal to it is never counted again.
+ */
+async function countDay(userId: string, day: Date): Promise<boolean> {
+  if (await addDay(userId, day)) return true;
   try {
     await prisma.userOnboarding.create({
-      data: { userId, lastActiveDay: today, activeDaysFirstWeek: 1 },
+      data: { userId, lastActiveDay: day, countedDays: [day], activeDaysFirstWeek: 1 },
     });
     return true;
   } catch (err) {
     if (!isPrismaKnownError(err, "P2002")) throw err;
   }
-  // The row exists: either today is already counted, or another report created
-  // the row a moment ago. The conditional update tells the two apart.
-  const { count } = await prisma.userOnboarding.updateMany({
-    where: notCountedToday,
-    data: countToday,
+  // The row exists: either the day is already counted, or another report created
+  // the row a moment ago. The conditional updates tell the two apart.
+  return addDay(userId, day);
+}
+
+/** Adds `day` to the user's counted days unless it is there; true when this call added it. */
+async function addDay(userId: string, day: Date): Promise<boolean> {
+  const notCounted = { userId, NOT: { countedDays: { has: day } } };
+  const countIt = { countedDays: { push: day }, activeDaysFirstWeek: { increment: 1 } };
+  // The latest day so far moves lastActiveDay on; an earlier one leaves it.
+  const latest = await prisma.userOnboarding.updateMany({
+    where: { ...notCounted, OR: [{ lastActiveDay: null }, { lastActiveDay: { lt: day } }] },
+    data: { ...countIt, lastActiveDay: day },
   });
-  return count === 1;
+  if (latest.count === 1) return true;
+  const earlier = await prisma.userOnboarding.updateMany({
+    where: { ...notCounted, lastActiveDay: { gt: day } },
+    data: countIt,
+  });
+  return earlier.count === 1;
 }

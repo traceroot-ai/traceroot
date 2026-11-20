@@ -10,6 +10,11 @@ import { sdkHostUrl } from "./commands";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { SectionLink } from "./SectionLink";
+import {
+  useSetupSnippetCopied,
+  type SetupCommandSurface,
+  type SetupSnippet,
+} from "./use-setup-command-copied";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 import {
   ALL_LANGS,
@@ -169,7 +174,15 @@ function UnresolvedHostWarning({ variable, value }: { variable: string; value: s
  * TypeScript gets dotenv's `config()`, as setup writes it, rather than
  * `import "dotenv/config"`: a call can be given a `path` to the `.env` file.
  */
-function EnvironmentStep({ n, lang }: { n: number; lang: Lang }) {
+function EnvironmentStep({
+  n,
+  lang,
+  onCopy,
+}: {
+  n: number;
+  lang: Lang;
+  onCopy: (snippet: SetupSnippet) => void;
+}) {
   const host = sdkHostUrl();
   const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
   const lines = ['export TRACEROOT_API_KEY="your_key_here"'];
@@ -178,7 +191,7 @@ function EnvironmentStep({ n, lang }: { n: number; lang: Lang }) {
   return (
     <div className="space-y-2">
       <StepHeading n={n} title="Set environment variables" />
-      <CodeBlock label="bash" value={lines.join("\n")} />
+      <CodeBlock label="bash" value={lines.join("\n")} onCopy={() => onCopy("env")} />
       {host.kind === "unresolved" ? (
         <UnresolvedHostWarning variable={host.variable} value={host.value} />
       ) : hostUrl !== null ? (
@@ -219,12 +232,15 @@ interface WalkthroughProps {
   integration: IntegrationOption;
   /** Set when the tab picks the stack itself, as a step of its own. */
   onSelect?: (id: string) => void;
+  /** Called once a snippet is on the clipboard. */
+  onCopy: (snippet: SetupSnippet) => void;
 }
 
 function PluginWalkthrough({
   integration,
   setup,
   onSelect,
+  onCopy,
 }: WalkthroughProps & { setup: Extract<IntegrationSetup, { kind: "plugin" }> }) {
   // Point the plugin at this deployment the same way EnvironmentStep does for the SDKs.
   const host = sdkHostUrl();
@@ -235,7 +251,11 @@ function PluginWalkthrough({
     (n) => (
       <div className="space-y-2">
         <StepHeading n={n} title="Install the plugin" />
-        <CodeBlock label="bash" value={setup.install(hostUrl)} />
+        <CodeBlock
+          label="bash"
+          value={setup.install(hostUrl)}
+          onCopy={() => onCopy("plugin_install")}
+        />
       </div>
     ),
     ...(onSelect
@@ -244,7 +264,11 @@ function PluginWalkthrough({
     (n) => (
       <div className="space-y-2">
         <StepHeading n={n} title="Configure" />
-        <CodeBlock label={config.label} value={config.value} />
+        <CodeBlock
+          label={config.label}
+          value={config.value}
+          onCopy={() => onCopy("plugin_config")}
+        />
         {host.kind === "unresolved" && (
           <UnresolvedHostWarning variable={host.variable} value={host.value} />
         )}
@@ -269,6 +293,7 @@ function SdkWalkthrough({
   integration,
   setup,
   onSelect,
+  onCopy,
   lang,
   onLangChange,
 }: WalkthroughProps & {
@@ -298,10 +323,14 @@ function SdkWalkthrough({
       <div className="space-y-2">
         <StepHeading n={n} title="Install SDK" />
         {langTabs}
-        <CodeBlock label="bash" value={example.installCommand} />
+        <CodeBlock
+          label="bash"
+          value={example.installCommand}
+          onCopy={() => onCopy("sdk_install")}
+        />
       </div>
     ),
-    (n) => <EnvironmentStep n={n} lang={resolvedLang} />,
+    (n) => <EnvironmentStep n={n} lang={resolvedLang} onCopy={onCopy} />,
     ...(onSelect
       ? [(n: number) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />]
       : []),
@@ -313,7 +342,12 @@ function SdkWalkthrough({
           docs={onSelect ? undefined : integration}
         />
         {langTabs}
-        <CodeBlock label={resolvedLang} value={example.initSnippet} language={resolvedLang} />
+        <CodeBlock
+          label={resolvedLang}
+          value={example.initSnippet}
+          language={resolvedLang}
+          onCopy={() => onCopy("sdk_init")}
+        />
       </div>
     ),
     (n) => (
@@ -338,6 +372,8 @@ interface ManualTabProps {
    * stack itself.
    */
   integration?: IntegrationOption;
+  /** Where the walkthrough is shown, for the copy events. */
+  surface?: SetupCommandSurface;
 }
 
 /**
@@ -345,7 +381,7 @@ interface ManualTabProps {
  * followed by the unnumbered external integrations. Without an `integration` the tab adds
  * its own stack picker as a step; with one, the docs link moves beside a step heading.
  */
-export function ManualTab({ projectId, integration }: ManualTabProps) {
+export function ManualTab({ projectId, integration, surface = "project" }: ManualTabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
@@ -357,6 +393,8 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
     INTEGRATIONS[0];
   const { setup } = selectedIntegration;
   const onSelect = integration ? undefined : setSelectedIntegrationId;
+  const recordSnippetCopy = useSetupSnippetCopied(projectId, surface);
+  const onCopy = (snippet: SetupSnippet) => recordSnippetCopy(snippet, selectedIntegration.id);
 
   return (
     <div className="space-y-6">
@@ -366,12 +404,18 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
       </div>
 
       {setup.kind === "plugin" ? (
-        <PluginWalkthrough integration={selectedIntegration} setup={setup} onSelect={onSelect} />
+        <PluginWalkthrough
+          integration={selectedIntegration}
+          setup={setup}
+          onSelect={onSelect}
+          onCopy={onCopy}
+        />
       ) : (
         <SdkWalkthrough
           integration={selectedIntegration}
           setup={setup}
           onSelect={onSelect}
+          onCopy={onCopy}
           lang={lang}
           onLangChange={setLang}
         />
