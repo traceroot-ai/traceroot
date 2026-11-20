@@ -209,6 +209,67 @@ describe("alertCreateSchema", () => {
       expect(firstMessage(result)).toBe('Operator "contains" is not valid for "is_root"');
     });
 
+    it("rejects a span_kind or status no span has, naming the allowed values", () => {
+      // #2550: the in-app agent once created span_kind = GENERATION, which
+      // ingest never writes, so the rule saved with a 200 and matched nothing.
+      const spanKind = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "span_kind", op: "=", value: "GENERATION" }] }),
+      );
+      expect(firstMessage(spanKind)).toBe(
+        '"span_kind" must be one of LLM, AGENT, TOOL, SPAN, DECISION, EVALUATION, TASK, SCORER',
+      );
+
+      const status = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "status", op: "=", value: "PENDING" }] }),
+      );
+      expect(firstMessage(status)).toBe('"status" must be one of OK, ERROR');
+    });
+
+    it("rejects lowercase span_kind and status values instead of normalising them", () => {
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "span_kind", op: "=", value: "llm" }] }),
+        ).success,
+      ).toBe(false);
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "status", op: "=", value: "ok" }] }),
+        ).success,
+      ).toBe(false);
+    });
+
+    it("accepts every span_kind and status ingest writes, and leaves contains unchecked", () => {
+      for (const value of [
+        "LLM",
+        "AGENT",
+        "TOOL",
+        "SPAN",
+        "DECISION",
+        "EVALUATION",
+        "TASK",
+        "SCORER",
+      ]) {
+        expect(
+          alertCreateSchema.safeParse(
+            createBody({ filters: [{ field: "span_kind", op: "=", value }] }),
+          ).success,
+        ).toBe(true);
+      }
+      for (const value of ["OK", "ERROR"]) {
+        expect(
+          alertCreateSchema.safeParse(
+            createBody({ filters: [{ field: "status", op: "=", value }] }),
+          ).success,
+        ).toBe(true);
+      }
+      // `contains` is a substring match, so there is no vocabulary to check it against.
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "span_kind", op: "contains", value: "GEN" }] }),
+        ).success,
+      ).toBe(true);
+    });
+
     it("trims the key, and rejects a key that trims to nothing", () => {
       const parsed = alertCreateSchema.parse(
         createBody({ filters: [{ field: "metadata", key: "  tenant  ", op: "=", value: "acme" }] }),
@@ -275,6 +336,24 @@ describe("alertUpdateSchema", () => {
       alertUpdateSchema.safeParse({ filters: [{ field: "metadata", op: "=", value: "x" }] })
         .success,
     ).toBe(false);
+  });
+
+  it("rejects a patch carrying a span_kind or status no span has", () => {
+    expect(
+      alertUpdateSchema.safeParse({
+        filters: [{ field: "span_kind", op: "=", value: "GENERATION" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      alertUpdateSchema.safeParse({
+        filters: [{ field: "status", op: "=", value: "PENDING" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      alertUpdateSchema.safeParse({
+        filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+      }).success,
+    ).toBe(true);
   });
 });
 
