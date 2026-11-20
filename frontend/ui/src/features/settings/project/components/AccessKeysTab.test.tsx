@@ -17,6 +17,38 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+it("shows each key's scope in its row", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({
+    access_keys: [
+      {
+        id: "key-1",
+        name: "Old key",
+        key_hint: "tr-1234",
+        scope: "admin",
+        create_time: "2026-01-01T00:00:00Z",
+        last_use_time: null,
+      },
+      {
+        id: "key-2",
+        name: "New key",
+        key_hint: "tr-5678",
+        scope: "ingest",
+        create_time: "2026-01-02T00:00:00Z",
+        last_use_time: null,
+      },
+    ],
+  } as Awaited<ReturnType<typeof getAccessKeys>>);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  const oldKeyRow = (await screen.findByText("Old key")).closest("tr")!;
+  const newKeyRow = screen.getByText("New key").closest("tr")!;
+  expect(within(oldKeyRow).getByText("admin")).toBeTruthy();
+  expect(within(newKeyRow).getByText("ingest")).toBeTruthy();
+});
+
 it("shows the restriction instead of an empty key list", async () => {
   vi.mocked(getAccessKeys).mockRejectedValue(
     new ImpersonationError("API keys cannot be viewed while impersonating."),

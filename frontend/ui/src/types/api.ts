@@ -4,6 +4,7 @@
 
 import type { Role, SpanKind, SpanStatus } from "@traceroot/core";
 import type { FilterValue } from "@/features/filters/registry";
+import type { ApiKeyScope } from "@/lib/public-auth";
 
 export type { Role };
 
@@ -92,6 +93,7 @@ export interface AccessKey {
   project_id?: string;
   key_hint: string;
   name: string | null;
+  scope: ApiKeyScope;
   expire_time: string | null;
   last_use_time: string | null;
   create_time: string;
