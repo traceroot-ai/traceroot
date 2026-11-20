@@ -736,6 +736,40 @@ class TestBlockingReadsRunOffTheEventLoop:
         assert response.status_code == 200
         assert ran_on_loop == [False]
 
+    def test_span_io_reads_off_the_loop(self, client, mock_trace_reader):
+        """Opening a span is the heavy I/O read. The attachment route beside it already hops."""
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.get_trace_start_time.side_effect = self._loop_visible_to(
+            ran_on_loop, datetime(2024, 1, 15)
+        )
+        mock_trace_reader.get_span_io.side_effect = self._loop_visible_to(ran_on_loop, SPAN_IO)
+
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False, False]
+
+    def test_filter_values_read_off_the_loop(self, client, mock_trace_discovery):
+        ran_on_loop: list[bool] = []
+        mock_trace_discovery.get_distinct_span_values.side_effect = self._loop_visible_to(
+            ran_on_loop, []
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces/filter-values/model_name")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    def test_exists_probe_reads_off_the_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.has_traces.side_effect = self._loop_visible_to(ran_on_loop, True)
+
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+
+        assert response.status_code == 200
+        assert response.json() == {"exists": True}
+        assert ran_on_loop == [False]
+
     @pytest.mark.parametrize(
         "path",
         [
