@@ -188,15 +188,13 @@ async function clickCreate() {
   fireEvent.click(create);
 }
 
-// The command lives in a `<pre>` whose line is split into spans for syntax
-// colouring, so it is read off that element rather than matched as one string.
-function shownCommand(): string {
-  return document.querySelector("pre")?.textContent ?? "";
-}
-
-async function reachHandback() {
+/** Submit the form and wait for the page to move on to the connect step; answers where. */
+async function reachHandback(): Promise<string> {
   await clickCreate();
-  await waitFor(() => expect(screen.getByText("Finish setting up in your terminal")).toBeDefined());
+  await waitFor(() =>
+    expect(mocks.push).toHaveBeenCalledWith(expect.stringMatching(/^\/onboarding\/connect\?/)),
+  );
+  return mocks.push.mock.calls.at(-1)![0] as string;
 }
 
 // The sign-out round trip, read back from what the page pushed rather than
@@ -218,12 +216,6 @@ function switchAccountRoundTrip(pushed: string) {
 async function clickSignOut() {
   const signOut = await waitFor(() => screen.getByRole("button", { name: "Not you? Sign out" }));
   fireEvent.click(signOut);
-}
-
-async function reachManualStep() {
-  await reachHandback();
-  fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
-  await waitFor(() => expect(screen.getByText(/Install SDK/)).toBeDefined());
 }
 
 beforeEach(() => {
@@ -275,7 +267,7 @@ describe("OnboardingPage", () => {
     expect(mocks.layoutAccess).not.toHaveBeenCalled();
   });
 
-  it("ends a browser-first run on the command that continues it in a terminal", async () => {
+  it("moves a browser-first run on to the connect step, with its project", async () => {
     // The last thing the browser can usefully say. Everything left to do is
     // against a checkout the dashboard cannot see, so the page stops asking
     // and hands over the one command that does all of it — carrying the
@@ -284,147 +276,26 @@ describe("OnboardingPage", () => {
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
-    await reachHandback();
+    const to = await reachHandback();
 
     expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
     expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "my-llm-project");
-    expect(shownCommand()).toContain("npx -y traceroot-cli@0.6.1 setup");
-    expect(shownCommand()).toContain("--project proj-1");
-    expect(mocks.push).not.toHaveBeenCalled();
+    // On to the connect step, with the project in the address so the trips to
+    // GitHub and Slack, and a refresh, come back to it.
+    expect(to).toBe("/onboarding/connect?projectId=proj-1");
+    expect(mocks.push).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the manual walkthrough as a step of the flow, not a page away from it", async () => {
-    // "Set up manually" used to navigate to the project's traces page, where
-    // this same walkthrough lives. The content was right and the exit was the
-    // surprise: signing up ended mid-sentence, with nothing to say which part
-    // was still onboarding. So the walkthrough is a third step in the same
-    // frame — same heading, same card — and nothing is routed anywhere until
-    // the user asks.
-    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
-    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
-    renderPage();
-    await reachManualStep();
-
-    expect(mocks.push).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "Let's get started" })).toBeDefined();
-    // The project page's own manual tab, rendered rather than reimplemented:
-    // its steps, the key block and its stack picker, all carrying the project
-    // this run just created. Matched without the step numbers — inserting a step
-    // into the walkthrough renumbers the ones below it, and that is not this
-    // page's business.
-    expect(screen.getByRole("tab", { name: "Manual" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText(/Create an API key/)).toBeDefined();
-    expect(screen.getByTestId("api-key-block")).toBeDefined();
-    expect(screen.getByText(/Select your integration/)).toBeDefined();
-    expect(screen.getByRole("radio", { name: "OpenAI" })).toBeDefined();
-    expect(screen.getByText("Needs Python 3.11 or later.")).toBeDefined();
-    // Gone from sign-up: the model key, and GitHub and Slack, which move into a
-    // sign-up step of their own.
-    expect(screen.queryByText(/model key/i)).toBeNull();
-    expect(screen.queryByText(/External integrations/)).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    // And the terminal is no longer what is being asked of this user, so the
-    // frame stops saying it is.
-    expect(
-      screen.getByText(/Workspace and project created — add tracing to your application/),
-    ).toBeDefined();
-    expect(screen.queryByText("Finish setting up in your terminal")).toBeNull();
-  });
-
-  it("lets a user who changed their mind back to the terminal command", async () => {
-    // Choosing "manually" and then thinking better of it is ordinary, and the
-    // command carries the project id this user would otherwise have to
-    // remember — so the step before this one has to still be reachable.
-    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
-    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
-    renderPage();
-    await reachManualStep();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Using AI" }));
-
-    await waitFor(() =>
-      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
-    );
-    expect(shownCommand()).toContain("--project proj-1");
-    expect(screen.queryByText(/Install SDK/)).toBeNull();
-    // Nothing navigated in either direction: both steps are this page.
-    expect(mocks.push).not.toHaveBeenCalled();
-    // The project was created once, by the form, and going back does not
-    // re-run it.
-    expect(mocks.createProject).toHaveBeenCalledTimes(1);
-  });
-
-  it("ends the manual step on the project whose traces it is setting up", async () => {
-    // Onboarding has to end somewhere that works for an account that has not
-    // instrumented anything yet. The project's traces page is that: it is
-    // where the first trace lands, and until one does it keeps this same
-    // walkthrough on screen — so leaving part-way through is not a dead end.
-    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
-    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
-    renderPage();
-    await reachManualStep();
-
-    fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
-    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
-  });
-
-  it("offers the manual step to an account adding a project to a workspace it owns", async () => {
-    // Project-only mode is the same first run arriving from `?workspaceId=`,
-    // so it gets the same three steps — and the heading says what this run
-    // actually created rather than claiming a workspace it did not make.
+  it("moves an account adding a project to the connect step, saying only a project was made", async () => {
+    // Project-only mode is the same first run arriving from `?workspaceId=`, so
+    // it gets the same steps — and they say what this run actually created
+    // rather than claiming a workspace it did not make.
     setParams({ workspaceId: "ws-existing", workspaceName: "Example" });
     mocks.createProject.mockResolvedValue({ id: "proj-2", name: "my-llm-project" });
     renderPage();
-    await reachManualStep();
 
-    expect(screen.getByText(/^Project created — add tracing to your application$/)).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
-    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-2/traces");
+    expect(await reachHandback()).toBe("/onboarding/connect?projectId=proj-2&created=project");
   });
-
-  it("shows the project page's setup tabs, in this page's own words", async () => {
-    // One version of setup for both places; the command block keeps sign-up's
-    // heading, the line on where to run it, and the "terminal" label.
-    demo.workspaces = [{ id: "ws-1" }, { id: "ws-demo", is_demo: true }];
-    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
-    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
-    renderPage();
-    await reachHandback();
-
-    expect(screen.getByRole("tab", { name: "Using AI" }).getAttribute("aria-selected")).toBe(
-      "true",
-    );
-    expect(screen.getByRole("tab", { name: "Manual" })).toBeDefined();
-    expect(screen.getByText(/Run it where my-llm-project's code lives\./)).toBeDefined();
-    expect(screen.getByText("terminal")).toBeDefined();
-    expect(
-      screen.getByText(
-        "When your first trace arrives, you can open it and see every step your agent took.",
-      ),
-    ).toBeDefined();
-    expect(screen.getByRole("link", { name: "See the demo project" }).getAttribute("href")).toBe(
-      "/workspaces/ws-demo/projects",
-    );
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
-    // GitHub and Slack move into a sign-up step of their own.
-    expect(screen.queryByText(/External integrations/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set up manually" })).toBeNull();
-  });
-
-  it("leaves a skipped account somewhere it can act, not back in onboarding", async () => {
-    // Skipping is a way out of signing up, so it has to land on a page that
-    // works: the workspace list, which is where the already-onboarded check
-    // sends an account with nobody waiting. The project exists either way, so
-    // no route sends this user back through onboarding.
-    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
-    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
-    renderPage();
-    await reachHandback();
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    expect(mocks.push).toHaveBeenCalledWith("/workspaces");
-  });
-
   it("hands straight back to a waiting caller instead of showing it the command", async () => {
     // `traceroot setup` is holding a terminal open on the device approval this
     // page runs ahead of. Telling that user to run `traceroot setup` is telling
@@ -504,9 +375,9 @@ describe("OnboardingPage", () => {
     // only because the validator answered a rejected value with its fallback,
     // which sent a new account to the root instead of its traces.
     await waitFor(() =>
-      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+      expect(mocks.push).toHaveBeenCalledWith(expect.stringMatching(/^\/onboarding\/connect\?/)),
     );
-    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.push).toHaveBeenCalledTimes(1);
   });
 
   it("hands an account that already has a project straight back to the caller", async () => {
@@ -609,7 +480,7 @@ describe("OnboardingPage", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("stays on the hand-back page after the refetch reports the new project", async () => {
+  it("moves on to the connect step, not the workspace list, after the refetch reports the new project", async () => {
     // Creating the workspace and project invalidates the very list this page
     // gates itself on, so the refetch comes back describing an account that is
     // now set up. Unless what this page created is excluded, the handoff effect
@@ -630,8 +501,10 @@ describe("OnboardingPage", () => {
     // key still reaches the per-account entry this page reads: if the two
     // stopped matching, the refetch would never happen and this stays at one.
     await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
-    expect(mocks.push).not.toHaveBeenCalled();
+    // Only on to the connect step: never to /workspaces, as a finished account would be.
+    expect(mocks.push.mock.calls.map(([to]) => to)).toEqual([
+      "/onboarding/connect?projectId=proj-1",
+    ]);
   });
 
   it("shows the form to an account whose only workspace is the demo", async () => {
@@ -710,7 +583,7 @@ describe("OnboardingPage", () => {
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     await clickCreate();
     await waitFor(() =>
-      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+      expect(mocks.push).toHaveBeenCalledWith(expect.stringMatching(/^\/onboarding\/connect\?/)),
     );
 
     expect(mocks.createWorkspace).toHaveBeenCalledTimes(1);
@@ -748,7 +621,7 @@ describe("OnboardingPage", () => {
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     await clickCreate();
     await waitFor(() =>
-      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+      expect(mocks.push).toHaveBeenCalledWith(expect.stringMatching(/^\/onboarding\/connect\?/)),
     );
 
     expect(mocks.updateWorkspace).not.toHaveBeenCalled();
@@ -860,10 +733,10 @@ describe("OnboardingPage", () => {
     mocks.getProjects.mockResolvedValue([LIVE_PROJECT]);
     renderPage();
 
-    await reachHandback();
+    const to = await reachHandback();
 
     expect(mocks.getProjects).toHaveBeenCalledWith("ws-1");
-    expect(shownCommand()).toContain("--project proj-existing");
+    expect(to).toBe("/onboarding/connect?projectId=proj-existing");
     expect(mocks.createProject).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("A project with this name already exists")).toBeNull();
   });
@@ -1112,7 +985,7 @@ describe("OnboardingPage", () => {
     );
   });
 
-  it("drops the way out once the project exists", async () => {
+  it("holds the way out while it moves on to the next step", async () => {
     // The hand-back step is about the project this account now owns, and the
     // app — user menu included — is one click away from it.
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
@@ -1120,7 +993,10 @@ describe("OnboardingPage", () => {
     renderPage();
     await reachHandback();
 
-    expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
+    // Held while the page moves on: a sign-out now would strand the new project's step.
+    expect(
+      (screen.getByRole("button", { name: "Not you? Sign out" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("renders the project section glyph icon", async () => {

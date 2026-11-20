@@ -25,12 +25,8 @@ import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { SetupTabs } from "@/features/traces/components/GettingStarted/SetupTabs";
-import { useSetupSkipped } from "@/features/traces/components/GettingStarted/use-setup-command-copied";
-import { FirstTraceLine } from "@/components/first-trace-line";
-import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
-import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
-import { cn } from "@/lib/utils";
+import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
+import { connectStepUrl } from "@/features/onboarding/step-urls";
 
 const onboardingSchema = z.object({
   workspaceName: z.string().min(1, "Workspace name is required"),
@@ -60,46 +56,6 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
 
   const company = domain.split(".")[0];
   return company.charAt(0).toUpperCase() + company.slice(1);
-}
-
-// The frame the app shell used to provide. This page renders outside the shell
-// (see lib/chromeless-routes), so it is also outside the `<main>` that gave the
-// old `h-full` something to resolve against — nothing sets a height on html or
-// body, so a percentage height here collapses to the content. `min-h-screen` is
-// what makes the empty background actually fill the screen, and `min-h-` rather
-// than `h-` is what lets the box grow past the viewport once the step after the
-// form is taller than it, instead of clipping the top of the card.
-//
-// Anchored at the top rather than centred, which is the whole of the layout fix.
-// A centred column places its content from that content's own height, and the
-// steps are nowhere near the same height: the manual walkthrough carries a
-// twenty-card stack picker, a key field and two snippets, so at 1440x900 its
-// document ran 1642px while the hand-back step fitted inside the 900px viewport.
-// Centred, that put the header 248px down on the hand-back step and 16px down on
-// the manual one — the icon, the heading and the description jumped 232px up the
-// screen the moment the user pressed "Set up manually", and every step sat at a
-// different height. `pt-24` fixes the header's distance from the top of the
-// viewport at 96px on every step, because 96px is a number rather than a function
-// of what is underneath it.
-//
-// 96px is higher up than the centred hand-back step used to sit, which is what
-// was asked for, and it is six times the frame's old 16px padding — a deliberate
-// band of space rather than a header clinging to the top edge, at a laptop
-// viewport and at phone width alike. `pb-16` keeps the tall step from ending
-// flush against the bottom of the viewport. `min-h-screen` rather than
-// `h-screen` is what keeps the overflow scrollable instead of clipped, which is
-// what both extremes need. The manual step runs past any viewport. The hand-back
-// step fits a 390x844 phone exactly and takes about 100px of scroll on a 320x568
-// one, where it used to fit: its content is 511px and the frame now adds 160px
-// around it. That is the price of the anchor, and it is the right way round —
-// a short step that scrolls a little on the smallest phone in exchange for a
-// header that never moves.
-function StandaloneFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-screen flex-col items-center bg-background px-4 pb-16 pt-24">
-      {children}
-    </div>
-  );
 }
 
 // This page's own URL, for a round trip that has to come back to it. Whatever a
@@ -259,18 +215,6 @@ function OnboardingContent() {
   // committed and lost its response leaves it null, which is what
   // `createOrAdoptWorkspace` is for.
   const createdWorkspace = useRef<{ id: string; name: string } | null>(null);
-  // Which of the two post-creation steps is showing. Separate from
-  // `createdProject` rather than folded into one enum because that value is
-  // also what tells the rest of the page this account is no longer a candidate
-  // for the setup check below, and that has to stay true across both steps.
-  //
-  // "Set up manually" used to leave for the project's traces page, where this
-  // same walkthrough lives. It worked, and it surprised people: signing up had
-  // visibly ended somewhere in the middle, with no marker for where the flow
-  // stopped and the app began. So the walkthrough is shown here instead, in
-  // the frame the previous two steps used, and the user leaves when they say
-  // so.
-  const [manualSetup, setManualSetup] = useState(false);
 
   // Determine mode from query params
   const existingWorkspaceId = searchParams.get("workspaceId");
@@ -368,25 +312,6 @@ function OnboardingContent() {
     }
   }, [setupComplete, addProjectUrl, returnTo, router]);
 
-  // Watch the project this page just made for the run's first trace. Starts
-  // with the hand-back step and keeps going across the manual one, because both
-  // are steps about getting that trace sent.
-  //
-  // Reads only, and nothing waits on it: the command on screen is correct
-  // whether or not this tab is still open, and closing the tab — or never
-  // running the command at all — leaves the account exactly as it is. A run
-  // that was already under way in a terminal never gets here, because the page
-  // hands such a caller straight back (see `handleSubmit`), so this only ever
-  // watches a project whose own setup is still ahead of it.
-  const traceWait = useProjectTraceWait(
-    !!createdProject,
-    createdProject?.id ?? null,
-    session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
-  );
-
-  useOpenFoundTrace(traceWait);
-  const recordSetupSkipped = useSetupSkipped(createdProject?.id ?? "", "onboarding");
-
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
   const {
@@ -465,8 +390,10 @@ function OnboardingContent() {
         return;
       }
 
+      // Kept so the setup check below does not count this account as finished
+      // and move it to /workspaces while the next step loads.
       setCreatedProject({ id: project.id, name: project.name });
-      setIsLoading(false);
+      router.push(connectStepUrl(project.id, isProjectOnlyMode ? "project" : "workspace"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setIsLoading(false);
@@ -542,20 +469,9 @@ function OnboardingContent() {
     );
   }
 
-  // What this run has already done, said once and reused by both of the steps
-  // that follow the form.
-  const createdWhat = isProjectOnlyMode ? "Project" : "Workspace and project";
-  // One answer for the frame, the heading and the body, so a width can never
-  // describe a step that is not the one rendered.
-  const showManualStep = !!createdProject && manualSetup;
-
   return (
     <StandaloneFrame>
-      {/* The walkthrough is five numbered steps with code in them, so its step
-          gets a wider column than a two-field form needs. Same top-anchored
-          frame either way — the point of keeping it is that the flow still
-          visibly has an end. */}
-      <div className={cn("w-full", showManualStep ? "max-w-2xl" : "max-w-md")}>
+      <div className="w-full max-w-md">
         {/* Header. The logo is here because the sidebar carried the only one on
             this page, and the shell it belonged to is gone — /auth and /device
             front their cards the same way, which is the run of screens this
@@ -577,40 +493,8 @@ function OnboardingContent() {
                 does. */}
             <h1 className="text-[15px] font-medium">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
-              {/* "The rest happens in your terminal" stops being true the
-                  moment the user says they would rather it did not. */}
-              {showManualStep
-                ? `${createdWhat} created — add tracing to your application`
-                : createdProject
-                  ? `${createdWhat} created — the rest happens in your terminal`
-                  : "Set up your workspace and first project"}
+              Set up your workspace and first project
             </p>
-          </div>
-          {/* The watch for this run's first trace, said once for the whole flow.
-              It used to be rendered by each step — under the "is ready" line on
-              the hand-back step, and in `StackAndModelKey`'s `afterStack` slot on
-              the manual one — which made it a line about whichever step was
-              showing. It is not: the watch is the page's, it runs across both
-              steps, and the thing it reports is what the whole flow is for. So it
-              reads as part of the header, in the one place that does not move.
-
-              The slot is held open at two rows of the line's own 11px/1.5 type
-              whether or not there is anything in it, which is what keeps the card
-              below from stepping down. The line is absent until a project exists
-              and its states are different lengths — the out-of-budget and
-              could-not-read ones wrap to two rows at phone width and the waiting
-              and arrived ones do not — so a slot
-              that collapsed to its content would move everything under it on the
-              first render after Create and again on every change of state. That is
-              the same complaint this layout fix is about, one notch smaller.
-              `items-start` rather than `items-center`: the line's own top edge is
-              then the top of the slot in every state, so growing to the second row
-              grows downwards into space already reserved instead of shifting the
-              first row up. `min-h-` rather than `h-`, so a width narrow enough to
-              wrap to three rows grows rather than clipping the text — below 320px,
-              which is narrower than this page is built for. */}
-          <div className="flex min-h-[33px] w-full items-start justify-center">
-            {createdProject ? <FirstTraceLine wait={traceWait} /> : null}
           </div>
         </div>
 
@@ -624,61 +508,8 @@ function OnboardingContent() {
         {/* Tree Form */}
         <Card>
           <CardContent className="p-4">
-            {createdProject ? (
-              // The project page's own setup tabs, so both places show one
-              // version. This page keeps its frame and its wording for the
-              // command block; the GitHub and Slack connections stay hidden
-              // here, since they move into a sign-up step of their own.
-              <SetupTabs
-                projectId={createdProject.id}
-                surface="onboarding"
-                tab={showManualStep ? "manual" : "ai"}
-                onTabChange={(next) => setManualSetup(next === "manual")}
-                showExternalIntegrations={false}
-                commandCopy={{
-                  title: "Finish setting up in your terminal",
-                  label: "terminal",
-                  // Where to run it, because pasted in the wrong directory it
-                  // writes the key where the application never reads it.
-                  intro: `Run it where ${createdProject.name}'s code lives. It asks before editing your code. Needs Node.js 20.12 or later.`,
-                }}
-                commandActions={
-                  // Into the app with the application still uninstrumented: a
-                  // workspace with a project in it is a finished account, so
-                  // nothing routes this user back here.
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-4 text-[12px]"
-                    onClick={() => {
-                      recordSetupSkipped("command");
-                      router.push("/workspaces");
-                    }}
-                  >
-                    Skip for now
-                  </Button>
-                }
-                manualFooter={
-                  // The project's traces page, where the first trace of the run
-                  // they are instrumenting will land, and which keeps these same
-                  // tabs on screen until it does.
-                  <div className="flex justify-center">
-                    <Button
-                      size="sm"
-                      className="h-7 px-4 text-[12px]"
-                      onClick={() => {
-                        recordSetupSkipped("manual");
-                        router.push(`/projects/${createdProject.id}/traces`);
-                      }}
-                    >
-                      Go to my project
-                    </Button>
-                  </div>
-                }
-              />
-            ) : (
-              <>
-                {/* Each row is an icon beside a column that fills the card, so
+            <>
+              {/* Each row is an icon beside a column that fills the card, so
                     the controls in that column fill it too. They used to be
                     clamped to 20rem, which left the block 50px short of the
                     right padding while touching the left — visibly off-centre
@@ -686,108 +517,105 @@ function OnboardingContent() {
                     centred on the card. Filling makes the only margins the
                     card's own padding, so the symmetry holds at every width
                     instead of depending on a number that matches one. */}
-                <div className="space-y-0">
-                  {/* Workspace Section */}
-                  <div className="flex items-start gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
-                        {isProjectOnlyMode ? (
-                          <Check className="h-4 w-4 text-brand" />
-                        ) : (
-                          <DOMAIN_ICONS.workspace className="h-4 w-4 text-brand" />
-                        )}
-                      </div>
-                      {/* Vertical connector line */}
-                      <div className="my-1.5 h-12 w-px bg-border" />
-                    </div>
-                    <div className="flex-1 pb-2 pt-0.5">
-                      <label className="text-[13px] font-medium">Workspace</label>
-                      <p className="mb-2 text-[12px] text-muted-foreground">
-                        Your team's home for billing and members
-                      </p>
+              <div className="space-y-0">
+                {/* Workspace Section */}
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
                       {isProjectOnlyMode ? (
-                        <div className="flex items-center gap-2 border bg-muted px-2.5 py-1.5 text-[13px]">
-                          <span>{existingWorkspaceName || "Selected workspace"}</span>
-                          <Check className="ml-auto h-3.5 w-3.5 text-success" />
-                        </div>
+                        <Check className="h-4 w-4 text-brand" />
                       ) : (
-                        <Input
-                          placeholder="Acme Inc"
-                          {...register("workspaceName")}
-                          className="h-8 text-[13px]"
-                        />
-                      )}
-                      {errors.workspaceName && (
-                        <p className="mt-1 text-[12px] text-danger">
-                          {errors.workspaceName.message}
-                        </p>
+                        <DOMAIN_ICONS.workspace className="h-4 w-4 text-brand" />
                       )}
                     </div>
+                    {/* Vertical connector line */}
+                    <div className="my-1.5 h-12 w-px bg-border" />
                   </div>
-
-                  {/* Project Section */}
-                  <div className="flex items-start gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
-                        <DOMAIN_ICONS.project className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex-1 pb-2 pt-0.5">
+                    <label className="text-[13px] font-medium">Workspace</label>
+                    <p className="mb-2 text-[12px] text-muted-foreground">
+                      Your team's home for billing and members
+                    </p>
+                    {isProjectOnlyMode ? (
+                      <div className="flex items-center gap-2 border bg-muted px-2.5 py-1.5 text-[13px]">
+                        <span>{existingWorkspaceName || "Selected workspace"}</span>
+                        <Check className="ml-auto h-3.5 w-3.5 text-success" />
                       </div>
-                    </div>
-                    <div className="flex-1 pb-2 pt-0.5">
-                      <label className="text-[13px] font-medium">Project</label>
-                      <p className="mb-2 text-[12px] text-muted-foreground">
-                        Where your traces and experiments live
-                      </p>
+                    ) : (
                       <Input
-                        placeholder="my-llm-project"
-                        {...register("projectName")}
+                        placeholder="Acme Inc"
+                        {...register("workspaceName")}
                         className="h-8 text-[13px]"
                       />
-                      {errors.projectName && (
-                        <p className="mt-1 text-[12px] text-danger">{errors.projectName.message}</p>
-                      )}
-                    </div>
+                    )}
+                    {errors.workspaceName && (
+                      <p className="mt-1 text-[12px] text-danger">{errors.workspaceName.message}</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="mt-6 flex items-center justify-center gap-2">
-                  <Button
-                    size="sm"
-                    className="h-7 px-4 text-[12px]"
-                    onClick={handleSubmit}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Creating..." : "Create"}
-                  </Button>
-                  {/* Back to whatever is waiting, when something is. The
+                {/* Project Section */}
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
+                      <DOMAIN_ICONS.project className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                  <div className="flex-1 pb-2 pt-0.5">
+                    <label className="text-[13px] font-medium">Project</label>
+                    <p className="mb-2 text-[12px] text-muted-foreground">
+                      Where your traces and experiments live
+                    </p>
+                    <Input
+                      placeholder="my-llm-project"
+                      {...register("projectName")}
+                      className="h-8 text-[13px]"
+                    />
+                    {errors.projectName && (
+                      <p className="mt-1 text-[12px] text-danger">{errors.projectName.message}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-6 flex items-center justify-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-7 px-4 text-[12px]"
+                  onClick={handleSubmit}
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Creating..." : "Create"}
+                </Button>
+                {/* Back to whatever is waiting, when something is. The
                       workspace list drops `returnTo` exactly as the rail did,
                       and for a terminal on /device that strands it until the
                       code expires; /device itself still offers Deny. */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-4 text-[12px]"
-                    onClick={() => router.push(returnTo ?? "/workspaces")}
-                  >
-                    Cancel
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-4 text-[12px]"
+                  onClick={() => router.push(returnTo ?? "/workspaces")}
+                >
+                  Cancel
+                </Button>
+              </div>
 
-                {/* Which account this is, and the way out of it. On the form
+              {/* Which account this is, and the way out of it. On the form
                     step only: once the project exists this account is the one
                     the rest of the flow is about, and the app — with its user
                     menu — is a click away. Disabled while a create is in
                     flight, so a sign-out cannot land between the workspace and
                     the project. */}
-                <div className="mt-4">
-                  <AccountLine
-                    email={session?.user?.email ?? null}
-                    pending={isLoading || isSwitchingAccount}
-                    onSwitchAccount={handleSwitchAccount}
-                  />
-                </div>
-              </>
-            )}
+              <div className="mt-4">
+                <AccountLine
+                  email={session?.user?.email ?? null}
+                  pending={isLoading || isSwitchingAccount}
+                  onSwitchAccount={handleSwitchAccount}
+                />
+              </div>
+            </>
           </CardContent>
         </Card>
       </div>

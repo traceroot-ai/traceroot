@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { githubUnavailableUrl, isGitHubAppAvailable } from "@/lib/github-app-config";
 import {
   GITHUB_AUTH_STATE_COOKIE,
   GITHUB_RETURN_TO_COOKIE,
@@ -23,6 +24,12 @@ async function handleGET(request: NextRequest) {
     }
     const memberCheck = await requireWorkspaceMembership(authResult.user.id, workspaceId, "ADMIN");
     if (memberCheck.error) return memberCheck.error;
+
+    // Without the app's settings GitHub can only show an error page: back to
+    // where this started, which says GitHub is unavailable.
+    if (!isGitHubAppAvailable()) {
+      return NextResponse.redirect(githubUnavailableUrl(returnTo, env.BETTER_AUTH_URL));
+    }
 
     const params = new URLSearchParams({
       client_id: env.GITHUB_APP_CLIENT_ID,

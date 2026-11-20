@@ -2,12 +2,9 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { LoadingState } from "@/components/ui/loading-state";
-import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { sdkHostUrl } from "./commands";
-import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { SectionLink } from "./SectionLink";
 import {
@@ -15,7 +12,6 @@ import {
   type SetupCommandSurface,
   type SetupSnippet,
 } from "./use-setup-command-copied";
-import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 import {
   ALL_LANGS,
   INTEGRATION_GROUPS,
@@ -376,24 +372,14 @@ interface ManualTabProps {
   projectId: string;
   /** Where the walkthrough is shown, for the copy events. */
   surface?: SetupCommandSurface;
-  /**
-   * The GitHub and Slack connections under the steps. Sign-up hides them: they
-   * move into a sign-up step of their own.
-   */
-  showExternalIntegrations?: boolean;
 }
 
 /**
- * Instrumenting by hand, as an SDK walkthrough or, for a coding agent, a plugin one, each
- * followed by the unnumbered external integrations. The stack picker is one of the steps.
+ * Instrumenting by hand, as an SDK walkthrough or, for a coding agent, a plugin one.
+ * The stack picker is one of the steps. GitHub and Slack are connected in their own
+ * sign-up step and in workspace settings.
  */
-export function ManualTab({
-  projectId,
-  surface = "project",
-  showExternalIntegrations = true,
-}: ManualTabProps) {
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id;
+export function ManualTab({ projectId, surface = "project" }: ManualTabProps) {
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
 
@@ -427,19 +413,6 @@ export function ManualTab({
           lang={lang}
           onLangChange={setLang}
         />
-      )}
-
-      {showExternalIntegrations && (
-        <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">External integrations</p>
-          {projectLoading ? (
-            <LoadingState label="Loading integrations..." />
-          ) : workspaceId ? (
-            <ExternalIntegrations workspaceId={workspaceId} />
-          ) : (
-            <WorkspaceUnavailable />
-          )}
-        </div>
       )}
     </div>
   );

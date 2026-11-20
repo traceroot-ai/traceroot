@@ -1,4 +1,5 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
@@ -89,7 +90,9 @@ async function handleGET(request: NextRequest) {
     });
 
     // Redirect to return URL
-    const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
+    // Only a path on this site: new URL(absolute, base) ignores the base, so an
+    // absolute URL in the cookie would leave the origin.
+    const returnTo = safeCallbackUrl(request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value);
     const response = NextResponse.redirect(new URL(returnTo, env.BETTER_AUTH_URL));
 
     // Clear state cookies
