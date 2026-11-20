@@ -40,6 +40,7 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 
 // Tab definitions
 const tabs = [
@@ -47,6 +48,9 @@ const tabs = [
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
   { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
+
+/** How long "Your first trace arrived. Opening it…" shows before the trace opens. */
+const FIRST_TRACE_OPEN_DELAY_MS = 1500;
 
 export default function TracesPage() {
   const params = useParams();
@@ -170,7 +174,49 @@ export default function TracesPage() {
     traceIds,
     visibleColumns.includes("signal_ids"),
   );
-  const showGettingStarted = !checking && !hasEverTraced && !existsError;
+  const noTracesYet = !checking && !hasEverTraced && !existsError;
+
+  // The first trace's arrival, when this visit has been showing the setup tabs:
+  // the tabs' line says it arrived, and a moment later the trace opens. Only a
+  // trace that arrives while the page watches; a project that already had
+  // traces opens on its list as before.
+  // Held per project, so a watch never carries over to another project's page.
+  const [firstTraceState, setFirstTrace] = useState<
+    { projectId: string } & (
+      | { kind: "idle" | "watching" | "opened" }
+      | { kind: "arrived"; traceId: string }
+    )
+  >({ projectId, kind: "idle" });
+  const firstTrace =
+    firstTraceState.projectId === projectId
+      ? firstTraceState
+      : { projectId, kind: "idle" as const };
+  useEffect(() => {
+    if (noTracesYet && firstTrace.kind === "idle") setFirstTrace({ projectId, kind: "watching" });
+  }, [noTracesYet, firstTrace.kind, projectId]);
+  const newestTraceId = traces[0]?.trace_id;
+  useEffect(() => {
+    if (firstTrace.kind === "watching" && hasEverTraced && newestTraceId) {
+      setFirstTrace({ projectId, kind: "arrived", traceId: newestTraceId });
+    }
+  }, [firstTrace.kind, hasEverTraced, newestTraceId, projectId]);
+  const arrivedTraceId = firstTrace.kind === "arrived" ? firstTrace.traceId : null;
+  useEffect(() => {
+    if (!arrivedTraceId) return;
+    const open = setTimeout(() => {
+      selectTrace(arrivedTraceId);
+      setFirstTrace({ projectId, kind: "opened" });
+    }, FIRST_TRACE_OPEN_DELAY_MS);
+    return () => clearTimeout(open);
+  }, [arrivedTraceId, projectId]);
+  const showGettingStarted =
+    noTracesYet ||
+    firstTrace.kind === "arrived" ||
+    (firstTrace.kind === "watching" && hasEverTraced && !newestTraceId);
+  const firstTraceWait: TraceWait =
+    firstTrace.kind === "arrived"
+      ? { kind: "found", found: { projectId, traceId: firstTrace.traceId } }
+      : { kind: "waiting" };
 
   // Hide AI button during loading AND when GettingStarted is shown
   const shouldHideAiButton = checking || showGettingStarted;
@@ -298,7 +344,7 @@ export default function TracesPage() {
               </p>
             </div>
           ) : showGettingStarted ? (
-            <GettingStarted projectId={projectId} />
+            <GettingStarted projectId={projectId} wait={firstTraceWait} />
           ) : traces.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <Inbox className="h-8 w-8 text-muted-foreground/40" />
