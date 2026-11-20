@@ -846,6 +846,48 @@ def _account_result_for_user(user_id: str, session_id: str | None = None) -> Aut
     )
 
 
+async def _resolve_user_identity(token: str) -> tuple[str, str | None]:
+    """Resolve a user credential to its user, with no project in view.
+
+    A JWT-shaped credential is a CLI access token, verified offline against the
+    JWKS with no introspection call. Anything else is a session token,
+    introspected WITHOUT a ``projectId`` (no 403 access branch: a live session
+    alone is sufficient). The raw token is never logged.
+
+    Args:
+        token (str): The raw user credential (not API-key-shaped). Never logged.
+
+    Returns:
+        tuple[str, str | None]: The user id, and the JWT's ``sid`` claim on the
+            JWT path (``None`` on the session-token path, whose introspection
+            already proved the session live).
+
+    Raises:
+        HTTPException: 401 for an invalid/expired credential, and 503 (fail
+            closed) for any JWKS or introspection ambiguity.
+    """
+    if _is_jwt(token):
+        return await _verify_access_jwt(token)
+
+    data = await _post_internal_auth(
+        "/api/internal/validate-user-token",
+        {"token": token},
+        log_label="user token",
+        invalid_detail="Invalid token",
+    )
+
+    # A valid:true account response must carry the user identity; its absence is
+    # malformed → 503 (fail closed rather than authenticating an anonymous user).
+    user_id = data.get("userId")
+    if not user_id:
+        logger.error("Auth service response missing userId for account scope")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+    return user_id, None
+
+
 async def authenticate_public_caller(
     authorization: Annotated[str | None, Header()] = None,
     project_id: Annotated[
@@ -881,8 +923,9 @@ async def authenticate_public_caller(
 
     Raises:
         HTTPException: 401 for a missing/malformed header (or failed auth), 400
-            when ``project_id`` is missing for a user token or contradicts the
-            API key's project, 403/503 per the delegated validators.
+            when ``project_id`` is missing for a valid user credential or
+            contradicts the API key's project, 403/503 per the delegated
+            validators.
     """
     if not authorization:
         raise HTTPException(
@@ -928,8 +971,12 @@ async def authenticate_public_caller(
     if _is_jwt(token) and is_oauth_token(token):
         return await authenticate_oauth_token(token, project_id)
 
-    # User path: a user credential is only meaningful scoped to a project.
+    # User path: a user credential is only meaningful scoped to a project. The
+    # credential is checked first, so one that is not valid (an unknown or
+    # revoked token) gets the 401 that sends a client to sign in again, not a 400
+    # telling it to pick a project it could never read.
     if not project_id:
+        await _resolve_user_identity(token)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -1046,32 +1093,8 @@ async def authenticate_account_caller(
             detail="this operation requires a user login; API keys are project-scoped",
         )
 
-    # A JWT-shaped credential is a CLI access token: verified offline against the
-    # JWKS, no introspection call needed (identity is all account scope requires).
-    if _is_jwt(token):
-        user_id, sid = await _verify_access_jwt(token)
-        return _account_result_for_user(user_id, session_id=sid)
-
-    # Session-token path: introspect WITHOUT a projectId (no 403 access branch
-    # here — a live session alone is sufficient).
-    data = await _post_internal_auth(
-        "/api/internal/validate-user-token",
-        {"token": token},
-        log_label="user token",
-        invalid_detail="Invalid token",
-    )
-
-    # A valid:true account response must carry the user identity; its absence is
-    # malformed → 503 (fail closed rather than authenticating an anonymous user).
-    user_id = data.get("userId")
-    if not user_id:
-        logger.error("Auth service response missing userId for account scope")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication service error",
-        )
-
-    return _account_result_for_user(user_id)
+    user_id, sid = await _resolve_user_identity(token)
+    return _account_result_for_user(user_id, session_id=sid)
 
 
 _AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
