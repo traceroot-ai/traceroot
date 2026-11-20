@@ -1,91 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testDb as db } from "./trace-count-test-db";
 
-type Row = Record<string, unknown>;
-
-/**
- * An in-memory stand-in for the slice of Prisma this module uses. Each query
- * yields once before it runs, as a database round trip would, and a conditional
- * update filters and writes in one step, so overlapping ticks interleave between
- * queries but never inside one.
- */
-const db = vi.hoisted(() => {
-  const tables = {
-    workspaces: [] as Row[],
-    members: [] as Row[],
-    users: [] as Row[],
-    onboarding: [] as Row[],
-  };
-
-  /** Equality, null, `lt`, `not: null`, `OR` and `AND`: the conditions the module writes. */
-  function matches(row: Row, where: Row): boolean {
-    return Object.entries(where).every(([key, condition]) => {
-      if (key === "OR") return (condition as Row[]).some((c) => matches(row, c));
-      if (key === "AND") return (condition as Row[]).every((c) => matches(row, c));
-      const value = row[key] ?? null;
-      if (condition === null) return value === null;
-      if (condition instanceof Date) {
-        return value instanceof Date && value.getTime() === condition.getTime();
-      }
-      if (typeof condition === "object" && "not" in condition && condition.not === null) {
-        return value !== null;
-      }
-      const { lt } = condition as { lt?: Date };
-      if (lt !== undefined) return value instanceof Date && value.getTime() < lt.getTime();
-      return value === condition;
-    });
-  }
-
-  const roundTrip = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-  const prisma = {
-    workspace: {
-      findMany: vi.fn(async ({ where }: { where: { id?: { not: string } } }) => {
-        await roundTrip();
-        return tables.workspaces
-          .filter((ws) => where.id === undefined || ws.id !== where.id.not)
-          .map((ws) => ({
-            createdBy: ws.createdBy ?? null,
-            currentUsage: ws.currentUsage ?? null,
-            members: tables.members
-              .filter((m) => m.workspaceId === ws.id && m.role === "ADMIN")
-              .sort((a, b) => (a.createTime as Date).getTime() - (b.createTime as Date).getTime())
-              .slice(0, 1)
-              .map((m) => ({ userId: m.userId })),
-          }));
-      }),
-    },
-    user: {
-      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
-        await roundTrip();
-        return tables.users.filter((u) => where.id.in.includes(u.id as string));
-      }),
-    },
-    userOnboarding: {
-      findMany: vi.fn(async ({ where }: { where: Row }) => {
-        await roundTrip();
-        return tables.onboarding.filter((row) => matches(row, where));
-      }),
-      updateMany: vi.fn(async ({ where, data }: { where: Row; data: Row }) => {
-        await roundTrip();
-        const rows = tables.onboarding.filter((row) => matches(row, where));
-        rows.forEach((row) => Object.assign(row, data));
-        return { count: rows.length };
-      }),
-      create: vi.fn(async ({ data }: { data: Row }) => {
-        await roundTrip();
-        if (tables.onboarding.some((row) => row.userId === data.userId)) {
-          throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
-        }
-        tables.onboarding.push({ traceCountReportedOn: null, traceCountClaimedAt: null, ...data });
-        return data;
-      }),
-    },
-  };
-  return { tables, prisma };
-});
-
-vi.mock("@traceroot/core", () => ({
-  prisma: db.prisma,
+vi.mock("@traceroot/core", async () => ({
+  prisma: (await import("./trace-count-test-db")).testDb.prisma,
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
 }));
 
@@ -103,6 +20,7 @@ import {
   reportDailyTraceCounts,
   TRACE_COUNT_BATCH_SIZE,
   TRACE_COUNT_CLAIM_LEASE_MS,
+  TRACE_COUNT_FAILURES_TO_STOP,
   TRACE_COUNT_TIME_BUDGET_MS,
 } from "./trace-count";
 
@@ -277,36 +195,38 @@ describe("reportDailyTraceCounts", () => {
     ]);
   });
 
-  it("stops waiting for a send still unanswered at the deadline and gives it back", async () => {
+  it("cancels a send still unanswered at the deadline and keeps that owner due", async () => {
     workspace("ws_1", "user_ada", 10);
-    workspace("ws_2", "user_sam", 20);
     // The tick starts at NOV_18; its send starts with 5ms of the budget left and
-    // PostHog never answers.
+    // PostHog never answers, so only the deadline's abort ends the request.
     let reads = 0;
     const clock = () => (reads++ === 0 ? NOV_18 : later(TRACE_COUNT_TIME_BUDGET_MS - 5));
-    analytics.sendServerPersonProperties.mockReturnValueOnce(new Promise(() => {}));
+    analytics.sendServerPersonProperties.mockImplementationOnce(
+      (_userId: string, _props: unknown, { signal }: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(signal.reason)),
+        ),
+    );
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      expect(await reportDailyTraceCounts(clock)).toEqual({ kind: "sent", sent: 0, remaining: 2 });
-      expect(logged).toHaveBeenCalledWith(
-        "[trace-count] PostHog did not accept a count; ending this tick:",
-        new Error("no answer within 5ms"),
-      );
+      expect(await reportDailyTraceCounts(clock)).toEqual({ kind: "sent", sent: 0, remaining: 1 });
     } finally {
       logged.mockRestore();
     }
+    // Not sent, and claimed until the lease runs out.
     expect(row("user_ada")).toMatchObject({
       traceCountReportedOn: null,
-      traceCountClaimedAt: null,
+      traceCountClaimedAt: later(TRACE_COUNT_TIME_BUDGET_MS - 5),
     });
 
     // The next tick sends it; PostHog getting the same value twice is harmless.
     await reportAt(later(15 * 60_000));
-    expect(sent().slice(1)).toEqual([
+    expect(sent()).toEqual([
       ["user_ada", 10],
-      ["user_sam", 20],
+      ["user_ada", 10],
     ]);
+    expect(row("user_ada")).toMatchObject({ traceCountReportedOn: NOV_18_DAY });
   });
 
   it("skips a person another tick is sending right now", async () => {
@@ -333,33 +253,79 @@ describe("reportDailyTraceCounts", () => {
     });
   });
 
-  it("gives a send PostHog does not accept back and ends the tick", async () => {
+  it("keeps an owner whose send failed due, and goes on with the others", async () => {
     workspace("ws_1", "user_sam", 10);
     workspace("ws_2", "user_ada", 20);
     workspace("ws_3", "user_lin", 30);
     analytics.sendServerPersonProperties
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("PostHog unavailable"));
+      .mockResolvedValueOnce(undefined) // Ada
+      .mockRejectedValueOnce(new Error("PostHog answered 503")); // Lin
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 1, remaining: 2 });
+      expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 2, remaining: 1 });
     } finally {
       logged.mockRestore();
     }
     expect(row("user_lin")).toMatchObject({
       traceCountReportedOn: null,
-      traceCountClaimedAt: null,
+      traceCountClaimedAt: NOV_18,
     });
-    expect(row("user_sam")).toBeUndefined();
+    expect(row("user_sam")).toMatchObject({ traceCountReportedOn: NOV_18_DAY });
 
-    await reportAt(later(15 * 60_000));
+    // Inside the lease nobody retries Lin; after it, the next tick sends only Lin.
+    expect(await reportAt(later(60_000))).toEqual({ kind: "sent", sent: 0, remaining: 1 });
+    expect(await reportAt(later(15 * 60_000))).toEqual({ kind: "sent", sent: 1, remaining: 0 });
     expect(sent()).toEqual([
       ["user_ada", 20],
       ["user_lin", 30], // the failed attempt
-      ["user_lin", 30],
       ["user_sam", 10],
+      ["user_lin", 30],
     ]);
+  });
+
+  it("does not let one owner whose delivery keeps failing hold up the rest", async () => {
+    workspace("ws_1", "user_ada", 10);
+    analytics.sendServerPersonProperties.mockImplementation(async (userId: string) => {
+      if (userId === "user_ada") throw new Error("PostHog answered 400");
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await reportAt(NOV_18);
+      // Two owners join later the same day; Ada, who already failed, goes after them.
+      workspace("ws_2", "user_sam", 20);
+      workspace("ws_3", "user_lin", 30);
+      expect(await reportAt(later(15 * 60_000))).toEqual({ kind: "sent", sent: 2, remaining: 1 });
+      expect(await reportAt(later(30 * 60_000))).toEqual({ kind: "sent", sent: 0, remaining: 1 });
+    } finally {
+      logged.mockRestore();
+    }
+    expect(sent().map(([userId]) => userId)).toEqual([
+      "user_ada",
+      "user_lin",
+      "user_sam",
+      "user_ada",
+      "user_ada",
+    ]);
+    // Still due, and retried every tick.
+    expect(row("user_ada")).toMatchObject({ traceCountReportedOn: null });
+  });
+
+  it("ends the tick after several failures in a row: PostHog itself is failing", async () => {
+    for (const id of ["user_ada", "user_lin", "user_sam"]) workspace(`ws_${id}`, id, 1);
+    db.tables.users.push({ id: "user_zoe" });
+    workspace("ws_zoe", "user_zoe", 1);
+    analytics.sendServerPersonProperties.mockRejectedValue(new Error("PostHog answered 503"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 0, remaining: 4 });
+    } finally {
+      logged.mockRestore();
+    }
+    expect(sent()).toHaveLength(TRACE_COUNT_FAILURES_TO_STOP);
+    expect(row("user_zoe")).toBeUndefined();
   });
 
   it("an interrupted tick, retried after an overlapping one, sends each count once", async () => {

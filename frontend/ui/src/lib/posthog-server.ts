@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PostHog } from "posthog-node";
 import { clientEnv } from "@/env.client";
 import { supportRequest } from "@/lib/support/request-context";
@@ -33,29 +34,48 @@ export function isServerAnalyticsEnabled(): boolean {
   return client !== undefined;
 }
 
+/** How long one person-property request may take before it counts as not accepted. */
+export const PERSON_PROPERTIES_TIMEOUT_MS = 10_000;
+
 /**
- * Sets properties on a person profile and waits until PostHog has accepted them,
- * under the same rules as captureServerEvent. Rejects when PostHog does not accept,
- * so a caller that records the send can leave it to be retried.
+ * Sets properties on a person profile and resolves once PostHog has accepted them,
+ * under the same rules as captureServerEvent. Rejects when PostHog answers with an
+ * error, cannot be reached, or does not answer within PERSON_PROPERTIES_TIMEOUT_MS
+ * (or before `signal` aborts), so a caller that records the send can leave it to be
+ * retried.
+ *
+ * Each call is its own request to PostHog's capture API, and its result is that
+ * request's answer. The shared client only reports a failed delivery as an "error"
+ * event that any concurrent send could have caused, so it cannot say whether this
+ * particular update arrived.
  */
 export async function sendServerPersonProperties(
   distinctId: string,
   properties: Record<string, unknown>,
+  { signal }: { signal?: AbortSignal } = {},
 ): Promise<void> {
-  if (!client) return;
+  if (!client || !key || !host) return;
   if (supportRequest.getStore()?.impersonation) return;
-  // captureImmediate resolves even when PostHog refused the request or could not be
-  // reached; the failure only comes out as the client's "error" event. Listen for it
-  // while this send is in flight. Another send failing at the same moment can fail
-  // this one too, which only makes the caller send it again.
-  let failure: unknown;
-  const stopListening = client.on("error", (err: unknown) => {
-    failure ??= err ?? new Error("PostHog did not accept the request");
+  const timeout = AbortSignal.timeout(PERSON_PROPERTIES_TIMEOUT_MS);
+  const response = await fetch(`${host.replace(/\/+$/, "")}/batch/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: key,
+      batch: [
+        {
+          event: "$set",
+          distinct_id: distinctId,
+          // As the shared client sends it: no location from the server's address.
+          properties: { $set: properties, $geoip_disable: true },
+          timestamp: new Date().toISOString(),
+          uuid: randomUUID(),
+        },
+      ],
+    }),
+    signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
   });
-  try {
-    await client.captureImmediate({ distinctId, event: "$set", properties: { $set: properties } });
-  } finally {
-    stopListening();
+  if (!response.ok) {
+    throw new Error(`PostHog answered ${response.status} to a person-property update`);
   }
-  if (failure !== undefined) throw failure;
 }

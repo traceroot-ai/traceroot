@@ -10,20 +10,26 @@
  * A tick claims each owner (`trace_count_claimed_at`) with a conditional write,
  * sends the count and waits for PostHog to accept it, then marks the day done
  * (`trace_count_reported_on`), so overlapping ticks do not both send to the same
- * person. A claim held by another tick is skipped; one older than the lease
- * belongs to a tick that died, and is taken over. A send PostHog does not accept
- * gives the claim back and ends the tick, leaving the rest to the next one.
+ * person. A claim held by another tick is skipped; one older than the lease is
+ * taken over.
+ *
+ * A send PostHog does not accept leaves the claim in place: the owner stays due,
+ * no tick retries them until the lease runs out, and the stale claim records the
+ * failed attempt, which puts them behind owners not yet tried. The tick goes on
+ * with the next owner, so one owner whose delivery keeps failing does not hold up
+ * the rest; TRACE_COUNT_FAILURES_TO_STOP failures in a row mean PostHog itself is
+ * failing, and end the tick.
  *
  * The same count can still reach PostHog twice in a day: when a tick dies after
  * PostHog accepted it but before marking the day done, or when PostHog accepts a
- * send after the tick stopped waiting for it (below). Setting the property again
- * to the same value is harmless.
+ * send whose request the tick gave up on (below). Setting the property again to
+ * the same value is harmless.
  *
  * A tick sends to at most TRACE_COUNT_BATCH_SIZE people within
  * TRACE_COUNT_TIME_BUDGET_MS, so it answers well inside the caller's timeout; a send
- * still unanswered at the deadline is given back like a failed one. People
- * go in order of their last report, never-reported first, so when there are more
- * owners than a day's ticks can reach, the ones left out today go first tomorrow.
+ * still unanswered at the deadline is cancelled and counts as failed. People go in
+ * order of their last report, never-reported first, so when there are more owners
+ * than a day's ticks can reach, the ones left out today go first tomorrow.
  */
 import { prisma, Role } from "@traceroot/core";
 import { demoWorkspaceId } from "@/lib/demo-workspace";
@@ -41,6 +47,9 @@ export const TRACE_COUNT_BATCH_SIZE = 100;
  * (WEB_TICK_TIMEOUT_MS, 60s), so the tick answers before the caller gives up on it.
  */
 export const TRACE_COUNT_TIME_BUDGET_MS = 40_000;
+
+/** Failed sends in a row after which a tick stops: PostHog is failing, not one owner. */
+export const TRACE_COUNT_FAILURES_TO_STOP = 3;
 
 /** How long a claim protects a send in progress; well past one PostHog request with retries. */
 export const TRACE_COUNT_CLAIM_LEASE_MS = 2 * 60 * 1000;
@@ -64,22 +73,30 @@ export async function reportDailyTraceCounts(
   const startedAt = clock();
   const today = utcDay(startedAt);
   const counts = await traceCountsByOwner();
-  const reported = await prisma.userOnboarding.findMany({
-    where: { traceCountReportedOn: { not: null } },
-    select: { userId: true, traceCountReportedOn: true },
+  const history = await prisma.userOnboarding.findMany({
+    where: {
+      OR: [{ traceCountReportedOn: { not: null } }, { traceCountClaimedAt: { not: null } }],
+    },
+    select: { userId: true, traceCountReportedOn: true, traceCountClaimedAt: true },
   });
-  const lastReport = new Map(
-    reported.map((row) => [row.userId, row.traceCountReportedOn!.getTime()]),
-  );
-  // 0 for never reported, which sorts before any real day.
-  const reportedAt = (userId: string) => lastReport.get(userId) ?? 0;
-  // The longest since their last report first; the id keeps ties in a fixed order.
+  const rows = new Map(history.map((row) => [row.userId, row]));
+  // 0 for never, which sorts before any real time.
+  const reportedAt = (userId: string) => rows.get(userId)?.traceCountReportedOn?.getTime() ?? 0;
+  const attemptedAt = (userId: string) => rows.get(userId)?.traceCountClaimedAt?.getTime() ?? 0;
+  // The longest since their last report first; among those, owners whose last
+  // attempt failed go after the ones not yet tried; the id keeps ties in a fixed order.
   const due = [...counts]
     .filter(([userId]) => reportedAt(userId) < today.getTime())
-    .sort(([a], [b]) => reportedAt(a) - reportedAt(b) || (a < b ? -1 : a > b ? 1 : 0));
+    .sort(
+      ([a], [b]) =>
+        reportedAt(a) - reportedAt(b) ||
+        attemptedAt(a) - attemptedAt(b) ||
+        (a < b ? -1 : a > b ? 1 : 0),
+    );
 
   const timeLeft = () => startedAt.getTime() + TRACE_COUNT_TIME_BUDGET_MS - clock().getTime();
   let sent = 0;
+  let failuresInARow = 0;
   for (const [userId, traceCount] of due.slice(0, TRACE_COUNT_BATCH_SIZE)) {
     if (timeLeft() <= 0) break;
     // Another tick may hold this person, or have finished them since the read above.
@@ -92,33 +109,26 @@ export async function reportDailyTraceCounts(
       break;
     }
     try {
-      await withinMs(sendServerPersonProperties(userId, { trace_count: traceCount }), timeLeft());
+      await sendServerPersonProperties(
+        userId,
+        { trace_count: traceCount },
+        { signal: AbortSignal.timeout(timeLeft()) },
+      );
     } catch (err) {
-      await release(userId, claimedAt);
-      console.error("[trace-count] PostHog did not accept a count; ending this tick:", err);
-      break;
+      // The claim stays: the owner is retried once it runs out, behind the others.
+      failuresInARow += 1;
+      console.error("[trace-count] PostHog did not accept an owner's count:", err);
+      if (failuresInARow >= TRACE_COUNT_FAILURES_TO_STOP) {
+        console.error(`[trace-count] ${failuresInARow} failures in a row; ending this tick`);
+        break;
+      }
+      continue;
     }
+    failuresInARow = 0;
     await markSent(userId, today, claimedAt);
     sent += 1;
   }
   return { kind: "sent", sent, remaining: due.length - sent };
-}
-
-/**
- * The promise's outcome, or a rejection once `ms` have passed. The work itself goes
- * on; a send PostHog accepts after the deadline only sets the same value again.
- */
-async function withinMs<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`no answer within ${ms}ms`)), Math.max(ms, 0));
-  });
-  promise.catch(() => {}); // a late failure has nobody waiting for it
-  try {
-    return await Promise.race([promise, deadline]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /** Each owner's traces summed over their workspaces, for owners whose user still exists. */
