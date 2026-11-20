@@ -58,7 +58,15 @@ export function MessageInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Ignore Enter presses while an IME is composing: that Enter only confirms
+    // a candidate. keyCode 229 is the fallback for browsers (Safari) where
+    // isComposing is not reliable on this event.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.nativeEvent.isComposing &&
+      e.nativeEvent.keyCode !== 229
+    ) {
       e.preventDefault();
       handleSend();
     }
