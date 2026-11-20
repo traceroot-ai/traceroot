@@ -1022,7 +1022,7 @@ def transform_otel_to_clickhouse(
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
                     # tokens, already priced at the output rate, so this is
                     # display-only and must NOT feed the cost buckets.
-                    api_reasoning_tokens = first_present(
+                    api_reasoning_tokens = first_present_number(
                         span_attrs,
                         [
                             "llm.token_count.completion_details.reasoning",

@@ -10,6 +10,7 @@ import {
   METERED_PRICE_ENV_VARS,
   getMeteredPriceIds,
   findPlanItem,
+  discountsToKeepForPlan,
 } from "@traceroot/core";
 
 async function handlePOST(req: NextRequest) {
@@ -89,7 +90,14 @@ async function handlePOST(req: NextRequest) {
     }
 
     // Case 3: Has subscription, changing to another paid plan
-    const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
+    const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId, {
+      expand: ["discounts"],
+    });
+    // Discounts on the subscription (promo codes). Unexpanded entries are bare ids
+    // with no coupon to read, so they are left alone.
+    const activeDiscounts = (subscription.discounts ?? []).filter(
+      (d): d is Exclude<typeof d, string> => typeof d !== "string",
+    );
 
     // All metered usage price IDs — must be excluded when finding the plan item,
     // and preserved across plan changes / downgrade schedules so meter events
@@ -159,6 +167,15 @@ async function handlePOST(req: NextRequest) {
         // symmetrically via proration — customer pays full new-plan price
         // minus refund for unused old-plan time.
         billing_cycle_anchor: "now",
+        // A promo discount tied to another plan ends with the upgrade, in the same
+        // update, so the proration invoice is priced without it. Discounts tied to
+        // the new plan or not tied to a plan stay. Left out entirely when there is none.
+        ...(activeDiscounts.length > 0
+          ? (() => {
+              const keep = discountsToKeepForPlan(activeDiscounts, newPlan);
+              return { discounts: keep.length > 0 ? keep.map((id) => ({ discount: id })) : "" };
+            })()
+          : {}),
       });
 
       console.log("Stripe subscription updated:", {
@@ -205,6 +222,12 @@ async function handlePOST(req: NextRequest) {
               { price: planItem.price.id, quantity: planItem.quantity ?? 1 },
               ...meteredPhaseItems,
             ],
+            // Phases are replaced wholesale, so the current discount must be passed
+            // again or it is dropped. It only covers the current phase: a plan-bound
+            // discount belongs to the higher plan being left.
+            ...(activeDiscounts.length > 0
+              ? { discounts: activeDiscounts.map((d) => ({ discount: d.id })) }
+              : {}),
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },

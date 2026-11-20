@@ -7,10 +7,12 @@ traceroot captures token usage from instrumented LLM calls. It calculates cost w
 
 <Tabs>
   <Tab title="Python">
+    {/* [start:snippet:tracing-cost-tracking-python] */}
     ```python
+    from openai import OpenAI
+
     import traceroot
     from traceroot import Integration
-    from openai import OpenAI
 
     traceroot.initialize(integrations=[Integration.OPENAI])
     client = OpenAI()
@@ -18,11 +20,13 @@ traceroot captures token usage from instrumented LLM calls. It calculates cost w
     # OpenAI calls are tracked automatically; cost requires a priced model ID
     client.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": "Hello"}]
+        messages=[{"role": "user", "content": "Hello"}],
     )
     ```
+    {/* [end:snippet:tracing-cost-tracking-python] */}
   </Tab>
   <Tab title="TypeScript">
+    {/* [start:snippet:tracing-cost-tracking-typescript] */}
     ```typescript
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
@@ -36,6 +40,7 @@ traceroot captures token usage from instrumented LLM calls. It calculates cost w
       messages: [{ role: 'user', content: 'Hello' }],
     });
     ```
+    {/* [end:snippet:tracing-cost-tracking-typescript] */}
   </Tab>
 </Tabs>
 
