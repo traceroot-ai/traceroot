@@ -71,9 +71,26 @@ export function startWebTickWorker(): Worker {
   worker.on("failed", (job, err) => {
     console.error(`[Web tick] attempt ${job?.attemptsMade ?? "?"} failed:`, err.message);
   });
-  // Idempotent: every worker process upserts the same scheduler.
-  getWebTickQueue()
-    .upsertJobScheduler(
+  void registerScheduler();
+  return worker;
+}
+
+/** First wait before registering the scheduler again; it doubles up to the cap. */
+export const WEB_TICK_REGISTER_RETRY_MS = 5_000;
+export const WEB_TICK_REGISTER_RETRY_MAX_MS = 5 * 60_000;
+let registerRetry: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Registers the tick's scheduler, idempotently: every worker process upserts the
+ * same one. A failed registration (Redis down at startup, say) is tried again with
+ * backoff until it succeeds or the worker stops, so this replica does not run
+ * without a tick until its next restart.
+ */
+async function registerScheduler(waitMs = WEB_TICK_REGISTER_RETRY_MS): Promise<void> {
+  registerRetry = undefined;
+  if (shuttingDown.signal.aborted) return;
+  try {
+    await getWebTickQueue().upsertJobScheduler(
       WEB_TICK_SCHEDULER_ID,
       { every: WEB_TICK_EVERY_MS },
       {
@@ -86,9 +103,15 @@ export function startWebTickWorker(): Worker {
           removeOnFail: true,
         },
       },
-    )
-    .catch((err) => console.error("[Web tick] failed to schedule the tick:", err));
-  return worker;
+    );
+  } catch (err) {
+    if (shuttingDown.signal.aborted) return;
+    console.error(`[Web tick] failed to schedule the tick; trying again in ${waitMs}ms:`, err);
+    registerRetry = setTimeout(
+      () => void registerScheduler(Math.min(waitMs * 2, WEB_TICK_REGISTER_RETRY_MAX_MS)),
+      waitMs,
+    );
+  }
 }
 
 /**
@@ -99,5 +122,6 @@ export function startWebTickWorker(): Worker {
  */
 export async function closeWebTickWorker(worker: Worker): Promise<void> {
   shuttingDown.abort(new Error("the detector service is shutting down"));
+  clearTimeout(registerRetry);
   await worker.close();
 }

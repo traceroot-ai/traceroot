@@ -144,3 +144,54 @@ describe("closeWebTickWorker", () => {
     expect(bull.close).toHaveBeenCalledOnce();
   });
 });
+
+describe("scheduler registration", () => {
+  // Fresh modules: retries and shutting down are module state.
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("registers the scheduler again until it succeeds when the first attempt fails", async () => {
+    const { startWebTickWorker: start, WEB_TICK_REGISTER_RETRY_MS: firstWait } =
+      await import("../web-tick.js");
+    bull.upsertJobScheduler
+      .mockRejectedValueOnce(new Error("Redis is not ready"))
+      .mockRejectedValueOnce(new Error("Redis is not ready"))
+      .mockResolvedValue(undefined);
+
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bull.upsertJobScheduler).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(firstWait);
+    expect(bull.upsertJobScheduler).toHaveBeenCalledTimes(2);
+    // The wait doubles after each failure.
+    await vi.advanceTimersByTimeAsync(firstWait);
+    expect(bull.upsertJobScheduler).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(firstWait);
+    expect(bull.upsertJobScheduler).toHaveBeenCalledTimes(3);
+
+    // Registered: no more attempts.
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(bull.upsertJobScheduler).toHaveBeenCalledTimes(3);
+    const [id, every] = bull.upsertJobScheduler.mock.calls[2];
+    expect([id, every]).toEqual(["web-tick", { every: 15 * 60 * 1000 }]);
+  });
+
+  it("stops trying once the worker is shutting down", async () => {
+    const { closeWebTickWorker, startWebTickWorker: start } = await import("../web-tick.js");
+    bull.upsertJobScheduler.mockRejectedValue(new Error("Redis is not ready"));
+
+    const worker = start() as unknown as Parameters<typeof closeWebTickWorker>[0];
+    await vi.advanceTimersByTimeAsync(0);
+    await closeWebTickWorker(worker);
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+
+    expect(bull.upsertJobScheduler).toHaveBeenCalledTimes(1);
+  });
+});
