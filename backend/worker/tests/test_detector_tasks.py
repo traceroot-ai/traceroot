@@ -174,10 +174,29 @@ def test_passes_trigger_single_condition_passes():
 def test_trace_summaries_query_scopes_to_user_source():
     """The judge's read names the one source that IS customer traffic, never the
     fail-open inequality against the detector marker."""
+    import sys
+    import types
+
+    fake_db = types.ModuleType("db")
+    fake_clickhouse = types.ModuleType("db.clickhouse")
+    fake_client = types.ModuleType("db.clickhouse.client")
     ch = MagicMock()
     ch.query.return_value = MagicMock(result_rows=[])
-    with patch("db.clickhouse.client.get_clickhouse_client", return_value=ch):
+    fake_client.get_clickhouse_client = MagicMock(return_value=ch)
+    fake_clickhouse.get_clickhouse_client = MagicMock(return_value=ch)  # add this line
+    fake_db.clickhouse = fake_clickhouse
+    fake_clickhouse.client = fake_client
+    with patch.dict(
+        sys.modules,
+        {"db": fake_db, "db.clickhouse": fake_clickhouse, "db.clickhouse.client": fake_client},
+    ):
         _get_trace_summaries("p1", ["t1"], include_trace_metadata=False)
     sql = ch.query.call_args_list[0].args[0]
     assert "AND source = 'user'" in sql
     assert "!= 'detector'" not in sql
+
+    def test_eval_condition_contains_non_string_actual():
+        """contains on a scalar non-string field coerces via str() before matching."""
+        trace_summary = {"error_code": 404}
+        condition = {"field": "error_code", "op": "contains", "value": "40"}
+        assert _eval_condition(trace_summary, condition) is True
