@@ -92,4 +92,34 @@ describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
     expect(meta.connectedByUserId).toBe("u_1");
     expect(meta.returnTo).toBe("/back");
   });
+
+  describe("where the authorization comes back to", () => {
+    const savedReturnTo = async (query: string) => {
+      requireAuth.mockResolvedValue({ user: { id: "u_1" } });
+      requireWorkspaceMembership.mockResolvedValue({ membership: {} });
+      findUnique.mockResolvedValue({ billingPlan: "free" });
+      hasEntitlement.mockReturnValue(true);
+      generateInstallUrl.mockResolvedValue("https://slack.com/oauth/v2/authorize");
+      const { GET } = await import("./route");
+      await GET(new Request(`http://x/api${query}`) as never, {
+        params: Promise.resolve({ workspaceId: "ws_1" }),
+      });
+      return JSON.parse(generateInstallUrl.mock.calls[0][0].metadata).returnTo;
+    };
+
+    it("keeps the starting page with its query", async () => {
+      const connect = "/onboarding/connect?projectId=proj_1";
+      expect(await savedReturnTo(`?returnTo=${encodeURIComponent(connect)}`)).toBe(connect);
+    });
+
+    it("falls back to the workspace's integration settings without one", async () => {
+      expect(await savedReturnTo("")).toBe("/workspaces/ws_1/settings/integrations");
+    });
+
+    it("falls back to the workspace's integration settings for a path off this site", async () => {
+      expect(await savedReturnTo(`?returnTo=${encodeURIComponent("https://evil.example")}`)).toBe(
+        "/workspaces/ws_1/settings/integrations",
+      );
+    });
+  });
 });
