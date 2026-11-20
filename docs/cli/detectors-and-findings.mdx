@@ -13,7 +13,7 @@ traceroot detectors list --since 7d
 traceroot detectors get <detector-id>
 ```
 
-`detectors list` takes `--limit`, plus `--since`, `--from`, and `--to`. These filter on when the detector was created, not when it last ran. `detectors get` shows the full configuration.
+`detectors list` takes `--limit` (50 by default, up to 200), plus `--since`, `--from`, and `--to`. These filter on when the detector was created, not when it last ran. `detectors get` shows the full configuration.
 
 ## Read findings
 
@@ -23,7 +23,7 @@ traceroot findings get <finding-id>
 traceroot findings get --trace <trace-id>
 ```
 
-`findings list` takes `--limit`, `--since`, `--from`, `--to`, `--detector` (an ID, name, or template), and `--trace`. Time flags take the same values as [`traces list`](/cli/traces#list-traces).
+`findings list` takes `--limit` (50 by default, up to 200), `--since`, `--from`, `--to`, `--detector` (an ID, name, or template), and `--trace`. Time flags take the same values as [`traces list`](/cli/traces#list-traces).
 
 `findings get` takes a finding ID or `--trace`, not both.
 

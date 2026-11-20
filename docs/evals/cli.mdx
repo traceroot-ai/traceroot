@@ -23,7 +23,7 @@ traceroot evals runs list --evaluation-id ev_… --limit 20
 traceroot evals runs list --status failed
 ```
 
-`--status` takes `running`, `completed`, `completed_with_errors`, `failed`, `incomplete`, or `cancelled`. Both lists take `--name <substring>` filtering, case-insensitively, on the evaluation name.
+`--status` takes `running`, `completed`, `completed_with_errors`, `failed`, `incomplete`, or `cancelled`. `evals list` takes `--name <substring>`, which filters case-insensitively on the evaluation name.
 
 A run row is identity and outcome only — which run it is, what it was testing, and when it started. Scores and counts are aggregates over a run's results, so they come from reading the run itself.
 
