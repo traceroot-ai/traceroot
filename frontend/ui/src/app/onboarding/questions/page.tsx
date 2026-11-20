@@ -8,6 +8,8 @@ import { QuestionsStep } from "@/features/onboarding/components/questions-step";
 import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
 import { StepUnavailable } from "@/features/onboarding/components/step-unavailable";
 import { connectStepUrl, createdInRun } from "@/features/onboarding/step-urls";
+import { useSwitchAccount } from "@/features/onboarding/use-switch-account";
+import { authClient } from "@/lib/auth-client";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 
 /**
@@ -35,6 +37,10 @@ function Questions() {
   const callbackUrl = searchParams.get("callbackUrl");
   // Same-origin only, as on /onboarding: this is a value from the address.
   const returnTo = callbackUrl === null ? null : safeCallbackUrl(callbackUrl, "") || null;
+  const { data: session } = authClient.useSession();
+  // Back to /onboarding as the other account, which makes its own workspace and
+  // project and asks it the questions; a waiting terminal's hand-back goes along.
+  const switcher = useSwitchAccount(returnTo);
 
   if (!projectId) return <StepUnavailable />;
 
@@ -50,10 +56,23 @@ function Questions() {
             </p>
           </div>
         </div>
+        {switcher.error && (
+          <p
+            role="alert"
+            className="mb-4 border border-danger-border bg-danger-soft p-3 text-[12px] text-danger"
+          >
+            {switcher.error}
+          </p>
+        )}
         <Card>
           <CardContent className="p-4">
             <QuestionsStep
               onDone={() => router.push(returnTo ?? connectStepUrl(projectId, created))}
+              account={{
+                email: session?.user?.email ?? null,
+                switching: switcher.switching,
+                onSwitch: (saved) => void switcher.switchAccount(saved),
+              }}
             />
           </CardContent>
         </Card>

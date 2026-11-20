@@ -13,6 +13,7 @@ export const PERSONAL_DOMAINS: ReadonlySet<string> = new Set([
   "googlemail.com",
   "yahoo.com",
   "yahoo.co.uk",
+  "yahoo.co.jp",
   "ymail.com",
   "hotmail.com",
   "hotmail.co.uk",
@@ -37,14 +38,13 @@ export const PERSONAL_DOMAINS: ReadonlySet<string> = new Set([
   "qq.com",
   "163.com",
   "126.com",
-  "sina.com",
   "foxmail.com",
   "zoho.com",
   "fastmail.com",
   "hey.com",
+  "duck.com",
   "tutanota.com",
   "naver.com",
-  "rediffmail.com",
 ]);
 
 function domainOf(email: string): string | null {

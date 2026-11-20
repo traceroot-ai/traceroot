@@ -246,6 +246,40 @@ describe("saving", () => {
   });
 });
 
+describe("switching account", () => {
+  it("names the account, and hands over the answers still being saved", async () => {
+    let finishSave!: () => void;
+    api.save.mockImplementation(() => new Promise((resolve) => (finishSave = () => resolve({}))));
+    const onSwitch = vi.fn();
+    api.get.mockResolvedValue(EMPTY);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <QuestionsStep
+          onDone={onDone}
+          account={{ email: "kai@acme.dev", switching: false, onSwitch }}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Step 1 of 3");
+    expect(screen.getByText("as kai@acme.dev")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Founder" }));
+    click("Continue");
+    click("Not you? Sign out");
+
+    const saved: Promise<unknown> = onSwitch.mock.calls[0][0];
+    let settled = false;
+    void saved.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+    finishSave();
+    await waitFor(() => expect(settled).toBe(true));
+    expect(saved).toBeInstanceOf(Promise);
+    expect(api.save).toHaveBeenCalledWith({ role: "founder" });
+  });
+});
+
 describe("asked once", () => {
   it("goes straight on for someone who has been through them", async () => {
     renderStep({ done: true });

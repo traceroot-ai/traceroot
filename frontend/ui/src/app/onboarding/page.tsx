@@ -15,6 +15,7 @@ import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
 import { questionsStepUrl } from "@/features/onboarding/step-urls";
+import { onboardingSignInUrl, useSwitchAccount } from "@/features/onboarding/use-switch-account";
 import { isPersonalEmail } from "@/lib/personal-email";
 
 /** The first project's name. Renamed, like the workspace, in settings. */
@@ -30,31 +31,6 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
 
   const company = domain.split(".")[0];
   return company.charAt(0).toUpperCase() + company.slice(1);
-}
-
-// This page's own URL, for a round trip that has to come back to it. Whatever a
-// waiting `traceroot setup` terminal is polling against travels on it, because
-// a sign-in that drops `callbackUrl` strands that terminal for the whole
-// device-code lifetime with nothing left pointing back at the handoff.
-//
-// `?workspaceId=` is deliberately not carried. It names a workspace owned by
-// the account being signed *out* of, and the point of the round trip is to come
-// back as someone else — who cannot add a project to it. An account that signs
-// back in as itself gets the parameter re-derived from the setup check below, so
-// nothing is lost either way.
-function onboardingReturnUrl(returnTo: string | null): string {
-  return returnTo === null
-    ? "/onboarding"
-    : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
-}
-
-// Sign-in, returning here afterwards. better-auth stores the whole callbackUrl
-// — query included — in the OAuth state and redirects to it verbatim, so the
-// hand-back survives the Google hop and not just an email sign-in. Shared by
-// the signed-out redirect and "Not you? Sign out" so the two cannot drift,
-// which is how /device says the same thing (see deviceSignInUrl there).
-function onboardingSignInUrl(returnTo: string | null): string {
-  return `/auth/sign-in?callbackUrl=${encodeURIComponent(onboardingReturnUrl(returnTo))}`;
 }
 
 // The workspace a 409 collided with, when the list names it unambiguously.
@@ -169,7 +145,6 @@ function OnboardingContent() {
   const { data: session, isPending } = authClient.useSession();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
   // The workspace outlives a failed project step, and the retry is the button
   // right under the error. Creating it again would collide with
@@ -354,34 +329,7 @@ function OnboardingContent() {
   // button on sign-in and sign-up alike answers for any address already linked
   // to that identity, and landing here as the wrong account is a routine
   // outcome rather than a mistake the user can be assumed out of.
-  async function handleSwitchAccount() {
-    setIsSwitchingAccount(true);
-    setError(null);
-    let cleared: boolean;
-    try {
-      // The client answers an HTTP failure in `error` and rejects only when the
-      // request never completed, so both have to be read before the session can
-      // be called cleared. A rate limit or a proxy error leaves the cookie in
-      // place, and leaving on it sends the user to a sign-in that the live
-      // session hands straight back to this page as the same account — the
-      // stranding this button exists to undo, now with nothing said about it.
-      const { error: signOutError } = await authClient.signOut();
-      cleared = !signOutError;
-    } catch {
-      cleared = false;
-    }
-    if (!cleared) {
-      // Both halves matter: a page that cannot be used by this account, behind a
-      // button that stays disabled, says nothing at all about what went wrong.
-      setError("Could not sign out. Please try again.");
-      setIsSwitchingAccount(false);
-      return;
-    }
-    // Pushed here rather than left to the signed-out branch below, which does
-    // reach the same URL once the cleared session re-renders: which of the two
-    // happens first is not something the destination should depend on.
-    router.push(onboardingSignInUrl(returnTo));
-  }
+  const switcher = useSwitchAccount(returnTo);
 
   // Creating waits until the setup question is settled, not just until the
   // session is: starting early would create the duplicate workspace the check
@@ -442,9 +390,9 @@ function OnboardingContent() {
         </div>
 
         {/* Error message */}
-        {error && (
+        {(error || switcher.error) && (
           <div className="mb-4 border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-            {error}
+            {switcher.error ?? error}
           </div>
         )}
 
@@ -489,8 +437,8 @@ function OnboardingContent() {
             <div className="mt-4">
               <AccountLine
                 email={session?.user?.email ?? null}
-                pending={isLoading || isSwitchingAccount}
-                onSwitchAccount={handleSwitchAccount}
+                pending={isLoading || switcher.switching}
+                onSwitchAccount={() => void switcher.switchAccount()}
               />
             </div>
           </CardContent>

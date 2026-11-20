@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AccountLine } from "@/components/account-line";
 import { Button } from "@/components/ui/button";
 import {
   MAX_USES,
@@ -58,7 +59,15 @@ function patchFor(question: Question, draft: Draft, skipped: boolean): AnswersPa
  * Saving never holds anyone up: a save that fails leaves that answer out, and
  * the sign-up goes on.
  */
-export function QuestionsStep({ onDone }: { onDone: () => void }) {
+interface Account {
+  email: string | null;
+  /** A switch is under way. */
+  switching: boolean;
+  /** Sign out, once `saved` (the answers still being saved) has settled. */
+  onSwitch: (saved: Promise<unknown>) => void;
+}
+
+export function QuestionsStep({ onDone, account }: { onDone: () => void; account?: Account }) {
   const { data: saved, isError } = useQuery({
     queryKey: ["onboarding-answers"],
     queryFn: getOnboardingAnswers,
@@ -84,10 +93,18 @@ export function QuestionsStep({ onDone }: { onDone: () => void }) {
   if (!saved || skipAll) {
     return <p className="py-6 text-center text-[12px] text-muted-foreground">Loading…</p>;
   }
-  return <Questions saved={saved} onFinished={leave} />;
+  return <Questions saved={saved} onFinished={leave} account={account} />;
 }
 
-function Questions({ saved, onFinished }: { saved: OnboardingAnswers; onFinished: () => void }) {
+function Questions({
+  saved,
+  onFinished,
+  account,
+}: {
+  saved: OnboardingAnswers;
+  onFinished: () => void;
+  account?: Account;
+}) {
   const questions: Question[] = saved.companyAsked
     ? ["role", "company", "uses", "source"]
     : ["role", "uses", "source"];
@@ -246,6 +263,17 @@ function Questions({ saved, onFinished }: { saved: OnboardingAnswers; onFinished
           Continue
         </Button>
       </div>
+
+      {/* The wrong account is likeliest noticed here, the first screen after
+          sign-up. Answers already given are saved to the account they were
+          given in before it is left; the next account starts its own. */}
+      {account && (
+        <AccountLine
+          email={account.email}
+          pending={finishing || account.switching}
+          onSwitchAccount={() => account.onSwitch(saves.current)}
+        />
+      )}
     </div>
   );
 }
