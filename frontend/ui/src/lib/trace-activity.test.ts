@@ -560,15 +560,10 @@ describe("a project whose stored traces are all internal", () => {
     readFirstTraceReceiveTime.mockResolvedValue(null);
   });
 
-  it("records neither a first trace nor an active day for a report", async () => {
+  it("records neither a first trace nor an active day, and refuses the report", async () => {
     const outcome = await recordTraceActivity("proj_a", at(0));
 
-    expect(outcome).toEqual({
-      kind: "recorded",
-      firstTrace: false,
-      activeDayCounted: false,
-      activeFirstWeek: false,
-    });
+    expect(outcome).toEqual({ kind: "no_customer_trace" });
     expect(db.tables.projects[0].firstTraceReceiveTime).toBeNull();
     expect(db.tables.onboarding).toEqual([]);
     expect(captureServerEvent).not.toHaveBeenCalled();

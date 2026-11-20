@@ -18,7 +18,8 @@
  *   retries.
  * - Only customer traces count. A report for a project the trace store shows no
  *   customer trace for (its stored traces, if any, are detector and agent
- *   self-traces) records neither a first trace nor an active day.
+ *   self-traces) records neither a first trace nor an active day, and is refused
+ *   so the worker retries it.
  * - The days in the owner's first week on which traces arrived. The day is the UTC
  *   day the API received the batch, which the worker keeps through queueing and
  *   retries, so a report that arrives after midnight still counts the day before.
@@ -54,6 +55,8 @@ export type TraceActivityOutcome =
   | { kind: "demo_project" }
   /** The project's first trace needs the cutoff, which the worker has not recorded. */
   | { kind: "tracking_not_started" }
+  /** The trace store shows the project no customer trace yet; nothing was recorded. */
+  | { kind: "no_customer_trace" }
   | {
       kind: "recorded";
       /** This call recorded the project's first trace. */
@@ -95,9 +98,10 @@ export async function recordTraceActivity(
     const receivedAt = await readFirstTraceReceiveTime(projectId);
     // The store shows no customer trace: whatever it holds for the project is internal
     // (detector and agent self-traces, which the lookup skips). That is neither the
-    // project's first trace nor a day its owner used it. A customer span not visible
-    // yet is recorded by the project's next report, at its stored time.
-    if (!receivedAt) return NOTHING_RECORDED;
+    // project's first trace nor a day its owner used it. The worker only reports after
+    // writing customer spans, so the report is refused and retried: a span the store
+    // does not show yet is counted, at its stored time, once it does.
+    if (!receivedAt) return { kind: "no_customer_trace" };
     firstTrace = { receivedAt, trackingStart };
   }
 
@@ -123,13 +127,6 @@ export async function recordTraceActivity(
     activeFirstWeek: week.active,
   };
 }
-
-const NOTHING_RECORDED: TraceActivityOutcome = {
-  kind: "recorded",
-  firstTrace: false,
-  activeDayCounted: false,
-  activeFirstWeek: false,
-};
 
 /**
  * Records the project's first trace at `receivedAt`, the trace store's earliest

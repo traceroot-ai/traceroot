@@ -120,6 +120,15 @@ describe("POST /api/internal/trace-activity", () => {
     expect(await response.json()).toEqual({ error: "First-trace tracking has not started" });
   });
 
+  it("answers 503, so the worker retries, while the store shows no customer trace", async () => {
+    recordTraceActivityMock.mockResolvedValue({ kind: "no_customer_trace" });
+
+    const response = await POST(makeRequest(exampleRequest));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "No customer trace stored yet" });
+  });
+
   it("answers 200 without recording for a demo workspace project", async () => {
     recordTraceActivityMock.mockResolvedValue({ kind: "demo_project" });
 

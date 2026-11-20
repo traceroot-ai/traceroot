@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ recorded: false });
     case "tracking_not_started":
       return NextResponse.json({ error: "First-trace tracking has not started" }, { status: 409 });
+    case "no_customer_trace":
+      // Retried by the worker: its spans may not be readable in the trace store yet.
+      return NextResponse.json({ error: "No customer trace stored yet" }, { status: 503 });
     case "recorded":
       return NextResponse.json({
         recorded: true,
