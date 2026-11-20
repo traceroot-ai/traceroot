@@ -915,3 +915,168 @@ WINDOW_FUNCTION_CASES = [
 @pytest.mark.parametrize("sql", WINDOW_FUNCTION_CASES)
 def test_window_functions_are_allowed(sql: str) -> None:
     assert isinstance(validate(sql), exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# Quoted-identifier escaping differential (ClickHouse vs sqlglot)
+# ---------------------------------------------------------------------------
+UNSAFE_IDENTIFIER_CASES = [
+    pytest.param('SELECT 1 AS "a\\\\"', id="double-quoted-trailing-backslash"),
+    pytest.param("SELECT 1 AS `a\\\\`", id="backtick-trailing-backslash"),
+    pytest.param('SELECT 1 AS `a\\"`', id="backtick-backslash-quote"),
+    pytest.param('SELECT 1 AS "a\\\\b"', id="mid-identifier-backslash"),
+    pytest.param("SELECT span_id FROM spans AS `a\\\\`", id="table-alias-backslash"),
+    pytest.param(
+        'WITH "c\\\\" AS (SELECT 1 AS x) SELECT x FROM "c\\\\"',
+        id="cte-alias-backslash",
+    ),
+    pytest.param(
+        'SELECT span_id FROM (SELECT span_id FROM spans) AS "d\\\\"',
+        id="derived-table-alias-backslash",
+    ),
+    pytest.param(
+        'SELECT "a\\\\".span_id FROM spans AS "a\\\\"',
+        id="column-qualifier-backslash",
+    ),
+    pytest.param('SELECT 1 AS "a\x00b"', id="identifier-nul-byte"),
+    pytest.param('SELECT 1 AS "a\nb"', id="identifier-newline"),
+    pytest.param('SELECT 1 AS "a\rb"', id="identifier-carriage-return"),
+    pytest.param('SELECT 1 AS "a\tb"', id="identifier-tab"),
+]
+
+
+@pytest.mark.parametrize("sql", UNSAFE_IDENTIFIER_CASES)
+def test_identifiers_with_backslashes_or_control_chars_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(sql)
+    assert "backslash" in str(exc_info.value).lower()
+    assert "a\\" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT `weird alias`.span_id FROM spans AS `weird alias`", id="space-alias"),
+        pytest.param("SELECT `select`.span_id FROM spans AS `select`", id="keyword-alias"),
+        pytest.param('SELECT 1 AS "a""b"', id="doubled-quote-alias"),
+    ],
+)
+def test_safe_quoted_identifiers_remain_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# ARRAY JOIN subqueries and IN table-reference / GLOBAL IN bypasses
+# ---------------------------------------------------------------------------
+ARRAY_JOIN_SUBQUERY_CASES = [
+    pytest.param(
+        "SELECT x FROM spans ARRAY JOIN (SELECT groupArray(name) FROM system.tables) AS x",
+        id="array-join-subquery-system-table",
+    ),
+    pytest.param(
+        "SELECT x FROM (SELECT 1) AS a ARRAY JOIN (SELECT groupArray(name) FROM system.tables) AS x",
+        id="array-join-subquery-derived-from",
+    ),
+    pytest.param(
+        "SELECT x FROM spans LEFT ARRAY JOIN (SELECT [1] FROM spans) AS x",
+        id="left-array-join-subquery",
+    ),
+    pytest.param(
+        "SELECT x FROM spans ARRAY JOIN arr AS x, (SELECT [1] FROM system.tables) AS y",
+        id="array-join-second-expr-subquery",
+    ),
+    pytest.param(
+        "SELECT x FROM spans ARRAY JOIN (SELECT [1]) AS x",
+        id="array-join-tableless-subquery",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", ARRAY_JOIN_SUBQUERY_CASES)
+def test_array_join_subqueries_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT span_id FROM spans ARRAY JOIN arr", id="column-array-join"),
+        pytest.param(
+            "SELECT k FROM spans ARRAY JOIN mapKeys(metadata) AS k",
+            id="map-keys-array-join",
+        ),
+        pytest.param(
+            "SELECT v FROM spans LEFT ARRAY JOIN mapValues(metadata) AS v",
+            id="left-map-values-array-join",
+        ),
+    ],
+)
+def test_non_subquery_array_joins_remain_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+UNSAFE_IN_CASES = [
+    pytest.param("SELECT 1 WHERE 1 IN system.numbers", id="in-system-table"),
+    pytest.param("SELECT 1 WHERE 1 NOT IN system.numbers", id="not-in-system-table"),
+    pytest.param("SELECT 1 WHERE 1 IN spans", id="in-bare-table"),
+    pytest.param("SELECT 1 WHERE 1 IN default.spans", id="in-qualified-public-table"),
+    pytest.param("SELECT 1 WHERE 1 IN a.b.c", id="in-three-part-table"),
+    pytest.param("SELECT 1 WHERE 1 IN (system.numbers)", id="in-parenthesized-system-table"),
+    pytest.param("SELECT 1 WHERE 1 IN ((system.numbers))", id="in-double-paren-system-table"),
+    pytest.param("SELECT 1 WHERE 1 IN (spans)", id="in-parenthesized-bare-table"),
+    pytest.param("SELECT 1 WHERE 1 IN [system.numbers]", id="in-bracketed-system-table"),
+    pytest.param("SELECT 1 WHERE 1 GLOBAL IN system.numbers", id="global-in-system-table"),
+    pytest.param("SELECT 1 WHERE 1 GLOBAL NOT IN system.numbers", id="global-not-in-system-table"),
+    pytest.param(
+        "SELECT 1 WHERE 1 GLOBAL IN (SELECT 1 FROM spans)",
+        id="global-in-subquery",
+    ),
+    pytest.param("SELECT 1 WHERE 1 IN UNNEST(system.numbers)", id="in-unnest"),
+    pytest.param(
+        "SELECT 1 WHERE 1 IN spans_public_v1(project_id = 'other')",
+        id="in-internal-view-call",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", UNSAFE_IN_CASES)
+def test_table_reference_and_global_in_clauses_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT span_id FROM spans WHERE span_id IN ('a', 'b')", id="literal-list"),
+        pytest.param("SELECT span_id FROM spans WHERE span_id IN ('a')", id="single-literal"),
+        pytest.param("SELECT span_id FROM spans WHERE duration_ms IN [1, 2]", id="array-literal"),
+        pytest.param(
+            "SELECT span_id FROM spans WHERE span_id IN {ids:Array(String)}",
+            id="typed-placeholder",
+        ),
+        pytest.param(
+            "SELECT span_id FROM spans WHERE span_id IN ({ids:Array(String)})",
+            id="parenthesized-typed-placeholder",
+        ),
+        pytest.param(
+            "SELECT span_id FROM spans WHERE name IN mapKeys(metadata)",
+            id="allowlisted-func",
+        ),
+        pytest.param(
+            "SELECT span_id FROM spans WHERE name IN (mapKeys(metadata))",
+            id="parenthesized-allowlisted-func",
+        ),
+        pytest.param(
+            "SELECT span_id FROM spans WHERE trace_id IN (SELECT trace_id FROM traces)",
+            id="subquery",
+        ),
+    ],
+)
+def test_safe_in_clauses_remain_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_final_modifier_keeps_its_specific_error_message() -> None:
+    assert _message("SELECT * FROM spans FINAL") == "FINAL modifier is not allowed"
