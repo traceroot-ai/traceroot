@@ -3,37 +3,22 @@
 import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod/v3";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
-import {
-  createWorkspace,
-  updateWorkspace,
-  createProject,
-  getProjects,
-  getWorkspaces,
-} from "@/lib/api";
+import { createWorkspace, createProject, getProjects, getWorkspaces } from "@/lib/api";
 import { ApiError } from "@/lib/api/errors";
 import type { Project, Workspace } from "@/types/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
-import { Check } from "lucide-react";
-import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
-import { connectStepUrl } from "@/features/onboarding/step-urls";
+import { questionsStepUrl } from "@/features/onboarding/step-urls";
+import { isPersonalEmail } from "@/lib/personal-email";
 
-const onboardingSchema = z.object({
-  workspaceName: z.string().min(1, "Workspace name is required"),
-  projectName: z.string().min(1, "Project name is required"),
-});
-
-type OnboardingForm = z.infer<typeof onboardingSchema>;
+/** The first project's name. Renamed, like the workspace, in settings. */
+const DEFAULT_PROJECT_NAME = "my-llm-project";
 
 function getDefaultWorkspaceName(email: string | null | undefined): string {
   if (!email) return "My Workspace";
@@ -41,18 +26,7 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
   const domain = email.split("@")[1];
   if (!domain) return "My Workspace";
 
-  const freeProviders = [
-    "gmail.com",
-    "yahoo.com",
-    "hotmail.com",
-    "outlook.com",
-    "icloud.com",
-    "protonmail.com",
-    "mail.com",
-  ];
-  if (freeProviders.includes(domain.toLowerCase())) {
-    return "My Workspace";
-  }
+  if (isPersonalEmail(email)) return "My Workspace";
 
   const company = domain.split(".")[0];
   return company.charAt(0).toUpperCase() + company.slice(1);
@@ -134,7 +108,7 @@ async function createOrAdoptWorkspace(name: string): Promise<{ id: string; name:
       throw err;
     }
     // Read through the API rather than the page's query: the cached list is
-    // whatever it held when the form was shown — `[]` for a first-run account —
+    // whatever it held when creating started — `[]` for a first-run account —
     // and nothing has invalidated it, because the only invalidation here follows
     // a project that was never created.
     const adopted = findOwnWorkspaceByName(await getWorkspaces(), name);
@@ -197,28 +171,22 @@ function OnboardingContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
-  // The workspace outlives a failed project step, and the retry is the same
-  // button right under the error. Creating it again is worse than untidy. With
-  // the name unchanged it collides with `uq_workspace_created_by_name` and the
-  // route turns that into a 409 ("A workspace with this name already exists"),
-  // so the retry cannot succeed at all and the user is walled off the first
-  // screen with no way forward. With the name edited it does succeed, and
-  // leaves the first workspace behind, orphaned and not mentioned anywhere.
-  //
-  // The name travels with the id, because reusing the workspace must not mean
-  // ignoring the field: a user who renames it before retrying has said what
-  // they want it called, and the other two readings — create a second one under
-  // the new name, or keep the old name silently — are both wrong. Recording the
-  // new name here is also what stops a third attempt renaming it again.
+  // The workspace outlives a failed project step, and the retry is the button
+  // right under the error. Creating it again would collide with
+  // `uq_workspace_created_by_name` (a 409), walling the user off the first
+  // screen with no way forward.
   //
   // This only ever holds a workspace whose create *answered*. An attempt that
   // committed and lost its response leaves it null, which is what
   // `createOrAdoptWorkspace` is for.
   const createdWorkspace = useRef<{ id: string; name: string } | null>(null);
+  // Creating starts by itself, once: the workspace and project are made with
+  // default names as soon as the account is known to need them. After that only
+  // Try again starts it.
+  const started = useRef(false);
 
   // Determine mode from query params
   const existingWorkspaceId = searchParams.get("workspaceId");
-  const existingWorkspaceName = searchParams.get("workspaceName");
   const isProjectOnlyMode = !!existingWorkspaceId;
 
   // Where to go once the project exists. A caller that handed us somewhere to
@@ -240,8 +208,8 @@ function OnboardingContent() {
   // *email* account at the same address. Predicting newness there has been wrong twice.
   // So the page checks the account instead of trusting the route it took.
   //
-  // Without this, an existing account that lands here is parked: the form's only
-  // exit is creating a second workspace and project, and when a terminal is
+  // Without this, an existing account that lands here would get a second
+  // workspace and project, and when a terminal is
   // waiting on `returnTo` that duplicate is the only way back to it. An account
   // that is *part* way there — a workspace with no project in it — is why the
   // check resolves three answers rather than a boolean.
@@ -274,8 +242,8 @@ function OnboardingContent() {
   // belongs to, and here counted that same workspace as finished.
   //
   // `undefined` means there is no answer to act on yet: the list is still in
-  // flight, the lookup failed, this is project-only mode, or the form on this
-  // page has already done the work.
+  // flight, the lookup failed, this is project-only mode, or this page has
+  // already done the work.
   //
   // `userId` is part of that guard and not just the query's gate: a signed-out
   // visitor belongs in the sign-in branch below, which is the one that keeps a
@@ -289,8 +257,8 @@ function OnboardingContent() {
       ? resolveSetupNeed(workspaces)
       : undefined;
   const setupComplete = setupNeed === null;
-  // An empty workspace this account may add to. The project form is the honest
-  // answer — the workspace exists, so offering a second one is not — and
+  // An empty workspace this account may add to. Adding the project alone is the
+  // honest answer — the workspace exists, so offering a second one is not — and
   // `?workspaceId=` is exactly where /device sends this case, so an account that
   // walks in here directly ends up on the same screen. A URL rather than the
   // need itself, because `resolveSetupNeed` returns a fresh object every render
@@ -300,7 +268,7 @@ function OnboardingContent() {
 
   useEffect(() => {
     if (setupComplete) {
-      // Hand back to whatever is waiting, exactly as a completed form would — a
+      // Hand back to whatever is waiting, exactly as a finished run would — a
       // terminal blocked on the device approval cannot tell the two apart, and
       // it only ever needed a project to exist. With nobody waiting, the
       // workspace list is where a set-up account belongs.
@@ -314,21 +282,18 @@ function OnboardingContent() {
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
-  const {
-    register,
-    formState: { errors },
-    getValues,
-  } = useForm<OnboardingForm>({
-    resolver: zodResolver(onboardingSchema),
-    defaultValues: {
-      workspaceName: defaultWorkspace,
-      projectName: "my-llm-project",
-    },
-    values: {
-      workspaceName: defaultWorkspace,
-      projectName: "my-llm-project",
-    },
-  });
+  // Ready to create once the session is known and the setup check has settled
+  // on "this account needs a workspace" (or a failed check fell through — see
+  // the render guard below), or this is project-only mode.
+  const readyToCreate =
+    !!session && !isPending && !workspacesLoading && !setupComplete && !addProjectUrl;
+  useEffect(() => {
+    if (!readyToCreate || started.current) return;
+    started.current = true;
+    void handleSubmit();
+    // handleSubmit reads this render's values; `started` makes this run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readyToCreate]);
 
   async function handleSubmit() {
     setIsLoading(true);
@@ -339,24 +304,10 @@ function OnboardingContent() {
 
       // Create workspace if not in project-only mode
       if (!isProjectOnlyMode) {
-        const workspaceName = getValues("workspaceName");
-        if (!workspaceName) {
-          setError("Workspace name is required");
-          setIsLoading(false);
-          return;
-        }
-        const existing = createdWorkspace.current;
-        if (existing) {
-          if (existing.name !== workspaceName) {
-            await updateWorkspace(existing.id, workspaceName);
-          }
-          createdWorkspace.current = { id: existing.id, name: workspaceName };
-          workspaceId = existing.id;
-        } else {
-          const workspace = await createOrAdoptWorkspace(workspaceName);
-          createdWorkspace.current = workspace;
-          workspaceId = workspace.id;
-        }
+        const workspace =
+          createdWorkspace.current ?? (await createOrAdoptWorkspace(defaultWorkspace));
+        createdWorkspace.current = workspace;
+        workspaceId = workspace.id;
       }
 
       if (!workspaceId) {
@@ -365,35 +316,27 @@ function OnboardingContent() {
         return;
       }
 
-      // Create project
-      const projectName = getValues("projectName");
-      if (!projectName) {
-        setError("Project name is required");
-        setIsLoading(false);
-        return;
-      }
-
       // Adoptable only where this attempt is what put the workspace here: in
       // project-only mode the workspace predates this page and can be shared.
-      const project = await createOrAdoptProject(workspaceId, projectName, !isProjectOnlyMode);
+      const project = await createOrAdoptProject(
+        workspaceId,
+        DEFAULT_PROJECT_NAME,
+        !isProjectOnlyMode,
+      );
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-
-      // A terminal that is already mid-`traceroot setup` does not need to be
-      // told to run it. It is blocked on the device approval this page runs
-      // ahead of, and everything the hand-back step would offer — the command,
-      // the manual walkthrough, the way out — is a question about a run that is
-      // already underway. So that step is for a browser-first user only, and a
-      // waiting caller gets its terminal back the moment the project exists.
-      if (returnTo !== null) {
-        router.push(returnTo);
-        return;
-      }
 
       // Kept so the setup check below does not count this account as finished
       // and move it to /workspaces while the next step loads.
       setCreatedProject({ id: project.id, name: project.name });
-      router.push(connectStepUrl(project.id, isProjectOnlyMode ? "project" : "workspace"));
+      // On to the questions, which have their own address with the project in
+      // it, so a refresh from here on creates nothing again. A waiting
+      // `traceroot setup` terminal's hand-back travels with them: it gets its
+      // terminal back after the questions, without the connect and setup steps,
+      // which are about a run that is already underway.
+      router.replace(
+        questionsStepUrl(project.id, isProjectOnlyMode ? "project" : "workspace", returnTo),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setIsLoading(false);
@@ -440,13 +383,13 @@ function OnboardingContent() {
     router.push(onboardingSignInUrl(returnTo));
   }
 
-  // The form is withheld until the setup question is settled, not just until the
-  // session is: rendering it early lets a fast submit create the duplicate
-  // workspace the check above exists to prevent — which is also why a pending
-  // redirect into project-only mode withholds it. A failed check leaves
-  // `workspaces` undefined and falls through to the form on purpose: a duplicate
+  // Creating waits until the setup question is settled, not just until the
+  // session is: starting early would create the duplicate workspace the check
+  // above exists to prevent — which is also why a pending redirect into
+  // project-only mode holds it (see `readyToCreate`). A failed check leaves
+  // `workspaces` undefined and falls through to creating on purpose: a duplicate
   // workspace is recoverable, whereas a brand-new account that cannot reach this
-  // form at all has no way to finish signing up.
+  // page at all has no way to finish signing up.
   if (isPending || workspacesLoading || setupComplete || addProjectUrl) {
     return (
       <StandaloneFrame>
@@ -458,7 +401,7 @@ function OnboardingContent() {
   if (!session && !isPending) {
     // Carry the hand-back on through sign-in. A null session here is not only
     // "never signed in" — it is also a cookie not yet visible after a social
-    // hop, an expiry mid-form, or the sign-out "Not you?" just performed — and
+    // hop, an expiry mid-way, or the sign-out "Not you?" just performed — and
     // dropping `callbackUrl` at this point strands a terminal that is still
     // polling, for the full device-code lifetime, with no way back to it.
     router.push(onboardingSignInUrl(returnTo));
@@ -493,7 +436,7 @@ function OnboardingContent() {
                 does. */}
             <h1 className="text-[15px] font-medium">Let&apos;s get started</h1>
             <p className="text-[13px] text-muted-foreground">
-              Set up your workspace and first project
+              Setting up your workspace and first project
             </p>
           </div>
         </div>
@@ -505,93 +448,22 @@ function OnboardingContent() {
           </div>
         )}
 
-        {/* Tree Form */}
         <Card>
           <CardContent className="p-4">
-            <>
-              {/* Each row is an icon beside a column that fills the card, so
-                    the controls in that column fill it too. They used to be
-                    clamped to 20rem, which left the block 50px short of the
-                    right padding while touching the left — visibly off-centre
-                    against the buttons and the account line below, which are
-                    centred on the card. Filling makes the only margins the
-                    card's own padding, so the symmetry holds at every width
-                    instead of depending on a number that matches one. */}
-              <div className="space-y-0">
-                {/* Workspace Section */}
-                <div className="flex items-start gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
-                      {isProjectOnlyMode ? (
-                        <Check className="h-4 w-4 text-brand" />
-                      ) : (
-                        <DOMAIN_ICONS.workspace className="h-4 w-4 text-brand" />
-                      )}
-                    </div>
-                    {/* Vertical connector line */}
-                    <div className="my-1.5 h-12 w-px bg-border" />
-                  </div>
-                  <div className="flex-1 pb-2 pt-0.5">
-                    <label className="text-[13px] font-medium">Workspace</label>
-                    <p className="mb-2 text-[12px] text-muted-foreground">
-                      Your team's home for billing and members
-                    </p>
-                    {isProjectOnlyMode ? (
-                      <div className="flex items-center gap-2 border bg-muted px-2.5 py-1.5 text-[13px]">
-                        <span>{existingWorkspaceName || "Selected workspace"}</span>
-                        <Check className="ml-auto h-3.5 w-3.5 text-success" />
-                      </div>
-                    ) : (
-                      <Input
-                        placeholder="Acme Inc"
-                        {...register("workspaceName")}
-                        className="h-8 text-[13px]"
-                      />
-                    )}
-                    {errors.workspaceName && (
-                      <p className="mt-1 text-[12px] text-danger">{errors.workspaceName.message}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Project Section */}
-                <div className="flex items-start gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
-                      <DOMAIN_ICONS.project className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                  <div className="flex-1 pb-2 pt-0.5">
-                    <label className="text-[13px] font-medium">Project</label>
-                    <p className="mb-2 text-[12px] text-muted-foreground">
-                      Where your traces and experiments live
-                    </p>
-                    <Input
-                      placeholder="my-llm-project"
-                      {...register("projectName")}
-                      className="h-8 text-[13px]"
-                    />
-                    {errors.projectName && (
-                      <p className="mt-1 text-[12px] text-danger">{errors.projectName.message}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="mt-6 flex items-center justify-center gap-2">
+            {error ? (
+              <div className="flex items-center justify-center gap-2">
                 <Button
                   size="sm"
                   className="h-7 px-4 text-[12px]"
                   onClick={handleSubmit}
                   disabled={isLoading}
                 >
-                  {isLoading ? "Creating..." : "Create"}
+                  Try again
                 </Button>
                 {/* Back to whatever is waiting, when something is. The
-                      workspace list drops `returnTo` exactly as the rail did,
-                      and for a terminal on /device that strands it until the
-                      code expires; /device itself still offers Deny. */}
+                      workspace list drops `returnTo`, and for a terminal on
+                      /device that strands it until the code expires; /device
+                      itself still offers Deny. */}
                 <Button
                   variant="outline"
                   size="sm"
@@ -601,21 +473,26 @@ function OnboardingContent() {
                   Cancel
                 </Button>
               </div>
+            ) : (
+              <p className="py-2 text-center text-[12px] text-muted-foreground">
+                {isProjectOnlyMode
+                  ? "Creating your first project…"
+                  : "Creating your workspace and first project…"}
+              </p>
+            )}
 
-              {/* Which account this is, and the way out of it. On the form
-                    step only: once the project exists this account is the one
-                    the rest of the flow is about, and the app — with its user
-                    menu — is a click away. Disabled while a create is in
-                    flight, so a sign-out cannot land between the workspace and
-                    the project. */}
-              <div className="mt-4">
-                <AccountLine
-                  email={session?.user?.email ?? null}
-                  pending={isLoading || isSwitchingAccount}
-                  onSwitchAccount={handleSwitchAccount}
-                />
-              </div>
-            </>
+            {/* Which account this is, and the way out of it. Here only: once
+                  the project exists this account is the one the rest of the
+                  flow is about, and the app — with its user menu — is a click
+                  away. Disabled while a create is in flight, so a sign-out
+                  cannot land between the workspace and the project. */}
+            <div className="mt-4">
+              <AccountLine
+                email={session?.user?.email ?? null}
+                pending={isLoading || isSwitchingAccount}
+                onSwitchAccount={handleSwitchAccount}
+              />
+            </div>
           </CardContent>
         </Card>
       </div>

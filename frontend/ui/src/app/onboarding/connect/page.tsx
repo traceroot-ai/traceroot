@@ -17,8 +17,8 @@ import { getProject } from "@/lib/api";
  * because both authorizations leave the site and come back here, and Slack's
  * outcome comes back on it too (`slack=connected`, or `slack=error&reason=…`).
  *
- * A sign-up started from the terminal never reaches this step: it goes back to
- * the terminal as soon as the project exists.
+ * A sign-up started from the terminal never reaches this step: after the
+ * questions it goes back to the terminal.
  */
 export default function ConnectStepPage() {
   return (
