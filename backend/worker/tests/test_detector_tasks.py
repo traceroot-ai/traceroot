@@ -182,6 +182,7 @@ def test_trace_summaries_query_scopes_to_user_source():
     assert "AND source = 'user'" in sql
     assert "!= 'detector'" not in sql
 
+
 # ── Tests for _eval_membership (multi-valued span fields) ─────────────────────
 
 
