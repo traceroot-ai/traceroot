@@ -20,6 +20,8 @@ import {
   AuthProviderOptions,
   PasswordInput,
 } from "@/components/auth/auth-layout";
+import type { SocialProvider } from "@/lib/social-providers";
+import { useSocialSignIn } from "../use-social-sign-in";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -29,12 +31,12 @@ const signInSchema = z.object({
 type SignInForm = z.infer<typeof signInSchema>;
 
 type SignInContentProps = {
-  googleAuthConfigured: boolean;
+  socialProviders: SocialProvider[];
   /** Only when SMTP is set up, since the reset link goes out by email. */
   passwordResetEnabled?: boolean;
 };
 
-function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: SignInContentProps) {
+function SignInContent({ socialProviders, passwordResetEnabled = false }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -47,7 +49,6 @@ function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: S
       : "/auth/sign-up";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
@@ -80,13 +81,7 @@ function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: S
     }
   }
 
-  async function handleGoogleSignIn() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: callbackUrl,
-    });
-  }
+  const social = useSocialSignIn(socialProviders, callbackUrl, setError);
 
   const field = "h-10 pl-[13px] text-[14px]";
 
@@ -96,11 +91,7 @@ function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: S
         title="Welcome back"
         subtitle="Sign in to traceroot to see your traces and agents."
       />
-      <AuthProviderOptions
-        google={
-          googleAuthConfigured ? { onClick: handleGoogleSignIn, isLoading: isGoogleLoading } : null
-        }
-      />
+      <AuthProviderOptions social={social} />
       <div className="space-y-5">
         <AuthError message={error} />
 
@@ -149,7 +140,7 @@ function SignInContent({ googleAuthConfigured, passwordResetEnabled = false }: S
           </Button>
         </form>
       </div>
-      <AgentIdNote intent="sign-in" className="mt-4" />
+      <AgentIdNote intent="sign-in" social={social} className="mt-4" />
       <AuthFooter>
         Don&apos;t have an account?{" "}
         <Link href={signUpHref} className="font-medium text-brand hover:underline">

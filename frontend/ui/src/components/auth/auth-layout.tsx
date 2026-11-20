@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input, type InputProps } from "@/components/ui/input";
 import { PixelField, PixelWordmark, YCBadge } from "@/components/brand/pixel-art";
 import { cn } from "@/lib/utils";
+import type { SocialSignIn } from "@/app/auth/use-social-sign-in";
 
 /**
  * Sign-in and sign-up shell: the brand panel beside the form, stacked on small screens.
@@ -191,6 +192,7 @@ export function AuthProviderButton({
   label,
   onClick,
   isLoading = false,
+  disabled = false,
   unavailableReason,
   className,
 }: {
@@ -198,6 +200,8 @@ export function AuthProviderButton({
   label: string;
   onClick?: () => void;
   isLoading?: boolean;
+  /** Disabled for now, for instance while another sign-in is redirecting. */
+  disabled?: boolean;
   /** Said on hover and to screen readers while the button is disabled for lack of a flow. */
   unavailableReason?: string;
   /** Merged into the button's classes. */
@@ -212,7 +216,7 @@ export function AuthProviderButton({
       size="sm"
       className={cn("h-8 w-full gap-2 text-[13px]", className)}
       onClick={onClick}
-      disabled={!onClick || isLoading}
+      disabled={!onClick || isLoading || disabled}
       aria-describedby={unavailable ? reasonId : undefined}
     >
       {icon}
@@ -267,15 +271,13 @@ export function AuthDivider({ className }: { className?: string }) {
   );
 }
 
-type GoogleOption = { onClick: () => void; isLoading: boolean };
-
 /**
  * The provider buttons above the email form, then the "or" divider. Sign-in and
- * sign-up both render this, so an option is available on both pages or on
- * neither. GitHub has no sign-in provider yet and stays disabled; Google shows
- * when its client is configured (`google` is null otherwise).
+ * sign-up both render this from the same `social`, so an option is available on
+ * both pages or on neither. GitHub has no sign-in provider yet and stays disabled;
+ * Google shows when its client is configured.
  */
-export function AuthProviderOptions({ google }: { google: GoogleOption | null }) {
+export function AuthProviderOptions({ social }: { social: SocialSignIn }) {
   const button = "h-10 gap-[10px] text-[14px]";
   return (
     <>
@@ -286,12 +288,13 @@ export function AuthProviderOptions({ google }: { google: GoogleOption | null })
           unavailableReason="GitHub sign-in isn't available yet"
           className={button}
         />
-        {google && (
+        {social.providers.includes("google") && (
           <AuthProviderButton
             icon={<GoogleLogo />}
             label="Continue with Google"
-            onClick={google.onClick}
-            isLoading={google.isLoading}
+            onClick={() => social.signIn("google")}
+            isLoading={social.redirectingTo === "google"}
+            disabled={social.redirectingTo !== null}
             className={button}
           />
         )}
@@ -308,28 +311,29 @@ const AGENTID_PROMPT = {
 
 /**
  * "Signing up an AI agent? Continue with AgentID" under the sign-up button, and its
- * sign-in wording under the sign-in button. Until the AgentID flow is available,
- * `onClick` is left out and the action shows disabled on both pages.
+ * sign-in wording under the sign-in button. The action works when AgentID is among
+ * `social.providers`; otherwise it shows disabled, with the reason, on both pages.
  */
 export function AgentIdNote({
   intent,
-  onClick,
+  social,
   className,
 }: {
   intent: keyof typeof AGENTID_PROMPT;
-  onClick?: () => void;
+  social: SocialSignIn;
   className?: string;
 }) {
   const reasonId = useId();
+  const onClick = social.providers.includes("agentid") ? () => social.signIn("agentid") : undefined;
   const agentIdAction = (
     <button
       type="button"
       onClick={onClick}
-      disabled={!onClick}
+      disabled={!onClick || social.redirectingTo !== null}
       aria-describedby={onClick ? undefined : reasonId}
       className="font-[600] text-[#097c78] hover:underline disabled:pointer-events-none disabled:opacity-50 dark:text-primary"
     >
-      Continue with AgentID
+      {social.redirectingTo === "agentid" ? "Redirecting..." : "Continue with AgentID"}
     </button>
   );
   return (
@@ -339,7 +343,8 @@ export function AgentIdNote({
         className,
       )}
     >
-      <AgentIdLogo className="h-[17.5px] w-[18px] shrink-0 text-[#0b1015] dark:text-foreground" />
+      {/* AgentID's brand rules allow only its black mark, white in dark mode, 16px or larger. */}
+      <AgentIdLogo className="h-[17.5px] w-[18px] shrink-0 text-[#18181B] dark:text-[#FAFAFA]" />
       <span>
         {AGENTID_PROMPT[intent]}{" "}
         {onClick ? (

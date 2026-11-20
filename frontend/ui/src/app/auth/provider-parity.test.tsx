@@ -10,6 +10,7 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { signIn: { email: vi.fn(), social: vi.fn() }, signUp: { email: vi.fn() } },
 }));
 
+import type { SocialProvider } from "@/lib/social-providers";
 import { SignInClient } from "./sign-in/sign-in-client";
 import { SignUpClient } from "./sign-up/sign-up-client";
 
@@ -26,12 +27,20 @@ function optionStates() {
 }
 
 describe("sign-in options on sign-in and sign-up", () => {
-  it.each([true, false])("match each other with Google configured: %s", (googleAuthConfigured) => {
-    render(<SignUpClient googleAuthConfigured={googleAuthConfigured} emailDomainPolicyEnabled />);
+  it.each<[SocialProvider[], string[]]>([
+    [[], ["disabled", "missing", "disabled"]],
+    [["google"], ["disabled", "enabled", "disabled"]],
+    [["agentid"], ["disabled", "missing", "enabled"]],
+    [
+      ["google", "agentid"],
+      ["disabled", "enabled", "enabled"],
+    ],
+  ])("match each other with %j configured", (socialProviders, expected) => {
+    render(<SignUpClient socialProviders={socialProviders} emailDomainPolicyEnabled />);
     const signUp = optionStates();
     cleanup();
-    render(<SignInClient googleAuthConfigured={googleAuthConfigured} />);
+    render(<SignInClient socialProviders={socialProviders} />);
     expect(optionStates()).toEqual(signUp);
-    expect(signUp).toEqual(["disabled", googleAuthConfigured ? "enabled" : "missing", "disabled"]);
+    expect(signUp).toEqual(expected);
   });
 });

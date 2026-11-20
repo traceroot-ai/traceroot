@@ -42,6 +42,8 @@ beforeEach(() => {
   env.TRACEROOT_CLOUD_ENV = undefined;
   env.AUTH_GOOGLE_CLIENT_ID = "";
   env.AUTH_GOOGLE_CLIENT_SECRET = "";
+  env.AUTH_AGENTID_CLIENT_ID = "";
+  env.AUTH_AGENTID_CLIENT_SECRET = "";
 });
 
 afterEach(() => {
@@ -90,7 +92,7 @@ describe("SignUpPage", () => {
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
   });
 
-  it("shows GitHub and AgentID disabled until their sign-in flows exist", () => {
+  it("shows GitHub disabled, and AgentID disabled until its client is configured", () => {
     render(<SignUpPage />);
     expect(
       (screen.getByRole("button", { name: "Continue with GitHub" }) as HTMLButtonElement).disabled,
@@ -242,5 +244,28 @@ describe("SignUpPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
     const button = await screen.findByRole("button", { name: "Creating account..." });
     expect(button.hasAttribute("disabled")).toBe(true);
+  });
+});
+
+describe("SignUpPage social buttons", () => {
+  it("sends an AgentID sign-up to the same onboarding destination as Google", async () => {
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.signInSocial.mockReturnValue(new Promise(() => {}));
+
+    env.AUTH_GOOGLE_CLIENT_ID = "test-client";
+    env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
+    env.AUTH_AGENTID_CLIENT_ID = "agentid-client";
+    env.AUTH_AGENTID_CLIENT_SECRET = "agentid-secret";
+    render(<SignUpPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with AgentID" }));
+
+    const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };
+    expect(arg.provider).toBe("agentid");
+    expect(arg.callbackURL).toBe(
+      `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+    );
+    expect(
+      (screen.getByRole("button", { name: "Continue with Google" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });

@@ -63,14 +63,14 @@ export function CreateWorkspaceDialog({
         <DialogTrigger asChild>{trigger || <AddButton>New workspace</AddButton>}</DialogTrigger>
       )}
       <DialogContent>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>New workspace</DialogTitle>
             <DialogDescription>
               Create a new workspace to manage your projects and team members.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-1.5 py-4">
+          <div className="flex flex-col gap-1.5">
             <label
               htmlFor="workspace-name"
               className="text-[12px] font-medium text-muted-foreground"

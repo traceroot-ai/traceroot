@@ -1,4 +1,4 @@
-import { escapeHtml, renderEmailCard } from "@traceroot/core";
+import { EMAIL_COLORS as C, escapeHtml, renderEmailCard } from "@traceroot/core";
 import { signalDeepLinkPath } from "@traceroot/core/signals";
 import { escapeMrkdwn, truncate, truncateEscaped } from "@traceroot/slack";
 import type { DigestItem } from "./digest.js";
@@ -116,37 +116,39 @@ export function buildSignalDigestEmail(params: {
       if (summary) text.push(`  ${summary}`);
       text.push(`  ${signalUrl(params.projectId, item)}`);
       return (
-        `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;">` +
-        `<a href="${signalUrl(params.projectId, item)}" style="color: #000; font-weight: 500;">${escapeHtml(title)}</a>` +
-        ` <span style="color: #888;">· ${escapeHtml(item.detectorName)} · ${escapeHtml(hitsText(item))}</span>` +
-        (summary ? `<br/><span style="color: #555;">${escapeHtml(summary)}</span>` : "") +
+        `<p style="margin: 6px 0; color: ${C.ink}; font-size: 14px; line-height: 1.6;">` +
+        `<a href="${signalUrl(params.projectId, item)}" style="color: ${C.ink}; font-weight: 600; text-decoration: none;">${escapeHtml(title)}</a>` +
+        ` <span style="color: ${C.muted};">· ${escapeHtml(item.detectorName)} · ${escapeHtml(hitsText(item))}</span>` +
+        (summary ? `<br/><span style="color: ${C.muted};">${escapeHtml(summary)}</span>` : "") +
         `</p>`
       );
     });
     text.push("");
     htmlSections.push(
-      `<p style="margin: 12px 0 4px 0; color: #000; font-size: 13px; font-weight: 600;">${heading}</p>` +
+      `<p style="margin: 12px 0 4px 0; color: ${C.ink}; font-size: 13px; font-weight: 600;">${heading}</p>` +
         rows.join("\n"),
     );
   }
   if (omitted > 0) {
     const more = `+${omitted} more signal${omitted === 1 ? "" : "s"}`;
     text.push(more);
-    htmlSections.push(`<p style="margin: 12px 0 0 0; color: #888; font-size: 13px;">${more}</p>`);
+    htmlSections.push(
+      `<p style="margin: 12px 0 0 0; color: ${C.muted}; font-size: 13px;">${more}</p>`,
+    );
   }
   const safeProject = escapeHtml(params.projectName);
   const html = renderEmailCard({
     title: "Signals update",
     bodyHtml: `
       <tr>
-        <td style="padding: 0 40px 16px 40px; text-align: center;">
-          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6;">${escapeHtml(headline)}</p>
+        <td style="padding: 0 40px 16px 40px;">
+          <p style="margin: 0; color: ${C.ink}; font-size: 15px; line-height: 1.6;">${escapeHtml(headline)}</p>
         </td>
       </tr>
       <tr>
         <td style="padding: 0 40px 32px 40px;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
-            <tr><td style="padding: 12px 16px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid ${C.border}; border-radius: 6px; border-collapse: separate;">
+            <tr><td style="padding: 8px 16px 12px 16px;">
 ${htmlSections.join("\n")}
             </td></tr>
           </table>

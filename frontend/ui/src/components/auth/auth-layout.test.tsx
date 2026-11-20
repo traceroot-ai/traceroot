@@ -123,8 +123,10 @@ describe("AuthProviderButton", () => {
 });
 
 describe("AgentIdNote", () => {
-  it("keeps its action disabled without a flow and runs it once given one", () => {
-    const { rerender } = render(<AgentIdNote intent="sign-up" />);
+  it("keeps its action disabled until AgentID is configured, then starts its sign-in", () => {
+    const signIn = vi.fn();
+    const social = { providers: [], redirectingTo: null, signIn };
+    const { rerender } = render(<AgentIdNote intent="sign-up" social={social} />);
     const action = () =>
       screen.getByRole("button", { name: "Continue with AgentID" }) as HTMLButtonElement;
     expect(action().disabled).toBe(true);
@@ -135,11 +137,10 @@ describe("AgentIdNote", () => {
       }),
     ).toBe(action());
     expect(screen.getByTitle("AgentID sign-in isn't available yet").contains(action())).toBe(true);
-    const onClick = vi.fn();
-    rerender(<AgentIdNote intent="sign-up" onClick={onClick} />);
+    rerender(<AgentIdNote intent="sign-up" social={{ ...social, providers: ["agentid"] }} />);
     expect(action().disabled).toBe(false);
     expect(action().getAttribute("aria-describedby")).toBeNull();
     fireEvent.click(action());
-    expect(onClick).toHaveBeenCalledOnce();
+    expect(signIn).toHaveBeenCalledExactlyOnceWith("agentid");
   });
 });

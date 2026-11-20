@@ -20,9 +20,13 @@ const betterAuthMock = vi.hoisted(() =>
 
 vi.mock("better-auth", () => ({ betterAuth: (o: Record<string, unknown>) => betterAuthMock(o) }));
 vi.mock("better-auth/adapters/prisma", () => ({ prismaAdapter: () => ({}) }));
+const genericOAuthMock = vi.hoisted(() =>
+  vi.fn((options: Record<string, unknown>) => ({ id: "generic-oauth", options })),
+);
 vi.mock("better-auth/plugins", () => ({
   admin: () => ({ id: "admin" }),
   deviceAuthorization: () => ({ id: "device-authorization" }),
+  genericOAuth: (o: Record<string, unknown>) => genericOAuthMock(o),
   jwt: () => ({ id: "jwt" }),
 }));
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
@@ -48,6 +52,12 @@ vi.mock("@/env", () => ({
     TRACEROOT_CLOUD_ENV: "production",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
+    get AUTH_AGENTID_CLIENT_ID() {
+      return process.env.TEST_AGENTID_CLIENT_ID ?? "";
+    },
+    get AUTH_AGENTID_CLIENT_SECRET() {
+      return process.env.TEST_AGENTID_CLIENT_SECRET ?? "";
+    },
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
     // this mock cached, so the value has to be read at access time for the
     // invalid-CIDR test below to reach the config.
@@ -59,6 +69,9 @@ vi.mock("@/env", () => ({
 
 await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
+  account: { accountLinking: { enabled: boolean; trustedProviders: string[] } };
+  onAPIError: { errorURL: string };
+  plugins: { id: string }[];
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
   emailAndPassword: {
@@ -69,7 +82,10 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
     user: {
       create: {
         before: (user: { email: string }, context?: { path: string } | null) => Promise<void>;
-        after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
+        after: (
+          user: Record<string, unknown>,
+          context?: { path: string; params?: { id: string } } | null,
+        ) => Promise<void>;
       };
     };
   };
@@ -87,6 +103,19 @@ describe("auth options", () => {
 
   it("does not disable IP tracking, which would drop rate limiting entirely", () => {
     expect(options.advanced.ipAddress.disableIpTracking).toBeUndefined();
+  });
+
+  it("sends failed OAuth callbacks to the app's own error page", () => {
+    expect(options.onAPIError.errorURL).toBe("https://cloud.example.com/auth/error");
+  });
+
+  it("trusts only Google for account linking, never AgentID", () => {
+    expect(options.account.accountLinking.trustedProviders).toEqual(["google"]);
+  });
+
+  it("registers no AgentID provider when its credentials are unset", () => {
+    expect(genericOAuthMock).not.toHaveBeenCalled();
+    expect(options.plugins.map((p) => p.id)).not.toContain("generic-oauth");
   });
 
   it("keeps the device-code creation cap", () => {
@@ -131,6 +160,21 @@ describe("auth options", () => {
     await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
     const user = { id: "u1", email: "a@example.com", name: null };
     expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+  });
+
+  it("hands a social sign-up's provider id from the callback route param", async () => {
+    const { after } = options.databaseHooks.user.create;
+    await after(
+      { id: "u3", email: "agent@agentmail.to" },
+      {
+        path: "/callback/:id",
+        params: { id: "agentid" },
+      },
+    );
+    expect(onUserCreatedMock).toHaveBeenCalledWith(expect.objectContaining({ id: "u3" }), {
+      path: "/callback/:id",
+      provider: "agentid",
+    });
   });
 
   it("resolves before the follow-up settles and logs its later rejection", async () => {
@@ -178,6 +222,28 @@ describe("password reset", () => {
 
   it("signs out every session once the password changes", () => {
     expect(options.emailAndPassword.revokeSessionsOnPasswordReset).toBe(true);
+  });
+});
+
+describe("auth options with AgentID configured", () => {
+  it("registers the AgentID provider", async () => {
+    vi.resetModules();
+    betterAuthMock.mockClear();
+    genericOAuthMock.mockClear();
+    process.env.TEST_AGENTID_CLIENT_ID = "agentid-client";
+    process.env.TEST_AGENTID_CLIENT_SECRET = "agentid-secret";
+    try {
+      await import("./auth");
+    } finally {
+      delete process.env.TEST_AGENTID_CLIENT_ID;
+      delete process.env.TEST_AGENTID_CLIENT_SECRET;
+    }
+    const { config } = genericOAuthMock.mock.calls[0]?.[0] as {
+      config: { providerId: string; clientId: string }[];
+    };
+    expect(config).toEqual([
+      expect.objectContaining({ providerId: "agentid", clientId: "agentid-client" }),
+    ]);
   });
 });
 

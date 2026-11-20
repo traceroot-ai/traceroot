@@ -58,7 +58,7 @@ the bar available, its native sticky layout remains active.
 
 `docs.json` owns the native footer links in Product, Company, Trust and Community
 groups. `footer.css` styles the groups in one outlined box, with two columns on
-narrow screens. `footer.js` adds the animated wordmark. A bounded layout
+narrow screens. `footer.js` adds the static green wordmark. A bounded layout
 adapter aligns the advanced footer to the article
 and pagination without moving Mintlify-owned nodes or changing sidebar
 scrolling. It refreshes on `mintlify:navigate` and observes article resizing;
@@ -76,9 +76,7 @@ same CSS works at the local root and the production `/docs` subpath without a
 root-level `/brand` proxy. `custom.css` sets Mintlify's heading and body font
 variables. No `fonts` setting is needed in `docs.json`, which avoids Mintlify's
 cross-origin font rewriting and automatic Google Fonts requests. Keep the
-embedded sources in sync if the fonts change. The footer wordmark uses a
-standalone export of the website Home animation and its CSS defaults, with a
-static fallback if Canvas is unavailable.
+embedded sources in sync if the fonts change. The footer uses the same static SVG as the website.
 Sync and verification instructions are in `brand/README.md`.
 Functional turquoise text uses a darker tone for contrast;
 Mintlify's functional primary also covers API field names and response tabs.
@@ -94,13 +92,13 @@ search/Assistant, Markdown export and canonical/sitemap behavior.
 
 ## Integration Documentation Template
 
-All framework/provider integration pages under `docs/integrations/` follow a standard structure with eight sections in order:
+New and updated framework/provider integration pages under `docs/integrations/` should follow a standard structure with eight sections in order:
 
 1. **Install (`## Install`)**:
    Provide installation commands (`pip install` and/or `npm install`) for each supported language, explicitly naming `traceroot` or `@traceroot-ai/traceroot`, any required pip extras, and the underlying framework or provider package.
 
 2. **Set up (`## Set up`)**:
-   Show the initialization code snippet (`traceroot.initialize()` or `TraceRoot.initialize()`).
+   Show the integration's required initialization or registration snippet (for example, `traceroot.initialize()`, `TraceRoot.initialize()`, or a provider-specific exporter such as `TraceRootExporter`).
 
 3. **Usage (`## Usage`)**:
    Provide a concise, runnable code sample demonstrating tracing with the provider or framework.
@@ -122,4 +120,4 @@ All framework/provider integration pages under `docs/integrations/` follow a sta
 8. **Next steps (`## Next steps`)**:
    Provide at least two internal documentation links (such as the SDK reference and cost tracking).
 
-Coding agent pages link the plugin repository in Run the example.
+Coding agent pages link the plugin repository in Run the example. Tool and API pages have no example project and leave out Run the example.

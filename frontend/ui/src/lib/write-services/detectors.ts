@@ -24,6 +24,7 @@ import {
   DETECTOR_TEMPLATES,
   getTemplate,
 } from "@/features/detectors/templates";
+import { validateOutputSchema } from "@/features/detectors/output-schema";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import { writeAudit, type AuditEntry } from "./audit";
 import { requireProjectMember } from "./project-access";
@@ -64,6 +65,17 @@ const triggerConditionsSchema = z
   })
   .optional();
 
+// Validated against the types the detection worker builds: an unknown type
+// would be screened as a string and a repeated name would keep only the last
+// declaration, so both are refused here rather than stored.
+const outputSchemaSchema = z
+  .array(z.unknown(), "outputSchema must be an array")
+  .superRefine((value, ctx) => {
+    const error = validateOutputSchema(value);
+    if (error) ctx.addIssue({ code: "custom", message: error });
+  })
+  .optional();
+
 // Templates whose canonical instructions a caller may adopt by omitting
 // prompt. Derived from the template data so the set cannot drift; blank is
 // excluded because its prompt is empty.
@@ -79,7 +91,7 @@ const inputSchema = z
     template: nonEmptyString("template"),
     prompt: nonEmptyString("prompt").optional(),
     sampleRate: sampleRateSchema.optional(),
-    outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
+    outputSchema: outputSchemaSchema,
     triggerConditions: triggerConditionsSchema,
     detectionSource: z
       .union(
@@ -283,7 +295,7 @@ const detectionSourceMessage = 'detectionSource must be "system" or "byok"';
 const patchSchema = z.object({
   name: nonEmptyString("name").optional(),
   prompt: nonEmptyString("prompt").optional(),
-  outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
+  outputSchema: outputSchemaSchema,
   sampleRate: sampleRateSchema.optional(),
   enabled: z.boolean("enabled must be a boolean").optional(),
   enableRca: z.boolean("enableRca must be a boolean").optional(),

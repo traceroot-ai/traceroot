@@ -21,6 +21,8 @@ import {
   PasswordInput,
 } from "@/components/auth/auth-layout";
 import { signupEmailError } from "@/lib/signup/email-policy";
+import type { SocialProvider } from "@/lib/social-providers";
+import { useSocialSignIn } from "../use-social-sign-in";
 
 // The password is asked for once; the show/hide toggle is how to check it.
 const signUpSchema = z.object({
@@ -36,7 +38,7 @@ const cloudSignUpSchema = signUpSchema.superRefine(({ email }, ctx) => {
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
-  googleAuthConfigured: boolean;
+  socialProviders: SocialProvider[];
   emailDomainPolicyEnabled: boolean;
 };
 
@@ -51,11 +53,12 @@ type SignUpClientProps = {
 // to onboarding; a new user shouldn't be dropped deep in the app.
 //
 // This is a shortcut, not the enforcement, and the difference matters because
-// both buttons below share this destination while only one of them is a sign-up:
-// `signIn.social` is better-auth's only social entry point, so Google here signs
-// an existing account straight in, and account linking makes it answer for an
-// existing email account at the same address too. Those land on onboarding
-// without being new. /onboarding and /device each check the account rather than
+// the form and the social buttons below share this destination while only the
+// form is always a sign-up: `signIn.social` is better-auth's only social entry
+// point, so Google or AgentID here signs an existing account straight in, and
+// account linking (Google only) makes Google answer for an existing email
+// account at the same address too. Those land on onboarding without being new.
+// /onboarding and /device each check the account rather than
 // the route, so a wrong guess here normally costs a redirect rather than a
 // second workspace — normally, because /onboarding deliberately falls through to
 // its form when that lookup *fails* (a new account that cannot reach the form
@@ -74,7 +77,7 @@ function postSignUpDestination(callbackUrl: string): string {
   return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignUpClientProps) {
+function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -86,7 +89,6 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
       : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
@@ -120,13 +122,7 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
     }
   }
 
-  async function handleGoogleSignUp() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: destination,
-    });
-  }
+  const social = useSocialSignIn(socialProviders, destination, setError);
 
   const field = "h-10 pl-[13px] text-[14px]";
 
@@ -150,11 +146,7 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
         title="Create your account"
         subtitle="Start tracing and improving your AI agents."
       />
-      <AuthProviderOptions
-        google={
-          googleAuthConfigured ? { onClick: handleGoogleSignUp, isLoading: isGoogleLoading } : null
-        }
-      />
+      <AuthProviderOptions social={social} />
       <div className="space-y-5">
         <AuthError message={error} />
 
@@ -199,7 +191,7 @@ function SignUpContent({ googleAuthConfigured, emailDomainPolicyEnabled }: SignU
           </Button>
         </form>
       </div>
-      <AgentIdNote intent="sign-up" className="mt-4" />
+      <AgentIdNote intent="sign-up" social={social} className="mt-4" />
       <AuthLegal className="mt-6" />
     </AuthLayout>
   );

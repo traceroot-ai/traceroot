@@ -2,7 +2,7 @@
  * Email service for sending workspace invitations
  */
 import nodemailer from "nodemailer";
-import { escapeHtml, renderEmailCard } from "@traceroot/core";
+import { EMAIL_COLORS as C, escapeHtml, renderEmailCard } from "@traceroot/core";
 import { env } from "@/env";
 
 interface SendInviteEmailParams {
@@ -84,8 +84,11 @@ function buildHtmlEmail(params: EmailContentParams): string {
       <!-- Body -->
       <tr>
         <td style="padding: 0 40px 32px 40px;">
-          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
+          <p style="margin: 0; color: ${C.ink}; font-size: 15px; line-height: 1.6;">
             <strong>${safeInviterName}</strong> (${safeInviterEmail}) has invited you to join the <strong>${safeWorkspaceName}</strong> workspace as a <strong>${safeRoleName}</strong>.
+          </p>
+          <p style="margin: 12px 0 0 0; color: ${C.muted}; font-size: 14px; line-height: 1.6;">
+            If you don't have a TraceRoot account yet, you'll be prompted to create one.
           </p>
         </td>
       </tr>`,
