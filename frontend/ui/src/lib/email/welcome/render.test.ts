@@ -74,3 +74,23 @@ it("signs off with the logo at its own proportions", () => {
   expect(logo).toContain('width="119" height="30"');
   expect(logo).toMatch(/height: 30px; width: auto;/);
 });
+
+it("signs off with the plated square mark where the released chart configures its icon", () => {
+  vi.stubEnv(
+    "NEXT_PUBLIC_LOGO_URL",
+    "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png",
+  );
+  try {
+    const { html } = renderWelcome({
+      firstName: null,
+      appUrl: "https://app",
+      unsubscribeUrl: "https://u",
+    });
+    const logo = html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+
+    expect(logo).toContain("/frontend/ui/public/images/traceroot_icon_email.png");
+    expect(logo).toContain('width="30" height="30"');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

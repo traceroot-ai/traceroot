@@ -14,35 +14,69 @@
  *
  * Dark mode: the card asks to stay light (color-scheme "light only"), which Apple
  * Mail honors. Gmail and the Outlook apps darken it anyway. They recolor the
- * card and the button but never an image, so the default logo carries its own
- * white plate (invisible on the white card) and the button has a border in its
+ * card and the button but never an image, so TraceRoot's logos carry their own
+ * white plate (invisible on the white card; see EMAIL_STOCK_LOGOS) and the button has a border in its
  * own color, which those clients lighten into an outline on the dark card.
  */
 
-/**
- * Hosted PNG of the wordmark (mark + "traceroot") on a white rounded plate, so
- * it stays visible when a mail client darkens the email; mail clients drop SVG.
- * The URL is pinned to the commit that added frontend/ui/public/images/
- * traceroot_wordmark_email.png, so it loads before that commit reaches main and
- * never changes under emails already sent.
- * NEXT_PUBLIC_LOGO_URL overrides it; an override should have the same shape
- * (EMAIL_LOGO_PIXELS) and its own light background.
- */
-export const EMAIL_LOGO_URL =
-  process.env.NEXT_PUBLIC_LOGO_URL ||
-  "https://raw.githubusercontent.com/traceroot-ai/traceroot/b5ba62b900f511ceece96980ad7adc5abf428674/frontend/ui/public/images/traceroot_wordmark_email.png";
+const REPO_FILES = "https://raw.githubusercontent.com/traceroot-ai/traceroot";
+const IMAGES_ON_MAIN = `${REPO_FILES}/main/frontend/ui/public/images`;
 
-/** The default logo's size in pixels (drawn at 4x), which sets its proportions. */
-export const EMAIL_LOGO_PIXELS = { width: 572, height: 144 } as const;
+/** A logo for emails: where it is hosted and, when known, its size in pixels. */
+export type EmailLogo = { url: string; pixels?: { width: number; height: number } };
 
 /**
- * The logo as an `<img>` `height` px tall. Clients that read CSS keep the image's
- * own proportions; Outlook sizes it from the attributes, which follow
- * EMAIL_LOGO_PIXELS, so neither stretches the default logo.
+ * TraceRoot's own email logos, each on a white rounded plate so it stays visible
+ * when a mail client darkens the email (mail clients drop SVG, and never recolor an
+ * image). The URLs are pinned to the commits that added the files under
+ * frontend/ui/public/images, so they load before those commits reach main and never
+ * change under emails already sent. Drawn at 4x.
  */
-export function emailLogoImg(height: number): string {
-  const width = Math.round((height * EMAIL_LOGO_PIXELS.width) / EMAIL_LOGO_PIXELS.height);
-  return `<img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="${width}" height="${height}" style="display: block; border: 0; height: ${height}px; width: auto; max-width: 100%;" />`;
+export const EMAIL_STOCK_LOGOS = {
+  wordmark: {
+    url: `${REPO_FILES}/b5ba62b900f511ceece96980ad7adc5abf428674/frontend/ui/public/images/traceroot_wordmark_email.png`,
+    pixels: { width: 572, height: 144 },
+  },
+  mark: {
+    url: `${REPO_FILES}/cfdb6732708c9689e3a0e26cc81c0d9b9bf70915/frontend/ui/public/images/traceroot_icon_email.png`,
+    pixels: { width: 144, height: 144 },
+  },
+} as const satisfies Record<string, EmailLogo>;
+
+/**
+ * Stock values of the logo setting, each drawn as its email logo: the released
+ * Helm chart's square icon (branding.logoUrl) and .env.example's wordmark. Both
+ * are dark artwork on a transparent background, which disappears on a darkened
+ * email.
+ */
+const STOCK_LOGO_SETTINGS: Record<string, EmailLogo> = {
+  [`${IMAGES_ON_MAIN}/traceroot_icon.png`]: EMAIL_STOCK_LOGOS.mark,
+  [`${IMAGES_ON_MAIN}/traceroot_wordmark.png`]: EMAIL_STOCK_LOGOS.wordmark,
+};
+
+/**
+ * The logo emails show for a NEXT_PUBLIC_LOGO_URL setting. Unset, it is the
+ * wordmark; a stock value is drawn as TraceRoot's email version of the same logo;
+ * anything else is the deployment's own branding and is used as given, at its own
+ * proportions.
+ */
+export function emailLogo(setting = process.env.NEXT_PUBLIC_LOGO_URL): EmailLogo {
+  const url = setting?.trim();
+  if (!url) return EMAIL_STOCK_LOGOS.wordmark;
+  return STOCK_LOGO_SETTINGS[url] ?? { url };
+}
+
+/**
+ * The configured logo as an `<img>` `height` px tall. Clients that read CSS keep
+ * the image's own proportions. Outlook sizes it from the attributes: both for a
+ * logo whose size is known, so it is never stretched; only the height for custom
+ * branding, whose shape is unknown here.
+ */
+export function emailLogoImg(height: number, logo: EmailLogo = emailLogo()): string {
+  const size = logo.pixels
+    ? `width="${Math.round((height * logo.pixels.width) / logo.pixels.height)}" height="${height}"`
+    : `height="${height}"`;
+  return `<img src="${escapeHtml(logo.url)}" alt="TraceRoot" ${size} style="display: block; border: 0; height: ${height}px; width: auto; max-width: 100%;" />`;
 }
 
 /** Email-safe PNG of the green website footer wordmark, rendered at 2×. */

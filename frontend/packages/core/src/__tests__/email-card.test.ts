@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  EMAIL_LOGO_PIXELS,
-  EMAIL_LOGO_URL,
+  EMAIL_STOCK_LOGOS,
+  emailLogo,
   emailLogoImg,
   escapeHtml,
   renderEmailCard,
@@ -20,23 +20,57 @@ describe("escapeHtml", () => {
   });
 });
 
-describe("emailLogoImg", () => {
-  it("matches the logo file it points at", () => {
-    if (process.env.NEXT_PUBLIC_LOGO_URL) return;
-    // The default URL is pinned to a commit; the file is this repo's copy.
-    const path = new URL(EMAIL_LOGO_URL).pathname.split("/").slice(4).join("/");
-    expect(path).toBe("frontend/ui/public/images/traceroot_wordmark_email.png");
-    const png = readFileSync(new URL(`../../../../../${path}`, import.meta.url));
-    // A PNG's width and height are the first fields of its IHDR chunk.
-    expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual(
-      EMAIL_LOGO_PIXELS,
-    );
+const MAIN_IMAGES =
+  "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images";
+
+describe("emailLogo", () => {
+  it.each(Object.entries(EMAIL_STOCK_LOGOS))(
+    "%s matches the file its URL is pinned to",
+    (_, logo) => {
+      // The URL is pinned to a commit; the file is this repo's copy.
+      const path = new URL(logo.url).pathname.split("/").slice(4).join("/");
+      expect(path).toMatch(/^frontend\/ui\/public\/images\/traceroot_\w+_email\.png$/);
+      const png = readFileSync(new URL(`../../../../../${path}`, import.meta.url));
+      // A PNG's width and height are the first fields of its IHDR chunk.
+      expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual(logo.pixels);
+    },
+  );
+
+  it("is the wordmark when no logo is configured", () => {
+    expect(emailLogo(undefined)).toBe(EMAIL_STOCK_LOGOS.wordmark);
+    expect(emailLogo(" ")).toBe(EMAIL_STOCK_LOGOS.wordmark);
   });
 
-  it("gives the image its own proportions at any height", () => {
-    expect(emailLogoImg(36)).toContain('width="143" height="36"');
-    expect(emailLogoImg(30)).toContain('width="119" height="30"');
+  it("draws the released chart's square icon as the square email mark", () => {
+    expect(emailLogo(`${MAIN_IMAGES}/traceroot_icon.png`)).toBe(EMAIL_STOCK_LOGOS.mark);
+  });
+
+  it("draws the example config's wordmark as the email wordmark", () => {
+    expect(emailLogo(`${MAIN_IMAGES}/traceroot_wordmark.png`)).toBe(EMAIL_STOCK_LOGOS.wordmark);
+  });
+
+  it("keeps a deployment's own logo as configured", () => {
+    expect(emailLogo("https://cdn.acme.example/brand/logo.png")).toEqual({
+      url: "https://cdn.acme.example/brand/logo.png",
+    });
+  });
+});
+
+describe("emailLogoImg", () => {
+  it("gives a TraceRoot logo its own proportions at any height", () => {
+    expect(emailLogoImg(36, EMAIL_STOCK_LOGOS.wordmark)).toContain('width="143" height="36"');
+    expect(emailLogoImg(30, EMAIL_STOCK_LOGOS.wordmark)).toContain('width="119" height="30"');
+    expect(emailLogoImg(36, EMAIL_STOCK_LOGOS.mark)).toContain('width="36" height="36"');
     expect(emailLogoImg(30)).toMatch(/style="[^"]*height: 30px; width: auto;/);
+  });
+
+  it("sets only the height of a custom logo, whose shape it does not know", () => {
+    const img = emailLogoImg(36, { url: "https://cdn.acme.example/logo.png?v=2&size=l" });
+
+    expect(img).toContain('src="https://cdn.acme.example/logo.png?v=2&amp;size=l"');
+    expect(img).toContain(' height="36"');
+    expect(img).not.toContain("width=");
+    expect(img).toMatch(/style="[^"]*height: 36px; width: auto;/);
   });
 });
 
@@ -83,6 +117,27 @@ describe("renderEmailCard", () => {
     }
     // The button's border, in its own color, turns into an outline on a dark card.
     expect(html).toMatch(/background-color: #0B1015; border: 1px solid #0B1015;/);
+  });
+
+  describe("with the logo setting", () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const logoOf = (html: string) => html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+
+    it("shows the released chart's square icon as the plated square mark", () => {
+      vi.stubEnv("NEXT_PUBLIC_LOGO_URL", `${MAIN_IMAGES}/traceroot_icon.png`);
+      const logo = logoOf(renderEmailCard(params));
+
+      expect(logo).toContain(`src="${EMAIL_STOCK_LOGOS.mark.url}"`);
+      expect(logo).toContain('width="36" height="36"');
+    });
+
+    it("shows a deployment's own logo as configured", () => {
+      vi.stubEnv("NEXT_PUBLIC_LOGO_URL", "https://cdn.acme.example/logo.png");
+      const logo = logoOf(renderEmailCard(params));
+
+      expect(logo).toContain('src="https://cdn.acme.example/logo.png"');
+      expect(logo).not.toContain("width=");
+    });
   });
 
   it("places the body rows between the title and the button", () => {
