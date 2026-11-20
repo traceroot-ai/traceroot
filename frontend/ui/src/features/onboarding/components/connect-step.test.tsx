@@ -230,6 +230,15 @@ describe("a Slack authorization that did not finish", () => {
     expect(onSkip).toHaveBeenCalledOnce();
   });
 
+  it("offers no retry when the deployment has no Slack app set up", () => {
+    renderStep({ result: "error", reason: "not_configured" });
+    expect(screen.getByRole("alert").textContent).toContain("no Slack app set up");
+    expect(screen.queryByRole("link", { name: "Connect Slack" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Connect GitHub" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onSkip).toHaveBeenCalledOnce();
+  });
+
   it("drops the message once a retry has connected Slack", () => {
     slack.status = { connected: true, teamName: "Acme", channel: { id: "C1", name: "alerts" } };
     renderStep({ result: "error", reason: "access_denied" });
@@ -240,6 +249,7 @@ describe("a Slack authorization that did not finish", () => {
     ["exchange_failed", "Slack didn't accept the authorization"],
     ["store_failed", "we couldn't save the connection"],
     ["invalid_state", "the authorization expired or came back incomplete"],
+    ["not_configured", "this deployment has no Slack app set up"],
     ["something_else", "Slack wasn't connected. Try again"],
   ])("explains %s", (reason, words) => {
     expect(slackFailureMessage(reason)).toContain(words);

@@ -20,7 +20,12 @@ vi.mock("@traceroot/core", () => ({
   prisma: { workspace: { findUnique: (...a: unknown[]) => findUnique(...a) } },
   hasEntitlement: (...a: unknown[]) => hasEntitlement(...a),
 }));
-vi.mock("@/env", () => ({ env: { SLACK_REDIRECT_URI: "http://x/api/slack/oauth/callback" } }));
+const env = vi.hoisted(() => ({
+  SLACK_REDIRECT_URI: "http://x/api/slack/oauth/callback",
+  SLACK_CLIENT_ID: "client",
+  SLACK_STATE_SECRET: "secret",
+}));
+vi.mock("@/env", () => ({ env }));
 
 describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
   beforeEach(() => {
@@ -29,6 +34,35 @@ describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
     generateInstallUrl.mockReset();
     findUnique.mockReset();
     hasEntitlement.mockReset();
+    env.SLACK_CLIENT_ID = "client";
+    env.SLACK_STATE_SECRET = "secret";
+  });
+
+  it.each([
+    ["SLACK_STATE_SECRET", () => (env.SLACK_STATE_SECRET = "")],
+    ["SLACK_CLIENT_ID", () => (env.SLACK_CLIENT_ID = "")],
+  ])("goes back to the starting page with not_configured when %s is not set", async (_n, unset) => {
+    unset();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    requireAuth.mockResolvedValue({ user: { id: "u_1" } });
+    requireWorkspaceMembership.mockResolvedValue({ membership: {} });
+    findUnique.mockResolvedValue({ billingPlan: "free" });
+    hasEntitlement.mockReturnValue(true);
+
+    const { GET } = await import("./route");
+    const res = await GET(
+      new Request(
+        `http://x/api?returnTo=${encodeURIComponent("/onboarding/connect?projectId=p1")}`,
+      ) as never,
+      { params: Promise.resolve({ workspaceId: "ws_1" }) },
+    );
+    const to = new URL(res.headers.get("location")!);
+    expect(res.status).toBe(307);
+    expect(to.pathname).toBe("/onboarding/connect");
+    expect(to.searchParams.get("projectId")).toBe("p1");
+    expect(to.searchParams.get("slack")).toBe("error");
+    expect(to.searchParams.get("reason")).toBe("not_configured");
+    expect(generateInstallUrl).not.toHaveBeenCalled();
   });
 
   it("403s for non-ADMIN", async () => {
