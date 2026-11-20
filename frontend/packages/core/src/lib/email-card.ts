@@ -22,14 +22,28 @@
 /**
  * Hosted PNG of the wordmark (mark + "traceroot") on a white rounded plate, so
  * it stays visible when a mail client darkens the email; mail clients drop SVG.
- * NEXT_PUBLIC_LOGO_URL overrides it. The logo is 36px tall and keeps its own
- * proportions in clients that read CSS; Outlook sizes it from the 143x36
- * attributes, so an override should have the same shape (about 4:1) and its
- * own light background.
+ * The URL is pinned to the commit that added frontend/ui/public/images/
+ * traceroot_wordmark_email.png, so it loads before that commit reaches main and
+ * never changes under emails already sent.
+ * NEXT_PUBLIC_LOGO_URL overrides it; an override should have the same shape
+ * (EMAIL_LOGO_PIXELS) and its own light background.
  */
 export const EMAIL_LOGO_URL =
   process.env.NEXT_PUBLIC_LOGO_URL ||
-  "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_wordmark_email.png";
+  "https://raw.githubusercontent.com/traceroot-ai/traceroot/b5ba62b900f511ceece96980ad7adc5abf428674/frontend/ui/public/images/traceroot_wordmark_email.png";
+
+/** The default logo's size in pixels (drawn at 4x), which sets its proportions. */
+export const EMAIL_LOGO_PIXELS = { width: 572, height: 144 } as const;
+
+/**
+ * The logo as an `<img>` `height` px tall. Clients that read CSS keep the image's
+ * own proportions; Outlook sizes it from the attributes, which follow
+ * EMAIL_LOGO_PIXELS, so neither stretches the default logo.
+ */
+export function emailLogoImg(height: number): string {
+  const width = Math.round((height * EMAIL_LOGO_PIXELS.width) / EMAIL_LOGO_PIXELS.height);
+  return `<img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="${width}" height="${height}" style="display: block; border: 0; height: ${height}px; width: auto; max-width: 100%;" />`;
+}
 
 /** Email-safe PNG of the green website footer wordmark, rendered at 2×. */
 export const EMAIL_PIXEL_WORDMARK_URL =
@@ -100,7 +114,7 @@ export function renderEmailCard(params: {
       <!-- Logo section -->
       <tr>
         <td style="padding: 26px 32px 0 32px;">
-          <img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="143" height="36" style="display: block; border: 0; height: 36px; width: auto; max-width: 100%;" />
+          ${emailLogoImg(36)}
         </td>
       </tr>
 

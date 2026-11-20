@@ -61,3 +61,16 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
   );
   expect(html).not.toContain("<table");
 });
+
+it("signs off with the logo at its own proportions", () => {
+  const { html } = renderWelcome({
+    firstName: null,
+    appUrl: "https://app",
+    unsubscribeUrl: "https://u",
+  });
+  const logo = html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+
+  // 572x144 drawn 30px tall; a fixed 106x20 squeezed it.
+  expect(logo).toContain('width="119" height="30"');
+  expect(logo).toMatch(/height: 30px; width: auto;/);
+});

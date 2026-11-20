@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, renderEmailCard } from "../lib/email-card.ts";
+import { readFileSync } from "node:fs";
+import {
+  EMAIL_LOGO_PIXELS,
+  EMAIL_LOGO_URL,
+  emailLogoImg,
+  escapeHtml,
+  renderEmailCard,
+} from "../lib/email-card.ts";
 
 describe("escapeHtml", () => {
   it("escapes every HTML special character", () => {
@@ -10,6 +17,26 @@ describe("escapeHtml", () => {
 
   it("returns strings without special characters unchanged", () => {
     expect(escapeHtml("plain text 123")).toBe("plain text 123");
+  });
+});
+
+describe("emailLogoImg", () => {
+  it("matches the logo file it points at", () => {
+    if (process.env.NEXT_PUBLIC_LOGO_URL) return;
+    // The default URL is pinned to a commit; the file is this repo's copy.
+    const path = new URL(EMAIL_LOGO_URL).pathname.split("/").slice(4).join("/");
+    expect(path).toBe("frontend/ui/public/images/traceroot_wordmark_email.png");
+    const png = readFileSync(new URL(`../../../../../${path}`, import.meta.url));
+    // A PNG's width and height are the first fields of its IHDR chunk.
+    expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual(
+      EMAIL_LOGO_PIXELS,
+    );
+  });
+
+  it("gives the image its own proportions at any height", () => {
+    expect(emailLogoImg(36)).toContain('width="143" height="36"');
+    expect(emailLogoImg(30)).toContain('width="119" height="30"');
+    expect(emailLogoImg(30)).toMatch(/style="[^"]*height: 30px; width: auto;/);
   });
 });
 

@@ -14,6 +14,8 @@ export {
   EMAIL_COLORS,
   EMAIL_FONT_STACK,
   EMAIL_LOGO_URL,
+  EMAIL_LOGO_PIXELS,
+  emailLogoImg,
   EMAIL_PIXEL_WORDMARK_URL,
   escapeHtml,
   renderEmailCard,
