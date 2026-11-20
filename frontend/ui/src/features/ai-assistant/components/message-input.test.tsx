@@ -46,6 +46,59 @@ describe("MessageInput", () => {
     expect(onSend).toHaveBeenCalledWith("hello", PICK);
   });
 
+  it.each(["日本", "中文"])(
+    "preserves the composing draft %s until a separate Enter sends it",
+    (draft) => {
+      const onSend = vi.fn();
+      render(<MessageInput onSend={onSend} modelSelection={PICK} onModelChange={vi.fn()} />);
+      const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+      fireEvent.compositionStart(textarea);
+      fireEvent.change(textarea, { target: { value: draft } });
+
+      expect(fireEvent.keyDown(textarea, { key: "Enter", isComposing: true })).toBe(true);
+      expect(onSend).not.toHaveBeenCalled();
+      expect(textarea.value).toBe(draft);
+
+      fireEvent.compositionEnd(textarea, { data: draft });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(onSend).toHaveBeenCalledExactlyOnceWith(draft, PICK);
+      expect(textarea.value).toBe("");
+    },
+  );
+
+  it.each(["日本", "中文"])(
+    "preserves the %s draft when IME Enter arrives after composition ends",
+    (draft) => {
+      const onSend = vi.fn();
+      render(<MessageInput onSend={onSend} modelSelection={PICK} onModelChange={vi.fn()} />);
+      const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+      fireEvent.compositionStart(textarea);
+      fireEvent.change(textarea, { target: { value: draft } });
+      fireEvent.compositionEnd(textarea, { data: draft });
+
+      expect(fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229, isComposing: false })).toBe(
+        true,
+      );
+      expect(onSend).not.toHaveBeenCalled();
+      expect(textarea.value).toBe(draft);
+
+      fireEvent.keyDown(textarea, { key: "Enter", keyCode: 13, isComposing: false });
+      expect(onSend).toHaveBeenCalledExactlyOnceWith(draft, PICK);
+      expect(textarea.value).toBe("");
+    },
+  );
+
+  it("preserves the draft and default newline behavior on Shift+Enter", () => {
+    const onSend = vi.fn();
+    render(<MessageInput onSend={onSend} modelSelection={PICK} onModelChange={vi.fn()} />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "hello" } });
+
+    expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true })).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("hello");
+  });
+
   it("clears the composer as soon as a send is accepted", async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     render(<MessageInput onSend={onSend} modelSelection={PICK} onModelChange={vi.fn()} />);
