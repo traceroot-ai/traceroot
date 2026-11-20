@@ -4,6 +4,7 @@ import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { installer, SLACK_BOT_SCOPES } from "@traceroot/slack";
 import { hasEntitlement, prisma, type PlanType } from "@traceroot/core";
 import { env } from "@/env";
+import { slackReturnPath } from "@/lib/slack-return";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -29,8 +30,10 @@ async function handleGET(
     return NextResponse.redirect(upgradeUrl);
   }
 
+  // Where the authorization comes back to: the page it was started from, kept
+  // only when it is a path on this site.
   const url = new URL(request.url);
-  const returnTo = url.searchParams.get("returnTo") || "/";
+  const returnTo = slackReturnPath(workspaceId, url.searchParams.get("returnTo"));
 
   // Use the SDK's URL builder (which signs state via SLACK_STATE_SECRET)
   // and redirect with NextResponse — bypassing the SDK's HTTP plumbing,
