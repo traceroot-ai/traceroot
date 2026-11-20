@@ -245,6 +245,38 @@ describe("reportDailyTraceCounts", () => {
     expect(row("user_sam")).toBeUndefined();
   });
 
+  it("gives a claim back unsent when the claim itself used up the budget", async () => {
+    workspace("ws_1", "user_ada", 10);
+    workspace("ws_2", "user_sam", 20);
+    let now = NOV_18;
+    // The database is slow: by the time Ada's claim returns, the budget is spent.
+    const updateMany = db.prisma.userOnboarding.updateMany.getMockImplementation()!;
+    db.prisma.userOnboarding.updateMany.mockImplementationOnce(async (args) => {
+      const result = await updateMany(args);
+      now = later(TRACE_COUNT_TIME_BUDGET_MS);
+      return result;
+    });
+
+    expect(await reportDailyTraceCounts(() => now)).toEqual({
+      kind: "sent",
+      sent: 0,
+      remaining: 2,
+    });
+    expect(sent()).toEqual([]);
+    expect(row("user_ada")).toMatchObject({
+      traceCountReportedOn: null,
+      traceCountClaimedAt: null,
+    });
+    expect(row("user_sam")).toBeUndefined();
+
+    // The next tick sends both as usual.
+    expect(await reportAt(later(15 * 60_000))).toEqual({ kind: "sent", sent: 2, remaining: 0 });
+    expect(sent()).toEqual([
+      ["user_ada", 10],
+      ["user_sam", 20],
+    ]);
+  });
+
   it("stops waiting for a send still unanswered at the deadline and gives it back", async () => {
     workspace("ws_1", "user_ada", 10);
     workspace("ws_2", "user_sam", 20);

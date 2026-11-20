@@ -85,6 +85,12 @@ export async function reportDailyTraceCounts(
     // Another tick may hold this person, or have finished them since the read above.
     const claimedAt = clock();
     if (!(await claim(userId, today, claimedAt))) continue;
+    // The claim is a database round trip and can be slow; never start a send the
+    // budget no longer covers.
+    if (timeLeft() <= 0) {
+      await release(userId, claimedAt);
+      break;
+    }
     try {
       await withinMs(sendServerPersonProperties(userId, { trace_count: traceCount }), timeLeft());
     } catch (err) {
