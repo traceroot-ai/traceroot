@@ -31,6 +31,10 @@ const github = vi.hoisted(() => ({
   status: {
     connected: false,
     installations: [] as { installationId: string; accountLogin: string }[],
+  } as {
+    connected: boolean;
+    installations: { installationId: string; accountLogin: string }[];
+    available?: boolean;
   },
 }));
 vi.mock("@/lib/github", () => ({ fetchGitHubConnection: async () => github.status }));
@@ -45,6 +49,7 @@ const onSkip = vi.fn();
 
 function renderStep(
   slackOutcome: { result: string | null; reason: string | null } = { result: null, reason: null },
+  githubOutcome: string | null = null,
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -53,6 +58,7 @@ function renderStep(
         workspaceId="ws_1"
         returnTo={RETURN_TO}
         slackOutcome={slackOutcome}
+        githubOutcome={githubOutcome}
         onContinue={onContinue}
         onSkip={onSkip}
       />
@@ -72,6 +78,8 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+const rowOf = (name: string) =>
+  screen.getByText(name, { selector: "p" }).closest("div.flex") as HTMLElement;
 const hrefOf = (name: string) =>
   new URL(screen.getByRole("link", { name }).getAttribute("href")!, "http://x");
 
@@ -108,6 +116,49 @@ describe("someone who is not a workspace admin", () => {
     expect(screen.queryByRole("link", { name: /^Connect/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(onContinue).toHaveBeenCalledOnce();
+  });
+});
+
+describe("GitHub, not set up on this deployment", () => {
+  it("says it is unavailable when the deployment reports it, and offers no Connect", async () => {
+    github.status = { connected: false, installations: [], available: false };
+    renderStep();
+
+    await screen.findByText("Not available on this deployment yet. Continue without it.");
+    expect(within(rowOf("GitHub")).getByText("Unavailable")).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Connect GitHub" })).toBeNull();
+    // Slack is unaffected, and the person can go on either way.
+    expect(screen.getByRole("link", { name: "Connect Slack" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(onSkip).toHaveBeenCalledOnce();
+  });
+
+  it("says so when a connection came back with github=unavailable", async () => {
+    renderStep({ result: null, reason: null }, "unavailable");
+    expect(
+      await screen.findByText("Not available on this deployment yet. Continue without it."),
+    ).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Connect GitHub" })).toBeNull();
+  });
+
+  it("offers Connect when the deployment has it set up", async () => {
+    github.status = { connected: false, installations: [], available: true };
+    renderStep();
+    await waitFor(() => expect(screen.getByRole("link", { name: "Connect GitHub" })).toBeDefined());
+    expect(screen.getByText("Link findings to your code")).toBeDefined();
+  });
+
+  it("still shows an existing connection as connected", async () => {
+    github.status = {
+      connected: true,
+      installations: [{ installationId: "1", accountLogin: "acme" }],
+      available: false,
+    };
+    renderStep();
+    await screen.findByText("Connected to acme");
+    expect(screen.queryByText("Unavailable")).toBeNull();
   });
 });
 

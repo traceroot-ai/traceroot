@@ -45,6 +45,8 @@ interface ConnectStepProps {
   returnTo: string;
   /** The `slack=…` outcome and its reason, as the callback left them on the address. */
   slackOutcome: { result: string | null; reason: string | null };
+  /** `github=unavailable` on the address: a connection that could not start here. */
+  githubOutcome?: string | null;
   /** Continue and "Skip for now": both go on to the setup command. */
   onContinue: () => void;
   onSkip: () => void;
@@ -64,6 +66,7 @@ export function ConnectStep({
   workspaceId,
   returnTo,
   slackOutcome,
+  githubOutcome = null,
   onContinue,
   onSkip,
 }: ConnectStepProps) {
@@ -79,6 +82,10 @@ export function ConnectStep({
   const canManage = workspace?.role === "ADMIN";
   const [changingChannel, setChangingChannel] = useState(false);
 
+  // No GitHub App set up on this deployment (no client id or app name): GitHub
+  // could only show an error page, so the row says so and offers nothing.
+  const githubUnavailable =
+    !github?.connected && (github?.available === false || githubOutcome === "unavailable");
   const slackFailed = slackOutcome.result === "error" && !slack?.connected;
   // Trying again cannot work until the deployment has a Slack app set up.
   const slackUnavailable = slackFailed && slackOutcome.reason === "not_configured";
@@ -102,11 +109,15 @@ export function ConnectStep({
           detail={
             github?.connected
               ? `Connected to ${github.installations.map((i) => i.accountLogin).join(", ")}`
-              : "Link findings to your code"
+              : githubUnavailable
+                ? "Not available on this deployment yet. Continue without it."
+                : "Link findings to your code"
           }
           action={
             github?.connected ? (
               <Connected />
+            ) : githubUnavailable ? (
+              <span className="text-[12px] text-muted-foreground">Unavailable</span>
             ) : !canManage ? (
               <AdminsOnly />
             ) : (
