@@ -60,3 +60,21 @@ pnpm parity --url http://localhost:8200/mcp --key tr-… --host http://localhost
 
 `get_evaluation_run` has no list tool, so a live run needs `--run-id`; a call
 with no seed data is reported as SKIP and the run exits non-zero.
+
+## Signing in with OAuth
+
+By default the endpoint takes a project API key as a bearer. To let an assistant
+(Claude, ChatGPT and others) connect with a sign-in instead, set on this service:
+
+| Variable           | Value                                                                 |
+| ------------------ | --------------------------------------------------------------------- |
+| `MCP_RESOURCE_URL` | this endpoint's public URL, for example `https://mcp.example.com/mcp` |
+| `MCP_OAUTH_ISSUER` | the web app's OAuth issuer, `BETTER_AUTH_URL` plus `/api/auth`        |
+
+The web app needs the same `MCP_RESOURCE_URL`, and rest needs
+`TRACEROOT_OAUTH_ISSUER` and `TRACEROOT_OAUTH_AUDIENCES` (see `docker-compose.prod.yml`).
+With both set, an unauthenticated request is answered 401 with a pointer to
+`/.well-known/oauth-protected-resource/mcp`, which names the sign-in server. The
+server does not validate OAuth tokens: like a key, a token is forwarded to rest,
+which checks the signature, the audience, the read scope, the project chosen at
+consent, and that the connection has not been revoked. API keys keep working.
