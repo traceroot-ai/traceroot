@@ -12,7 +12,7 @@
  * - Free plan: hard cap at 30 runs/month (blocked when reached)
  * - Starter/Pro: first 100 runs free, then $10/100 runs + 1.05x system model token cost
  * - BYOK runs: only run fee, no token markup (user pays their own API)
- * - Stripe receives units at $0.01 each; TraceRoot calculates the unit count
+ * - Stripe receives units at $0.01 each; traceroot calculates the unit count
  */
 
 import Stripe from "stripe";

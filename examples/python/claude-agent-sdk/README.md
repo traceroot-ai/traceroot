@@ -1,6 +1,6 @@
 # Claude Agent SDK
 
-Agent using Claude Code as a library, instrumented with [TraceRoot](https://traceroot.ai).
+Agent using Claude Code as a library, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

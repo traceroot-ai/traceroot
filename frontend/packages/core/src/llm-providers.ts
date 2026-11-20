@@ -1,4 +1,4 @@
-// Model source — system (TraceRoot-hosted) or BYOK (user's own keys)
+// Model source — system (traceroot-hosted) or BYOK (user's own keys)
 export const ModelSource = {
   SYSTEM: "system",
   BYOK: "byok",
