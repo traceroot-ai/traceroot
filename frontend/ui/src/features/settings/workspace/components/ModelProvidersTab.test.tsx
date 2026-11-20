@@ -217,6 +217,37 @@ describe("ModelProvidersTab - Test Connection error display", () => {
     expect(screen.queryByText("Connection refused")).toBeNull();
   });
 
+  it("clears the test result when any AWS credential field changes", async () => {
+    mocks.testModelProvider.mockResolvedValue({ success: false, error: "Invalid AWS credentials" });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "amazon-bedrock" },
+    });
+    fireEvent.change(screen.getByLabelText("Access key ID"), { target: { value: "AKIA1" } });
+    fireEvent.change(screen.getByLabelText("Secret access key"), { target: { value: "s1" } });
+
+    const failTest = async () => {
+      fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+      expect(await screen.findByText("Invalid AWS credentials")).toBeTruthy();
+    };
+    const edits: Array<() => void> = [
+      () =>
+        fireEvent.change(screen.getByLabelText("Access key ID"), { target: { value: "AKIA2" } }),
+      () =>
+        fireEvent.change(screen.getByLabelText("Secret access key"), { target: { value: "s2" } }),
+      () => fireEvent.change(screen.getByLabelText("Region"), { target: { value: "eu-west-1" } }),
+      () => fireEvent.click(screen.getByLabelText("Use default AWS credential chain")),
+    ];
+
+    for (const edit of edits) {
+      await failTest();
+      edit();
+      expect(screen.queryByText("Invalid AWS credentials")).toBeNull();
+    }
+  });
+
   it("ignores a test that was still running when the Base URL changed", async () => {
     let resolveTest: (result: { success: boolean }) => void = () => {};
     mocks.testModelProvider.mockReturnValue(
