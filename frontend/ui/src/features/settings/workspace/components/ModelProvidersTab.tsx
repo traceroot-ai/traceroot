@@ -123,17 +123,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const testMutation = useMutation({
     mutationFn: (input: Parameters<typeof testModelProvider>[1]) =>
       testModelProvider(workspaceId, input),
-    onSuccess: (result) => setTestResult(result),
-    // The request itself can fail (expired session, offline, 500). Without this
-    // the spinner would just stop and the user would see no result at all.
-    onError: (err) =>
-      setTestResult({
-        success: false,
-        error: err instanceof ImpersonationError ? err.message : "Connection failed",
-        detail:
-          err instanceof Error && !(err instanceof ImpersonationError) ? err.message : undefined,
-      }),
   });
+
+  function clearTestResult() {
+    testMutation.reset();
+    setTestResult(null);
+  }
 
   function closeDialog() {
     setDialogOpen(false);
@@ -148,7 +143,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setBaseUrl("");
     setCustomModels([]);
     setModelProtocols({});
-    setTestResult(null);
+    clearTestResult();
     setSaveError(null);
     setAwsAccessKeyId("");
     setAwsSecretAccessKey("");
@@ -172,7 +167,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setModelProtocols(
       ((p.config as Record<string, unknown>)?.modelProtocols as Record<string, string>) || {},
     );
-    setTestResult(null);
+    clearTestResult();
     setAwsAccessKeyId("");
     setAwsSecretAccessKey("");
     setAwsRegion((p.config as Record<string, string>)?.awsRegion || "us-east-1");
@@ -244,7 +239,18 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     const trimmedBaseUrl = baseUrl.trim();
     if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
     setTestResult(null);
-    testMutation.mutate(testData as any);
+    testMutation.mutate(testData as any, {
+      onSuccess: (result) => setTestResult(result),
+      // The request itself can fail (expired session, offline, 500). Without this
+      // the spinner would just stop and the user would see no result at all.
+      onError: (err) =>
+        setTestResult({
+          success: false,
+          error: err instanceof ImpersonationError ? err.message : "Connection failed",
+          detail:
+            err instanceof Error && !(err instanceof ImpersonationError) ? err.message : undefined,
+        }),
+    });
   }
 
   function handleAdapterChange(value: string) {
@@ -257,6 +263,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     setCustomModels([]);
     setModelProtocols({});
+    clearTestResult();
   }
 
   function addCustomModel() {
@@ -470,7 +477,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     type="checkbox"
                     id={`${formId}-default-credentials`}
                     checked={useDefaultCredentials}
-                    onChange={(e) => setUseDefaultCredentials(e.target.checked)}
+                    onChange={(e) => {
+                      setUseDefaultCredentials(e.target.checked);
+                      clearTestResult();
+                    }}
                     className="rounded"
                   />
                   <label htmlFor={`${formId}-default-credentials`} className="text-sm">
@@ -489,7 +499,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       <Input
                         id={`${formId}-aws-key`}
                         value={awsAccessKeyId}
-                        onChange={(e) => setAwsAccessKeyId(e.target.value)}
+                        onChange={(e) => {
+                          setAwsAccessKeyId(e.target.value);
+                          clearTestResult();
+                        }}
                         placeholder="AKIA..."
                       />
                     </div>
@@ -504,7 +517,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                         type="password"
                         id={`${formId}-aws-secret`}
                         value={awsSecretAccessKey}
-                        onChange={(e) => setAwsSecretAccessKey(e.target.value)}
+                        onChange={(e) => {
+                          setAwsSecretAccessKey(e.target.value);
+                          clearTestResult();
+                        }}
                         placeholder="Secret key"
                       />
                     </div>
@@ -517,7 +533,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   <Input
                     id={`${formId}-aws-region`}
                     value={awsRegion}
-                    onChange={(e) => setAwsRegion(e.target.value)}
+                    onChange={(e) => {
+                      setAwsRegion(e.target.value);
+                      clearTestResult();
+                    }}
                     placeholder="us-east-1"
                   />
                 </div>
@@ -533,7 +552,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   value={apiKey}
                   onChange={(e) => {
                     setApiKey(e.target.value);
-                    setTestResult(null);
+                    clearTestResult();
                   }}
                   placeholder={editProvider ? editProvider.keyPreview : "sk-..."}
                 />
@@ -549,7 +568,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 <Input
                   id={`${formId}-base-url`}
                   value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    clearTestResult();
+                  }}
                   placeholder={
                     adapterConfig.requiresBaseUrl
                       ? "https://your-resource.openai.azure.com"
