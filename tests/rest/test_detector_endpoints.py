@@ -296,6 +296,34 @@ class TestListTraceDetectorRuns:
         assert "r.trace_id = {trace_id:String}" in sql
         assert "r.project_id = {project_id:String}" in sql
 
+    def test_start_after_bounds_run_timestamp_in_utc(self, client, mock_ch, secret):
+        """start_after bounds the run timestamp, bound as naive UTC whatever its offset."""
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1", "start_after": "2026-04-01T02:00:00+02:00"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "r.timestamp >= {start_after:DateTime64(3)}" in sql
+        assert params["start_after"] == datetime(2026, 4, 1, 0, 0)
+
+    def test_no_start_after_leaves_query_unbounded(self, client, mock_ch, secret):
+        """Omitting start_after adds no run timestamp lower bound to SQL or params."""
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "start_after" not in sql
+        assert "start_after" not in params
+
     def test_uses_final_on_both_tables(self, client, mock_ch, secret):
         mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
         client.get(
@@ -462,6 +490,34 @@ class TestGetTraceFindings:
         assert resp.json()["findings"][0]["finding_id"] == "f1"
         sql = mock_ch.query.call_args.args[0]
         assert "FROM detector_findings FINAL" in sql
+
+    def test_start_after_bounds_finding_timestamp_in_utc(self, client, mock_ch, secret):
+        """start_after bounds the finding timestamp, bound as naive UTC whatever its offset."""
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/findings",
+            params={"project_id": "p1", "start_after": "2026-04-01T02:00:00+02:00"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "timestamp >= {start_after:DateTime64(3)}" in sql
+        assert params["start_after"] == datetime(2026, 4, 1, 0, 0)
+
+    def test_no_start_after_leaves_query_unbounded(self, client, mock_ch, secret):
+        """Omitting start_after (the worker's call) adds no lower bound to SQL or params."""
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/findings",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "start_after" not in sql
+        assert "start_after" not in params
 
 
 # =============================================================================

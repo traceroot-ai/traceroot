@@ -430,7 +430,13 @@ async def get_time_since_last_span(trace_id: str, project_id: str):
     "/traces/{trace_id}/findings",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def get_trace_findings(trace_id: str, project_id: str):
+async def get_trace_findings(
+    trace_id: str,
+    project_id: str,
+    start_after: datetime | None = Query(
+        None, description="Filter findings at/after this timestamp (inclusive)"
+    ),
+):
     """List all detector findings recorded for a single trace.
 
     Queries the ``detector_findings`` table with ``FINAL`` so pre-merge
@@ -441,6 +447,10 @@ async def get_trace_findings(trace_id: str, project_id: str):
     Args:
         trace_id (str): Trace whose findings to return.
         project_id (str): Project that owns the trace; scopes the query.
+        start_after (datetime | None): Lower bound on finding ``timestamp``
+            (inclusive). The UI proxy passes the plan's retention cutoff, so
+            findings older than the plan's window are left out. Callers with no
+            window (the worker) omit it, and the query is unbounded.
 
     Returns:
         dict: ``{"findings": list[dict]}`` ordered newest-first, each finding a
@@ -449,12 +459,17 @@ async def get_trace_findings(trace_id: str, project_id: str):
             trace has no findings.
     """
     ch = get_clickhouse_client()
+    where = "trace_id = {trace_id:String} AND project_id = {project_id:String}"
+    parameters: dict[str, Any] = {"trace_id": trace_id, "project_id": project_id}
+    if start_after is not None:
+        where += " AND timestamp >= {start_after:DateTime64(3)}"
+        parameters["start_after"] = to_utc_naive(start_after)
     result = ch.query(
-        """SELECT finding_id, project_id, trace_id, summary, payload, timestamp
+        f"""SELECT finding_id, project_id, trace_id, summary, payload, timestamp
            FROM detector_findings FINAL
-           WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
+           WHERE {where}
            ORDER BY timestamp DESC""",
-        parameters={"trace_id": trace_id, "project_id": project_id},
+        parameters=parameters,
     )
     findings = []
     for row in result.result_rows:
@@ -469,7 +484,13 @@ async def get_trace_findings(trace_id: str, project_id: str):
     "/traces/{trace_id}/detector-runs",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def list_trace_detector_runs(trace_id: str, project_id: str):
+async def list_trace_detector_runs(
+    trace_id: str,
+    project_id: str,
+    start_after: datetime | None = Query(
+        None, description="Filter runs at/after this timestamp (inclusive)"
+    ),
+):
     """List every detector run recorded against a single trace.
 
     Both ``detector_runs`` and ``detector_findings`` are ReplacingMergeTree
@@ -482,6 +503,10 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     Args:
         trace_id (str): Trace whose detector runs to return.
         project_id (str): Project that owns the trace; scopes the query.
+        start_after (datetime | None): Lower bound on run ``timestamp``
+            (inclusive). The UI proxy passes the plan's retention cutoff, so
+            runs older than the plan's window are left out. Omitted, the
+            query is unbounded.
 
     Returns:
         dict: ``{"runs": list[dict]}`` ordered by ``detector_id``, each run a
@@ -492,6 +517,12 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     ch = get_clickhouse_client()
 
     summary_expr = _detector_summary_expr("r.finding_id")
+
+    parameters: dict[str, Any] = {"trace_id": trace_id, "project_id": project_id}
+    start_after_clause = ""
+    if start_after is not None:
+        start_after_clause = " AND r.timestamp >= {start_after:DateTime64(3)}"
+        parameters["start_after"] = to_utc_naive(start_after)
 
     query = f"""
         SELECT
@@ -508,10 +539,10 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE r.trace_id = {{trace_id:String}}
-          AND r.project_id = {{project_id:String}}
+          AND r.project_id = {{project_id:String}}{start_after_clause}
         ORDER BY r.detector_id
     """
-    result = ch.query(query, parameters={"trace_id": trace_id, "project_id": project_id})
+    result = ch.query(query, parameters=parameters)
 
     runs = []
     for row in result.result_rows:
