@@ -1,10 +1,13 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
+import { oauthImpersonationGuard } from "@/lib/oauth/impersonation-guard";
+import { mcpOAuthProviderOptions } from "@/lib/oauth/provider-options";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
@@ -119,6 +122,9 @@ export const auth = betterAuth({
     // the unforgeable per-address bound lives at the edge WAF.
     customRules: {
       "/device/code": { window: 60, max: 10 },
+      // Unauthenticated, and inserts an oauth_clients row on every call; same
+      // reasoning and same coarse bound as /device/code above.
+      "/oauth2/register": { window: 60, max: 10 },
     },
   },
 
@@ -160,6 +166,12 @@ export const auth = betterAuth({
     }),
     ...(configuredSocialProviders(env).includes(AGENTID_PROVIDER_ID)
       ? [genericOAuth({ config: [agentIdProvider(env)] })]
+      : []),
+    // Lets an assistant connect to the MCP server with a sign-in instead of a
+    // pasted key. Off unless MCP_RESOURCE_URL is set. Its tokens are signed with
+    // the key set above, so the backend verifies them offline the same way.
+    ...(env.MCP_RESOURCE_URL
+      ? [oauthImpersonationGuard(), oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL))]
       : []),
   ],
 });

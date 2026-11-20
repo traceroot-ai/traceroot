@@ -100,6 +100,11 @@ describe("support policy", () => {
       ["/api/workspaces/w/model-providers/p", "PATCH"],
       ["/api/workspaces/w/model-providers/p", "DELETE"],
       ["/api/workspaces/w/model-providers", "POST"],
+      // Connecting an assistant hands a project's data to another system.
+      ["/api/oauth/select-project", "POST"],
+      ["/api/oauth/select-project", "GET"],
+      ["/api/oauth/connections", "GET"],
+      ["/api/oauth/connections/c1", "DELETE"],
     ])
       expect(impersonationDenial(path, method, role)).toBeTruthy();
   });
