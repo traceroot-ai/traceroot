@@ -3,6 +3,7 @@
 Every read is secret-gated and scoped by project id.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -483,7 +484,9 @@ async def get_trace_findings(
             ``payload`` and ISO-8601 ``timestamp``. The list is empty when the
             trace has no findings.
     """
-    if start_after is not None and _trace_started_before(project_id, trace_id, start_after):
+    if start_after is not None and await asyncio.to_thread(
+        _trace_started_before, project_id, trace_id, start_after
+    ):
         return {"findings": []}
     ch = get_clickhouse_client()
     where = "trace_id = {trace_id:String} AND project_id = {project_id:String}"
@@ -491,7 +494,8 @@ async def get_trace_findings(
     if start_after is not None:
         where += " AND timestamp >= {start_after:DateTime64(3)}"
         parameters["start_after"] = to_utc_naive(start_after)
-    result = ch.query(
+    result = await asyncio.to_thread(
+        ch.query,
         f"""SELECT finding_id, project_id, trace_id, summary, payload, timestamp
            FROM detector_findings FINAL
            WHERE {where}
@@ -541,7 +545,9 @@ async def list_trace_detector_runs(
             ``finding_id`` (``None`` for clean runs), ``status``, ISO-8601
             ``timestamp`` and ``summary``. Empty when the trace has no runs.
     """
-    if start_after is not None and _trace_started_before(project_id, trace_id, start_after):
+    if start_after is not None and await asyncio.to_thread(
+        _trace_started_before, project_id, trace_id, start_after
+    ):
         return {"runs": []}
     ch = get_clickhouse_client()
 
@@ -571,7 +577,7 @@ async def list_trace_detector_runs(
           AND r.project_id = {{project_id:String}}{start_after_clause}
         ORDER BY r.detector_id
     """
-    result = ch.query(query, parameters=parameters)
+    result = await asyncio.to_thread(ch.query, query, parameters=parameters)
 
     runs = []
     for row in result.result_rows:
