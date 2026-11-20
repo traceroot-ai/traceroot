@@ -218,9 +218,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-fable-5-2", label: "claude-fable-5-2" },
     { id: "claude-fable-5-1", label: "claude-fable-5-1" },
     { id: "claude-fable-5", label: "claude-fable-5" },
-    { id: "claude-mythos-5-2", label: "claude-mythos-5-2" },
-    { id: "claude-mythos-5-1", label: "claude-mythos-5-1" },
-    { id: "claude-mythos-5", label: "claude-mythos-5" },
     { id: "claude-opus-5-5", label: "claude-opus-5-5" },
     { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
@@ -265,8 +262,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   ],
   moonshot: [
     { id: "kimi-k3", label: "kimi-k3" },
-    { id: "kimi-k3.1-pro", label: "kimi-k3.1-pro" },
-    { id: "kimi-k3.1-pro-highspeed", label: "kimi-k3.1-pro-highspeed" },
     { id: "kimi-k2.7-code", label: "kimi-k2.7-code" },
     { id: "kimi-k2.7-code-highspeed", label: "kimi-k2.7-code-highspeed" },
     { id: "kimi-k2.6", label: "kimi-k2.6" },
