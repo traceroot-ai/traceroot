@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 const links = vi.hoisted(() => ({
   NEXT_PUBLIC_DOCS_URL: "https://docs.example.com",
@@ -60,4 +60,42 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
     `<a href="${base.unsubscribeUrl.replace(/&/g, "&amp;")}" ${LINK}>let us know</a>.`,
   );
   expect(html).not.toContain("<table");
+});
+
+it("signs off with the logo at its own proportions", () => {
+  // The default logo, whatever the environment running the tests configures.
+  vi.stubEnv("NEXT_PUBLIC_LOGO_URL", "");
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+  });
+  const { html } = renderWelcome({
+    firstName: null,
+    appUrl: "https://app",
+    unsubscribeUrl: "https://u",
+  });
+  const logo = html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+
+  // 572x144 drawn 30px tall; a fixed 106x20 squeezed it.
+  expect(logo).toContain('width="119" height="30"');
+  expect(logo).toMatch(/height: 30px; width: auto;/);
+});
+
+it("signs off with the plated square mark where the released chart configures its icon", () => {
+  vi.stubEnv(
+    "NEXT_PUBLIC_LOGO_URL",
+    "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png",
+  );
+  try {
+    const { html } = renderWelcome({
+      firstName: null,
+      appUrl: "https://app",
+      unsubscribeUrl: "https://u",
+    });
+    const logo = html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+
+    expect(logo).toContain("/frontend/ui/public/images/traceroot_icon_email.png");
+    expect(logo).toContain('width="30" height="30"');
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
