@@ -194,6 +194,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gpt-6.2-sol", label: "gpt-6.2-sol" },
     { id: "gpt-6.2-astra", label: "gpt-6.2-astra" },
     { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
+    { id: "gpt-6.1-terra", label: "gpt-6.1-terra" },
     { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-6-sol", label: "gpt-6-sol" },
     { id: "gpt-6-luna", label: "gpt-6-luna" },
@@ -232,6 +233,9 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   google: [
     { id: "gemini-3.8-flash", label: "gemini-3.8-flash" },
     { id: "gemini-4-argon", label: "gemini-4-argon" },
+    { id: "gemini-4-carbon", label: "gemini-4-carbon" },
+    { id: "gemini-4-hydrogen", label: "gemini-4-hydrogen" },
+    { id: "gemini-4-neon", label: "gemini-4-neon" },
     { id: "gemini-3.6-flash", label: "gemini-3.6-flash" },
     { id: "gemini-3.5-flash", label: "gemini-3.5-flash" },
     { id: "gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite" },
