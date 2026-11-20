@@ -539,7 +539,9 @@ class TestEmptyResultColumns:
         # The scope bind among them. Without it the describe fails with code 456
         # and the caller gets a shapeless answer for no reason.
         client = FakeClient(rows=[], columns=[], describes=[("span_id", "String")])
-        _service(client).run("SELECT span_id FROM spans", PID, parameters={"v": "x"})
+        _service(client).run(
+            "SELECT span_id FROM spans WHERE span_id = {v:String}", PID, parameters={"v": "x"}
+        )
         assert client.calls[1]["parameters"] == client.calls[0]["parameters"]
         assert client.calls[1]["parameters"] == {"v": "x", "scope_project_id": PID}
 
@@ -640,6 +642,87 @@ class TestCallerParameters:
             _service(client).run("SELECT span_id FROM spans", PID, parameters={name: "x"})
         assert not client.calls
 
+    def test_tableless_query_never_triggers_client_side_percent_formatting(self) -> None:
+        # clickhouse-connect falls back to Python `%`-formatting when `parameters`
+        # is non-empty and the SQL carries no `{name:Type}` placeholder. A
+        # table-less query without placeholders must pass `parameters=None` so
+        # string literals containing `%(...)s` are never interpolated.
+        from clickhouse_connect.driver.binding import bind_query
+
+        client = FakeClient(rows=[["hello %(x)s"]])
+        _service(client).run(
+            "SELECT 'hello %(x)s'",
+            PID,
+            parameters={"x": "injected"},
+        )
+        assert client.last["parameters"] is None
+        bound_sql, ext = bind_query(client.last["query"], client.last["parameters"])
+        assert "'hello %(x)s'" in bound_sql
+        assert "injected" not in bound_sql
+        assert ext == {}
+
+    def test_tableless_query_with_declared_placeholder_keeps_server_side_binding(self) -> None:
+        from clickhouse_connect.driver.binding import bind_query
+
+        client = FakeClient(rows=[["hello %(x)s", "ok"]])
+        _service(client).run(
+            "SELECT 'hello %(x)s', {y:String}",
+            PID,
+            parameters={"x": "unused", "y": "ok"},
+        )
+        assert client.last["parameters"] == {"y": "ok"}
+        bound_sql, ext = bind_query(client.last["query"], client.last["parameters"])
+        assert "'hello %(x)s'" in bound_sql
+        assert "unused" not in bound_sql
+        assert "param_y" in ext
+        assert "param_x" not in ext
+
+    def test_literal_mode_with_unused_caller_parameters_passes_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from clickhouse_connect.driver.binding import bind_query
+
+        from rest.services.sql import rewriter as rewriter_module
+
+        monkeypatch.setattr(rewriter_module, "USE_BOUND_PARAM", False)
+        client = FakeClient(rows=[["s1"]])
+        _service(client).run(
+            "SELECT span_id FROM spans WHERE name = '%(x)s'",
+            PID,
+            parameters={"x": "injected"},
+        )
+        assert client.last["parameters"] is None
+        bound_sql, ext = bind_query(client.last["query"], client.last["parameters"])
+        assert "'%(x)s'" in bound_sql
+        assert "injected" not in bound_sql
+        assert ext == {}
+
+    def test_reserved_parameter_is_still_refused_on_tableless_query(self) -> None:
+        client = FakeClient(rows=[[1]])
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run("SELECT 1", PID, parameters={"scope_project_id": "other"})
+        assert exc_info.value.is_client_error
+        assert not client.calls
+
+    def test_refuses_non_empty_parameters_if_rendered_sql_has_no_placeholders(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Defense-in-depth: even if the rewriter somehow returned a bind map on a
+        # statement with no `{name:Type}` placeholder, the service refuses to
+        # execute rather than letting clickhouse-connect interpolate client-side.
+        from rest.services.sql import service as service_module
+
+        monkeypatch.setattr(
+            service_module,
+            "scope_and_render",
+            lambda _q, _p, **_kw: ("SELECT 'hello %(x)s'", {"scope_project_id": PID}),
+        )
+        client = FakeClient(rows=[[1]])
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run("SELECT 'hello %(x)s'", PID)
+        assert exc_info.value.is_client_error is False
+        assert not client.calls
+
     def test_no_parameters_still_sends_only_the_scope_bind(self) -> None:
         client = FakeClient(rows=[["s1"]])
         _service(client).run("SELECT span_id FROM spans", PID)
@@ -657,7 +740,7 @@ class TestRetentionFloor:
         client = FakeClient(rows=[["s1"]])
         with patch(
             "rest.services.sql.service.scope_and_render",
-            return_value=("SELECT 1", {"scope_project_id": "p"}),
+            return_value=("SELECT 1", {}),
         ) as render:
             _service(client).run("SELECT span_id FROM spans", PID, retention_floor=floor)
         render.assert_called_once()
@@ -667,7 +750,7 @@ class TestRetentionFloor:
         client = FakeClient(rows=[["s1"]])
         with patch(
             "rest.services.sql.service.scope_and_render",
-            return_value=("SELECT 1", {"scope_project_id": "p"}),
+            return_value=("SELECT 1", {}),
         ) as render:
             _service(client).run("SELECT span_id FROM spans", PID)
         assert render.call_args.kwargs == {"retention_floor": None}

@@ -48,14 +48,44 @@ import re
 from datetime import UTC, datetime, timedelta
 
 import sqlglot.expressions as exp
+from sqlglot.dialects.clickhouse import ClickHouse
 from sqlglot.optimizer.scope import build_scope
 
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import TABLE_VIEW_MAP
 from rest.services.sql.validator import (
+    has_unsafe_identifier_chars,
     is_blocked_function,
+    is_unsafe_in_clause,
     validate,
 )
+
+
+class _SafeClickHouseGenerator(ClickHouse.Generator):
+    """ClickHouse SQL generator that escapes backslashes inside identifiers.
+
+    sqlglot's stock ClickHouse generator doubles ``"`` inside quoted
+    identifiers without escaping ``\\``. ClickHouse's lexer interprets ``\\``
+    as an escape inside double-quoted identifiers, so an unescaped ``\\``
+    before ``"`` escapes the closing quote. Escaping ``\\`` -> ``\\\\``
+    before doubling ``"`` keeps rendered identifiers safe independently of the
+    Layer-1 and Layer-3 identifier character checks.
+    """
+
+    def identifier_sql(self, expression: exp.Identifier) -> str:
+        if "\\" in expression.name:
+            expression = expression.copy()
+            expression.set("this", expression.name.replace("\\", "\\\\"))
+        return super().identifier_sql(expression)
+
+
+_CLICKHOUSE_DIALECT = ClickHouse()
+
+
+def _render_clickhouse(tree: exp.Expression) -> str:
+    """Render *tree* to ClickHouse SQL with comments stripped and safe escaping."""
+    return _SafeClickHouseGenerator(dialect=_CLICKHOUSE_DIALECT, comments=False).sql(tree)
+
 
 # ---------------------------------------------------------------------------
 # Public interface
@@ -540,9 +570,11 @@ def _rewrite_table(
     time it is called, so ``monkeypatch.setattr(rewriter, '_rewrite_table', …)``
     takes effect immediately.
     """
-    # Only rewrite simple Identifier-backed table references (not view calls,
-    # not table functions).
+    # Only rewrite bare, unqualified Identifier-backed table references (not
+    # view calls, not table functions, not db/catalog-qualified tables).
     if not isinstance(node.this, exp.Identifier):
+        return node
+    if node.args.get("db") or node.args.get("catalog"):
         return node
     table_name = node.name.lower()
     # CTE aliases are not physical tables; leave them unchanged.
@@ -688,9 +720,33 @@ def _verify_view_call(
     return arguments["project_id"]
 
 
+def _cte_reference_ids(tree: exp.Expression) -> set[int]:
+    """Return the ids of ``exp.Table`` nodes that name a CTE visible in their own scope.
+
+    Layer 1 resolves CTE references the same way. Layer 3 repeats it on the
+    rewritten tree rather than trusting Layer 1, because a query-wide alias set
+    lets a CTE defined in one subquery or UNION arm vouch for a same-named
+    physical table in another. Fails closed if scope analysis fails.
+    """
+    try:
+        root_scope = build_scope(tree)
+    except Exception as exc:
+        raise SqlValidationError(
+            "Post-rewrite verification failed: table scopes could not be analyzed"
+        ) from exc
+    if root_scope is None:
+        raise SqlValidationError(
+            "Post-rewrite verification failed: table scopes could not be analyzed"
+        )
+    ids: set[int] = set()
+    for scope in root_scope.traverse():
+        visible = {name.lower() for name in scope.cte_sources}
+        ids.update(id(table) for table in scope.tables if table.name.lower() in visible)
+    return ids
+
+
 def _verify_rewritten_ast(
     tree: exp.Expression,
-    cte_aliases: set[str],
     param_value: exp.Expression,
     floor: exp.Expression | None = None,
 ) -> None:
@@ -701,8 +757,8 @@ def _verify_rewritten_ast(
 
     Invariants:
     1. No whitelisted physical table survived un-rewritten (``exp.Table`` with
-       ``Identifier`` ``this`` whose name is in ``TABLE_VIEW_MAP`` and is not a
-       CTE alias).
+       ``Identifier`` ``this`` whose name is in ``TABLE_VIEW_MAP``), and every
+       other plain table names a CTE visible in its own scope.
     2. Every injected table node names a known curated view (the ``Anonymous``
        ``this.this`` value must be in ``_VIEW_NAMES``).
     3. No blocked function was introduced: re-scan every node with the
@@ -730,21 +786,56 @@ def _verify_rewritten_ast(
         ):
             tenant_arguments.add(id(_verify_view_call(node.this, param_value, floor=floor)))
 
+    cte_reference_ids = _cte_reference_ids(tree)
+
     for node in tree.walk():
+        # --- Invariant 6: no unsafe identifier characters ----------------------
+        if isinstance(node, exp.Identifier) and has_unsafe_identifier_chars(node.name):
+            raise SqlValidationError("Post-rewrite verification failed: unsafe identifier detected")
+
         # --- Invariant 5: reserved parameters only as tenant arguments ---------
         if _is_reserved_placeholder(node) and id(node) not in tenant_arguments:
             raise SqlValidationError(
                 "Post-rewrite verification failed: a reserved parameter is used outside the scope"
             )
 
+        # --- Invariant 7: FROM / JOIN / IN structural checks -------------------
+        if isinstance(node, exp.From) and not isinstance(node.this, (exp.Table, exp.Subquery)):
+            raise SqlValidationError(
+                "Post-rewrite verification failed: unsupported table source in FROM clause"
+            )
+
+        if isinstance(node, exp.Join):
+            if (node.kind or "").upper() == "ARRAY":
+                if any(isinstance(n, (exp.Query, exp.Subquery)) for n in node.walk()):
+                    raise SqlValidationError(
+                        "Post-rewrite verification failed: subquery inside ARRAY JOIN detected"
+                    )
+            elif not isinstance(node.this, (exp.Table, exp.Subquery)):
+                raise SqlValidationError(
+                    "Post-rewrite verification failed: unsupported table source in JOIN clause"
+                )
+
+        if isinstance(node, exp.In) and is_unsafe_in_clause(node) is not None:
+            raise SqlValidationError("Post-rewrite verification failed: unsafe IN clause detected")
+
         # --- Invariant 1 & 2: Table node shape checks -------------------------
         if isinstance(node, exp.Table):
             if isinstance(node.this, exp.Identifier):
-                # Plain table reference — must not be a whitelisted table name.
-                table_name = node.name.lower()
-                if table_name in TABLE_VIEW_MAP and table_name not in cte_aliases:
+                # Plain table reference — must be an unqualified reference to a
+                # CTE in its own scope, never a whitelisted physical table (a CTE
+                # cannot shadow one: the rewriter rewrites every such name).
+                if node.name.lower() in TABLE_VIEW_MAP:
                     raise SqlValidationError(
                         "Post-rewrite verification failed: a whitelisted table was not rewritten"
+                    )
+                if (
+                    node.args.get("db")
+                    or node.args.get("catalog")
+                    or id(node) not in cte_reference_ids
+                ):
+                    raise SqlValidationError(
+                        "Post-rewrite verification failed: unverified table reference detected"
                     )
             elif isinstance(node.this, exp.Anonymous):
                 # Injected view-call node — must name a known curated view.
@@ -755,6 +846,10 @@ def _verify_rewritten_ast(
                         "Post-rewrite verification failed: "
                         "unexpected anonymous table reference introduced"
                     )
+            else:
+                raise SqlValidationError(
+                    "Post-rewrite verification failed: unexpected table reference detected"
+                )
 
         # --- Invariant 3: Blocked-function re-scan ----------------------------
         # The injected *_public_v1 view-call Anonymous nodes are not blocked
@@ -830,9 +925,11 @@ def scope_and_render(
     # This is a flat, query-wide set, deliberately narrower in one respect than
     # the validator's scope-aware resolution: a public table name is removed from
     # it outright. Without that subtraction, a CTE named `spans` anywhere in the
-    # query would exempt every `FROM spans` from rewriting -- and Layer 3 would
-    # forgive the survivor, because it consults this same set. That query cannot
-    # reach here today: validator check 6 rejects a CTE shadowing a public table.
+    # query would exempt every `FROM spans` from rewriting (Layer 3 would then
+    # refuse the survivor, but the rewrite should not depend on that). Only
+    # Layer 2 uses this set; Layer 3 resolves CTE references per scope itself.
+    # That query cannot reach here today: validator check 6 rejects a CTE
+    # shadowing a public table.
     # But that is an invariant in another module with nothing tying the two
     # together, and the rewriter is the layer holding the tenant boundary. It
     # should not depend on being handed only well-formed input.
@@ -842,12 +939,10 @@ def scope_and_render(
     # Step 4 — build the parameter-value expression.
     if USE_BOUND_PARAM:
         param_value: exp.Expression = _make_placeholder()
-        bind_map: dict[str, str] = {"scope_project_id": project_id}
     else:
         if not PROJECT_ID_RE.fullmatch(project_id):
             raise SqlValidationError("project_id contains characters not permitted in literal mode")
         param_value = exp.Literal.string(project_id)
-        bind_map = {}
 
     # Step 4b — read each table reference's window out of its own scope.
     # Computed before the transform, and keyed on node identity, which is why the
@@ -869,8 +964,20 @@ def scope_and_render(
     )
 
     # Step 6 — Layer-3 post-rewrite verification (AST-based, fail closed).
-    _verify_rewritten_ast(rewritten, cte_aliases, param_value, floor=floor_node)
+    _verify_rewritten_ast(rewritten, param_value, floor=floor_node)
+
+    # Only emit the scope bind when the rewritten tree actually carries the
+    # `{scope_project_id: String}` placeholder (i.e. at least one curated view
+    # was injected). Returning an unused bind on a table-less query without any
+    # `{name:Type}` placeholder would cause clickhouse-connect to fall back to
+    # client-side Python `%`-formatting.
+    if USE_BOUND_PARAM and any(
+        isinstance(n, exp.Placeholder) and n == param_value for n in rewritten.walk()
+    ):
+        bind_map: dict[str, str] = {"scope_project_id": project_id}
+    else:
+        bind_map = {}
 
     # Step 7 — render. Comments are not part of the tree the checks above
     # verified, so none is rendered: ClickHouse runs only what was checked.
-    return rewritten.sql(dialect="clickhouse", comments=False), bind_map
+    return _render_clickhouse(rewritten), bind_map

@@ -553,6 +553,129 @@ def test_layer3_rejects_a_blocked_function_in_the_rewritten_tree(
 
 
 # ---------------------------------------------------------------------------
+# Hardening regressions: identifier escaping, Layer-3 structural invariants,
+# and empty bind maps for table-less queries.
+# ---------------------------------------------------------------------------
+class TestLayer3Hardening:
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            pytest.param('SELECT 1 AS "a\\\\"', id="backslash-identifier"),
+            pytest.param('SELECT 1 AS "a\x00b"', id="nul-identifier"),
+        ],
+    )
+    def test_layer3_rejects_unsafe_identifiers_even_if_layer1_is_bypassed(
+        self, sql: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match="unsafe identifier"):
+            scope_and_render(sql, PID)
+
+    def test_layer3_rejects_array_join_subquery_even_if_layer1_is_bypassed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match=r"ARRAY JOIN|FROM clause"):
+            scope_and_render(
+                "SELECT x FROM spans ARRAY JOIN (SELECT groupArray(name) FROM system.tables) AS x",
+                PID,
+            )
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            pytest.param("SELECT 1 WHERE 1 IN system.numbers", id="in-system-table"),
+            pytest.param("SELECT 1 WHERE 1 IN (spans)", id="in-parenthesized-table"),
+            pytest.param("SELECT 1 WHERE 1 GLOBAL IN (SELECT 1 FROM spans)", id="global-in"),
+            # ClickHouse substitutes an Identifier placeholder as a name and looks
+            # a lone name up as a table, so these read whatever table is bound.
+            pytest.param("SELECT 1 WHERE 1 IN {t:Identifier}", id="in-identifier-placeholder"),
+            pytest.param(
+                "SELECT 1 WHERE 1 IN ({t:Identifier})", id="in-parenthesized-identifier-placeholder"
+            ),
+            pytest.param("SELECT 1 WHERE 1 IN loop('system', 'one')", id="in-unlisted-function"),
+            pytest.param(
+                "SELECT 1 WHERE 1 IN (loop('system', 'one'))",
+                id="in-parenthesized-unlisted-function",
+            ),
+        ],
+    )
+    def test_layer3_rejects_unsafe_in_clauses_even_if_layer1_is_bypassed(
+        self, sql: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match="unsafe IN clause"):
+            scope_and_render(sql, PID)
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            pytest.param("SELECT name FROM system.tables", id="system-table"),
+            pytest.param("SELECT * FROM users", id="unknown-table"),
+            pytest.param("SELECT span_id FROM default.spans", id="qualified-public-table"),
+        ],
+    )
+    def test_layer3_rejects_unverified_tables_even_if_layer1_is_bypassed(
+        self, sql: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match=r"unverified table|not rewritten"):
+            scope_and_render(sql, PID)
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            pytest.param(
+                "SELECT * FROM t WHERE 1 IN (WITH t AS (SELECT 1 AS n) SELECT n FROM t)",
+                id="cte-defined-in-a-subquery",
+            ),
+            pytest.param(
+                "SELECT n FROM (WITH t AS (SELECT 1 AS n) SELECT n FROM t) AS s"
+                " UNION ALL SELECT n FROM t",
+                id="cte-defined-in-another-union-arm",
+            ),
+        ],
+    )
+    def test_layer3_rejects_a_table_named_after_an_out_of_scope_cte(
+        self, sql: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The outer `t` is a physical table: the CTE named `t` is not visible in
+        # its scope. A query-wide alias set would let that CTE vouch for it.
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match="unverified table"):
+            scope_and_render(sql, PID)
+
+    def test_safe_clickhouse_generator_escapes_backslashes_in_identifiers(self) -> None:
+        """Even called directly, the ClickHouse renderer escapes backslashes before
+        doubling quotes so rendered identifiers always round-trip cleanly."""
+        import sqlglot
+
+        for raw_name in ("a\\", 'a\\"'):
+            tree = exp.select(exp.Literal.number(1).as_(exp.Identifier(this=raw_name, quoted=True)))
+            rendered = rewriter_mod._render_clickhouse(tree)
+            reparsed = sqlglot.parse_one(rendered, read="clickhouse")
+            assert reparsed.expressions[0].alias == raw_name
+
+
+class TestTablelessBindMap:
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            pytest.param("SELECT 1", id="literal-select"),
+            pytest.param("SELECT 'hello %(x)s'", id="percent-placeholder-literal"),
+            pytest.param(
+                "WITH a AS (SELECT 1 AS n) SELECT n FROM a",
+                id="tableless-cte",
+            ),
+        ],
+    )
+    def test_tableless_query_returns_empty_bind_map(self, sql: str) -> None:
+        rendered, binds = scope_and_render(sql, PID)
+        assert binds == {}
+        assert "scope_project_id" not in rendered
+
+
+# ---------------------------------------------------------------------------
 # Time range. The curated views declare start_time (inclusive) and end_time
 # (exclusive) and apply them inside the dedup subquery, so the window the
 # rewriter passes decides which rows reach the dedup at all.
