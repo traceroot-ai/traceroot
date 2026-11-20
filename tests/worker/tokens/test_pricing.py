@@ -248,6 +248,9 @@ GEMINI_MODEL_CASES = [
     ("gemini-3.8-flash", "gemini-3.8-flash"),
     ("google/gemini-3.8-flash", "gemini-3.8-flash"),
     ("gemini-3.7-flash", "gemini-3.7-flash"),
+    ("gemini-4-argon", "gemini-4-argon"),
+    ("google/gemini-4-argon", "gemini-4-argon"),
+    ("models/gemini-4-argon", "gemini-4-argon"),
     ("gemini-3.6-flash", "gemini-3.6-flash"),
     ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
     ("gemini-3.5-flash", "gemini-3.5-flash"),
@@ -602,6 +605,33 @@ class TestGeminiModelIds:
     def test_unpriced_gemini_ids_do_not_inherit_a_price(self, real_cache, model_id):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price(model_id) is None
+
+
+GEMINI_4_ARGON_NON_MATCHES = [
+    ("gemini-4-argon", "gemini-4-argon-cyber-permissive"),
+]
+
+
+class TestGemini4ArgonPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+
+    The rates double on 2026-12-01 ($4 input, $20 output, $0.2 cache read); the
+    table has no effective dates, so update the row then.
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-argon")
+        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1e-07)  # $0.1 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_ARGON_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 # $ per 1M tokens, off-peak: input, cache hit, output
