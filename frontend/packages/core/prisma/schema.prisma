@@ -13,6 +13,12 @@ enum MemberRole {
   ADMIN
 }
 
+enum StripeMeterEventStatus {
+  PENDING
+  SUBMITTED
+  RECONCILIATION_REQUIRED
+}
+
 // Access Keys - API authentication for SDK/trace ingestion
 model AccessKey {
   id          String    @id @db.VarChar
@@ -111,6 +117,7 @@ model Workspace {
   aiMessages          AIMessage[]
   slackIntegration    SlackIntegration?
   usageNotifications  WorkspaceUsageNotification[]
+  stripeMeterEvents   StripeMeterEvent[]
 
   // Backs the idempotent create: two concurrent create_workspace calls by the
   // same user with the same name cannot both insert.
@@ -137,6 +144,39 @@ model WorkspaceUsageNotification {
 
   @@unique([workspaceId, meter], map: "uq_usage_notification_workspace_meter")
   @@map("workspace_usage_notifications")
+}
+
+// Durable Stripe meter-event outbox. The cumulative target makes each usage
+// increment unique within a meter and billing period.
+model StripeMeterEvent {
+  id              String                 @id @default(cuid()) @db.VarChar
+  workspaceId     String                 @map("workspace_id") @db.VarChar
+  meter           String                 @db.VarChar
+  periodStart     DateTime               @map("period_start") @db.Timestamp(6)
+  cumulativeUnits Int                    @map("cumulative_units")
+  eventName       String                 @map("event_name") @db.VarChar
+  identifier      String                 @unique @db.VarChar
+  customerId      String                 @map("customer_id") @db.VarChar
+  units           Int
+  eventTimestamp  DateTime               @map("event_timestamp") @db.Timestamp(0)
+  status          StripeMeterEventStatus @default(PENDING)
+  attemptCount    Int                    @default(0) @map("attempt_count")
+  firstAttemptAt  DateTime?              @map("first_attempt_at") @db.Timestamp(6)
+  ambiguousSince  DateTime?              @map("ambiguous_since") @db.Timestamp(6)
+  lastAttemptAt   DateTime?              @map("last_attempt_at") @db.Timestamp(6)
+  lastErrorCode   String?                @map("last_error_code") @db.VarChar
+  claimToken      String?                @map("claim_token") @db.VarChar
+  claimedAt       DateTime?              @map("claimed_at") @db.Timestamp(6)
+  submittedAt     DateTime?              @map("submitted_at") @db.Timestamp(6)
+  createTime      DateTime               @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime               @updatedAt @map("update_time") @db.Timestamp(6)
+  workspace       Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([workspaceId, meter, periodStart, cumulativeUnits], map: "uq_stripe_meter_event_workspace_meter_period_target")
+  @@index([workspaceId, meter, periodStart, status], map: "ix_stripe_meter_event_pending")
+  @@index([status, lastAttemptAt(sort: Asc, nulls: First), createTime, id], map: "ix_stripe_meter_event_recovery")
+  @@index([status, ambiguousSince], map: "ix_stripe_meter_event_reconciliation")
+  @@map("stripe_meter_events")
 }
 
 // One row per (user, campaign) for app email that must not repeat; see src/lib/email/send-record.ts.
