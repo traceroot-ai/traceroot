@@ -3,6 +3,7 @@
 Every read is secret-gated and scoped by project id.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -21,7 +22,11 @@ from rest.schemas.detectors import (
     RunListResponse,
     TraceCountsResponse,
 )
-from rest.services.trace_reader import _evaluation_exclusion, customer_traffic_only
+from rest.services.trace_reader import (
+    _evaluation_exclusion,
+    customer_traffic_only,
+    get_trace_reader_service,
+)
 from rest.sql_utils import escape_ilike, to_utc_naive
 
 logger = logging.getLogger(__name__)
@@ -426,11 +431,38 @@ async def get_time_since_last_span(trace_id: str, project_id: str):
     return {"time_since_last_span_ms": age}
 
 
+def _trace_started_before(project_id: str, trace_id: str, cutoff: datetime) -> bool:
+    """Whether the trace's root span started before ``cutoff``.
+
+    Detector rows are stamped when the detector runs, which can be long after the
+    trace started: evaluation waits until the trace goes quiet. The trace read gates
+    on the root span's start, so a trace outside the window keeps its findings and
+    runs outside it too. ``False`` when the root span hasn't arrived, which leaves the
+    row timestamp as the only bound.
+
+    Args:
+        project_id (str): Project that owns the trace.
+        trace_id (str): Trace to check.
+        cutoff (datetime): The plan's retention cutoff, aware or naive UTC.
+
+    Returns:
+        bool: True when the root span's start is known and earlier than ``cutoff``.
+    """
+    start = get_trace_reader_service().get_trace_start_time(project_id, trace_id)
+    return start is not None and to_utc_naive(start) < to_utc_naive(cutoff)
+
+
 @router.get(
     "/traces/{trace_id}/findings",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def get_trace_findings(trace_id: str, project_id: str):
+async def get_trace_findings(
+    trace_id: str,
+    project_id: str,
+    start_after: datetime | None = Query(
+        None, description="Filter findings at/after this timestamp (inclusive)"
+    ),
+):
     """List all detector findings recorded for a single trace.
 
     Queries the ``detector_findings`` table with ``FINAL`` so pre-merge
@@ -441,6 +473,10 @@ async def get_trace_findings(trace_id: str, project_id: str):
     Args:
         trace_id (str): Trace whose findings to return.
         project_id (str): Project that owns the trace; scopes the query.
+        start_after (datetime | None): The UI proxy passes the plan's retention
+            cutoff. Rows are bounded by their ``timestamp`` (inclusive), and a
+            trace whose root span started before the cutoff returns nothing.
+            Callers with no window (the worker) omit it, and the query is unbounded.
 
     Returns:
         dict: ``{"findings": list[dict]}`` ordered newest-first, each finding a
@@ -448,13 +484,23 @@ async def get_trace_findings(trace_id: str, project_id: str):
             ``payload`` and ISO-8601 ``timestamp``. The list is empty when the
             trace has no findings.
     """
+    if start_after is not None and await asyncio.to_thread(
+        _trace_started_before, project_id, trace_id, start_after
+    ):
+        return {"findings": []}
     ch = get_clickhouse_client()
-    result = ch.query(
-        """SELECT finding_id, project_id, trace_id, summary, payload, timestamp
+    where = "trace_id = {trace_id:String} AND project_id = {project_id:String}"
+    parameters: dict[str, Any] = {"trace_id": trace_id, "project_id": project_id}
+    if start_after is not None:
+        where += " AND timestamp >= {start_after:DateTime64(3)}"
+        parameters["start_after"] = to_utc_naive(start_after)
+    result = await asyncio.to_thread(
+        ch.query,
+        f"""SELECT finding_id, project_id, trace_id, summary, payload, timestamp
            FROM detector_findings FINAL
-           WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
+           WHERE {where}
            ORDER BY timestamp DESC""",
-        parameters={"trace_id": trace_id, "project_id": project_id},
+        parameters=parameters,
     )
     findings = []
     for row in result.result_rows:
@@ -469,7 +515,13 @@ async def get_trace_findings(trace_id: str, project_id: str):
     "/traces/{trace_id}/detector-runs",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def list_trace_detector_runs(trace_id: str, project_id: str):
+async def list_trace_detector_runs(
+    trace_id: str,
+    project_id: str,
+    start_after: datetime | None = Query(
+        None, description="Filter runs at/after this timestamp (inclusive)"
+    ),
+):
     """List every detector run recorded against a single trace.
 
     Both ``detector_runs`` and ``detector_findings`` are ReplacingMergeTree
@@ -482,6 +534,10 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     Args:
         trace_id (str): Trace whose detector runs to return.
         project_id (str): Project that owns the trace; scopes the query.
+        start_after (datetime | None): The UI proxy passes the plan's retention
+            cutoff. Rows are bounded by their ``timestamp`` (inclusive), and a
+            trace whose root span started before the cutoff returns nothing.
+            Omitted, the query is unbounded.
 
     Returns:
         dict: ``{"runs": list[dict]}`` ordered by ``detector_id``, each run a
@@ -489,9 +545,19 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
             ``finding_id`` (``None`` for clean runs), ``status``, ISO-8601
             ``timestamp`` and ``summary``. Empty when the trace has no runs.
     """
+    if start_after is not None and await asyncio.to_thread(
+        _trace_started_before, project_id, trace_id, start_after
+    ):
+        return {"runs": []}
     ch = get_clickhouse_client()
 
     summary_expr = _detector_summary_expr("r.finding_id")
+
+    parameters: dict[str, Any] = {"trace_id": trace_id, "project_id": project_id}
+    start_after_clause = ""
+    if start_after is not None:
+        start_after_clause = " AND r.timestamp >= {start_after:DateTime64(3)}"
+        parameters["start_after"] = to_utc_naive(start_after)
 
     query = f"""
         SELECT
@@ -508,10 +574,10 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE r.trace_id = {{trace_id:String}}
-          AND r.project_id = {{project_id:String}}
+          AND r.project_id = {{project_id:String}}{start_after_clause}
         ORDER BY r.detector_id
     """
-    result = ch.query(query, parameters={"trace_id": trace_id, "project_id": project_id})
+    result = await asyncio.to_thread(ch.query, query, parameters=parameters)
 
     runs = []
     for row in result.result_rows:
