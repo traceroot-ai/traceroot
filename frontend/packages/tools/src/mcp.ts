@@ -49,6 +49,32 @@ export interface ToMcpToolOptions {
    * read is the motivating case.
    */
   transformResult?: (result: unknown, args: Readonly<Record<string, unknown>>) => unknown;
+  /**
+   * Descriptions for params the registry leaves undescribed, by param name. A
+   * description the registry already carries wins. A model picks arguments from
+   * these, so a bare `trace_id` that does not say where the id comes from is a
+   * guess waiting to happen.
+   */
+  paramDescriptions?: Readonly<Record<string, string>>;
+  /**
+   * Longest result text returned. A longer one is cut and says so, so the model
+   * narrows the request instead of reasoning over a silently partial answer or
+   * overflowing its context. Defaults to DEFAULT_MAX_RESULT_CHARS.
+   */
+  maxResultChars?: number;
+}
+
+/** About 20k tokens of JSON: under the limit clients such as Claude Code apply to a tool result. */
+export const DEFAULT_MAX_RESULT_CHARS = 80_000;
+
+/** Cut text to `limit` characters, appending what happened and what to do about it. */
+export function truncateResult(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  return (
+    text.slice(0, limit) +
+    `\n\n[Result truncated: it was ${text.length} characters and the limit is ${limit}. ` +
+    "Narrow the request (a shorter time window, a smaller limit, or specific fields) and call again.]"
+  );
 }
 
 /**
@@ -59,13 +85,26 @@ export interface ToMcpToolOptions {
  * backend's own detail so the model can read it and adapt.
  */
 export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpTool {
-  const { client, hiddenParams = [], description, defaults, transformResult } = options;
+  const {
+    client,
+    hiddenParams = [],
+    description,
+    defaults,
+    transformResult,
+    paramDescriptions = {},
+    maxResultChars = DEFAULT_MAX_RESULT_CHARS,
+  } = options;
 
   const hidden = new Set([...(entry.agentHiddenParams ?? []), ...hiddenParams]);
   const properties: InputSchema["properties"] = {};
   for (const [name, schema] of Object.entries(entry.inputSchema.properties)) {
     if (!hidden.has(name)) {
-      properties[name] = stripOversizedNumericBounds(schema);
+      const described = stripOversizedNumericBounds(schema);
+      const fallback = paramDescriptions[name];
+      properties[name] =
+        fallback && !("description" in described)
+          ? { ...described, description: fallback }
+          : described;
     }
   }
   const inputSchema: InputSchema = {
@@ -101,7 +140,9 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
         const args = { ...(defaults?.(supplied) ?? {}), ...supplied };
         const result = await dispatch(entry, args, client, { signal });
         const shaped = transformResult ? transformResult(result, args) : result;
-        return { content: [{ type: "text", text: JSON.stringify(shaped, null, 2) }] };
+        // Compact: the model reads it as well as indented JSON, in about a third fewer tokens.
+        const text = truncateResult(JSON.stringify(shaped), maxResultChars);
+        return { content: [{ type: "text", text }] };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
