@@ -1,4 +1,5 @@
 import { spawn, execFile } from "child_process";
+import { randomUUID } from "crypto";
 import { promisify } from "util";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 import { ASKPASS_PATH, ASKPASS_SCRIPT, buildCloneCommand } from "./git-clone-command.js";
@@ -8,6 +9,47 @@ const execFileAsync = promisify(execFile);
 const DOCKER_IMAGE = "ubuntu:24.04";
 const WORKSPACE_DIR = "/workspace";
 const CONTAINER_NAME_PREFIX = "traceroot-sandbox-";
+
+/**
+ * Environment variable carrying a per-exec id. Every process a command starts
+ * inherits it, including ones that leave the command's process group or
+ * session, which is what lets stopCommand find all of them.
+ */
+const EXEC_ID_ENV = "TRACEROOT_EXEC_ID";
+const ABORTED_MESSAGE = "Command aborted";
+/** Upper bound on the `docker exec` that stops an interrupted command. */
+const STOP_TIMEOUT_MS = 10_000;
+
+/**
+ * Runs the command (`$1`) unless stopCommand already marked it cancelled, which
+ * happens when an abort reaches the container before this exec has started.
+ */
+const EXEC_WRAPPER = [
+  `cancelled="/tmp/traceroot-exec-$${EXEC_ID_ENV}.cancelled"`,
+  'if [ -e "$cancelled" ]; then rm -f "$cancelled"; exit 1; fi',
+  'exec sh -c "$1"',
+].join("\n");
+
+/**
+ * Kills every process carrying the exec id (`$1`), repeating until none is
+ * left so that a child forked between a scan and its kill is caught by the
+ * next scan. A killed process's environ reads empty, so it no longer matches.
+ *
+ * The cancelled marker covers an exec that has not started yet. Once a process
+ * was found, the exec has started and is now dead, so the marker is removed.
+ */
+const STOP_SCRIPT = [
+  'cancelled="/tmp/traceroot-exec-$1.cancelled"',
+  'touch "$cancelled"',
+  "found=0",
+  "for _ in 1 2 3 4 5 6 7 8 9 10; do",
+  `  pids=$(grep -lzx "${EXEC_ID_ENV}=$1" /proc/[0-9]*/environ 2>/dev/null | cut -d/ -f3)`,
+  '  [ -n "$pids" ] || break',
+  "  found=1",
+  "  kill -KILL $pids 2>/dev/null",
+  "done",
+  'if [ "$found" = 1 ]; then rm -f "$cancelled"; fi',
+].join("\n");
 
 /** Marks a container as an agent sandbox. Set on every container we create. */
 export const SANDBOX_LABEL = "traceroot.sandbox";
@@ -47,6 +89,9 @@ export class DockerExecutor implements Executor {
     const { stdout } = await execFileAsync("docker", [
       "run",
       "-d",
+      // An init process reaps what a stopped command leaves behind; `sleep`
+      // as PID 1 would keep every orphaned process as a zombie.
+      "--init",
       "--name",
       `${CONTAINER_NAME_PREFIX}${Date.now()}`,
       "--label",
@@ -81,52 +126,73 @@ export class DockerExecutor implements Executor {
    * Execute a command in the container.
    * Follows Mom's pattern: spawn shell, capture stdout/stderr, support
    * timeout and AbortSignal, truncate output at 10MB.
+   *
+   * Killing the local `docker exec` client does not stop the command inside the
+   * container, so a timeout or abort also stops it there (see stopCommand).
    */
   async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
     if (!this.containerId) throw new Error("Container not initialized");
+    const containerId = this.containerId;
+
+    if (options?.signal?.aborted) {
+      return { stdout: "", stderr: ABORTED_MESSAGE, code: 1 };
+    }
 
     return new Promise((resolve) => {
+      const execId = randomUUID();
       // Env values are passed to `docker exec` by NAME only (`-e KEY`), so the
       // value is inherited from this process's environment and never appears in
       // argv or `ps` output — matching the guarantee ExecOptions.env documents.
-      const envNames = Object.keys(options?.env ?? {});
+      // The exec id travels the same way and marks every process the command
+      // starts, so stopCommand can find them.
+      const env = { ...options?.env, [EXEC_ID_ENV]: execId };
       const child = spawn(
         "docker",
         [
           "exec",
-          ...envNames.flatMap((name) => ["-e", name]),
-          this.containerId!,
+          ...Object.keys(env).flatMap((name) => ["-e", name]),
+          containerId,
           "sh",
           "-c",
+          EXEC_WRAPPER,
+          "sh",
           command,
         ],
         {
           stdio: ["ignore", "pipe", "pipe"],
-          env: options?.env ? { ...process.env, ...options.env } : process.env,
+          env: { ...process.env, ...env },
         },
       );
 
       let stdout = "";
       let stderr = "";
-      let timedOut = false;
+      let interrupted: "timeout" | "abort" | null = null;
+      let stopped: Promise<void> | undefined;
       const MAX_BYTES = 10 * 1024 * 1024; // 10MB, matches Mom
+
+      // Stop the command inside the container first, then the client, which
+      // may still be waiting on an output stream nothing is going to close.
+      const interrupt = (reason: "timeout" | "abort") => {
+        if (interrupted) return;
+        interrupted = reason;
+        stopped = stopCommand(containerId, execId).finally(() => child.kill("SIGKILL"));
+      };
 
       // Timeout handling (like Mom's HostExecutor)
       const timeoutMs = options?.timeout ? options.timeout * 1000 : 30000;
-      const timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGKILL");
-      }, timeoutMs);
+      const timeoutHandle = setTimeout(() => interrupt("timeout"), timeoutMs);
 
       // AbortSignal support (like Mom)
-      if (options?.signal) {
-        const onAbort = () => child.kill("SIGKILL");
-        if (options.signal.aborted) {
-          onAbort();
-        } else {
-          options.signal.addEventListener("abort", onAbort, { once: true });
-        }
-      }
+      const onAbort = () => interrupt("abort");
+      options?.signal?.addEventListener("abort", onAbort, { once: true });
+
+      const finish = (result: ExecResult) => {
+        clearTimeout(timeoutHandle);
+        options?.signal?.removeEventListener("abort", onAbort);
+        // Resolve only once the command is gone from the container, so nothing
+        // it started can still write to the workspace after exec() returns.
+        void Promise.resolve(stopped).then(() => resolve(result));
+      };
 
       child.stdout?.on("data", (data: Buffer) => {
         stdout += data.toString();
@@ -139,17 +205,24 @@ export class DockerExecutor implements Executor {
       });
 
       child.on("close", (code) => {
-        clearTimeout(timeoutHandle);
-        if (timedOut) {
-          resolve({ stdout, stderr: `Command timed out after ${timeoutMs / 1000}s`, code: 1 });
+        if (interrupted === "timeout") {
+          finish({ stdout, stderr: `Command timed out after ${timeoutMs / 1000}s`, code: 1 });
           return;
         }
-        resolve({ stdout, stderr, code: code ?? 0 });
+        if (interrupted === "abort") {
+          finish({
+            stdout,
+            stderr: stderr ? `${stderr}\n${ABORTED_MESSAGE}` : ABORTED_MESSAGE,
+            code: 1,
+          });
+          return;
+        }
+        // A null code means the client was killed by a signal: not a success.
+        finish({ stdout, stderr, code: code ?? 1 });
       });
 
       child.on("error", (err) => {
-        clearTimeout(timeoutHandle);
-        resolve({ stdout, stderr: err.message, code: 1 });
+        finish({ stdout, stderr: err.message, code: 1 });
       });
     });
   }
@@ -286,6 +359,22 @@ export async function reclaimOrphanedSandboxes(ownerId: string): Promise<string[
     console.warn(`[DockerExecutor] Failed to remove orphaned sandboxes: ${String(error)}`);
   }
   return orphaned;
+}
+
+/**
+ * Stop an interrupted exec inside the container: every process it started, not
+ * just the `docker exec` client on this host. A failure is logged rather than
+ * thrown; the caller still kills the client and reports the interruption.
+ */
+async function stopCommand(containerId: string, execId: string): Promise<void> {
+  try {
+    await execFileAsync("docker", ["exec", containerId, "sh", "-c", STOP_SCRIPT, "sh", execId], {
+      timeout: STOP_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
+  } catch (error) {
+    console.warn(`[DockerExecutor] Failed to stop command ${execId}: ${String(error)}`);
+  }
 }
 
 /**
