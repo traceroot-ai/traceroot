@@ -17,7 +17,7 @@ import { initSelfTraceEmitter, shutdownSelfTraceEmitter } from "./detection/self
 import { isAlertsSchedulerEnabled, startAlertScheduler } from "./alerts/scheduler.js";
 import { logInfo } from "./alerts/log.js";
 import { startAlertNotificationWorker } from "./notifications/alert-slack.js";
-import { startWebTickWorker } from "./web-tick/web-tick.js";
+import { closeWebTickWorker, startWebTickWorker } from "./web-tick/web-tick.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -48,6 +48,9 @@ async function shutdown(signal: string): Promise<void> {
         );
       }
     }
+    if (webTickWorker) {
+      await closeWebTickWorker(webTickWorker);
+    }
     if (alertNotificationWorker) {
       await alertNotificationWorker.close();
     }
@@ -62,9 +65,6 @@ async function shutdown(signal: string): Promise<void> {
     }
     if (signalAssignWorker) {
       await signalAssignWorker.close();
-    }
-    if (webTickWorker) {
-      await webTickWorker.close();
     }
     // Flush batched self-trace spans; shutdownSelfTraceEmitter catches
     // internally so an export failure cannot crash shutdown.

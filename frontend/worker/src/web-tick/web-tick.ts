@@ -27,6 +27,9 @@ const WEB_TICK_BACKOFF_MS = 30_000;
 
 let warnedNoSecret = false;
 
+/** Aborted on shutdown, cancelling the request of a tick in progress. */
+const shuttingDown = new AbortController();
+
 /** One tick: asks the web app to run its periodic work. Throws on failure, so BullMQ retries. */
 export async function runWebTick(): Promise<void> {
   const secret = process.env.INTERNAL_API_SECRET || "";
@@ -42,7 +45,7 @@ export async function runWebTick(): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Internal-Secret": secret },
     body: "{}",
-    signal: AbortSignal.timeout(WEB_TICK_TIMEOUT_MS),
+    signal: AbortSignal.any([AbortSignal.timeout(WEB_TICK_TIMEOUT_MS), shuttingDown.signal]),
   });
   if (!response.ok) {
     throw new Error(`web tick answered ${response.status}`);
@@ -86,4 +89,15 @@ export function startWebTickWorker(): Worker {
     )
     .catch((err) => console.error("[Web tick] failed to schedule the tick:", err));
   return worker;
+}
+
+/**
+ * Stops the worker without waiting out a tick in progress, which can take most of
+ * the request timeout while the stop grace is shorter (10s under compose). The
+ * tick's request is cancelled, so its job fails and is retried later; the web app
+ * finishes or gives back what it started, and each task is safe to run again.
+ */
+export async function closeWebTickWorker(worker: Worker): Promise<void> {
+  shuttingDown.abort(new Error("the detector service is shutting down"));
+  await worker.close();
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const bull = vi.hoisted(() => ({
   upsertJobScheduler: vi.fn(),
+  close: vi.fn(async () => undefined),
   workers: [] as Array<{
     name: string;
     processor: () => Promise<unknown>;
@@ -19,6 +20,7 @@ vi.mock("bullmq", () => ({
     on() {
       return this;
     }
+    close = bull.close;
   },
 }));
 vi.mock("../../queues/detector-run-queue.js", () => ({ createRedisConnection: () => ({}) }));
@@ -40,6 +42,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("runWebTick", () => {
@@ -113,5 +116,31 @@ describe("startWebTickWorker", () => {
     await bull.workers[0].processor();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("closeWebTickWorker", () => {
+  it("cancels a tick in progress instead of waiting it out, then closes the worker", async () => {
+    // A fresh module: shutting down is for good, so no other test may share it.
+    vi.resetModules();
+    const {
+      closeWebTickWorker,
+      runWebTick: tick,
+      startWebTickWorker: start,
+    } = await import("../web-tick.js");
+    // A web app that has not answered yet; only cancelling the request ends it.
+    fetchMock.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) =>
+          init.signal.addEventListener("abort", () => reject(init.signal.reason)),
+        ),
+    );
+    const running = tick();
+    const worker = start() as unknown as Parameters<typeof closeWebTickWorker>[0];
+
+    await closeWebTickWorker(worker);
+
+    await expect(running).rejects.toThrow("the detector service is shutting down");
+    expect(bull.close).toHaveBeenCalledOnce();
   });
 });

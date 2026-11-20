@@ -7,13 +7,21 @@
  * its earliest admin where `createdBy` is empty; the shared demo workspace is
  * nobody's. Run by the web app's scheduled tick (`POST /api/internal/scheduled-tick`).
  *
- * A person is sent the count once per UTC day however ticks overlap, retry or die
- * halfway. A tick claims the person (`trace_count_claimed_at`) with a conditional
- * write, sends the count and waits for PostHog to accept it, then marks the day
- * done (`trace_count_reported_on`). A claim held by another tick is skipped; one
- * older than the lease belongs to a tick that died before sending, and is taken
- * over. A send PostHog does not accept gives the claim back and ends the tick,
+ * Overlapping ticks never send a person the count twice in a UTC day. A tick
+ * claims the person (`trace_count_claimed_at`) with a conditional write, sends the
+ * count and waits for PostHog to accept it, then marks the day done
+ * (`trace_count_reported_on`). A claim held by another tick is skipped; one older
+ * than the lease belongs to a tick that died, and is taken over. A tick that dies
+ * after PostHog accepted the count but before marking the day done has its person
+ * sent the same count again by that later tick; setting the property twice is
+ * harmless. A send PostHog does not accept gives the claim back and ends the tick,
  * leaving the rest to the next one.
+ *
+ * A tick sends to at most TRACE_COUNT_BATCH_SIZE people within
+ * TRACE_COUNT_TIME_BUDGET_MS, so it answers well inside the caller's timeout; a send
+ * still unanswered at the deadline is given back like a failed one. People
+ * go in order of their last report, never-reported first, so when there are more
+ * owners than a day's ticks can reach, the ones left out today go first tomorrow.
  */
 import { prisma, Role } from "@traceroot/core";
 import { demoWorkspaceId } from "@/lib/demo-workspace";
@@ -24,6 +32,14 @@ import { utcDay } from "@/lib/utc-day";
 /** People sent their count in one tick; the rest wait for the next one, 15 minutes on. */
 export const TRACE_COUNT_BATCH_SIZE = 100;
 
+/**
+ * How long a tick spends sending. Past it the tick starts no new send, stops waiting
+ * for the one in flight (PostHog's own retries can take most of a minute) and leaves
+ * the rest to the next tick. Well inside the scheduler's request timeout
+ * (WEB_TICK_TIMEOUT_MS, 60s), so the tick answers before the caller gives up on it.
+ */
+export const TRACE_COUNT_TIME_BUDGET_MS = 40_000;
+
 /** How long a claim protects a send in progress; well past one PostHog request with retries. */
 export const TRACE_COUNT_CLAIM_LEASE_MS = 2 * 60 * 1000;
 
@@ -33,7 +49,7 @@ export type TraceCountRun =
       kind: "sent";
       /** People this tick sent the count to. */
       sent: number;
-      /** People still due today, left to the next tick by the batch size or a failed send. */
+      /** People still due today, left to the next tick by the batch size, the time budget or a failed send. */
       remaining: number;
     };
 
@@ -43,22 +59,32 @@ export async function reportDailyTraceCounts(
   // Nowhere to send the property: claiming people for the day would only write rows.
   if (!isServerAnalyticsEnabled()) return { kind: "analytics_off" };
 
-  const today = utcDay(clock());
+  const startedAt = clock();
+  const today = utcDay(startedAt);
   const counts = await traceCountsByOwner();
-  const doneToday = await prisma.userOnboarding.findMany({
-    where: { traceCountReportedOn: today },
-    select: { userId: true },
+  const reported = await prisma.userOnboarding.findMany({
+    where: { traceCountReportedOn: { not: null } },
+    select: { userId: true, traceCountReportedOn: true },
   });
-  const done = new Set(doneToday.map((row) => row.userId));
-  const due = [...counts].filter(([userId]) => !done.has(userId));
+  const lastReport = new Map(
+    reported.map((row) => [row.userId, row.traceCountReportedOn!.getTime()]),
+  );
+  // 0 for never reported, which sorts before any real day.
+  const reportedAt = (userId: string) => lastReport.get(userId) ?? 0;
+  // The longest since their last report first; the id keeps ties in a fixed order.
+  const due = [...counts]
+    .filter(([userId]) => reportedAt(userId) < today.getTime())
+    .sort(([a], [b]) => reportedAt(a) - reportedAt(b) || (a < b ? -1 : a > b ? 1 : 0));
 
+  const timeLeft = () => startedAt.getTime() + TRACE_COUNT_TIME_BUDGET_MS - clock().getTime();
   let sent = 0;
   for (const [userId, traceCount] of due.slice(0, TRACE_COUNT_BATCH_SIZE)) {
+    if (timeLeft() <= 0) break;
     // Another tick may hold this person, or have finished them since the read above.
     const claimedAt = clock();
     if (!(await claim(userId, today, claimedAt))) continue;
     try {
-      await sendServerPersonProperties(userId, { trace_count: traceCount });
+      await withinMs(sendServerPersonProperties(userId, { trace_count: traceCount }), timeLeft());
     } catch (err) {
       await release(userId, claimedAt);
       console.error("[trace-count] PostHog did not accept a count; ending this tick:", err);
@@ -68,6 +94,23 @@ export async function reportDailyTraceCounts(
     sent += 1;
   }
   return { kind: "sent", sent, remaining: due.length - sent };
+}
+
+/**
+ * The promise's outcome, or a rejection once `ms` have passed. The work itself goes
+ * on; a send PostHog accepts after the deadline only sets the same value again.
+ */
+async function withinMs<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${ms}ms`)), Math.max(ms, 0));
+  });
+  promise.catch(() => {}); // a late failure has nobody waiting for it
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Each owner's traces summed over their workspaces, for owners whose user still exists. */

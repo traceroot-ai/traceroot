@@ -16,7 +16,7 @@ const db = vi.hoisted(() => {
     onboarding: [] as Row[],
   };
 
-  /** Equality, null, `lt`, `OR` and `AND`: the conditions the module writes. */
+  /** Equality, null, `lt`, `not: null`, `OR` and `AND`: the conditions the module writes. */
   function matches(row: Row, where: Row): boolean {
     return Object.entries(where).every(([key, condition]) => {
       if (key === "OR") return (condition as Row[]).some((c) => matches(row, c));
@@ -25,6 +25,9 @@ const db = vi.hoisted(() => {
       if (condition === null) return value === null;
       if (condition instanceof Date) {
         return value instanceof Date && value.getTime() === condition.getTime();
+      }
+      if (typeof condition === "object" && "not" in condition && condition.not === null) {
+        return value !== null;
       }
       const { lt } = condition as { lt?: Date };
       if (lt !== undefined) return value instanceof Date && value.getTime() < lt.getTime();
@@ -100,6 +103,7 @@ import {
   reportDailyTraceCounts,
   TRACE_COUNT_BATCH_SIZE,
   TRACE_COUNT_CLAIM_LEASE_MS,
+  TRACE_COUNT_TIME_BUDGET_MS,
 } from "./trace-count";
 
 const reportAt = (at: Date) => reportDailyTraceCounts(() => at);
@@ -144,10 +148,11 @@ describe("reportDailyTraceCounts", () => {
     workspace("ws_4", "user_lin"); // usage not written yet
 
     expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 3, remaining: 0 });
+    // None reported yet, so in id order.
     expect(sent()).toEqual([
-      ["user_sam", 150],
       ["user_ada", 7],
       ["user_lin", 0],
+      ["user_sam", 150],
     ]);
     expect(row("user_sam")).toMatchObject({
       traceCountReportedOn: NOV_18_DAY,
@@ -223,24 +228,52 @@ describe("reportDailyTraceCounts", () => {
     ]);
   });
 
-  it("keeps the second owner's claim live when the first send took longer than a lease", async () => {
-    workspace("ws_1", "user_sam", 10);
-    workspace("ws_2", "user_ada", 20);
+  it("starts no send once the tick has used its time budget", async () => {
+    workspace("ws_1", "user_ada", 10);
+    workspace("ws_2", "user_sam", 20);
     let now = NOV_18;
-    analytics.sendServerPersonProperties
-      .mockImplementationOnce(async () => {
-        now = later(TRACE_COUNT_CLAIM_LEASE_MS + 1);
-      })
-      .mockImplementationOnce(async () => {
-        // The overlapping tick arrives while the second send is in flight.
-        await reportAt(now);
-      });
+    analytics.sendServerPersonProperties.mockImplementationOnce(async () => {
+      now = later(TRACE_COUNT_TIME_BUDGET_MS);
+    });
 
-    await reportDailyTraceCounts(() => now);
+    expect(await reportDailyTraceCounts(() => now)).toEqual({
+      kind: "sent",
+      sent: 1,
+      remaining: 1,
+    });
+    expect(sent()).toEqual([["user_ada", 10]]);
+    expect(row("user_sam")).toBeUndefined();
+  });
 
-    expect(sent()).toEqual([
-      ["user_sam", 10],
-      ["user_ada", 20],
+  it("stops waiting for a send still unanswered at the deadline and gives it back", async () => {
+    workspace("ws_1", "user_ada", 10);
+    workspace("ws_2", "user_sam", 20);
+    // The tick starts at NOV_18; its send starts with 5ms of the budget left and
+    // PostHog never answers.
+    let reads = 0;
+    const clock = () => (reads++ === 0 ? NOV_18 : later(TRACE_COUNT_TIME_BUDGET_MS - 5));
+    analytics.sendServerPersonProperties.mockReturnValueOnce(new Promise(() => {}));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      expect(await reportDailyTraceCounts(clock)).toEqual({ kind: "sent", sent: 0, remaining: 2 });
+      expect(logged).toHaveBeenCalledWith(
+        "[trace-count] PostHog did not accept a count; ending this tick:",
+        new Error("no answer within 5ms"),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+    expect(row("user_ada")).toMatchObject({
+      traceCountReportedOn: null,
+      traceCountClaimedAt: null,
+    });
+
+    // The next tick sends it; PostHog getting the same value twice is harmless.
+    await reportAt(later(15 * 60_000));
+    expect(sent().slice(1)).toEqual([
+      ["user_ada", 10],
+      ["user_sam", 20],
     ]);
   });
 
@@ -275,21 +308,25 @@ describe("reportDailyTraceCounts", () => {
     analytics.sendServerPersonProperties
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("PostHog unavailable"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 1, remaining: 2 });
-    expect(row("user_ada")).toMatchObject({
+    try {
+      expect(await reportAt(NOV_18)).toEqual({ kind: "sent", sent: 1, remaining: 2 });
+    } finally {
+      logged.mockRestore();
+    }
+    expect(row("user_lin")).toMatchObject({
       traceCountReportedOn: null,
       traceCountClaimedAt: null,
     });
-    expect(row("user_lin")).toBeUndefined();
+    expect(row("user_sam")).toBeUndefined();
 
     await reportAt(later(15 * 60_000));
     expect(sent()).toEqual([
-      ["user_sam", 10],
-      ["user_ada", 20], // the failed attempt
       ["user_ada", 20],
+      ["user_lin", 30], // the failed attempt
       ["user_lin", 30],
+      ["user_sam", 10],
     ]);
   });
 
@@ -341,6 +378,30 @@ describe("reportDailyTraceCounts", () => {
       remaining: 0,
     });
     expect(new Set(sent().map(([userId]) => userId)).size).toBe(TRACE_COUNT_BATCH_SIZE + extra);
+  });
+
+  it("reaches tomorrow first the owners today's ticks could not", async () => {
+    // More owners than the day's ticks can reach: here, one tick's batch.
+    const owners = TRACE_COUNT_BATCH_SIZE + 3;
+    const id = (i: number) => `user_${String(i).padStart(3, "0")}`;
+    for (let i = 0; i < owners; i += 1) {
+      db.tables.users.push({ id: id(i) });
+      workspace(`ws_${i}`, id(i), i);
+    }
+
+    await reportAt(new Date("2026-11-18T23:50:00Z")); // the day's last tick
+    const leftOut = [id(owners - 3), id(owners - 2), id(owners - 1)];
+    const reachedToday = new Set(sent().map(([userId]) => userId));
+    expect(leftOut.filter((userId) => reachedToday.has(userId))).toEqual([]);
+
+    analytics.sendServerPersonProperties.mockClear();
+    await reportAt(NOV_19); // the next day's first tick
+    expect(
+      sent()
+        .slice(0, 3)
+        .map(([userId]) => userId),
+    ).toEqual(leftOut);
+    expect(sent()).toHaveLength(TRACE_COUNT_BATCH_SIZE);
   });
 
   it("does nothing on a deployment without server analytics", async () => {
