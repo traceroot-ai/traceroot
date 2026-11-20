@@ -18,6 +18,7 @@ interface MeasureOptionProps {
   typeLabel: string;
   doc: MeasureDoc | undefined;
   icon?: React.ReactNode;
+  className?: string;
 }
 
 /**
@@ -26,9 +27,16 @@ interface MeasureOptionProps {
  * portals to the body, so the forms' scroll containers cannot clip it. Render
  * inside a TooltipProvider.
  */
-export function MeasureOption({ value, label, typeLabel, doc, icon }: MeasureOptionProps) {
+export function MeasureOption({
+  value,
+  label,
+  typeLabel,
+  doc,
+  icon,
+  className,
+}: MeasureOptionProps) {
   const item = (
-    <SelectItem value={value} icon={icon}>
+    <SelectItem value={value} icon={icon} className={className}>
       {label}
     </SelectItem>
   );

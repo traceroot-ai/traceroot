@@ -362,6 +362,7 @@ export function WidgetBuilderPage({
                               label={meta.label}
                               typeLabel={measureTypeLabel(meta)}
                               doc={measureDoc(meta)}
+                              className="text-[12px]"
                               icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
                             />
                           );

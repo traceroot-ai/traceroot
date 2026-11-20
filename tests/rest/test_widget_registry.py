@@ -119,7 +119,7 @@ def test_schema_histogrammable_mirrors_compiler_rule():
 
 def test_every_measure_carries_its_unit_and_description():
     """The builder's Measure dropdown explains each row on hover, so a measure added
-    without a unit and description would show unexplained (#2146). Holds for every
+    without a unit and description would show unexplained. Holds for every
     field with aggs, not just today's builder set, so one later moved into the
     builder is already documented."""
     schema = registry_schema()

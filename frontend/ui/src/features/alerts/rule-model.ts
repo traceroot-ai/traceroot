@@ -35,7 +35,6 @@ export type {
   AlertAggregation,
   AlertFilter,
   AlertMeasure,
-  AlertMeasureType as MeasureType,
   AlertMeasureUnit,
   AlertNoDataMode,
   AlertRenotify,
