@@ -243,12 +243,41 @@ XAI_NON_MATCHES = [
     ("grok-4.7", "grok-4.7-fast"),
 ]
 
+GEMINI_4_CARBON_NON_MATCHES = [
+    ("gemini-4-carbon", "gemini-4-carbon-cyber-permissive"),
+]
+
+
+class TestGemini4CarbonPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+
+    The rates double on 2026-12-01 ($4 input, $20 output, $0.2 cache read); the
+    table has no effective dates, so update the row then.
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-carbon")
+        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1e-07)  # $0.1 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_CARBON_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
 
 GEMINI_MODEL_CASES = [
     ("gemini-3.8-flash", "gemini-3.8-flash"),
     ("google/gemini-3.8-flash", "gemini-3.8-flash"),
     ("gemini-3.7-flash", "gemini-3.7-flash"),
     ("gemini-3.6-flash", "gemini-3.6-flash"),
+    ("gemini-4-carbon", "gemini-4-carbon"),
+    ("google/gemini-4-carbon", "gemini-4-carbon"),
+    ("models/gemini-4-carbon", "gemini-4-carbon"),
     ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
     ("gemini-3.5-flash", "gemini-3.5-flash"),
     ("google/gemini-3.5-flash", "gemini-3.5-flash"),

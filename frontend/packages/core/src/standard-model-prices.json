@@ -1094,6 +1094,18 @@
     }
   },
   {
+    "id": "tr-gemini-4-carbon",
+    "modelName": "gemini-4-carbon",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-4-carbon$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.0000001,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-3-5-flash-lite",
     "modelName": "gemini-3.5-flash-lite",
     "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.5-flash-lite(-[\\d-]+)?$",
