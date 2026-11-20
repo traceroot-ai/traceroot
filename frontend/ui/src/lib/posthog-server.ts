@@ -44,5 +44,18 @@ export async function sendServerPersonProperties(
 ): Promise<void> {
   if (!client) return;
   if (supportRequest.getStore()?.impersonation) return;
-  await client.captureImmediate({ distinctId, event: "$set", properties: { $set: properties } });
+  // captureImmediate resolves even when PostHog refused the request or could not be
+  // reached; the failure only comes out as the client's "error" event. Listen for it
+  // while this send is in flight. Another send failing at the same moment can fail
+  // this one too, which only makes the caller send it again.
+  let failure: unknown;
+  const stopListening = client.on("error", (err: unknown) => {
+    failure ??= err ?? new Error("PostHog did not accept the request");
+  });
+  try {
+    await client.captureImmediate({ distinctId, event: "$set", properties: { $set: properties } });
+  } finally {
+    stopListening();
+  }
+  if (failure !== undefined) throw failure;
 }

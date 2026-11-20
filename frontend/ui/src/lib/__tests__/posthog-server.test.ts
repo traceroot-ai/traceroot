@@ -2,13 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const capture = vi.fn();
 const captureImmediate = vi.fn();
+/** The client's "error" listeners, as posthog-node keeps them. */
+const errorListeners = new Set<(err: unknown) => void>();
+const emitError = (err: unknown) => errorListeners.forEach((listener) => listener(err));
 const clientEnv: Record<string, string | undefined> = {};
 
 vi.mock("posthog-node", () => ({
   PostHog: class {
     capture = capture;
     captureImmediate = captureImmediate;
-    on = vi.fn();
+    on = (event: string, listener: (err: unknown) => void) => {
+      if (event !== "error") return () => {};
+      errorListeners.add(listener);
+      return () => errorListeners.delete(listener);
+    };
   },
 }));
 
@@ -137,8 +144,23 @@ describe("sendServerPersonProperties", () => {
   });
 
   it("rejects when PostHog does not accept the properties", async () => {
-    captureImmediate.mockRejectedValue(new Error("503"));
+    // What posthog-node does: report the failure as an "error" event and resolve.
+    captureImmediate.mockImplementation(async () => emitError(new Error("PostHog answered 503")));
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const { sendServerPersonProperties } = await import("../posthog-server");
-    await expect(sendServerPersonProperties("user-1", { trace_count: 3 })).rejects.toThrow("503");
+
+    await expect(sendServerPersonProperties("user-1", { trace_count: 3 })).rejects.toThrow(
+      "PostHog answered 503",
+    );
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("stops listening once the send is done", async () => {
+    const { sendServerPersonProperties } = await import("../posthog-server");
+    const before = errorListeners.size;
+
+    await sendServerPersonProperties("user-1", { trace_count: 3 });
+    // A later failure belongs to some other send, not this one.
+    expect(errorListeners.size).toBe(before);
   });
 });
