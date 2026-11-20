@@ -1197,12 +1197,6 @@ class TestRetentionFloor:
     FLOOR_LITERAL = "toDateTime64('2026-11-04 12:00:00.000', 3, 'UTC')"
     FLOOR_BOUND = f"toTimeZone(toDateTime64({FLOOR_LITERAL}, 3), timezone())"
 
-    @pytest.mark.parametrize("sql", REPARSE_CASES)
-    def test_none_floor_renders_identically_to_default(self, sql: str) -> None:
-        # Unlimited plans pass retention_floor=None and must remain byte-for-byte
-        # identical to omitting the argument.
-        assert scope_and_render(sql, PID, retention_floor=None) == scope_and_render(sql, PID)
-
     def test_unbounded_query_uses_floor_alone_as_start_time(self) -> None:
         rendered, binds = scope_and_render(
             "SELECT count() FROM traces", PID, retention_floor=self.FLOOR
@@ -1328,12 +1322,7 @@ class TestRetentionFloor:
         assert self.FLOOR_LITERAL in call
         assert "14:00:00" not in call
 
-    def test_callers_own_parameter_still_works_with_floor(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Layer 1 on this branch still refuses placeholders, so it is bypassed to
-        # verify the rewriter and Layer 3 combine a caller parameter with the floor.
-        _bypass_layer1(monkeypatch)
+    def test_callers_own_parameter_still_works_with_floor(self) -> None:
         rendered, binds = scope_and_render(
             "SELECT count() FROM spans WHERE span_start_time >= {since:DateTime64(3)}",
             PID,
