@@ -65,6 +65,7 @@ const summaryRow = {
   lastErrorAt: null,
   lastNotifyStatus: null,
   lastNotifyError: null,
+  lastNotifySeverity: null,
   lastNotifyAt: null,
   createTime: CREATE_TIME,
   updateTime: UPDATE_TIME,
@@ -89,6 +90,7 @@ const summaryExpected = {
   lastErrorAt: null,
   lastNotifyStatus: null,
   lastNotifyError: null,
+  lastNotifySeverity: null,
   lastNotifyAt: null,
   createTime: CREATE_TIME,
   updateTime: UPDATE_TIME,
@@ -238,6 +240,30 @@ describe("POST /api/internal/project-alerts", () => {
       where: { id: "alert-1", projectId: "proj-1" },
     });
     expect(alertFindManyMock).not.toHaveBeenCalled();
+  });
+
+  it("serializes severity for a replayable failed notification", async () => {
+    alertFindFirstMock.mockResolvedValue({
+      ...summaryRow,
+      lastNotifyStatus: "FAILED",
+      lastNotifyError: "no-channel",
+      lastNotifySeverity: "ALERT",
+      filters: [],
+      renotify: { mode: "OFF" },
+      noDataMode: "HOLD",
+    });
+
+    const res = await POST(makeRequest({ projectId: "proj-1", alertId: "alert-1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      alert: {
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "no-channel",
+        lastNotifySeverity: "ALERT",
+      },
+    });
   });
 
   it("returns 404 when the alert is not in the project", async () => {

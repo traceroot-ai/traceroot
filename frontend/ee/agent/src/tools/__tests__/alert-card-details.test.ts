@@ -23,6 +23,7 @@ const alert = (overrides: Record<string, unknown> = {}) => ({
   last_error_at: null,
   last_notify_status: null,
   last_notify_error: null,
+  last_notify_severity: null,
   last_notify_at: null,
   create_time: "2026-09-04T10:00:00Z",
   update_time: "2026-09-11T14:48:00Z",
@@ -57,6 +58,7 @@ describe("alertListCardDetails", () => {
           last_error: null,
           last_notify_status: null,
           last_notify_error: null,
+          last_notify_severity: null,
           last_notify_at: null,
         },
         // A threshold that is not a number reads as unknown, never as text.
@@ -87,6 +89,28 @@ describe("alertListCardDetails", () => {
     expect(alertListCardDetails(null)).toBeUndefined();
     expect(alertListCardDetails("Error calling list_alerts")).toBeUndefined();
   });
+
+  it("preserves severity for a replayable configuration failure", () => {
+    const failedAlert = alert({
+      last_notify_status: "FAILED",
+      last_notify_error: "no-channel",
+      last_notify_severity: "ALERT",
+    });
+
+    const listDetails = alertListCardDetails({ data: [failedAlert] });
+    const detailDetails = alertDetailCardDetails(failedAlert);
+
+    expect(listDetails?.alerts[0]).toMatchObject({
+      last_notify_status: "FAILED",
+      last_notify_error: "no-channel",
+      last_notify_severity: "ALERT",
+    });
+    expect(detailDetails?.alert).toMatchObject({
+      last_notify_status: "FAILED",
+      last_notify_error: "no-channel",
+      last_notify_severity: "ALERT",
+    });
+  });
 });
 
 describe("alertDetailCardDetails", () => {
@@ -98,6 +122,7 @@ describe("alertDetailCardDetails", () => {
         no_data_mode: "HOLD",
         alerted_at: "2026-09-11T14:35:00Z",
         last_notify_status: "DELIVERED",
+        last_notify_severity: "ALERT",
         last_notify_at: "2026-09-11T14:35:10Z",
       }),
     );
@@ -111,6 +136,7 @@ describe("alertDetailCardDetails", () => {
         severity_changed_at: "2026-09-11T14:35:00Z",
         alerted_at: "2026-09-11T14:35:00Z",
         last_notify_status: "DELIVERED",
+        last_notify_severity: "ALERT",
         last_notify_at: "2026-09-11T14:35:10Z",
         creator: "Ada",
         create_time: "2026-09-04T10:00:00Z",
