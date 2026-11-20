@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 const links = vi.hoisted(() => ({
   NEXT_PUBLIC_DOCS_URL: "https://docs.example.com",
@@ -63,6 +63,9 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
 });
 
 it("signs off with the logo at its own proportions", () => {
+  // The default logo, whatever the environment running the tests configures.
+  vi.stubEnv("NEXT_PUBLIC_LOGO_URL", "");
+  onTestFinished(() => vi.unstubAllEnvs());
   const { html } = renderWelcome({
     firstName: null,
     appUrl: "https://app",

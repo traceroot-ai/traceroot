@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   EMAIL_STOCK_LOGOS,
@@ -20,6 +20,11 @@ describe("escapeHtml", () => {
   });
 });
 
+// Each test sets the logo it needs; a value from the environment running the tests
+// would change which logo the defaults resolve to.
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_LOGO_URL", ""));
+afterEach(() => vi.unstubAllEnvs());
+
 const MAIN_IMAGES =
   "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images";
 
@@ -37,7 +42,7 @@ describe("emailLogo", () => {
   );
 
   it("is the wordmark when no logo is configured", () => {
-    expect(emailLogo(undefined)).toBe(EMAIL_STOCK_LOGOS.wordmark);
+    expect(emailLogo()).toBe(EMAIL_STOCK_LOGOS.wordmark);
     expect(emailLogo(" ")).toBe(EMAIL_STOCK_LOGOS.wordmark);
   });
 
@@ -120,7 +125,6 @@ describe("renderEmailCard", () => {
   });
 
   describe("with the logo setting", () => {
-    afterEach(() => vi.unstubAllEnvs());
     const logoOf = (html: string) => html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
 
     it("shows the released chart's square icon as the plated square mark", () => {
