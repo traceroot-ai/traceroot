@@ -1,6 +1,34 @@
-import { Daytona } from "@daytonaio/sdk";
+import { Daytona, DaytonaError, DaytonaTimeoutError } from "@daytonaio/sdk";
 import type { Sandbox } from "@daytonaio/sdk";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
+
+/** Seconds allowed for the workspace mkdir in init(); it is local to the sandbox. */
+const WORKSPACE_SETUP_TIMEOUT_SECONDS = 30;
+/**
+ * Seconds allowed for the runtime apt-get install in init(). The step depends
+ * on the Ubuntu mirrors reachable from the sandbox; when they stall, an
+ * unbounded executeCommand never returns and the chat turn above it never
+ * ends (#2167). Slow-but-working mirrors have been seen at ~3 minutes.
+ */
+const TOOL_INSTALL_TIMEOUT_SECONDS = 300;
+
+/**
+ * Whether an executeCommand rejection is the per-command deadline expiring.
+ * The SDK raises DaytonaTimeoutError for deadlines it enforces itself. A
+ * `timeout` exceeded inside the toolbox is answered by the server, so the SDK
+ * wraps it as a DaytonaError that carries the HTTP status and a message naming
+ * the timeout. A transport failure (sandbox gone, toolbox unreachable, socket
+ * timeout) never carries a status, so it stays fatal even when its message
+ * mentions a timeout.
+ */
+function isCommandTimeout(error: unknown): boolean {
+  if (error instanceof DaytonaTimeoutError) return true;
+  return (
+    error instanceof DaytonaError &&
+    typeof error.statusCode === "number" &&
+    /timed out|timeout/i.test(error.message)
+  );
+}
 
 export class DaytonaExecutor implements Executor {
   private daytona: Daytona | null = null;
@@ -29,20 +57,47 @@ export class DaytonaExecutor implements Executor {
       { timeout: 60 },
     );
 
-    // Use /workspace consistently with DockerExecutor regardless of what Daytona reports
-    this.workDir = "/workspace";
-    await this.sandbox.process.executeCommand(
-      "mkdir -p /workspace/repos /workspace/traces /workspace/notes",
-    );
+    // isReady() only checks for a sandbox, so a setup step that fails must not
+    // leave one behind: the session would run without its directories or tools,
+    // and init() would never run again. Delete it, so the next tool call starts a
+    // fresh one.
+    let step = "workspace setup";
+    let stepTimeout = WORKSPACE_SETUP_TIMEOUT_SECONDS;
+    try {
+      // Use /workspace consistently with DockerExecutor regardless of what Daytona reports
+      this.workDir = "/workspace";
+      await this.sandbox.process.executeCommand(
+        "mkdir -p /workspace/repos /workspace/traces /workspace/notes",
+        undefined,
+        undefined,
+        WORKSPACE_SETUP_TIMEOUT_SECONDS,
+      );
 
-    // Install required tools. ca-certificates is essential: cloneRepo uses the
-    // system `git` CLI (a fresh process that reads the on-disk trust store), so
-    // certs must be present before any HTTPS clone. We intentionally do NOT rely
-    // on Daytona's native go-git here — its daemon caches an empty cert pool at
-    // boot on this image, so its in-process TLS can't be fixed by a later apt.
-    await this.sandbox.process.executeCommand(
-      "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null 2>&1 || true",
-    );
+      // Install required tools. ca-certificates is essential: cloneRepo uses the
+      // system `git` CLI (a fresh process that reads the on-disk trust store), so
+      // certs must be present before any HTTPS clone. We intentionally do NOT rely
+      // on Daytona's native go-git here — its daemon caches an empty cert pool at
+      // boot on this image, so its in-process TLS can't be fixed by a later apt.
+      // A failing package is tolerated (note the `|| true`), but a stalled mirror
+      // must end the turn rather than hold it open, so a timeout fails init().
+      step = "tool install";
+      stepTimeout = TOOL_INSTALL_TIMEOUT_SECONDS;
+      await this.sandbox.process.executeCommand(
+        "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null 2>&1 || true",
+        undefined,
+        undefined,
+        TOOL_INSTALL_TIMEOUT_SECONDS,
+      );
+    } catch (error) {
+      await this.destroy();
+      if (isCommandTimeout(error)) {
+        throw new Error(
+          `Sandbox ${step} timed out after ${stepTimeout}s; the next tool call starts a fresh sandbox`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
 
     console.log(`[DaytonaExecutor] Sandbox ready, workDir: ${this.workDir}`);
   }
