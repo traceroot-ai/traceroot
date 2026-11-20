@@ -181,3 +181,99 @@ def test_trace_summaries_query_scopes_to_user_source():
     sql = ch.query.call_args_list[0].args[0]
     assert "AND source = 'user'" in sql
     assert "!= 'detector'" not in sql
+
+
+# ── Tests for _eval_membership (multi-valued span fields) ─────────────────────
+
+
+def test_eval_membership_equality_hit():
+    """= on a list field returns True when the value is present."""
+    trace_summary = {"model_name": ["gpt-4o", "gpt-4o-mini"]}
+    condition = {"field": "model_name", "op": "=", "value": "gpt-4o"}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_membership_equality_miss():
+    """= on a list field returns False when the value is absent."""
+    trace_summary = {"model_name": ["gpt-4o-mini"]}
+    condition = {"field": "model_name", "op": "=", "value": "gpt-4o"}
+    assert _eval_condition(trace_summary, condition) is False
+
+
+def test_eval_membership_not_equal_hit():
+    """!= on a list field returns True when the value is absent from all spans."""
+    trace_summary = {"model_name": ["gpt-4o-mini"]}
+    condition = {"field": "model_name", "op": "!=", "value": "gpt-4o"}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_membership_not_equal_miss():
+    """!= on a list field returns False when the value appears in at least one span."""
+    trace_summary = {"model_name": ["gpt-4o", "gpt-4o-mini"]}
+    condition = {"field": "model_name", "op": "!=", "value": "gpt-4o"}
+    assert _eval_condition(trace_summary, condition) is False
+
+
+def test_eval_membership_contains_hit():
+    """contains on a list field matches a substring in any span value."""
+    trace_summary = {"model_name": ["gpt-4o-mini", "claude-3-5-sonnet"]}
+    condition = {"field": "model_name", "op": "contains", "value": "gpt"}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_membership_contains_miss():
+    """contains on a list field returns False when no span value has the substring."""
+    trace_summary = {"model_name": ["claude-3-5-sonnet", "claude-3-haiku"]}
+    condition = {"field": "model_name", "op": "contains", "value": "gpt"}
+    assert _eval_condition(trace_summary, condition) is False
+
+
+def test_eval_membership_contains_case_insensitive():
+    """contains is case-insensitive on list fields."""
+    trace_summary = {"model_name": ["GPT-4O"]}
+    condition = {"field": "model_name", "op": "contains", "value": "gpt"}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_membership_empty_list():
+    """= on an empty list always returns False."""
+    trace_summary = {"model_name": []}
+    condition = {"field": "model_name", "op": "=", "value": "gpt-4o"}
+    assert _eval_condition(trace_summary, condition) is False
+
+
+def test_eval_membership_unknown_op():
+    """An unknown operator on a list field returns False without raising."""
+    trace_summary = {"model_name": ["gpt-4o"]}
+    condition = {"field": "model_name", "op": "startswith", "value": "gpt"}
+    assert _eval_condition(trace_summary, condition) is False
+
+
+# ── Edge cases for _eval_condition ────────────────────────────────────────────
+
+
+def test_eval_condition_malformed_condition_string():
+    """A bare string instead of a dict evaluates False without raising."""
+    trace_summary = {"environment": "production"}
+    assert _eval_condition(trace_summary, "environment = production") is False
+
+
+def test_eval_condition_none_value_in_list():
+    """None entries in a list field are skipped safely by contains."""
+    trace_summary = {"model_name": [None, "gpt-4o"]}
+    condition = {"field": "model_name", "op": "contains", "value": "gpt"}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_condition_non_string_contains_needle():
+    """contains with a non-string needle coerces it via str() before matching."""
+    trace_summary = {"model_name": ["version-4"]}
+    condition = {"field": "model_name", "op": "contains", "value": 4}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_condition_missing_field_key():
+    """condition dict with no 'field' key evaluates False without raising."""
+    trace_summary = {"environment": "production"}
+    condition = {"op": "=", "value": "production"}
+    assert _eval_condition(trace_summary, condition) is False
