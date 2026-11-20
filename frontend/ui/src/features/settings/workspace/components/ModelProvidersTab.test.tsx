@@ -195,6 +195,55 @@ describe("ModelProvidersTab - Test Connection error display", () => {
     expect(button.parentElement?.contains(connectedText)).toBe(true);
     expect(screen.queryByText(/invalid api key/i)).toBeNull();
   });
+
+  it("clears the test result when the Base URL changes", async () => {
+    mocks.testModelProvider.mockResolvedValue({ success: false, error: "Connection refused" });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "openai" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "k" } });
+    fireEvent.change(screen.getByLabelText("Base URL (optional)"), {
+      target: { value: "http://localhost:9999" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+    expect(await screen.findByText("Connection refused")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Base URL (optional)"), {
+      target: { value: "https://api.openai.com/v1" },
+    });
+    expect(screen.queryByText("Connection refused")).toBeNull();
+  });
+
+  it("ignores a test that was still running when the Base URL changed", async () => {
+    let resolveTest: (result: { success: boolean }) => void = () => {};
+    mocks.testModelProvider.mockReturnValue(
+      new Promise((resolve) => {
+        resolveTest = resolve;
+      }),
+    );
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "openai" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "k" } });
+    const testButton = screen.getByRole("button", { name: /test connection/i });
+    fireEvent.click(testButton);
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Base URL (optional)"), {
+      target: { value: "http://localhost:9999" },
+    });
+    expect((testButton as HTMLButtonElement).disabled).toBe(false);
+
+    resolveTest({ success: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("Connected")).toBeNull();
+  });
 });
 
 describe("ModelProvidersTab", () => {
