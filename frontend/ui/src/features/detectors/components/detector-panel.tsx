@@ -8,6 +8,7 @@ import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers"
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
+import { FilterPreview } from "./filter-preview";
 import type { TriggerCondition } from "./trigger-editor";
 import { normalizeTriggerConditions, validateTriggerConditions } from "../trigger-fields";
 import { SignalsCard } from "./signals-card";
@@ -286,6 +287,12 @@ export function DetectorPanel({
             asCard
           />
         </div>
+        <FilterPreview
+          key={detectorId}
+          projectId={projectId}
+          conditions={editConditions}
+          disabled={!detector || detector.id !== detectorId}
+        />
 
         {/* Sampling */}
         <div className="border border-border">
