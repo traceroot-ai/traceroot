@@ -203,6 +203,8 @@ class DetectorReaderService:
           there because a finding's latest version carries the max timestamp, so it
           survives ``timestamp >= start`` iff its latest version does — this scopes
           the expensive dedup + count to the window instead of all history.
+          Only detectors' rows (``source = 'detector'``) are kept there too: a
+          finding id is a Loop's or a detector's in every version.
         * ``end_before`` and the payload-based ``detector`` predicate are
           version-sensitive and applied AFTER the dedup; on raw pre-merge rows an
           older version ``< end_before`` (or an outdated payload) could otherwise
@@ -226,7 +228,7 @@ class DetectorReaderService:
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
         # Pre-dedup filters (see the docstring: safe here + they prune the scan).
-        base_conditions = ["project_id = {project_id:String}"]
+        base_conditions = ["project_id = {project_id:String}", "source = 'detector'"]
         if trace_id is not None:
             base_conditions.append("trace_id = {trace_id:String}")
             params["trace_id"] = trace_id
@@ -393,10 +395,12 @@ class DetectorReaderService:
         return self._build_detail(project_id, row, billing_plan) if row else None
 
     def _fetch_finding(self, predicate: str, params: dict) -> tuple | None:
+        """The newest detector finding row matching ``predicate``, never a Loop's."""
         query = f"""
             SELECT finding_id, project_id, trace_id, summary, payload, timestamp
             FROM detector_findings
             WHERE project_id = {{project_id:String}} AND {predicate}
+              AND source = 'detector'
             ORDER BY timestamp DESC
             LIMIT 1
         """
