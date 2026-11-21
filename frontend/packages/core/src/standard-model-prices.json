@@ -1300,7 +1300,7 @@
   {
     "id": "tr-glm-5-2",
     "modelName": "glm-5.2",
-    "matchPattern": "(?i)^(zai\\/)?glm-5\\.2(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]2(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000014,
@@ -1312,7 +1312,7 @@
   {
     "id": "tr-glm-5-1",
     "modelName": "glm-5.1",
-    "matchPattern": "(?i)^(zai\\/)?glm-5\\.1(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]1(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000014,
@@ -1324,7 +1324,7 @@
   {
     "id": "tr-glm-5",
     "modelName": "glm-5",
-    "matchPattern": "(?i)^(zai\\/)?glm-5(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5(-\\d{4})?$",
     "provider": "zai",
     "prices": {
       "input": 0.000001,
