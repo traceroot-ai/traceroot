@@ -50,6 +50,8 @@ const serverSchema = z.object({
   NEXT_PUBLIC_LOGO_URL: z.string().optional(),
   // Billing toggle — set to "false" for self-hosted deployments to unlock all features
   ENABLE_BILLING: z.string().default("true"),
+  // Loops toggle — off unless "true" (see lib/loops-enabled.ts)
+  LOOPS_ENABLED: z.string().default("false"),
   TRACEROOT_EE_LICENSE_KEY: z.string().optional(),
   // Stripe Billing
   STRIPE_SECRET_KEY: z.string().default(""),

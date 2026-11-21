@@ -44,6 +44,7 @@ const LEGACY_KIND: Record<TurnKind, string> = {
   chat: "chat",
   detector: "detector",
   digest: "digest-summary",
+  loop_execution: "loop",
 };
 
 /** Upper bound on one restored tool record's serialized text — a record is a summary, never a payload dump. */

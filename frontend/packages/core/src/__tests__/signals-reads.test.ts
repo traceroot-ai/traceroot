@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { getSignal, recentSignalHits } from "../ee/signals/index.ts";
+import { getSignal, listSignals, recentSignalHits } from "../ee/signals/index.ts";
 
 const DAY_MS = 86_400_000;
 
@@ -214,5 +214,123 @@ describe("hour buckets across a DST change", () => {
     expect(
       (result as { hitSeries: { bucket: string; hits: number }[] }).hitSeries.map((s) => s.bucket),
     ).toEqual(["2026-06-01T06:00+05:30", "2026-06-01T07:00+05:30"]);
+  });
+});
+
+describe("a Loop's signals", () => {
+  const LOOP = { id: "loop-1", name: "Checkout watch" };
+
+  /** A user detector, the Loop's hidden one and a deleted Loop's, as findMany narrows them. */
+  function listDb() {
+    const detectors = [
+      { id: "d", name: "Failure", template: "failure", loop: null },
+      { id: "d-loop", name: "loop:Checkout watch", template: "loop", loop: LOOP },
+      { id: "d-orphan", name: "loop:deleted:d-orphan", template: "loop", loop: null },
+    ];
+    return {
+      signal: {
+        findMany: vi.fn(async () => [
+          { id: "s1", detectorId: "d", reopenSeq: 0, rcas: [] },
+          { id: "s2", detectorId: "d-loop", reopenSeq: 0, rcas: [] },
+        ]),
+        count: vi.fn(async () => 2),
+      },
+      signalHit: { groupBy: vi.fn(async () => []) },
+      detector: {
+        findMany: vi.fn(
+          async ({ where }: { where: { id?: { in: string[] }; name?: { in: string[] } } }) =>
+            detectors.filter(
+              (d) =>
+                (!where.id || where.id.in.includes(d.id)) &&
+                (!where.name || where.name.in.includes(d.name)),
+            ),
+        ),
+      },
+      loop: {
+        findMany: vi.fn(async ({ where }: { where: { name: { in: string[] } } }) =>
+          where.name.in.includes(LOOP.name) ? [{ detectorId: "d-loop" }] : [],
+        ),
+      },
+    };
+  }
+  const whereOf = (db: ReturnType<typeof listDb>) =>
+    (db.signal.findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where;
+  const base = { projectId: "p", page: 0, limit: 50 };
+
+  it("names the Loop, not its hidden detector, in one detector read", async () => {
+    const db = listDb();
+    const { signals } = await listSignals(db as never, base);
+    expect(signals.map((s) => [s.detectorName, s.source])).toEqual([
+      ["Failure", { kind: "detector", id: "d", name: "Failure" }],
+      [null, { kind: "loop", id: "loop-1", name: "Checkout watch", detectorId: "d-loop" }],
+    ]);
+    expect(db.detector.findMany).toHaveBeenCalledTimes(1);
+    expect(db.loop.findMany).not.toHaveBeenCalled();
+  });
+
+  it("tells a deleted Loop's signal from a deleted detector's", async () => {
+    const db = listDb();
+    db.signal.findMany.mockResolvedValue([
+      { id: "s3", detectorId: "d-orphan", reopenSeq: 0, rcas: [] },
+      { id: "s4", detectorId: "d-gone", reopenSeq: 0, rcas: [] },
+      { id: "s5", detectorId: "d-loop", reopenSeq: 0, rcas: [] },
+    ] as never);
+    const { signals } = await listSignals(db as never, base);
+    expect(signals.map((s) => [s.id, s.detectorName, s.source.kind])).toEqual([
+      ["s3", null, "deletedLoop"],
+      ["s4", null, "detector"],
+      ["s5", null, "loop"],
+    ]);
+    expect(signals[1].source).toEqual({ kind: "detector", id: "d-gone", name: null });
+  });
+
+  it("does not narrow without a filter", async () => {
+    const db = listDb();
+    await listSignals(db as never, base);
+    expect(whereOf(db)).not.toHaveProperty("detectorId");
+  });
+
+  it("narrows to a Loop picked by name, via its hidden detector", async () => {
+    const db = listDb();
+    await listSignals(db as never, { ...base, loopNames: ["Checkout watch"] });
+    expect(whereOf(db).detectorId).toEqual({ in: ["d-loop"] });
+    expect(db.loop.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", name: { in: ["Checkout watch"] } },
+      select: { detectorId: true },
+    });
+  });
+
+  it("matches nothing for a Loop name the project does not have", async () => {
+    const db = listDb();
+    await listSignals(db as never, { ...base, loopNames: ["Renamed away"] });
+    expect(whereOf(db).detectorId).toEqual({ in: [] });
+  });
+
+  it("intersects a Loop filter with a detector-name filter", async () => {
+    const db = listDb();
+    await listSignals(db as never, {
+      ...base,
+      loopNames: ["Checkout watch"],
+      detectorNames: ["Failure"],
+    });
+    expect(whereOf(db).detectorId).toEqual({ in: [] });
+  });
+
+  it("getSignal returns the Loop as its source and no detector name", async () => {
+    const db = {
+      ...stubDb(),
+      detector: {
+        findMany: vi.fn(async () => [
+          { id: "d", name: "loop:Checkout watch", template: "loop", loop: LOOP },
+        ]),
+      },
+    };
+    const result = await getSignal(db as never, { projectId: "p", signalId: "a", tz: "UTC" });
+    expect(result).toMatchObject({
+      signal: {
+        detectorName: null,
+        source: { kind: "loop", id: "loop-1", name: "Checkout watch", detectorId: "d" },
+      },
+    });
   });
 });
