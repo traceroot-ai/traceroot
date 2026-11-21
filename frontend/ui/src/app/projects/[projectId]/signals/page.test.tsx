@@ -15,8 +15,14 @@ const list = vi.hoisted(() => ({
   customStartDate: null as Date | null,
   customEndDate: null as Date | null,
   meta: { page: 0, limit: 50, total: 0 },
+  rows: [] as unknown[],
 }));
 const detectorNames = vi.hoisted(() => ({ data: [] as { id: string; name: string }[] }));
+const loopList = vi.hoisted(() => ({
+  data: undefined as { data: { id: string; name: string }[] } | undefined,
+  useLoopList: vi.fn(),
+  enabled: true,
+}));
 // Captures the filter fields the page builds, to check the Detector field's options.
 const filterInput = vi.hoisted(() => ({ fields: undefined as unknown }));
 
@@ -47,14 +53,20 @@ vi.mock("@/lib/hooks/use-retention", () => ({
   useRetention: () => ({ retentionDays: null, showPricing: false, billingPlan: "free" }),
 }));
 vi.mock("@/components/layout/app-layout", () => ({
-  useLayout: () => ({ sidebarCollapsed: false }),
+  useLayout: () => ({ sidebarCollapsed: false, loopsEnabled: loopList.enabled }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useAllDetectorNames: () => ({ data: detectorNames.data }),
 }));
+vi.mock("@/features/loops/hooks/use-loops", () => ({
+  useLoopList: (...args: unknown[]) => {
+    loopList.useLoopList(...args);
+    return { data: loopList.data };
+  },
+}));
 vi.mock("@/ee/features/signals/hooks", () => ({
   useSignals: () => ({
-    data: { data: [], meta: list.meta },
+    data: { data: list.rows, meta: list.meta },
     isLoading: false,
     error: null,
   }),
@@ -108,12 +120,16 @@ afterEach(() => {
   list.setupEnabled = [];
   linkQuery.value = "";
   detectorNames.data = [];
+  loopList.data = undefined;
+  loopList.useLoopList.mockClear();
+  loopList.enabled = true;
   filterInput.fields = undefined;
   navigation.push.mockReset();
   list.dateFilter = { id: "7d", isCustom: false };
   list.customStartDate = null;
   list.customEndDate = null;
   list.meta = { page: 0, limit: 50, total: 0 };
+  list.rows = [];
 });
 
 const setup = (over: Record<string, number> = {}) => ({
@@ -230,10 +246,45 @@ describe("Signals page detector filter options", () => {
       "Signal name",
       "Detector ID",
       "Detector name",
+      "Loop",
       "Status",
     ]);
     const detectorField = fields.find((f) => f.field === "detector");
     expect(detectorField?.enum_values).toEqual(["alpha", "Beta"]);
+    // No Loops loaded yet: the Loop chip has no options rather than failing.
+    expect(fields.find((f) => f.field === "loop")?.enum_values).toEqual([]);
+  });
+
+  it("offers every Loop by name, sorted, for the Loop filter", () => {
+    loopList.data = {
+      data: [
+        { id: "l2", name: "Coding agents" },
+        { id: "l1", name: "Checkout watch" },
+      ],
+    };
+    render(<SignalsPage />);
+    expect(loopList.useLoopList).toHaveBeenCalledWith("p1", { limit: 5 }, { enabled: true });
+    const fields = filterInput.fields as Array<{
+      field: string;
+      type: string;
+      operators: string[];
+      enum_values?: string[];
+    }>;
+    expect(fields.find((f) => f.field === "loop")).toMatchObject({
+      type: "categorical",
+      operators: ["in"],
+      enum_values: ["Checkout watch", "Coding agents"],
+    });
+  });
+});
+
+describe("Signals page with loops switched off", () => {
+  it("leaves out the Loop filter and does not ask for the loops", () => {
+    loopList.enabled = false;
+    render(<SignalsPage />);
+    const fields = filterInput.fields as Array<{ field: string }>;
+    expect(fields.map((f) => f.field)).not.toContain("loop");
+    expect(loopList.useLoopList).toHaveBeenCalledWith("p1", { limit: 5 }, { enabled: false });
   });
 });
 
@@ -243,5 +294,126 @@ describe("Signals page pagination", () => {
     list.meta = { page: 0, limit: 50, total: 500 };
     render(<SignalsPage />);
     expect(screen.getByTestId("pager").textContent).toBe("page 2 limit 100");
+  });
+});
+
+describe("Signals page provenance", () => {
+  const row = (
+    id: string,
+    detectorId: string,
+    detectorName: string | null,
+    loop: { id: string; name: string } | null = null,
+  ) => ({
+    id,
+    detectorId,
+    detectorName,
+    source: loop
+      ? { kind: "loop", ...loop, detectorId }
+      : { kind: "detector", id: detectorId, name: detectorName },
+    title: `Signal ${id}`,
+    status: "open",
+    hitCount: 2,
+    rangeHitCount: 2,
+    createTime: "2026-11-11T09:00:00Z",
+  });
+  const deletedLoop = (detectorId: string) => ({ kind: "deletedLoop", detectorId });
+
+  it("shows the Loop that found a signal, linking to it, and a detector's name for the rest", () => {
+    list.rows = [
+      row("s1", "det-loop", null, { id: "loop-1", name: "Coding agents" }),
+      row("s2", "det-1", "Failures"),
+    ];
+    list.meta = { page: 0, limit: 50, total: 2 };
+    render(<SignalsPage />);
+
+    const found = screen.getByRole("link", { name: /Found by loop Coding agents/ });
+    expect(found.getAttribute("href")).toBe("/projects/p1/loops/loop-1");
+    // The hidden detector's own name is not shown for it; the other signal keeps its detector.
+    expect(screen.queryByText("loop:Coding agents")).toBeNull();
+    expect(screen.getByText("Failures")).toBeTruthy();
+    // The in-house headers stay: the Loop shows in the Detector name column.
+    expect(screen.getByRole("columnheader", { name: "Detector name" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Affected traces" })).toBeTruthy();
+    // The Detector ID column shows no hidden detector's ID for a Loop: the name cell links it.
+    expect(screen.queryByText("det-loop")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open loop/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open detector Failures" }).getAttribute("href")).toBe(
+      "/projects/p1/detectors/det-1",
+    );
+  });
+
+  it("says a deleted Loop found a signal, muted and with no link", () => {
+    list.rows = [{ ...row("s1", "det-gone", null), source: deletedLoop("det-gone") }];
+    list.meta = { page: 0, limit: 50, total: 1 };
+    render(<SignalsPage />);
+    const name = screen.getByText("Deleted loop");
+    expect(name.className).toContain("text-muted-foreground");
+    expect(name.closest("a")).toBeNull();
+    expect(screen.queryByText("det-gone")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Found by loop|Open detector/ })).toBeNull();
+    // Its hits are still the examples its runs cited.
+    expect(screen.getByRole("link", { name: "View example traces for Signal s1" })).toBeTruthy();
+  });
+
+  it("keeps the IDs from xl, and truncates long names so Status stays in view", () => {
+    const long = "A very long Loop name that would otherwise push Status off the screen";
+    list.rows = [
+      row("s1", "det-loop", null, { id: "loop-1", name: long }),
+      row("s2", "det-1", `Detector ${long}`),
+    ];
+    list.meta = { page: 0, limit: 50, total: 2 };
+    render(<SignalsPage />);
+    for (const name of ["Signal ID", "Detector ID"]) {
+      const th = screen.getByRole("columnheader", { name });
+      expect(th.className).toContain("hidden");
+      expect(th.className).toMatch(/(^| )xl:table-cell/);
+    }
+    const found = screen.getByRole("link", { name: `Found by loop ${long}` });
+    expect(found.className).toContain("max-w-[12rem]");
+    expect(found.getAttribute("title")).toBe(`Found by loop ${long}`);
+    expect(found.querySelector(".truncate")?.textContent).toBe(`Found by loop ${long}`);
+    const detector = screen.getByText(`Detector ${long}`);
+    expect(detector.className).toContain("truncate");
+    expect(detector.getAttribute("title")).toBe(`Detector ${long}`);
+    expect(screen.getByText("Signal s1").className).toContain("truncate");
+  });
+
+  it("counts a Loop's cited examples as a bare number, like a detector's affected traces", () => {
+    list.rows = [
+      row("s1", "det-loop", null, { id: "loop-1", name: "Coding agents" }),
+      row("s2", "det-1", "Failures"),
+    ];
+    list.meta = { page: 0, limit: 50, total: 2 };
+    render(<SignalsPage />);
+    const examples = screen.getByRole("link", { name: "View example traces for Signal s1" });
+    expect(examples.textContent).toBe("2");
+    expect(examples.getAttribute("title")).toBe("View example traces for Signal s1");
+    const affected = screen.getByRole("link", { name: "View affected traces for Signal s2" });
+    expect(affected.textContent).toBe("2");
+  });
+
+  it("heads the count Example traces, as the panel does, only while filtered to a Loop", () => {
+    // Every row a Loop's, but no Loop filter: the header follows the query, not the page.
+    list.rows = [
+      row("s1", "det-loop", null, { id: "loop-1", name: "Coding agents" }),
+      { ...row("s2", "det-gone", null), source: deletedLoop("det-gone") },
+    ];
+    list.meta = { page: 0, limit: 50, total: 2 };
+    const { unmount } = render(<SignalsPage />);
+    expect(screen.getByRole("columnheader", { name: "Affected traces" })).toBeTruthy();
+    unmount();
+    list.filters = [{ field: "loop", op: "in", value: ["Coding agents"] }];
+    render(<SignalsPage />);
+    expect(screen.getByRole("columnheader", { name: "Example traces" })).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "Affected traces" })).toBeNull();
+  });
+
+  it("names a Loop without linking to it where loops are switched off", () => {
+    loopList.enabled = false;
+    list.rows = [row("s1", "det-loop", null, { id: "loop-1", name: "Coding agents" })];
+    list.meta = { page: 0, limit: 50, total: 1 };
+    render(<SignalsPage />);
+    expect(screen.getByText("Found by loop Coding agents")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Found by loop/ })).toBeNull();
   });
 });
