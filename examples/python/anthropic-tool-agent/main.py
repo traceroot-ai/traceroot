@@ -162,7 +162,7 @@ TOOL_SCHEMAS = [
 class ReActAgent:
     """ReAct-style agent using Anthropic's tool_use API."""
 
-    def __init__(self, model: str = "claude-sonnet-4-5-20250929"):
+    def __init__(self, model: str = "claude-sonnet-5-5"):
         self.client = anthropic.Anthropic()
         self.model = model
         self.messages: list[dict] = []
