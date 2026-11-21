@@ -114,6 +114,7 @@ export const RUN_STATUS_LABEL: Record<LoopRunStatus, string> = {
   failed: "Failed",
   timed_out: "Timed out",
   skipped_blocked: "Skipped (plan limit)",
+  skipped_paused: "Skipped (loop paused)",
 };
 
 /** The one-word status a runs table shows ("Skipped"); the full outcome goes in its title. */
