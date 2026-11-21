@@ -1,6 +1,7 @@
 "use client";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { useLayout } from "@/components/layout/app-layout";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -15,6 +16,7 @@ import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-i
 import type { FilterFieldDef } from "@/features/filters/registry";
 import type { Predicate } from "@/types/api";
 import { useAllDetectorNames } from "@/features/detectors/hooks/use-detectors";
+import { useLoopList } from "@/features/loops/hooks/use-loops";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -23,9 +25,11 @@ import { useSignalSetup, useSignals } from "@/ee/features/signals/hooks";
 import { SignalsEmptyState } from "@/ee/features/signals/components/signals-empty-state";
 import { Button } from "@/components/ui/button";
 import { SignalDetailPanel } from "@/ee/features/signals/components/signal-detail-panel";
+import { SignalSourceCell, hitNoun } from "@/ee/features/signals/components/signal-source";
 import { STATUS_LABELS } from "@/ee/features/signals/components/signal-status-control";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import { buildUrlWithFilters, formatDate, cn } from "@/lib/utils";
+import { LOOP_LIMITS } from "@traceroot/core/loops/pure";
 
 /** The list opens on open signals; removing the chip sticks (see useUrlFilters). */
 const SIGNALS_DEFAULT_FILTERS: Predicate[] = [{ field: "status", op: "in", value: ["open"] }];
@@ -33,7 +37,8 @@ const SIGNALS_DEFAULT_FILTERS: Predicate[] = [{ field: "status", op: "in", value
 const SIGNALS_DEFAULT_DATE_FILTER_ID = "7d";
 
 /** The filter chips of this list; every value is typed or picked, none is looked up in traces. */
-function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
+/** `loopNames` is null where loops are switched off, which leaves the Loop field out. */
+function signalFilterFields(detectorNames: string[], loopNames: string[] | null): FilterFieldDef[] {
   const field = (def: Omit<FilterFieldDef, "level" | "enum_values"> & { enum_values?: string[] }) =>
     ({ level: "SIGNAL", enum_values: [], ...def }) as FilterFieldDef;
   return [
@@ -66,6 +71,19 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
       value_source: "static_enum",
       enum_values: detectorNames,
     }),
+    // A Loop by name: its signals are its hidden detector's, which the list route resolves.
+    ...(loopNames
+      ? [
+          field({
+            field: "loop",
+            label: "Loop",
+            type: "categorical",
+            operators: ["in"],
+            value_source: "static_enum",
+            enum_values: loopNames,
+          }),
+        ]
+      : []),
     field({
       field: "status",
       label: "Status",
@@ -143,13 +161,19 @@ export default function SignalsPage() {
   // Every detector's name, not just the first page, so a project with more
   // than one page of detectors can still filter signals by all of them.
   const { data: detectorNames } = useAllDetectorNames(projectId);
-  const fields = useMemo(
-    () =>
-      signalFilterFields(
-        [...new Set((detectorNames ?? []).map((d) => d.name))].sort((a, b) => a.localeCompare(b)),
-      ),
-    [detectorNames],
+  const { loopsEnabled } = useLayout();
+  const { data: loops } = useLoopList(
+    projectId,
+    { limit: LOOP_LIMITS.loopsPerProject },
+    { enabled: loopsEnabled },
   );
+  const fields = useMemo(() => {
+    const sorted = (names: string[]) => [...new Set(names)].sort((a, b) => a.localeCompare(b));
+    return signalFilterFields(
+      sorted((detectorNames ?? []).map((d) => d.name)),
+      loopsEnabled ? sorted((loops?.data ?? []).map((l) => l.name)) : null,
+    );
+  }, [detectorNames, loops, loopsEnabled]);
 
   const { data, isLoading, error } = useSignals(projectId, {
     page: queryOptions.page,
@@ -167,6 +191,8 @@ export default function SignalsPage() {
   const signals = data?.data ?? [];
   const meta = data?.meta;
   const selectedIndex = signals.findIndex((s) => s.id === selectedSignalId);
+  // Filtered to a Loop, the count column counts examples.
+  const loopFiltered = state.filters.some((f) => f.field === "loop");
   // Nothing listed: ask whether the project has any signal at all, to tell
   // "set up a detector" from "nothing matches these filters".
   const listEmpty = !isLoading && !error && signals.length === 0;
@@ -251,72 +277,91 @@ export default function SignalsPage() {
                   <th className={TH}>Signal name</th>
                   <th className={cn(TH, "hidden xl:table-cell")}>Detector ID</th>
                   <th className={TH}>Detector name</th>
-                  <th className={cn(TH, "w-[120px] text-right")}>Affected traces</th>
+                  <th className={cn(TH, "w-[120px] text-right")}>
+                    {loopFiltered ? "Example traces" : "Affected traces"}
+                  </th>
                   <th className="w-[90px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Status
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {signals.map((signal) => (
-                  <tr
-                    key={signal.id}
-                    onClick={() => setSelectedSignalId(signal.id)}
-                    className={cn(
-                      "cursor-pointer border-b border-border transition-colors",
-                      selectedSignalId === signal.id ? "bg-accent" : "hover:bg-muted",
-                    )}
-                  >
-                    <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
-                      {formatDate(signal.createTime)}
-                    </td>
-                    <td
+                {signals.map((signal) => {
+                  const noun = hitNoun(signal.source);
+                  const count = signal.rangeHitCount ?? signal.hitCount;
+                  // A Loop's detector is hidden and its ID opens nothing, and the Detector ID
+                  // filter would not match a Loop's ID: the name cell links the Loop.
+                  const detectorId = signal.source.kind === "detector" ? signal.detectorId : null;
+                  return (
+                    <tr
+                      key={signal.id}
+                      onClick={() => setSelectedSignalId(signal.id)}
                       className={cn(
-                        TD,
-                        "hidden max-w-[11rem] truncate font-mono text-[12px] text-muted-foreground xl:table-cell",
+                        "cursor-pointer border-b border-border transition-colors",
+                        selectedSignalId === signal.id ? "bg-accent" : "hover:bg-muted",
                       )}
-                      title={signal.id}
                     >
-                      {signal.id}
-                    </td>
-                    <td
-                      className={cn(TD, "max-w-[24rem] truncate text-foreground")}
-                      title={signal.title}
-                    >
-                      {signal.title}
-                    </td>
-                    <td
-                      className={cn(
-                        TD,
-                        "hidden max-w-[11rem] truncate font-mono text-[12px] text-muted-foreground xl:table-cell",
-                      )}
-                      title={signal.detectorId}
-                    >
-                      <Link
-                        href={`/projects/${projectId}/detectors/${signal.detectorId}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="hover:text-foreground hover:underline"
-                        aria-label={`Open detector ${signal.detectorName ?? signal.detectorId}`}
+                      <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
+                        {formatDate(signal.createTime)}
+                      </td>
+                      <td
+                        className={cn(
+                          TD,
+                          "hidden max-w-[11rem] truncate font-mono text-[12px] text-muted-foreground xl:table-cell",
+                        )}
+                        title={signal.id}
                       >
-                        {signal.detectorId}
-                      </Link>
-                    </td>
-                    <td className={cn(TD, "text-foreground")}>{signal.detectorName ?? "—"}</td>
-                    <td className={cn(TD, "text-right tabular-nums text-muted-foreground")}>
-                      <Link
-                        href={tracesHref(signal.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="hover:text-foreground hover:underline"
-                        aria-label={`View affected traces for ${signal.title}`}
+                        {signal.id}
+                      </td>
+                      {/* An auto-layout table ignores a cell's max-width, so a block inside caps it. */}
+                      <td className={cn(TD, "text-foreground")} title={signal.title}>
+                        <div className="max-w-[16rem] truncate">{signal.title}</div>
+                      </td>
+                      <td
+                        className={cn(
+                          TD,
+                          "hidden max-w-[11rem] truncate font-mono text-[12px] text-muted-foreground xl:table-cell",
+                        )}
+                        title={detectorId ?? undefined}
                       >
-                        {signal.rangeHitCount ?? signal.hitCount}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-1.5 text-[12px] text-foreground">
-                      {STATUS_LABELS[signal.status]}
-                    </td>
-                  </tr>
-                ))}
+                        {detectorId ? (
+                          <Link
+                            href={`/projects/${projectId}/detectors/${detectorId}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="hover:text-foreground hover:underline"
+                            aria-label={`Open detector ${signal.detectorName ?? detectorId}`}
+                          >
+                            {detectorId}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className={cn(TD, "text-foreground")}>
+                        <SignalSourceCell projectId={projectId} source={signal.source} />
+                      </td>
+                      <td className={cn(TD, "text-right tabular-nums text-muted-foreground")}>
+                        <Link
+                          href={tracesHref(signal.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:text-foreground hover:underline"
+                          // A Loop's hits are the traces its runs cited, not all it affected.
+                          title={
+                            noun === "example"
+                              ? `View example traces for ${signal.title}`
+                              : undefined
+                          }
+                          aria-label={`View ${noun} traces for ${signal.title}`}
+                        >
+                          {count}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-1.5 text-[12px] text-foreground">
+                        {STATUS_LABELS[signal.status]}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
