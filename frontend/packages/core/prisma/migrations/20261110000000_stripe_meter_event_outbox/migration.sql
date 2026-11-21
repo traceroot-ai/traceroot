@@ -70,9 +70,44 @@ SELECT
   m."meter",
   p."period_start",
   CASE
-    WHEN m."raw_units" ~ '^[0-9]+$'
-      AND m."raw_period_start" IS NOT NULL
-      AND (m."raw_period_start"::timestamptz AT TIME ZONE 'UTC') = p."period_start"
+    WHEN m."raw_units" ~ '^[0-9]+
+    ELSE 0
+  END,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+FROM "workspaces" w
+CROSS JOIN LATERAL (
+  VALUES
+    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0'), w."current_usage" #>> '{ai,lastReportedPeriodStart}'),
+    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
+    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
+) AS m("meter", "raw_units", "raw_period_start")
+-- A malformed legacy ISO timestamp must not abort the whole deployment.
+-- pg_input_is_valid guards the cast inside CASE; invalid values become NULL
+-- and cause the legacy watermark to start from zero.
+CROSS JOIN LATERAL (
+  SELECT CASE
+    WHEN pg_input_is_valid(m."raw_period_start", 'timestamp with time zone')
+      THEN m."raw_period_start"::timestamptz
+    ELSE NULL
+  END AS "period_start"
+) AS parsed
+CROSS JOIN LATERAL (
+  SELECT COALESCE(
+    w."billing_period_start",
+    date_trunc('month', CURRENT_TIMESTAMP)::timestamp
+  ) AS "period_start"
+) AS p
+WHERE CASE
+  WHEN m."raw_units" ~ '^[0-9]+$' THEN m."raw_units"::numeric > 0
+  ELSE FALSE
+END
+ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
+
+COMMIT;
+
+      AND parsed."period_start" IS NOT NULL
+      AND (parsed."period_start" AT TIME ZONE 'UTC') = p."period_start"
     THEN LEAST(m."raw_units"::numeric, 9007199254740991)::bigint
     ELSE 0
   END,
