@@ -230,6 +230,26 @@ async function processWorkspace(
         }
       | undefined) ?? {};
 
+  const detectorUsage = {
+    // scansRun = canonical count from ClickHouse `detector_runs`.
+    // Cost + tokens = aIMessage rows tagged kind="detector" (system source).
+    scansRun: usage.detectorRuns,
+    systemTokenCost: detectorSystemTokenCost,
+    systemInputTokens: detectorSystemInputTokens,
+    systemOutputTokens: detectorSystemOutputTokens,
+    byModel: detectorByModel.map((row) => ({
+      model: row.model ?? "unknown",
+      provider: row.provider ?? "unknown",
+      isByok: row.isByok ?? false,
+      messages: row._count.id,
+      inputTokens: row._sum.inputTokens ?? 0,
+      outputTokens: row._sum.outputTokens ?? 0,
+      cost: Number(row._sum.cost ?? 0),
+    })),
+    lastReportedUnits: previousDetector.lastReportedUnits ?? 0,
+    lastReportedPeriodStart: previousDetector.lastReportedPeriodStart ?? null,
+  };
+
   const updateData: {
     currentUsage: object;
     ingestionBlocked?: boolean;
@@ -284,25 +304,7 @@ async function processWorkspace(
         lastReportedUnits: 0,
         lastReportedPeriodStart: null as string | null,
       },
-      detector: {
-        // scansRun = canonical count from ClickHouse `detector_runs`.
-        // Cost + tokens = aIMessage rows tagged kind="detector" (system source).
-        scansRun: usage.detectorRuns,
-        systemTokenCost: detectorSystemTokenCost,
-        systemInputTokens: detectorSystemInputTokens,
-        systemOutputTokens: detectorSystemOutputTokens,
-        byModel: detectorByModel.map((row) => ({
-          model: row.model ?? "unknown",
-          provider: row.provider ?? "unknown",
-          isByok: row.isByok ?? false,
-          messages: row._count.id,
-          inputTokens: row._sum.inputTokens ?? 0,
-          outputTokens: row._sum.outputTokens ?? 0,
-          cost: Number(row._sum.cost ?? 0),
-        })),
-        lastReportedUnits: previousDetector.lastReportedUnits ?? 0,
-        lastReportedPeriodStart: previousDetector.lastReportedPeriodStart ?? null,
-      },
+      detector: detectorUsage,
     },
   };
 
@@ -537,44 +539,25 @@ async function processWorkspace(
     // we apportion the period's total cost by scan count (overage / total).
     // Approximation is fine — scans within a single detector have similar cost.
     // BYOK detectors contribute 0 to systemTokenCost (we filter by isByok=false above).
-    const detectorSystemCost = detectorSystemTokenCost;
-    const detectorOverageScans = Math.max(
-      0,
-      usage.detectorRuns - DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
+    Object.assign(
+      detectorUsage,
+      await reportHostedDelta({
+        source: "detector",
+        totalUnits: hostedOverageUnits(
+          usage.detectorRuns,
+          detectorSystemTokenCost,
+          DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
+        ),
+        previous: detectorUsage,
+        periodStart: currentPeriodStart,
+        workspaceId: workspace.id,
+        customerId: workspace.billingCustomerId,
+        stripeClient: ctx.stripeClient,
+        detail:
+          `scansRun=${usage.detectorRuns}, included=${DETECTOR_HOSTED_LLM_FREE_THRESHOLD}, ` +
+          `totalCost=$${detectorSystemTokenCost.toFixed(4)}`,
+      }),
     );
-    const detectorBillableCost =
-      usage.detectorRuns > 0 ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns) : 0;
-    const detectorTotalUnits = Math.round(detectorBillableCost * 1.05 * 100);
-
-    const prevDetectorPeriodStart = previousDetector.lastReportedPeriodStart ?? null;
-    const detectorLastReportedUnits =
-      prevDetectorPeriodStart === currentPeriodStart
-        ? (previousDetector.lastReportedUnits ?? 0)
-        : 0;
-    const detectorDeltaUnits = detectorTotalUnits - detectorLastReportedUnits;
-
-    console.log(
-      `[Billing] Detector token metering: scansRun=${usage.detectorRuns}, ` +
-        `included=${DETECTOR_HOSTED_LLM_FREE_THRESHOLD}, overageScans=${detectorOverageScans}, ` +
-        `totalCost=$${detectorSystemCost.toFixed(4)}, billableCost=$${detectorBillableCost.toFixed(4)}, ` +
-        `totalUnits=${detectorTotalUnits}, lastReported=${detectorLastReportedUnits}, delta=${detectorDeltaUnits}`,
-    );
-
-    if (detectorDeltaUnits > 0) {
-      const reported = await reportDetectorOverageToStripe(
-        workspace.id,
-        workspace.billingCustomerId!,
-        detectorDeltaUnits,
-        ctx.stripeClient,
-      );
-      if (reported) {
-        (updateData.currentUsage as any).detector.lastReportedUnits = detectorTotalUnits;
-        (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-      }
-    } else {
-      (updateData.currentUsage as any).detector.lastReportedUnits = detectorLastReportedUnits;
-      (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
-    }
   }
 
   // =========================================================================
@@ -763,6 +746,67 @@ async function updateStripeQuantity(
  * Returns true if successfully reported.
  */
 /**
+ * Hosted inference to charge, in $0.01 units, for detector scans or Loop runs
+ * on a paid plan: the period's first `freeThreshold` runs are absorbed (paid
+ * plans keep Free's free runs), and the share of the hosted cost of the runs
+ * past it is billed at 1.05x passthrough. The cost is apportioned by run
+ * count, as there is no per-run cost; BYOK cost is never in `systemCost`.
+ */
+export function hostedOverageUnits(
+  runs: number,
+  systemCost: number,
+  freeThreshold: number,
+): number {
+  const overageRuns = Math.max(0, runs - freeThreshold);
+  const billableCost = runs > 0 ? systemCost * (overageRuns / runs) : 0;
+  return Math.round(billableCost * 1.05 * 100);
+}
+
+/** What a hosted meter has already reported this billing period. */
+export interface HostedBaseline {
+  lastReportedUnits?: number;
+  lastReportedPeriodStart?: string | null;
+}
+
+/**
+ * Report the units of `totalUnits` not yet reported this period on the
+ * detector_usage meter, and return the baseline to store: moved to
+ * `totalUnits` once reported, rolled to this period when there was nothing to
+ * report, and left as it was when Stripe refused (the next run retries).
+ */
+export async function reportHostedDelta(params: {
+  source: "detector" | "loop";
+  totalUnits: number;
+  previous: HostedBaseline;
+  periodStart: string | null;
+  workspaceId: string;
+  customerId: string;
+  stripeClient: Stripe;
+  /** Logged with the units: what the total was computed from. */
+  detail: string;
+}): Promise<HostedBaseline> {
+  const { previous, periodStart, totalUnits } = params;
+  const lastReportedUnits =
+    (previous.lastReportedPeriodStart ?? null) === periodStart
+      ? (previous.lastReportedUnits ?? 0)
+      : 0;
+  const deltaUnits = totalUnits - lastReportedUnits;
+  console.log(
+    `[Billing] ${params.source === "loop" ? "Loop" : "Detector"} token metering: ${params.detail}, ` +
+      `totalUnits=${totalUnits}, lastReported=${lastReportedUnits}, delta=${deltaUnits}`,
+  );
+  if (deltaUnits <= 0) return { lastReportedUnits, lastReportedPeriodStart: periodStart };
+  const reported = await reportDetectorOverageToStripe(
+    params.workspaceId,
+    params.customerId,
+    deltaUnits,
+    params.stripeClient,
+    params.source,
+  );
+  return reported ? { lastReportedUnits: totalUnits, lastReportedPeriodStart: periodStart } : {};
+}
+
+/**
  * Report managed (system-source) detector inference token cost to Stripe.
  * Pricing: 1.05× pass-through, billed at $0.01/unit. No quota, no cap —
  * informational meter; every system-source dollar is billed.
@@ -770,12 +814,15 @@ async function updateStripeQuantity(
  * Idempotent across hourly runs via lastReportedUnits delta tracking. The
  * underlying system-token cost is aggregated from `aIMessage` rows with
  * kind="detector" and isByok=false; this function just pushes the delta.
+ * Loop hosted inference (kind="loop") is reported on the same meter; `source`
+ * only names it in the logs.
  */
 export async function reportDetectorOverageToStripe(
   workspaceId: string,
   customerId: string,
   units: number,
   stripeClient: Stripe,
+  source: "detector" | "loop" = "detector",
 ): Promise<boolean> {
   if (units <= 0) return false;
 
@@ -789,12 +836,12 @@ export async function reportDetectorOverageToStripe(
       timestamp: Math.floor(Date.now() / 1000),
     });
     console.log(
-      `[Billing] Reported detector usage to Stripe: workspace=${workspaceId}, delta=${units} units ($${(units * 0.01).toFixed(2)})`,
+      `[Billing] Reported ${source} usage to Stripe (detector_usage meter): workspace=${workspaceId}, delta=${units} units ($${(units * 0.01).toFixed(2)})`,
     );
     return true;
   } catch (error) {
     console.error(
-      `[Billing] Failed to report detector usage to Stripe for workspace ${workspaceId}:`,
+      `[Billing] Failed to report ${source} usage to Stripe for workspace ${workspaceId}:`,
       error,
     );
     return false;
