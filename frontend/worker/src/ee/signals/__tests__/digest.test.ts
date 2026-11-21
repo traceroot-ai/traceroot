@@ -200,6 +200,36 @@ describe("loadDigestInput", () => {
     expect(Object.keys(input)).toEqual(["signals", "groupingDetectors"]);
   });
 
+  it("names a loop's signals by the loop, or a deleted one, as the signal page does", async () => {
+    const { db } = fakeDb([
+      sig(),
+      sig({ id: "s2", detectorId: "loop-det" }),
+      sig({ id: "s3", detectorId: "gone-det" }),
+    ]);
+    db.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", template: "failure", enableSignals: true, loop: null },
+      {
+        id: "loop-det",
+        name: "loop:Coding agents",
+        template: "loop",
+        enableSignals: true,
+        loop: { id: "l1", name: "Coding agents" },
+      },
+      // A deleted Loop's detector, renamed off the reserved prefix.
+      {
+        id: "gone-det",
+        name: "loop:deleted:l1",
+        template: "loop",
+        enableSignals: true,
+        loop: null,
+      },
+    ] as never);
+    const input = await loadDigestInput(db as never, "p1");
+    expect(input.groupingDetectors.get("loop-det")).toBe("Found by loop Coding agents");
+    expect(input.groupingDetectors.get("gone-det")).toBe("Found by a deleted loop");
+    expect(input.groupingDetectors.get("d1")).toBe("Failure");
+  });
+
   it("treats every detector as not grouping without the signals key", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     const { db } = fakeDb([sig()]);
