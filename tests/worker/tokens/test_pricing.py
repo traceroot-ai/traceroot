@@ -222,6 +222,7 @@ GEMINI_MODEL_CASES = [
     ("gemini-3.8-live", "gemini-3.8-live"),
     ("google/gemini-3.8-live", "gemini-3.8-live"),
     ("models/gemini-3.8-live", "gemini-3.8-live"),
+    ("gemini-3.8-live-extended-thinking", "gemini-3.8-live"),
     ("gemini-3.7-flash", "gemini-3.7-flash"),
     ("gemini-3.6-flash", "gemini-3.6-flash"),
     ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
@@ -429,7 +430,7 @@ class TestGpt6PublishedPrices:
             assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
 
 
-class TestGemini3xFlashPublishedPrices:
+class TestGemini3xPublishedPrices:
     """Assert the absolute, provider-published rate directly
     (https://ai.google.dev/gemini-api/docs/pricing).
 
@@ -476,8 +477,7 @@ class TestGeminiModelIds:
         [
             # TTS has its own price sheet; must not fall through to a 3.x Flash text row.
             "gemini-3.8-flash-tts",
-            # Extended-thinking variant: must not match the Live row until we decide to price it.
-            "gemini-3.8-live-extended-thinking",
+            "gemini-3.8-live-preview",
             # Google repoints -latest aliases without notice, so they stay unpriced.
             "gemini-flash-latest",
         ],

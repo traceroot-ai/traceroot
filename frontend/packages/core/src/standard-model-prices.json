@@ -985,7 +985,7 @@
   {
     "id": "tr-gemini-3-8-live",
     "modelName": "gemini-3.8-live",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.8-live(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.8-live(-extended-thinking)?(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.00000075,
