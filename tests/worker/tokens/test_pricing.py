@@ -1044,6 +1044,8 @@ class TestClaudeBedrockAndVertexIds:
             ("claude-fable-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
             # Fable 5.1 / 5.2 read cache at 0.025x input.
             ("claude-fable-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
+            # Mythos 5.1: https://platform.claude.com/docs/en/about-claude/pricing
+            ("claude-mythos-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
             ("claude-fable-5-2", (8e-6, 4e-5, 2e-7, 1e-5, 1.6e-5)),
             # Opus 5.5 and Sonnet 5.5 read cache at 0.05x input.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
@@ -1076,6 +1078,11 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("claude-opus-5-fast", "claude-opus-5-fast"),
     ("anthropic/claude-opus-5-5-fast", "claude-opus-5-5-fast"),
     ("claude-opus-5-5-fast", "claude-opus-5-5-fast"),
+    # Mythos 5.1 — plain, [1m] variant, anthropic/ prefix, Bedrock global profile
+    ("claude-mythos-5-1", "claude-mythos-5-1"),
+    ("claude-mythos-5-1[1m]", "claude-mythos-5-1"),
+    ("anthropic/claude-mythos-5-1", "claude-mythos-5-1"),
+    ("global.anthropic.claude-mythos-5-1", "claude-mythos-5-1"),
     ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),
@@ -1137,6 +1144,26 @@ class TestClaudeFastAndDotNotationIds:
     def test_opus_4_6_has_no_fast_card(self, real_cache):
         # Opus 4.6 fast bills standard upstream; a 4.6 fast entry would over-charge.
         assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
+
+
+# (pattern owner, id it must not absorb): the next Mythos version, and the Bedrock
+# regional profiles AWS bills 10% over the global rate.
+CLAUDE_MYTHOS_5_1_NON_MATCHES = [
+    ("claude-mythos-5-1", "claude-mythos-5"),
+    ("claude-mythos-5-1", "claude-mythos-5-2"),
+    ("claude-mythos-5-1", "claude-mythos-5-1-fast"),
+    ("claude-mythos-5-1", "us.anthropic.claude-mythos-5-1"),
+    ("claude-mythos-5-1", "anthropic.claude-mythos-5-1"),
+]
+
+
+class TestClaudeMythos51Ids:
+    @pytest.mark.parametrize("owner,model_id", CLAUDE_MYTHOS_5_1_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 # ---------------------------------------------------------------------------
