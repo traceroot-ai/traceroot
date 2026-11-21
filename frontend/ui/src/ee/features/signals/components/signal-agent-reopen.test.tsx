@@ -55,6 +55,7 @@ vi.mock("../hooks", () => ({
         id: "sig-1",
         detectorId: "det-1",
         detectorName: "Failure detector",
+        source: { kind: "detector", id: "det-1", name: "Failure detector" },
         title: "Missing conversion rate",
         status: "open",
         criteriaCovers: "A missing rate crashes currency conversion.",

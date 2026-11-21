@@ -14,6 +14,7 @@ import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 import { cn, formatCost, formatDate, formatDuration, formatRelativeTime } from "@/lib/utils";
+import { LOOP_LIMITS } from "@traceroot/core/loops/pure";
 import {
   rcaInProgress,
   useSignal,
@@ -21,6 +22,7 @@ import {
   type SignalDetail,
   type SignalTimeRange,
 } from "../hooks";
+import { SignalSourceSummary, hitNoun } from "./signal-source";
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 
@@ -299,7 +301,9 @@ function SignalBlocks({
   const mergedIn =
     !!rca?.result && rca.reopenSeq < 0 && (ownState === "failed" || rcaInProgress(ownState));
   const affected = hitSeries.reduce((sum, b) => sum + b.hits, 0);
-  // The traces the signal's detector checked in the window; null when that count is unavailable.
+  const noun = hitNoun(signal.source);
+  // The traces the signal's detector checked in the window; null when that count is
+  // unavailable, and always for a Loop's signal, whose detector checks no traces.
   const total = hitSeries.some((b) => b.unaffected === null)
     ? null
     : hitSeries.reduce((sum, b) => sum + b.hits + (b.unaffected ?? 0), 0);
@@ -319,6 +323,7 @@ function SignalBlocks({
 
       <Block title="Summary">
         <p className="px-3 py-2.5 text-[13px] text-foreground">{signal.criteriaCovers}</p>
+        <SignalSourceSummary projectId={projectId} source={signal.source} signalId={signal.id} />
         {signal.criteriaValidated === false && (
           // A diagnostic only: the signal was created anyway.
           <p className="px-3 pb-2.5 text-[12px] text-muted-foreground">
@@ -390,25 +395,17 @@ function SignalBlocks({
         </div>
       </Block>
 
-      <Block title="Count over time" plain headerAction={rangePicker}>
+      <Block
+        title={noun === "example" ? "Examples over time" : "Count over time"}
+        plain
+        headerAction={rangePicker}
+      >
         <div
           className={cn("px-3 pb-2.5 pt-1 transition-opacity", refreshing && "opacity-50")}
           aria-busy={refreshing}
         >
           <p className="pb-2 text-[13px] text-muted-foreground">
-            {total !== null ? (
-              <>
-                <span className="font-medium text-foreground">
-                  {total > 0 ? Math.round((affected / total) * 100) : 0}%
-                </span>{" "}
-                {affected} of {total} traces affected
-              </>
-            ) : (
-              <>
-                <span className="font-medium text-foreground">{affected}</span>{" "}
-                {affected === 1 ? "trace" : "traces"} affected
-              </>
-            )}
+            <HitCount noun={noun} affected={affected} total={total} />
           </p>
           <div className="h-72">
             <QueryWidgetRenderer
@@ -426,7 +423,7 @@ function SignalBlocks({
                 // Affected first, so it draws at the bottom of the stack.
                 rows: hitSeries.flatMap((b) =>
                   total === null
-                    ? [[b.bucket, "Affected", b.hits]]
+                    ? [[b.bucket, noun === "example" ? "Examples" : "Affected", b.hits]]
                     : [
                         [b.bucket, "Affected", b.hits],
                         [b.bucket, "Unaffected", b.unaffected ?? 0],
@@ -440,12 +437,54 @@ function SignalBlocks({
       </Block>
 
       <AffectedTraces
+        title={noun === "example" ? "Example traces" : "Affected traces"}
         projectId={projectId}
         hits={hits}
         refreshing={refreshing}
         viewAllHref={tracesHref}
         onOpenTrace={onOpenTrace}
       />
+    </>
+  );
+}
+
+/** The window's hit count: a share of the traces the detector checked when that is known. */
+function HitCount({
+  noun,
+  affected,
+  total,
+}: {
+  noun: "affected" | "example";
+  affected: number;
+  total: number | null;
+}) {
+  if (noun === "example") {
+    // A Loop's hits are the example traces its runs cited, not every trace that had
+    // the problem, so they are never shown as a share of the traces in the window.
+    return (
+      <>
+        <span className="font-medium text-foreground">{affected}</span> example{" "}
+        {affected === 1 ? "trace" : "traces"}
+        <span className="block pt-0.5 text-[12px]">
+          A loop cites up to {LOOP_LIMITS.tracesPerFinding} example traces per finding.
+        </span>
+      </>
+    );
+  }
+  if (total === null) {
+    return (
+      <>
+        <span className="font-medium text-foreground">{affected}</span>{" "}
+        {affected === 1 ? "trace" : "traces"} affected
+      </>
+    );
+  }
+  return (
+    <>
+      <span className="font-medium text-foreground">
+        {total > 0 ? Math.round((affected / total) * 100) : 0}%
+      </span>{" "}
+      {affected} of {total} traces affected
     </>
   );
 }
@@ -463,12 +502,15 @@ const TD = "px-3 py-1.5 text-[12px]";
  * a new window loads, the previous window's rows stay up, faded like the chart.
  */
 function AffectedTraces({
+  title,
   projectId,
   hits,
   refreshing = false,
   viewAllHref,
   onOpenTrace,
 }: {
+  /** "Example traces" for a Loop's signal, whose hits are the traces its runs cited. */
+  title: string;
   projectId: string;
   hits: SignalDetail["hits"];
   refreshing?: boolean;
@@ -481,7 +523,7 @@ function AffectedTraces({
 
   return (
     <Block
-      title="Affected traces"
+      title={title}
       plain
       headerAction={
         <Link

@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { SignalSource } from "@traceroot/core/signals";
 
 const layoutMocks = vi.hoisted(() => ({
   setAiPanelOpen: vi.fn(),
   setAiContext: vi.fn(),
   setAiInitialSessionId: vi.fn(),
   release: vi.fn(),
+  loopsEnabled: true,
 }));
 
 vi.mock("@/components/layout/app-layout", () => ({
@@ -16,6 +18,7 @@ vi.mock("@/components/layout/app-layout", () => ({
     setAiContext: layoutMocks.setAiContext,
     setAiInitialSessionId: layoutMocks.setAiInitialSessionId,
     registerAiHost: () => layoutMocks.release,
+    loopsEnabled: layoutMocks.loopsEnabled,
   }),
 }));
 
@@ -29,8 +32,13 @@ vi.mock("@/components/ui/resizable", () => ({
   ResizableHandle: () => null,
 }));
 
+// Captures the chart's rows, to check the series a Loop's signal plots.
+const chart = vi.hoisted(() => ({ rows: [] as unknown[][] }));
 vi.mock("@/features/dashboards/components/renderers", () => ({
-  QueryWidgetRenderer: () => null,
+  QueryWidgetRenderer: ({ result }: { result: { rows: unknown[][] } }) => {
+    chart.rows = result.rows;
+    return null;
+  },
 }));
 
 vi.mock("./run-rca", () => ({
@@ -57,7 +65,8 @@ const signalDetail = vi.hoisted(() => ({
   signal: {
     id: "sig-1",
     detectorId: "det-1",
-    detectorName: "Det",
+    detectorName: "Det" as string | null,
+    source: { kind: "detector", id: "det-1", name: "Det" } as SignalSource,
     title: "Tool times out",
     status: "open",
     hitCount: 1,
@@ -94,12 +103,14 @@ const signalDetail = vi.hoisted(() => ({
     },
   ],
   window: { from: "2026-01-01T00:00:00Z", to: "2026-01-02T00:00:00Z", granularity: "day" },
-  hitSeries: [],
+  hitSeries: [] as { bucket: string; hits: number; unaffected: number | null }[],
   statusEvents: [],
 }));
 
 /** Set per test: true while the previous window's answer stands in for a new one. */
 const signalQuery = vi.hoisted(() => ({ isPlaceholderData: false }));
+const useLoopRuns = vi.hoisted(() => vi.fn(() => ({ data: undefined })));
+vi.mock("@/features/loops/hooks/use-loops", () => ({ useLoopRuns }));
 
 vi.mock("../hooks", () => ({
   useSignal: () => ({
@@ -143,6 +154,12 @@ afterEach(() => {
   signalDetail.signal.canonicalRca = null;
   signalDetail.signal.rcaHistory = [];
   signalDetail.grouping = false;
+  signalDetail.signal.detectorName = "Det";
+  signalDetail.signal.source = { kind: "detector", id: "det-1", name: "Det" };
+  signalDetail.hitSeries = [];
+  chart.rows = [];
+  useLoopRuns.mockClear();
+  layoutMocks.loopsEnabled = true;
   layoutMocks.setAiPanelOpen.mockReset();
   layoutMocks.setAiContext.mockReset();
   layoutMocks.setAiInitialSessionId.mockReset();
@@ -259,6 +276,62 @@ describe("SignalDetailPanel criteria check", () => {
   });
 });
 
+describe("SignalDetailPanel provenance", () => {
+  it("says which Loop found the signal, linking to it", () => {
+    signalDetail.signal.detectorName = null;
+    signalDetail.signal.source = {
+      kind: "loop",
+      id: "loop-1",
+      name: "Coding agents",
+      detectorId: "det-1",
+    };
+    renderPanel();
+    const link = screen.getByRole("link", { name: /Found by loop Coding agents/ });
+    expect(link.getAttribute("href")).toBe("/projects/proj-1/loops/loop-1");
+    // The runs that found it are read for that Loop.
+    expect(useLoopRuns).toHaveBeenCalledWith(
+      "proj-1",
+      "loop-1",
+      { signalId: "sig-1", limit: 3 },
+      { enabled: true },
+    );
+  });
+
+  it("names the Loop without a link, and reads none of its runs, where loops are switched off", () => {
+    layoutMocks.loopsEnabled = false;
+    signalDetail.signal.detectorName = null;
+    signalDetail.signal.source = {
+      kind: "loop",
+      id: "loop-1",
+      name: "Coding agents",
+      detectorId: "det-1",
+    };
+    useLoopRuns.mockReturnValue({
+      data: { data: [{ id: "run-12", seq: 12 }], meta: { page: 0, limit: 3, total: 1 } },
+    } as never);
+    renderPanel();
+    expect(screen.getByText("Found by loop Coding agents")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Found by loop/ })).toBeNull();
+    expect(screen.queryByText(/Seen in/)).toBeNull();
+    expect(useLoopRuns).toHaveBeenCalledWith(
+      "proj-1",
+      "loop-1",
+      { signalId: "sig-1", limit: 3 },
+      { enabled: false },
+    );
+    useLoopRuns.mockReturnValue({ data: undefined });
+  });
+
+  it("says nothing about a Loop for a detector's signal", () => {
+    renderPanel();
+    expect(screen.queryByText(/Found by loop/)).toBeNull();
+    expect(useLoopRuns).not.toHaveBeenCalled();
+    // No empty provenance row pads the summary: the criteria are its only line.
+    const covers = screen.getByText("Covers X");
+    expect(covers.nextElementSibling).toBeNull();
+  });
+});
+
 describe("SignalDetailPanel AI host cleanup", () => {
   it("clears the AI panel state when the host unmounts, not just the slot", () => {
     const { unmount } = render(
@@ -316,5 +389,64 @@ describe("SignalDetailPanel time window refresh", () => {
     renderPanel();
 
     expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+});
+
+describe("SignalDetailPanel for a Loop's signal", () => {
+  const loopSignal = () => {
+    signalDetail.signal.detectorName = null;
+    signalDetail.signal.source = {
+      kind: "loop",
+      id: "loop-1",
+      name: "Coding agents",
+      detectorId: "det-1",
+    };
+    // A Loop's detector checks no traces, so the route sends no unaffected count.
+    signalDetail.hitSeries = [
+      { bucket: "2026-01-01", hits: 2, unaffected: null },
+      { bucket: "2026-01-02", hits: 1, unaffected: null },
+    ];
+  };
+
+  it("counts example traces, never a share of affected traces", () => {
+    loopSignal();
+    renderPanel();
+    expect(screen.getByRole("heading", { name: "Examples over time" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Example traces" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Count over time" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Affected traces" })).toBeNull();
+    const summary = screen.getByText(
+      (_, el) => el?.tagName === "P" && /^3 example traces/.test(el.textContent ?? ""),
+    );
+    expect(summary.textContent).toContain("A loop cites up to 20 example traces per finding.");
+    expect(screen.queryByText(/affected/)).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
+    expect(chart.rows).toEqual([
+      ["2026-01-01", "Examples", 2],
+      ["2026-01-02", "Examples", 1],
+    ]);
+  });
+
+  it("says a deleted Loop found it, and still counts example traces", () => {
+    loopSignal();
+    signalDetail.signal.source = { kind: "deletedLoop", detectorId: "det-1" };
+    renderPanel();
+    expect(screen.getByText("Found by a deleted loop")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Found by loop/ })).toBeNull();
+    expect(useLoopRuns).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Example traces" })).toBeTruthy();
+    expect(screen.queryByText(/affected/)).toBeNull();
+  });
+
+  it("keeps the affected share for a detector's signal", () => {
+    signalDetail.hitSeries = [{ bucket: "2026-01-01", hits: 1, unaffected: 3 }];
+    renderPanel();
+    expect(screen.getByRole("heading", { name: "Count over time" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Affected traces" })).toBeTruthy();
+    expect(screen.getByText(/1 of 4 traces affected/)).toBeTruthy();
+    expect(chart.rows).toEqual([
+      ["2026-01-01", "Affected", 1],
+      ["2026-01-01", "Unaffected", 3],
+    ]);
   });
 });
