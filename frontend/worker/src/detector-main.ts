@@ -18,6 +18,7 @@ import { isAlertsSchedulerEnabled, startAlertScheduler } from "./alerts/schedule
 import { logInfo } from "./alerts/log.js";
 import { startAlertNotificationWorker } from "./notifications/alert-slack.js";
 import { closeWebTickWorker, startWebTickWorker } from "./web-tick/web-tick.js";
+import { drainCronTicks } from "./scheduling/cron-tick.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -30,7 +31,7 @@ let alertScheduler: ReturnType<typeof startAlertScheduler> | undefined;
 let webTickWorker: ReturnType<typeof startWebTickWorker> | undefined;
 
 // A tick can run tens of seconds but compose's stop grace is 10s: an unbounded drain is a SIGKILL.
-const ALERT_TICK_DRAIN_TIMEOUT_MS = 5_000;
+const TICK_DRAIN_TIMEOUT_MS = 5_000;
 
 async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
@@ -39,15 +40,10 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`\n[Detector Worker] Received ${signal}, shutting down gracefully...`);
 
   try {
-    if (alertScheduler) {
-      alertScheduler.stop();
-      const isDrained = await alertScheduler.waitForIdle(ALERT_TICK_DRAIN_TIMEOUT_MS);
-      if (!isDrained) {
-        console.log(
-          `[Detector Worker] alert tick still running after ${ALERT_TICK_DRAIN_TIMEOUT_MS}ms, continuing shutdown`,
-        );
-      }
-    }
+    await drainCronTicks(
+      [alertScheduler].filter((tick) => tick !== undefined),
+      TICK_DRAIN_TIMEOUT_MS,
+    );
     if (webTickWorker) {
       await closeWebTickWorker(webTickWorker);
     }
