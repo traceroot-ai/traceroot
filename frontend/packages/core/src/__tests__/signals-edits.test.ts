@@ -552,7 +552,7 @@ describe("reads", () => {
       limit: 50,
     });
     expect(detector.findMany).toHaveBeenCalledWith({
-      where: { projectId: "p", name: { in: ["Failure"] } },
+      where: { projectId: "p", name: { in: ["Failure"] }, template: { not: "loop" } },
       select: { id: true },
     });
     expect(count).toHaveBeenCalledWith({
@@ -1039,10 +1039,12 @@ describe("reads", () => {
     });
     // A merged signal is listed under its target, so it is not counted.
     expect(db.signal.count).toHaveBeenCalledWith({ where: { projectId: "p", mergedIntoId: null } });
+    // Loops' hidden detectors are not the user's to set up.
+    const detectors = { projectId: "p", template: { not: "loop" } };
     expect(db.detector.count.mock.calls.map((c) => c[0])).toEqual([
-      { where: { projectId: "p" } },
-      { where: { projectId: "p", enableSignals: true } },
-      { where: { projectId: "p", enableSignals: true, enabled: true, sampleRate: { gt: 0 } } },
+      { where: detectors },
+      { where: { ...detectors, enableSignals: true } },
+      { where: { ...detectors, enableSignals: true, enabled: true, sampleRate: { gt: 0 } } },
     ]);
   });
 
