@@ -1408,7 +1408,7 @@
   {
     "id": "tr-kimi-k3",
     "modelName": "kimi-k3",
-    "matchPattern": "(?i)^(moonshot\\/)?kimi-k3(-[\\d-]+)?$",
+    "matchPattern": "(?i)^((moonshot\\/)?kimi-k3(-[\\d-]+)?|global\\.moonshotai\\.kimi-k3)$",
     "provider": "moonshot",
     "prices": {
       "input": 0.000003,
