@@ -51,11 +51,11 @@ export function GitHubStarWidget() {
   if (dismissed) return null;
 
   return (
-    <div className="mx-1.5 mb-1 rounded-md border p-1.5">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-semibold">Star TraceRoot</span>
+    <div className="border-b px-4 py-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-medium">Star traceroot</span>
         <button
-          className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="-mr-1 flex h-5 w-5 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={() => {
             localStorage.setItem(DISMISSED_KEY, "true");
             setDismissed(true);
@@ -65,7 +65,7 @@ export function GitHubStarWidget() {
           <X className="h-3 w-3" />
         </button>
       </div>
-      <p className="mb-2 text-balance text-[11px] leading-snug text-muted-foreground">
+      <p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">
         Open source and shipping fast.
         <br />
         Made with ❤️ by contributors.
@@ -74,13 +74,13 @@ export function GitHubStarWidget() {
         href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex w-full overflow-hidden rounded border border-border text-[11px] font-medium transition-colors hover:bg-muted/50"
+        className="btn-group mt-2.5 flex w-full text-[12px] font-medium"
       >
-        <span className="flex flex-1 items-center justify-center gap-1 px-1.5 py-1">
-          <Github className="h-3 w-3 shrink-0" />
+        <span className="flex h-7 flex-1 items-center justify-center gap-1.5 bg-background px-2 transition-colors hover:bg-muted">
+          <Github className="h-3.5 w-3.5 shrink-0" />
           traceroot
         </span>
-        <span className="flex shrink-0 items-center gap-1 border-l border-border px-2.5 py-1 text-muted-foreground">
+        <span className="flex h-7 shrink-0 items-center gap-1 bg-background px-3 text-muted-foreground">
           ★ {starCount !== null ? formatStarCount(starCount) : "—"}
         </span>
       </a>

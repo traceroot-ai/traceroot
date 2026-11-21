@@ -32,7 +32,7 @@ export function ExpandableSection({
     <div className="overflow-hidden rounded-md border border-border">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between border-b border-border bg-muted/50 px-2.5 py-1.5 transition-colors hover:bg-muted"
+        className="flex w-full items-center justify-between border-b border-border px-2.5 py-1.5 transition-colors hover:bg-muted"
       >
         <div className="flex items-center gap-1.5">
           {isOpen ? (

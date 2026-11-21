@@ -34,7 +34,7 @@ export function WorkspaceSettingsLayout({
 
   return (
     <div className="flex h-full">
-      <WorkspaceBreadcrumb workspaceId={workspaceId} current="Settings" />
+      <WorkspaceBreadcrumb workspaceId={workspaceId} />
 
       <SettingsLayout
         tabs={WORKSPACE_SETTINGS_TABS}
@@ -64,7 +64,7 @@ export function ProjectSettingsLayout({
 
   return (
     <div className="flex h-full">
-      <ProjectBreadcrumb projectId={projectId} current="Settings" />
+      <ProjectBreadcrumb projectId={projectId} />
 
       <SettingsLayout
         tabs={PROJECT_SETTINGS_TABS}
@@ -72,7 +72,7 @@ export function ProjectSettingsLayout({
         basePath={`/projects/${projectId}/settings`}
         crossLink={
           workspaceId
-            ? { label: "Org Settings", href: `/workspaces/${workspaceId}/settings/general` }
+            ? { label: "Workspace", href: `/workspaces/${workspaceId}/settings/general` }
             : undefined
         }
       >

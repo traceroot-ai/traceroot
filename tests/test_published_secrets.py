@@ -99,7 +99,8 @@ def test_every_required_secret_is_generated_for_the_operator():
 
 def test_prod_lite_generates_the_same_set_without_the_python_toolchain():
     """prod-lite cannot call the launcher, so its own list must not drift."""
-    assert _makefile_required_secrets() == _compose_required_secrets()
+    generated = _makefile_required_secrets() | set(_makefile_list("FRESH_ONLY_SECRETS"))
+    assert generated == _compose_required_secrets()
 
 
 def _makefile_recipe(target: str) -> str:
@@ -124,8 +125,9 @@ def _run_env_secrets(
     from what an operator actually runs. ``extra_path`` goes in front of PATH, so
     a test can make one of the tools the recipe shells out to fail.
     """
-    script = _makefile_recipe("env-secrets")
+    script = _makefile_recipe("env-secrets-unlocked")
     script = script.replace("$(REQUIRED_SECRETS)", " ".join(sorted(_makefile_required_secrets())))
+    script = script.replace("$(FRESH_ONLY_SECRETS)", " ".join(_makefile_list("FRESH_ONLY_SECRETS")))
     script = script.replace(
         "$(PUBLISHED_PLACEHOLDERS)", " ".join(sorted(_makefile_list("PUBLISHED_PLACEHOLDERS")))
     )
@@ -133,6 +135,7 @@ def _run_env_secrets(
     # here would mean silently testing against an empty placeholder list.
     leftover = re.search(r"(?<!\$)\$\([^)]*\)", script)
     assert leftover is None, f"unexpanded make variable {leftover.group() if leftover else ''}"
+    script = script.replace("scripts/env-value.sh", str(_ROOT / "scripts" / "env-value.sh"))
     script = script.replace("\t", "").replace("$$", "$")
     script = re.sub(r"^@", "", script, flags=re.MULTILINE)
     env = dict(os.environ)
@@ -317,7 +320,8 @@ def test_no_generated_secret_is_left_anywhere_but_env(tmp_path):
 
     env_path = tmp_path / ".env"
     secrets = set(_values(env_path).values())
-    assert len(secrets) == 3, f"expected three generated secrets, got {secrets}"
+    expected = len(_makefile_required_secrets()) + len(_makefile_list("FRESH_ONLY_SECRETS"))
+    assert len(secrets) == expected, f"expected {expected} generated secrets, got {secrets}"
     assert all(len(v) == 64 for v in secrets), secrets
 
     leaked = []
@@ -429,7 +433,7 @@ def test_generated_secret_never_becomes_a_command_line_argument(tmp_path):
         'double"quote',
         "single'quote",
         "percent%sformat",
-        "dollar$and`backtick`",
+        "back`tick`",
     ],
 )
 def test_a_generated_value_with_metacharacters_is_written_verbatim(tmp_path, value):
@@ -653,3 +657,153 @@ def test_published_default_is_treated_as_unset(published):
 def test_a_real_secret_is_kept_verbatim():
     secret = "a3f9c1d0b7e24856" * 4
     assert Settings(internal_api_secret=secret).internal_api_secret == secret
+
+
+# --- storage and database credentials -----------------------------------------
+
+_DEV_COMPOSE = _ROOT / "docker-compose.yml"
+_ENV_EXAMPLE = _ROOT / ".env.example"
+_COPIED_VALUES = ("clickhouse", "minio-password")
+
+
+@pytest.mark.parametrize("key", ["CLICKHOUSE_PASSWORD", "MINIO_ROOT_PASSWORD", "ENCRYPTION_KEY"])
+def test_prod_compose_has_no_fallback_for_the_new_required_values(key):
+    text = _COMPOSE.read_text()
+    assert not re.findall(rf"\$\{{{key}:-[^}}]*\}}", text), f"{key} still has a fallback default"
+    assert re.search(rf"\$\{{{key}:\?", text), f"{key} is not marked required"
+
+
+def test_prod_compose_object_store_credentials_are_the_root_credentials():
+    """One variable, not two that can drift: apps sign in as the account minio starts with."""
+    text = _COMPOSE.read_text()
+    assert "S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD" in text
+    assert not re.search(r"\$\{S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)", text)
+
+
+def test_prod_object_store_api_is_only_published_on_loopback():
+    compose = _COMPOSE
+    published = [
+        line.strip()
+        for line in compose.read_text().splitlines()
+        if re.match(r"\s*- \"?(\d{1,3}(\.\d{1,3}){3}:)?\d+:9000\"?\s*$", line)
+    ]
+    assert published, "the object store port mapping moved; update this test"
+    assert all(line.startswith("- 127.0.0.1:") for line in published), published
+
+
+def _compose_service(name: str) -> dict:
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load(_COMPOSE.read_text())["services"][name]
+
+
+def test_nothing_with_data_or_credentials_starts_before_the_preflight():
+    for service in ["clickhouse", "minio", "web", "rest", "worker", "billing", "detector", "agent"]:
+        depends = _compose_service(service)["depends_on"]
+        assert depends["preflight"]["condition"] == "service_completed_successfully", service
+
+
+def _run_preflight(**values: str) -> subprocess.CompletedProcess:
+    """Run the preflight service's own script, the way the container would."""
+    script = _compose_service("preflight")["entrypoint"][2].replace("$$", "$")
+    env = {"PATH": os.environ["PATH"], **values}
+    return subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=env)
+
+
+_GOOD = {
+    "CLICKHOUSE_PASSWORD": "a" * 64,
+    "MINIO_ROOT_PASSWORD": "b" * 64,
+    "ENCRYPTION_KEY": "c" * 64,
+}
+
+
+def test_preflight_accepts_values_the_operator_chose():
+    result = _run_preflight(**_GOOD)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        ("CLICKHOUSE_PASSWORD", "clickhouse"),
+        ("MINIO_ROOT_PASSWORD", "minio-password"),
+    ],
+)
+def test_preflight_refuses_a_copied_password_and_names_it(name, value):
+    result = _run_preflight(**{**_GOOD, name: value})
+    assert result.returncode != 0
+    assert name in result.stderr
+    assert value not in result.stderr.replace(name, "").replace("make prod-lite", "")
+
+
+def test_the_example_config_ships_no_encryption_key():
+    assert re.search(r"^ENCRYPTION_KEY=\s*$", _ENV_EXAMPLE.read_text(), re.MULTILINE)
+
+
+def test_copied_values_are_in_both_placeholder_lists():
+    for value in _COPIED_VALUES:
+        assert value in _makefile_list("PUBLISHED_PLACEHOLDERS")
+        assert value in PUBLISHED_PLACEHOLDERS
+
+
+def test_the_new_passwords_are_generated_on_the_prod_paths_only():
+    from tmux_tools.launcher import PROD_GENERATED_KEYS
+
+    for key in ("CLICKHOUSE_PASSWORD", "MINIO_ROOT_PASSWORD"):
+        assert key in PROD_GENERATED_KEYS
+        assert key not in GENERATED_KEYS
+
+
+@pytest.mark.parametrize("target", ["prod-lite", "dev-lite"])
+def test_make_start_targets_run_the_preflight_and_start_inside_one_key_lock(target):
+    """Compose alone says only that preflight failed, so run it where its message shows; and
+    check and start under the same lock a rotation holds, so no rotation can begin between."""
+    recipe = _makefile_recipe(target)
+    locked = recipe[recipe.index("with-key-lock.sh") :]
+    assert "run --rm preflight" in locked
+    assert locked.index("run --rm preflight") < locked.index("up --build")
+
+
+# (.env text, key Docker Compose ends up using)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00",
+        "9CF7EC27E77884F3D76DDA6312F55317B2B6FFF317E5B09D4A9AD7B20EFF5E00",
+    ],
+)
+def test_preflight_refuses_the_example_key_in_any_letter_case_and_names_the_command(key):
+    """Hex digits decode the same either way, so it is the same key."""
+    result = _run_preflight(**{**_GOOD, "ENCRYPTION_KEY": key})
+    assert result.returncode != 0
+    assert "ENCRYPTION_KEY" in result.stderr
+    assert "make rotate-encryption-key" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "clickhouse dev-internal-secret",  # two neighbouring published words, not a published value
+        "*",
+        "xclickhouse",
+    ],
+)
+def test_only_an_exact_published_value_is_replaced(tmp_path, value):
+    """An operator's own value is kept even when it looks like, or globs to, a published one."""
+    (tmp_path / ".env.example").write_text("CLICKHOUSE_PASSWORD=\n")
+    (tmp_path / ".env").write_text(f"CLICKHOUSE_PASSWORD='{value}'\n")
+
+    _run_env_secrets(tmp_path)
+
+    assert _values(tmp_path / ".env")["CLICKHOUSE_PASSWORD"] == f"'{value}'"
+
+
+@pytest.mark.parametrize("value", ["ClickHouse", "changeme"])
+def test_an_exact_published_value_is_still_replaced_in_any_letter_case(tmp_path, value):
+    (tmp_path / ".env.example").write_text("CLICKHOUSE_PASSWORD=\n")
+    (tmp_path / ".env").write_text(f"CLICKHOUSE_PASSWORD={value}\n")
+
+    _run_env_secrets(tmp_path)
+
+    assert re.fullmatch(r"[0-9a-f]{64}", _values(tmp_path / ".env")["CLICKHOUSE_PASSWORD"])

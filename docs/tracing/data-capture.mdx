@@ -1,9 +1,9 @@
 ---
 title: Data Capture and Privacy
-description: Understand and control what TraceRoot records and exports
+description: Understand and control what traceroot records and exports
 ---
 
-TraceRoot spans can contain application data. Review the defaults before tracing workloads that process personal data, credentials, or confidential content.
+traceroot spans can contain application data. Review the defaults before tracing workloads that process personal data, credentials, or confidential content.
 
 ## What is captured by default
 
@@ -52,7 +52,7 @@ These flags apply only to the span created by that `observe` call. Auto-instrume
 
 Requires `traceroot` 0.4.0 or later (Python) or `@traceroot-ai/traceroot` 0.6.0 or later (TypeScript, or 0.8.0 for an async `redact`).
 
-Pass a `redact` function to `initialize()`. It receives each finished span's attributes and returns what to export, so anything it removes never reaches TraceRoot. This example blanks email addresses and phone numbers:
+Pass a `redact` function to `initialize()`. It receives each finished span's attributes and returns what to export, so anything it removes never reaches traceroot. This example blanks email addresses and phone numbers:
 
 <Tabs>
   <Tab title="Python">
@@ -106,7 +106,7 @@ How it works:
 - It receives span content: `observe` input, output, and metadata, LLM prompts, event attributes such as exception messages, and the status message. Structured values arrive as JSON text, so parse them if your detector misses names in JSON.
 - It does not receive bookkeeping: user and session IDs, model name and token usage, tags, environment, span names, and similar. Those are sent as given, so keep personal data out of them and use an internal user ID, not an email address.
 - Return every key you want to keep.
-- Only TraceRoot's copy changes. Other exporters in your app still get the original span.
+- Only traceroot's copy changes. Other exporters in your app still get the original span.
 
 <Warning>
 If the function raises or returns anything other than a dict (Python) or object (TypeScript), metadata is dropped and every value except numbers and booleans is sent as `[redaction failed]`. A TypeScript promise that rejects or does not settle within 5 seconds fails the same way. The SDK logs a warning. In TypeScript, pass `logLevel: 'warn'` to `initialize()` to see it.
@@ -212,4 +212,4 @@ You can also pass `enabled=False` to Python's `initialize()` or `enabled: false`
 - Use `redact` to strip personal data that has to stay in captured content.
 - Never attach secrets to metadata or manual span updates.
 - Verify a representative exported trace in a non-production project before rollout.
-- Apply your organization's retention, access-control, and data-processing requirements to the TraceRoot deployment you use.
+- Apply your organization's retention, access-control, and data-processing requirements to the traceroot deployment you use.

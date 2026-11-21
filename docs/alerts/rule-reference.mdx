@@ -115,9 +115,9 @@ The status says whether the rule is being evaluated at all.
 | --- | --- |
 | `ACTIVE` | The rule is evaluated on schedule. |
 | `PAUSED` | You stopped the rule. It is not evaluated and sends nothing until resumed. |
-| `PARKED` | TraceRoot stopped the rule because its saved settings cannot be evaluated. |
+| `PARKED` | traceroot stopped the rule because its saved settings cannot be evaluated. |
 
-Only TraceRoot sets `PARKED`, and the badge states the reason. To start a parked rule again, change the setting named in the reason and save, or resume it. A save that changes nothing, or only the name, leaves it parked. A parked rule cannot be paused.
+Only traceroot sets `PARKED`, and the badge states the reason. To start a parked rule again, change the setting named in the reason and save, or resume it. A save that changes nothing, or only the name, leaves it parked. A parked rule cannot be paused.
 
 ## Starting fresh
 
@@ -148,7 +148,7 @@ Deleting a rule with an alert open posts the same `[OK]` right away, naming who 
   <Card title="Introduction" icon="bell" href="/alerts/overview">
     Create your first alert and connect Slack.
   </Card>
-  <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
+  <Card title="traceroot Agent" icon="brain" href="/ai-agent/overview">
     The in-app agent that can draft alerts for you.
   </Card>
 </CardGroup>

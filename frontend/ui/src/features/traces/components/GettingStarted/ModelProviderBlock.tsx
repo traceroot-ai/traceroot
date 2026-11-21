@@ -4,7 +4,13 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import { ADAPTER_CONFIG, ADAPTER_MODELS, LLMAdapter, PROVIDER_PRIORITY } from "@traceroot/core";
+import {
+  ADAPTER_CONFIG,
+  ADAPTER_MODELS,
+  defaultAdapterModel,
+  LLMAdapter,
+  PROVIDER_PRIORITY,
+} from "@traceroot/core";
 import { ProviderIcon } from "@/components/icons/provider-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +93,7 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
 };
 
 /**
- * The models a key saved for the adapter starts with: the catalogue's default,
+ * The models a key saved for the adapter starts with: the adapter's default,
  * then the seeded models still in the catalogue. A model the catalogue no
  * longer lists is one the pickers cannot resolve, so it is not stored even
  * while the list above still names it. An adapter the list has no entry for
@@ -96,8 +102,8 @@ export const SEEDED_MODELS: Partial<Record<LLMAdapter, readonly string[]>> = {
 export function seedFor(adapter: LLMAdapter): string[] {
   const seeded = SEEDED_MODELS[adapter];
   const catalogue = (ADAPTER_MODELS[adapter] ?? []).map((model) => model.id);
-  if (seeded === undefined || catalogue.length === 0) return [];
-  const [first] = catalogue;
+  const first = defaultAdapterModel(adapter, catalogue);
+  if (seeded === undefined || first === undefined) return [];
   return [first, ...seeded.filter((id) => id !== first && catalogue.includes(id))];
 }
 
@@ -185,7 +191,7 @@ export function storedKeyCopy({
   // row came back disabled. What matters then is that the key is present and
   // inert, which this says either way, so this branch needs no notion of who
   // stored it. It does not say what runs instead: a detector set to one of
-  // these models fails rather than moving to TraceRoot's.
+  // these models fails rather than moving to traceroot's.
   if (!usingOwnKey) {
     return {
       state:
@@ -204,9 +210,9 @@ export function storedKeyCopy({
   // A save makes the key's models available; it does not move anything onto
   // them. A detector keeps the model it was saved with, and the "system"
   // source it starts on takes the server's own key first. The assistant's
-  // default is picked by provider priority across workspace and TraceRoot
+  // default is picked by provider priority across workspace and traceroot
   // models together, so where the deployment has an Anthropic key of its own,
-  // an OpenAI key leaves it on a TraceRoot Anthropic model.
+  // an OpenAI key leaves it on a traceroot Anthropic model.
   // So the line says where the models now appear, and that choosing one is the
   // step left.
   if (justSavedLabel !== undefined) {
@@ -244,16 +250,16 @@ const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
  * a stack, the key field vanished, and nothing says whether that is a bug.
  *
  * Two different situations, kept apart because the honest sentence differs.
- * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
+ * `settingsOnlyReason` covers a provider traceroot does have an adapter for
  * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
  * access-key pair and a region, OpenRouter a model list. `none` covers a
  * provider there is no adapter for at all, Mistral today: nothing anywhere in
- * TraceRoot can store that key, so pointing at settings as if it could would
+ * traceroot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
  *
  * Neither line names the selected stack. It is on screen a few lines above,
  * checked, and for every entry that reaches here it is also the provider's own
- * name — so saying it produced "Mistral calls Mistral, and TraceRoot has no
+ * name — so saying it produced "Mistral calls Mistral, and traceroot has no
  * Mistral adapter".
  */
 export function unavailableKeyCopy(binding: ProviderKeyBinding): {
@@ -262,7 +268,7 @@ export function unavailableKeyCopy(binding: ProviderKeyBinding): {
 } {
   if (binding.kind === "none") {
     return {
-      state: `TraceRoot has no ${binding.provider} adapter, so there is no key to paste here.`,
+      state: `traceroot has no ${binding.provider} adapter, so there is no key to paste here.`,
       settings: null,
     };
   }
@@ -562,7 +568,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
     return (
       <p className="text-[12px] text-muted-foreground">
         Your own model keys are not available on this workspace&apos;s plan. Detectors and the AI
-        assistant run on TraceRoot&apos;s models in the meantime.
+        assistant run on traceroot&apos;s models in the meantime.
       </p>
     );
   }
@@ -634,7 +640,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {/* Offered only where it is a real question. A provider's own SDK can
             only use that provider's key, so a dropdown over it would be a
             choice with one right answer and several wrong ones; a framework
@@ -682,7 +688,7 @@ export function ModelProviderBlock({ workspaceId, providerKey }: ModelProviderBl
           placeholder={`${label} API key`}
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
-          className="h-8 flex-1 font-mono text-[12px]"
+          className="h-8 min-w-[12rem] flex-1 font-mono text-[12px]"
         />
 
         <Button

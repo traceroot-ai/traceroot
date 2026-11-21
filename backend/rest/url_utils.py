@@ -1,4 +1,4 @@
-"""Shared helpers for building TraceRoot UI links.
+"""Shared helpers for building traceroot UI links.
 
 The backend owns the UI URL shape so API clients (e.g. the CLI) never need to
 know the frontend route layout or a second host — they receive ready-to-use

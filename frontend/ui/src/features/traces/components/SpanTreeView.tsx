@@ -265,9 +265,12 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
               <div
                 key="trace"
                 className={cn(
-                  "flex cursor-pointer items-center border-b border-border/5 transition-colors hover:bg-muted/50",
-                  hoveredSpanId === "trace" && "bg-muted/60",
-                  isTraceSelected && "bg-muted/60",
+                  "flex cursor-pointer items-center border-b border-border/5 transition-colors",
+                  isTraceSelected
+                    ? "bg-accent"
+                    : hoveredSpanId === "trace"
+                      ? "bg-muted"
+                      : "hover:bg-muted",
                 )}
                 style={{ ...rowStyle, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
                 onClick={() => onSelect({ type: "trace" })}
@@ -282,12 +285,12 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                   <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
                     {!compact && (
                       <>
-                        <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                        <span className="hidden shrink-0 whitespace-nowrap text-[12px] text-muted-foreground @[45px]:inline-flex">
                           {formatDuration(traceDuration)}
                         </span>
 
                         {traceTokenUsage && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] font-medium text-muted-foreground @[130px]:inline-flex">
                             <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                             {formatTokenFlow(
                               traceTokenUsage.inputTokens,
@@ -298,7 +301,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         )}
 
                         {traceTotalCost != null && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] text-muted-foreground @[190px]:inline-flex">
                             <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                             {traceTotalCost.toFixed(4)}
                           </span>
@@ -336,8 +339,8 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
               key={span.span_id}
               className={cn(
                 "group flex cursor-pointer items-center border-b border-border/5 transition-colors",
-                hoveredSpanId === span.span_id ? "bg-muted/60" : "bg-transparent",
-                isSelected && "bg-muted/80",
+                hoveredSpanId === span.span_id ? "bg-muted" : "bg-transparent",
+                isSelected && "bg-accent",
               )}
               style={rowStyle}
               onMouseEnter={(e) => {
@@ -370,7 +373,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                 </span>
                 {/* Error badge stays outside the @container to guarantee it is always visible */}
                 {span.status === SpanStatus.ERROR && (
-                  <span className="shrink-0 whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                  <span className="shrink-0 whitespace-nowrap rounded bg-danger-soft px-1 py-0.5 text-[12px] font-medium text-danger">
                     ERROR
                   </span>
                 )}
@@ -380,13 +383,13 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                   {!compact && (
                     <>
                       {!span.pending && (
-                        <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                        <span className="hidden shrink-0 whitespace-nowrap text-[12px] text-muted-foreground @[45px]:inline-flex">
                           {formatDuration(getSpanDuration(span))}
                         </span>
                       )}
 
                       {MODEL_SPAN_KINDS.has(span.span_kind) && span.total_tokens != null && (
-                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
+                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] font-medium text-muted-foreground @[130px]:inline-flex">
                           <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                           {formatTokenFlow(
                             span.input_tokens,
@@ -401,7 +404,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         Number.isFinite(span.cost) && (
                           <span
                             className={cn(
-                              "hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground",
+                              "hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] text-muted-foreground",
                               span.total_tokens != null
                                 ? "@[190px]:inline-flex"
                                 : "@[100px]:inline-flex",

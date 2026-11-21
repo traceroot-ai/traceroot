@@ -1,5 +1,5 @@
 /**
- * OpenAI ReAct Agent — TraceRoot Observability
+ * OpenAI ReAct Agent — traceroot Observability
  *
  * Uses @traceroot/sdk's TraceRoot.initialize() with instrumentModules to
  * auto-instrument all OpenAI calls, plus observe() for explicit span hierarchy.
@@ -11,16 +11,27 @@
  */
 
 import 'dotenv/config';
+// [start:tracing-get-started-typescript]
+// import 'dotenv/config'; // Uncomment if using a .env file (requires: npm install dotenv)
 import OpenAI from 'openai';
-import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
+import { TraceRoot } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
-TraceRoot.initialize({
-  instrumentModules: { openAI: OpenAI },
-});
+// This single line instruments all OpenAI API calls
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
 const openai = new OpenAI();
-console.log('[Observability: TraceRoot]');
+// [end:tracing-get-started-typescript]
+import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+
+// [start:typescript-sdk-observe]
+import { observe } from '@traceroot-ai/traceroot';
+
+const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
+  return 'your result here';
+});
+// [end:typescript-sdk-observe]
+
+console.log('[Observability: traceroot]');
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 type ToolResult = Record<string, unknown>;
@@ -219,7 +230,7 @@ async function main() {
       },
       () => observe({ name: 'demo_session' }, async () => {
         console.log('='.repeat(60));
-        console.log('OpenAI ReAct Agent — Demo (TraceRoot)');
+        console.log('OpenAI ReAct Agent — Demo (traceroot)');
         console.log('='.repeat(60));
 
         for (let i = 0; i < DEMO_QUERIES.length; i++) {

@@ -35,6 +35,9 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     listWorkspaceModels,
   };
 });
+const { captureServerEvent } = vi.hoisted(() => ({ captureServerEvent: vi.fn() }));
+vi.mock("@/lib/posthog-server", () => ({ captureServerEvent }));
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { createDetector } from "./detectors";
 
 const baseInput = {
@@ -76,6 +79,7 @@ beforeEach(() => {
   root.auditLog.create.mockReset();
   root.auditLog.create.mockResolvedValue({});
   root.detector.findFirst.mockReset();
+  captureServerEvent.mockReset();
   listWorkspaceModels.mockReset();
   listWorkspaceModels.mockResolvedValue({
     systemModels: [
@@ -185,6 +189,44 @@ describe("createDetector", () => {
       status: 400,
       error: "outputSchema must be an array",
     });
+  });
+
+  it.each([
+    [
+      [{ name: "x", type: "banana" }],
+      "output field 1 type must be one of: string, number, boolean",
+    ],
+    [
+      [
+        { name: "x", type: "string" },
+        { name: "x", type: "number" },
+      ],
+      'output field 2 repeats the name "x"',
+    ],
+    [[null], "output field 1 must be an object"],
+    [["severity"], "output field 1 must be an object"],
+    [[{ type: "string" }], "output field 1 requires a non-empty name"],
+    [[{ name: "  ", type: "string" }], "output field 1 requires a non-empty name"],
+    [[{ name: "constructor", type: "string" }], 'output field 1 name "constructor" is reserved'],
+  ])("rejects outputSchema=%j with 400 and creates nothing", async (outputSchema, error) => {
+    mockAccess();
+    const r = await run({ outputSchema });
+    expect(r).toEqual({ ok: false, status: 400, error });
+    expect(tx.detector.create).not.toHaveBeenCalled();
+  });
+
+  it("stores a valid outputSchema as given", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    const outputSchema = [
+      { name: "severity", type: "string" },
+      { name: "count", type: "number" },
+      { name: "flagged", type: "boolean" },
+    ];
+    const r = await run({ outputSchema });
+    expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    expect(tx.detector.create.mock.calls[0][0].data.outputSchema).toEqual(outputSchema);
   });
 
   it("surfaces the trigger validator's message for a non-array payload", async () => {
@@ -544,9 +586,26 @@ describe("createDetector", () => {
       detectionModel: "gpt-5.4",
       detectionProvider: "My OpenAI",
       enableRca: false,
+      enableSignals: false,
+      enabled: false,
+      sampleRate: 40,
       provenance: { transport: "agent", agentSessionId: "as1" },
     });
     expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      "u1",
+      "detector_created",
+      expect.objectContaining({
+        template: "other",
+        detection_source: "byok",
+        default_model: false,
+        trigger_count: 1,
+        sample_rate: 40,
+        enabled: false,
+        rca_enabled: false,
+        signals_enabled: false,
+      }),
+    );
     expect(tx.detector.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -561,5 +620,102 @@ describe("createDetector", () => {
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
+  });
+});
+
+describe("createDetector — detector_created", () => {
+  it("is sent once, to the actor, for a detector this call created", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+
+    await run({
+      template: "hallucination",
+      prompt: undefined,
+      provenance: { transport: "agent", agentSessionId: "s1" },
+    });
+
+    expect(captureServerEvent).toHaveBeenCalledTimes(1);
+    expect(captureServerEvent).toHaveBeenCalledWith("u1", "detector_created", {
+      project_id: "p1",
+      workspace_id: "w1",
+      transport: "agent",
+      template: "hallucination",
+      detection_source: "system",
+      default_model: true,
+      prompt_customized: false,
+      trigger_count: 0,
+      sample_rate: DEFAULT_DETECTOR_SAMPLE_RATE,
+      enabled: true,
+      rca_enabled: true,
+      signals_enabled: true,
+    });
+  });
+
+  it("counts the system default picked by id as the default model", async () => {
+    mockAccess();
+    listWorkspaceModels.mockResolvedValue({
+      systemModels: [
+        {
+          provider: "OpenAI",
+          adapter: "openai",
+          source: "system",
+          models: [{ id: DETECTOR_SYSTEM_DEFAULT_MODEL_ID, label: "default" }],
+        },
+      ],
+      byokProviders: [],
+    });
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+
+    await run({ detectionSource: "system", detectionModel: DETECTOR_SYSTEM_DEFAULT_MODEL_ID });
+
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      "u1",
+      "detector_created",
+      expect.objectContaining({ detection_source: "system", default_model: true }),
+    );
+  });
+
+  it("is not sent when a retry gets the existing detector back", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(createdRow);
+
+    await run();
+
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("is not sent when the insert loses the name race to a concurrent create", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(p2002());
+    root.detector.findFirst.mockResolvedValue(createdRow);
+
+    await run();
+
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a VIEWER", () => mockAccess("VIEWER"), {}],
+    ["a missing project", () => tx.project.findUnique.mockResolvedValue(null), {}],
+    ["an invalid body", () => mockAccess(), { name: "   " }],
+  ])("is not sent for a request refused for %s", async (_, arrange, overrides) => {
+    arrange();
+
+    const r = await run(overrides);
+
+    expect(r.ok).toBe(false);
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("is not sent when the transaction fails", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(new Error("connection lost"));
+
+    await expect(run()).rejects.toThrow("connection lost");
+    expect(captureServerEvent).not.toHaveBeenCalled();
   });
 });

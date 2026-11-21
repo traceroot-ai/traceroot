@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
 import { SectionLink } from "@/features/traces/components/GettingStarted/SectionLink";
+import {
+  useSetupCommandCopied,
+  useSetupRouteChosen,
+  useSetupSkipped,
+} from "@/features/traces/components/GettingStarted/use-setup-command-copied";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -53,7 +58,7 @@ interface CliHandbackStepProps {
  *
  * On a deployment whose own origin cannot be resolved there is no command to
  * run, and nothing runnable is drawn: `setupCommand` has no flags to put on the
- * line there, and the line without them is the TraceRoot Cloud one — so a
+ * line there, and the line without them is the traceroot Cloud one — so a
  * self-hosted operator who pasted it would sign this machine in against someone
  * else's deployment and send their first traces there, on the last page of
  * signing up. What is drawn instead names the variable and the value it holds,
@@ -71,6 +76,9 @@ export function CliHandbackStep({
   onSkip,
 }: CliHandbackStepProps) {
   const setup = setupCommand({ projectId });
+  const onCommandCopied = useSetupCommandCopied(projectId, "onboarding");
+  const recordRoute = useSetupRouteChosen(projectId, "onboarding");
+  const recordSkip = useSetupSkipped(projectId, "onboarding");
 
   return (
     <div className="flex flex-col gap-3">
@@ -93,23 +101,23 @@ export function CliHandbackStep({
                 `setup` refuses a Node older than 20.12 while the rest of the CLI
                 runs on 20.3. The traces panel says the last two in the same
                 words. */}
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-[12px] text-muted-foreground">
               Run it where {projectName}&apos;s code lives. It asks before editing your code. Needs
               Node.js 20.12 or later.
             </p>
           </div>
 
-          <CodeBlock label="terminal" value={setup.command} />
+          <CodeBlock label="terminal" value={setup.command} onCopy={onCommandCopied} />
         </>
       ) : (
         <div>
           <p className="text-[13px] font-medium">
             The setup command cannot be shown for this deployment
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[12px] text-muted-foreground">
             <code className="font-mono">{setup.variable}</code> is set to{" "}
             <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
-            the command would sign you in and send traces to TraceRoot Cloud instead. Correct that
+            the command would sign you in and send traces to traceroot Cloud instead. Correct that
             value and rebuild the web app. Meanwhile, &quot;Set up manually&quot; works once you set{" "}
             <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
             address.
@@ -122,11 +130,22 @@ export function CliHandbackStep({
           variant="outline"
           size="sm"
           className="h-7 px-4 text-[12px]"
-          onClick={onSetUpManually}
+          onClick={() => {
+            recordRoute("manual");
+            onSetUpManually();
+          }}
         >
           Set up manually
         </Button>
-        <Button variant="ghost" size="sm" className="h-7 px-4 text-[12px]" onClick={onSkip}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-4 text-[12px]"
+          onClick={() => {
+            recordSkip("command");
+            onSkip();
+          }}
+        >
           Skip for now
         </Button>
       </div>

@@ -56,10 +56,6 @@ class TestFreePlanBlocker:
         )
 
         # Mock other dependencies
-        monkeypatch.setattr(
-            "rest.routers.public.traces.decode_otlp_protobuf",
-            lambda body: {"resourceSpans": []},
-        )
         mock_s3 = MagicMock()
         monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: mock_s3)
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
@@ -82,10 +78,6 @@ class TestFreePlanBlocker:
         )
 
         # Mock other dependencies
-        monkeypatch.setattr(
-            "rest.routers.public.traces.decode_otlp_protobuf",
-            lambda body: {"resourceSpans": []},
-        )
         mock_s3 = MagicMock()
         monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: mock_s3)
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
@@ -110,10 +102,6 @@ class TestFreePlanBlocker:
             ingestion_blocked=True,
         )
 
-        monkeypatch.setattr(
-            "rest.routers.public.traces.decode_otlp_protobuf",
-            lambda body: {"resourceSpans": []},
-        )
         mock_s3 = MagicMock()
         monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: mock_s3)
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
@@ -135,10 +123,6 @@ class TestFreePlanBlocker:
             ingestion_blocked=False,
         )
 
-        monkeypatch.setattr(
-            "rest.routers.public.traces.decode_otlp_protobuf",
-            lambda body: {"resourceSpans": []},
-        )
         mock_s3 = MagicMock()
         monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: mock_s3)
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())

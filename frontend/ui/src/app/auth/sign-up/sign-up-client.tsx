@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { signupEmailError } from "@/lib/signup/email-policy";
+import type { SocialProvider } from "@/lib/social-providers";
+import { SocialSignInButtons } from "../social-sign-in-buttons";
 
 const signUpSchema = z
   .object({
@@ -26,10 +29,15 @@ const signUpSchema = z
     path: ["confirmPassword"],
   });
 
+const cloudSignUpSchema = signUpSchema.superRefine(({ email }, ctx) => {
+  const error = signupEmailError(email);
+  if (error) ctx.addIssue({ code: "custom", message: error.message, path: ["email"] });
+});
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
-  googleAuthConfigured: boolean;
+  socialProviders: SocialProvider[];
+  emailDomainPolicyEnabled: boolean;
 };
 
 // A brand-new account always finishes at onboarding. The one thing that can
@@ -43,11 +51,12 @@ type SignUpClientProps = {
 // to onboarding; a new user shouldn't be dropped deep in the app.
 //
 // This is a shortcut, not the enforcement, and the difference matters because
-// both buttons below share this destination while only one of them is a sign-up:
-// `signIn.social` is better-auth's only social entry point, so Google here signs
-// an existing account straight in, and account linking makes it answer for an
-// existing email account at the same address too. Those land on onboarding
-// without being new. /onboarding and /device each check the account rather than
+// the form and the social buttons below share this destination while only the
+// form is always a sign-up: `signIn.social` is better-auth's only social entry
+// point, so Google or AgentID here signs an existing account straight in, and
+// account linking (Google only) makes Google answer for an existing email
+// account at the same address too. Those land on onboarding without being new.
+// /onboarding and /device each check the account rather than
 // the route, so a wrong guess here normally costs a redirect rather than a
 // second workspace — normally, because /onboarding deliberately falls through to
 // its form when that lookup *fails* (a new account that cannot reach the form
@@ -66,7 +75,7 @@ function postSignUpDestination(callbackUrl: string): string {
   return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
-function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
+function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -80,14 +89,13 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<SignUpForm>({
-    resolver: zodResolver(signUpSchema),
+    resolver: zodResolver(emailDomainPolicyEnabled ? cloudSignUpSchema : signUpSchema),
     defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
   });
 
@@ -114,14 +122,6 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
     }
   }
 
-  async function handleGoogleSignUp() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: destination,
-    });
-  }
-
   return (
     <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
@@ -129,11 +129,11 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-lg font-semibold">Create your account</CardTitle>
+          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
-            <div className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
               {error}
             </div>
           )}
@@ -142,9 +142,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
             <div>
               <label className="mb-1 block text-[13px] font-medium">Name</label>
               <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-              {errors.name && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.name.message}</p>
-              )}
+              {errors.name && <p className="mt-1 text-[12px] text-danger">{errors.name.message}</p>}
             </div>
 
             <div>
@@ -156,7 +154,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
               )}
             </div>
 
@@ -178,7 +176,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
               )}
             </div>
 
@@ -200,7 +198,7 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-1 text-[11px] text-red-500">{errors.confirmPassword.message}</p>
+                <p className="mt-1 text-[12px] text-danger">{errors.confirmPassword.message}</p>
               )}
             </div>
 
@@ -209,32 +207,15 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
             </Button>
           </form>
 
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[11px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignUp}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
+          <SocialSignInButtons
+            providers={socialProviders}
+            callbackURL={destination}
+            onError={setError}
+          />
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
-            <Link href={signInHref} className="font-medium text-primary hover:underline">
+            <Link href={signInHref} className="font-medium text-brand hover:underline">
               Sign in
             </Link>
           </p>
@@ -244,10 +225,10 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   );
 }
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+export function SignUpClient(props: SignUpClientProps) {
   return (
     <Suspense>
-      <SignUpContent googleAuthConfigured={googleAuthConfigured} />
+      <SignUpContent {...props} />
     </Suspense>
   );
 }

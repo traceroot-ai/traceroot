@@ -6,6 +6,7 @@ import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { setupCommand } from "./commands";
 import { SectionLink } from "./SectionLink";
+import { useSetupCommandCopied } from "./use-setup-command-copied";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 
 interface AITabProps {
@@ -47,7 +48,7 @@ interface AITabProps {
  *
  * Which is also why there is a second state here. When `./commands` cannot tell
  * which deployment served the page, the line it would otherwise render is the
- * bare one, and that signs the reader in against TraceRoot Cloud — so on a
+ * bare one, and that signs the reader in against traceroot Cloud — so on a
  * self-hosted install a command shown here with no flags is not a lesser
  * answer, it is the wrong one. Nothing runnable is drawn in that case: no code
  * block and no copy button, because a command in that frame reads as one to
@@ -73,6 +74,7 @@ export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const setup = setupCommand({ projectId });
+  const onCommandCopied = useSetupCommandCopied(projectId, "project");
 
   return (
     <div className="space-y-6">
@@ -84,7 +86,7 @@ export function AITab({ projectId }: AITabProps) {
               View the tracing docs
             </SectionLink>
           </div>
-          <CodeBlock label="bash" value={setup.command} />
+          <CodeBlock label="bash" value={setup.command} onCopy={onCommandCopied} />
           <p className="text-[12px] text-muted-foreground">
             It asks before editing your code. Needs Node.js 20.12 or later.
           </p>
@@ -97,7 +99,7 @@ export function AITab({ projectId }: AITabProps) {
           <p className="text-[12px] text-muted-foreground">
             <code className="font-mono">{setup.variable}</code> is set to{" "}
             <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
-            the command would sign you in and send traces to TraceRoot Cloud instead. Correct that
+            the command would sign you in and send traces to traceroot Cloud instead. Correct that
             value and rebuild the web app. Meanwhile, the manual tab works once you set{" "}
             <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
             address.

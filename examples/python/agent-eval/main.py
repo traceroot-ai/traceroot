@@ -12,7 +12,7 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv())
 
-# Initialize TraceRoot BEFORE importing the agent so pydantic-ai is instrumented.
+# Initialize traceroot BEFORE importing the agent so pydantic-ai is instrumented.
 import traceroot
 from traceroot import Integration, Scorer, evaluate
 
@@ -78,8 +78,8 @@ answer_is_grounded = Scorer.llm_judge(
 
 
 def main() -> None:
-    # No TraceRoot key? Run locally — execute every case in full but report
-    # nowhere — so a fresh clone works without a TraceRoot credential. The
+    # No traceroot key? Run locally — execute every case in full but report
+    # nowhere — so a fresh clone works without a traceroot credential. The
     # unedited .env.example placeholder counts as "no key" too.
     api_key = (os.getenv("TRACEROOT_API_KEY") or "").strip()
     local = api_key in ("", "your_traceroot_api_key_here")
