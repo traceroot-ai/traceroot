@@ -288,6 +288,7 @@ KIMI_MODEL_CASES = [
     ("kimi-k3", "kimi-k3"),
     ("moonshot/kimi-k3", "kimi-k3"),
     ("kimi-k3-20260716", "kimi-k3"),
+    ("global.moonshotai.kimi-k3", "kimi-k3"),
     ("kimi-k3.1-pro", "kimi-k3.1-pro"),
     ("moonshot/kimi-k3.1-pro", "kimi-k3.1-pro"),
     ("kimi-k3-1-pro", "kimi-k3.1-pro"),
