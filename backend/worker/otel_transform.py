@@ -92,8 +92,73 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
 _AGGREGATE_USAGE_OPERATIONS = frozenset({"invoke_agent", "agent_step"})
 
 
+def _is_claude_platform_scope(scope_name: str | None) -> bool:
+    """Check if the instrumentation scope represents the Claude Platform exporter."""
+    if not isinstance(scope_name, str):
+        return False
+    lowered = scope_name.lower()
+    return (
+        lowered == "claude-platform"
+        or lowered.startswith("com.anthropic.")
+        or lowered == "anthropic"
+    )
+
+
+def _is_claude_platform_span(
+    scope_name: str | None,
+    span_attrs: dict[str, Any] | None = None,
+    span_name: str | None = None,
+) -> bool:
+    """Check if a span originates from Claude Platform export."""
+    if _is_claude_platform_scope(scope_name):
+        return True
+    if span_name and span_name.lower().startswith("anthropic."):
+        return True
+    if span_attrs:
+        for k in span_attrs:
+            if k.startswith("anthropic."):
+                return True
+    return False
+
+
+def _format_input_with_system_instructions(input_messages: Any, system_instructions: Any) -> Any:
+    """Combine gen_ai.input.messages with gen_ai.system_instructions if both present."""
+    if system_instructions is None or input_messages is None:
+        return input_messages
+
+    parsed_instructions = system_instructions
+    if isinstance(system_instructions, str):
+        try:
+            parsed_instructions = json.loads(system_instructions)
+        except (json.JSONDecodeError, TypeError, RecursionError):
+            pass
+
+    if isinstance(parsed_instructions, list):
+        sys_msg = {"role": "system", "parts": parsed_instructions}
+    elif isinstance(parsed_instructions, str):
+        sys_msg = {"role": "system", "content": parsed_instructions}
+    else:
+        sys_msg = {"role": "system", "parts": [parsed_instructions]}
+
+    if isinstance(input_messages, list):
+        return [sys_msg] + input_messages
+    if isinstance(input_messages, str):
+        try:
+            parsed_msgs = json.loads(input_messages)
+            if isinstance(parsed_msgs, list):
+                return json.dumps([sys_msg] + parsed_msgs)
+        except (json.JSONDecodeError, TypeError, RecursionError):
+            pass
+        return f"System instructions:\n{system_instructions}\n\n{input_messages}"
+    return input_messages
+
+
 def _span_aggregates_child_usage(
-    scope_name: str | None, span_kind: str, attrs: dict[str, Any]
+    scope_name: str | None,
+    span_kind: SpanKind,
+    attrs: dict[str, Any],
+    span_name: str | None = None,
+    otel_kind: int | str | None = None,
 ) -> bool:
     """Check whether a span restates the token usage of its model-call children.
 
@@ -101,6 +166,8 @@ def _span_aggregates_child_usage(
         scope_name (str | None): Instrumentation scope of the emitting tracer.
         span_kind (str): Span kind already resolved for this span.
         attrs (dict[str, Any]): Span attributes.
+        span_name (str | None): Span name string.
+        otel_kind (int | str | None): OTel span kind.
 
     Returns:
         bool: True when the span's token counts duplicate its children's and must
@@ -109,6 +176,42 @@ def _span_aggregates_child_usage(
     operation_name = attrs.get("gen_ai.operation.name")
     if isinstance(operation_name, str) and operation_name.lower() in _AGGREGATE_USAGE_OPERATIONS:
         return True
+
+    # Claude Platform spans:
+    # 1. anthropic.session.turn aggregates child model requests in the turn.
+    # 2. In a session (anthropic.session.id present), only anthropic.model_request,
+    #    anthropic.session.outcome_evaluation, and anthropic.compaction report usage;
+    #    all other spans (anthropic.session.turn, anthropic.messages.create, tool spans) aggregate.
+    # 3. For messages.create outside sessions:
+    #    Anthropic's rule is to sum either anthropic.messages.create (SERVER) or its
+    #    anthropic.model_request children, never both. In Claude Platform export,
+    #    anthropic.model_request carries the LLM execution counts and messages.create
+    #    (SERVER) is the endpoint wrapper that duplicates those tokens.
+    #    When exported from Claude Platform, the SERVER messages.create wrapper
+    #    always aggregates child usage, regardless of batching.
+    #    SDK-only traffic emits CLIENT anthropic.messages.create with no API spans;
+    #    its usage is retained.
+    s_name = (span_name or str_attr(attrs.get("name")) or "").lower()
+    if s_name:
+        if s_name == "anthropic.session.turn":
+            return True
+        if attrs.get("anthropic.session.id"):
+            if s_name not in (
+                "anthropic.model_request",
+                "anthropic.session.outcome_evaluation",
+                "anthropic.compaction",
+            ):
+                return True
+        elif (
+            s_name == "anthropic.messages.create"
+            and (
+                _is_claude_platform_scope(scope_name)
+                or _is_claude_platform_span(scope_name, attrs, span_name)
+            )
+            and otel_kind in (2, "SPAN_KIND_SERVER", "2")
+        ):
+            return True
+
     # Fallback for a wrapper that reaches us without an operation name — an emitter
     # version that stops setting one would otherwise silently resume double-pricing,
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
@@ -137,6 +240,9 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "openinference.span.kind",
     "session.id",
     "session.user_id",
+    "anthropic.session.",
+    "anthropic.usage.",
+    "gen_ai.conversation.",
     "user.id",
     "input.value",
     "output.value",
@@ -186,6 +292,19 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
         if value is not None:
             return value
     return None
+
+
+def first_present_entry(attrs: dict[str, Any], keys: list[str]) -> tuple[str | None, Any]:
+    """Return (key, value) of the first key that is present (not None) in attrs.
+
+    Uses `is not None` rather than truthiness so falsy-but-valid values like
+    empty string, 0, or {} do not fall through to lower-priority keys.
+    """
+    for key in keys:
+        value = attrs.get(key)
+        if value is not None:
+            return key, value
+    return None, None
 
 
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor
@@ -586,14 +705,20 @@ def _is_embedding_span(attrs: dict[str, Any]) -> bool:
     )
 
 
-def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
+def get_span_kind(
+    attrs: dict[str, Any],
+    otel_kind: int | str | None,
+    span_name: str | None = None,
+) -> str:
     """Determine the span kind from span attributes.
 
-    Uses traceroot.span.type attribute if present, otherwise infers from attributes.
+    Uses traceroot.span.type attribute if present, otherwise infers from attributes
+    and standard span names (e.g., Claude Platform).
 
     Args:
         attrs: Span attributes dict
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
+        span_name: Optional span name string (from OTel span name)
 
     Returns:
         One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER", "DECISION"
@@ -624,6 +749,23 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.DECISION
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
+
+    # Claude Platform span names (anthropic.session.turn, anthropic.model_request, etc.)
+    # Check before model-presence fallback so agent turn spans aren't flipped to LLM.
+    s_name = (span_name or str_attr(attrs.get("name")) or "").lower()
+    if s_name:
+        if s_name == "anthropic.session.turn":
+            return SpanKind.AGENT
+        if s_name in ("anthropic.model_request", "anthropic.messages.create"):
+            return SpanKind.LLM
+        if s_name in ("anthropic.custom_tool_use", "anthropic.mcp_tool_use") or s_name.startswith(
+            "anthropic.tool"
+        ):
+            return SpanKind.TOOL
+        if s_name == "anthropic.session.outcome_evaluation":
+            return SpanKind.EVALUATION
+        if s_name == "anthropic.compaction":
+            return SpanKind.SPAN
 
     if _is_vercel_embedding_call(attrs):
         return SpanKind.LLM
@@ -665,9 +807,29 @@ def _extract_user_id(attrs: dict[str, Any]) -> str | None:
     )
 
 
-def _extract_session_id(attrs: dict[str, Any]) -> str | None:
-    """Extract session_id from span attributes, checking multiple keys."""
-    return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
+def _extract_session_id(
+    attrs: dict[str, Any],
+    scope_name: str | None = None,
+    span_name: str | None = None,
+) -> str | None:
+    """Extract session_id from span attributes, checking multiple keys.
+
+    Priority:
+    1. traceroot.trace.session_id (TraceRoot SDK explicit)
+    2. session.id (OpenInference)
+    3. anthropic.session.id (Claude Platform Managed Agents)
+    4. gen_ai.conversation.id (GenAI semconv fallback for Claude Platform)
+    """
+    session_id = (
+        attrs.get("traceroot.trace.session_id")
+        or attrs.get("session.id")
+        or attrs.get("anthropic.session.id")
+    )
+    if session_id:
+        return str_or_none(session_id)
+    if _is_claude_platform_span(scope_name, attrs, span_name):
+        return str_or_none(attrs.get("gen_ai.conversation.id"))
+    return None
 
 
 def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
@@ -743,8 +905,30 @@ def transform_otel_to_clickhouse(
     _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
     _trace_environment: dict[str, str] = {}  # first non-null environment seen
 
+    span_models: dict[str, str] = {}  # span_id -> model_name
+    trace_models: dict[str, str] = {}  # trace_id -> model_name
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
+    for _rs in resource_spans:
+        for _ss in _rs.get("scopeSpans", []):
+            for _s in _ss.get("spans", []):
+                _tid = decode_otel_id(_s.get("traceId"))
+                _sid = decode_otel_id(_s.get("spanId"))
+                if not _tid or not _sid:
+                    continue
+                _s_attrs = attributes_to_dict(_s.get("attributes") or [])
+                _m_name = str_or_none(
+                    _s_attrs.get("traceroot.llm.model")
+                    or _s_attrs.get("gen_ai.request.model")
+                    or _s_attrs.get("llm.model_name")
+                    or _s_attrs.get("decision.model_name")
+                    or _s_attrs.get("embedding.model_name")
+                )
+                if _m_name:
+                    span_models[_sid] = _m_name
+                    if _tid not in trace_models:
+                        trace_models[_tid] = _m_name
 
     for resource_span in resource_spans:
         # camelCase: scopeSpans
@@ -777,13 +961,22 @@ def transform_otel_to_clickhouse(
 
                 # Determine span kind
                 otel_kind = otel_span.get("kind")
-                span_kind = get_span_kind(span_attrs, otel_kind)
+                span_name_raw = otel_span.get("name")
+                s_name = (span_name_raw or str_attr(span_attrs.get("name")) or "").lower()
+                span_kind = get_span_kind(span_attrs, otel_kind, span_name=span_name_raw)
 
                 # Extract span name; for tool spans prefer the actual tool name over
                 # generic instrumentation names like "running tool" (pydantic-ai).
-                span_name = otel_span.get("name", "unknown")
+                span_name = span_name_raw or "unknown"
                 if span_kind == SpanKind.TOOL:
-                    tool_name = span_attrs.get("gen_ai.tool.name") or span_attrs.get("tool.name")
+                    tool_name = (
+                        span_attrs.get("gen_ai.tool.name")
+                        or span_attrs.get("tool.name")
+                        or span_attrs.get("gen_ai.tool.call.name")
+                        or span_attrs.get("anthropic.custom_tool_use.name")
+                        or span_attrs.get("anthropic.mcp_tool_use.name")
+                        or span_attrs.get("anthropic.tool.name")
+                    )
                     if tool_name:
                         # `name` is a non-nullable String on both spans and traces, and
                         # this is the one path that sources it from a caller attribute
@@ -861,17 +1054,28 @@ def transform_otel_to_clickhouse(
                 #
                 # Presence checks (`is not None`) rather than truthiness ensure that falsy
                 # but valid values (e.g. empty string) do not fall through to lower-priority keys.
-                span_input = first_present(
+                system_instructions = span_attrs.get("gen_ai.system_instructions")
+                input_key, span_input = first_present_entry(
                     span_attrs,
                     [
                         "traceroot.span.input",  # 1. traceroot SDK explicit input
                         "input.value",  # 2. OpenInference normalized input (LLM/chain)
                         "tool.parameters",  # 2. OpenInference tool input (pydantic-ai tool_arguments mapped here)
                         "gen_ai.input.messages",  # 3. GenAI semconv LLM input messages
+                        "gen_ai.system_instructions",  # 3. GenAI semconv system instructions fallback
                         "gen_ai.tool.call.arguments",  # 3. GenAI semconv tool-call arguments
                         "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
                 )
+                if (
+                    input_key == "gen_ai.input.messages"
+                    and system_instructions is not None
+                    and _is_claude_platform_span(scope_name, span_attrs, span_name_raw)
+                ):
+                    span_input = _format_input_with_system_instructions(
+                        span_input, system_instructions
+                    )
+
                 span_output = first_present(
                     span_attrs,
                     [
@@ -920,15 +1124,37 @@ def transform_otel_to_clickhouse(
                         else None
                     )
                 )
+                if not model_name and s_name in (
+                    "anthropic.session.outcome_evaluation",
+                    "anthropic.compaction",
+                ):
+                    model_name = span_models.get(parent_span_id) or trace_models.get(trace_id)
+
+                if model_name:
+                    span_record["model_name"] = model_name
+
                 # Agent-invocation and step spans stamp aggregate
                 # gen_ai.usage.* totals restating the SUM of their LLM
                 # children — the same wrapper pattern as the raw ai.usage.*
                 # keys gated below, moved into the normalized namespace.
                 # Adopting them prices every token twice.
-                aggregate_wrapper = _span_aggregates_child_usage(scope_name, span_kind, span_attrs)
-                if model_name:
-                    span_record["model_name"] = model_name
+                aggregate_wrapper = _span_aggregates_child_usage(
+                    scope_name,
+                    span_kind,
+                    span_attrs,
+                    span_name=span_name_raw,
+                    otel_kind=otel_kind,
+                )
 
+                should_read_tokens = bool(
+                    model_name
+                    or s_name
+                    in (
+                        "anthropic.session.outcome_evaluation",
+                        "anthropic.compaction",
+                    )
+                )
+                if should_read_tokens:
                     # Try API-provided token counts first (from instrumentors).
                     # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
                     input_token_keys = [
@@ -963,6 +1189,38 @@ def transform_otel_to_clickhouse(
                             input_token_keys.append("ai.usage.tokens")
                     api_input_tokens = first_present_number(span_attrs, input_token_keys)
                     api_output_tokens = first_present_number(span_attrs, output_token_keys)
+
+                    # For SDK client spans outside Claude Platform export, compaction tokens
+                    # may be recorded directly as anthropic.usage.compaction.* attributes.
+                    if otel_kind in (3, "SPAN_KIND_CLIENT", "3") or not _is_claude_platform_scope(
+                        scope_name
+                    ):
+                        compaction_in = first_present_number(
+                            span_attrs,
+                            [
+                                "anthropic.usage.compaction.input_tokens",
+                                "anthropic.usage.compaction.prompt_tokens",
+                            ],
+                        )
+                        compaction_out = first_present_number(
+                            span_attrs,
+                            [
+                                "anthropic.usage.compaction.output_tokens",
+                                "anthropic.usage.compaction.completion_tokens",
+                            ],
+                        )
+                        if compaction_in or compaction_out:
+                            if api_input_tokens is not None or api_output_tokens is not None:
+                                api_input_tokens = int_or_zero(api_input_tokens) + int_or_zero(
+                                    compaction_in
+                                )
+                                api_output_tokens = int_or_zero(api_output_tokens) + int_or_zero(
+                                    compaction_out
+                                )
+                            else:
+                                api_input_tokens = int_or_zero(compaction_in)
+                                api_output_tokens = int_or_zero(compaction_out)
+
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
@@ -993,15 +1251,13 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
-                            # traceroot-pi-extension (src/handlers/llm.ts) spells the
-                            # write side with "cache_write" while its read side uses
-                            # cache_read_input_tokens above. Without this entry every
-                            # Pi span stored cache_write_tokens=0 while reads landed,
-                            # under-pricing every call by the write premium.
+                            "gen_ai.usage.cache_write.input_tokens",
                             "gen_ai.usage.cache_write_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
+                            "anthropic.usage.cache_creation.input_tokens",
+                            "anthropic.usage.cache_creation_input_tokens",
                             # Vercel AI SDK raw attr (never normalized upstream):
                             "ai.usage.inputTokenDetails.cacheWriteTokens",
                         ],
@@ -1017,6 +1273,9 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.prompt_details.cache_write_1h",
                             "gen_ai.usage.cache_creation.ephemeral_1h_input_tokens",
                             "gen_ai.usage.cache_creation_ephemeral_1h_input_tokens",
+                            "gen_ai.usage.cache_write.ephemeral_1h_input_tokens",
+                            "anthropic.usage.cache_creation.ephemeral_1h_input_tokens",
+                            "anthropic.usage.cache_creation_ephemeral_1h_input_tokens",
                         ],
                     )
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
@@ -1133,11 +1392,13 @@ def transform_otel_to_clickhouse(
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
                             )
-                        cost = cost_from_buckets(get_model_price(model_name), buckets)
-                        if cost is not None:
-                            span_record["cost"] = cost
+                        if model_name:
+                            cost = cost_from_buckets(get_model_price(model_name), buckets)
+                            if cost is not None:
+                                span_record["cost"] = cost
                     elif (
-                        not aggregate_wrapper
+                        model_name
+                        and not aggregate_wrapper
                         and span_kind == SpanKind.LLM
                         and not _is_embedding_span(span_attrs)
                         and not errored_without_response
@@ -1260,7 +1521,7 @@ def transform_otel_to_clickhouse(
                 # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
-                span_session_id = _extract_session_id(span_attrs)
+                span_session_id = _extract_session_id(span_attrs, scope_name, span_name_raw)
                 span_git_ref = str_or_none(span_attrs.get("traceroot.git.ref"))
                 span_git_repo = str_or_none(span_attrs.get("traceroot.git.repo"))
 

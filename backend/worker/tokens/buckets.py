@@ -71,6 +71,9 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     # @traceroot-ai/claude-agent-sdk, @traceroot-ai/pi-coding-agent. "traceroot"
     # above does not prefix-match the leading "@".
     "@traceroot-ai/",
+    "claude-platform",
+    "anthropic",
+    "com.anthropic.",
 )
 
 # Scopes recognized by EXACT name — too short to prefix-match safely (a bare
@@ -81,6 +84,7 @@ _KNOWN_SCOPE_EXACT: frozenset[str] = frozenset(
         # Vercel AI SDK semconv tracer; same GROSS usage source as "ai", emitted
         # under gen_ai.usage.* instead.
         "gen_ai",
+        "claude-platform",
     }
 )
 
