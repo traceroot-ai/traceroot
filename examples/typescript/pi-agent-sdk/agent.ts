@@ -157,7 +157,7 @@ console.log('pricing tests passed');
 );
 
 /**
- * Resolve the pi model + its model/auth runtime. `ModelRuntime` is pi 0.80's
+ * Resolve the pi model + its model/auth runtime. `ModelRuntime` is pi's
  * canonical model+credential surface: created async (it reads the on-disk models
  * catalog), then handed to `createAgentSession`. We inject OPENAI_API_KEY as a
  * runtime credential so the demo authenticates from env alone, no `pi auth login`.
@@ -289,7 +289,7 @@ async function main(): Promise<void> {
       { userId: 'example-user', sessionId: 'pi-agent-sdk-incident-session' },
       () =>
         observe(
-          { name: 'pi-session', type: 'agent' },
+          { name: 'incident_inv_2041', type: 'agent' },
           async (summary: string) => {
             console.log(`\n--- ${summary} ---`);
             await recon(session, RECON_PROMPTS);
