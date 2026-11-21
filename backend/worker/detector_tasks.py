@@ -203,7 +203,7 @@ def _eval_membership(values, op, value) -> bool:
         return value not in values
     if op == "contains":
         needle = str(value).lower()
-        return any(isinstance(v, str) and needle in v.lower() for v in values)
+        return any(v is not None and needle in str(v).lower() for v in values)
     return False
 
 
