@@ -369,7 +369,13 @@ function lastBucketOpen(
   // No granularity, no verdict: the engine names one for every series it
   // builds, so its absence means this is not a series the engine bucketed.
   if (last === undefined || end === undefined || granularity === undefined) return false;
-  const granule = /hour|^\d+h$/i.test(String(granularity)) ? 3_600_000 : 86_400_000;
+  // An explicit bucket_seconds reports its width in milliseconds, not a name.
+  const granule =
+    typeof granularity === "number"
+      ? granularity
+      : /hour|^\d+h$/i.test(String(granularity))
+        ? 3_600_000
+        : 86_400_000;
   const bucketStart = Date.parse(/[zZ]|[+-]\d{2}:\d{2}$/.test(last) ? last : `${last}Z`);
   const windowEnd = Date.parse(end);
   if (!Number.isFinite(bucketStart) || !Number.isFinite(windowEnd)) return false;
