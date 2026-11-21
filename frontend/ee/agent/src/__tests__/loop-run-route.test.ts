@@ -218,6 +218,7 @@ describe("POST loop-runs/:runId — the turn", () => {
       costUsd: 0.0123,
       error: null,
       modelUsed: { model: "m1", provider: "openai", source: "byok" },
+      findings: [],
     });
     // The kickoff row and every row the persister writes carry loop_execution.
     expect(mocks.appendMessage).toHaveBeenCalledWith("user", expect.any(String), {
@@ -257,6 +258,7 @@ describe("POST loop-runs/:runId — the turn", () => {
       costUsd: null,
       error: null,
       modelUsed: { model: "m1", provider: "openai", source: "byok" },
+      findings: [],
     });
   });
 
