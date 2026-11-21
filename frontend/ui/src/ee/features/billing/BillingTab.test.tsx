@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanType } from "@traceroot/core";
 import type { UsageStats } from "@/types/api";
 
@@ -13,6 +13,9 @@ vi.mock("./api", () => ({
   getSubscriptionInfo: vi.fn(),
 }));
 
+const layout = vi.hoisted(() => ({ loopsEnabled: false }));
+vi.mock("@/components/layout/app-layout", () => ({ useLayout: () => layout }));
+
 vi.mock("./PricingDialog", () => ({
   PricingDialog: () => null,
 }));
@@ -21,6 +24,7 @@ import { BillingTab } from "./BillingTab";
 
 afterEach(() => {
   cleanup();
+  layout.loopsEnabled = false;
 });
 
 describe("BillingTab", () => {
@@ -147,5 +151,59 @@ describe("BillingTab", () => {
 
     expect(screen.queryByText("unknown")).toBeNull();
     expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
+  });
+
+  describe("Loop usage", () => {
+    beforeEach(() => {
+      layout.loopsEnabled = true;
+    });
+    const usage = (runsUsed: number): UsageStats => ({
+      traces: 0,
+      spans: 0,
+      tokens: 0,
+      updatedAt: "2026-11-11T00:00:00.000Z",
+      loop: { runsUsed, systemTokenCost: 0, systemInputTokens: 0, systemOutputTokens: 0 },
+    });
+
+    it("shows the Free plan's Loop runs against its 30-run cap", () => {
+      render(
+        <BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={usage(12)} />,
+      );
+      expect(screen.getByText("Loop usage")).toBeTruthy();
+      expect(screen.getByText("Loop runs").nextSibling?.textContent).toBe("12 / 30");
+      expect(screen.queryByText(/Limit reached/)).toBeNull();
+    });
+
+    it("says when the Free cap is reached and runs are skipped", () => {
+      render(
+        <BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={usage(30)} />,
+      );
+      expect(screen.getByText("Loop runs").nextSibling?.textContent).toBe("30 / 30");
+      expect(
+        screen.getByText("Limit reached: Loop runs are skipped until you upgrade."),
+      ).toBeTruthy();
+    });
+
+    it("shows paid plans as unlimited, never limit reached", () => {
+      render(
+        <BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage(500)} />,
+      );
+      expect(screen.getByText("Loop runs").nextSibling?.textContent).toBe("500 (Unlimited)");
+      expect(screen.queryByText(/Limit reached/)).toBeNull();
+    });
+
+    it("reads zero before any Loop run has been metered", () => {
+      render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={null} />);
+      expect(screen.getByText("Loop runs").nextSibling?.textContent).toBe("0 / 30");
+    });
+
+    it("is hidden while LOOPS_ENABLED is off", () => {
+      layout.loopsEnabled = false;
+      render(
+        <BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={usage(12)} />,
+      );
+      expect(screen.queryByText("Loop usage")).toBeNull();
+      expect(screen.getByText("Detector usage")).toBeTruthy();
+    });
   });
 });
