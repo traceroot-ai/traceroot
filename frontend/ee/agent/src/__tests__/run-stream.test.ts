@@ -432,3 +432,53 @@ describe("waitForRunToSettle", () => {
     clearSessionDeleted("settle-fenced-stuck");
   });
 });
+
+describe("runAgentStream — what the run resolves with", () => {
+  const priced = (extra: Record<string, unknown> = {}) =>
+    ({
+      type: "message_end",
+      message: {
+        model: "m1",
+        provider: "p",
+        usage: { input: 3, output: 2, cost: { total: 0.5 } },
+        ...extra,
+      },
+    }) as unknown as AgentEvent;
+
+  it("resolves with no error and the turn's usage when the run completes", async () => {
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onEvent(priced());
+      handler.onDone();
+    });
+    const result = await runAgentStream(
+      fakeStream(),
+      options("rs-result-ok", new PendingDecisions()),
+    );
+    expect(result.error).toBeNull();
+    expect(result.usage).toMatchObject({ model: "m1", inputTokens: 3, outputTokens: 2, cost: 0.5 });
+  });
+
+  it("resolves with a model call that ended in an error", async () => {
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onEvent(priced({ stopReason: "error", errorMessage: "overloaded" }));
+      handler.onDone();
+    });
+    const result = await runAgentStream(
+      fakeStream(),
+      options("rs-result-model", new PendingDecisions()),
+    );
+    expect(result.error).toBe("overloaded");
+    expect(result.usage?.cost).toBe(0.5);
+  });
+
+  it("resolves with the run's own error, sanitised as the SSE frame carries it", async () => {
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onError(new Error("provider unavailable"));
+    });
+    const stream = fakeStream();
+    const result = await runAgentStream(stream, options("rs-result-err", new PendingDecisions()));
+    const frame = stream.events.find((e) => e.event === "error");
+    expect(result.error).toBe((JSON.parse(frame!.data) as { message: string }).message);
+    expect(result.usage).toBeUndefined();
+  });
+});
