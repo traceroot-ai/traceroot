@@ -23,3 +23,12 @@ export function prismaErrorTarget(err: unknown): string {
   if (typeof target === "string") return target.toLowerCase();
   return "";
 }
+
+/**
+ * True for a P2002 on a name index. Prisma reports the violated constraint as
+ * the index name or as its fields, and a name index mentions "name" either way;
+ * a P2002 on another key (a nested upsert's, say) does not.
+ */
+export function isNameCollision(err: unknown): boolean {
+  return isPrismaKnownError(err, "P2002") && prismaErrorTarget(err).includes("name");
+}
