@@ -11,7 +11,7 @@ import {
   type LoopSummaryDto,
   type Paged,
 } from "./contracts.ts";
-import { findingKeyOfGroupKey } from "./keys.ts";
+import { LOOP_GROUP_KEY_PREFIX, findingKeyOfGroupKey } from "./keys.ts";
 import { scheduleFromColumns } from "./schedule.ts";
 
 type Db = Prisma.TransactionClient;
@@ -217,4 +217,23 @@ export async function listMemory(
       updateTime: row.updateTime.toISOString(),
     }))
     .filter((memory) => input.includeExpired || !memory.expired);
+}
+
+/**
+ * The finding keys a Loop already has a signal for: its hidden detector's
+ * signals under a Loop group key, merged ones included (their key stays theirs),
+ * most recently seen first.
+ */
+export async function existingFindingKeys(
+  db: Db,
+  projectId: string,
+  detectorId: string,
+): Promise<string[]> {
+  const signals = await db.signal.findMany({
+    where: { projectId, detectorId, groupKey: { startsWith: LOOP_GROUP_KEY_PREFIX } },
+    orderBy: { lastSeenAt: "desc" },
+    select: { groupKey: true },
+  });
+  const keys = signals.map((s) => findingKeyOfGroupKey(s.groupKey));
+  return [...new Set(keys.filter((key): key is string => key !== null))];
 }

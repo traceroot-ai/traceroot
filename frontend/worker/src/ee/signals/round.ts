@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@traceroot/core";
 import { calculateCost } from "@traceroot/core";
+import { LOOP_DETECTOR_TEMPLATE } from "@traceroot/core/loops";
 import type { AssignmentRow, SignalsBackend, WaitingHitRow } from "./backend-client.js";
 import {
   ASSIGNMENT_FLUSH_ROWS,
@@ -17,6 +18,7 @@ import {
 import { decide } from "./decide.js";
 import type { EmbeddingResult } from "./embedding.js";
 import { groupSignalText, jevGroupKey } from "./jev-group.js";
+import { loopGroup } from "./loop-group.js";
 import { embeddingText, hitMaterial } from "./material.js";
 import { shortlist } from "./shortlist.js";
 import { repairAssignmentCopies, writeAssignmentCopies } from "./projection.js";
@@ -131,6 +133,25 @@ function toWaitingHit(row: WaitingHitRow, projectId: string, detectorId: string)
 }
 
 /**
+ * Where a hit goes without the models, or null when the models place it: a
+ * Loop's hit on its finding's signal (loopGroup throws for unusable data), a
+ * Jev hit on its category's.
+ */
+function fixedGroup(
+  detector: { name: string; template: string },
+  hit: WaitingHit,
+): Extract<Placement, { kind: "group" }> | null {
+  if (detector.template === LOOP_DETECTOR_TEMPLATE) return loopGroup(hit.data);
+  if (!hit.groupKey) return null;
+  return {
+    kind: "group",
+    groupKey: hit.groupKey,
+    signal: groupSignalText(hit.groupKey),
+    anchorText: hitMaterial(detector.name, hit.summary, hit.data),
+  };
+}
+
+/**
  * One round of a partition's assignment job: assign the hits ClickHouse lists
  * as waiting, in time order, at most ROUND_MAX_HITS or ROUND_MAX_MS. Model calls
  * run outside any lock; each hit's Postgres write is its own short locked
@@ -171,6 +192,7 @@ export async function runAssignmentRound(
     where: { id: detectorId, projectId },
     select: {
       name: true,
+      template: true,
       enableSignals: true,
       enableRca: true,
       signalsEnabledAt: true,
@@ -306,26 +328,20 @@ export async function runAssignmentRound(
     }));
 
     const assignOne = async (hit: WaitingHit): Promise<void> => {
-      const material = hitMaterial(detector.name, hit.summary, hit.data);
-      const vector = recorded.has(hit.runId)
-        ? recorded.get(hit.runId)!
-        : hit.groupKey
-          ? undefined
-          : await vectorFor(hit);
+      let vector: number[] | undefined;
       let placement: Placement;
+      const group = recorded.has(hit.runId) ? null : fixedGroup(detector, hit);
       if (recorded.has(hit.runId)) {
+        vector = recorded.get(hit.runId)!;
         // The write finds the existing assignment and returns it unchanged.
         placement = { kind: "attach", signalId: "", score: null, criteriaVersion: 0 };
-      } else if (hit.groupKey) {
-        placement = {
-          kind: "group",
-          groupKey: hit.groupKey,
-          signal: groupSignalText(hit.groupKey),
-          anchorText: material,
-        };
+      } else if (group) {
+        placement = group;
       } else {
+        vector = await vectorFor(hit);
+        const material = hitMaterial(detector.name, hit.summary, hit.data);
         models ??= await deps.models(usage);
-        const candidates = shortlist(vector!, pool, SHORTLIST_SIZE).map((p, i) => ({
+        const candidates = shortlist(vector, pool, SHORTLIST_SIZE).map((p, i) => ({
           ...p,
           label: `s${i + 1}`,
         }));
@@ -349,7 +365,7 @@ export async function runAssignmentRound(
                 kind: "create",
                 signal: decision.signal,
                 anchorText: material,
-                anchorEmbedding: vector!,
+                anchorEmbedding: vector,
                 validated: decision.validated,
               };
       }
@@ -361,7 +377,7 @@ export async function runAssignmentRound(
       });
       settled.add(hit.findingId);
       stats[result.outcome]++;
-      updatePool(pool, result, placement, material, vector);
+      updatePool(pool, result, placement, vector);
       copies.push({
         project_id: projectId,
         detector_id: detectorId,
@@ -493,7 +509,6 @@ function updatePool(
   pool: PoolEntry[],
   result: AssignmentResult,
   placement: Placement,
-  material: string,
   vector: number[] | undefined,
 ): void {
   if (result.outcome === "created" && placement.kind === "create" && vector) {
@@ -502,7 +517,7 @@ function updatePool(
       title: placement.signal.title,
       covers: placement.signal.covers,
       excludes: placement.signal.excludes,
-      example: material,
+      example: placement.anchorText,
       status: "open",
       hitCount: 1,
       criteriaVersion: 1,

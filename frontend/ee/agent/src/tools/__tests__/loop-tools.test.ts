@@ -62,6 +62,9 @@ function build(overrides: Partial<LoopToolsParams> = {}) {
     now: NOW,
     state,
     onRunaway: vi.fn(),
+    existingFindingKeys: ["known-timeouts"],
+    maxNewFindingKeys: 2,
+    dryRun: false,
     db: db as never,
     signalHttp: signalHttp as unknown as ApiClient,
     ...overrides,
@@ -93,6 +96,7 @@ describe("createLoopTools", () => {
       "loop_recall",
       "loop_remember",
       "loop_past_runs",
+      "loop_record_finding",
       "loop_submit_summary",
     ]);
   });
@@ -338,6 +342,184 @@ describe("createLoopTools", () => {
     expect(state.summary).toBe("Checked 40 traces.");
     expect(done.terminate).toBe(true);
     expect(textOf(done)).toContain("stop now");
+  });
+});
+
+describe("loop_record_finding", () => {
+  const READ = Array.from({ length: 25 }, (_, i) => `t${i + 1}`);
+
+  /** A run that has read session s1's traces t1..t25 with get_session. */
+  async function readRun(overrides: Partial<LoopToolsParams> = {}) {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            session_id: "s1",
+            traces: READ.map((trace_id) => ({ trace_id, name: "agent", status: "ok" })),
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const built = build(overrides);
+    await built.tool("get_session").execute("tc", { label: "x", session_id: "s1" });
+    const record = (args: Record<string, unknown>) =>
+      built.tool("loop_record_finding").execute("tc", {
+        key: "checkout-timeouts",
+        title: "Checkout times out",
+        covers: "Payment calls in checkout that time out.",
+        summary: "14 of 220 traces timed out.",
+        traceIds: ["t1", "t2"],
+        ...args,
+      });
+    return { ...built, record };
+  }
+
+  it("notes the traces get_session and get_trace returned", async () => {
+    const { state } = await readRun();
+    expect([...state.readTraceIds].sort()).toEqual([...READ].sort());
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ trace_id: "t99", name: "agent", spans: [] })),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { tool, state: other } = build();
+    await tool("get_trace").execute("tc", { label: "x", trace_id: "t99" });
+    expect([...other.readTraceIds]).toEqual(["t99"]);
+  });
+
+  it("rejects a trace that was listed but not read", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ data: [{ trace_id: "listed-1", name: "agent", span_count: 1 }] }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { tool, state } = build();
+    const listed = textOf(await tool("list_traces").execute("tc", { label: "x" }));
+    expect(listed).toContain("listed-1");
+    const result = await tool("loop_record_finding").execute("tc", {
+      key: "checkout-timeouts",
+      title: "Checkout times out",
+      covers: "Payment calls in checkout that time out.",
+      summary: "1 of 1 traces.",
+      traceIds: ["listed-1"],
+    });
+    expect(textOf(result)).toContain("were not read this run: listed-1");
+    expect(state.readTraceIds.size).toBe(0);
+    expect(state.findings.size).toBe(0);
+  });
+
+  it("notes nothing for a trace read that failed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "not found" }), { status: 404 })),
+    );
+    const { tool, state } = build();
+    const result = textOf(await tool("get_trace").execute("tc", { label: "x", trace_id: "t1" }));
+    expect(result).toContain("Error calling get_trace");
+    expect(state.readTraceIds.size).toBe(0);
+  });
+
+  it("records a finding with plain text and is not wrapped as untrusted", async () => {
+    const { record, state } = await readRun();
+    const result = await record({
+      title: "  <b>Checkout</b> times out [see](https://x.test/a) ",
+      summary: "14 of 220 traces https://evil.test/x timed out.",
+      traceIds: ["t1", "t2", "t1"],
+    });
+    expect(textOf(result)).toContain('Finding "checkout-timeouts" recorded (new key)');
+    expect(textOf(result)).not.toContain(UNTRUSTED_TAG);
+    expect(state.findings.get("checkout-timeouts")).toEqual({
+      key: "checkout-timeouts",
+      title: "Checkout times out see",
+      covers: "Payment calls in checkout that time out.",
+      summary: "14 of 220 traces timed out.",
+      traceIds: ["t1", "t2"],
+    });
+  });
+
+  it.each([
+    ["an upper-case key", { key: "Checkout" }, "kebab-case"],
+    ["a one-character key", { key: "a" }, "kebab-case"],
+    ["a key starting with a dash", { key: "-checkout" }, "kebab-case"],
+    ["a 64-character key", { key: "a".repeat(64) }, "kebab-case"],
+    ["a long title", { title: "x".repeat(121) }, "title is 121 characters"],
+    ["a long covers", { covers: "x".repeat(501) }, "covers is 501 characters"],
+    ["a long summary", { summary: "x".repeat(1001) }, "summary is 1001 characters"],
+    ["an empty title", { title: " <i></i> " }, "title must be non-empty"],
+    ["no traces", { traceIds: [] }, "at least one trace"],
+    ["21 traces", { traceIds: READ.slice(0, 21) }, "at most 20"],
+    ["unread traces", { traceIds: ["t1", "nope", "ghost"] }, "nope, ghost"],
+  ])("rejects %s", async (_name, args, message) => {
+    const { record, state } = await readRun();
+    const text = textOf(await record(args));
+    expect(text).toContain("Not recorded");
+    expect(text).toContain(message);
+    expect(state.findings.size).toBe(0);
+  });
+
+  it("accepts a 63-character key, 120-char title and 20 traces", async () => {
+    const { record, state } = await readRun();
+    const key = `a${"-b".repeat(31)}`;
+    expect(key).toHaveLength(63);
+    await record({ key, title: "x".repeat(120), traceIds: READ.slice(0, 20) });
+    expect(state.findings.get(key)?.traceIds).toHaveLength(20);
+  });
+
+  it("caps new keys per run, but a reused key of this loop is not new", async () => {
+    const { record, state } = await readRun();
+    await record({ key: "first-new" });
+    await record({ key: "second-new" });
+    const third = textOf(await record({ key: "third-new" }));
+    expect(third).toContain("Not recorded");
+    expect(third).toContain("first-new, second-new");
+    expect(textOf(await record({ key: "known-timeouts" }))).toContain("existing key");
+    expect([...state.findings.keys()]).toEqual(["first-new", "second-new", "known-timeouts"]);
+  });
+
+  it("caps new keys at maxNewFindingKeys", async () => {
+    const { record, state } = await readRun({ maxNewFindingKeys: 1 });
+    await record({ key: "first-new" });
+    expect(textOf(await record({ key: "second-new" }))).toContain("Not recorded");
+    expect(state.findings.size).toBe(1);
+  });
+
+  it("merges a key recorded twice: its traces add up and the latest text wins", async () => {
+    const { record, state } = await readRun();
+    await record({ traceIds: ["t1", "t2"] });
+    const again = textOf(await record({ title: "Newer title", traceIds: ["t2", "t3"] }));
+    expect(again).toContain("updated with 3 traces");
+    expect(state.findings.get("checkout-timeouts")).toMatchObject({
+      title: "Newer title",
+      traceIds: ["t1", "t2", "t3"],
+    });
+    // A merge past 20 traces is refused and leaves the finding as it was.
+    const over = textOf(await record({ traceIds: READ.slice(3, 21) }));
+    expect(over).toContain("would hold 21 traces");
+    expect(state.findings.get("checkout-timeouts")?.traceIds).toHaveLength(3);
+  });
+
+  it("caps the findings a run records, existing keys included", async () => {
+    const existing = ["known-a", "known-b", "known-c", "known-d", "known-e", "known-f"];
+    const { record, state } = await readRun({ existingFindingKeys: existing });
+    for (const key of existing.slice(0, 5)) await record({ key });
+    const sixth = textOf(await record({ key: "known-f" }));
+    expect(sixth).toContain("already recorded 5 findings");
+    // One already recorded can still take more traces.
+    expect(textOf(await record({ key: "known-a", traceIds: ["t3"] }))).toContain("updated");
+    expect(state.findings.size).toBe(5);
+  });
+
+  it("answers a dry run's finding as not recorded, under the same caps", async () => {
+    const { record } = await readRun({ dryRun: true });
+    expect(textOf(await record({ key: "first-new" }))).toBe(
+      "Dry run: this finding is not recorded. Mention it in your summary.",
+    );
+    await record({ key: "second-new" });
+    expect(textOf(await record({ key: "third-new" }))).toContain("Not recorded");
+    expect(textOf(await record({ key: "first-new", traceIds: ["t9"] }))).toBe(
+      "Dry run: this finding is not recorded. Mention it in your summary.",
+    );
   });
 });
 

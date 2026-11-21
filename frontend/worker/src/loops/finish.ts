@@ -6,12 +6,14 @@ import { prisma, type Prisma } from "@traceroot/core";
 import { LOOP_LIMITS, type LoopRunStatus } from "@traceroot/core/loops";
 
 /** A run's end state. Skips are written by startLoopRun, not here. */
-export type LoopRunOutcome = Extract<LoopRunStatus, "quiet" | "failed" | "timed_out">;
+export type LoopRunOutcome = Extract<LoopRunStatus, "succeeded" | "quiet" | "failed" | "timed_out">;
 
 export interface LoopRunFinish {
   status: LoopRunOutcome;
   summary?: string | null;
   error?: string | null;
+  /** The finding keys the run recorded, each once; set only when it succeeded. */
+  findingKeys?: string[];
   tracesRead?: number;
   costUsd?: number | null;
   /** Merged into the run's metadata. */
@@ -52,8 +54,7 @@ export async function finishLoopRun(
         finishedAt: now,
         summary: finish.summary ?? null,
         error: finish.error ?? null,
-        // A run records no findings.
-        findingKeys: [],
+        findingKeys: finish.findingKeys ?? [],
         ...(finish.tracesRead !== undefined && { tracesRead: finish.tracesRead }),
         ...(finish.costUsd !== undefined && { costUsd: finish.costUsd }),
         ...(metadata !== undefined && { metadata }),

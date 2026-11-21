@@ -113,6 +113,24 @@ describe("writeDetectorRun", () => {
     expect(body.usedInference).toBe(true);
   });
 
+  it("passes a Loop's source through, and omits it otherwise", async () => {
+    mockFetch.mockResolvedValue({ ok: true });
+    const row = {
+      runId: "r1",
+      detectorId: "d1",
+      projectId: "p1",
+      traceId: "t1",
+      findingId: "f1",
+      status: "completed" as const,
+    };
+
+    await writeDetectorRun({ ...row, source: "loop" });
+    await writeDetectorRun(row);
+
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).source).toBe("loop");
+    expect("source" in JSON.parse(mockFetch.mock.calls[1][1].body)).toBe(false);
+  });
+
   it("omits usedInference when absent so the server default applies", async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
@@ -164,5 +182,20 @@ describe("writeDetectorFinding", () => {
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.timestampMs).toBe(1_700_000_000_123);
+  });
+
+  it("passes a Loop's source through in the request body", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await writeDetectorFinding({
+      findingId: "finding-1",
+      projectId: "proj-1",
+      traceId: "trace-1",
+      summary: "Something bad",
+      payload: "{}",
+      source: "loop",
+    });
+
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).source).toBe("loop");
   });
 });
