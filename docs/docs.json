@@ -185,6 +185,15 @@
                 ]
               }
             ]
+          },
+          {
+            "group": "Platform",
+            "pages": [
+              "platform/api-keys",
+              "platform/rate-limits",
+              "platform/usage-and-billing",
+              "platform/retention"
+            ]
           }
         ]
       },

@@ -1,0 +1,75 @@
+---
+title: Usage and Billing
+description: How AI runs and ingested events are metered and billed on TraceRoot Cloud
+---
+
+TraceRoot Cloud meters two dimensions: **AI message runs** and **events**. An event is one ingested trace or one ingested span, and the two are summed against your plan's allowance.
+
+## Metered AI messages
+
+TraceRoot meters AI workloads based on completed assistant execution runs. Three types of AI messages are metered:
+
+| Message Kind | Operation | Description |
+| :--- | :--- | :--- |
+| **`chat`** | Interactive Assistant | Conversational turns with the AI assistant on the Home page or right-rail drawer. |
+| **`rca`** | Root Cause Analysis | Deep investigative runs where the agent inspects source code, commit history, and trace trees to find failure causes. |
+| **`detector`** | LLM-as-a-Judge | Automated evaluation runs where a judge model assesses sampled incoming traces against trigger conditions. |
+
+### What is not metered
+
+Scheduled detector digest summaries generated for Slack or email notifications are system-level operations and are **free of charge**. They do not count against your monthly AI message quota.
+
+### How chat runs are counted
+
+When an agent executes multiple tools during a turn (for example, reading a file, downloading traces, and checking git history), TraceRoot persists individual segments at each tool boundary. Only the final segment records usage tokens, so one completed `chat` turn counts as exactly **one run** however many intermediate tool calls it took.
+
+This rule is the `chat` meter only. The other two kinds take their counts from their own records: `rca` from the stored RCA runs, and `detector` from the `detector_runs` table in ClickHouse.
+
+## Event metering
+
+Your event count for a billing period is every trace plus every span ingested in that period, whatever its origin.
+
+| Plan | Events included | Beyond the allowance |
+| :--- | :--- | :--- |
+| **Free** | 50,000 | Ingestion is blocked until you upgrade. |
+| **Starter** | 150,000 | $4 per 50,000 events. |
+| **Pro** | 150,000 | $4 per 50,000 events. |
+| **Enterprise** | Unlimited | Custom. |
+
+### Internal agent and detector events count toward the total
+
+Customer-facing trace views and dashboard metrics return only `source = user` rows. The allow-list is deliberate: internal markers such as `agent` and `detector` are excluded, and so is any internal marker added later.
+
+<Warning>
+  Detector scans and agent analyses write traces and spans of their own. They never appear in your trace lists or dashboards, but they are ingested and **count toward your event total**. The billing tab reports them separately as **Platform events**.
+</Warning>
+
+## System inference vs. BYOK (Bring Your Own Key)
+
+Depending on your model configuration, inference costs are billed in one of two ways:
+
+1. **System Models (TraceRoot Credits)**:
+   - Inference runs use TraceRoot's pre-configured cloud models.
+   - Token consumption and model costs are deducted directly from your TraceRoot subscription plan.
+
+2. **[BYOK (Bring Your Own Key)](/ai-agent/byok)**:
+   - Inference calls are dispatched using your own API credentials (e.g., OpenAI, Anthropic, Google Vertex AI, or OpenRouter).
+   - Raw model token fees are billed directly by your model provider, while TraceRoot meters the platform execution run.
+
+## Monitoring workspace usage
+
+Workspace administrators can view usage metrics in **Workspace Settings > Billing**. The figures come from an hourly billing job rather than live counters, and the tab shows a **Last updated** timestamp:
+- Ingested traces and spans over the active billing cycle, and their total.
+- Total AI message runs broken down by kind (`chat`, `rca`, `detector`).
+- Cost and token distributions categorized by model and provider.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Data Retention" icon="database" href="/platform/retention">
+    Learn how trace retention periods are enforced and configured.
+  </Card>
+  <Card title="Rate Limits" icon="gauge" href="/platform/rate-limits">
+    Review throughput limits for trace ingestion and API queries.
+  </Card>
+</CardGroup>
