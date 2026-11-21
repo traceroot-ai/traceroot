@@ -202,7 +202,8 @@
             "group": "Native",
             "pages": [
               "tracing/python-sdk",
-              "tracing/typescript-sdk"
+              "tracing/typescript-sdk",
+              "integrations/opentelemetry"
             ]
           },
           {
