@@ -40,6 +40,8 @@ export interface Workspace {
   billingSubscriptionId?: string | null;
   billingStatus?: string | null;
   currentUsage?: UsageStats | null;
+  /** True when the Free plan has used up its Loop runs. */
+  loopBlocked?: boolean;
 }
 
 export interface WorkspaceWithProjects extends Workspace {
