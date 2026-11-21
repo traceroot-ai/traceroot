@@ -71,6 +71,10 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     # @traceroot-ai/claude-agent-sdk, @traceroot-ai/pi-coding-agent. "traceroot"
     # above does not prefix-match the leading "@".
     "@traceroot-ai/",
+    # .NET Microsoft.Extensions.AI OpenTelemetryChatClient (default ActivitySource
+    # name). Emits GenAI semconv gen_ai.usage.input_tokens / output_tokens taken
+    # straight from the provider adapter's UsageDetails.
+    "experimental.microsoft.extensions.ai",
 )
 
 # Scopes recognized by EXACT name — too short to prefix-match safely (a bare
