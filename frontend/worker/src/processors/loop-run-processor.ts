@@ -1,16 +1,25 @@
 /**
  * Executes one Loop run: its start (every gate, under one lock), its model,
  * then the agent service's loop-run route on a fresh system session. The agent
- * reads traces and answers with a summary; this processor owns the run's
- * lifecycle (loop_runs.status) from pending to its end state. A run records its summary and memory notes; no finding or signal.
+ * reads traces and answers with a summary and its findings; this processor owns
+ * the run's lifecycle (loop_runs.status) from pending to its end state. The
+ * findings are recorded as hits of the Loop's hidden detector, which the
+ * signals round groups into signals. A dry run's answer has none (the agent
+ * route drops them).
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
 import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { publicErrorMessage } from "@traceroot/core/public-error";
-import type { LoopAgentResult, LoopRunModel } from "@traceroot/core/loops";
+import {
+  loopAgentResultSchema,
+  type LoopAgentResult,
+  type LoopFinding,
+  type LoopRunModel,
+} from "@traceroot/core/loops";
 import { resolveProjectModel, type ResolvedModel } from "../agent/resolve-model.js";
 import { finishLoopRun, type LoopRunFinish } from "../loops/finish.js";
+import { recordLoopFindings } from "../loops/findings.js";
 import { startLoopRun } from "../loops/start.js";
 import {
   LOOP_AGENT_ABORT_SLACK_MS,
@@ -26,6 +35,8 @@ import {
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
 export const LOOP_NO_SUMMARY = "The run ended without a summary.";
+export const LOOP_FINDINGS_FAILED =
+  "The run's findings could not be recorded. Try running it again.";
 
 function timeoutMessage(timeoutMs: number): string {
   return `The run did not finish within ${Math.round(timeoutMs / 60_000)} minutes.`;
@@ -43,7 +54,7 @@ export function outcomeOf(result: LoopAgentResult, timeoutMs: number): LoopRunFi
   switch (result.status) {
     case "submitted":
     case "budget_exhausted":
-      // A run records no findings, so one that produced its summary is quiet.
+      // Quiet until its findings are recorded (see recordFindings).
       return summary
         ? { status: "quiet", ...usage }
         : { status: "failed", ...usage, error: LOOP_NO_SUMMARY };
@@ -127,6 +138,9 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
       });
       ranOn = result.modelUsed;
       finish = outcomeOf(result, timeoutMs);
+      if (finish.status === "quiet" && result.findings.length > 0) {
+        finish = await recordFindings(project.id, loop, result.findings, finish);
+      }
     }
   } catch (error) {
     if (isAbort(error)) {
@@ -152,6 +166,25 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
       ...finish.metadata,
     },
   });
+}
+
+/**
+ * Record the run's findings: "succeeded" with the keys that have a written hit
+ * (see recordLoopFindings), or "failed" when no hit was written.
+ */
+export async function recordFindings(
+  projectId: string,
+  loop: { id: string; name: string; detectorId: string },
+  findings: LoopFinding[],
+  finish: LoopRunFinish,
+): Promise<LoopRunFinish> {
+  try {
+    const findingKeys = await recordLoopFindings({ projectId, loop, findings });
+    return findingKeys.length > 0 ? { ...finish, status: "succeeded", findingKeys } : finish;
+  } catch (error) {
+    console.error(`[Loops] loop=${loop.id} failed to record findings:`, error);
+    return { ...finish, status: "failed", error: LOOP_FINDINGS_FAILED };
+  }
 }
 
 async function callAgent(params: {
@@ -202,7 +235,12 @@ async function callAgent(params: {
     console.error(`[Loops] run=${params.runId} agent HTTP ${res.status}: ${body.slice(0, 500)}`);
     throw new Error(`The agent service failed to run this loop (HTTP ${res.status}).`);
   }
-  return (await res.json()) as LoopAgentResult;
+  const parsed = loopAgentResultSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    console.error(`[Loops] run=${params.runId} unreadable agent answer:`, parsed.error.issues);
+    throw new Error("The agent service answered with a result this worker cannot read.");
+  }
+  return parsed.data;
 }
 
 export function startLoopRunWorker(): Worker<LoopRunJob> {
