@@ -1235,9 +1235,12 @@ def transform_otel_to_clickhouse(
                         except (TypeError, ValueError):
                             parsed_explicit = None
                     if isinstance(parsed_explicit, dict):
-                        span_record["metadata"] = json.dumps(
-                            {**extra_attrs, **parsed_explicit, **span_path_attrs}
-                        )
+                        # User and path keys first: an oversized blob is cut
+                        # from the end, and these are what readers filter on.
+                        merged = {**parsed_explicit, **span_path_attrs}
+                        for key, value in extra_attrs.items():
+                            merged.setdefault(key, value)
+                        span_record["metadata"] = json.dumps(merged)
                     elif isinstance(explicit_metadata, str):
                         # Not a JSON object (free-text or a scalar): store it as
                         # given. Nothing to merge into, so this span has no paths.
