@@ -13,6 +13,7 @@ export const LOOP_LIMITS = {
   toolCalls: 80,
   traceReads: 25,
   newFindingKeysPerRun: 2,
+  findingsPerRun: 5,
   tracesPerFinding: 20,
   failureStreakToPause: 5,
   nameMaxLength: 80,
@@ -157,6 +158,36 @@ export const loopStatusActionSchema = z.object({
   action: z.enum(["pause", "resume"], 'action must be "pause" or "resume"'),
 });
 
+// ---------------------------------------------------------------------------
+// Findings: agent service → worker → signals round
+// ---------------------------------------------------------------------------
+
+/** A finding key: the stable kebab-case id of a recurring problem, its signal's "loop:<key>". */
+export const LOOP_FINDING_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/;
+export const LOOP_FINDING_TEXT_MAX = { title: 120, covers: 500, summary: 1_000 } as const;
+
+const findingKey = z.string().regex(LOOP_FINDING_KEY_PATTERN);
+const findingTitle = z.string().min(1).max(LOOP_FINDING_TEXT_MAX.title);
+const findingCovers = z.string().min(1).max(LOOP_FINDING_TEXT_MAX.covers);
+
+/** A recurring problem a run recorded; the worker writes one hit per trace. */
+export const loopFindingSchema = z.object({
+  key: findingKey,
+  title: findingTitle,
+  covers: findingCovers,
+  summary: z.string().min(1).max(LOOP_FINDING_TEXT_MAX.summary),
+  traceIds: z.array(z.string().min(1)).min(1).max(LOOP_LIMITS.tracesPerFinding),
+});
+export type LoopFinding = z.infer<typeof loopFindingSchema>;
+
+/** A Loop hit's `data`: the signals round groups the hit and titles its signal by it. */
+export const loopHitDataSchema = z.object({
+  loopFindingKey: findingKey,
+  title: findingTitle,
+  covers: findingCovers,
+});
+export type LoopHitData = z.infer<typeof loopHitDataSchema>;
+
 export const LOOP_AGENT_OUTCOMES = [
   "submitted",
   "no_summary",
@@ -171,23 +202,27 @@ export type LoopAgentOutcome = (typeof LOOP_AGENT_OUTCOMES)[number];
  * choice, or the agent service's default when the run named none. `provider`
  * is a BYOK model's saved provider label, else the model's provider.
  */
-export interface LoopRunModel {
-  model: string;
-  provider: string;
-  source: "system" | "byok";
-}
+export const loopRunModelSchema = z.object({
+  model: z.string(),
+  provider: z.string(),
+  source: z.enum(["system", "byok"]),
+});
+export type LoopRunModel = z.infer<typeof loopRunModelSchema>;
 
-/** The agent service's answer to one Loop run. */
-export interface LoopAgentResult {
-  status: LoopAgentOutcome;
-  summary: string | null;
-  tracesRead: number;
-  toolCalls: number;
-  costUsd: number | null;
-  error: string | null;
+/** The agent service's answer to one Loop run; the worker validates it. */
+export const loopAgentResultSchema = z.object({
+  status: z.enum(LOOP_AGENT_OUTCOMES),
+  summary: z.string().nullable(),
+  tracesRead: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  costUsd: z.number().nullable(),
+  error: z.string().nullable(),
   /** Null when the turn never started. */
-  modelUsed: LoopRunModel | null;
-}
+  modelUsed: loopRunModelSchema.nullable(),
+  /** Empty when the run recorded none, and on a dry run. */
+  findings: z.array(loopFindingSchema).max(LOOP_LIMITS.findingsPerRun),
+});
+export type LoopAgentResult = z.infer<typeof loopAgentResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Responses (dates as ISO strings)

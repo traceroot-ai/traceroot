@@ -50,7 +50,14 @@ export function reservedDetectorProblem(fields: {
 }
 
 /**
- * A Loop signal's group key: its finding key behind a "loop:" prefix. A run lists
+ * What a Loop signal's group key starts with. The same text as the hidden
+ * detector's name prefix, but a separate thing: one names a detector, the
+ * other keys a signal.
+ */
+export const LOOP_GROUP_KEY_PREFIX = "loop:";
+
+/**
+ * A Loop signal's group key: its finding key behind LOOP_GROUP_KEY_PREFIX. A run lists
  * the finding keys it recorded, so the key links a signal to the runs that found it.
  *
  * The runner's contract (the signal panel's "Seen in N runs" reads it):
@@ -67,10 +74,12 @@ export function reservedDetectorProblem(fields: {
  *   the runs of its own key, not those of the keys merged into it.
  */
 export function loopSignalGroupKey(findingKey: string): string {
-  return `loop:${findingKey}`;
+  return `${LOOP_GROUP_KEY_PREFIX}${findingKey}`;
 }
 
 /** The finding key inside a Loop signal's group key; null for any other signal. */
 export function findingKeyOfGroupKey(groupKey: string | null): string | null {
-  return groupKey?.startsWith("loop:") ? groupKey.slice("loop:".length) || null : null;
+  return groupKey?.startsWith(LOOP_GROUP_KEY_PREFIX)
+    ? groupKey.slice(LOOP_GROUP_KEY_PREFIX.length) || null
+    : null;
 }

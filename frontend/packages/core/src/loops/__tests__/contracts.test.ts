@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createLoopSchema,
+  loopAgentResultSchema,
+  loopFindingSchema,
   loopStatusActionSchema,
   updateLoopSchema,
   LOOP_INSTRUCTIONS_REQUIRED,
@@ -118,5 +120,83 @@ describe("loopStatusActionSchema and templates", () => {
     });
     expect(createLoopSchema.safeParse(input).success).toBe(true);
     expect(templateLoopInput(null, "UTC")).toBeNull();
+  });
+});
+
+describe("loopFindingSchema", () => {
+  const finding = {
+    key: "checkout-timeouts",
+    title: "Checkout times out",
+    covers: "Payment calls that time out.",
+    summary: "14 of 220 traces.",
+    traceIds: ["t1"],
+  };
+
+  it("accepts a finding the agent records", () => {
+    expect(loopFindingSchema.safeParse(finding).success).toBe(true);
+  });
+
+  it.each([
+    ["a key that is not kebab-case", { key: "Checkout" }],
+    ["an empty title", { title: "" }],
+    ["a 121-character title", { title: "x".repeat(121) }],
+    ["no traces", { traceIds: [] }],
+    ["21 traces", { traceIds: Array.from({ length: 21 }, (_, i) => `t${i}`) }],
+  ])("rejects %s", (_name, override) => {
+    expect(loopFindingSchema.safeParse({ ...finding, ...override }).success).toBe(false);
+  });
+});
+
+describe("loopAgentResultSchema", () => {
+  const result = {
+    status: "submitted",
+    summary: "Nothing new.",
+    tracesRead: 3,
+    toolCalls: 9,
+    costUsd: null,
+    error: null,
+    modelUsed: { model: "claude-opus-4-8", provider: "anthropic", source: "system" },
+    findings: [],
+  };
+
+  it("accepts the agent's answer", () => {
+    expect(loopAgentResultSchema.safeParse(result).success).toBe(true);
+    // A turn that never started ran on no model.
+    expect(loopAgentResultSchema.safeParse({ ...result, modelUsed: null }).success).toBe(true);
+  });
+
+  it("rejects an answer that does not say which model it ran on", () => {
+    const { modelUsed: _modelUsed, ...withoutModel } = result;
+    expect(loopAgentResultSchema.safeParse(withoutModel).success).toBe(false);
+    expect(
+      loopAgentResultSchema.safeParse({
+        ...result,
+        modelUsed: { ...result.modelUsed, source: "x" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an answer without findings or with an unknown status", () => {
+    const { findings: _findings, ...withoutFindings } = result;
+    expect(loopAgentResultSchema.safeParse(withoutFindings).success).toBe(false);
+    expect(loopAgentResultSchema.safeParse({ ...result, status: "done" }).success).toBe(false);
+  });
+
+  it("rejects more findings than a run may record", () => {
+    const finding = (i: number) => ({
+      key: `problem-${i}`,
+      title: "t",
+      covers: "c",
+      summary: "s",
+      traceIds: ["t1"],
+    });
+    const findings = (n: number) => Array.from({ length: n }, (_, i) => finding(i));
+    const max = LOOP_LIMITS.findingsPerRun;
+    expect(loopAgentResultSchema.safeParse({ ...result, findings: findings(max) }).success).toBe(
+      true,
+    );
+    expect(
+      loopAgentResultSchema.safeParse({ ...result, findings: findings(max + 1) }).success,
+    ).toBe(false);
   });
 });

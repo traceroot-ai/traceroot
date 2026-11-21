@@ -227,6 +227,7 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
       costUsd: null,
       error: publicErrorMessage(error),
       modelUsed: null,
+      findings: [],
     } satisfies LoopAgentResult);
   }
 
@@ -301,5 +302,7 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     costUsd: result.usage?.cost ?? null,
     error: status === "timed_out" ? TIMED_OUT_ERROR : status === "error" ? runError : null,
     modelUsed: modelUsed(agent, body),
+    // No finding tool yet: a run records none.
+    findings: [],
   } satisfies LoopAgentResult);
 });
