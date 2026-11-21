@@ -200,6 +200,39 @@ describe("handleDetectorRunJob — result persistence", () => {
     return makeJob({ data: JSON.parse(JSON.stringify(job.data)) });
   }
 
+  it.each(["completed", "failed"] as const)(
+    "retries a missing %s run record without another model call",
+    async (status) => {
+      mockRunDetection.mockResolvedValue({
+        identified: false,
+        summary: "no finding",
+        data: {},
+        error: status === "failed" ? "judge failed after inference" : undefined,
+        inferenceCost: 0,
+        inferenceInputTokens: 10,
+        inferenceOutputTokens: 5,
+        inferenceSource: "system",
+        inferenceModel: "m",
+        inferenceProvider: "anthropic",
+      });
+      const failure = new Error("run insert unavailable");
+      mockWriteRun.mockRejectedValueOnce(failure);
+      const job = makeJob();
+
+      await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+      const firstWrite = mockWriteRun.mock.calls[0][0];
+      expect(firstWrite).toMatchObject({ status, findingId: null, usedInference: true });
+
+      await handleDetectorRunJob(retryJob(job));
+      expect(mockWriteRun).toHaveBeenCalledTimes(2);
+      expect(mockWriteRun).toHaveBeenLastCalledWith(firstWrite);
+      expect(mockRunDetection).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+      expect(mockWriteFinding).not.toHaveBeenCalled();
+      expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+    },
+  );
+
   it("acknowledges the result checkpoint before writing findings or runs", async () => {
     const job = makeJob();
     await handleDetectorRunJob(job);
@@ -254,6 +287,45 @@ describe("handleDetectorRunJob — result persistence", () => {
     expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
     expect(mockWriteRun).toHaveBeenCalledTimes(1);
     expect(mockWriteFinding.mock.calls[1][0]).toEqual(mockWriteFinding.mock.calls[0][0]);
+  });
+
+  it("saves a finding and publishes its hit even if a clean sibling's run write fails", async () => {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [], enableSignals: true },
+      { id: "d2", name: "Other", prompt: "p", outputSchema: [], enableSignals: true },
+    ]);
+    mockRunDetection.mockResolvedValueOnce({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 10,
+      inferenceOutputTokens: 5,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "anthropic",
+    });
+    const failure = new Error("clean run insert unavailable");
+    mockWriteRun.mockImplementationOnce(async () => {
+      throw failure;
+    });
+    const job = makeJob({ data: { ...BASE_JOB, detectorIds: ["d1", "d2"] } });
+    await expect(handleDetectorRunJob(job)).rejects.toBe(failure);
+    expect(mockWriteFinding).toHaveBeenCalledOnce();
+    expect(mockEnqueueSignalHits).toHaveBeenCalledWith(
+      expect.objectContaining({ triggered: [expect.objectContaining({ detectorId: "d2" })] }),
+    );
+    const originalWrites = mockWriteRun.mock.calls.slice();
+    expect(originalWrites[0][0]).toMatchObject({
+      detectorId: "d1",
+      findingId: null,
+      timestampMs: job.data.result?.timestampMs,
+    });
+
+    await handleDetectorRunJob(retryJob(job));
+    expect(mockRunDetection).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledTimes(1);
+    expect(mockWriteRun.mock.calls.slice(2)).toEqual(originalWrites);
   });
 
   it("does not write results when Redis refuses the checkpoint", async () => {
@@ -394,7 +466,7 @@ describe("handleDetectorRunJob — result persistence", () => {
     );
   });
 
-  it("does not create a result checkpoint for a clean evaluation", async () => {
+  it("checkpoints a clean evaluation without creating a finding", async () => {
     mockRunDetection.mockResolvedValue({
       identified: false,
       summary: "clean",
@@ -410,7 +482,11 @@ describe("handleDetectorRunJob — result persistence", () => {
 
     await handleDetectorRunJob(job);
 
-    expect(job.updateData).not.toHaveBeenCalled();
+    expect(job.data.result).toBeUndefined();
+    expect(job.data.runResult).toMatchObject({
+      timestampMs: expect.any(Number),
+      runs: [{ detectorId: "d1", status: "completed", usedInference: false, selfTraced: true }],
+    });
     expect(mockWriteFinding).not.toHaveBeenCalled();
     expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ findingId: null }));
   });

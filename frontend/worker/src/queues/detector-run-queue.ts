@@ -6,17 +6,35 @@ export interface DetectorRunJob {
   detectorIds: string[];
   projectId: string;
   /** Produced once; persistence retries reuse this Redis-backed result. */
-  result?: DetectorRunResult;
+  result?: DetectorFindingResult;
+  /** Separate from result so a legacy worker cannot read a run as a finding. */
+  runResult?: DetectorRunOnlyResult;
 }
 
-export interface DetectorRunResult {
+export interface DetectorRunOutcome {
+  detectorId: string;
+  status: "completed" | "failed";
+  usedInference: boolean;
+  selfTraced: boolean;
+}
+
+export interface DetectorFindingResult {
   findingId: string;
   summary: string;
   payload: string;
   timestampMs: number;
+  runs?: DetectorRunOutcome[];
   detectors: { id: string; enableSignals: boolean }[];
   triggered: { detectorId: string; usedInference: boolean; selfTraced: boolean }[];
 }
+
+interface DetectorRunOnlyResult {
+  findingId?: never;
+  timestampMs: number;
+  runs: DetectorRunOutcome[];
+}
+
+export type DetectorRunResult = DetectorFindingResult | DetectorRunOnlyResult;
 
 export interface DetectorRcaFinding {
   detectorId: string;
