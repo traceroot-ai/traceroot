@@ -10,6 +10,7 @@ import {
   defaultAdapterModel,
   defaultApiProtocol,
   isDecisionModelId,
+  requiresExplicitHostedSource,
   ADAPTER_CONFIG,
 } from "../llm-providers.ts";
 
@@ -98,6 +99,16 @@ describe("ADAPTER_MODELS", () => {
       expect(byokIds).toContain(id);
       expect(systemIds).not.toContain(id);
     }
+  });
+
+  it("offers claude-opus-5 as a system model without changing the Anthropic default", () => {
+    const anthropic = SYSTEM_MODELS.find((system) => system.provider === "Anthropic");
+    const ids = anthropic?.models.map((model) => model.id) ?? [];
+
+    expect(ids).toContain("claude-opus-5");
+    expect(ids[0]).toBe("claude-opus-4-8");
+    // Formerly BYOK-only: a legacy project that saved it with no source keeps using BYOK.
+    expect(requiresExplicitHostedSource("claude-opus-5")).toBe(true);
   });
 
   describe("apiProtocol consistency with SYSTEM_MODELS", () => {
