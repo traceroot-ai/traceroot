@@ -1414,7 +1414,8 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": null
+      "cacheWrite": 0.000003,
+      "cacheWrite1h": 0.000006
     }
   },
   {
