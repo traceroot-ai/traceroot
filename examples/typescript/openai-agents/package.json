@@ -7,10 +7,10 @@
     "demo": "tsx agent.ts"
   },
   "dependencies": {
-    "@openai/agents": "^0.8.5",
-    "@traceroot-ai/traceroot": "^0.1.6",
+    "@openai/agents": "^0.22.0",
+    "@traceroot-ai/traceroot": "^0.4.0",
     "dotenv": "^16.4.5",
-    "openai": "^6.34.0",
+    "openai": "^7.0.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
