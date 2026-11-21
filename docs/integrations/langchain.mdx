@@ -55,7 +55,7 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
 
     llm = ChatOpenAI(model="gpt-4o")
 
-    tools = [search_tool, calculator_tool]
+    tools = []  # Add your custom tools here
     agent = create_react_agent(llm, tools=tools)
 
     # All agent steps are automatically traced
@@ -152,6 +152,7 @@ Run your code and confirm the trace arrives:
 ## Limitations
 
 - For TypeScript, `instrumentModules` must be configured with `@langchain/core/callbacks/manager` to enable automatic callback tracing.
+- LangChain's instrumentation automatically captures underlying LLM calls. Avoid passing provider-level instrumentation (such as `Integration.OPENAI` or `instrumentModules: { openAI }`) alongside LangChain, as this produces duplicate LLM spans.
 
 ## Run the example
 
