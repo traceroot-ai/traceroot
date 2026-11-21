@@ -22,7 +22,10 @@ const markFindingRunningIfLatestMock = vi.fn().mockResolvedValue(true);
 // runRcaSession calls below supply the same.
 const EXEC = { executionId: "exec-1", attempt: 1, executionTraceId: "f".repeat(32) };
 
-vi.mock("@traceroot/core/model-resolver", async () => ({
+vi.mock("@traceroot/core/model-resolver", async (importOriginal) => ({
+  byokProviderMissingMessage: (
+    await importOriginal<typeof import("@traceroot/core/model-resolver")>()
+  ).byokProviderMissingMessage,
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
   resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
 }));
@@ -101,7 +104,7 @@ describe("resolveProjectModel", () => {
     });
     resolvePiModelMock.mockReturnValue({ id: "gpt-5.3", provider: "openai" });
 
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     const res = await resolveProjectModel("gpt-5.3", "my-openai", "byok", "ws-123");
 
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-openai");
@@ -109,20 +112,22 @@ describe("resolveProjectModel", () => {
     expect(res).toEqual({ model: "gpt-5.3", providerName: "my-openai", source: "byok" });
   });
 
-  it("returns null when BYOK provider is not found or disabled", async () => {
+  it("reports a BYOK provider that is not found or disabled", async () => {
     fetchProviderConfigMock.mockResolvedValue(null);
 
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     const res = await resolveProjectModel("gpt-5.3", "missing-provider", "byok", "ws-123");
 
-    expect(res).toBeNull();
+    expect(res).toEqual({
+      error: 'BYOK provider "missing-provider" not found or disabled in workspace settings',
+    });
     expect(resolvePiModelMock).not.toHaveBeenCalled();
   });
 
   it("resolves a system model via resolvePiModel", async () => {
     resolvePiModelMock.mockReturnValue({ id: "claude-sonnet-4-5", provider: "anthropic" });
 
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     const res = await resolveProjectModel("claude-sonnet-4-5", null, null, "ws-123");
 
     expect(resolvePiModelMock).toHaveBeenCalledWith("claude-sonnet-4-5", null);
@@ -140,7 +145,7 @@ describe("resolveProjectModel", () => {
     fetchProviderConfigMock.mockResolvedValue(config);
     resolvePiModelMock.mockReturnValue({ id: model, provider: "openai" });
 
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     expect(await resolveProjectModel(model, "OpenAI", "system", "ws-123")).toEqual({
       model,
       providerName: "openai",
@@ -169,7 +174,7 @@ describe("resolveProjectModel", () => {
     });
     resolvePiModelMock.mockReturnValue({ id: "deepseek-chat", provider: "openai" });
 
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
 
     expect(modelProviderFindMany).toHaveBeenCalled();
@@ -178,7 +183,7 @@ describe("resolveProjectModel", () => {
   });
 
   it("returns null for unknown models not in system catalog", async () => {
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     const res = await resolveProjectModel("unknown-model", null, null, "ws-123");
 
     expect(res).toBeNull();
@@ -186,7 +191,7 @@ describe("resolveProjectModel", () => {
   });
 
   it("returns null for empty or undefined models", async () => {
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     expect(await resolveProjectModel(null, null, null, "ws-123")).toBeNull();
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
   });
@@ -194,7 +199,7 @@ describe("resolveProjectModel", () => {
   it("handles errors in legacy BYOK provider lookup gracefully", async () => {
     modelProviderFindMany.mockRejectedValue(new Error("DB down"));
 
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const { resolveProjectModel } = await import("../../agent/resolve-model.js");
     const res = await resolveProjectModel("unknown-custom-model", null, null, "ws-123");
 
     expect(res).toBeNull();
@@ -282,6 +287,35 @@ describe("runRcaSession", () => {
 
     expect(result.sessionId).toBe("s1");
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws1", "my-openai");
+  });
+
+  it("falls back to the default model when the BYOK provider is missing", async () => {
+    fetchProviderConfigMock.mockResolvedValue(null);
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      ...EXEC,
+      rcaModel: "gpt-5.3",
+      rcaProvider: "gone",
+      rcaSource: "byok",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[1]![1].body);
+    expect(body).not.toHaveProperty("model");
+    expect(body).not.toHaveProperty("providerName");
+    expect(body).not.toHaveProperty("source");
   });
 
   it("calls the agent service with the internal credential, as a system call", async () => {
