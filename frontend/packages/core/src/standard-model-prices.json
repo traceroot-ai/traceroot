@@ -1336,7 +1336,7 @@
   {
     "id": "tr-glm-5-turbo",
     "modelName": "glm-5-turbo",
-    "matchPattern": "(?i)^(zai\\/)?glm-5-turbo(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/|z-ai\\/)?glm-5-turbo(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000012,
