@@ -33,6 +33,14 @@ describe("resolvePiModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
+  it("resolves hosted claude-opus-5 as a system Anthropic model", () => {
+    expect(resolvePiModel("claude-opus-5", null)).toMatchObject({
+      id: "claude-opus-5",
+      api: "anthropic-messages",
+      provider: "anthropic",
+    });
+  });
+
   it("leaves thinking mode to the provider for hosted Sonnet 5.5", () => {
     expect(resolvePiModel("claude-sonnet-5-5", null)).toMatchObject({
       id: "claude-sonnet-5-5",
