@@ -463,7 +463,7 @@ model AIMessage {
   id           String     @id @default(cuid()) @db.VarChar
   workspaceId  String     @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
   sessionId    String?    @map("session_id") @db.VarChar // nullable: detector scans have no chat session
-  kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
+  kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "loop" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector|loop (digest-summary is recorded, not metered)
   // Per-turn attribution. `kind` is kept one release for old readers and is
   // derived from turnKind at write time; metering will move to turnKind (E-09 follow-up).
   turnKind     TurnKind   @default(chat) @map("turn_kind")
