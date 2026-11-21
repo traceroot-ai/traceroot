@@ -28,6 +28,7 @@ import {
   type MovedHits,
   type SignalStatus,
 } from "@traceroot/core/signals";
+import { isValidTimeZone } from "@traceroot/core/timezone";
 import { z } from "zod";
 import { env } from "@/env";
 import {
@@ -240,16 +241,6 @@ export async function handleListDetectorSignals(
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
   return listResponse(req, projectId, auth.project.workspaceId, detectorId);
-}
-
-/** Whether `tz` is an IANA zone name this runtime (and so Postgres and ClickHouse) knows. */
-function isValidTimeZone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**

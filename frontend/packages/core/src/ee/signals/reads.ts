@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { pickCanonicalRca } from "./canonical-rca.ts";
+import { tzOffsetMinutes } from "../../lib/timezone.ts";
 
 type ReadDb = Pick<
   PrismaClient,
@@ -146,34 +147,6 @@ async function detectorNames(db: Pick<PrismaClient, "detector">, ids: string[]) 
 }
 
 export type HitGranularity = "hour" | "day";
-
-/**
- * `tz`'s UTC offset at `date`, in minutes east of UTC (negative west). Computed by
- * reading the zone's wall clock at this instant and comparing it to the instant
- * itself, so a DST change elsewhere in the year has no bearing on the answer.
- */
-function tzOffsetMinutes(date: Date, tz: string): number {
-  const format = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const part = Object.fromEntries(format.formatToParts(date).map((p) => [p.type, p.value]));
-  const asIfUtc = Date.UTC(
-    Number(part.year),
-    Number(part.month) - 1,
-    Number(part.day),
-    Number(part.hour),
-    Number(part.minute),
-    Number(part.second),
-  );
-  return Math.round((asIfUtc - date.getTime()) / 60_000);
-}
 
 /**
  * "+HH:MM" / "-HH:MM" for an offset in minutes. The backend's chart population
