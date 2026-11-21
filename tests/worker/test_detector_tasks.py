@@ -549,3 +549,14 @@ class TestTraceSummaryEvaluationFlag:
         # ingest flag does not — the trace is NOT an evaluation trace.
         assert summaries[TRACE]["is_evaluation"] is False
         assert summaries[TRACE]["environment"] == ["evaluation"]
+
+
+def test_eval_membership_contains_non_string_value():
+    """contains on a multi-valued field coerces each element via str() before matching."""
+    assert dt._eval_membership([404, "staging"], "contains", "40") is True
+
+
+def test_eval_membership_contains_skips_none_values():
+    """contains does not crash or false-match when a multi-valued field holds None."""
+    assert dt._eval_membership([None, "production"], "contains", "prod") is True
+    assert dt._eval_membership([None], "contains", "none") is False
