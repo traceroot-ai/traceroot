@@ -1206,26 +1206,25 @@ def transform_otel_to_clickhouse(
                     if reported_cost is not None:
                         span_record["cost"] = reported_cost
 
-                # Extract metadata
-                # Priority: explicit traceroot.span.metadata > remaining attributes.
+                # Extract metadata: the span's unknown attributes, with an explicit
+                # traceroot.span.metadata object merged over them (the user's keys
+                # win). The two used to be exclusive, so a span that set explicit
+                # metadata lost its model parameters, prompt and framework
+                # attributes.
                 #
-                # The span-path attributes are merged in EITHER way. They are how
-                # the client rebuilds the tree of an in-flight trace, and the two
-                # branches used to be exclusive: a span that set explicit metadata
-                # had its paths dropped here and then rendered as an orphan while
-                # its parent was still open. That hit exactly the spans users
-                # annotate — usually leaves, whose long-lived parents are the ones
-                # still in flight — so the paths ride along with user metadata.
-                #
-                # The capture markers ride along for the same reason: they say
-                # the recorded input/output is not the whole of it, and they are
-                # set on exactly the spans that also carry explicit metadata (an
-                # agent self-trace's root stamps the trace metadata and records
-                # the prompt and answer through the capture policy).
+                # The span-path attributes and capture markers are applied last so
+                # user metadata can't shadow them. The paths are how the client
+                # rebuilds the tree of an in-flight trace; the markers say the
+                # recorded input/output is not the whole of it.
                 span_path_attrs = {
                     key: span_attrs[key]
                     for key in (*SPAN_TREE_ATTRIBUTES, *CAPTURE_MARKER_ATTRIBUTES)
                     if span_attrs.get(key) is not None
+                }
+                extra_attrs = {
+                    k: v
+                    for k, v in span_attrs.items()
+                    if not _is_known_attribute(k) and v is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
                 if explicit_metadata is not None:
@@ -1236,24 +1235,17 @@ def transform_otel_to_clickhouse(
                         except (TypeError, ValueError):
                             parsed_explicit = None
                     if isinstance(parsed_explicit, dict):
-                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                        span_record["metadata"] = json.dumps(
+                            {**extra_attrs, **parsed_explicit, **span_path_attrs}
+                        )
                     elif isinstance(explicit_metadata, str):
                         # Not a JSON object (free-text or a scalar): store it as
                         # given. Nothing to merge into, so this span has no paths.
                         span_record["metadata"] = explicit_metadata
                     else:
                         span_record["metadata"] = json.dumps(explicit_metadata)
-                else:
-                    # Collect non-internal attributes as metadata. The span-path
-                    # attributes are not "known" (they have no dedicated column),
-                    # so they already fall in here.
-                    extra_attrs = {
-                        k: v
-                        for k, v in span_attrs.items()
-                        if not _is_known_attribute(k) and v is not None
-                    }
-                    if extra_attrs:
-                        span_record["metadata"] = json.dumps(extra_attrs)
+                elif extra_attrs:
+                    span_record["metadata"] = json.dumps(extra_attrs)
 
                 spans.append(span_record)
 
