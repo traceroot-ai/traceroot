@@ -273,7 +273,7 @@
   {
     "id": "tr-gpt-6-sol",
     "modelName": "gpt-6-sol",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-sol)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6-sol)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
