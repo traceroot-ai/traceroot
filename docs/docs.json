@@ -59,6 +59,10 @@
     {
       "source": "/alerts/slack",
       "destination": "/alerts/overview#slack-notifications"
+    },
+    {
+      "source": "/dashboards/introduction",
+      "destination": "/dashboards/get-started"
     }
   ],
   "search": {
@@ -162,7 +166,8 @@
           {
             "group": "Dashboards",
             "pages": [
-              "dashboards/get-started"
+              "dashboards/get-started",
+              "dashboards/widgets"
             ]
           },
           {
