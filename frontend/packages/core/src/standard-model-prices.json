@@ -1058,6 +1058,18 @@
     }
   },
   {
+    "id": "tr-gemini-4-hydrogen",
+    "modelName": "gemini-4-hydrogen",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-4-hydrogen$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000015,
+      "output": 0.0000075,
+      "cacheRead": 0.000000075,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-3-7-flash",
     "modelName": "gemini-3.7-flash",
     "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.7-flash(-[\\d-]+)?$",
