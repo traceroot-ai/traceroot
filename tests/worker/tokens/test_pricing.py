@@ -112,6 +112,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("openai/gpt-6.1-sol", "gpt-6.1-sol"),
     ("azure/gpt-6.1-sol", "gpt-6.1-sol"),
+    ("global.openai.gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt-6.1-sol-2026-09-29", "gpt-6.1-sol"),
     ("gpt-6.2-sol", "gpt-6.2-sol"),
     ("openai/gpt-6.2-sol", "gpt-6.2-sol"),
