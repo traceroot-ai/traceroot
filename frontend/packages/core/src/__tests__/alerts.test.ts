@@ -216,7 +216,7 @@ describe("alert vocabulary guards", () => {
     expect(isAlertNoDataMode(DEFAULT_ALERT_NO_DATA_MODE)).toBe(true);
     expect(DEFAULT_ALERT_RENOTIFY).toEqual({ mode: "OFF" });
 
-    // TraceRoot has no warning severity and casing is never coerced
+    // traceroot has no warning severity and casing is never coerced
     expect(isAlertSeverity("WARNING")).toBe(false);
     expect(isAlertStatus("OK")).toBe(false);
     expect(isAlertView("spans")).toBe(false);
