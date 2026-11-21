@@ -1,6 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
+import { USER_DETECTOR_WHERE, reservedDetectorProblem } from "@traceroot/core/loops/pure";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { captureDetectorCreated } from "@/lib/detector-created-event";
 import { validateOutputSchema } from "@/features/detectors/output-schema";
@@ -34,16 +35,18 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
   const searchQuery = searchParams.get("search_query")?.trim() || null;
 
+  // A Loop's hidden detector is not a detector the user manages.
   const where = searchQuery
     ? {
         projectId,
+        ...USER_DETECTOR_WHERE,
         OR: [
           { name: { contains: searchQuery, mode: "insensitive" as const } },
           { template: { contains: searchQuery, mode: "insensitive" as const } },
           { prompt: { contains: searchQuery, mode: "insensitive" as const } },
         ],
       }
-    : { projectId };
+    : { projectId, ...USER_DETECTOR_WHERE };
 
   const [data, total] = await prisma.$transaction([
     prisma.detector.findMany({
@@ -107,6 +110,8 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
   if (typeof prompt !== "string" || prompt.trim().length === 0) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
+  const reserved = reservedDetectorProblem({ name, template });
+  if (reserved !== null) return errorResponse(reserved, 400);
 
   // Validate sampleRate (integer 0-100). Fall back to the default only when
   // omitted — kept light so new detectors don't run an LLM call on every trace.

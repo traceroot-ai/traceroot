@@ -161,6 +161,23 @@ describe("createDetector", () => {
     });
   });
 
+  it("rejects the Loop template and a loop: name with 400, before the idempotent lookup", async () => {
+    mockAccess();
+    expect(await run({ template: "loop" })).toEqual({
+      ok: false,
+      status: 400,
+      error: 'template "loop" is reserved for loops',
+    });
+    // A Loop's hidden detector has this name; the lookup must not return it.
+    expect(await run({ name: "loop:Checkout" })).toEqual({
+      ok: false,
+      status: 400,
+      error: 'name must not start with "loop:", which is reserved for loops',
+    });
+    expect(tx.detector.findFirst).not.toHaveBeenCalled();
+    expect(tx.detector.create).not.toHaveBeenCalled();
+  });
+
   it("rejects a whitespace-only prompt with 400", async () => {
     mockAccess();
     const r = await run({ prompt: "  " });

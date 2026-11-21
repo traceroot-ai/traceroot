@@ -133,6 +133,26 @@ describe("POST .../detectors — name conflicts", () => {
   });
 });
 
+describe("POST .../detectors — names and templates reserved for Loops", () => {
+  it("rejects the Loop template with 400 and never creates", async () => {
+    const res = await POST(makeRequest(validBody({ template: "loop" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      'template "loop" is reserved for loops',
+    );
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a name starting "loop:" with 400 and never creates', async () => {
+    const res = await POST(makeRequest(validBody({ name: "loop:Checkout" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      'name must not start with "loop:", which is reserved for loops',
+    );
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST .../detectors — sampleRate default", () => {
   it("defaults sampleRate to 25 when omitted", async () => {
     const res = await POST(makeRequest(validBody()), makeParams());
