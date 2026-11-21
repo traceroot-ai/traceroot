@@ -59,6 +59,12 @@ export const LOOP_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel:
   [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
 };
 
+// First N Loop runs per billing period have their hosted-LLM cost absorbed on
+// paid plans, as for detectors (DETECTOR_HOSTED_LLM_FREE_THRESHOLD); beyond it
+// the cost is billed on the detector usage meter. Equal to the Free cap so
+// upgrading never removes included runs.
+export const LOOP_HOSTED_LLM_FREE_THRESHOLD = 30;
+
 // First N detector scans per billing period are billed at $0 even on paid
 // plans — we absorb the hosted-LLM cost. This matches Free's 100-scan grant
 // so upgrading from Free to Starter never *removes* a feature the customer

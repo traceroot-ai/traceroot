@@ -354,6 +354,9 @@ jobs:
           pnpm exec prisma generate
           pnpm exec vitest run .db.test.ts
 
+      - name: Run worker's Postgres tests
+        run: cd frontend/worker && pnpm exec vitest run .db.test.ts
+
       - name: Postgres logs
         if: failure()
         run: docker compose logs --tail=100 postgres

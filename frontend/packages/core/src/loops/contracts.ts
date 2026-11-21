@@ -32,6 +32,7 @@ export const LOOP_RUN_STATUSES = [
   "failed",
   "timed_out",
   "skipped_blocked",
+  "skipped_paused",
 ] as const;
 export type LoopRunStatus = (typeof LOOP_RUN_STATUSES)[number];
 
@@ -42,8 +43,8 @@ export type LoopRunTrigger = (typeof LOOP_RUN_TRIGGERS)[number];
 export const ACTIVE_RUN_STATUSES: readonly LoopRunStatus[] = ["pending", "running"];
 
 /**
- * Runs that called the agent count against the plan; a plan-limit skip did
- * not, and a pending run has not yet.
+ * The statuses of a run that started: a plan-limit skip or a paused-loop skip
+ * never did, and a pending run has not yet.
  */
 export const COUNTED_RUN_STATUSES: readonly LoopRunStatus[] = [
   "running",
@@ -52,6 +53,18 @@ export const COUNTED_RUN_STATUSES: readonly LoopRunStatus[] = [
   "failed",
   "timed_out",
 ];
+
+/**
+ * The loop_runs filter for runs that count against the project's daily cap:
+ * runs that called the agent. (The plan's meter counts the same runs from
+ * their Loop turns in ai_messages, which outlive a deleted Loop.) The worker gives a run its session just before
+ * that call, so a run that failed before it (its BYOK provider is gone) has
+ * none and does not count.
+ */
+export const COUNTED_RUN_WHERE = {
+  status: { in: [...COUNTED_RUN_STATUSES] },
+  sessionId: { not: null },
+};
 
 export const LOOP_MEMORY = { keyMaxLength: 200, contentMaxBytes: 8 * 1024 } as const;
 
@@ -143,6 +156,38 @@ export type UpdateLoopInput = z.input<typeof updateLoopSchema>;
 export const loopStatusActionSchema = z.object({
   action: z.enum(["pause", "resume"], 'action must be "pause" or "resume"'),
 });
+
+export const LOOP_AGENT_OUTCOMES = [
+  "submitted",
+  "no_summary",
+  "budget_exhausted",
+  "timed_out",
+  "error",
+] as const;
+export type LoopAgentOutcome = (typeof LOOP_AGENT_OUTCOMES)[number];
+
+/**
+ * The model a Loop run's turn ran on, as the agent built it: the run's own
+ * choice, or the agent service's default when the run named none. `provider`
+ * is a BYOK model's saved provider label, else the model's provider.
+ */
+export interface LoopRunModel {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+}
+
+/** The agent service's answer to one Loop run. */
+export interface LoopAgentResult {
+  status: LoopAgentOutcome;
+  summary: string | null;
+  tracesRead: number;
+  toolCalls: number;
+  costUsd: number | null;
+  error: string | null;
+  /** Null when the turn never started. */
+  modelUsed: LoopRunModel | null;
+}
 
 // ---------------------------------------------------------------------------
 // Responses (dates as ISO strings)

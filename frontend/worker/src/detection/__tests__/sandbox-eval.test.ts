@@ -31,7 +31,10 @@ vi.mock("../jev-eval.js", () => ({
   JEV_DEFAULT_MODEL_ID: "jev-1.13.0",
 }));
 
-vi.mock("@traceroot/core/model-resolver", () => ({
+vi.mock("@traceroot/core/model-resolver", async (importOriginal) => ({
+  byokProviderMissingMessage: (
+    await importOriginal<typeof import("@traceroot/core/model-resolver")>()
+  ).byokProviderMissingMessage,
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
   findByokKeyForPiProvider: mockFindByokKey,
