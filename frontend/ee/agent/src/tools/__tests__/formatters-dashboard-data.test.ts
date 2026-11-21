@@ -261,6 +261,23 @@ describe("formatRows", () => {
     expect(open).toContain("latest 2 (partial: bucket still in progress)");
   });
 
+  it("treats an hourly series' last bucket as open until the hour closes", () => {
+    const rows = [
+      ["2026-11-01T09:00:00", 3],
+      ["2026-11-01T10:00:00", 4],
+    ];
+    const meta = { granularity: "hour" };
+    const start_time = "2026-11-01T09:00:00Z";
+    const closed = formatRows(["bucket", "count"], rows, meta, {
+      window: { start_time, end_time: "2026-11-01T11:00:00Z" },
+    });
+    expect(closed).not.toContain("partial");
+    const open = formatRows(["bucket", "count"], rows, meta, {
+      window: { start_time, end_time: "2026-11-01T10:30:00Z" },
+    });
+    expect(open).toContain("latest 4 (partial: bucket still in progress)");
+  });
+
   it("labels a number tile as the whole window's value", () => {
     const out = formatRows(["total_tokens"], [[18000]], undefined, {
       window: { start_time: "2026-09-02T17:00:00Z", end_time: "2026-09-09T17:00:00Z" },
