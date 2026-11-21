@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "./providers";
 import { AppLayout } from "@/components/layout/app-layout";
+import { isLoopsEnabled } from "@/lib/loops-enabled";
 import { PHProvider } from "@/providers/posthog-provider";
 import { PostHogPageView } from "@/providers/posthog-pageview";
 import { PostHogIdentifier } from "@/providers/posthog-identifier";
@@ -35,7 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Suspense>
           <PostHogIdentifier />
           <Providers nonce={nonce}>
-            <AppLayout>{children}</AppLayout>
+            <AppLayout loopsEnabled={isLoopsEnabled()}>{children}</AppLayout>
           </Providers>
         </PHProvider>
       </body>

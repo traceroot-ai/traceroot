@@ -50,6 +50,15 @@ export const DETECTOR_RUN_QUOTAS: Record<PlanType, { included: number; overageLa
   [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
 };
 
+// Loop runs (BYOK + hosted combined). Same rules as detector runs: Free has a
+// hard cap (30, the Free RCA cap), paid plans are unlimited.
+export const LOOP_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+  [PlanType.FREE]: { included: 30, overageLabel: "Hard cap (upgrade to continue)" },
+  [PlanType.STARTER]: { included: Infinity, overageLabel: "Unlimited" },
+  [PlanType.PRO]: { included: Infinity, overageLabel: "Unlimited" },
+  [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
+};
+
 // First N detector scans per billing period are billed at $0 even on paid
 // plans — we absorb the hosted-LLM cost. This matches Free's 100-scan grant
 // so upgrading from Free to Starter never *removes* a feature the customer
@@ -131,6 +140,19 @@ export function isDetectorRunBlocked(plan: PlanType, scansRun: number): boolean 
   return false;
 }
 
+/**
+ * Check if Loop runs should be blocked for a given plan and usage.
+ * Free plan: hard cap at 30 runs (BYOK + hosted combined).
+ * Paid plans: never blocked.
+ */
+export function isLoopRunBlocked(plan: PlanType, runsUsed: number): boolean {
+  if (!isBillingEnabled()) return false;
+  if (plan === PlanType.FREE) {
+    return runsUsed >= LOOP_RUN_QUOTAS[plan].included;
+  }
+  return false;
+}
+
 // =============================================================================
 // SEAT LIMITS
 // =============================================================================
@@ -204,6 +226,9 @@ function getEntitlementsForPlan(plan: PlanType): Entitlement[] {
 // =============================================================================
 // PLAN DEFINITIONS
 // =============================================================================
+/** A pricing line; one that names Loops says what shows while they are off (null: nothing). */
+export type PlanFeature = string | { text: string; withoutLoops: string | null };
+
 export const PLANS: Record<
   PlanType,
   {
@@ -213,7 +238,7 @@ export const PLANS: Record<
     billingPriceId: string;
     highlighted: boolean;
     badge: string | null;
-    features: string[];
+    features: PlanFeature[];
     support: string;
     entitlements: Entitlement[];
   }
@@ -230,6 +255,7 @@ export const PLANS: Record<
       "50k events / month included",
       "15-day retention",
       "100 detector runs / month",
+      { text: "30 Loop runs / month", withoutLoops: null },
       "30 chat + 30 RCA runs / month",
       "Slack alerts · BYOK or hosted LLM",
     ],
@@ -249,7 +275,7 @@ export const PLANS: Record<
       "150k events / month, $4 per 50k over",
       "30-day retention",
       "100 chat + 100 RCA runs / month, $10 per 100 over each",
-      "Unlimited detector runs",
+      { text: "Unlimited detector and Loop runs", withoutLoops: "Unlimited detector runs" },
       "Hosted LLM token cost × 1.05 on overage",
     ],
     support: "Discord",
@@ -285,6 +311,15 @@ export const PLANS: Record<
 };
 
 export type PlanConfig = (typeof PLANS)[PlanType];
+
+/** A plan's pricing lines, without the Loop ones when LOOPS_ENABLED is off. */
+export function planFeatures(plan: PlanConfig, loopsEnabled: boolean): string[] {
+  return plan.features.flatMap((f) => {
+    if (typeof f === "string") return [f];
+    const text = loopsEnabled ? f.text : f.withoutLoops;
+    return text === null ? [] : [text];
+  });
+}
 
 // =============================================================================
 // PLAN HELPERS
