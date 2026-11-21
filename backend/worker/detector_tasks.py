@@ -242,7 +242,7 @@ def _eval_condition(trace_summary: dict, condition: dict) -> bool:
     if op == "!=":
         return not _scalar_equals(actual, value)
     if op == "contains":
-        return isinstance(actual, str) and str(value).lower() in actual.lower()
+        return str(value).lower() in str(actual).lower()
     comparator = _ORDERING_COMPARATORS.get(op)
     if comparator is None:
         return False
