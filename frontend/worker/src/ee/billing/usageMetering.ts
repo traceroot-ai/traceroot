@@ -25,6 +25,7 @@ import {
   isDetectorRunBlocked,
   isIngestionBlocked,
   DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
+  LOOP_HOSTED_LLM_FREE_THRESHOLD,
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
@@ -33,6 +34,7 @@ import {
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
+import { meterLoopRuns, type LoopMeter, type LoopUsage } from "./loopMetering.js";
 
 const FAR_FUTURE_END = new Date("2100-01-01T00:00:00Z");
 
@@ -117,6 +119,7 @@ async function processWorkspace(
     aiBlocked: boolean;
     rcaBlocked: boolean;
     detectorBlocked: boolean;
+    loopBlocked: boolean;
     currentUsage: any;
     projects: { id: string; deleteTime: Date | null; freeQuotaEligible: boolean }[];
   },
@@ -178,10 +181,11 @@ async function processWorkspace(
   // =========================================================================
   // 2a-2d. Aggregate aIMessage rows by kind for billing + usage display.
   //
-  // Three categorical sources flow into the same table:
+  // The categorical sources that flow into the same table:
   //   kind = "chat"     — user-initiated chat (and manual triage / issue-gen)
   //   kind = "rca"      — auto-RCA agent turns (system-initiated)
   //   kind = "detector" — single-shot detector LLM scans
+  //   kind = "loop"     — Loop run agent turns (metered in loopMetering.ts)
   //
   // `aggregateMessagesForKind` does the per-kind heavy lifting; only the
   // chat block reads `runsUsedCount` + byokAgg (the others don't need them).
@@ -213,6 +217,28 @@ async function processWorkspace(
   const detectorSystemInputTokens = Number(detectorAgg.systemAgg._sum.inputTokens ?? 0);
   const detectorSystemOutputTokens = Number(detectorAgg.systemAgg._sum.outputTokens ?? 0);
   const detectorByModel = [...detectorAgg.systemByModel, ...detectorAgg.byokByModel];
+
+  // 2e. Loop runs and Loop turn cost, both from kind="loop" turns. Guarded: a
+  // failing Loop meter keeps the previous Loop numbers and flag and must not
+  // stop the rest of this workspace's billing.
+  let loopMeter: LoopMeter | null = null;
+  try {
+    loopMeter = await meterLoopRuns(
+      { id: workspace.id, loopBlocked: workspace.loopBlocked },
+      plan,
+      periodWindow,
+    );
+  } catch (error) {
+    console.error(`[Billing] Loop metering failed for workspace ${workspace.id}:`, error);
+  }
+  const previousLoop = (workspace.currentUsage as { loop?: LoopUsage } | null)?.loop;
+  const loopUsage: LoopUsage | undefined = loopMeter
+    ? {
+        ...loopMeter.usage,
+        lastReportedUnits: previousLoop?.lastReportedUnits ?? 0,
+        lastReportedPeriodStart: previousLoop?.lastReportedPeriodStart ?? null,
+      }
+    : previousLoop;
 
   // =========================================================================
   // 3. Build update data
@@ -256,6 +282,7 @@ async function processWorkspace(
     aiBlocked?: boolean;
     rcaBlocked?: boolean;
     detectorBlocked?: boolean;
+    loopBlocked?: boolean;
   } = {
     currentUsage: {
       traces: usage.traces,
@@ -305,6 +332,8 @@ async function processWorkspace(
         lastReportedPeriodStart: null as string | null,
       },
       detector: detectorUsage,
+      // The billing tab's Loop usage card reads currentUsage.loop.runsUsed.
+      ...(loopUsage ? { loop: loopUsage } : {}),
     },
   };
 
@@ -382,6 +411,12 @@ async function processWorkspace(
   if (!isFreePlan && workspace.detectorBlocked) {
     updateData.detectorBlocked = false;
     console.log(`[Billing] Workspace ${workspace.id}: unblocking detector (paid plan)`);
+  }
+
+  // 4f. Loop blocking: Free plan only (30-run hard cap), cleared on paid plans;
+  // decided in meterLoopRuns the way 4d/4e decide detectorBlocked.
+  if (loopMeter?.loopBlocked !== undefined) {
+    updateData.loopBlocked = loopMeter.loopBlocked;
   }
 
   // =========================================================================
@@ -558,6 +593,31 @@ async function processWorkspace(
           `totalCost=$${detectorSystemTokenCost.toFixed(4)}`,
       }),
     );
+
+    // 5e. Report managed Loop inference by the detector rule (5d), on the same
+    // hosted-inference meter. Only from this run's numbers: when the Loop meter
+    // failed, nothing is reported until it reads again.
+    if (loopMeter && loopUsage) {
+      Object.assign(
+        loopUsage,
+        await reportHostedDelta({
+          source: "loop",
+          totalUnits: hostedOverageUnits(
+            loopUsage.runsUsed,
+            loopUsage.systemTokenCost,
+            LOOP_HOSTED_LLM_FREE_THRESHOLD,
+          ),
+          previous: loopUsage,
+          periodStart: currentPeriodStart,
+          workspaceId: workspace.id,
+          customerId: workspace.billingCustomerId,
+          stripeClient: ctx.stripeClient,
+          detail:
+            `runsUsed=${loopUsage.runsUsed}, included=${LOOP_HOSTED_LLM_FREE_THRESHOLD}, ` +
+            `totalCost=$${loopUsage.systemTokenCost.toFixed(4)}`,
+        }),
+      );
+    }
   }
 
   // =========================================================================
@@ -603,7 +663,7 @@ async function processWorkspace(
   );
 }
 
-type MessageKind = "chat" | "rca" | "detector";
+type MessageKind = "chat" | "rca" | "detector" | "loop";
 
 /**
  * Aggregate `aIMessage` rows for one `kind` over a billing window. Returns:
