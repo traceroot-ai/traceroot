@@ -46,6 +46,10 @@
       "types": "./src/lib/timezone.ts",
       "default": "./src/lib/timezone.ts"
     },
+    "./loops": {
+      "types": "./src/loops/index.ts",
+      "default": "./src/loops/index.ts"
+    },
     "./loops/pure": {
       "types": "./src/loops/pure.ts",
       "default": "./src/loops/pure.ts"
