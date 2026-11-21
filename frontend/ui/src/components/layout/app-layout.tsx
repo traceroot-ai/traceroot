@@ -43,6 +43,8 @@ interface LayoutContextType {
   // unregister callback for the host's effect cleanup.
   viewerOwnsAiSlot: boolean;
   registerAiHost: () => () => void;
+  // LOOPS_ENABLED, read on the server by the root layout (lib/loops-enabled.ts).
+  loopsEnabled: boolean;
 }
 
 const LayoutContext = createContext<LayoutContextType>({
@@ -60,6 +62,7 @@ const LayoutContext = createContext<LayoutContextType>({
   setHideAiButton: () => {},
   viewerOwnsAiSlot: false,
   registerAiHost: () => () => {},
+  loopsEnabled: false,
 });
 
 // Between the mobile drawer (md, 768px) and a roomy desktop the full sidebar costs too much width.
@@ -69,7 +72,13 @@ export function useLayout() {
   return useContext(LayoutContext);
 }
 
-export function AppLayout({ children }: { children: React.ReactNode }) {
+export function AppLayout({
+  children,
+  loopsEnabled = false,
+}: {
+  children: React.ReactNode;
+  loopsEnabled?: boolean;
+}) {
   // Three navigation stages follow the window: a permanent sidebar, an icon rail below
   // COMPACT_NAV_QUERY, and an off-canvas drawer below md (768px). An explicit toggle by the
   // user wins over the rail until the page is reloaded.
@@ -155,6 +164,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setHideAiButton,
         viewerOwnsAiSlot,
         registerAiHost,
+        loopsEnabled,
       }}
     >
       <AiChatProvider

@@ -10,8 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useLayout } from "@/components/layout/app-layout";
 import { cn } from "@/lib/utils";
-import { PLANS, PlanType } from "@traceroot/core";
+import { PLANS, PlanType, planFeatures } from "@traceroot/core";
 import { createCheckoutSession, changePlan } from "./api";
 import { getPlanButtonText, resolvePlanAction } from "./plan-actions";
 
@@ -30,6 +31,7 @@ export function PricingDialog({
   currentPlan = PlanType.FREE,
   hasSubscription = false,
 }: PricingDialogProps) {
+  const { loopsEnabled } = useLayout();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,15 +125,17 @@ export function PricingDialog({
                     <p className="mt-2 text-[13px] text-muted-foreground">{plan.description}</p>
 
                     <ul className="mb-5 mt-3 flex-1 space-y-1">
-                      {[...plan.features, `${plan.support} support`].map((feature) => (
-                        <li
-                          key={feature}
-                          className="flex items-start gap-2 py-0.5 text-[13px] text-muted-foreground"
-                        >
-                          <Check className="mt-1 h-3 w-3 shrink-0 text-foreground/45" />
-                          {feature}
-                        </li>
-                      ))}
+                      {[...planFeatures(plan, loopsEnabled), `${plan.support} support`].map(
+                        (feature) => (
+                          <li
+                            key={feature}
+                            className="flex items-start gap-2 py-0.5 text-[13px] text-muted-foreground"
+                          >
+                            <Check className="mt-1 h-3 w-3 shrink-0 text-foreground/45" />
+                            {feature}
+                          </li>
+                        ),
+                      )}
                     </ul>
 
                     <Button
