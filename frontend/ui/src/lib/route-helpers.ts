@@ -1,4 +1,4 @@
-import type { NextResponse } from "next/server";
+import type { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { isPlainObject } from "@/lib/is-plain-object";
 import {
@@ -30,6 +30,17 @@ export async function requireProjectAuth<P extends { projectId: string }>(
   const accessResult = await requireProjectAccess(authResult.user.id, resolved.projectId, minRole);
   if (accessResult.error) return { error: accessResult.error };
   return { user: authResult.user, params: resolved };
+}
+
+/** `page` (0-based) and `limit` (1-200, default 50) from the query string. */
+export function readPaging(req: NextRequest) {
+  const { searchParams } = req.nextUrl;
+  const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
+  const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
+  return {
+    limit: isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200),
+    page: isNaN(rawPage) ? 0 : Math.max(rawPage, 0),
+  };
 }
 
 /**
