@@ -144,6 +144,38 @@ export const loopStatusActionSchema = z.object({
   action: z.enum(["pause", "resume"], 'action must be "pause" or "resume"'),
 });
 
+export const LOOP_AGENT_OUTCOMES = [
+  "submitted",
+  "no_summary",
+  "budget_exhausted",
+  "timed_out",
+  "error",
+] as const;
+export type LoopAgentOutcome = (typeof LOOP_AGENT_OUTCOMES)[number];
+
+/**
+ * The model a Loop run's turn ran on, as the agent built it: the run's own
+ * choice, or the agent service's default when the run named none. `provider`
+ * is a BYOK model's saved provider label, else the model's provider.
+ */
+export interface LoopRunModel {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+}
+
+/** The agent service's answer to one Loop run. */
+export interface LoopAgentResult {
+  status: LoopAgentOutcome;
+  summary: string | null;
+  tracesRead: number;
+  toolCalls: number;
+  costUsd: number | null;
+  error: string | null;
+  /** Null when the turn never started. */
+  modelUsed: LoopRunModel | null;
+}
+
 // ---------------------------------------------------------------------------
 // Responses (dates as ISO strings)
 // ---------------------------------------------------------------------------
