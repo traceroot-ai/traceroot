@@ -18,6 +18,7 @@ export interface UsageStats {
   ai?: AIUsageData;
   rca?: RcaUsageData;
   detector?: DetectorUsageData;
+  loop?: LoopUsageData;
 }
 
 // Workspace types
@@ -351,6 +352,18 @@ export interface DetectorUsageData {
   systemInputTokens: number;
   systemOutputTokens: number;
   byModel: AIUsageByModel[];
+  lastReportedUnits?: number;
+  lastReportedPeriodStart?: string | null;
+}
+
+// Loop run usage (nested in UsageStats.loop). Same shape and rules as detector scans:
+// runsUsed counts runs that called the agent (BYOK + system); the Free plan caps it.
+export interface LoopUsageData {
+  runsUsed: number;
+  systemTokenCost: number;
+  systemInputTokens: number;
+  systemOutputTokens: number;
+  byModel?: AIUsageByModel[];
   lastReportedUnits?: number;
   lastReportedPeriodStart?: string | null;
 }
