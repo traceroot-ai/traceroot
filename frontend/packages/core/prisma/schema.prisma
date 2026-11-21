@@ -609,7 +609,7 @@ model LoopRun {
   seq         Int // per-Loop, from 1
   trigger     String    @db.VarChar // "schedule" | "manual"
   slotAt      DateTime? @map("slot_at") @db.Timestamp(6) // the claimed slot; null for manual
-  // "pending" | "running" | "succeeded" | "quiet" | "failed" | "timed_out" | "skipped_blocked"
+  // "pending" | "running" | "succeeded" | "quiet" | "failed" | "timed_out" | "skipped_blocked" | "skipped_paused"
   status      String    @default("pending") @db.VarChar
   attempts    Int       @default(1)
   sessionId   String?   @map("session_id") @db.VarChar

@@ -9,7 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@traceroot/core";
-import { createLoopWithDetector, createRun } from "@traceroot/core/loops";
+import { LOOP_LIMITS, createLoopWithDetector, createRun } from "@traceroot/core/loops";
 import {
   claimDueLoops,
   enqueuePendingRuns,
@@ -18,6 +18,7 @@ import {
   WORKER_STOPPED_ERROR,
 } from "../scheduler.js";
 import { finishLoopRun } from "../finish.js";
+import { startLoopRun } from "../start.js";
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
@@ -278,6 +279,44 @@ describe.skipIf(!url)("Loop tick on Postgres", () => {
 
       const run = await prisma.loopRun.findFirstOrThrow({ where: { loopId: loop.id } });
       expect(queue.jobs.has(`loop-run-${run.id}`)).toBe(true);
+    });
+  });
+
+  describe("startLoopRun", () => {
+    it("starts only one of two Loops' runs racing for the project's last daily run", async () => {
+      // A project of its own, so no other test's runs count toward its cap.
+      const projectId = `p_cap_${suffix}`;
+      await prisma.project.create({
+        data: { id: projectId, workspaceId: ids.workspace, name: "cap" },
+      });
+      const filler = await loopDueAt(null, "active", projectId);
+      // Running runs count before they have a session: 23 of 24 used.
+      for (let i = 0; i < LOOP_LIMITS.runsPerProjectPerDay - 1; i++) {
+        await runOf(filler.id, { status: "running" }, projectId);
+      }
+      const first = await runOf(
+        (await loopDueAt(null, "active", projectId)).id,
+        {
+          status: "pending",
+        },
+        projectId,
+      );
+      const second = await runOf(
+        (await loopDueAt(null, "active", projectId)).id,
+        {
+          status: "pending",
+        },
+        projectId,
+      );
+
+      const outcomes = await Promise.all([startLoopRun(first), startLoopRun(second)]);
+
+      expect(outcomes.sort()).toEqual(["skipped", "started"]);
+      const runs = await prisma.loopRun.findMany({
+        where: { id: { in: [first.id, second.id] } },
+        select: { status: true },
+      });
+      expect(runs.map((r) => r.status).sort()).toEqual(["running", "skipped_blocked"]);
     });
   });
 });
