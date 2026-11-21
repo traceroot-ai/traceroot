@@ -7,15 +7,23 @@ import { LOOP_LIMITS, LOOP_MEMORY, listMemory, upsertMemory } from "@traceroot/c
 import { formatSessionDetail, formatSessionList, formatTraceList } from "../formatters.js";
 import { lookbackDefaults, lookbackWindow, type LookbackWindow } from "../query-window.js";
 import { createRegistryBinder } from "../registry-tools.js";
-import { SUBMIT_SUMMARY_TOOL, withBudget, type LoopRunState } from "./budget.js";
+import {
+  RECORD_FINDING_TOOL,
+  SUBMIT_SUMMARY_TOOL,
+  findingRecordCap,
+  withBudget,
+  type LoopRunState,
+} from "./budget.js";
+import { createRecordFindingTool, noteReadTraces } from "./findings.js";
 import { clip, formatTraceDetail } from "./format.js";
 import { createSignalReadTools } from "./signals.js";
 
 /**
  * Every tool the Loop agent is offered, and nothing else: reads of traces,
- * sessions and signals, the project's memory, past runs, and the summary.
- * Every call is charged to the run's budget (withBudget).
- * No SQL, no sandbox, no downloads, no git, no writes to the registry.
+ * sessions and signals, the project's memory, past runs, the run's findings
+ * and the summary. Every call is charged to the run's budget (withBudget).
+ * No SQL, no sandbox, no downloads, no git, no writes to the registry: a
+ * finding is only collected here, and the worker writes it.
  */
 export const LOOP_TOOL_NAMES = [
   "list_traces",
@@ -27,6 +35,7 @@ export const LOOP_TOOL_NAMES = [
   "loop_recall",
   "loop_remember",
   "loop_past_runs",
+  RECORD_FINDING_TOOL,
   SUBMIT_SUMMARY_TOOL,
 ] as const;
 
@@ -50,8 +59,14 @@ export interface LoopToolsParams {
   lookbackHours: number;
   /** The run's start: the window ends here. */
   now: Date;
-  /** Shared with the route: the summary and the budget's counts land here. */
+  /** Shared with the route: the summary, the findings and the budget's counts land here. */
   state: LoopRunState;
+  /** The finding keys this Loop already has signals for, loaded at run start. */
+  existingFindingKeys: readonly string[];
+  /** New keys this run may record: LOOP_LIMITS.newFindingKeysPerRun. */
+  maxNewFindingKeys: number;
+  /** Loop.dryRun: the tool says the finding is not recorded (the route answers none). */
+  dryRun: boolean;
   /** Called once the model keeps calling past its budget: stop the run. */
   onRunaway: () => void;
   /** Overrides for tests. */
@@ -137,13 +152,37 @@ export function createLoopTools(params: LoopToolsParams): AgentTool<any>[] {
     `(${window.start_after} → ${window.end_before}).`;
   const bind = createRegistryBinder(params.projectId, params.userId);
 
+  // A finding may cite only the traces this run read: those get_trace and get_session returned.
+  const noteRead = (data: unknown) => noteReadTraces(params.state, data);
   const reads = [
     bind("list_traces", formatTraceList, { defaults, describe: describeWindow }),
     bind("list_sessions", formatSessionList, { defaults, describe: describeWindow }),
-    bind("get_session", formatSessionDetail, { defaults, describe: describeWindow }),
-    bind("get_trace", formatTraceDetail, { defaults: traceFields, describe: describeTraceFields }),
+    bind("get_session", formatSessionDetail, {
+      defaults,
+      describe: describeWindow,
+      details: noteRead,
+    }),
+    bind("get_trace", formatTraceDetail, {
+      defaults: traceFields,
+      describe: describeTraceFields,
+      details: noteRead,
+    }),
     ...createSignalReadTools(params.projectId, params.signalHttp),
   ].map(asUntrusted);
+
+  // Echoes the model's own input, so its results are not wrapped as untrusted.
+  const existingFindingKeys = new Set(params.existingFindingKeys);
+  const recordFinding = createRecordFindingTool({
+    state: params.state,
+    existingFindingKeys,
+    newKeysPerRun: params.maxNewFindingKeys,
+    dryRun: params.dryRun,
+  });
+  const limits = {
+    toolCalls: LOOP_LIMITS.toolCalls,
+    traceReads: LOOP_LIMITS.traceReads,
+    findingRecords: findingRecordCap(params.maxNewFindingKeys, existingFindingKeys.size),
+  };
 
   const recall: AgentTool<typeof emptySchema> = {
     name: "loop_recall",
@@ -254,7 +293,7 @@ export function createLoopTools(params: LoopToolsParams): AgentTool<any>[] {
     },
   };
 
-  return [...reads, recall, remember, pastRuns, submit].map((tool) =>
-    withBudget(tool, params.state, params.onRunaway),
+  return [...reads, recall, remember, pastRuns, recordFinding, submit].map((tool) =>
+    withBudget(tool, params.state, params.onRunaway, limits),
   );
 }
