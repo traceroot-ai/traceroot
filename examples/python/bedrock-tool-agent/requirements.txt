@@ -1,0 +1,5 @@
+boto3>=1.35.0
+python-dotenv>=1.0.0
+
+traceroot>=0.1.11
+openinference-instrumentation-bedrock>=0.1.35
