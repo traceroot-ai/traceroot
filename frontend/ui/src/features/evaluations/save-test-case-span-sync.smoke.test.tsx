@@ -6,7 +6,7 @@
  * follows that prop, so its "Selected span" updates without reopening.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { act, render, cleanup, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("@/lib/api/traces", () => ({
@@ -41,8 +41,8 @@ vi.mock("@/features/traces", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/traces")>();
   return {
     ...actual,
-    useSpanIO: (_p: string, _t: string, spanId: string | null) => {
-      if (!spanId) return { data: undefined };
+    useSpanIO: (_p: string, _t: string, spanId: string | null, pending = false) => {
+      if (!spanId || pending) return { data: undefined };
       if (!spanIOCache.has(spanId)) {
         spanIOCache.set(spanId, {
           data:
@@ -86,6 +86,40 @@ function renderDrawer(spanId: string | undefined) {
 }
 
 describe("drawer follows the tree selection", () => {
+  it("waits for a pending span before seeding its input", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    const pendingTrace = {
+      trace_id: "t1",
+      spans: [{ span_id: "root", parent_span_id: null, name: "pending root", pending: true }],
+    };
+    qc.setQueryData(["trace", "p1", "t1"], pendingTrace);
+    const view = render(
+      <QueryClientProvider client={qc}>
+        <SaveTestCaseDrawer
+          projectId="p1"
+          traceId="t1"
+          spanId="root"
+          open
+          onOpenChange={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByDisplayValue(/root-input/)).toBeNull();
+
+    act(() => {
+      qc.setQueryData(["trace", "p1", "t1"], {
+        ...pendingTrace,
+        spans: [{ ...pendingTrace.spans[0], pending: false }],
+      });
+    });
+    expect(await screen.findByDisplayValue(/root-input/)).toBeDefined();
+    view.unmount();
+    qc.clear();
+  });
+
   it("retargets the selected span when the spanId prop changes while open", async () => {
     // The drawer no longer shows a "Selected span" card, so the retarget is observed
     // through the seeded Input (each span has distinct I/O), not a span-name label.

@@ -119,6 +119,7 @@ export function SpanInfoPanel({
     projectId,
     trace.trace_id,
     selectedSpanId,
+    !isTrace && !!selection.span.pending,
   );
 
   // Per-span I/O comes from the lazy fetch, but fall back to whatever the span
