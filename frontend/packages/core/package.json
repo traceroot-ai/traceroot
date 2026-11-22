@@ -49,6 +49,10 @@
     "./email": {
       "types": "./src/lib/email/index.ts",
       "default": "./src/lib/email/index.ts"
+    },
+    "./updates": {
+      "types": "./src/updates/index.ts",
+      "default": "./src/updates/index.ts"
     }
   },
   "scripts": {
