@@ -2,12 +2,13 @@
   "name": "@traceroot/example-claude-agent-sdk",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "demo": "tsx agent.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.0",
-    "@traceroot-ai/traceroot": "^0.1.6",
+    "@traceroot-ai/traceroot": "^0.4.0",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
