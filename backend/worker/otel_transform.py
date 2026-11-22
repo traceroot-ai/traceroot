@@ -1233,7 +1233,9 @@ def transform_otel_to_clickhouse(
                     if isinstance(parsed_explicit, str):
                         try:
                             parsed_explicit = json.loads(parsed_explicit)
-                        except (TypeError, ValueError):
+                        # RecursionError: json.loads raises it on deeply-nested payloads,
+                        # which would otherwise fail the whole ingest task.
+                        except (TypeError, ValueError, RecursionError):
                             parsed_explicit = None
                     if isinstance(parsed_explicit, dict):
                         span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
