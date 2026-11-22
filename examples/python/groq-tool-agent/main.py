@@ -7,8 +7,8 @@ with traceroot via traceroot.initialize(integrations=[Integration.GROQ]).
 Env vars required: GROQ_API_KEY, TRACEROOT_API_KEY
 
 Run:
-    pip install -r requirements.txt
-    python main.py
+    uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
+
 """
 
 import json

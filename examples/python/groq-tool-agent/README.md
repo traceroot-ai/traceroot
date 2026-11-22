@@ -6,12 +6,16 @@ ReAct-style agent with Groq tool calling, instrumented with [traceroot](https://
 
 ```bash
 cp .env.example .env  # fill in your API keys
-pip install -r requirements.txt
 ```
 
-## Usage
-
+With `uv` (recommended):
 ```bash
+uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
+```
+
+Or with `pip`:
+```bash
+pip install -r requirements.txt
 python main.py
 ```
 
