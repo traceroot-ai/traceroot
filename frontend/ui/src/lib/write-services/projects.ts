@@ -251,11 +251,7 @@ const PROJECT_NOT_FOUND = { ok: false, status: 404, error: "Project not found" }
 // ("uq_project_workspace_live_name") or by the column target list
 // (['workspace_id', 'name'] / ['workspaceId', 'name']).
 const LIVE_NAME_INDEX = "uq_project_workspace_live_name";
-const LIVE_NAME_TARGETS = new Set([
-  LIVE_NAME_INDEX,
-  "workspace_id,name",
-  "workspaceid,name",
-]);
+const LIVE_NAME_TARGETS = new Set([LIVE_NAME_INDEX, "workspace_id,name", "workspaceid,name"]);
 
 const PROJECT_NAME_TAKEN = {
   ok: false,
