@@ -200,6 +200,8 @@ GLM_MODEL_CASES = [
     ("zai/glm-5-turbo", "glm-5-turbo"),
     ("glm-4.7", "glm-4.7"),
     ("zai/glm-4.7", "glm-4.7"),
+    ("z-ai/glm-4.7", "glm-4.7"),
+    ("zai.glm-4.7", "glm-4.7"),
     ("glm-4.6", "glm-4.6"),
     ("zai/glm-4.6", "glm-4.6"),
     ("glm-4.5", "glm-4.5"),
