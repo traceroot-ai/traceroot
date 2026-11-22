@@ -1085,6 +1085,7 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("claude-opus-4.8[1m]", "claude-opus-4-8"),
     ("claude-opus-4.7", "claude-opus-4-7"),
     ("claude-opus-4.6", "claude-opus-4-6"),
+    ("global.anthropic.claude-opus-4-6-v1", "claude-opus-4-6"),
     ("claude-opus-4.5", "claude-opus-4-5"),
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
