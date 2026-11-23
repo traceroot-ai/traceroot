@@ -41,6 +41,8 @@ function renderScorer(bundles: RunBundle[], baselineId: string, candidateId: str
         counts={countCellsByScorer(pair)}
         column={model.scorers.find((s) => s.name === name)!}
         tagOf={tagOf}
+        filters={[]}
+        onToggleFilter={() => {}}
       />
     </TooltipProvider>,
   );

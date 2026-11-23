@@ -4,6 +4,7 @@ import * as React from "react";
 import { TBody, Td } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { GROUP_EDGE, INPUT_COLUMN, lineClass, lineEdge, RUN_COLUMN, RunCell } from "./cells";
+import type { CaseFilter } from "./filters";
 import { formatCost, formatMs, signedWith } from "./metric-format";
 import {
   countCellsByScorer,
@@ -26,9 +27,10 @@ const durationOf = (pair: PairComparison | undefined): PairedMean | undefined =>
 };
 
 /**
- * The body's first group, "All cases": one line per run, like a case. Each candidate's
- * line shows, per scorer, its paired summary against the baseline (both means and the
- * change, then n and the improved/regressed counts), then mean latency and cost. The
+ * The body's first group, "All cases" (or "Matching cases" while a search or filters
+ * narrow them): one line per run, like a case. Each candidate's line shows, per scorer,
+ * its paired summary against the baseline (both means and the change, then n and the
+ * improved/regressed counts, which filter the table), then mean latency and cost. The
  * baseline's line is labelled "Baseline" and repeats no number: each candidate's line
  * already reads "baseline → candidate" for its own pair, and the baseline's mean differs
  * from pair to pair when they cover different cases. It scrolls with the cases; only the
@@ -40,6 +42,9 @@ export function SummaryGroup({
   dotFor,
   labelOf,
   tagOf,
+  filters,
+  onToggleFilter,
+  filtering,
 }: {
   model: CompareModel;
   /** Each candidate's comparison with the baseline, by candidate run id. */
@@ -47,6 +52,10 @@ export function SummaryGroup({
   dotFor: (runId: string) => string;
   labelOf: (runId: string) => string;
   tagOf: (runId: string) => string;
+  filters: readonly CaseFilter[];
+  onToggleFilter: (filter: CaseFilter) => void;
+  /** Whether a search or filters narrow the cases it covers. */
+  filtering: boolean;
 }) {
   const exclusions = React.useMemo(
     () => new Map([...pairs].map(([runId, pair]) => [runId, pairExclusions(model, pair)])),
@@ -56,7 +65,7 @@ export function SummaryGroup({
     () => new Map([...pairs].map(([runId, pair]) => [runId, countCellsByScorer(pair)])),
     [pairs],
   );
-  const label = "All cases";
+  const label = filtering ? "Matching cases" : "All cases";
   const span = model.runs.length;
 
   return (
@@ -106,6 +115,8 @@ export function SummaryGroup({
                     counts={counts.get(run.id)}
                     column={s}
                     tagOf={tagOf}
+                    filters={filters}
+                    onToggleFilter={onToggleFilter}
                   />
                 )}
               </Td>

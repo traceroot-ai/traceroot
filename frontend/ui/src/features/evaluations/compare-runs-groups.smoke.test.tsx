@@ -183,11 +183,13 @@ describe("CompareRunsView — a search that picks no case", () => {
       target: { value: "no case has this text" },
     });
     expect(caseGroups()).toHaveLength(0);
-    const message = screen.getByText("No rows match your search.");
+    const message = screen.getByText("No cases match the search or filters");
     const body = message.closest("tbody") as HTMLElement;
     expect(body.querySelectorAll("tr")).toHaveLength(1);
     const columns = within(screen.getAllByRole("table")[0]).getAllByRole("columnheader").length;
     expect(message.closest("td")?.colSpan).toBe(columns);
+    // A search alone: the way out is named for what it clears.
+    expect(within(body).getByRole("button", { name: "Clear search" })).toBeTruthy();
   });
 });
 
@@ -261,6 +263,17 @@ describe("CompareRunsView — the all-cases group", () => {
     expect(within(lineOf(summaryGroup(), BASELINE_RUN.id)).queryByText("—")).toBeNull();
     // The candidates' lines leave their Output cell empty.
     expect(shownText(cellAt(summaryGroup(), CANDIDATE_RUN.id, "Output"))).toBe("");
+  });
+
+  it("filters the table from a candidate's counts", () => {
+    mount();
+    fireEvent.click(
+      within(summaryGroup()).getByRole("button", {
+        name: "Show 1 case where #2 regressed on quality",
+      }),
+    );
+    expect(caseGroups()).toHaveLength(1);
+    expect(shownText(cellAt(summaryGroup(), BASELINE_RUN.id, "Input"))).toBe("Matching cases");
   });
 });
 

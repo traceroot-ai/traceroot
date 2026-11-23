@@ -2,9 +2,11 @@
 
 import * as React from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { CountBlock, ScorerDirection } from "@/lib/eval/comparison";
 import { Delta } from "./cells";
 import { casesText } from "./coverage";
+import { sameFilter, type CaseFilter } from "./filters";
 import { formatMetricDelta, formatMetricValue } from "./metric-format";
 import type { Exclusion, PairComparison, ScorerColumn } from "./model";
 
@@ -67,19 +69,50 @@ function PairedCount({
 const CHANGE_ARROW = { improved: "↗", regressed: "↘" } as const;
 
 /** "↗ 6 ↘ 1": how many of the pair's cases the candidate improved and regressed on, quiet
- *  beside the means. */
-function ChangeCounts({ counts }: { counts: Pick<CountBlock, "improved" | "regressed"> }) {
+ *  beside the means. Each count filters the table to those cases, and takes the filter off
+ *  again. */
+function ChangeCounts({
+  counts,
+  scorer,
+  runId,
+  tag,
+  filters,
+  onToggleFilter,
+}: {
+  counts: Pick<CountBlock, "improved" | "regressed">;
+  scorer: string;
+  runId: string;
+  tag: string;
+  filters: readonly CaseFilter[];
+  onToggleFilter: (filter: CaseFilter) => void;
+}) {
   return (
     <span
-      role="img"
+      role="group"
       aria-label={`${counts.improved} improved, ${counts.regressed} regressed vs baseline`}
       className="inline-flex gap-0.5"
     >
-      {(["improved", "regressed"] as const).map((kind) => (
-        <span key={kind} aria-hidden className="px-0.5">
-          {CHANGE_ARROW[kind]} {counts[kind]}
-        </span>
-      ))}
+      {(["improved", "regressed"] as const).map((kind) => {
+        const n = counts[kind];
+        const filter: CaseFilter = { kind, scorer, runId };
+        const active = filters.some((f) => sameFilter(f, filter));
+        return (
+          <button
+            key={kind}
+            type="button"
+            aria-label={`Show ${casesText(n)} where ${tag} ${kind} on ${scorer}`}
+            aria-pressed={active}
+            disabled={n === 0 && !active}
+            onClick={() => onToggleFilter(filter)}
+            className={cn(
+              "rounded-[2px] px-0.5 hover:bg-muted hover:text-foreground disabled:pointer-events-none",
+              active && "bg-muted text-foreground ring-1 ring-inset ring-border",
+            )}
+          >
+            {CHANGE_ARROW[kind]} {n}
+          </button>
+        );
+      })}
     </span>
   );
 }
@@ -132,6 +165,8 @@ export function ScorerSummary({
   counts,
   column,
   tagOf,
+  filters,
+  onToggleFilter,
 }: {
   pair: PairComparison | undefined;
   /** Scorer name → the pair's cases left out of its count. */
@@ -140,9 +175,13 @@ export function ScorerSummary({
   counts: ReadonlyMap<string, CountBlock> | undefined;
   column: ScorerColumn;
   tagOf: (runId: string) => string;
+  /** The table's filters, so a count shows when it is the one applied. */
+  filters: readonly CaseFilter[];
+  onToggleFilter: (filter: CaseFilter) => void;
 }) {
   const agg = pair?.comparison.scorers.find((s) => s.name === column.name);
   if (!pair || !agg) return <span>—</span>;
+  const runId = pair.candidateRunId;
   const n = agg.pairedCount;
   const count = (
     <PairedCount
@@ -162,7 +201,16 @@ export function ScorerSummary({
   const sub = (
     <>
       {count}
-      {cells && <ChangeCounts counts={cells} />}
+      {cells && (
+        <ChangeCounts
+          counts={cells}
+          scorer={column.name}
+          runId={runId}
+          tag={tagOf(runId)}
+          filters={filters}
+          onToggleFilter={onToggleFilter}
+        />
+      )}
     </>
   );
   if (agg.baselineMean === null || agg.candidateMean === null || agg.delta === null) {

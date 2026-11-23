@@ -17,9 +17,10 @@ export function caseGroup(text: string): HTMLElement {
   return group;
 }
 
-/** The summary's group, first in the body: "All cases". */
+/** The summary's group, first in the body: "All cases", or "Matching cases" while a
+ *  search or filters narrow them. */
 export const summaryGroup = () =>
-  within(comparisonTable()).getByRole("rowgroup", { name: /^All cases$/ });
+  within(comparisonTable()).getByRole("rowgroup", { name: /^(All|Matching) cases$/ });
 
 /** Every case group, in table order (the summary group, which is labelled, and the empty
  *  row excluded); none when there is no table. */
