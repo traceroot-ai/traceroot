@@ -108,7 +108,10 @@ export function inputKeyOf(r: ResultRow): string {
 /** Keep-first insertion: a duplicate key keeps the earliest row. */
 function keepFirst(rows: ResultRow[], keyOf: (r: ResultRow) => string): Map<string, ResultRow> {
   const map = new Map<string, ResultRow>();
-  for (const r of rows) if (!map.has(keyOf(r))) map.set(keyOf(r), r);
+  for (const r of rows) {
+    const key = keyOf(r);
+    if (!map.has(key)) map.set(key, r);
+  }
   return map;
 }
 
@@ -150,10 +153,11 @@ function scorerColumns(runsOldestFirst: RunBundle[]): ScorerColumn[] {
   return [...observed.keys()].sort().map((name) => {
     const { kinds, numbers } = observed.get(name)!;
     const meta = declared.get(name);
-    const valueType: ScorerValueType =
-      kinds.has("categorical") || meta?.valueType === "categorical"
-        ? "categorical"
-        : (meta?.valueType ?? (kinds.size === 1 && kinds.has("boolean") ? "boolean" : "numeric"));
+    const onlyBooleans = kinds.size === 1 && kinds.has("boolean");
+    const inferred: ScorerValueType = onlyBooleans ? "boolean" : "numeric";
+    const valueType: ScorerValueType = kinds.has("categorical")
+      ? "categorical"
+      : (meta?.valueType ?? inferred);
     return {
       name,
       valueType,
