@@ -103,3 +103,43 @@ it("embedded: never claims the AI slot, never mounts a nested assistant, hides t
   expect(queryByTestId("ai-panel")).toBeNull();
   expect(queryByTitle("AI Assistant")).toBeNull();
 });
+
+// Recorded before the viewer took its optional diff and host-framing props. With none of
+// them set, an agent trace's panel, header first, must stay byte for byte as committed,
+// both as the overlay and embedded in the assistant's sheet. Never re-generate these
+// snapshots (`-u`): a diff here means one of those props leaked into the plain path.
+it("matches the committed snapshot of an agent trace", async () => {
+  cleanup();
+  const { container, findAllByText } = render(
+    <TraceViewerPanel
+      projectId="p1"
+      traceId={"f".repeat(32)}
+      onClose={() => {}}
+      onNavigate={() => {}}
+      canNavigateUp={false}
+      canNavigateDown
+      source="agent"
+    />,
+  );
+  await findAllByText("Trace");
+  expect(container.innerHTML).toMatchSnapshot();
+});
+
+it("matches the committed snapshot of an agent trace embedded in the assistant's sheet", async () => {
+  cleanup();
+  const { container, findAllByText } = render(
+    <TraceViewerPanel
+      projectId="p1"
+      traceId={"f".repeat(32)}
+      onClose={() => {}}
+      onNavigate={() => {}}
+      canNavigateUp={false}
+      canNavigateDown={false}
+      source="agent"
+      embedded
+      initialSpanId="s1"
+    />,
+  );
+  await findAllByText("Trace");
+  expect(container.innerHTML).toMatchSnapshot();
+});
