@@ -269,6 +269,19 @@ model UserOnboarding {
   // The person unsubscribed from product email; "Subscribe again" clears it.
   // Kept apart from the pause, so neither undoes the other.
   unsubscribedAt       DateTime?  @map("unsubscribed_at") @db.Timestamp(6)
+  // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
+  // null for a question skipped or not asked.
+  role                 String?    @db.VarChar
+  // Asked only of a personal-email sign-up. The raw answer, and the domain read from it.
+  companyInput         String?    @map("company_input") @db.VarChar
+  companyDomain        String?    @map("company_domain") @db.VarChar
+  uses                 String[]   @default([]) @db.VarChar
+  source               String?    @db.VarChar
+  // What the person typed in "Somewhere else? Tell us". Never sent to analytics.
+  sourceOther          String?    @map("source_other") @db.VarChar
+  // When the person finished or skipped the last question. Set once: the
+  // questions are asked once per user.
+  questionsDoneAt      DateTime?  @map("questions_done_at") @db.Timestamp(6)
   createTime           DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime           DateTime   @updatedAt @map("update_time") @db.Timestamp(6)
   user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
