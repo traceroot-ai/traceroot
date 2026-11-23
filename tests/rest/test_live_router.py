@@ -13,7 +13,7 @@ Key invariants under test:
 
 import asyncio
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -53,6 +53,21 @@ class MockPubSub:
 def _utcnow_naive() -> datetime:
     """ClickHouse returns naive UTC datetimes; mirror that in test values."""
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _aware(dt: datetime) -> datetime:
+    """Re-tag a naive-UTC value as timezone-aware UTC — same instant, the
+    driver-variance shape the fix must tolerate."""
+    return dt.replace(tzinfo=UTC)
+
+
+def _aware_offset(dt: datetime, *, hours: float) -> datetime:
+    """Re-express a naive-UTC instant as aware at a non-UTC offset — same
+    real instant, different tzinfo and different wall-clock digits. Used to
+    prove the fix does a real conversion (`.astimezone(UTC)`), not a blind
+    `.replace(tzinfo=None)` strip: a blind strip would keep this offset's
+    local digits and misread them as UTC, shifting the instant by `hours`."""
+    return dt.replace(tzinfo=UTC).astimezone(timezone(timedelta(hours=hours)))
 
 
 def redis_message(payload: dict) -> dict:
@@ -568,3 +583,188 @@ class TestRetentionGate:
             assert "event: trace_complete" in events
         finally:
             app.dependency_overrides.clear()
+
+
+class TestTimezoneAwareTimestamps:
+    """ClickHouse's DateTime64 columns here carry no explicit timezone, and
+    the driver does not consistently return naive datetimes for them.
+    These mirror TestQuietWindowAnchoring's scenarios with aware and mixed
+    naive/aware inputs, proving identical behavior — not just absence of a
+    crash — regardless of which of the two values (or both) came back aware.
+    """
+
+    def test_regression_both_aware_does_not_500(self, client):
+        """The exact shape of the reported incident: both timestamps aware.
+        This is the crash-reproduction case — status 200, not 500."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        now_aware = _aware(_utcnow_naive())
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(now_aware, now_aware),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        assert resp.status_code == 200
+        assert parse_sse_events(resp.text) == ["event: trace_complete"]
+
+    def test_both_aware_old_completed_trace_closes_immediately(self, client):
+        """Mirrors TestQuietWindowAnchoring.test_old_completed_trace_closes_immediately
+        with both timestamps aware instead of naive — same behavior expected."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        stale_root_end = _aware(_utcnow_naive() - timedelta(hours=1))
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 30),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(stale_root_end, stale_root_end),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]
+        assert pubsub.get_message_calls == 0
+
+    def test_mixed_root_aware_last_ingest_naive_does_not_crash(self, client):
+        """root_end_time aware, last_ingest_time naive — the mixed pair that
+        crashes at max() rather than at the subtraction. Root ended long ago
+        (aware); spans are still actively arriving (naive, recent) — the
+        window must anchor to the recent activity, same as the all-naive
+        equivalent in test_old_root_with_recent_activity_keeps_quiet_window."""
+        late_batch = redis_message(
+            {"type": "spans", "spans": [{"span_id": "late", "trace_id": TRACE_ID}]}
+        )
+        pubsub = MockPubSub([late_batch])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        stale_root_end = _aware(_utcnow_naive() - timedelta(minutes=5))
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.2),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(stale_root_end, _utcnow_naive()),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: spans", "event: trace_complete"]
+
+    def test_mixed_root_naive_last_ingest_aware_does_not_crash(self, client):
+        """The reverse mixed pair: root_end_time naive, last_ingest_time
+        aware. Same expected behavior as the previous test — the fix must
+        not assume which of the two columns is the one that comes back
+        aware, since they are independently typed."""
+        late_batch = redis_message(
+            {"type": "spans", "spans": [{"span_id": "late", "trace_id": TRACE_ID}]}
+        )
+        pubsub = MockPubSub([late_batch])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        stale_root_end = _utcnow_naive() - timedelta(minutes=5)
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.2),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(stale_root_end, _aware(_utcnow_naive())),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: spans", "event: trace_complete"]
+
+    def test_both_aware_recently_completed_trace_still_gets_quiet_window(self, client):
+        """Mirrors TestQuietWindowAnchoring.test_recently_completed_trace_still_gets_quiet_window
+        with both timestamps aware — a root that ended a moment ago still
+        keeps the remaining quiet window for late descendant spans."""
+        late_batch = redis_message(
+            {"type": "spans", "spans": [{"span_id": "late", "trace_id": TRACE_ID}]}
+        )
+        pubsub = MockPubSub([late_batch])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        now_aware = _aware(_utcnow_naive())
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.2),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(now_aware, now_aware),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: spans", "event: trace_complete"]
+
+    def test_aware_non_utc_offset_is_converted_not_blindly_stripped(self, client):
+        """A blind `.replace(tzinfo=None)` strip (instead of a real
+        `.astimezone(UTC)` conversion) would misread this +05:30-offset
+        timestamp's local digits as UTC, shifting the represented instant
+        5.5 hours into the future — making a trace that actually completed
+        an hour ago look like it hasn't gone stale yet, so the stream would
+        NOT close immediately and would instead poll for messages.
+        Correctly converted, this is the same instant as the existing
+        test_old_completed_trace_closes_immediately case: closes at once."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        stale_root_end = _aware_offset(_utcnow_naive() - timedelta(hours=1), hours=5.5)
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 30),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(stale_root_end, stale_root_end),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]
+        # Correctly stale by 1 hour -> deadline already expired on arrival,
+        # closed without a single poll. A blind strip would have placed the
+        # (misread) instant in the future, leaving age clamped to 0 and the
+        # full quiet window still open -- this would poll at least once.
+        assert pubsub.get_message_calls == 0
+
+    def test_root_aware_none_last_ingest_falls_back_correctly(self, client):
+        """root_end_time aware, last_ingest_time is None: the `last_ingest_time
+        or root_end_time` fallback must use the already-normalized
+        root_end_time, not the raw aware value."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        stale_root_end = _aware(_utcnow_naive() - timedelta(hours=1))
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 30),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                return_value=(stale_root_end, None),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]
+        assert pubsub.get_message_calls == 0

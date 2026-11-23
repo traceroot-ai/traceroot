@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, CreateDatasetRequestSchema } from "@traceroot/core";
 import {
@@ -12,7 +13,7 @@ import { stableDatasetId } from "@/lib/eval/dataset-id";
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId]/datasets — list datasets with case/version counts.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId } = await params;
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/datasets — create an (empty) dataset.
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId } = await params;
@@ -126,3 +127,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     throw e;
   }
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

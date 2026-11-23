@@ -1,17 +1,17 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
-import hmac
 import logging
 from typing import Annotated
 
 import httpx
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
 from rest.rate_limit import (
     clear_request_rate_limit_exempt,
     mark_request_rate_limit_exempt,
     set_rate_limit_identity,
 )
+from rest.routers.internal.auth import has_internal_secret
 from shared.config import settings
 from shared.enums import MemberRole
 
@@ -41,12 +41,17 @@ async def get_project_access(
     project_id: str,
     x_user_id: Annotated[str | None, Header()] = None,
     x_internal_secret: Annotated[str | None, Header()] = None,
+    session_cookie: Annotated[str | None, Cookie(alias="better-auth.session_token")] = None,
+    secure_session_cookie: Annotated[
+        str | None, Cookie(alias="__Secure-better-auth.session_token")
+    ] = None,
 ) -> ProjectAccessInfo:
     """
     Validate user has access to a project via Next.js internal API.
 
     Auth modes:
-    - x-user-id: User's unique ID (from session) — normal user-initiated requests.
+    - Signed browser session cookie, resolved by the UI. A caller-supplied
+      x-user-id is never proof of identity. This also enforces support expiry.
     - X-Internal-Secret: Shared secret — for trusted server-to-server calls
       (e.g. the agent service running a system-initiated RCA session that has no
       associated user). Bypasses the Next.js per-user access check; the agent
@@ -60,12 +65,10 @@ async def get_project_access(
     clear_request_rate_limit_exempt()
 
     # System bypass: agent service / worker calling on behalf of the system.
-    # Constant-time compare to avoid leaking the secret via response timing.
-    if (
-        x_internal_secret
-        and settings.internal_api_secret
-        and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
-    ):
+    # has_internal_secret() owns the comparison (constant time, a blank secret
+    # never matching) so this route and the internal router cannot drift apart
+    # on what counts as internal traffic.
+    if has_internal_secret(x_internal_secret):
         # Trusted internal traffic is not rate limited (system-controlled volume)
         # and exempt from retention gating (enterprise-equivalent access).
         mark_request_rate_limit_exempt()
@@ -76,10 +79,10 @@ async def get_project_access(
             billing_plan="enterprise",
         )
 
-    if not x_user_id:
+    if not (session_cookie or secure_session_cookie):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing x-user-id header",
+            detail="Browser session required",
         )
 
     # Validate access via Next.js internal API
@@ -87,8 +90,15 @@ async def get_project_access(
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{settings.traceroot_ui_url}/api/internal/validate-project-access",
-                json={"userId": x_user_id, "projectId": project_id},
-                headers={"X-Internal-Secret": settings.internal_api_secret},
+                json={"browserSession": True, "projectId": project_id},
+                headers={
+                    "X-Internal-Secret": settings.internal_api_secret,
+                    "Cookie": (
+                        f"__Secure-better-auth.session_token={secure_session_cookie}"
+                        if secure_session_cookie
+                        else f"better-auth.session_token={session_cookie}"
+                    ),
+                },
             )
     except httpx.RequestError as e:
         raise HTTPException(
@@ -124,7 +134,7 @@ async def get_project_access(
     # absent default ("free") is the most restrictive tier -- a safe downgrade,
     # not an isolation risk.
     workspace_id = data.get("workspaceId")
-    if not workspace_id:
+    if not workspace_id or not data.get("userId"):
         logger.error("validate-project-access returned hasAccess without a usable workspaceId")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -133,7 +143,7 @@ async def get_project_access(
 
     return ProjectAccessInfo(
         project_id=project_id,
-        user_id=x_user_id,
+        user_id=data["userId"],
         role=data.get("role", MemberRole.VIEWER),
         workspace_id=workspace_id,
         billing_plan=data.get("billingPlan", "free"),

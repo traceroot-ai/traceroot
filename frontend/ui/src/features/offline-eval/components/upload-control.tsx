@@ -45,14 +45,14 @@ export function UploadControl({
         className={cn(
           "flex w-full flex-col items-center justify-center gap-1.5 rounded border border-dashed px-4 py-6 text-center transition-colors",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          dragging ? "border-foreground bg-muted/50" : "border-border hover:bg-muted/30",
+          dragging ? "border-border bg-accent" : "border-border hover:bg-muted",
         )}
       >
         {fileName ? (
           <>
             <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
             <span className="text-[12px] font-medium">{fileName}</span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[12px] text-muted-foreground">
               Click to choose a different file
             </span>
           </>
@@ -60,7 +60,7 @@ export function UploadControl({
           <>
             <Upload className="h-5 w-5 text-muted-foreground" aria-hidden />
             <span className="text-[12px]">Drop a CSV or JSON file, or click to browse</span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[12px] text-muted-foreground">
               Columns map to input, expected, and metadata
             </span>
           </>

@@ -6,6 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const navigation = { pathname: "/workspaces", params: {} as Record<string, string> };
+let sessionData: {
+  user: { role: string | null; name: string; email: string };
+  session: { impersonatedBy?: string };
+} | null = null;
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -14,7 +18,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({ data: null }),
+    useSession: () => ({ data: sessionData }),
     admin: { stopImpersonating: vi.fn() },
   },
 }));
@@ -40,6 +44,7 @@ describe("Sidebar", () => {
   beforeEach(() => {
     navigation.pathname = "/workspaces";
     navigation.params = {};
+    sessionData = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -56,12 +61,12 @@ describe("Sidebar", () => {
     });
   }
 
-  it("renders expanded at w-48 with the star widget above the bottom links", () => {
+  it("renders expanded at w-56 with the star widget above the bottom links", () => {
     process.env.NEXT_PUBLIC_APP_VERSION = "v1.2.3";
     render();
 
-    const frame = container.querySelector("div.flex.h-screen");
-    expect(frame?.className).toContain("w-48");
+    const frame = container.querySelector("div.flex.h-dvh");
+    expect(frame?.className).toContain("w-56");
     expect(frame?.className).not.toContain("w-14");
 
     expect(container.querySelector('[data-testid="star-widget"]')).not.toBeNull();
@@ -74,9 +79,9 @@ describe("Sidebar", () => {
   it("renders collapsed at w-14 and hides the star widget", () => {
     render({ collapsed: true });
 
-    const frame = container.querySelector("div.flex.h-screen");
+    const frame = container.querySelector("div.flex.h-dvh");
     expect(frame?.className).toContain("w-14");
-    expect(frame?.className).not.toContain("w-48");
+    expect(frame?.className).not.toContain("w-56");
     expect(container.querySelector('[data-testid="star-widget"]')).toBeNull();
   });
 
@@ -90,9 +95,38 @@ describe("Sidebar", () => {
 
     const home = links[0];
     expect(home.getAttribute("href")).toBe("/projects/p1/home");
-    // Active state: the plain `bg-muted` token (not the `hover:` variant).
-    expect(home.className.split(" ")).toContain("bg-muted");
-    expect(links[1].className.split(" ")).not.toContain("bg-muted");
+    // Active state is exposed to assistive tech and styled with the accent token.
+    expect(home.getAttribute("aria-current")).toBe("page");
+    expect(home.className.split(" ")).toContain("bg-accent");
+    expect(links[1].getAttribute("aria-current")).toBeNull();
+  });
+
+  it("groups the project links under Observe, Detect and Verify", () => {
+    navigation.pathname = "/projects/p1/signals";
+    navigation.params = { projectId: "p1" };
+    render();
+
+    const groups = Array.from(container.querySelectorAll('nav [role="group"]'));
+    expect(
+      groups.map((g) => [
+        g.getAttribute("aria-label"),
+        Array.from(g.querySelectorAll("a")).map((a) => a.textContent),
+      ]),
+    ).toEqual([
+      ["Observe", ["Tracing", "Dashboard"]],
+      ["Detect", ["Detectors", "Signals", "Alerts"]],
+      ["Verify", ["Datasets", "Evaluations"]],
+    ]);
+    expect(container.querySelector('nav a[aria-current="page"]')?.textContent).toBe("Signals");
+  });
+
+  it("drops the group labels when collapsed but keeps the groups", () => {
+    navigation.pathname = "/projects/p1/signals";
+    navigation.params = { projectId: "p1" };
+    render({ collapsed: true });
+
+    expect(container.querySelectorAll('nav [role="group"]')).toHaveLength(3);
+    expect(container.querySelector("nav")?.textContent).not.toContain("Observe");
   });
 
   it("shows the upgrade button only in a project or workspace context", () => {
@@ -115,4 +149,35 @@ describe("Sidebar", () => {
     render();
     expect(container.innerHTML).toBe("");
   });
+  it.each(["admin", "support", null, "impersonated"])(
+    "places the staff-only console in the account menu (%s)",
+    (role) => {
+      sessionData = {
+        user: {
+          role: role === "impersonated" ? "admin" : role,
+          name: "Jared",
+          email: "jared@local.dev",
+        },
+        session: { impersonatedBy: role === "impersonated" ? "staff" : undefined },
+      };
+      render();
+      expect(container.querySelector('nav a[href="/admin"]')).toBeNull();
+      expect(document.querySelector('a[href="/admin"]')).toBeNull();
+      act(() =>
+        (container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click(),
+      );
+      const link = document.querySelector('a[href="/admin"]');
+      expect(!!link).toBe(role === "admin" || role === "support");
+      const sessions = document.querySelector('a[href="/account/settings/sessions"]');
+      expect(sessions?.className).toContain("text-left");
+      expect(sessions?.firstElementChild?.tagName.toLowerCase()).toBe("svg");
+      if (link) {
+        act(() => {
+          link.addEventListener("click", (event) => event.preventDefault());
+          (link as HTMLElement).click();
+        });
+        expect(document.querySelector('a[href="/admin"]')).toBeNull();
+      }
+    },
+  );
 });

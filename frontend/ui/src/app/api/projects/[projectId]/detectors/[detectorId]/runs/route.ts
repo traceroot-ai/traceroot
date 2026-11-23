@@ -1,5 +1,7 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, PlanType } from "@traceroot/core";
+import { signalsForRuns } from "@traceroot/core/signals";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
 import { clampStartAfter } from "@/lib/server/retention";
 import { env } from "@/env";
@@ -11,7 +13,7 @@ type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> 
 
 // GET /api/projects/[projectId]/detectors/[detectorId]/runs
 // Proxies to Python backend: GET /api/v1/internal/detector-runs
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -66,33 +68,31 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const data: unknown = await response.json();
 
-  // Enrich each triggered run with its stored RCA status (one batched Postgres
-  // lookup) so the findings view (identified runs) can show whether the agent
-  // analysis ran. Same source of truth as the trace viewer's Alert gating: a
-  // DetectorRca row exists iff RCA ran; an absent row (null) means it was
-  // skipped (RCA disabled on every detector that fired). Best-effort: on lookup
-  // failure the field is simply absent and the UI renders "—". Runs that never
-  // triggered (null finding_id) are left untouched.
+  // Attach each triggered run's signal, and the agent trace of the RCA that
+  // analysed this run's own judge output (one batched Postgres lookup), so the
+  // runs table can link both. Best-effort: on lookup failure the fields are absent and the
+  // cells render "—". Runs that never triggered (null finding_id) are left
+  // untouched.
   if (response.ok && data !== null && typeof data === "object") {
     const runs = (data as { data?: unknown }).data;
     if (Array.isArray(runs)) {
-      const ids = runs
-        .map((r) => (r as { finding_id?: unknown }).finding_id)
-        .filter((id): id is string => typeof id === "string");
-      if (ids.length > 0) {
+      const triggered = (runs as Array<Record<string, unknown>>).filter(
+        (r) => typeof r.finding_id === "string" && typeof r.run_id === "string",
+      );
+      if (triggered.length > 0) {
         try {
-          const rcas = await prisma.detectorRca.findMany({
-            where: { findingId: { in: ids } },
-            select: { findingId: true, status: true },
+          const hits = await signalsForRuns(prisma, {
+            projectId,
+            runIds: triggered.map((r) => r.run_id as string),
           });
-          const statusByFinding = new Map(rcas.map((r) => [r.findingId, r.status]));
-          for (const r of runs as Array<Record<string, unknown>>) {
-            if (typeof r.finding_id === "string") {
-              r.rca_status = statusByFinding.get(r.finding_id) ?? null;
-            }
+          const byRun = new Map(hits.map((h) => [h.runId, h]));
+          for (const r of triggered) {
+            const hit = byRun.get(r.run_id as string);
+            r.signal_id = hit?.signalId ?? null;
+            r.agent_trace_id = hit?.agentTraceId ?? null;
           }
         } catch (err) {
-          console.error("[runs proxy] RCA status lookup failed:", err);
+          console.error("[runs proxy] signal lookup failed:", err);
         }
       }
     }
@@ -100,3 +100,4 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   return Response.json(data, { status: response.status });
 }
+export const GET = withImpersonationPolicy(handleGET);

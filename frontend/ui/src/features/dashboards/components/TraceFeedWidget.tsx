@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
+import type { WidgetDataRefetchOptions } from "../hooks/use-widget-data";
 import { getTraces } from "@/lib/api/traces";
 import type { Predicate, TraceListItem } from "@/types/api";
 import { canonicalizeFilters, isValidPredicate } from "@/features/filters/predicate";
@@ -15,6 +16,9 @@ interface TraceFeedWidgetProps {
   // JSON, so entries are validated before they reach the query.
   spec: { limit?: number; filters?: Predicate[] };
   range: TimeRange;
+  // Same contract as the query widget's data hook: a frozen snapshot pins
+  // staleness and switches the event-driven refetches off.
+  queryOptions?: WidgetDataRefetchOptions;
 }
 
 // Error count, styled to match the trace-list "Errors" column: a red count
@@ -22,7 +26,7 @@ interface TraceFeedWidgetProps {
 function ErrorCount({ errorCount }: { errorCount: number }) {
   if (errorCount > 0) {
     return (
-      <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+      <span className="inline-flex min-w-5 justify-center rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger">
         {errorCount}
       </span>
     );
@@ -38,7 +42,7 @@ function fmtTime(iso: string): string {
   });
 }
 
-export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps) {
+export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceFeedWidgetProps) {
   const router = useRouter();
   const limit = spec.limit ?? 10;
   const filters = (spec.filters ?? []).filter(isValidPredicate);
@@ -67,6 +71,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
         user,
       ),
     enabled: sessionReady && !!projectId,
+    ...queryOptions,
   });
 
   // isPending (no data yet), not isLoading (pending AND fetching): while the
@@ -76,7 +81,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
     return <p className="text-[11.5px] text-muted-foreground">Loading…</p>;
   }
   if (isError) {
-    return <p className="text-[11.5px] text-red-500">Failed to load traces</p>;
+    return <p className="text-[11.5px] text-danger">Failed to load traces</p>;
   }
 
   const traces = data?.data ?? [];
@@ -89,7 +94,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
     <div className="h-full overflow-auto">
       <table className="w-full text-[11.5px]">
         <thead>
-          <tr className="text-left text-[11px] text-muted-foreground">
+          <tr className="text-left text-[12px] text-muted-foreground">
             <th className="pb-1.5 pr-3 font-medium">Timestamp</th>
             <th className="pb-1.5 pr-3 font-medium">Name</th>
             <th className="pb-1.5 pr-3 font-medium">Errors</th>
@@ -107,9 +112,9 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
                 // hover prefetch stands in for the removed links' viewport prefetch.
                 onClick={() => router.push(href)}
                 onMouseEnter={() => router.prefetch(href)}
-                className="cursor-pointer border-t border-border/60 transition-colors hover:bg-muted/50"
+                className="cursor-pointer border-t border-border transition-colors hover:bg-muted"
               >
-                <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
+                <td className="whitespace-nowrap py-1 pr-3 tabular-nums text-muted-foreground">
                   {fmtTime(trace.trace_start_time)}
                 </td>
                 <td className="max-w-[120px] truncate py-1 pr-3" title={trace.name}>

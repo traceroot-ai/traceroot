@@ -1,0 +1,31 @@
+{
+  "python": [
+    "openai",
+    "anthropic",
+    "langchain",
+    "gemini",
+    "crewai",
+    "openai-agents",
+    "claude-agent-sdk",
+    "llamaindex",
+    "autogen",
+    "agno",
+    "groq",
+    "dspy",
+    "google-adk",
+    "mistral",
+    "pydantic-ai",
+    "bedrock",
+    "microsoft-agent-framework"
+  ],
+  "typescript": [
+    "openai",
+    "anthropic",
+    "langchain",
+    "mastra",
+    "pi",
+    "claude-agent-sdk",
+    "openai-agents-sdk",
+    "vercel-ai"
+  ]
+}

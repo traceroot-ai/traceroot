@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Span, TraceDetail } from "@/types/api";
+import type { TraceSource } from "@/lib/api/traces";
 import { enrichSpansWithPending } from "../utils";
 import { traceQueryKey } from "./index";
 
@@ -39,7 +40,7 @@ export function useTraceStream(
   projectId: string,
   traceId: string,
   enabled: boolean,
-  source?: "detector" | "user",
+  source?: TraceSource,
 ): UseTraceStreamResult {
   const queryClient = useQueryClient();
   const [isStreaming, setIsStreaming] = useState(false);
@@ -50,6 +51,10 @@ export function useTraceStream(
       return;
     }
 
+    // The live endpoint reads by (project, trace id) alone — it does not scope
+    // by source the way the trace-detail fetch does — so `source` goes into the
+    // cache key below but not into this URL. If live.py ever scopes its reads,
+    // forward `?source=` here too or internal traces will stop streaming.
     const url = `/api/projects/${projectId}/traces/${traceId}/live`;
     const es = new EventSource(url);
     eventSourceRef.current = es;

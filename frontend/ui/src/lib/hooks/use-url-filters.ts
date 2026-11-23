@@ -3,6 +3,14 @@
  * so a filtered list is shareable and survives refresh / back-forward.
  *
  * URL param: filters (one URL-encoded JSON predicate array)
+ *
+ * `defaultFilters`, when given, is applied only while the `filters` key is absent from
+ * the URL. Clearing filters back to empty on a page with a non-empty default writes the
+ * explicit marker `filters=[]` instead of deleting the key, so the removed default stays
+ * removed on reload and back/forward (an absent key would otherwise re-resolve to the
+ * default). `defaultFilters` must be a stable reference (a module-level constant) — it's
+ * read directly in the initial state and the URL-resync effect below, so a new array
+ * identity on every render would re-run that effect on every render too.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
@@ -14,13 +22,23 @@ interface UseUrlFiltersReturn {
   setFilters: (filters: Predicate[]) => void;
 }
 
-export function useUrlFilters(onFiltersChange?: () => void): UseUrlFiltersReturn {
+// Absent key (`raw === null`) resolves to the configured default (or `[]` when none is
+// configured); a present key, including the literal "[]" marker, is parsed as-is.
+function resolveFilters(raw: string | null, defaultFilters?: Predicate[]): Predicate[] {
+  if (raw === null) return defaultFilters ?? [];
+  return parseFiltersParam(raw);
+}
+
+export function useUrlFilters(
+  onFiltersChange?: () => void,
+  defaultFilters?: Predicate[],
+): UseUrlFiltersReturn {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
   const [filters, setFiltersState] = useState<Predicate[]>(() =>
-    parseFiltersParam(searchParams.get("filters")),
+    resolveFilters(searchParams.get("filters"), defaultFilters),
   );
 
   // Skip the URL→state sync for our own writes (mirrors the pagination hook).
@@ -34,8 +52,8 @@ export function useUrlFilters(onFiltersChange?: () => void): UseUrlFiltersReturn
       isProgrammaticUpdate.current = false;
       return;
     }
-    setFiltersState(parseFiltersParam(searchParams.get("filters")));
-  }, [searchParams]);
+    setFiltersState(resolveFilters(searchParams.get("filters"), defaultFilters));
+  }, [searchParams, defaultFilters]);
 
   const setFilters = useCallback(
     (next: Predicate[]) => {
@@ -45,6 +63,12 @@ export function useUrlFilters(onFiltersChange?: () => void): UseUrlFiltersReturn
       const serialized = serializeFiltersParam(next);
       if (serialized) {
         params.set("filters", serialized);
+      } else if (defaultFilters && defaultFilters.length > 0) {
+        // A non-empty default is configured: write the explicit empty marker rather than
+        // deleting the key. Deleting it would make the key absent again, which re-resolves
+        // to the default on the next read (reload, share, back/forward) instead of staying
+        // cleared.
+        params.set("filters", "[]");
       } else {
         params.delete("filters");
       }
@@ -65,7 +89,7 @@ export function useUrlFilters(onFiltersChange?: () => void): UseUrlFiltersReturn
       // State-only page reset — the URL page reset already happened in the write above.
       onFiltersChangeRef.current?.();
     },
-    [searchParams, router, pathname],
+    [searchParams, router, pathname, defaultFilters],
   );
 
   return { filters, setFilters };

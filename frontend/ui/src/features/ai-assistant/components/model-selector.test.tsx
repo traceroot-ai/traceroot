@@ -543,4 +543,70 @@ describe("ModelSelector", () => {
       adapter: "anthropic",
     });
   });
+
+  describe("decision models (TypeSafe)", () => {
+    const withJev = () => ({
+      byokProviders: [
+        {
+          provider: "TypeSafe AI",
+          adapter: "typesafe",
+          source: "byok" as const,
+          models: [{ id: "jev-1.13.0", label: "jev-1.13.0", supported: true }],
+        },
+      ],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system" as const,
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    });
+
+    it("hides them by default and never auto-picks one", () => {
+      mocks.models = withJev();
+
+      render(
+        <ModelSelector
+          value={{ model: "", provider: "", source: "system", adapter: "" }}
+          onChange={mocks.onChange}
+          workspaceId="workspace-1"
+        />,
+      );
+
+      expect(mocks.onChange).toHaveBeenCalledWith({
+        model: "claude-4",
+        provider: "anthropic",
+        source: "system",
+        adapter: "anthropic",
+      });
+      fireEvent.click(screen.getByRole("button"));
+      expect(screen.queryByText("jev-1.13.0")).toBeNull();
+    });
+
+    it("lists them when allowDecisionModels is set, still without auto-picking one", () => {
+      mocks.models = withJev();
+
+      render(
+        <ModelSelector
+          value={{ model: "", provider: "", source: "system", adapter: "" }}
+          onChange={mocks.onChange}
+          workspaceId="workspace-1"
+          allowDecisionModels
+        />,
+      );
+
+      expect(mocks.onChange).toHaveBeenCalledTimes(1);
+      expect(mocks.onChange).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-4" }));
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.click(screen.getByText("jev-1.13.0"));
+      expect(mocks.onChange).toHaveBeenCalledWith({
+        model: "jev-1.13.0",
+        provider: "TypeSafe AI",
+        source: "byok",
+        adapter: "typesafe",
+      });
+    });
+  });
 });

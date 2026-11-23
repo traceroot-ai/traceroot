@@ -15,5 +15,5 @@ uv run --no-project --python 3.13 --with-requirements requirements.txt python ma
 
 ## What it does
 
-Runs demo queries using the Google ADK agent with Gemini.
+Runs demo queries using a Google ADK 2.x agent with Gemini (`gemini-3.8-flash`).
 Tools: `get_weather`, `calculate`

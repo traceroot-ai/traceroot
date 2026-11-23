@@ -9,6 +9,9 @@
  * fields, not the storage engine.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 vi.mock("@/lib/auth-helpers", () => ({

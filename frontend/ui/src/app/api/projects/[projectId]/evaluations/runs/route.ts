@@ -1,9 +1,10 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
-import { countResultStatuses, passRate, excludedSummary } from "@/lib/eval/pass-rate";
+import { countResultStatuses, excludedSummary } from "@/lib/eval/result-status-counts";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -61,7 +62,7 @@ const MAX_INMEMORY_SORT = 500;
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
 // dataset_id, status, search_query, started_after, started_before. Sort:
 // sort/order over startedAt|cost|elapsedMs|status.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId } = await params;
@@ -319,13 +320,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       errorCount: r.taskErrorCount + r.scorerErrorCount,
       elapsedMs: caseDurationMs,
       ...statusCounts,
-      // Served, not left to each consumer: passed / (passed + failed), null when
-      // nothing was judged. A client recomputing it would divide by zero and render
-      // an all-errored run as a catastrophic-looking 0%.
-      passRate: passRate(statusCounts.passedCount, statusCounts.failedCount),
       excludedSummary: excludedSummary(statusCounts.erroredCount, statusCounts.notScoredCount),
     };
   });
 
   return successResponse({ data, meta: { page, limit, total } });
 }
+export const GET = withImpersonationPolicy(handleGET);

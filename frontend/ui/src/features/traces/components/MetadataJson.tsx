@@ -11,8 +11,8 @@
 import { cn } from "@/lib/utils";
 import type { MetadataEntry } from "../utils/metadata";
 
-/** Long enough for a version, a slug, or an id; short enough that no line wraps. */
-const MAX_VALUE_CHARS = 42;
+/** Long enough for a version, a slug, or an id; short enough that no line wraps at 12px in the popover. */
+const MAX_VALUE_CHARS = 38;
 
 /** Cuts on code points, so a slice can never leave half a surrogate pair behind. */
 function shorten(text: string): string {
@@ -41,7 +41,7 @@ interface MetadataJsonProps {
 
 export function MetadataJson({ entries, className }: MetadataJsonProps) {
   return (
-    <div className={cn("font-mono text-[11px] leading-[1.7] text-foreground", className)}>
+    <div className={cn("font-mono text-[12px] leading-[1.7] text-foreground", className)}>
       <div>{"{"}</div>
       {entries.map((entry, index) => (
         <div key={entry.key} className="whitespace-nowrap pl-4">

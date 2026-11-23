@@ -31,6 +31,61 @@ class ClickHouseSettings(BaseSettings):
     password: str = "clickhouse"
     database: str = "default"
 
+    # Read-only user for the public SQL gateway. The password is the switch: when it
+    # is unset, cloud (billing-enabled) deployments fail fast and self-host/dev falls
+    # back to the default client with a loud warning — see db.clickhouse.client.
+    #
+    # The user defaults to the account the bootstrap SQL provisions, because the
+    # documented way to turn the gateway on is to set the password alone. Leaving it
+    # None meant a deployment that did exactly that, including the one .env.example
+    # describes, ran customer SQL through the privileged client while the read-only
+    # account sat provisioned and unused. Naming the account that does not exist is
+    # not a risk: the password still gates it, and the two are provisioned together.
+    # Overriding the name is for a deployment that provisioned its own account, and it
+    # owns that provisioning: bootstrap creates sql_gateway_ro and nothing else, so a
+    # name nothing created fails every gateway query as a server error, which is the
+    # direction that alerts rather than the one that quietly runs SQL as the admin.
+    # Env: CLICKHOUSE_RO_USER, CLICKHOUSE_RO_PASSWORD.
+    ro_user: str | None = "sql_gateway_ro"
+    ro_password: str | None = None
+
+    # SQL gateway resource caps. These MIRROR the read-only user's CONST settings
+    # profile, which is the authoritative server-side enforcement (under readonly=1
+    # the RO user cannot change settings per-query, so they are NOT sent per-query on
+    # that path). They are also the live values on the self-host fallback path, where
+    # there is no RO user and therefore no profile: db.clickhouse.client sends them as
+    # per-query settings there, which a privileged client is permitted to accept.
+    # Env: CLICKHOUSE_SQL_MAX_EXECUTION_TIME, CLICKHOUSE_SQL_MAX_RESULT_ROWS,
+    # CLICKHOUSE_SQL_MAX_RESULT_BYTES, CLICKHOUSE_SQL_MAX_MEMORY_USAGE.
+    sql_max_execution_time: int = 30
+    sql_max_result_rows: int = 100_000
+    sql_max_result_bytes: int = 536_870_912  # 512 MiB
+    sql_max_memory_usage: int = 4_294_967_296  # 4 GiB
+
+    @field_validator(
+        "sql_max_execution_time",
+        "sql_max_result_rows",
+        "sql_max_result_bytes",
+        "sql_max_memory_usage",
+    )
+    @classmethod
+    def _cap_must_bound_something(cls, value: int, info) -> int:
+        """ClickHouse reads 0 as "no limit", so a zero cap removes the guard.
+
+        On the self-host fallback these values are sent as per-query settings and are
+        the only limit customer SQL runs under, since there is no read-only user and
+        therefore no settings profile. A zero there is not a small budget: it is an
+        unbounded query. Refused at startup, where the name of the variable is still
+        available to say in the error.
+        """
+        if value <= 0:
+            raise ValueError(
+                f"{info.field_name} must be greater than zero, got {value}. "
+                "ClickHouse reads 0 as no limit, so this would remove the cap rather "
+                "than tighten it."
+            )
+        return value
+
 
 class S3Settings(BaseSettings):
     """S3/MinIO settings for trace data storage.
@@ -46,6 +101,45 @@ class S3Settings(BaseSettings):
     secret_access_key: str | None = None
     bucket_name: str = "traceroot"
     region: str = "us-east-1"
+
+
+class AttachmentSettings(BaseSettings):
+    """Whether the ingest worker moves images out of span text, and the limits it applies.
+
+    Off by default. Once enabled it runs for every project, or only for the projects
+    in ``project_ids`` when that lists any.
+
+    Env vars: ATTACHMENT_ENABLED, ATTACHMENT_PROJECT_IDS, ATTACHMENT_MAX_IMAGE_BYTES,
+    ATTACHMENT_MAX_IMAGE_DIMENSION, ATTACHMENT_MAX_IMAGES_PER_BATCH, ATTACHMENT_MAX_SPAN_BYTES
+    """
+
+    model_config = SettingsConfigDict(env_prefix="ATTACHMENT_")
+
+    # Until this is set, span text is stored as sent, images and all, and a span over
+    # max_span_bytes is not cut.
+    enabled: bool = False
+    # Comma-separated project ids to extract for once enabled; empty means every
+    # project. A plain string, because a list field would be read from env as JSON.
+    project_ids: str = ""
+
+    # Decoded size above which an image is replaced by a placeholder, not stored.
+    max_image_bytes: int = Field(5 * 1024 * 1024, gt=0)
+    # Width or height, in pixels, above which an image is replaced by a placeholder.
+    max_image_dimension: int = Field(16384, gt=0)
+    # Distinct images one ingest batch may look up and store. Each costs a storage
+    # check and possibly an upload, so later images in the batch become placeholders.
+    max_images_per_batch: int = Field(1000, gt=0)
+    # Bound on a span's input + output + metadata in UTF-8 bytes, applied after
+    # images are replaced. A span over it has its largest field(s) cut to fit. At
+    # least 256, so the row still fits when every field is cut down to the marker.
+    max_span_bytes: int = Field(8 * 1024 * 1024, ge=256)
+
+    def applies_to(self, project_id: str) -> bool:
+        """Return whether images are extracted from ``project_id``'s ingest batches."""
+        if not self.enabled:
+            return False
+        listed = {entry.strip() for entry in self.project_ids.split(",")} - {""}
+        return not listed or project_id in listed
 
 
 class RedisSettings(BaseSettings):
@@ -87,6 +181,31 @@ _PLAN_LIMITS_EXPORT: dict[str, str] = {
     "pro": "1000/minute",
     "enterprise": "1000/minute",
 }
+# Writes launch with the read numbers: control-plane writes are far rarer than
+# reads, so the read budget is a comfortable ceiling, and a separate bucket
+# means the tiers can tighten later without touching read quota.
+# NOTE: the write path stamps every account credential as "free" (see
+# ``_account_result_for_user`` in the public deps), so the "free" row is the
+# EFFECTIVE GLOBAL write limit for all tenants; the paid rows are unreachable
+# until per-request plan resolution lands. Tightening "free" tightens everyone.
+_PLAN_LIMITS_WRITE: dict[str, str] = {
+    "free": "60/minute",
+    "starter": "300/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
+}
+
+
+# Public SQL is deliberately the tightest bucket. A single query can scan a
+# project's history, so the budget is counted in queries per minute rather than
+# requests per minute, and the free tier is sized for interactive use rather
+# than for a script in a loop.
+_PLAN_LIMITS_SQL: dict[str, str] = {
+    "free": "20/minute",
+    "starter": "60/minute",
+    "pro": "120/minute",
+    "enterprise": "120/minute",
+}
 
 
 def normalize_plan(plan: str | None) -> str:
@@ -110,7 +229,8 @@ class RateLimitSettings(BaseSettings):
     """Operational rate-limit settings for the public REST API.
 
     Plan tiers are a product decision and live as code constants
-    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT`` above)
+    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT``,
+    ``_PLAN_LIMITS_WRITE``, ``_PLAN_LIMITS_SQL`` above)
     — not env-overridable.
     The knobs here are the operational ones an SRE legitimately needs at runtime.
 
@@ -138,8 +258,41 @@ class RateLimitSettings(BaseSettings):
         table = {
             "ingest": _PLAN_LIMITS_INGEST,
             "export": _PLAN_LIMITS_EXPORT,
+            "write": _PLAN_LIMITS_WRITE,
+            "sql": _PLAN_LIMITS_SQL,
         }.get(bucket, _PLAN_LIMITS_READ)
         return table[normalize_plan(plan)]
+
+
+class IngestSettings(BaseSettings):
+    """Size limits on a public OTLP trace ingest request, and budgets on its structure.
+
+    Env vars: INGEST_MAX_REQUEST_BYTES, INGEST_MAX_UNZIPPED_BYTES, INGEST_MAX_SPANS,
+    INGEST_MAX_OBJECTS
+    """
+
+    model_config = SettingsConfigDict(env_prefix="INGEST_")
+
+    # The body as sent, before any Content-Encoding is undone.
+    max_request_bytes: int = Field(16 * 1024 * 1024, gt=0)
+    # The body once gunzipped, which bounds how far a small compressed body can expand.
+    max_unzipped_bytes: int = Field(32 * 1024 * 1024, gt=0)
+    # Spans per batch, counted by the worker before decoding; over it, the batch fails.
+    max_spans: int = Field(50_000, gt=0)
+    # Repeated entries of any kind per batch (spans, events, attributes, ...), counted likewise.
+    max_objects: int = Field(500_000, gt=0)
+
+
+class WorkerSettings(BaseSettings):
+    """Celery ingest worker settings.
+
+    Env vars: WORKER_CONCURRENCY
+    """
+
+    model_config = SettingsConfigDict(env_prefix="WORKER_")
+
+    # Celery processes in the worker, each decoding one batch at a time.
+    concurrency: int = Field(2, gt=0)
 
 
 class Settings(BaseSettings):
@@ -188,8 +341,11 @@ class Settings(BaseSettings):
     # Service-specific settings
     clickhouse: ClickHouseSettings = ClickHouseSettings()
     s3: S3Settings = S3Settings()
+    attachments: AttachmentSettings = AttachmentSettings()
     redis: RedisSettings = RedisSettings()
     rate_limit: RateLimitSettings = RateLimitSettings()
+    ingest: IngestSettings = IngestSettings()
+    worker: WorkerSettings = WorkerSettings()
 
 
 settings = Settings()

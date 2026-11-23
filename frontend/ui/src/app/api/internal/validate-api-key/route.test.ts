@@ -40,6 +40,7 @@ function accessKeyRow(overrides: Record<string, unknown> = {}) {
     projectId: "proj-123",
     name: "CI key",
     keyHint: "tr-d0a3-57e3",
+    scope: "ingest",
     expireTime: null,
     project: {
       id: "proj-123",
@@ -80,6 +81,7 @@ describe("POST /api/internal/validate-api-key", () => {
       workspaceName: "My Workspace",
       keyName: "CI key",
       keyHint: "tr-d0a3-57e3",
+      scope: "ingest",
       billingPlan: "pro",
       ingestionBlocked: false,
       expiresAt: null,
@@ -97,6 +99,28 @@ describe("POST /api/internal/validate-api-key", () => {
     expect(res.status).toBe(200);
     expect(body.keyName).toBeNull();
   });
+
+  it("reports an admin key's scope as admin", async () => {
+    findUniqueMock.mockResolvedValue(accessKeyRow({ scope: "admin" }));
+
+    const res = await POST(makeRequest({ keyHash: "abc123" }));
+    const body = await res.json();
+
+    expect(body.scope).toBe("admin");
+  });
+
+  it.each([["superuser"], [""], [null]])(
+    "narrows an unrecognised stored scope (%j) to ingest",
+    async (stored) => {
+      findUniqueMock.mockResolvedValue(accessKeyRow({ scope: stored }));
+
+      const res = await POST(makeRequest({ keyHash: "abc123" }));
+      const body = await res.json();
+
+      expect(body.valid).toBe(true);
+      expect(body.scope).toBe("ingest");
+    },
+  );
 
   it("rejects an unauthorized caller before touching the database", async () => {
     verifyInternalSecretMock.mockReturnValue(false);

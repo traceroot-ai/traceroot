@@ -14,7 +14,11 @@ from fastapi.testclient import TestClient
 
 from rest.main import app
 from rest.routers.deps import ProjectAccessInfo, get_project_access
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import (
+    AuthResult,
+    authenticate_api_key,
+    authenticate_public_caller,
+)
 
 EMPTY_PAGE = {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}}
 SESSION_DETAIL = {
@@ -64,6 +68,10 @@ def client(reader):
 
     app.dependency_overrides[get_project_access] = mock_get_access
     app.dependency_overrides[authenticate_api_key] = mock_auth
+    # The public traces list uses the dual-credential dependency, which 401s on a
+    # missing header before it would delegate to authenticate_api_key — override
+    # it directly so the eval-exclusion assertion reaches the reader.
+    app.dependency_overrides[authenticate_public_caller] = mock_auth
 
     modules = (traces_mod, sessions_mod, users_mod, public_mod)
     originals = [m.get_trace_reader_service for m in modules]

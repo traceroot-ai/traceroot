@@ -1,11 +1,13 @@
-"""Public, API-key-authenticated trace read endpoints (for the CLI).
+"""Public trace read endpoints (for the CLI).
 
 `GET /api/v1/public/traces` (list) and `GET /api/v1/public/traces/{trace_id}`
-(get). Reads are scoped to the project the API key belongs to — the client
-never supplies a project id. Kept separate from the ingestion route so read and
-write concerns stay decoupled; both reuse the shared API-key auth dependency.
+(get). Authenticated by either an API key or a user session token
+(``DualStampedAuth``): an API key fixes its own project, while a user credential
+names the project via ``project_id``. Kept separate from the ingestion route so
+read and write concerns stay decoupled.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -29,7 +31,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import DualStampedAuth
 from rest.routers.public.serialize import export_bundle, public_trace_detail
 from rest.schemas.public import (
     PublicTraceDetailResponse,
@@ -39,13 +41,13 @@ from rest.schemas.public import (
 from rest.schemas.traces import FilterValuesResponse
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
-from rest.services.trace_reader import get_trace_reader_service
+from rest.services.trace_reader import TraceReaderService, get_trace_reader_service
 from rest.url_utils import build_trace_url
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
+router = APIRouter(prefix="/public/traces", tags=["Traces"])
 
 
 @router.get("", response_model=PublicTraceListResponse, operation_id="list_traces")
@@ -55,7 +57,7 @@ router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 async def list_traces(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     start_after: datetime | None = Query(
         None,
@@ -83,7 +85,7 @@ async def list_traces(
         ),
     ),
 ):
-    """List recent traces for the API key's project (newest first).
+    """List recent traces for the caller's project (newest first).
 
     Offline-evaluation traces are excluded by default; pass
     ``include_evaluations=true`` to include them.
@@ -135,7 +137,7 @@ async def list_traces(
 async def list_trace_filter_values(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     field: str,
     start_after: datetime | None = Query(
         None, description="Only consider spans starting at or after this timestamp"
@@ -154,8 +156,9 @@ async def list_trace_filter_values(
     never be a raw client-supplied column name.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         field (str): The categorical field to enumerate.
         start_after (datetime | None): Lower bound on span start time (active
             window).
@@ -206,18 +209,19 @@ async def list_trace_filter_values(
 async def get_trace(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Get a single trace for the key's project.
+    """Get a single trace for the caller's project.
 
     Defaults to the lightweight `skeleton` projection (no per-span I/O); pass
     `fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         trace_id (str): Trace to fetch.
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
@@ -232,7 +236,12 @@ async def get_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=SKELETON)
-    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
+    # The singleton is built on the loop because its lazy init isn't thread-safe; the
+    # synchronous ClickHouse reads in _require_trace then run off it.
+    service = get_trace_reader_service()
+    trace = await asyncio.to_thread(
+        _require_trace, service, auth.project_id, trace_id, groups, auth.billing_plan
+    )
     return public_trace_detail(trace, auth.project_id)
 
 
@@ -243,11 +252,11 @@ async def get_trace(
 async def export_trace(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.
+    """Export the trace bundle (trace + spans + git_context + manifest) for the caller's project.
 
     Defaults to the `full` projection — an export is explicit intent to take the
     complete trace, so per-span input/output/metadata are included unless the
@@ -258,15 +267,16 @@ async def export_trace(
     full bundle.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         trace_id (str): Trace to export.
         fields (str | None): Comma-separated projection groups or an alias
             (``skeleton``/``full``). ``None`` selects the default `full`
             projection.
 
     Returns:
-        PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,
+        PublicTraceExportResponse: The export bundle (manifest, trace, spans,
             git_context) at the requested projection.
 
     Raises:
@@ -274,7 +284,10 @@ async def export_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=FULL)
-    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
+    service = get_trace_reader_service()
+    trace = await asyncio.to_thread(
+        _require_trace, service, auth.project_id, trace_id, groups, auth.billing_plan
+    )
     return export_bundle(trace, auth.project_id)
 
 
@@ -299,7 +312,11 @@ def _resolve_fields(fields: str | None, *, default: frozenset[str]) -> frozenset
 
 
 def _require_trace(
-    project_id: str, trace_id: str, groups: frozenset[str], billing_plan: str
+    service: TraceReaderService,
+    project_id: str,
+    trace_id: str,
+    groups: frozenset[str],
+    billing_plan: str,
 ) -> dict:
     """Fetch a trace scoped to the project at the requested projection.
 
@@ -310,6 +327,7 @@ def _require_trace(
     so the default skeleton read keeps the #1040 lightweight behavior.
 
     Args:
+        service (TraceReaderService): Reader acquired by the caller on the event loop.
         project_id (str): Project that owns the trace; scopes the read.
         trace_id (str): Trace to fetch.
         groups (frozenset[str]): Resolved projection groups; per-span I/O is
@@ -323,7 +341,6 @@ def _require_trace(
             on a reader failure.
     """
     try:
-        service = get_trace_reader_service()
         trace = service.get_trace(project_id=project_id, trace_id=trace_id)
         if trace:
             # The skeleton's span-path metadata subset exists for the dashboard's

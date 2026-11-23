@@ -27,6 +27,21 @@ updates:
     schedule:
       interval: "weekly"
 
+  # goose for the migrate-clickhouse image. go.mod lists every goose driver's
+  # dependencies, though the image builds only the ClickHouse one, so group all
+  # updates into one weekly PR instead of one per module.
+  - package-ecosystem: "gomod"
+    directory: "/docker/goose"
+    schedule:
+      interval: "weekly"
+    groups:
+      goose-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

@@ -68,10 +68,28 @@ def test_keyed_fields_are_a_separate_level_so_they_never_enter_the_dimension_che
     dimension per key — the same reason the filter registry holds one parameterized
     entry rather than a row per key. It carries its own level rather than an exemption
     inside the membership contract above, so a future unkeyed membership field is still
-    caught by that contract without anyone remembering to narrow a guard."""
+    caught by that contract without anyone remembering to narrow a guard.
+    """
     keyed = [c for c in filter_reg.FILTER_COLUMNS if c.requires_key]
     assert keyed, "no keyed field left to distinguish from the membership tier"
     for col in keyed:
         assert col.level is filter_reg.FilterLevel.KEYED_MAP
         assert col.level is not filter_reg.FilterLevel.SPAN_MEMBERSHIP
-        assert col.name not in WIDGET_SPANS_FIELDS
+        widget_field = WIDGET_SPANS_FIELDS.get(col.name)
+        assert widget_field is not None, f"widget spans view lacks keyed field '{col.name}'"
+        assert widget_field.requires_key
+        # Not a dimension, which is the rule the level split exists to protect.
+        assert widget_field.groupable is False
+        assert widget_field.aggs == ()
+
+
+def test_keyed_field_operators_agree_across_the_two_registries():
+    """Both surfaces must offer the same operators, spelled differently in the two registries."""
+    filter_op_to_widget_op = {
+        filter_reg.FilterOperator.EQ: "=",
+        filter_reg.FilterOperator.CONTAINS: "contains",
+    }
+    for col in (c for c in filter_reg.FILTER_COLUMNS if c.requires_key):
+        widget_field = WIDGET_SPANS_FIELDS[col.name]
+        expected = tuple(filter_op_to_widget_op[op] for op in col.operators)
+        assert tuple(widget_field.filter_ops) == expected

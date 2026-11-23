@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import {
@@ -19,12 +20,17 @@ interface BackendRun {
   [key: string]: unknown;
 }
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, traceId } = await params;
   const accessResult = await requireProjectAccess(authResult.user.id, projectId);
   if (accessResult.error) return accessResult.error;
+
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (traceId === "." || traceId === "..") {
+    return Response.json({ error: "Invalid trace ID" }, { status: 400 });
+  }
 
   let res: Response;
   try {
@@ -57,3 +63,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse(data);
 }
+export const GET = withImpersonationPolicy(handleGET);

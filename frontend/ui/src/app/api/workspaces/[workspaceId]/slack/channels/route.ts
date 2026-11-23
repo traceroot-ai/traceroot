@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { prisma } from "@traceroot/core";
@@ -40,7 +41,7 @@ function isMissingScope(err: unknown): boolean {
   return (err as { data?: { error?: string } } | undefined)?.data?.error === "missing_scope";
 }
 
-export async function GET(
+async function handleGET(
   _req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
@@ -68,3 +69,4 @@ export async function GET(
   }
   return NextResponse.json({ channels, hasPrivateChannelAccess });
 }
+export const GET = withImpersonationPolicy(handleGET);

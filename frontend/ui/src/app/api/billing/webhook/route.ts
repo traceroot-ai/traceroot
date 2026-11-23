@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { prisma, getStripeOrThrow, mapPriceIdToPlan, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  getStripeOrThrow,
+  mapPriceIdToPlan,
+  findPlanItem,
+  PlanType,
+} from "@traceroot/core";
 import Stripe from "stripe";
 
 export async function POST(req: NextRequest) {
@@ -48,10 +54,15 @@ export async function POST(req: NextRequest) {
           subscription = await stripe.subscriptions.retrieve(subscription.id);
         }
 
-        const priceId = subscription.items.data[0]?.price.id;
+        // The subscription also carries the metered usage prices, and a schedule
+        // phase transition recreates the plan item last, so items.data[0] is not
+        // reliably the plan. Reading a metered price there maps to the free plan.
+        const priceId = findPlanItem(subscription.items.data)?.price.id ?? null;
         const plan = mapPriceIdToPlan(priceId);
 
-        await prisma.workspace.update({
+        // updateMany rather than update: a workspace that no longer exists must not
+        // throw. See the `count === 0` branch below.
+        const { count } = await prisma.workspace.updateMany({
           where: { id: workspaceId },
           data: {
             billingCustomerId: subscription.customer as string,
@@ -64,6 +75,13 @@ export async function POST(req: NextRequest) {
             billingPeriodEnd: new Date(subscription.current_period_end * 1000),
           },
         });
+
+        if (count === 0) {
+          console.warn(
+            `Webhook ${event.type}: workspace ${workspaceId} not found (subscription ${subscription.id}) — acknowledging so Stripe stops retrying`,
+          );
+          break;
+        }
 
         console.log(
           `Subscription ${event.type} for workspace ${workspaceId}, plan: ${plan}, status: ${subscription.status}, period: ${subscription.current_period_start} - ${subscription.current_period_end}`,
@@ -81,7 +99,7 @@ export async function POST(req: NextRequest) {
           break;
         }
 
-        await prisma.workspace.update({
+        const { count } = await prisma.workspace.updateMany({
           where: { id: workspaceId },
           data: {
             billingSubscriptionId: null,
@@ -92,6 +110,13 @@ export async function POST(req: NextRequest) {
             billingPeriodEnd: null,
           },
         });
+
+        if (count === 0) {
+          console.warn(
+            `Webhook ${event.type}: workspace ${workspaceId} not found (subscription ${subscription.id}) — acknowledging so Stripe stops retrying`,
+          );
+          break;
+        }
 
         console.log(`Subscription deleted for workspace ${workspaceId}, reverted to free plan`);
         break;

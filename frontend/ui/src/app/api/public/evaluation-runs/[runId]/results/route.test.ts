@@ -8,10 +8,10 @@ import {
 } from "@/app/api/public/__tests__/eval-store";
 
 let store: EvalStore;
-const requireApiKeyProjectMock = vi.fn();
+const requireEvalApiKeyProjectMock = vi.fn();
 
 vi.mock("@/lib/eval/auth", () => ({
-  requireApiKeyProject: (...args: unknown[]) => requireApiKeyProjectMock(...args),
+  requireEvalApiKeyProject: (...args: unknown[]) => requireEvalApiKeyProjectMock(...args),
 }));
 
 vi.mock("@traceroot/core", async (importOriginal) => ({
@@ -58,8 +58,8 @@ beforeEach(() => {
     evaluationId: "eval-1",
     status: "running",
   });
-  requireApiKeyProjectMock.mockReset();
-  requireApiKeyProjectMock.mockResolvedValue({ projectId: "proj-1" });
+  requireEvalApiKeyProjectMock.mockReset();
+  requireEvalApiKeyProjectMock.mockResolvedValue({ projectId: "proj-1" });
 });
 
 describe("POST /api/public/evaluation-runs/[runId]/results — first report", () => {
@@ -102,7 +102,7 @@ describe("POST /api/public/evaluation-runs/[runId]/results — first report", ()
   });
 
   it("rejects a run owned by another project", async () => {
-    requireApiKeyProjectMock.mockResolvedValue({ projectId: "proj-2" });
+    requireEvalApiKeyProjectMock.mockResolvedValue({ projectId: "proj-2" });
 
     const res = await POST(makeRequest(firstReport()), params);
 

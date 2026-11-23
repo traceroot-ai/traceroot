@@ -43,6 +43,7 @@ function makeSpan(overrides: Partial<Span> = {}): Span {
     span_end_time: "2026-07-17T10:24:02.500Z",
     status: SpanStatus.OK,
     status_message: null,
+    error_type: "",
     model_name: "claude-opus-5",
     cost: 0.012345,
     input_tokens: 1200,
@@ -112,7 +113,7 @@ describe("SpanInfoPanel — trace selection", () => {
     expect(screen.getByText("production")).toBeTruthy();
     // Token rollup chip (input → output (total)) and the summed cost chip.
     expect(screen.getByText(/→/)).toBeTruthy();
-    expect(screen.getByText("0.012345")).toBeTruthy();
+    expect(screen.getByText("$0.0123")).toBeTruthy();
     expect(screen.getByText("traceroot-ai/traceroot")).toBeTruthy();
     expect(screen.getByText("4a91c02")).toBeTruthy();
     expect(screen.getByText("user-7")).toBeTruthy();
@@ -177,7 +178,7 @@ describe("SpanInfoPanel — trace selection", () => {
         spans: [makeSpan({ total_tokens: null, cost: null, cost_details: undefined })],
       }),
     });
-    expect(screen.queryByText("0.012345")).toBeNull();
+    expect(screen.queryByText("$0.0123")).toBeNull();
   });
 
   it("renders the injected offline-eval slots", () => {
@@ -223,6 +224,7 @@ describe("SpanInfoPanel — span selection", () => {
     const span = makeSpan({
       status: SpanStatus.ERROR,
       status_message: "RateLimitError: slow down",
+      error_type: "",
     });
     const { container } = renderPanel({ selection: { type: "span", span } });
     expect(screen.getByText("ERROR")).toBeTruthy();
@@ -234,6 +236,7 @@ describe("SpanInfoPanel — span selection", () => {
     const span = makeSpan({
       status: SpanStatus.ERROR,
       status_message: "boom",
+      error_type: "",
       git_source_file: null,
       git_source_line: null,
     });
@@ -273,13 +276,13 @@ describe("MetricDelta", () => {
   it("renders a red + for a worse (higher) value", () => {
     const { container } = render(<MetricDelta delta={2.5} format={fmt} />);
     expect(container.textContent).toBe("+2.5");
-    expect(container.firstElementChild?.className).toContain("text-red-600");
+    expect(container.firstElementChild?.className).toContain("text-danger");
   });
 
   it("renders a green true-minus for a better (lower) value", () => {
     const { container } = render(<MetricDelta delta={-2.5} format={fmt} />);
     expect(container.textContent).toBe("−2.5");
-    expect(container.firstElementChild?.className).toContain("text-emerald-600");
+    expect(container.firstElementChild?.className).toContain("text-success");
   });
 });
 
@@ -296,18 +299,18 @@ describe("CostChip", () => {
 
   it("renders a plain chip when there is no breakdown", () => {
     render(<CostChip cost={0.5} costDetails={{}} />);
-    expect(screen.getByText("0.500000")).toBeTruthy();
+    expect(screen.getByText("$0.5000")).toBeTruthy();
   });
 
   it("renders a tooltip-wrapped chip when a breakdown exists", () => {
     render(<CostChip cost={0.5} costDetails={{ output_cost: 0.5 }} delta={<span>+0.1</span>} />);
-    expect(screen.getByText("0.500000")).toBeTruthy();
+    expect(screen.getByText("$0.5000")).toBeTruthy();
     expect(screen.getByText("+0.1")).toBeTruthy();
   });
 
   it("renders the tooltip wrapper when only the baseline has a breakdown", () => {
     render(<CostChip cost={0.5} costDetails={null} baselineDetails={{ output_cost: 0.4 }} />);
-    expect(screen.getByText("0.500000")).toBeTruthy();
+    expect(screen.getByText("$0.5000")).toBeTruthy();
   });
 });
 

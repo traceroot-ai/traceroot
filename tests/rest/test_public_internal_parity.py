@@ -24,6 +24,36 @@ BINDINGS = {
     "/api/v1/public/detectors/{detector_id}": (
         "/api/v1/projects/{project_id}/detectors/{detector_id}"
     ),
+    # The dashboard mirror is service-to-service only, so it lives on the
+    # /internal prefix the ingress drops (unlike the pre-existing read twins).
+    "/api/v1/public/dashboards": "/api/v1/internal/projects/{project_id}/dashboards",
+    "/api/v1/public/dashboards/{dashboard_id}": (
+        "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}"
+    ),
+    "/api/v1/public/dashboards/{dashboard_id}/data": (
+        "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data"
+    ),
+    "/api/v1/public/widgets/{widget_id}": (
+        "/api/v1/internal/projects/{project_id}/widgets/{widget_id}"
+    ),
+    "/api/v1/public/widgets/{widget_id}/data": (
+        "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data"
+    ),
+    "/api/v1/public/alerts": "/api/v1/internal/projects/{project_id}/alerts",
+    "/api/v1/public/alerts/{alert_id}": "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
+    "/api/v1/public/evaluation-runs/{run_id}": (
+        "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}"
+    ),
+    "/api/v1/public/datasets": "/api/v1/internal/projects/{project_id}/datasets",
+    "/api/v1/public/datasets/{dataset_id}": (
+        "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}"
+    ),
+    "/api/v1/public/datasets/{dataset_id}/versions": (
+        "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}/versions"
+    ),
+    "/api/v1/public/dataset-versions/{version_id}": (
+        "/api/v1/internal/projects/{project_id}/dataset-versions/{version_id}"
+    ),
 }
 
 

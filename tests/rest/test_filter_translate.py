@@ -665,6 +665,41 @@ def test_trace_id_condition_is_inline_not_a_semijoin():
     assert "spans" not in cond
 
 
+# --- signal (signal_id) lowering --------------------------------------------
+
+
+def test_signal_id_lowers_to_a_semijoin_over_signal_assignments():
+    # The traces holding a hit of the signal, keyed on t.trace_id so the condition lands
+    # in both the page and count queries; the id binds as a parameter.
+    params = {"project_id": "p1"}
+    cond = build_conditions([Predicate(field="signal_id", op="eq", value="sig1")], params)[0]
+    assert cond.startswith("t.trace_id IN (SELECT hit_trace_id FROM (")
+    assert "FROM signal_assignments" in cond
+    assert "WHERE project_id = {project_id:String}" in cond
+    assert cond.endswith("WHERE hit_signal_id = {f_signal_id_0:String})")
+    assert params["f_signal_id_0"] == "sig1"
+    assert "sig1" not in cond
+
+
+def test_signal_id_reads_each_hits_latest_placement_without_final():
+    # A moved hit has a newer row for the same run: the latest per run decides its
+    # signal before the predicate applies, so it counts only where it now belongs.
+    params = {"project_id": "p1"}
+    cond = build_conditions([Predicate(field="signal_id", op="eq", value="sig1")], params)[0]
+    assert "argMax(signal_id, assigned_at)" in cond
+    assert "argMax(trace_id, assigned_at)" in cond
+    assert "GROUP BY detector_id, run_id" in cond
+    assert cond.index("GROUP BY detector_id, run_id") < cond.index("WHERE hit_signal_id")
+    assert "FINAL" not in cond
+
+
+def test_signal_id_takes_only_an_exact_match():
+    with pytest.raises(ValueError):
+        build_conditions(
+            [Predicate(field="signal_id", op="contains", value="sig")], {"project_id": "p1"}
+        )
+
+
 # --- time-window bounding --------------------------------------------------
 
 

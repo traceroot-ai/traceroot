@@ -32,6 +32,13 @@ describe("SearchFilterBar", () => {
     expect(screen.getByText(DATE_FILTER_OPTIONS[0].label)).toBeTruthy();
   });
 
+  it("leaves out the date filter when a surface has no time range", () => {
+    render(<SearchFilterBar searchValue="" onSearchChange={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText("Search...")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("reflects the current search value", () => {
     render(
       <SearchFilterBar

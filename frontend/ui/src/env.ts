@@ -1,15 +1,6 @@
 import { z } from "zod";
-
-// Values this repository shipped as defaults in .env.example or
-// docker-compose.prod.yml. They are public, so they are not secrets: a
-// deployment still carrying one signs sessions with a key anyone can read.
-const PUBLISHED_PLACEHOLDERS = new Set([
-  "dev-internal-secret",
-  "internal-secret",
-  "your-better-auth-secret",
-  "local-dev-secret-change-in-production",
-  "changeme",
-]);
+import { PUBLISHED_SECRET_PLACEHOLDERS } from "@traceroot/core/agent-service";
+import { invalidTrustedProxyCidrs } from "@/lib/trusted-proxies";
 
 // Deliberately no .trim() transform: this exact string is compared against the
 // Python services' copy, so normalizing it here alone would break every internal
@@ -19,7 +10,7 @@ export const authSecret = () =>
   z
     .string()
     .refine((value) => value.trim().length > 0, { message: "must not be blank" })
-    .refine((value) => !PUBLISHED_PLACEHOLDERS.has(value.trim().toLowerCase()), {
+    .refine((value) => !PUBLISHED_SECRET_PLACEHOLDERS.has(value.trim().toLowerCase()), {
       message:
         "value is a placeholder published in this repository; generate one with `openssl rand -hex 32`",
     });
@@ -27,7 +18,28 @@ export const authSecret = () =>
 const serverSchema = z.object({
   BETTER_AUTH_SECRET: authSecret(),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
+  TRACEROOT_CLOUD_ENV: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["production", "staging"]).optional(),
+  ),
   INTERNAL_API_SECRET: authSecret(),
+  // Comma-separated CIDRs of proxies in front of this app, used to resolve the
+  // real client address from x-forwarded-for. Blank means no trusted proxies
+  // (better-auth's own default): only a single-entry header is trusted. See
+  // lib/trusted-proxies.ts for why a default is not safe to guess. Validated
+  // here so a typo fails when the config is parsed, with the entries named.
+  AUTH_TRUSTED_PROXY_CIDRS: z
+    .string()
+    .default("")
+    .superRefine((value, ctx) => {
+      const invalid = invalidTrustedProxyCidrs(value);
+      if (invalid.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: `AUTH_TRUSTED_PROXY_CIDRS contains invalid CIDRs: ${invalid.join(", ")}`,
+        });
+      }
+    }),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),
@@ -56,6 +68,15 @@ const serverSchema = z.object({
   SLACK_CLIENT_SECRET: z.string().default(""),
   SLACK_STATE_SECRET: z.string().default(""),
   SLACK_REDIRECT_URI: z.string().default("http://localhost:3000/api/slack/oauth/callback"),
+  // The public demo workspace: every user joins it as a VIEWER. Unset means no
+  // demo workspace (self-hosted). See lib/demo-workspace.ts.
+  DEMO_WORKSPACE_ID: z.string().trim().optional(),
+  // Sign-up follow-ups; unset means no Slack post.
+  TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: z.string().optional(),
+  // Server-side read of a new user's PostHog person (city, device, referrer) for the Slack post
+  POSTHOG_PERSONAL_API_KEY: z.string().optional(),
+  POSTHOG_PROJECT_ID: z.string().optional(),
+  POSTHOG_API_HOST: z.string().default("https://us.posthog.com"),
 });
 
 export const env = serverSchema.parse(process.env);

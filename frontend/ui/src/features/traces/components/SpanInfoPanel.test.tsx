@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, within } from "@testing-library/react";
 import React from "react";
 import { SpanStatus } from "@traceroot/core";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -26,7 +26,9 @@ vi.mock("@/components/ui/expandable-section", () => ({
 }));
 
 vi.mock("./ContentRenderer", () => ({
-  ContentRenderer: () => <div data-testid="content-renderer" />,
+  ContentRenderer: ({ content }: { content: string | null }) => (
+    <div data-testid="content-renderer">{content}</div>
+  ),
 }));
 
 vi.mock("./SpanKindIcon", () => ({
@@ -67,6 +69,7 @@ describe("SpanInfoPanel - Error box source location badges", () => {
       span_end_time: "2026-07-12T12:00:01Z",
       status: SpanStatus.ERROR,
       status_message: "Traceback (most recent call last): ...",
+      error_type: "TimeoutError",
       model_name: "gpt-4o",
       cost: 0.005,
       input_tokens: 150,
@@ -142,6 +145,41 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(errorMessage.className).toContain("break-all");
   });
 
+  it("renders the error_type chip first in the badge row", () => {
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={mockSelection} />);
+
+    const typeSpan = screen.getByText("TimeoutError");
+    expect(typeSpan.className).toContain("font-mono");
+    const chip = typeSpan.parentElement;
+    expect(chip?.className).toContain("inline-flex");
+    expect(chip?.querySelector("svg")).toBeTruthy();
+    // First chip in the row, ahead of the git badges.
+    expect(chip?.parentElement?.firstElementChild).toBe(chip);
+  });
+
+  it("renders the Error box and chip for an ERROR span with no status message", () => {
+    const selection: TraceSelection = {
+      type: "span",
+      span: { ...mockSelection.span, status_message: null },
+    };
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={selection} />);
+
+    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.getByText("TimeoutError")).toBeTruthy();
+    expect(screen.queryByText("Traceback (most recent call last): ...")).toBeNull();
+  });
+
+  it("renders no Error box for an OK span", () => {
+    const selection: TraceSelection = {
+      type: "span",
+      span: { ...mockSelection.span, status: SpanStatus.OK, status_message: null, error_type: "" },
+    };
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={selection} />);
+
+    expect(screen.queryByText("Error")).toBeNull();
+    expect(screen.queryByText("TimeoutError")).toBeNull();
+  });
+
   it("renders the model_name pill with its icon", () => {
     render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={mockSelection} />);
 
@@ -212,5 +250,38 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(screen.getByText("user-42")).toBeTruthy();
     expect(screen.getByText("Session:")).toBeTruthy();
     expect(screen.getByText("session-7")).toBeTruthy();
+  });
+
+  const withMetadata = (metadata: Record<string, unknown>): TraceSelection => ({
+    type: "span",
+    span: { ...mockSelection.span, metadata: JSON.stringify(metadata) },
+  });
+
+  it("renders the redacted chip and hides the marker from the Metadata panel", () => {
+    render(
+      <SpanInfoPanel
+        projectId="proj-123"
+        trace={mockTrace}
+        selection={withMetadata({ "traceroot.redacted": true, feature: "chat" })}
+      />,
+    );
+
+    expect(screen.getByText("Redacted by your app")).toBeTruthy();
+    const metadataPanel = within(screen.getByTestId("expandable-metadata")).getByTestId(
+      "content-renderer",
+    );
+    expect(metadataPanel.textContent).toBe(JSON.stringify({ feature: "chat" }));
+  });
+
+  it.each([
+    ["missing", {}],
+    ["the string 'true'", { "traceroot.redacted": "true" }],
+    ["false", { "traceroot.redacted": false }],
+  ])("renders no redacted chip when the marker is %s", (_, metadata) => {
+    render(
+      <SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={withMetadata(metadata)} />,
+    );
+
+    expect(screen.queryByText("Redacted by your app")).toBeNull();
   });
 });

@@ -15,7 +15,7 @@ import { stringifyMetadataEntries, type MetadataEntry } from "../utils/metadata"
 /** The surface sits clear of the trigger; this grace period covers the pointer crossing. */
 const HOVER_CLOSE_DELAY_MS = 120;
 
-const PREVIEW_TEXT = "block truncate font-mono text-[11px] text-muted-foreground";
+const PREVIEW_TEXT = "block truncate font-mono text-[12px] text-muted-foreground";
 
 interface TraceMetadataCellProps {
   entries: readonly MetadataEntry[];

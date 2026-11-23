@@ -100,6 +100,10 @@ Publishing into a dataset that already exists asks for confirmation on an intera
 
 You don't need to publish before running an eval — `evaluate()` publishes a local dataset for you and never prompts. See [Running evals](/evals/running-evals).
 
+<Frame caption="Dataset row: Evaluations tab with each run that used the case">
+  <img src="/images/dataset_row_evals_v1.png" alt="Dataset row panel on the Evaluations tab, listing the four runs that used this case" />
+</Frame>
+
 ## Pull a dataset
 
 Pull a published dataset back down as an ordinary local `Dataset` — iterate it, edit it, save it, or evaluate against it.
@@ -125,6 +129,14 @@ Pull a published dataset back down as an ordinary local `Dataset` — iterate it
 
 To reproduce a past run, pull the version that run recorded (`result.dataset.dataset_version_id`) and re-run it with your own task and scorers.
 
+To see what's published without pulling it, the [CLI](/evals/cli) lists datasets, their versions, and the cases in one version:
+
+```bash
+traceroot datasets list
+traceroot datasets versions list ds_…
+traceroot datasets versions get dsv_…
+```
+
 ## Next steps
 
 <CardGroup cols={2}>
@@ -133,5 +145,8 @@ To reproduce a past run, pull the version that run recorded (`result.dataset.dat
   </Card>
   <Card title="Running Evals" icon="play" href="/evals/running-evals">
     Point a task and scorers at a dataset and run it.
+  </Card>
+  <Card title="From the Terminal" icon="terminal" href="/evals/cli">
+    Read datasets and their versions with the CLI.
   </Card>
 </CardGroup>

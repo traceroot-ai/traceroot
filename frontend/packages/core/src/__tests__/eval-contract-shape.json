@@ -338,6 +338,580 @@
         }
       }
     },
+    "PublicDataset": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "description": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "current_dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "key": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "updated_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ListDatasetsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "datasets": {
+          "type": "array",
+          "items": {
+            "type": "PublicDataset"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "PublicDatasetVersion": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "version_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "label": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "note": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "is_current": {
+          "type": "boolean",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ListDatasetVersionsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "PublicDatasetVersion"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "PublicTestCase": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "test_case_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "input": {
+          "type": "any",
+          "required": true,
+          "nullable": false
+        },
+        "expected": {
+          "type": "any",
+          "required": true,
+          "nullable": false
+        },
+        "metadata": {
+          "type": "any",
+          "required": true,
+          "nullable": false
+        },
+        "source_trace_id": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "source_span_id": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "GetDatasetVersionResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "version_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "label": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "PublicTestCase"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "RunMetricItem": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "unit": {
+          "type": "enum",
+          "enum": ["$", "tok", "ms", "count"],
+          "required": false,
+          "nullable": true
+        },
+        "direction": {
+          "type": "enum",
+          "enum": ["higher_is_better", "lower_is_better", "none"],
+          "required": true,
+          "nullable": false
+        },
+        "value_type": {
+          "type": "enum",
+          "enum": ["numeric", "boolean", "categorical"],
+          "required": true,
+          "nullable": false
+        },
+        "value": {
+          "type": "number",
+          "required": false,
+          "nullable": true
+        },
+        "observed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ReadRunResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "required": false,
+          "nullable": true
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "candidate_version": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "environment": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "completed_at": {
+          "type": "string",
+          "required": false,
+          "nullable": true
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_path": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_url": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "result_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "scored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": true
+        },
+        "task_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": true
+        },
+        "scorer_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": true
+        },
+        "passed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "failed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "errored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "not_scored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "RunMetricItem"
+          },
+          "required": false,
+          "nullable": false,
+          "default": []
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "RunMetricItem"
+          },
+          "required": false,
+          "nullable": false,
+          "default": []
+        }
+      }
+    },
+    "EvaluationLatestRun": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "PublicEvaluation": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "latest_run": {
+          "type": "EvaluationLatestRun",
+          "required": true,
+          "nullable": true
+        },
+        "created_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ListEvaluationsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluations": {
+          "type": "array",
+          "items": {
+            "type": "PublicEvaluation"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "PublicEvaluationRun": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "candidate_version": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "environment": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "completed_at": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "ListEvaluationRunsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "PublicEvaluationRun"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
     "UpsertResultRequest": {
       "kind": "object",
       "unknown_keys": "forbid",

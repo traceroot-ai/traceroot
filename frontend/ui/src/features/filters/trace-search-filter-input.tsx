@@ -11,6 +11,7 @@ import { ListFilter, X } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { Predicate } from "@/types/api";
+import type { FilterFieldDef } from "./registry";
 import { useFilterFields } from "./hooks";
 import { FilterBuilder } from "./filter-builder";
 import { predicateLabel, upsertPredicate } from "./predicate-ui";
@@ -31,6 +32,13 @@ interface TraceSearchFilterInputProps {
   /** Active-window bounds, threaded to the lazy distinct-values query. */
   startAfter?: string;
   endBefore?: string;
+  /**
+   * Fields for another list than traces (e.g. signals). Give them static values
+   * (`static_enum` or `free_text`): the distinct-values query reads traces only.
+   */
+  fields?: FilterFieldDef[];
+  /** Shown while no filter is set; defaults to "Filter traces…". */
+  placeholder?: string;
 }
 
 export function TraceSearchFilterInput({
@@ -39,8 +47,11 @@ export function TraceSearchFilterInput({
   onFiltersChange,
   startAfter,
   endBefore,
+  fields: customFields,
+  placeholder = "Filter traces…",
 }: TraceSearchFilterInputProps) {
-  const fields = useFilterFields(projectId);
+  const traceFields = useFilterFields(projectId, !customFields);
+  const fields = customFields ?? traceFields;
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -83,7 +94,7 @@ export function TraceSearchFilterInput({
             // (8px) then lands the text at 32px. Keeps the traces bar identical to
             // users/sessions.
             "flex min-h-8 min-w-[16rem] max-w-2xl flex-1 flex-wrap items-center gap-1 rounded-md",
-            "border border-input bg-transparent py-0.5 pl-[9px] pr-2 shadow-sm",
+            "border border-input bg-transparent py-0.5 pl-[9px] pr-2",
             "focus-within:ring-1 focus-within:ring-ring",
           )}
           onMouseDown={(e) => {
@@ -99,7 +110,7 @@ export function TraceSearchFilterInput({
           {filters.map((p, i) => (
             <span
               key={`${p.field}-${predicateKey(p) ?? ""}-${i}`}
-              className="flex items-center gap-1 rounded bg-muted/70 py-0.5 pl-1.5 pr-1 text-[12px]"
+              className="flex items-center gap-1 rounded bg-muted py-0.5 pl-1.5 pr-1 text-[12px]"
             >
               <span className="font-medium text-foreground">
                 {predicateLabel(p, fieldName(p.field))}
@@ -108,7 +119,7 @@ export function TraceSearchFilterInput({
                 type="button"
                 aria-label={`Remove ${chipRemoveTarget(p)} filter`}
                 onClick={() => removeAt(i)}
-                className="rounded p-0.5 transition-colors hover:bg-muted"
+                className="rounded p-0.5 transition-colors hover:bg-border"
               >
                 <X className="h-3 w-3 text-muted-foreground" />
               </button>
@@ -127,7 +138,7 @@ export function TraceSearchFilterInput({
                 removeAt(filters.length - 1);
               }
             }}
-            placeholder={filters.length === 0 ? "Filter traces…" : "Add filter…"}
+            placeholder={filters.length === 0 ? placeholder : "Add filter…"}
             className="h-6 min-w-[6rem] flex-1 cursor-text bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
         </div>

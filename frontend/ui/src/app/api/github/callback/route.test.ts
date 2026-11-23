@@ -1,6 +1,11 @@
 // All vi.mock() calls are hoisted by Vitest before imports — keep them at the top.
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_URL: "http://localhost:3000",
@@ -179,6 +184,28 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.redirectUrl).toContain("/dashboard/settings");
+    });
+
+    it("never picks the demo workspace for a direct install without a workspace cookie", async () => {
+      // A new user joins the demo workspace before they create their own, so
+      // "the user's first membership" must leave the demo out.
+      vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
+      try {
+        stubFetch();
+        const { prisma } = await import("@traceroot/core");
+        vi.mocked(prisma.workspaceMember.findFirst).mockResolvedValueOnce(null);
+        const res = await POST(makeRequest("http://localhost:3000"));
+        expect(res.status).toBe(200);
+        expect((await res.json()).redirectUrl).toBe("http://localhost:3000/workspaces");
+        expect(prisma.gitHubInstallation.upsert).not.toHaveBeenCalled();
+        expect(vi.mocked(prisma.workspaceMember.findFirst)).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { userId: "user_abc", workspaceId: { not: "ws-demo" } },
+          }),
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
 
     it("returns 500 when GitHub token exchange fails", async () => {
