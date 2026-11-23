@@ -4,6 +4,7 @@
  * `context` lines in both. Callers show and diff each value as `normalizeForDiff` gives
  * it, so a structured output diffs line by line and a pure reformat is no diff at all.
  * The diff itself never decodes: decoding twice would turn the string "1.50" into 1.5.
+ * `markChangedWords` then marks the words that changed inside each changed line.
  */
 import { canonicalJson, decodeJsonValue } from "./json-value";
 
@@ -166,4 +167,91 @@ export function sideBySide(lines: readonly DiffLine[]): SideBySideRow[] {
   }
   flush();
   return rows;
+}
+
+/** A word, a run of whitespace, or any other character (punctuation) on its own. */
+const TOKEN = /[\p{L}\p{N}_]+|\s+|[^\p{L}\p{N}_\s]/gu;
+
+/**
+ * Comparing two lines word by word is O(m·n) in the tokens between what they share at
+ * either end. Past this many cells over one diff, the pairs left keep their whole-line
+ * marking, so a very long changed line can't freeze the tab.
+ */
+const WORD_CELL_BUDGET = 2_000_000;
+
+/** Which of `a`'s and `b`'s tokens are not in their longest common subsequence; null when
+ *  that would cost more than the budget left. */
+function changedTokens(
+  a: readonly string[],
+  b: readonly string[],
+  budget: { cells: number },
+): [boolean[], boolean[]] | null {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  // The middle's alignment, as the line diff aligns lines.
+  const pairs = lcsAlign(a.slice(start, endA), b.slice(start, endB), budget.cells);
+  if (!pairs) return null;
+  budget.cells -= (endA - start) * (endB - start);
+
+  const changedA = a.map((_, i) => i >= start && i < endA);
+  const changedB = b.map((_, j) => j >= start && j < endB);
+  for (const [i, j] of pairs) {
+    changedA[start + i] = false;
+    changedB[start + j] = false;
+  }
+  return [changedA, changedB];
+}
+
+/** A line's tokens as segments: neighbours with the same marking joined, and a space
+ *  between two changed words marked with them, so a changed phrase reads as one. */
+function segmentsOf(tokens: readonly string[], changed: readonly boolean[]): DiffSegment[] {
+  const segments: DiffSegment[] = [];
+  tokens.forEach((text, k) => {
+    const isChanged =
+      changed[k] || (!/\S/.test(text) && changed[k - 1] === true && changed[k + 1] === true);
+    const last = segments[segments.length - 1];
+    if (last && last.changed === isChanged) last.text += text;
+    else segments.push({ text, changed: isChanged });
+  });
+  return segments;
+}
+
+/**
+ * The diff with the words that changed marked inside changed lines. In each changed
+ * stretch the k-th removed line is compared with the k-th added one, the two `sideBySide`
+ * puts on one row. A line with no counterpart, with nothing but spaces in common with it,
+ * or past the work budget keeps its whole-line marking (no `segments`).
+ */
+export function markChangedWords(lines: readonly DiffLine[]): DiffLine[] {
+  const marked = [...lines];
+  const budget = { cells: WORD_CELL_BUDGET };
+  let removed: number[] = [];
+  let added: number[] = [];
+  const flush = () => {
+    for (let k = 0; k < Math.min(removed.length, added.length); k++) {
+      const before = marked[removed[k]];
+      const after = marked[added[k]];
+      const a = before.text.match(TOKEN) ?? [];
+      const b = after.text.match(TOKEN) ?? [];
+      const changed = changedTokens(a, b, budget);
+      if (!changed || !a.some((t, i) => !changed[0][i] && /\S/.test(t))) continue;
+      marked[removed[k]] = { ...before, segments: segmentsOf(a, changed[0]) };
+      marked[added[k]] = { ...after, segments: segmentsOf(b, changed[1]) };
+    }
+    removed = [];
+    added = [];
+  };
+  lines.forEach((line, i) => {
+    if (line.type === "remove") removed.push(i);
+    else if (line.type === "add") added.push(i);
+    else flush();
+  });
+  flush();
+  return marked;
 }

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { diffLinesDetailed, lcsAlign, normalizeForDiff, sideBySide } from "./line-diff";
+import {
+  diffLinesDetailed,
+  lcsAlign,
+  markChangedWords,
+  normalizeForDiff,
+  sideBySide,
+} from "./line-diff";
 
 const diff = (before: string, after: string) => diffLinesDetailed(before, after).lines;
 /** Two stored values as the comparison view diffs them: each normalized once, then diffed. */
@@ -138,6 +144,97 @@ describe("sideBySide", () => {
       { left: { type: "context", text: "a" }, right: { type: "context", text: "a" } },
       { left: { type: "remove", text: "b" }, right: null },
     ]);
+  });
+});
+
+describe("markChangedWords", () => {
+  const marked = (before: string, after: string) => markChangedWords(diff(before, after));
+
+  it("marks the words that changed inside a changed line, on both sides", () => {
+    expect(marked("route billing now", "route technical now")).toEqual([
+      {
+        type: "remove",
+        text: "route billing now",
+        segments: [
+          { text: "route ", changed: false },
+          { text: "billing", changed: true },
+          { text: " now", changed: false },
+        ],
+      },
+      {
+        type: "add",
+        text: "route technical now",
+        segments: [
+          { text: "route ", changed: false },
+          { text: "technical", changed: true },
+          { text: " now", changed: false },
+        ],
+      },
+    ]);
+  });
+
+  it("joins changed words across the space between them", () => {
+    const [removed, added] = marked("a quick brown fox", "a slow red fox");
+    expect(removed.segments).toEqual([
+      { text: "a ", changed: false },
+      { text: "quick brown", changed: true },
+      { text: " fox", changed: false },
+    ]);
+    expect(added.segments?.filter((s) => s.changed).map((s) => s.text)).toEqual(["slow red"]);
+  });
+
+  it("marks punctuation on its own, so one added comma is all that reads as new", () => {
+    const [removed, added] = marked('    "SSO"', '    "SSO",');
+    expect(removed.segments?.some((s) => s.changed)).toBe(false);
+    expect(added.segments).toEqual([
+      { text: '    "SSO"', changed: false },
+      { text: ",", changed: true },
+    ]);
+  });
+
+  it("pairs the lines of a changed stretch in order, as the two columns show them", () => {
+    const lines = marked("a\nfirst one\nsecond one\nz", "a\nfirst two\nsecond two\nthird two\nz");
+    const changedWords = lines.map((l) => l.segments?.filter((s) => s.changed).map((s) => s.text));
+    expect(lines.map((l) => l.type)).toEqual([
+      "context",
+      "remove",
+      "remove",
+      "add",
+      "add",
+      "add",
+      "context",
+    ]);
+    // Context lines and an added line with no removed line beside it stay whole.
+    expect(changedWords).toEqual([
+      undefined,
+      ["one"],
+      ["one"],
+      ["two"],
+      ["two"],
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("keeps the whole-line marking for lines with nothing in common", () => {
+    const lines = marked("Refund issued.", "Escalated to billing");
+    expect(lines.every((l) => l.segments === undefined)).toBe(true);
+  });
+
+  it("never changes a line's text", () => {
+    for (const l of marked("x = f(a, b) // old\nkeep", "x = g(a, c) // new\nkeep")) {
+      expect((l.segments ?? [{ text: l.text }]).map((s) => s.text).join("")).toBe(l.text);
+    }
+  });
+
+  it("keeps the whole-line marking for lines too long to compare word by word", () => {
+    const line = (prefix: string) =>
+      Array.from({ length: 3000 }, (_, i) => (i % 2 ? "same" : `${prefix}${i}`)).join(" ");
+    const long = marked(line("a"), line("b"));
+    expect(long.every((l) => l.segments === undefined)).toBe(true);
+    // A shorter pair of the same shape is still compared.
+    const short = marked(line("a").slice(0, 400), line("b").slice(0, 400));
+    expect(short.every((l) => l.segments !== undefined)).toBe(true);
   });
 });
 
