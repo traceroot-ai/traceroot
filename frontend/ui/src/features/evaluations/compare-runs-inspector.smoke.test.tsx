@@ -189,6 +189,15 @@ describe("CompareRunsView — a case in the trace panel", () => {
     expect(screen.getByRole("dialog", { name: "Case 4 of 12" })).toBeTruthy();
   });
 
+  it("opens the focused row with Space too, on the default pair", () => {
+    const onInspect = mount();
+    const row = rowOf("Ticket 5");
+    row.focus();
+    fireEvent.keyDown(row, { key: " " });
+    expect(onInspect).toHaveBeenLastCalledWith({ caseToken: "id:case-5", pair: [BASE, CAND] });
+    expect(screen.getByRole("dialog", { name: "Case 5 of 12" })).toBeTruthy();
+  });
+
   it("opens from a label that only shows a tooltip, on that label's run", () => {
     const onInspect = mount();
     // "Task error" is focusable only to show the error message on hover or focus.
