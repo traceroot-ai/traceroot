@@ -10,8 +10,10 @@ import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRunDetails } from "../hooks";
 import { COMPARISON_TABLE, Dot } from "../compare/cells";
+import { hasPairedCases, noResultsText } from "../compare/coverage";
 import { buildCompareModel, comparePairs, type RunBundle } from "../compare/model";
 import { runLabeler, runTagger } from "../compare/run-tags";
+import { ScopeLine } from "../compare/scope-line";
 import { ComparisonBody } from "../compare/table-body";
 import { SummaryGroup } from "../compare/summary-group";
 import { ComparisonHead } from "../compare/table-head";
@@ -75,13 +77,6 @@ export function CompareRunsView({
   // Each candidate against the baseline, on the cases both of them have.
   const pairs = React.useMemo(() => comparePairs(model), [model]);
 
-  // A run whose returned results fall short of its declared case count was truncated
-  // by the run-detail API cap, so its aggregates/deltas are computed on a partial set.
-  const truncatedRuns = React.useMemo(
-    () => ordered.filter((b) => b.run.caseCount > b.results.length),
-    [ordered],
-  );
-
   // Rows = every case any run has, in baseline order, that the search picks: any run's
   // input / output / expected for the case.
   const visible = React.useMemo(() => {
@@ -101,6 +96,8 @@ export function CompareRunsView({
   // keystroke.
   const tagOf = React.useMemo(() => runTagger(ordered), [ordered]);
   const labelOf = React.useMemo(() => runLabeler(ordered, tagOf), [ordered, tagOf]);
+  // Runs with no results; with fewer than two runs left, that is why nothing is compared.
+  const emptyTags = ordered.filter((b) => b.results.length === 0).map((b) => tagOf(b.run.id));
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -162,25 +159,19 @@ export function CompareRunsView({
           <div className="p-3">
             <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
           </div>
-        ) : model.sharedByAllCount === 0 ? (
+        ) : !hasPairedCases(model) ? (
           <div className="p-3">
             <EmptyState>
-              {crossDataset
-                ? `These runs are on different datasets (${datasetNames.join(", ")}) and share no inputs in common.`
-                : "These runs share no dataset rows — their dataset versions have no rows in common."}
+              {emptyTags.length > 0 && ordered.length - emptyTags.length < 2
+                ? noResultsText(emptyTags)
+                : crossDataset
+                  ? `These runs are on different datasets (${datasetNames.join(", ")}) and share no inputs in common.`
+                  : "These runs share no dataset rows — their dataset versions have no rows in common."}
             </EmptyState>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
-            {/* Some runs exceeded the run-detail result cap, so their columns are
-                computed on a partial set — say so rather than imply full coverage. */}
-            {truncatedRuns.length > 0 && (
-              <div className="border-b border-warning-border bg-warning-soft px-3 py-2 text-[12px] text-warning">
-                {truncatedRuns.map((b) => labelOf(b.run.id)).join(", ")} returned only the first{" "}
-                {truncatedRuns[0].results.length} of their cases (API limit), so their scores,
-                latency, and cost summaries and deltas are partial.
-              </div>
-            )}
+            <ScopeLine model={model} tagOf={tagOf} />
             <div className="min-h-0 flex-1 overflow-auto">
               <Table className={COMPARISON_TABLE}>
                 <ComparisonHead model={model} />
