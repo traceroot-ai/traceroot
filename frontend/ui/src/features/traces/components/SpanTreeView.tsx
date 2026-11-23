@@ -12,6 +12,7 @@ import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { MODEL_SPAN_KINDS, SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection, SpanTreeRow } from "../types";
+import { unionParentIds, visibleUnionNodes, type UnionNode } from "@/lib/eval/union-tree";
 import {
   buildSpanTree,
   buildChildrenMap,
@@ -26,6 +27,7 @@ import {
 import { spanIOQueryKey, SPAN_IO_STALE_TIME_MS } from "../hooks";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { SpanTreeConnector } from "./SpanTreeConnector";
+import { SpanTreeDiffRow, TraceRowDiffFigures } from "./SpanTreeDiffRow";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
 
@@ -39,6 +41,18 @@ const SPAN_IO_PREFETCH_DEBOUNCE_MS = 150;
 // the span→index mapping behind scroll-to-selected (see `scrollToSpan`), so no
 // row-height math lives in the parent anymore.
 export type TreeRow = { type: "trace" } | { type: "span"; row: SpanTreeRow };
+// Diff mode adds a node of the union of this trace and the baseline's.
+type ViewRow = TreeRow | { type: "union"; node: UnionNode };
+
+/** Diff mode: the union of a trace and a baseline trace of the same case. */
+export interface SpanTreeDiff {
+  baseline: TraceDetail;
+  /** The union's nodes, in tree order (`traceUnion`). */
+  nodes: UnionNode[];
+  /** Both traces carry measured timings and usage (neither is a reconstruction), so the
+   *  rows can compare them. */
+  measured: boolean;
+}
 
 /**
  * Returns the flattened span rows that are currently visible, i.e. none of
@@ -103,6 +117,14 @@ interface SpanTreeViewProps {
    * override, so every hover would fire a doomed `/span-io` request otherwise.
    */
   disableIOPrefetch?: boolean;
+  /**
+   * Diff mode (the evaluation comparison): draw the union of this trace and a baseline
+   * trace of the same case in place of this trace's spans, each node matched, added or
+   * removed, with its duration and tokens before → after. A node collapses by its id. A
+   * span only the baseline has is selected by the baseline's span; any other by this
+   * trace's. Unset in production.
+   */
+  diff?: SpanTreeDiff;
 }
 
 export interface SpanTreeViewHandle {
@@ -135,6 +157,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
     onHoverChange,
     scrollRef,
     disableIOPrefetch = false,
+    diff,
   },
   ref,
 ) {
@@ -208,16 +231,24 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   const traceDuration = getTraceDuration(trace);
   const traceTotalCost = getTraceTotalCost(trace);
   const traceTokenUsage = getTraceTokenUsage(trace);
-  const traceHasChildren = hasChildren(null);
+  const traceHasChildren = diff ? diff.nodes.length > 0 : hasChildren(null);
+  const unionParents = useMemo(() => (diff ? unionParentIds(diff.nodes) : null), [diff]);
   const traceIsCollapsed = collapsedIds.has("trace");
 
   // Full virtualized row model: trace root at index 0, then collapse-filtered
   // span rows in DFS order. Single source of truth for both the virtualizer
   // count and the span→index mapping used by scrollToSpan.
-  const allRows = useMemo(
-    () => buildTreeRows(spanRows, spanById, collapsedIds),
-    [spanRows, spanById, collapsedIds],
-  );
+  const allRows = useMemo((): ViewRow[] => {
+    if (!diff) return buildTreeRows(spanRows, spanById, collapsedIds);
+    if (collapsedIds.has("trace")) return [{ type: "trace" }];
+    return [
+      { type: "trace" },
+      ...visibleUnionNodes(diff.nodes, collapsedIds).map((node) => ({
+        type: "union" as const,
+        node,
+      })),
+    ];
+  }, [diff, spanRows, spanById, collapsedIds]);
 
   const rowVirtualizer = useVirtualizer({
     count: allRows.length,
@@ -233,7 +264,11 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
     ref,
     () => ({
       scrollToSpan: (spanId: string) => {
-        const index = allRows.findIndex((r) => r.type === "span" && r.row.span.span_id === spanId);
+        const index = allRows.findIndex(
+          (r) =>
+            (r.type === "span" && r.row.span.span_id === spanId) ||
+            (r.type === "union" && (r.node.candidate ?? r.node.baseline).span_id === spanId),
+        );
         if (index !== -1) rowVirtualizer.scrollToIndex(index, { align: "center" });
       },
     }),
@@ -283,7 +318,10 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
                   {/* Always render the flex-1 container to lock the gap math, but conditionally render contents */}
                   <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
-                    {!compact && (
+                    {!compact && diff?.measured && (
+                      <TraceRowDiffFigures trace={trace} baseline={diff.baseline} />
+                    )}
+                    {!compact && !diff && (
                       <>
                         <span className="hidden shrink-0 whitespace-nowrap text-[12px] text-muted-foreground @[45px]:inline-flex">
                           {formatDuration(traceDuration)}
@@ -324,6 +362,41 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                   )}
                 </div>
               </div>
+            );
+          }
+
+          if (rowData.type === "union") {
+            const { node } = rowData;
+            const shown = node.candidate ?? node.baseline;
+            const { candidate } = node;
+            return (
+              <SpanTreeDiffRow
+                key={node.id}
+                node={node}
+                style={rowStyle}
+                // By trace as well as id: the two traces' span ids can coincide.
+                selected={
+                  selection.type === "span" &&
+                  selection.span.span_id === shown.span_id &&
+                  selection.span.trace_id === shown.trace_id
+                }
+                hovered={hoveredSpanId === node.id}
+                compact={compact}
+                measured={diff!.measured}
+                hasChildren={!!unionParents?.has(node.id)}
+                collapsed={collapsedIds.has(node.id)}
+                onSelect={() => onSelect({ type: "span", span: shown })}
+                onToggleCollapse={(e) => toggleCollapse(node.id, e)}
+                onMouseEnter={() => {
+                  onHoverChange(node.id);
+                  // Only this trace's spans have I/O to fetch under its id.
+                  if (candidate) scheduleSpanIOPrefetch(candidate);
+                }}
+                onMouseLeave={() => {
+                  onHoverChange(null);
+                  cancelSpanIOPrefetch();
+                }}
+              />
             );
           }
 

@@ -370,6 +370,16 @@ export function TraceViewerPanel({
     () => (diffing && baselineTrace && trace ? traceUnion(baselineTrace, trace) : null),
     [diffing, baselineTrace, trace],
   );
+  // Figures are only compared when both traces measured them: an override, like a
+  // reconstructed baseline, carries placeholders (see `isEvalShaped`).
+  const measured = !traceOverride && !diffBaseline?.reconstructed;
+  const treeDiff = useMemo(
+    () =>
+      union && baselineTrace
+        ? { baseline: baselineTrace, nodes: union.nodes, measured }
+        : undefined,
+    [union, baselineTrace, measured],
+  );
 
   // Reset when the displayed trace or the deep link changes, then apply the
   // deep link: `initialSpanId` is a *pending* selection, armed on each
@@ -735,6 +745,7 @@ export function TraceViewerPanel({
                           hoveredSpanId={hoveredSpanId}
                           onHoverChange={setHoveredSpanId}
                           disableIOPrefetch={!!traceOverride}
+                          diff={treeDiff}
                         />
                       )}
                     </div>

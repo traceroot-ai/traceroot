@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import { buildUnionTree } from "@/lib/eval/union-tree";
 import type { Span } from "@/types/api";
-import { findUnionNode } from "./diff";
+import { beforeAfter, findUnionNode, moveClass } from "./diff";
 
 const span = (traceId: string, id: string, parent: string | null, name: string): Span => ({
   span_id: id,
@@ -43,5 +43,19 @@ describe("findUnionNode", () => {
   it("finds nothing for a span neither trace has", () => {
     expect(findUnionNode(nodes, span("tc", "gone", null, "x"), "tb")).toBeNull();
     expect(findUnionNode(nodes, span("other", "s1", null, "x"), "tb")?.id).toBe("candidate:s1");
+  });
+});
+
+describe("beforeAfter and moveClass", () => {
+  it("reads a figure on the baseline, then on this trace, dashing a side with none", () => {
+    const ms = (n: number) => `${n}ms`;
+    expect(beforeAfter({ baseline: 100, candidate: 80 }, ms)).toBe("100ms → 80ms");
+    expect(beforeAfter({ baseline: null, candidate: 80 }, ms)).toBe("— → 80ms");
+  });
+
+  it("colours better green, worse red and anything else muted", () => {
+    expect(moveClass("better")).toBe("text-success");
+    expect(moveClass("worse")).toBe("text-danger");
+    expect(moveClass(null)).toBe("text-muted-foreground");
   });
 });

@@ -276,6 +276,27 @@ describe("TraceViewerPanel diff mode", () => {
 describe("TraceViewerPanel diff mode in the tree", () => {
   const tree = () => screen.getByTestId("tree");
 
+  it("hands the tree the union only while diffing", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE } });
+    expect(tree().dataset.diffNodes).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+    // agent, web_search, answer, faithfulness, judge.
+    expect(tree().dataset.diffNodes).toBe("5");
+    expect(tree().dataset.measured).toBe("true");
+  });
+
+  it("compares no figures when either trace is a reconstruction", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE, reconstructed: true }, defaultDiffOn: true });
+    expect(tree().dataset.measured).toBe("false");
+    cleanup();
+    renderPanel({
+      diffBaseline: { trace: BASELINE },
+      defaultDiffOn: true,
+      traceOverride: CANDIDATE,
+    });
+    expect(tree().dataset.measured).toBe("false");
+  });
+
   it("goes back to the root when a span only the baseline has can't be shown any more", () => {
     renderPanel({ diffBaseline: { trace: BASELINE }, defaultDiffOn: true });
     fireEvent.click(screen.getByText("select-baseline-search"));
