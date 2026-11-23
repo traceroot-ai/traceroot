@@ -24,7 +24,7 @@ const TRACES_SCHEMA_PY = fileURLToPath(
   new URL("../../../../../../backend/rest/schemas/traces.py", import.meta.url),
 );
 
-/** Words from the schema the prompt once described, which TraceRoot does not have. */
+/** Words from the schema the prompt once described, which traceroot does not have. */
 const FOREIGN_VOCABULARY = [
   /\bGENERATION\b/,
   /\bobservations? table\b/i,
@@ -126,7 +126,7 @@ describe("span vocabulary the model reads", () => {
     expect(named("tool create_alert")).toEqual(Object.values(SpanKind));
   });
 
-  it("carries none of the vocabulary of a schema TraceRoot does not have", () => {
+  it("carries none of the vocabulary of a schema traceroot does not have", () => {
     const hits = modelFacingTexts().flatMap(({ source, text }) =>
       FOREIGN_VOCABULARY.filter((word) => word.test(text)).map((word) => `${source}: ${word}`),
     );

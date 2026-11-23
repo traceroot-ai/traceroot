@@ -1,6 +1,6 @@
 # LlamaIndex RAG
 
-Simple RAG pipeline using LlamaIndex, instrumented with [TraceRoot](https://traceroot.ai).
+Simple RAG pipeline using LlamaIndex, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 ```bash

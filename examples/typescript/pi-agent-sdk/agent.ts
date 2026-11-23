@@ -1,5 +1,5 @@
 /**
- * Pi Coding Agent SDK — TraceRoot Observability
+ * Pi Coding Agent SDK — traceroot Observability
  *
  * `@earendil-works/pi-coding-agent` is the library form of the `pi` coding
  * agent: instead of an interactive CLI, you drive an `AgentSession` from your
@@ -67,7 +67,7 @@ TraceRoot.initialize({
   instrumentModules: { piCodingAgent: pi },
 });
 
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 // The agent operates on a real directory. Use a scratch workspace next to
 // this script rather than process.cwd() so the demo's file writes stay
@@ -183,7 +183,7 @@ async function resolveModel(): Promise<{ modelRuntime: ModelRuntime; model: PiMo
 }
 
 /** subscribe() surfaces tool calls and assistant messages as they happen — useful
- *  for demo output, and independent of what gets traced. TraceRoot observes the
+ *  for demo output, and independent of what gets traced. traceroot observes the
  *  same session through the prototype patch, not this listener. */
 function logEvents(session: AgentSession): void {
   session.subscribe((event) => {

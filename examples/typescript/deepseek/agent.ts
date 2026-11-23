@@ -1,10 +1,10 @@
 /**
- * DeepSeek ReAct Agent — TraceRoot Observability
+ * DeepSeek ReAct Agent — traceroot Observability
  *
  * DeepSeek's API is OpenAI-wire-compatible, so we use the official `openai`
  * SDK with `baseURL` pointed at DeepSeek and a DeepSeek model name
  * (e.g. "deepseek-chat" for V3, "deepseek-reasoner" for R1).
- * TraceRoot's existing OpenAI instrumentation captures the calls
+ * traceroot's existing OpenAI instrumentation captures the calls
  * automatically — no extra wiring.
  *
  * Env vars required: DEEPSEEK_API_KEY, TRACEROOT_API_KEY
@@ -17,7 +17,7 @@ import 'dotenv/config';
 import OpenAI from 'openai';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
   instrumentModules: { openAI: OpenAI },
 });
@@ -28,7 +28,7 @@ const openai = new OpenAI({
   baseURL: 'https://api.deepseek.com',
 });
 
-console.log('[Observability: TraceRoot | Provider: DeepSeek]');
+console.log('[Observability: traceroot | Provider: DeepSeek]');
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 type ToolResult = Record<string, unknown>;
@@ -296,7 +296,7 @@ async function main() {
       () =>
         observe({ name: 'demo_session' }, async () => {
           console.log('='.repeat(60));
-          console.log('DeepSeek ReAct Agent — Demo (TraceRoot)');
+          console.log('DeepSeek ReAct Agent — Demo (traceroot)');
           console.log('='.repeat(60));
 
           for (let i = 0; i < DEMO_QUERIES.length; i++) {

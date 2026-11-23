@@ -1,8 +1,8 @@
 /**
- * OpenAI Agents SDK — TraceRoot Observability
+ * OpenAI Agents SDK — traceroot Observability
  *
  * A simple multi-tool agent using @openai/agents, with traces captured
- * by TraceRoot via the built-in TracingProcessor bridge.
+ * by traceroot via the built-in TracingProcessor bridge.
  *
  * Env vars required: OPENAI_API_KEY, TRACEROOT_API_KEY
  *
@@ -16,11 +16,11 @@ import { Agent, run, tool } from '@openai/agents';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 import { z } from 'zod';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
   instrumentModules: { openaiAgents: agents },
 });
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ const DEMO_QUERIES = [
 
 async function main() {
   console.log('============================================================');
-  console.log('OpenAI Agents SDK — Demo (TraceRoot)');
+  console.log('OpenAI Agents SDK — Demo (traceroot)');
   console.log('============================================================\n');
 
   try {
