@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/env", () => ({ env: {} }));
 
 import { buildWorkspaceMemberEvent, notifyWorkspaceMember } from "./membership-webhook";
+// The same sample request the receiver tests against (gtm-lead-service,
+// src/events/samples/workspace_member_joined.json): change both together.
+import sample from "./__fixtures__/workspace_member_joined.json";
 
 const env = {
   TRACEROOT_SIGNUP_WEBHOOK_URL: "https://leads.example/events",
@@ -14,6 +17,18 @@ const input = { userId: "u1", workspaceId: "w1", createdBy: "u1", via: "created"
 afterEach(() => vi.restoreAllMocks());
 
 describe("buildWorkspaceMemberEvent", () => {
+  it("builds exactly the sample request the receiver accepts", () => {
+    expect(
+      buildWorkspaceMemberEvent({
+        userId: "u_123",
+        workspaceId: "ws_acme_1",
+        createdBy: "u_100",
+        via: "invite",
+        occurredAt: new Date("2026-11-06T16:30:00.000Z"),
+      }),
+    ).toEqual(sample);
+  });
+
   it("carries ids and how the person joined, nothing else", () => {
     const at = new Date("2026-11-23T10:00:00Z");
     expect(buildWorkspaceMemberEvent({ ...input, occurredAt: at })).toEqual({
