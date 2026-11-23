@@ -15,9 +15,11 @@ vi.mock("@/lib/api/onboarding-questions", () => ({
   finishOnboardingQuestions: api.finish,
 }));
 
+import { ApiError } from "@/lib/api/errors";
 import { QuestionsStep } from "./questions-step";
 
 const EMPTY: OnboardingAnswers = {
+  userId: "u1",
   role: null,
   company: null,
   uses: [],
@@ -39,7 +41,12 @@ function renderStep(answers: Partial<OnboardingAnswers> = {}) {
 }
 
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole("button", { name }));
-const saved = () => api.save.mock.calls.map(([patch]) => patch);
+// Every save names the account the answers were read for.
+const saved = () =>
+  api.save.mock.calls.map(([userId, patch]) => {
+    expect(userId).toBe("u1");
+    return patch;
+  });
 
 beforeEach(() => {
   api.save.mockResolvedValue({ saved: true });
@@ -78,6 +85,7 @@ describe("a work-email sign-up", () => {
       { source: "github", sourceOther: null },
     ]);
     expect(api.finish).toHaveBeenCalledOnce();
+    expect(api.finish).toHaveBeenCalledWith("u1");
   });
 
   it("can skip every question", async () => {
@@ -276,7 +284,56 @@ describe("switching account", () => {
     finishSave();
     await waitFor(() => expect(settled).toBe(true));
     expect(saved).toBeInstanceOf(Promise);
-    expect(api.save).toHaveBeenCalledWith({ role: "founder" });
+    expect(api.save).toHaveBeenCalledWith("u1", { role: "founder" });
+  });
+});
+
+describe("another tab signs this browser in as someone else", () => {
+  it("stops when a save is refused for the account, and does not move on", async () => {
+    api.save.mockRejectedValue(new ApiError(409, "Signed in as a different account"));
+    renderStep();
+    await screen.findByText("Step 1 of 3");
+    fireEvent.click(screen.getByRole("radio", { name: "Founder" }));
+    click("Continue");
+    click("Skip");
+    click("Skip");
+
+    await screen.findByText(/now signed in as a different account/);
+    expect(screen.getByRole("button", { name: "Reload" })).toBeDefined();
+    expect(api.finish).not.toHaveBeenCalled();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("starts the new account on its own answers, not the old draft", async () => {
+    api.get.mockImplementation(async () => ({ ...EMPTY, userId: "u1" }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <QuestionsStep onDone={onDone} userId="u1" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Step 1 of 3");
+    fireEvent.click(screen.getByRole("radio", { name: "Founder" }));
+    expect(screen.getByRole("radio", { name: "Founder" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+
+    // The session now names another account, whose saved answer is different.
+    api.get.mockImplementation(async () => ({ ...EMPTY, userId: "u2", role: "student" }));
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <QuestionsStep onDone={onDone} userId="u2" />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { name: "Student" }).getAttribute("aria-checked")).toBe(
+        "true",
+      ),
+    );
+    expect(screen.getByRole("radio", { name: "Founder" }).getAttribute("aria-checked")).toBe(
+      "false",
+    );
   });
 });
 

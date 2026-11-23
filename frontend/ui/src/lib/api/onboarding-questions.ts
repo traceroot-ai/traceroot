@@ -2,16 +2,31 @@
  * The sign-up questions' answers (app/api/onboarding/questions).
  */
 import { fetchNextApi } from "./client";
-import type { AnswersPatch, OnboardingAnswers } from "@/lib/onboarding-questions";
+import {
+  ANSWERS_USER_HEADER,
+  type AnswersPatch,
+  type OnboardingAnswers,
+} from "@/lib/onboarding-questions";
 
 export function getOnboardingAnswers(): Promise<OnboardingAnswers> {
   return fetchNextApi<OnboardingAnswers>("/onboarding/questions");
 }
 
-export function saveOnboardingAnswers(patch: AnswersPatch): Promise<{ saved: true }> {
-  return fetchNextApi("/onboarding/questions", { method: "PATCH", body: JSON.stringify(patch) });
+/** Saves for `userId`, the account the answers were read for; refused (409) if another is signed in now. */
+export function saveOnboardingAnswers(
+  userId: string,
+  patch: AnswersPatch,
+): Promise<{ saved: true }> {
+  return fetchNextApi("/onboarding/questions", {
+    method: "PATCH",
+    headers: { [ANSWERS_USER_HEADER]: userId },
+    body: JSON.stringify(patch),
+  });
 }
 
-export function finishOnboardingQuestions(): Promise<{ finished: boolean }> {
-  return fetchNextApi("/onboarding/questions", { method: "POST" });
+export function finishOnboardingQuestions(userId: string): Promise<{ finished: boolean }> {
+  return fetchNextApi("/onboarding/questions", {
+    method: "POST",
+    headers: { [ANSWERS_USER_HEADER]: userId },
+  });
 }

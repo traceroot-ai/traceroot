@@ -31,6 +31,7 @@ export async function readOnboardingAnswers(
 ): Promise<OnboardingAnswers> {
   const row = await prisma.userOnboarding.findUnique({ where: { userId } });
   return {
+    userId,
     role: (row?.role as RoleId | null) ?? null,
     company: row?.companyInput ?? null,
     uses: (row?.uses as UseId[] | undefined) ?? [],

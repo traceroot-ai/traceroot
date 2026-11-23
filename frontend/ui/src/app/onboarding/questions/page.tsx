@@ -68,6 +68,7 @@ function Questions() {
           <CardContent className="p-4">
             <QuestionsStep
               onDone={() => router.push(returnTo ?? connectStepUrl(projectId, created))}
+              userId={session?.user?.id}
               account={{
                 email: session?.user?.email ?? null,
                 switching: switcher.switching,

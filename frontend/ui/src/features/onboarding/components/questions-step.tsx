@@ -20,6 +20,7 @@ import {
   getOnboardingAnswers,
   saveOnboardingAnswers,
 } from "@/lib/api/onboarding-questions";
+import { ApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
 type Question = "role" | "company" | "uses" | "source";
@@ -67,9 +68,22 @@ interface Account {
   onSwitch: (saved: Promise<unknown>) => void;
 }
 
-export function QuestionsStep({ onDone, account }: { onDone: () => void; account?: Account }) {
+export function QuestionsStep({
+  onDone,
+  account,
+  userId,
+}: {
+  onDone: () => void;
+  account?: Account;
+  /**
+   * The signed-in account, as this tab knows it. The answers and the draft are
+   * read for it, and start over when another tab signs this browser in as
+   * someone else.
+   */
+  userId?: string;
+}) {
   const { data: saved, isError } = useQuery({
-    queryKey: ["onboarding-answers"],
+    queryKey: ["onboarding-answers", userId],
     queryFn: getOnboardingAnswers,
     retry: 1,
     // Not kept for the next mount: the tab can be signed in as someone else by
@@ -93,7 +107,8 @@ export function QuestionsStep({ onDone, account }: { onDone: () => void; account
   if (!saved || skipAll) {
     return <p className="py-6 text-center text-[12px] text-muted-foreground">Loading…</p>;
   }
-  return <Questions saved={saved} onFinished={leave} account={account} />;
+  // Keyed by the account the answers belong to, so a draft never outlives it.
+  return <Questions key={saved.userId} saved={saved} onFinished={leave} account={account} />;
 }
 
 function Questions({
@@ -110,6 +125,18 @@ function Questions({
     : ["role", "uses", "source"];
   const [index, setIndex] = useState(0);
   const [finishing, setFinishing] = useState(false);
+  // A save refused because this browser is now signed in as someone else
+  // (another tab switched): nothing more is saved from this draft.
+  const [accountChanged, setAccountChanged] = useState(false);
+  const changed = useRef(false);
+  const refusedForAccount = (err: unknown) => {
+    if (err instanceof ApiError && err.status === 409) {
+      changed.current = true;
+      setAccountChanged(true);
+      return true;
+    }
+    return false;
+  };
   const [draft, setDraft] = useState<Draft>({
     role: saved.role,
     company: saved.company ?? "",
@@ -127,9 +154,9 @@ function Questions({
   async function next(skipped: boolean) {
     const patch = patchFor(question, draft, skipped);
     saves.current = saves.current.then(() =>
-      saveOnboardingAnswers(patch).catch((err) =>
-        console.error("[onboarding] could not save an answer:", err),
-      ),
+      saveOnboardingAnswers(saved.userId, patch).catch((err) => {
+        if (!refusedForAccount(err)) console.error("[onboarding] could not save an answer:", err);
+      }),
     );
     if (!last) {
       setIndex(index + 1);
@@ -137,10 +164,27 @@ function Questions({
     }
     setFinishing(true);
     await saves.current;
-    await finishOnboardingQuestions().catch((err) =>
-      console.error("[onboarding] could not finish the questions:", err),
-    );
+    if (changed.current) return;
+    await finishOnboardingQuestions(saved.userId).catch((err) => {
+      if (!refusedForAccount(err))
+        console.error("[onboarding] could not finish the questions:", err);
+    });
+    if (changed.current) return;
     onFinished();
+  }
+
+  if (accountChanged) {
+    return (
+      <div role="alert" className="flex flex-col items-center gap-3 py-2 text-center">
+        <p className="text-[12px] text-muted-foreground">
+          This browser is now signed in as a different account, so these answers were not saved to
+          it. Reload to answer as that account.
+        </p>
+        <Button size="sm" className="h-8 px-4 text-[12px]" onClick={() => window.location.reload()}>
+          Reload
+        </Button>
+      </div>
+    );
   }
 
   return (

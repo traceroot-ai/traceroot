@@ -118,6 +118,7 @@ describe("the answers a page reads back", () => {
 
   it("start empty and not done", async () => {
     expect(await readOnboardingAnswers("u1", "kai@acme.com")).toEqual({
+      userId: "u1",
       role: null,
       company: null,
       uses: [],

@@ -64,8 +64,19 @@ export const answersPatchSchema = z
 
 export type AnswersPatch = z.infer<typeof answersPatchSchema>;
 
+/**
+ * The largest answers body accepted: every answer at its longest (two 200
+ * character texts and a handful of ids) fits several times over.
+ */
+export const MAX_ANSWERS_BODY_BYTES = 4 * 1024;
+
+/** Names the account a save is for; see app/api/onboarding/questions. */
+export const ANSWERS_USER_HEADER = "x-onboarding-user";
+
 /** The saved answers and whether the questions are behind this person. */
 export interface OnboardingAnswers {
+  /** The account these answers belong to; saves name it. */
+  userId: string;
   role: RoleId | null;
   company: string | null;
   uses: UseId[];
