@@ -20,6 +20,11 @@ describe("scrubUrl", () => {
     ["/auth/reset-password?token=x", "/auth/reset-password"],
     ["/invites/accept?token=x&ref=mail#top", "/invites/accept?ref=mail#top"],
     ["?token=x", ""],
+    [
+      "https://app.traceroot.ai/auth/reset-password?%74oken=SECRET123",
+      "https://app.traceroot.ai/auth/reset-password",
+    ],
+    ["/auth/reset-password?%74oken=SECRET123&x=1", "/auth/reset-password?x=1"],
     ["?token=x&step=2", "?step=2"],
     ["/projects/p1/traces?traceId=t1", "/projects/p1/traces?traceId=t1"],
     ["a sentence that mentions token=x", "a sentence that mentions token=x"],

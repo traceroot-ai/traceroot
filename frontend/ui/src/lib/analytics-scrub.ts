@@ -20,9 +20,9 @@ const RELATIVE_BASE = "http://relative.invalid";
  * URL stays relative.
  */
 export function scrubUrl(value: unknown): unknown {
-  if (typeof value !== "string" || !SECRET_PARAMS.some((name) => value.includes(`${name}=`))) {
-    return value;
-  }
+  // Only a value with a query can carry one. The query is parsed, not searched
+  // as text, so an encoded name (`?%74oken=`) is read as the app reads it.
+  if (typeof value !== "string" || !value.includes("?")) return value;
   const relative = value.startsWith("/") || value.startsWith("?");
   let url: URL;
   try {
