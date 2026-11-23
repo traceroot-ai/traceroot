@@ -44,6 +44,8 @@ function fillForm(email = "kai@acme.io") {
 
 beforeEach(() => {
   env.TRACEROOT_CLOUD_ENV = undefined;
+  env.AUTH_GITHUB_CLIENT_ID = "";
+  env.AUTH_GITHUB_CLIENT_SECRET = "";
   env.AUTH_GOOGLE_CLIENT_ID = "";
   env.AUTH_GOOGLE_CLIENT_SECRET = "";
   env.AUTH_AGENTID_CLIENT_ID = "";

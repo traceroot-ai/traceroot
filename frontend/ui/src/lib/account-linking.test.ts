@@ -28,6 +28,7 @@ vi.mock("better-auth/adapters/prisma", () => ({ prismaAdapter: () => ({}) }));
 vi.mock("better-auth/plugins", () => ({
   admin: () => ({ id: "admin" }),
   deviceAuthorization: () => ({ id: "device-authorization" }),
+  genericOAuth: () => ({ id: "generic-oauth" }),
   jwt: () => ({ id: "jwt" }),
 }));
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
@@ -39,6 +40,8 @@ vi.mock("@/env", () => ({
     AUTH_GOOGLE_CLIENT_SECRET: "",
     AUTH_GITHUB_CLIENT_ID: "",
     AUTH_GITHUB_CLIENT_SECRET: "",
+    AUTH_AGENTID_CLIENT_ID: "",
+    AUTH_AGENTID_CLIENT_SECRET: "",
     AUTH_TRUSTED_PROXY_CIDRS: "",
   },
 }));
@@ -119,7 +122,7 @@ function createAuth() {
     emailAndPassword: { enabled: true, minPasswordLength: 8 },
     // Credentials are blank in the env mock, so the provider is registered here
     // directly; what is under test is the linking policy, not the credential
-    // gating (social-auth.test.ts covers that).
+    // gating (social-providers.test.ts covers that).
     socialProviders: { github: { clientId: "test-id", clientSecret: "test-secret" } },
     ...(appAccountOptions ? { account: appAccountOptions } : {}),
   });

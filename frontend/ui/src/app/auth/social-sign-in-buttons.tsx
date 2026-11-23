@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { FaGithub } from "react-icons/fa";
 import { authClient } from "@/lib/auth-client";
 import type { SocialProvider } from "@/lib/social-providers";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ function AgentIdMark() {
 }
 
 const PROVIDERS: Record<SocialProvider, { label: string; mark: React.ReactNode }> = {
+  github: { label: "GitHub", mark: <FaGithub className="h-4 w-4" aria-hidden="true" /> },
   google: { label: "Google", mark: <GoogleMark /> },
   agentid: { label: "AgentID", mark: <AgentIdMark /> },
 };
@@ -72,6 +74,16 @@ export function SocialSignInButtons({
   onError: (message: string | null) => void;
 }) {
   const [redirectingTo, setRedirectingTo] = useState<SocialProvider | null>(null);
+  // Going Back from the provider can restore this page from the back/forward
+  // cache, state and all, so the buttons would stay on "Redirecting...".
+  // A restore fires `pageshow` with `persisted`; that clears it.
+  useEffect(() => {
+    const reset = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirectingTo(null);
+    };
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
   if (providers.length === 0) return null;
 
   async function signIn(provider: SocialProvider) {
@@ -99,7 +111,13 @@ export function SocialSignInButtons({
         </div>
       </div>
 
-      <div className={cn("grid gap-2", providers.length > 1 && "grid-cols-2")}>
+      <div
+        className={cn(
+          "grid gap-2",
+          providers.length === 2 && "grid-cols-2",
+          providers.length > 2 && "grid-cols-3",
+        )}
+      >
         {providers.map((provider) => (
           <Button
             key={provider}

@@ -65,12 +65,18 @@ vi.mock("@/env", () => ({
 
 await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
-  account: { accountLinking: { enabled: boolean; trustedProviders: string[] } };
+  account: {
+    accountLinking: {
+      enabled: boolean;
+      trustedProviders: string[];
+      requireLocalEmailVerified?: boolean;
+    };
+  };
+  socialProviders: Record<string, { clientId: string; clientSecret: string }>;
   onAPIError: { errorURL: string };
   plugins: { id: string }[];
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
-  socialProviders: Record<string, { clientId: string; clientSecret: string }>;
   databaseHooks: {
     user: {
       create: {
@@ -129,6 +135,8 @@ describe("auth options", () => {
     // means at runtime, in both directions.
     expect(options.account.accountLinking.enabled).toBe(true);
     expect(options.account.accountLinking.trustedProviders).not.toContain("github");
+    // Nor link into an account whose own email was never verified.
+    expect(options.account.accountLinking.requireLocalEmailVerified).toBe(true);
   });
 
   it("sends user_signed_up when a user is created", async () => {

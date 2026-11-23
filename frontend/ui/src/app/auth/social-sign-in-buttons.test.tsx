@@ -14,22 +14,17 @@ vi.mock("@/lib/auth-client", () => ({
   },
 }));
 
-import { SocialAuthButtons } from "./social-auth-buttons";
+import { SocialSignInButtons } from "./social-sign-in-buttons";
 
 afterEach(() => {
   cleanup();
   mocks.signInSocial.mockReset();
 });
 
-describe("SocialAuthButtons", () => {
+describe("SocialSignInButtons", () => {
   it("renders nothing when no social providers are enabled", () => {
     const { container } = render(
-      <SocialAuthButtons
-        callbackURL="/after-auth"
-        enabledProviders={{ google: false, github: false }}
-        onError={vi.fn()}
-        verb="sign in"
-      />,
+      <SocialSignInButtons providers={[]} callbackURL="/after-auth" onError={vi.fn()} />,
     );
 
     expect(container.textContent).toBe("");
@@ -40,15 +35,14 @@ describe("SocialAuthButtons", () => {
     const onError = vi.fn();
 
     render(
-      <SocialAuthButtons
+      <SocialSignInButtons
+        providers={["github", "google"]}
         callbackURL="/onboarding"
-        enabledProviders={{ google: true, github: true }}
         onError={onError}
-        verb="sign up"
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
 
     expect(onError).toHaveBeenCalledWith(null);
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Redirecting..." }).disabled).toBe(
@@ -58,7 +52,6 @@ describe("SocialAuthButtons", () => {
       expect(mocks.signInSocial).toHaveBeenCalledWith({
         provider: "github",
         callbackURL: "/onboarding",
-        errorCallbackURL: "/auth/error",
       }),
     );
   });
@@ -67,63 +60,40 @@ describe("SocialAuthButtons", () => {
     mocks.signInSocial.mockResolvedValue({ error: { message: "OAuth app is not configured" } });
     const onError = vi.fn();
 
-    render(
-      <SocialAuthButtons
-        callbackURL="/"
-        enabledProviders={{ google: true, github: false }}
-        onError={onError}
-        verb="sign in"
-      />,
-    );
+    render(<SocialSignInButtons providers={["google"]} callbackURL="/" onError={onError} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
     await waitFor(() => expect(onError).toHaveBeenCalledWith("OAuth app is not configured"));
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
-    ).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Google" }).disabled).toBe(false);
   });
 
-  it("uses a provider-specific fallback message when the auth client returns an empty error", async () => {
+  it("uses the shared fallback message when the auth client returns an empty error", async () => {
     mocks.signInSocial.mockResolvedValue({ error: {} });
     const onError = vi.fn();
 
-    render(
-      <SocialAuthButtons
-        callbackURL="/"
-        enabledProviders={{ google: false, github: true }}
-        onError={onError}
-        verb="sign up"
-      />,
+    render(<SocialSignInButtons providers={["github"]} callbackURL="/" onError={onError} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith("Could not start sign-in. Please try again."),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
-
-    await waitFor(() => expect(onError).toHaveBeenCalledWith("Failed to sign up with GitHub"));
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with GitHub" }).disabled,
-    ).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "GitHub" }).disabled).toBe(false);
   });
 
   it("handles unexpected auth client failures", async () => {
     mocks.signInSocial.mockRejectedValue(new Error("network down"));
     const onError = vi.fn();
 
-    render(
-      <SocialAuthButtons
-        callbackURL="/"
-        enabledProviders={{ google: true, github: false }}
-        onError={onError}
-        verb="sign in"
-      />,
+    render(<SocialSignInButtons providers={["google"]} callbackURL="/" onError={onError} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith("Could not start sign-in. Please try again."),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
-
-    await waitFor(() => expect(onError).toHaveBeenCalledWith("An unexpected error occurred"));
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
-    ).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Google" }).disabled).toBe(false);
   });
 
   it("re-enables every button when the page is restored from the back/forward cache", async () => {
@@ -135,65 +105,50 @@ describe("SocialAuthButtons", () => {
     mocks.signInSocial.mockResolvedValue({});
 
     render(
-      <SocialAuthButtons
-        callbackURL="/"
-        enabledProviders={{ google: true, github: true }}
-        onError={vi.fn()}
-        verb="sign in"
-      />,
+      <SocialSignInButtons providers={["github", "google"]} callbackURL="/" onError={vi.fn()} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
 
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Redirecting..." }).disabled).toBe(
       true,
     );
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
-    ).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Google" }).disabled).toBe(true);
 
     fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
 
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with GitHub" }).disabled,
-    ).toBe(false);
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
-    ).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "GitHub" }).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Google" }).disabled).toBe(false);
   });
 
-  it("routes callback failures to the app error page for every provider", async () => {
-    // Only errors raised before the redirect ever reach `onError`; anything
-    // that fails on the OAuth callback is a server redirect, so the
-    // destination is the only way those failures reach the user.
+  it("starts each provider with the same callback", async () => {
+    // A failure on the OAuth callback is a server redirect and never reaches
+    // `onError`; the server sends those to /auth/error (auth.ts onAPIError).
     mocks.signInSocial.mockResolvedValue({});
 
     render(
-      <SocialAuthButtons
+      <SocialSignInButtons
+        providers={["github", "google"]}
         callbackURL="/onboarding"
-        enabledProviders={{ google: true, github: true }}
         onError={vi.fn()}
-        verb="sign up"
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalledTimes(1));
     expect(mocks.signInSocial).toHaveBeenLastCalledWith({
       provider: "google",
       callbackURL: "/onboarding",
-      errorCallbackURL: "/auth/error",
     });
 
     fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalledTimes(2));
     expect(mocks.signInSocial).toHaveBeenLastCalledWith({
       provider: "github",
       callbackURL: "/onboarding",
-      errorCallbackURL: "/auth/error",
     });
   });
 
@@ -203,12 +158,7 @@ describe("SocialAuthButtons", () => {
 
     try {
       const { unmount } = render(
-        <SocialAuthButtons
-          callbackURL="/"
-          enabledProviders={{ google: true, github: false }}
-          onError={vi.fn()}
-          verb="sign in"
-        />,
+        <SocialSignInButtons providers={["google"]} callbackURL="/" onError={vi.fn()} />,
       );
 
       const registration = addEventListener.mock.calls.find(([type]) => type === "pageshow");
@@ -221,5 +171,42 @@ describe("SocialAuthButtons", () => {
       addEventListener.mockRestore();
       removeEventListener.mockRestore();
     }
+  });
+
+  it("puts GitHub first, in one row of three when all are configured", () => {
+    render(
+      <SocialSignInButtons
+        providers={["github", "google", "agentid"]}
+        callbackURL="/"
+        onError={vi.fn()}
+      />,
+    );
+    const [github, google, agentid] = ["GitHub", "Google", "AgentID"].map((name) =>
+      screen.getByRole("button", { name }),
+    );
+    expect(github.parentElement).toBe(agentid.parentElement);
+    expect(github.parentElement?.className).toContain("grid-cols-3");
+    expect(github.compareDocumentPosition(google) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows no GitHub button when GitHub is not configured", () => {
+    render(<SocialSignInButtons providers={["google"]} callbackURL="/" onError={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "GitHub" })).toBeNull();
+  });
+
+  it("starts GitHub with the terminal's device callback, unchanged", () => {
+    mocks.signInSocial.mockReturnValue(new Promise(() => {}));
+    render(
+      <SocialSignInButtons
+        providers={["github"]}
+        callbackURL="/device?user_code=ABCD1234"
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
+    expect(mocks.signInSocial).toHaveBeenCalledWith({
+      provider: "github",
+      callbackURL: "/device?user_code=ABCD1234",
+    });
   });
 });

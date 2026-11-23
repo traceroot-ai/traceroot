@@ -5,7 +5,6 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
-import { getSocialAuthConfig } from "@/lib/social-auth";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
@@ -17,7 +16,11 @@ import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { agentIdProvider } from "@/lib/agentid";
-import { AGENTID_PROVIDER_ID, configuredSocialProviders } from "@/lib/social-providers";
+import {
+  AGENTID_PROVIDER_ID,
+  configuredSocialProviders,
+  socialProviderOptions,
+} from "@/lib/social-providers";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -25,7 +28,6 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
-const { socialProviders } = getSocialAuthConfig();
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -71,7 +73,7 @@ export const auth = betterAuth({
     },
   },
 
-  socialProviders,
+  socialProviders: socialProviderOptions(env),
 
   account: {
     accountLinking: {
@@ -84,10 +86,16 @@ export const auth = betterAuth({
       // confirmed, so trusting it would let anyone who adds a victim's address
       // to their own GitHub account sign in as that victim. Leaving it out
       // costs nothing a real user notices: a GitHub identity whose address *is*
-      // verified still links, and a first-time GitHub sign-in still creates an
-      // account either way. account-linking.test.ts pins both halves.
+      // verified still links (to an account whose own address is verified, see
+      // below), and a first-time GitHub sign-in still creates an account either
+      // way. account-linking.test.ts pins these.
       // Never add "agentid" either: a trusted provider links on email alone.
       trustedProviders: ["google"],
+      // And no provider, trusted or not, links into an account whose own email
+      // was never verified: otherwise whoever registered someone's address
+      // with a password first would get that person's later social sign-in.
+      // This is better-auth's default; it is set so that cannot change quietly.
+      requireLocalEmailVerified: true,
     },
   },
 

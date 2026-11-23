@@ -203,6 +203,8 @@ describe("SignInClient social buttons", () => {
 
 describe("configuredSocialProviders", () => {
   const unset = {
+    AUTH_GITHUB_CLIENT_ID: "",
+    AUTH_GITHUB_CLIENT_SECRET: "",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
     AUTH_AGENTID_CLIENT_ID: "",
@@ -210,6 +212,7 @@ describe("configuredSocialProviders", () => {
   };
   const google = { AUTH_GOOGLE_CLIENT_ID: "g", AUTH_GOOGLE_CLIENT_SECRET: "g" };
   const agentid = { AUTH_AGENTID_CLIENT_ID: "a", AUTH_AGENTID_CLIENT_SECRET: "a" };
+  const github = { AUTH_GITHUB_CLIENT_ID: "h", AUTH_GITHUB_CLIENT_SECRET: "h" };
 
   it.each([
     ["none", {}, []],
@@ -218,6 +221,13 @@ describe("configuredSocialProviders", () => {
     ["AgentID", agentid, ["agentid"]],
     ["AgentID with a blank secret", { ...agentid, AUTH_AGENTID_CLIENT_SECRET: " " }, []],
     ["both, Google first", { ...google, ...agentid }, ["google", "agentid"]],
+    ["GitHub", github, ["github"]],
+    ["GitHub with a blank secret", { ...github, AUTH_GITHUB_CLIENT_SECRET: " " }, []],
+    [
+      "all three, GitHub first",
+      { ...github, ...google, ...agentid },
+      ["github", "google", "agentid"],
+    ],
   ])("%s", (_, env, expected) => {
     expect(configuredSocialProviders({ ...unset, ...env })).toEqual(expected);
   });
