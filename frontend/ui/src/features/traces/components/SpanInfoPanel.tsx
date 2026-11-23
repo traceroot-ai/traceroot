@@ -20,6 +20,9 @@ import {
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { TraceIOSection } from "./TraceIOValue";
+import { splitInternalMetadata } from "../utils/metadata";
+import { unionNodeName } from "@/lib/eval/union-tree";
+import { DiffStateChip, SpanDiffChips, SpanDiffIO, type SpanInfoDiff } from "./SpanDiffDetail";
 import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
@@ -54,32 +57,14 @@ interface SpanInfoPanelProps {
    * offline-eval's "Dataset:" chip). Unset in production.
    */
   extraTags?: ReactNode;
-}
-
-/** Set by an SDK whose redaction function ran on this span before export. */
-const REDACTED_ATTRIBUTE = "traceroot.redacted";
-
-/**
- * Drop internal `traceroot.span.*` keys and the redaction marker (shown as a header chip) so
- * the Metadata panel shows only user metadata. Not the whole `traceroot.` namespace: SDK
- * helpers record user-set values such as `traceroot.llm.model_parameters` here too.
- */
-function splitInternalMetadata(raw: string | null | undefined): {
-  metadata: string | null;
-  redacted: boolean;
-} {
-  if (!raw) return { metadata: raw ?? null, redacted: false };
-  try {
-    const parsed = JSON.parse(raw);
-    const filtered = Object.fromEntries(
-      Object.entries(parsed).filter(
-        ([k]) => !k.startsWith("traceroot.span.") && k !== REDACTED_ATTRIBUTE,
-      ),
-    );
-    return { metadata: JSON.stringify(filtered), redacted: parsed[REDACTED_ATTRIBUTE] === true };
-  } catch {
-    return { metadata: raw, redacted: false };
-  }
+  /**
+   * Diff mode (the evaluation comparison): the selection beside its counterpart in a
+   * baseline trace of the same case. The chips read before → after and say how the span
+   * was paired; Input, Output and Metadata show what changed. A span only the baseline has
+   * is the selection's span, its values fetched under the baseline's trace. Unset in
+   * production.
+   */
+  diff?: SpanInfoDiff;
 }
 
 /**
@@ -97,6 +82,7 @@ export function SpanInfoPanel({
   spanActions,
   headerAction,
   extraTags,
+  diff,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -108,13 +94,14 @@ export function SpanInfoPanel({
   // per-value "expand" state resets when you switch spans/traces (and persists
   // within the same selection, e.g. across live updates).
   const selectionId = isTrace ? trace.trace_id : selection.span.span_id;
-  const name = isTrace ? trace.name : selection.span.name;
+  const name = diff?.node ? unionNodeName(diff.node) : isTrace ? trace.name : selection.span.name;
   const kind = isTrace ? "trace" : selection.span.span_kind;
   const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   // Per-span I/O is fetched lazily (the trace skeleton no longer ships it).
   // Trace-level I/O still lives on the trace object and needs no fetch.
-  const selectedSpanId = isTrace ? null : selection.span.span_id;
+  // In diff mode each side's I/O is fetched under its own trace instead.
+  const selectedSpanId = isTrace || diff ? null : selection.span.span_id;
   const { data: spanIO, isLoading: isLoadingIO } = useSpanIO(
     projectId,
     trace.trace_id,
@@ -189,72 +176,78 @@ export function SpanInfoPanel({
             <span className="text-muted-foreground">Span kind:</span>
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
+          {diff?.node && <DiffStateChip node={diff.node} />}
           {extraTags}
-          {/* Duration is fabricated on the offline-eval reconstructed trace (fixed
+          {diff && <SpanDiffChips projectId={projectId} trace={trace} diff={diff} />}
+          {!diff && (
+            <>
+              {/* Duration is fabricated on the offline-eval reconstructed trace (fixed
               placeholder offsets, not a measurement), so it's hidden there. The
               token/cost/git badges below gate on !isEvalShaped for the same reason. */}
-          {!isEvalShaped && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Latency:</span>
-              <span className="font-medium">{formatDuration(duration)}</span>
-            </div>
-          )}
-          {hasError && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-danger-soft px-2.5 py-1 text-xs font-medium text-danger">
-              <DOMAIN_ICONS.error className="h-3 w-3" />
-              ERROR
-            </div>
-          )}
-          {isTrace && trace.environment && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <span className="text-muted-foreground">Env:</span>
-              <span className="font-medium">{trace.environment}</span>
-            </div>
-          )}
-          {/* Token/cost aggregates are meaningless on the offline-eval reconstructed
+              {!isEvalShaped && (
+                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                  <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-muted-foreground">Latency:</span>
+                  <span className="font-medium">{formatDuration(duration)}</span>
+                </div>
+              )}
+              {hasError && (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-danger-soft px-2.5 py-1 text-xs font-medium text-danger">
+                  <DOMAIN_ICONS.error className="h-3 w-3" />
+                  ERROR
+                </div>
+              )}
+              {isTrace && trace.environment && (
+                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                  <span className="text-muted-foreground">Env:</span>
+                  <span className="font-medium">{trace.environment}</span>
+                </div>
+              )}
+              {/* Token/cost aggregates are meaningless on the offline-eval reconstructed
               trace (its spans carry no real usage/cost telemetry), so they're hidden
               there — the trace and span variants below all gate on !isEvalShaped. */}
-          {!isEvalShaped && isTrace && traceTokenUsage && (
-            <TokenChip
-              inputTokens={traceTokenUsage.inputTokens}
-              outputTokens={traceTokenUsage.outputTokens}
-              totalTokens={traceTokenUsage.totalTokens}
-              cacheReadTokens={traceTokenUsage.cacheReadTokens}
-              cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
-              reasoningTokens={traceTokenUsage.reasoningTokens}
-            />
-          )}
-          {!isEvalShaped && isTrace && traceTotalCost != null && (
-            <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
-          )}
-          {!isTrace && selection.span.model_name && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-ink">
-              <DOMAIN_ICONS.model className="h-3 w-3" />
-              {selection.span.model_name}
-            </div>
-          )}
-          {!isTrace && redacted && (
-            <div
-              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs"
-              title="Your app ran its redaction function on this span before sending it. Anything it removed never reached traceroot."
-            >
-              <EyeOff className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">Redacted by your app</span>
-            </div>
-          )}
-          {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
-            <TokenChip
-              inputTokens={selection.span.input_tokens}
-              outputTokens={selection.span.output_tokens}
-              totalTokens={selection.span.total_tokens}
-              cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
-              cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
-              reasoningTokens={selection.span.usage_details?.reasoning_tokens}
-            />
-          )}
-          {!isEvalShaped && !isTrace && (
-            <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
+              {!isEvalShaped && isTrace && traceTokenUsage && (
+                <TokenChip
+                  inputTokens={traceTokenUsage.inputTokens}
+                  outputTokens={traceTokenUsage.outputTokens}
+                  totalTokens={traceTokenUsage.totalTokens}
+                  cacheReadTokens={traceTokenUsage.cacheReadTokens}
+                  cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
+                  reasoningTokens={traceTokenUsage.reasoningTokens}
+                />
+              )}
+              {!isEvalShaped && isTrace && traceTotalCost != null && (
+                <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
+              )}
+              {!isTrace && selection.span.model_name && (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-ink">
+                  <DOMAIN_ICONS.model className="h-3 w-3" />
+                  {selection.span.model_name}
+                </div>
+              )}
+              {!isTrace && redacted && (
+                <div
+                  className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs"
+                  title="Your app ran its redaction function on this span before sending it. Anything it removed never reached traceroot."
+                >
+                  <EyeOff className="h-3 w-3 text-muted-foreground" />
+                  <span className="font-medium">Redacted by your app</span>
+                </div>
+              )}
+              {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
+                <TokenChip
+                  inputTokens={selection.span.input_tokens}
+                  outputTokens={selection.span.output_tokens}
+                  totalTokens={selection.span.total_tokens}
+                  cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
+                  cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
+                  reasoningTokens={selection.span.usage_details?.reasoning_tokens}
+                />
+              )}
+              {!isEvalShaped && !isTrace && (
+                <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
+              )}
+            </>
           )}
         </div>
 
@@ -408,30 +401,36 @@ export function SpanInfoPanel({
         {/* Input / Output / Metadata — the normal value view with a header format
             switcher. The key resets per-value state when a different span/trace is
             selected. */}
-        <TraceIOSection
-          key={`${selectionId}:input`}
-          title="Input"
-          content={input}
-          loading={ioLoading}
-          onCopy={input ? () => copyToClipboard(input) : undefined}
-          attachmentSource={ioAttachments}
-        />
-        <TraceIOSection
-          key={`${selectionId}:output`}
-          title="Output"
-          content={output}
-          loading={ioLoading}
-          onCopy={output ? () => copyToClipboard(output) : undefined}
-          attachmentSource={ioAttachments}
-        />
-        <TraceIOSection
-          key={`${selectionId}:metadata`}
-          title="Metadata"
-          content={metadata}
-          loading={ioLoading}
-          onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-          attachmentSource={isTrace ? null : ioAttachments}
-        />
+        {diff ? (
+          <SpanDiffIO projectId={projectId} trace={trace} diff={diff} selectionId={selectionId} />
+        ) : (
+          <>
+            <TraceIOSection
+              key={`${selectionId}:input`}
+              title="Input"
+              content={input}
+              loading={ioLoading}
+              onCopy={input ? () => copyToClipboard(input) : undefined}
+              attachmentSource={ioAttachments}
+            />
+            <TraceIOSection
+              key={`${selectionId}:output`}
+              title="Output"
+              content={output}
+              loading={ioLoading}
+              onCopy={output ? () => copyToClipboard(output) : undefined}
+              attachmentSource={ioAttachments}
+            />
+            <TraceIOSection
+              key={`${selectionId}:metadata`}
+              title="Metadata"
+              content={metadata}
+              loading={ioLoading}
+              onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
+              attachmentSource={isTrace ? null : ioAttachments}
+            />
+          </>
+        )}
       </div>
     </div>
   );

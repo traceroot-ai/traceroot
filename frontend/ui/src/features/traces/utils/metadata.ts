@@ -61,3 +61,29 @@ export function stringifyMetadataEntries(entries: readonly MetadataEntry[]): str
 export function traceMetadataEntries(trace: TraceListItem): MetadataEntry[] {
   return parseMetadataEntries(trace.metadata_map);
 }
+
+/** Set by an SDK whose redaction function ran on this span before export. */
+const REDACTED_ATTRIBUTE = "traceroot.redacted";
+
+/**
+ * Drop internal `traceroot.span.*` keys and the redaction marker (shown as a header chip) so
+ * the Metadata panel shows only user metadata. Not the whole `traceroot.` namespace: SDK
+ * helpers record user-set values such as `traceroot.llm.model_parameters` here too.
+ */
+export function splitInternalMetadata(raw: string | null | undefined): {
+  metadata: string | null;
+  redacted: boolean;
+} {
+  if (!raw) return { metadata: raw ?? null, redacted: false };
+  try {
+    const parsed = JSON.parse(raw);
+    const filtered = Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([k]) => !k.startsWith("traceroot.span.") && k !== REDACTED_ATTRIBUTE,
+      ),
+    );
+    return { metadata: JSON.stringify(filtered), redacted: parsed[REDACTED_ATTRIBUTE] === true };
+  } catch {
+    return { metadata: raw, redacted: false };
+  }
+}
