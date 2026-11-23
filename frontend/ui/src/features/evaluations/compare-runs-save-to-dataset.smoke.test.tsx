@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Keeping a finding from the case inspector: "Save to dataset", on the case's root in the
+ * Keeping a finding from a comparison case: "Save to dataset", on the case's root in the
  * trace panel, acts on the candidate's result for the open case, through the evaluations'
  * own save drawer (update its source case, save it as a new case, or duplicate it as a
  * variant), starting from the candidate run's dataset. With no candidate result there is
- * nothing to save. An open save stays on the case it was opened for while the inspector
+ * nothing to save. An open save stays on the case it was opened for while the trace panel
  * moves on, and closing it puts focus back where the save started.
  */
 import * as React from "react";
@@ -124,7 +124,7 @@ function mount(initial: InspectedCase) {
 const inspector = () => screen.getByRole("dialog", { name: /^Case / });
 /** The comparison table's row whose input reads `input`. */
 const rowOf = (input: string) => {
-  // The comparison's table comes first; the inspector has tables of its own.
+  // The comparison's table comes first; the trace panel has tables of its own.
   const row = within(screen.getAllByRole("table")[0])
     .getAllByRole("row")
     .find((r) => within(r).queryByText(input, { exact: true }));
@@ -232,7 +232,7 @@ describe("CompareRunsView — save to dataset", () => {
     });
     fireEvent.click(rowOf("Ticket 5"));
     expect(screen.getByRole("dialog", { name: "Case 5 of 12" })).toBeTruthy();
-    // Nor when the inspector's candidate changes.
+    // Nor when the trace panel's candidate changes.
     fireEvent.click(
       within(inspector()).getByRole("button", { name: "Swap baseline and candidate" }),
     );
@@ -247,7 +247,7 @@ describe("CompareRunsView — save to dataset", () => {
     });
   });
 
-  it("stays open on a case with no candidate result, then gives focus to the inspector", async () => {
+  it("stays open on a case with no candidate result, then gives focus to the trace panel", async () => {
     mount({ caseToken: "id:case-3", pair: [BASE, CAND] });
     const drawer = within(await choose(/^Duplicate as a variant/));
     fireEvent.click(rowOf("Ticket 9"));

@@ -3,7 +3,7 @@
  * candidate; inside it either side can be any compared run, and swapping them is local to
  * it. The case stays the table's row, so a pair of two runs on another dataset than the
  * table's baseline is matched by input, as the table matched them, not by their shared
- * case id.
+ * case id (see `compareCase`).
  */
 import type { CompareModel } from "../model";
 

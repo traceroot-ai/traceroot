@@ -3,7 +3,9 @@
  * A comparison case opens in the trace panel on the candidate's real trace, in diff mode
  * against the baseline's, the two drawn as one tree. A result that reported no trace is
  * rebuilt from the result, as run detail does; a trace still being ingested waits with a
- * retry; a run with no result says so. Only the open case's two traces are fetched.
+ * retry; a run with no result says so. Only the open case's two traces are fetched. The
+ * case's root carries its usage on both runs: latency, cost and the task's tokens with the
+ * change, "—" for anything unknown, and each side's breakdown folded away.
  */
 import * as React from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -249,6 +251,11 @@ const withQueries = (ui: React.ReactElement) =>
 const open = (caseId: string) =>
   withQueries(<Page initial={{ caseToken: `id:${caseId}`, pair: null }} />);
 const inspector = () => screen.getByRole("dialog");
+/** A usage figure as shown for the pair, e.g. "1.0s → 1.2s+200ms". */
+const metric = (name: string) =>
+  within(inspector())
+    .getByRole("group", { name: "Usage for this case" })
+    .querySelector(`[data-metric="${name}"] dd`)?.textContent;
 /** The trace ids fetched so far. */
 const fetched = () =>
   traces.useTrace.mock.calls.filter(([, , enabled]) => enabled).map(([, traceId]) => traceId);
@@ -293,6 +300,8 @@ describe("A comparison case in the trace panel", () => {
     // Each side is named by its run.
     expect(within(output).getByRole("heading", { name: "Baseline · #1" })).toBeTruthy();
     expect(within(output).getByRole("heading", { name: "Candidate · #2" })).toBeTruthy();
+    // Save to dataset is the case's, at the root.
+    expect(within(inspector()).queryByRole("button", { name: "Save to dataset" })).toBeNull();
   });
 
   it("shows the plain trace of the candidate with diff mode off", async () => {
@@ -349,11 +358,15 @@ describe("A comparison case in the trace panel", () => {
     expect(within(inspector()).getByText("Trace is still being ingested")).toBeTruthy();
     fireEvent.click(within(inspector()).getByRole("button", { name: "Retry" }));
     expect(traces.refetch).toHaveBeenCalled();
+    // The case is still shown below the notice.
+    expect(within(inspector()).getByRole("region", { name: "Output" })).toBeTruthy();
   });
 
   it("says so when the candidate has no result", () => {
     open("export");
     expect(within(inspector()).getByText("#2 has no result for this case.")).toBeTruthy();
+    const output = within(within(inspector()).getByRole("region", { name: "Output" }));
+    expect(output.getByText("No result in this run")).toBeTruthy();
   });
 
   it("says why there is no baseline trace to compare with", async () => {
@@ -417,5 +430,62 @@ describe("A comparison case in the trace panel", () => {
     cleanup();
     open("sso");
     expect(new Set(fetched())).toEqual(new Set(["trace-b1", "trace-c1"]));
+  });
+});
+
+describe("Comparison case — usage", () => {
+  it("shows latency, cost and the task's tokens on both runs with the change", async () => {
+    open("sso");
+    await within(inspector()).findByRole("button", { name: "Save to dataset" });
+    expect(metric("Latency")).toBe("1.0s → 1.2s+200ms");
+    expect(metric("Cost")).toBe("$0.0100 → $0.0200+$0.0100");
+    // The task's own tokens; the judge's are evaluation overhead, not the candidate's.
+    expect(metric("Tokens")).toBe("1,200 → 1,450+250");
+  });
+
+  it("shows the task's tokens as 1,200 → 1,900 +700 when its spans used that many", async () => {
+    traces.byId.set("trace-c1", evaluation("trace-c1", "c", [1500, 400], false));
+    open("sso");
+    await within(inspector()).findByRole("button", { name: "Save to dataset" });
+    expect(metric("Tokens")).toBe("1,200 → 1,900+700");
+  });
+
+  it("reads — for anything unknown, never 0", () => {
+    open("refund");
+    // No latency on the baseline, no cost on the candidate, no trace on the baseline and
+    // the candidate's still being ingested.
+    expect(metric("Latency")).toBe("— → 1.0s");
+    expect(metric("Cost")).toBe("$0.0100 → —");
+    expect(metric("Tokens")).toBe("—");
+  });
+
+  it("says the tokens are loading while the traces load, apart from unknown", async () => {
+    traces.useTrace.mockImplementation((_p: string, _traceId: string, enabled: boolean) => ({
+      data: undefined,
+      isLoading: enabled,
+      isFetching: enabled,
+      isError: false,
+      refetch: traces.refetch,
+    }));
+    open("sso");
+    await within(inspector()).findByRole("button", { name: "Save to dataset" });
+    expect(metric("Tokens")).toBe("Loading");
+  });
+
+  it("breaks each side's usage down into the task and the evaluation, folded away at first", async () => {
+    open("sso");
+    await within(inspector()).findByRole("button", { name: "Save to dataset" });
+    const toggle = within(inspector()).getByRole("button", { name: "Usage breakdown" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    const usage = within(inspector()).getByRole("region", { name: "Usage breakdown" });
+    // Under "Baseline · #1", the baseline's own execution is not "Candidate execution".
+    expect(within(usage).getAllByText("Task execution")).toHaveLength(2);
+    expect(within(usage).queryByText("Candidate execution")).toBeNull();
+    expect(within(usage).getAllByText("judge-model")).toHaveLength(2);
+    const taskCosts = within(usage)
+      .getAllByText("Task cost")
+      .map((label) => label.parentElement?.textContent);
+    expect(taskCosts).toEqual(["Task cost$0.0100", "Task cost$0.0200"]);
   });
 });

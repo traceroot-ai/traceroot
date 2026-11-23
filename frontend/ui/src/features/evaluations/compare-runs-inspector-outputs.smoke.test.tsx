@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The case at the root of the inspector's trace panel, in diff mode: the case's input and
+ * The case at the root of the trace panel, in diff mode: the case's input and
  * expected output once (or per run when they differ), both runs' full outputs side by side
  * or as one inline diff (or the candidate against the expected output), each copyable, and
  * a scores table with each side's value, explanation and error and the change between them.
@@ -10,6 +10,9 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  BASELINE_RUN,
+  CANDIDATE_RUN,
+  PAIRED_FIXTURE,
   fixtureResult,
   fixtureRun,
   fixtureScore,
@@ -25,7 +28,7 @@ const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn() }));
 vi.mock("./hooks", () => hooks);
 vi.mock("@/features/traces/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/traces/hooks")>();
-  // No trace has loaded: the inspector's usage reads as pending.
+  // No trace has loaded: the case's usage reads as pending.
   const pending = { data: undefined, isLoading: true, isFetching: true, isError: false };
   return {
     ...actual,
@@ -188,7 +191,7 @@ const linesOf = (kind: "add" | "remove" | "context") =>
 const outputView = (name: string) =>
   fireEvent.click(within(inspector()).getByRole("button", { name }));
 
-describe("Case inspector — the case's outputs", () => {
+describe("Comparison case — the case's outputs", () => {
   it("shows the input and expected output once when both runs agree", () => {
     open("sso");
     const input = within(inspector()).getByRole("region", { name: "Input" });
@@ -269,7 +272,7 @@ const scoreRow = (scorer: string) => {
   return [...row.querySelectorAll("td")].map((td) => td.textContent);
 };
 
-describe("Case inspector — comparing outputs", () => {
+describe("Comparison case — comparing outputs", () => {
   it("compares each output as decoded once, so genuine strings keep their text", () => {
     open("price");
     expect(linesOf("remove")).toEqual(["1.50"]);
@@ -315,7 +318,7 @@ describe("Case inspector — comparing outputs", () => {
   });
 });
 
-describe("Case inspector — scores", () => {
+describe("Comparison case — scores", () => {
   it("lists each scorer's value on both runs with the change and each side's explanation", () => {
     open("sso");
     expect(scoreRow("quality")).toEqual([
@@ -334,7 +337,7 @@ describe("Case inspector — scores", () => {
     expect(scoreRow("exact")).toEqual(["exact", "0.0%", "100.0%", "Version mismatch"]);
   });
 
-  it("follows the inspector's pair, so a swap reverses the change", () => {
+  it("follows the trace panel's pair, so a swap reverses the change", () => {
     open("sso");
     fireEvent.click(
       within(inspector()).getByRole("button", { name: "Swap baseline and candidate" }),
@@ -345,5 +348,44 @@ describe("Case inspector — scores", () => {
       "60.0%Misses the reset step.",
       "−30.0 pp",
     ]);
+  });
+});
+
+describe("Comparison case — scores on a regression", () => {
+  // The paired fixture's case 2: quality 0.85 → 0.3, policy_violations 0 → 2 (lower is
+  // better), and the route scorer is categorical.
+  const openPaired = (caseId: string) => {
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: PAIRED_FIXTURE.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    withQueries(
+      <CompareRunsView
+        projectId="p1"
+        runIds={[BASELINE_RUN.id, CANDIDATE_RUN.id]}
+        baselineId={null}
+        onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
+        inspected={{ caseToken: `id:${caseId}`, pair: null }}
+        onInspect={vi.fn()}
+      />,
+    );
+  };
+
+  it("reads each scorer in its format and direction", () => {
+    openPaired("case-2");
+    expect(scoreRow("quality")).toEqual(["quality", "85.0%", "30.0%", "−55.0 pp"]);
+    expect(scoreRow("policy_violations")).toEqual(["policy_violations", "0", "2", "+2"]);
+  });
+
+  it("reads a categorical scorer as changed or not", () => {
+    openPaired("case-12");
+    expect(scoreRow("route")).toEqual(["route", "billing", "refunds", "Changed"]);
+    cleanup();
+    openPaired("case-3");
+    expect(scoreRow("route")).toEqual(["route", "billing", "billing", "No change"]);
   });
 });

@@ -170,10 +170,13 @@ describe("CompareRunsView — a case in the trace panel", () => {
     fireEvent.click(within(groupOf("Ticket 3")).getAllByText("run-2 output")[0]);
     expect(onInspect).toHaveBeenLastCalledWith({ caseToken: "id:case-3", pair: [BASE, CAND] });
     expect(screen.getByRole("dialog", { name: "Case 3 of 12" })).toBeTruthy();
-    // Diffed against the baseline.
+    // The case at the root of the panel, diffed against the baseline: both runs' outputs,
+    // baseline first.
     expect(
       within(inspector()).getByRole("button", { name: "Diff" }).getAttribute("aria-pressed"),
     ).toBe("true");
+    const outputLines = [...inspector().querySelectorAll("[data-line-text]")];
+    expect(outputLines.map((el) => el.textContent)).toEqual(["run-1 output", "run-2 output"]);
     expect(rowOf("Ticket 3").getAttribute("aria-current")).toBe("true");
   });
 
@@ -380,6 +383,9 @@ describe("CompareRunsView — a case in the trace panel", () => {
 /** The trace panel's run picker for one side. */
 const sidePicker = (side: "Baseline" | "Candidate") =>
   within(inspector()).getByRole("combobox", { name: `${side} run` });
+/** The output block for one side, e.g. "Baseline · #2". */
+const outputHeading = (side: "Baseline" | "Candidate") =>
+  within(inspector()).getByRole("heading", { name: new RegExp(`^${side} · `) }).textContent;
 
 describe("CompareRunsView — the trace panel's two runs", () => {
   it("opens with the run whose value was clicked as the candidate", () => {
@@ -415,6 +421,9 @@ describe("CompareRunsView — the trace panel's two runs", () => {
     expect(onChangeBaseline).not.toHaveBeenCalled();
     expect(sidePicker("Baseline").textContent).toBe("#2 candidate-v2");
     expect(sidePicker("Candidate").textContent).toBe("#1 baseline-v1");
+    // The case's outputs follow the swap, each under its run.
+    expect(outputHeading("Baseline")).toBe("Baseline · #2");
+    expect(outputHeading("Candidate")).toBe("Candidate · #1");
     // The table still compares against #1.
     const legend = runsLegendNow();
     expect(within(legend).getByRole("button", { name: /#1 baseline-v1/ }).textContent).toContain(

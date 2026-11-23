@@ -7,7 +7,7 @@ import { screen, within } from "@testing-library/react";
  * cell under a column on one run's line.
  */
 
-/** The comparison's table. */
+/** The comparison's table; the trace panel has tables of its own. */
 export const comparisonTable = () => screen.getAllByRole("table")[0];
 
 /** The case group (`<tbody>`) holding `text`. */
