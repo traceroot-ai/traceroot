@@ -62,6 +62,7 @@ export const fixtureRun = (
   errorCount: 0,
   baselineComparable: false,
   elapsedMs: null,
+  resultsTruncated: false,
   comparison: {
     available: false,
     trustworthy: false,

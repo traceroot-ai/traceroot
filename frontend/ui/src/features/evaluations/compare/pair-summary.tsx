@@ -4,10 +4,9 @@ import * as React from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { CountBlock, ScorerDirection } from "@/lib/eval/comparison";
 import { Delta } from "./cells";
+import { casesText } from "./coverage";
 import { formatMetricDelta, formatMetricValue } from "./metric-format";
 import type { Exclusion, PairComparison, ScorerColumn } from "./model";
-
-const casesText = (n: number) => `${n} ${n === 1 ? "case" : "cases"}`;
 
 /** One line of the "not included" list, e.g. "1 case with a task error in #2". */
 export function describeExclusion(e: Exclusion, tagOf: (runId: string) => string): string {
