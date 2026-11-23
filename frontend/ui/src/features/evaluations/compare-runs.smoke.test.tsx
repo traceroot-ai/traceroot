@@ -10,7 +10,7 @@
  * the duplicate-input rules on both sides (a baseline's duplicate rows stay distinct and
  * a lone cross case fills each of them; a cross run's own extra occurrences of one input
  * are dropped keep-first), and that the removed chrome (swap / main score / status /
- * filter tabs / verdict / row drill-in) is gone.
+ * filter tabs / verdict) is gone while a click on a row opens its case.
  *
  * Fixture: the ticket-routing lab (opus #41 baseline vs sonnet #42) sharing two
  * dataset rows; ticket-05 routes differently between the two runs.
@@ -121,7 +121,8 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
-const mount = (baselineId = "opus") =>
+const mount = (baselineId = "opus") => {
+  const onInspect = vi.fn();
   render(
     <CompareRunsView
       projectId="p1"
@@ -130,9 +131,11 @@ const mount = (baselineId = "opus") =>
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
       inspected={null}
-      onInspect={vi.fn()}
+      onInspect={onInspect}
     />,
   );
+  return onInspect;
+};
 
 /** The run legend's chip for the baseline run, in the Runs menu. */
 const baselineChip = () =>
@@ -266,16 +269,16 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getByText(/double-charged/)).toBeTruthy();
   });
 
-  it("has none of the removed chrome and no row drill-in", () => {
-    mount();
+  it("has none of the removed chrome", () => {
+    const onInspect = mount();
     expect(screen.queryByRole("button", { name: /Swap/ })).toBeNull();
     expect(screen.queryByText("Main score")).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Status" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Regressions/ })).toBeNull();
     expect(screen.queryByText("Regression")).toBeNull();
-    // Rows are not interactive (drill-in postponed): no trace panel exists to open.
+    // A click on a row opens its case in the trace panel, against the baseline.
     fireEvent.click(screen.getByText(/double-charged and I want a refund/));
-    expect(screen.queryByTestId("trace-panel")).toBeNull();
+    expect(onInspect).toHaveBeenCalledWith({ caseToken: "id:ticket-05", pair: ["opus", "sonnet"] });
   });
 
   it("compares runs across datasets by shared input (no refusal)", () => {
