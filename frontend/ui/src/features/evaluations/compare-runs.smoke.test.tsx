@@ -23,6 +23,7 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn() }));
 vi.mock("./hooks", () => hooks);
 
+import { cellAt, summaryGroup } from "./compare/__tests__/table-grid";
 import { CompareRunsView } from "./views/compare-runs-view";
 
 const SCORERS = ["routing_accuracy", "is_known_category"];
@@ -572,7 +573,11 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row2).getByText("C-out")).toBeTruthy();
     // (d): C's per-row duration (4.4s) shows in both rows, and both count in its mean latency.
     expect(screen.getAllByText("4.4s").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("2.1s → 4.4s")).toBeTruthy();
+    // The pair's summary line counts both rows: n=2, not just the one case.
+    expect(
+      within(cellAt(summaryGroup(), "haiku", "Latency")).getByText("2.1s → 4.4s"),
+    ).toBeTruthy();
+    expect(within(cellAt(summaryGroup(), "haiku", "Latency")).getByText("n=2")).toBeTruthy();
   });
 
   it("takes only a cross-dataset run's FIRST case for an input it measured more than once", () => {

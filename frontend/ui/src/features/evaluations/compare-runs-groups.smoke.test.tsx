@@ -175,6 +175,46 @@ describe("CompareRunsView — a run without values", () => {
   });
 });
 
+describe("CompareRunsView — a search that picks no case", () => {
+  it("says so in one row across all the table's columns", () => {
+    mount();
+    fireEvent.change(screen.getByPlaceholderText("Search..."), {
+      target: { value: "no case has this text" },
+    });
+    expect(caseGroups()).toHaveLength(0);
+    const message = screen.getByText("No rows match your search.");
+    const body = message.closest("tbody") as HTMLElement;
+    expect(body.querySelectorAll("tr")).toHaveLength(1);
+    const columns = within(screen.getAllByRole("table")[0]).getAllByRole("columnheader").length;
+    expect(message.closest("td")?.colSpan).toBe(columns);
+  });
+});
+
+describe("CompareRunsView — a run with no latency or cost", () => {
+  it("reads an unrecorded latency or cost as a dash, never zero", () => {
+    const unrecorded = (r: (typeof PAIRED_FIXTURE)[number]["results"][number]) =>
+      r.runId === CANDIDATE_RUN.id && r.testCaseId === "case-3"
+        ? { ...r, durationMs: null, cost: null }
+        : r;
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => {
+        const bundle = PAIRED_FIXTURE.find((b) => b.run.id === id);
+        return {
+          data: bundle && { ...bundle, results: bundle.results.map(unrecorded) },
+          isLoading: false,
+          isError: false,
+        };
+      }),
+    );
+    mount();
+    const group = caseGroup("Ticket 3");
+    expect(shownText(cellAt(group, CANDIDATE_RUN.id, "Latency"))).toBe("—");
+    expect(shownText(cellAt(group, CANDIDATE_RUN.id, "Cost"))).toBe("—");
+    // The runs that did record a latency still show it.
+    expect(shownText(cellAt(group, BASELINE_RUN.id, "Latency"))).toBe("1.0s");
+  });
+});
+
 describe("CompareRunsView — a group as one target", () => {
   it("highlights the whole group on hover", () => {
     mount();
