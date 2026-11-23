@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The trace viewer's diff mode and the hooks a host framing it uses (the evaluation
- * comparison's case inspector): the header names the host's item, a Diff toggle beside the
+ * comparison's trace panel): the header names the host's item, a Diff toggle beside the
  * view tabs compares the trace with a baseline trace of the same case, the host's controls
  * and the divergence sit beside it while it is on, and a host with no trace to show puts
  * its own notice in place of the tree and details.
@@ -240,6 +240,35 @@ describe("TraceViewerPanel diff mode", () => {
 
     renderPanel({ diffBaseline: { trace: BASELINE }, defaultDiffOn: true });
     expect(diffToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("stays as set while the host moves the panel to another trace", () => {
+    mocks.traces.set("trace-d", CANDIDATE);
+    const panel = (traceId: string, baseline: TraceDetail) => (
+      <TraceViewerPanel
+        projectId="p1"
+        traceId={traceId}
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        canNavigateUp
+        canNavigateDown
+        embedded
+        hideDetectors
+        diffBaseline={{ trace: baseline }}
+      />
+    );
+    const { rerender } = render(panel("trace-c", BASELINE));
+    expect(diffToggle().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(diffToggle());
+    expect(diffToggle().getAttribute("aria-pressed")).toBe("true");
+
+    rerender(panel("trace-d", traceOf("trace-b2", BASELINE.spans)));
+    expect(diffToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("titles the toggle for what it does", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE } });
+    expect(screen.getByTitle("Compare each span with the baseline run's trace")).toBe(diffToggle());
   });
 
   it("shows how the traces diverge, and the host's controls, while it is on", () => {

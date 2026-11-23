@@ -304,6 +304,19 @@ describe("SpanTreeView in diff mode on a retried call", () => {
     expect(tokens("judge").className).toContain("text-muted-foreground");
   });
 
+  it("shows the baseline's figures on a placeholder, with — for the side that never arrived", () => {
+    const { rows } = renderTree(
+      { trace: RUN_2 },
+      { baseline: RUN_1, nodes: traceUnion(RUN_1, RUN_2).nodes },
+    );
+    const agent = rows().find((r) => r.querySelector("[data-span-name]")!.textContent === "agent")!;
+    const duration = agent.querySelector<HTMLElement>('[data-metric="duration"]')!;
+    expect(duration.textContent).toBe("2.0s → —");
+    expect(duration.className).not.toContain("text-danger");
+    expect(duration.className).not.toContain("text-success");
+    expect(agent.dataset.diffState).toBe("matched");
+  });
+
   it("counts the run's own spans both ways round, leaving the scorer's out", () => {
     const chip = (nodes: Parameters<typeof DivergenceChip>[0]["nodes"]) => {
       const { container } = render(<DivergenceChip nodes={nodes} />);
