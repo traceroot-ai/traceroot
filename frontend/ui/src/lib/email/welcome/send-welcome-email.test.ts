@@ -17,7 +17,7 @@ vi.mock("@traceroot/core", () => ({
   escapeHtml: (s: string) => s,
   EMAIL_COLORS: { ink: "#0B1015", muted: "#5F646B" },
   EMAIL_FONT_STACK: "sans-serif",
-  EMAIL_LOGO_URL: "https://example.com/logo.png",
+  emailLogoImg: (height: number) => `<img src="https://example.com/logo.png" height="${height}">`,
   EMAIL_PIXEL_WORDMARK_URL: "https://example.com/pixel.png",
 }));
 
