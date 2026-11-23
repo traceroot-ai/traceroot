@@ -79,15 +79,21 @@ export function Delta({
 const WRAPPED = "whitespace-pre-wrap [overflow-wrap:anywhere]";
 
 /** Truncated text that reveals its full value on hover (no click, no chrome), or, when
- *  `wrap`, the full value itself, line breaks kept. `changes` marks the words that
- *  changed against a reference (`ChangedWords`), under the text and without touching it. */
+ *  `wrap`, the full value itself, line breaks kept. `actions` are its own controls
+ *  (`FieldActions`), laid over its end. A table row mounts them only while it is in use,
+ *  so the text keeps the same elements with or without them: replacing the text under the
+ *  pointer would drop a click on it, or a selection running through it. `changes` marks
+ *  the words that changed against a reference (`ChangedWords`), under the text and
+ *  without touching it. */
 export function TextValue({
   text,
   wrap = false,
+  actions,
   changes,
 }: {
   text: string | null;
   wrap?: boolean;
+  actions?: React.ReactNode;
   /** The trimmed text in segments, the changed ones marked. */
   changes?: readonly DiffSegment[] | null;
 }) {
@@ -99,9 +105,10 @@ export function TextValue({
     <ClippedText text={t} />
   );
   return (
-    <span className="relative block">
+    <span className="group/field relative block">
       {changes && <ChangedWords segments={changes} wrap={wrap} />}
       {shown}
+      {actions}
     </span>
   );
 }
@@ -177,7 +184,8 @@ export function CellStateLabel({ state }: { state: Exclude<CellState, { kind: "v
 
 /** One value per run, stacked and colour-keyed (in baseline-first display order). Each
  *  value carries its run's id, so a click on it can tell which run it was about. With
- *  `wrap`, a value may run over several lines, and its dot stays on the first. */
+ *  `wrap`, a value may run over several lines, and its dot stays on the first. A value's
+ *  `actions` sit on its line, beside the clipped value rather than inside it. */
 export function RunStack({
   values,
   align = "left",
@@ -189,6 +197,7 @@ export function RunStack({
     dot: string;
     label: string;
     node: React.ReactNode;
+    actions?: React.ReactNode;
   }[];
   align?: "left" | "right";
   /** The values carry their own tooltip, so the native title would stack a second one. */
@@ -202,7 +211,11 @@ export function RunStack({
           key={v.runId}
           data-run-id={v.runId}
           title={tooltipped ? undefined : v.label}
-          className={cn("flex max-w-full gap-1.5", wrap ? "items-start" : "items-center")}
+          className={cn(
+            "flex max-w-full gap-1.5",
+            wrap ? "items-start" : "items-center",
+            v.actions && "group/field relative",
+          )}
         >
           {wrap ? (
             <span className="flex h-[1lh] shrink-0 items-center">
@@ -215,6 +228,7 @@ export function RunStack({
             <RunLabel label={v.label} />
             {v.node}
           </span>
+          {v.actions}
         </span>
       ))}
     </div>

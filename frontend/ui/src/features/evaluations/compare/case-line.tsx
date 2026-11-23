@@ -144,6 +144,7 @@ export function CaseLine({
   input,
   expected,
   tabStop,
+  outputActions,
 }: {
   runId: string;
   /** The run's result for the case; absent when it has none. */
@@ -168,6 +169,8 @@ export function CaseLine({
   /** On the first line: the group's tab stop, whether its case is open, and the text
    *  telling how to open it. */
   tabStop?: { order: number; open: boolean; describedBy?: string };
+  /** The output's own controls, while the group is in use. */
+  outputActions?: React.ReactNode;
 }) {
   const shows = (id: Parameters<typeof isShown>[1]) => isShown(display, id);
   const wrap = display.text === "wrap";
@@ -199,7 +202,14 @@ export function CaseLine({
     if (taskError !== null && !failure) {
       return <CellStateLabel state={{ kind: "task_error", message: taskError }} />;
     }
-    return <TextValue text={result.candidateOutput} wrap={wrap} changes={changes} />;
+    return (
+      <TextValue
+        text={result.candidateOutput}
+        wrap={wrap}
+        actions={outputActions}
+        changes={changes}
+      />
+    );
   };
   // With no result, everything after Output is one empty cell (holding the message only
   // when Output is hidden). `max-w-0` keeps a long message from widening the columns.

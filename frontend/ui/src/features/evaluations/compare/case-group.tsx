@@ -7,6 +7,7 @@ import type { ResultRow } from "../types";
 import { CaseLine } from "./case-line";
 import { GROUP_EDGE, INPUT_COLUMN, PINNED_FILL, RunStack, TextValue } from "./cells";
 import { isShown, type DisplayPrefs } from "./display";
+import { FieldActions } from "./field-actions";
 import {
   expectedKeyOf,
   inputKeyOf,
@@ -32,7 +33,8 @@ import { clickOpensRow } from "./row-activation";
  * its cells into one label for a screen reader), and `describedBy` tells how to open it.
  *
  * `display` is the viewer's layout: comfortable lines get more room, wrapped text shows in
- * full, and a hidden column has no cell.
+ * full, and a hidden column has no cell. Each text value can be copied, or opened in the
+ * trace panel on its run, from controls of its own (`FieldActions`).
  *
  * Memoized: a comparison can hold thousands of cases, and a keystroke in the search or a
  * case opening should re-render only the groups it changes, so every prop is stable.
@@ -87,9 +89,20 @@ export const CaseGroup = React.memo(function CaseGroup({
   const collapsedInput = collapsed((r) => r.input, inputKeyOf);
   const collapsedExpected = collapsed((r) => r.expectedOutput, expectedKeyOf);
 
+  // The group's value controls are built only while it is hovered or holds focus: a long
+  // comparison would otherwise mount two buttons per value that go unused. Only they come
+  // and go; the text beside them keeps its elements (see `TextValue`).
+  const [hovered, setHovered] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
+  const live = hovered || focused;
+
   const wrap = display.text === "wrap";
+  // A text value's controls, named for it, opening the case on its run; a value every
+  // run shares (no run) opens the default pair.
+  const controls = (text: string | null, name: string, runId: string | null) =>
+    live && <FieldActions text={text} name={name} onOpen={() => onOpenRow(row, runId)} />;
   // Input or Expected when the runs differ on it: each run's own, marked with its run.
-  const split = (get: (r: ResultRow) => string | null) => (
+  const split = (what: string, get: (r: ResultRow) => string | null) => (
     <RunStack
       tooltipped
       wrap={wrap}
@@ -101,28 +114,40 @@ export const CaseGroup = React.memo(function CaseGroup({
           dot: dotFor(b.run.id),
           label: labelOf(b.run.id),
           node: <TextValue text={get(r)} wrap={wrap} />,
+          actions: controls(get(r), `${tagOf(b.run.id)} ${what}`, b.run.id),
         };
       })}
     />
   );
   const spanning = (
     className: string,
+    what: string,
     shared: string | null | undefined,
     get: (r: ResultRow) => string | null,
   ) => (
     <Td rowSpan={ordered.length} className={cn("align-top", className, GROUP_EDGE)}>
-      {shared !== undefined ? <TextValue text={shared} wrap={wrap} /> : split(get)}
+      {shared !== undefined ? (
+        <TextValue text={shared} wrap={wrap} actions={controls(shared, what, null)} />
+      ) : (
+        split(what, get)
+      )}
     </Td>
   );
   // Input names the case, so it stays in view while the table scrolls sideways.
   const input = spanning(
     cn("col-sticky-start", INPUT_COLUMN, PINNED_FILL),
+    "input",
     collapsedInput,
     (r) => r.input,
   );
   const expected =
     isShown(display, "expected") &&
-    spanning("max-w-[240px] text-muted-foreground", collapsedExpected, (r) => r.expectedOutput);
+    spanning(
+      "max-w-[240px] text-muted-foreground",
+      "expected output",
+      collapsedExpected,
+      (r) => r.expectedOutput,
+    );
 
   const onClick = (e: React.MouseEvent<HTMLTableSectionElement>) => {
     const target = e.target as Element;
@@ -138,25 +163,36 @@ export const CaseGroup = React.memo(function CaseGroup({
     e.preventDefault();
     onOpenRow(row, null);
   };
+  const onBlur = (e: React.FocusEvent<HTMLTableSectionElement>) => {
+    // Focus moving within the group keeps its controls, and so does the window losing
+    // focus (the control is focused again on return, so it must still be there).
+    const next = e.relatedTarget ?? document.activeElement;
+    if (!e.currentTarget.contains(next)) setFocused(false);
+  };
 
   return (
     <TBody
       data-selected={open ? "true" : undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={onBlur}
       className={cn(
-        // `group/row`: pinned cells take the group's fill.
+        // `group/row`: pinned cells and a value's controls take the group's fill.
         "group/row cursor-pointer",
         open ? "bg-accent" : "hover:bg-muted has-[>tr:focus-visible]:bg-muted",
       )}
     >
       {ordered.map((b, i) => {
         const runId = b.run.id;
+        const r = row.byRun.get(runId);
         return (
           <CaseLine
             key={runId}
             runId={runId}
-            result={row.byRun.get(runId)}
+            result={r}
             isBaseline={b === baseline}
             baselineResult={row.byRun.get(baseline.run.id)}
             pairCase={pairs.get(runId)?.byCase.get(row.key)}
@@ -170,6 +206,7 @@ export const CaseGroup = React.memo(function CaseGroup({
             input={i === 0 ? input : undefined}
             expected={i === 0 ? expected : undefined}
             tabStop={i === 0 ? { order: row.order, open, describedBy } : undefined}
+            outputActions={r && controls(r.candidateOutput, `${tagOf(runId)} output`, runId)}
           />
         );
       })}

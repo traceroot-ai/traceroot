@@ -179,7 +179,8 @@ describe("CompareRunsView — run identity", () => {
   it("leaves a value that has its own tooltip without a native title", () => {
     mount();
     const output = cellAt(caseRow("Ticket 2"), CANDIDATE_RUN.id, "Output");
-    expect(output.querySelectorAll("[title]")).toHaveLength(0);
+    // The field's Copy and Open buttons keep their own labels.
+    expect(output.querySelectorAll("[title]:not(button)")).toHaveLength(0);
   });
 
   it("names the run behind each summary line", () => {

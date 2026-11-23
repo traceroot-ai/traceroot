@@ -264,9 +264,14 @@ describe("CompareRunsView — a run with no latency or cost", () => {
 });
 
 describe("CompareRunsView — a group as one target", () => {
-  it("highlights the whole group on hover", () => {
+  it("highlights the whole group on hover, and builds every line's controls", () => {
     mount();
-    expect(caseGroup("Ticket 2").className).toContain("hover:bg-muted");
+    const group = caseGroup("Ticket 2");
+    expect(group.className).toContain("hover:bg-muted");
+    expect(within(group).queryByRole("button", { name: "Copy #3 output" })).toBeNull();
+    fireEvent.mouseEnter(lineOf(group, CANDIDATE_RUN.id));
+    expect(within(group).getByRole("button", { name: "Copy #3 output" })).toBeTruthy();
+    expect(within(group).getByRole("button", { name: "Copy #1 output" })).toBeTruthy();
   });
 
   it("opens the case on the run of the line clicked, and the baseline's line on the default pair", () => {
