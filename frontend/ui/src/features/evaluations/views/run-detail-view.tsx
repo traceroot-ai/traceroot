@@ -4,7 +4,7 @@ import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader"
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Search, X } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -13,155 +13,20 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useSeedTraceIO } from "@/features/offline-eval/components";
 import { TraceViewerPanel } from "@/features/traces/components";
 import { useTrace } from "@/features/traces/hooks";
-import type { Span, TraceDetail } from "@/types/api";
-import type { SpanKind, SpanStatus } from "@traceroot/core";
-import { cn } from "@/lib/utils";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { useEvaluationRun } from "../hooks";
+import { PendingTraceNotice } from "../components/pending-trace-notice";
+import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { oldestFirst } from "../compare/run-order";
 import { RunPicker } from "../compare/run-picker";
-import { SaveTestCaseDrawer } from "../components/trace-integration";
-import type { ResultRow, RunDetail, RunRow, ScoreRow } from "../types";
+import { buildEvalTrace, scoreValue } from "../eval-trace";
+import type { ResultRow, RunRow } from "../types";
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "Unknown";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function scoreValue(s: ScoreRow): string {
-  if (s.error) return "error";
-  if (s.numericValue !== null) return String(s.numericValue);
-  if (s.boolValue !== null) return s.boolValue ? "true" : "false";
-  if (s.stringValue !== null) return s.stringValue;
-  if (s.passed !== null) return s.passed ? "pass" : "fail";
-  return "—";
-}
-
-/** Base span with the fields the trace viewer expects; `partial` overrides. */
-function evalSpan(
-  partial: Partial<Span> & Pick<Span, "span_id" | "trace_id" | "name" | "span_kind">,
-): Span {
-  return {
-    parent_span_id: null,
-    span_start_time: "1970-01-01T00:00:00.000Z",
-    span_end_time: "1970-01-01T00:00:00.000Z",
-    status: "OK" as SpanStatus,
-    status_message: null,
-    error_type: partial.status === "ERROR" ? "unknown" : "",
-    model_name: null,
-    cost: null,
-    input_tokens: null,
-    output_tokens: null,
-    total_tokens: null,
-    input: null,
-    output: null,
-    metadata: null,
-    git_source_file: null,
-    git_source_line: null,
-    git_source_function: null,
-    ...partial,
-  };
-}
-
-/**
- * The eval-shaped trace for one result, so the run detail opens into the real
- * trace viewer (span tree + span detail) — the shape the SDK reports:
- *
- *   evaluation item (root)
- *     ├─ task span      ← the candidate application's run
- *     ├─ scorer span    ← siblings of the task, one per scorer that ran
- *     └─ scorer span
- *
- * Built from the actual result + scores only (no fabricated sub-spans). This is a
- * clearly-LABELED fallback, used only when a result emitted no real trace; a result
- * with a real ingested trace opens that real trace directly instead.
- */
-function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
-  const id = result.traceId || `eval-${result.id}`;
-  const failed = Boolean(result.taskError);
-  const rootStatus = (failed ? "ERROR" : "OK") as SpanStatus;
-
-  // Ordered fake timestamps so the reconstructed tree is deterministic and reads in
-  // the real order: task first, then scorers (which run after it). Without distinct
-  // starts, the stable sibling sort would tie and fall back to span_id.
-  const base = new Date(result.createTime).getTime();
-  const t0 = Number.isFinite(base) ? base : 0;
-  const iso = (ms: number) => new Date(ms).toISOString();
-
-  const spans: Span[] = [
-    evalSpan({
-      span_id: `${id}-root`,
-      trace_id: id,
-      name: `${run.evaluationName} · ${result.testCaseId}`,
-      span_kind: "AGENT" as SpanKind,
-      span_start_time: iso(t0),
-      span_end_time: iso(t0 + result.scores.length + 2),
-      input: result.input,
-      output: result.candidateOutput,
-      status: rootStatus,
-      status_message: result.taskError ?? null,
-      metadata: JSON.stringify({
-        evaluation: run.evaluationName,
-        candidate_version: run.candidateVersion,
-        dataset: run.datasetName,
-        test_case: result.testCaseId,
-      }),
-    }),
-    evalSpan({
-      span_id: `${id}-task`,
-      trace_id: id,
-      parent_span_id: `${id}-root`,
-      name: "task",
-      span_kind: "SPAN" as SpanKind,
-      span_start_time: iso(t0),
-      span_end_time: iso(t0 + 1),
-      input: result.input,
-      output: result.candidateOutput,
-      cost: result.cost,
-      status: rootStatus,
-      status_message: result.taskError ?? null,
-      metadata: JSON.stringify({ step: "task" }),
-    }),
-  ];
-
-  // Scorer spans — siblings of the task, one per scorer that ran, starting after it.
-  result.scores.forEach((s, i) => {
-    spans.push(
-      evalSpan({
-        span_id: `${id}-scorer-${s.id}`,
-        trace_id: id,
-        parent_span_id: `${id}-root`,
-        name: s.scorerName,
-        span_kind: "SPAN" as SpanKind,
-        span_start_time: iso(t0 + i + 2),
-        span_end_time: iso(t0 + i + 2),
-        input: `output: ${result.candidateOutput ?? "—"}\nexpected: ${result.expectedOutput ?? "—"}`,
-        output: s.error ?? scoreValue(s),
-        status: (s.error ? "ERROR" : "OK") as SpanStatus,
-        status_message: s.error ?? null,
-        metadata: JSON.stringify({ scorer: s.scorerName, version: s.scorerVersion }),
-      }),
-    );
-  });
-
-  return {
-    trace_id: id,
-    project_id: run.evaluationId,
-    name: `${run.evaluationName} · ${result.testCaseId}`,
-    trace_start_time: result.createTime,
-    user_id: null,
-    session_id: null,
-    git_ref: null,
-    git_repo: null,
-    environment: "evaluation",
-    release: null,
-    input: result.input,
-    output: result.candidateOutput,
-    metadata: JSON.stringify({ evaluation: run.evaluationName, test_case: result.testCaseId }),
-    spans,
-  };
 }
 
 /**
@@ -402,23 +267,7 @@ function PendingTracePanel({
           <X className="h-4 w-4" />
         </Button>
       </div>
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-[12px]">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
-        <p className="text-[13px] font-medium">Trace is still being ingested</p>
-        <p className="max-w-[360px] leading-relaxed text-muted-foreground">
-          This result reported a trace (<span className="font-mono">{traceId.slice(0, 12)}…</span>),
-          but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it lands.
-        </p>
-        <Button
-          variant="outline"
-          className="h-7 gap-1.5 text-[12px]"
-          disabled={isFetching}
-          onClick={onRetry}
-        >
-          <Loader2 className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} aria-hidden />
-          Retry
-        </Button>
-      </div>
+      <PendingTraceNotice traceId={traceId} isFetching={isFetching} onRetry={onRetry} />
     </div>
   );
 }
