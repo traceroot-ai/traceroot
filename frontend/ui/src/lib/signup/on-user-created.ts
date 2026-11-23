@@ -1,5 +1,5 @@
 // Everything that follows a new account (demo workspace access, Resend contact,
-// welcome email, Slack notice), run from better-auth's user.create.after hook.
+// welcome email, or on the cloud service its due time, Slack notice), run from better-auth's user.create.after hook.
 // Each arm is on only when its own config is set and never rejects. The
 // contact is created before the welcome because Resend delivers topic mail to
 // non-contacts, and the opt-out needs a record.
@@ -7,6 +7,8 @@ import { prisma } from "@traceroot/core";
 import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
+import { scheduleWelcome } from "@/lib/email/welcome/welcome-schedule";
+import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
@@ -57,11 +59,16 @@ export async function onUserCreated(
     return;
   }
 
+  // The contact is made at sign-up wherever the welcome is sent: the newsletter
+  // and the opt-out need everyone who signed up to be one.
   const welcome = isProductMailConfigured()
     ? arm("welcome email", user.id, async () => {
         const contact = await arm("resend contact", user.id, () =>
           ensureContact({ email: user.email, name: user.name }),
         );
+        // The cloud welcome waits for the sign-up questions, 15 minutes at
+        // most (lib/email/welcome/welcome-schedule.ts).
+        if (isCloud()) return scheduleWelcome(user.id);
         if (!contact?.ok) {
           console.warn(`[signup] welcome email skipped for user ${user.id}: contact not recorded`);
           return;

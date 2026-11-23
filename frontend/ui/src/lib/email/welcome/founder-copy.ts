@@ -5,10 +5,10 @@
  */
 import type { FounderEmailCopy } from "../founder-email";
 
+/** "exploring" is the look-around version, for someone just looking around for now. */
 export type WelcomeVariant = "generic" | "exploring";
 
 export interface FounderWelcomeInput {
-  /** "exploring" for someone whose only answer to "What will you use traceroot for?" was Just exploring. */
   variant: WelcomeVariant;
   /** The demo project, or the app when there is none. */
   demoUrl: string;
@@ -23,42 +23,40 @@ export interface FounderWelcomeInput {
 export const WELCOME_SETUP_COMMAND = "npx -y traceroot-cli@latest setup";
 
 export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy {
-  const stuck = `Stuck on anything? Reply to this email and a person on the team will answer. If you’d like a hand with setup, [pick a time on my calendar](${input.bookingUrl}).`;
   const closing = [
-    input.followUpLine
-      ? `Over the next few weeks we will send a few short emails on what to do after your first trace. ${stuck}`
-      : stuck,
-    ...(input.slackInviteLine
+    `If you’d like a hand with setup, [pick a time on my calendar](${input.bookingUrl}).`,
+    ...(input.followUpLine
       ? [
-          "You will also get an invite from Slack to a private channel with our team. You can ask us anything there.",
+          "Over the next few weeks we will send a few short emails on what to do after your first trace.",
         ]
       : []),
-    `traceroot is open source. Don't forget to [star ⭐ our repo on GitHub](${input.githubUrl})!`,
+    ...(input.slackInviteLine
+      ? [
+          "You’ll also get a separate email from Slack inviting you to a private channel with our team.",
+        ]
+      : []),
+    `[Star traceroot on GitHub](${input.githubUrl})`,
   ];
 
   if (input.variant === "exploring") {
     return {
-      subject: "Take a look around traceroot",
+      subject: "A trace you can explore",
       paragraphs: [
-        "Welcome to traceroot.",
-        "You can see what it does before connecting anything. The demo project has real traces. Open one and follow each step the agent took.",
+        "Welcome to traceroot. I’d start with the demo project. Pick a trace and open a tool call to see what the agent sent and what came back.",
       ],
       button: { label: "Open the demo project", url: input.demoUrl },
       after: [
-        "When you want it on your own agent, setup is one command, run in the project you want to trace:",
-        `    ${WELCOME_SETUP_COMMAND}`,
+        `When you’re ready to try it on your own agent, run \`${WELCOME_SETUP_COMMAND}\` in your project.`,
         ...closing,
       ],
     };
   }
   return {
-    subject: "Send your first trace to traceroot",
+    subject: "Send your first trace",
     paragraphs: [
-      "Welcome to traceroot.",
-      "Start by sending one trace. Run this in the project you want to trace and your coding agent adds the instrumentation:",
-      `    ${WELCOME_SETUP_COMMAND}`,
-      "When the trace arrives you can open it and see every step your agent took.",
-      `Want to look around first? The [demo project](${input.demoUrl}) has real traces to click through.`,
+      `Welcome to traceroot. Open the project you want to trace and run \`${WELCOME_SETUP_COMMAND}\`. Once setup finishes, run your agent as you normally would.`,
+      "Open the trace from that run. You’ll see which tools your agent called and how long each step took.",
+      "If you get stuck, reply and tell us which framework you’re using.",
       ...closing,
     ],
   };

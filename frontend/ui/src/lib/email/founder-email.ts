@@ -5,8 +5,8 @@
  *
  * Laid out as the welcome email: the pixel wordmark, "Hi <name>,", the body,
  * the sign-off, the small wordmark, and the opt-out line linking to the
- * unsubscribe page. In a paragraph, `[label](url)` is a link and a line
- * indented four spaces is a command.
+ * unsubscribe page. In a paragraph, `[label](url)` is a link, `backticks`
+ * mark code, and a line indented four spaces is a command.
  */
 import {
   EMAIL_COLORS,
@@ -34,6 +34,8 @@ export interface FounderEmailCopy {
 
 const LINK = /\[([^\]]+)\]\(([^\s)]+)\)/g;
 const COMMAND = /^ {4}/;
+const INLINE_CODE = /`([^`]+)`/g;
+const CODE_STYLE = "padding:1px 4px;background:#F4F4F6;border-radius:4px;font-size:13px";
 
 const toText = (paragraph: string) => paragraph.replace(LINK, "$1 ($2)");
 
@@ -41,7 +43,10 @@ function toHtml(paragraph: string): string {
   if (COMMAND.test(paragraph)) {
     return `<pre style="margin:0 0 16px;padding:10px 12px;background:#F4F4F6;border-radius:6px;font-size:13px;white-space:pre-wrap"><code>${escapeHtml(paragraph.replace(COMMAND, ""))}</code></pre>`;
   }
-  return `<p>${escapeHtml(paragraph).replace(LINK, `<a href="$2" ${LINK_STYLE}>$1</a>`)}</p>`;
+  const html = escapeHtml(paragraph)
+    .replace(LINK, `<a href="$2" ${LINK_STYLE}>$1</a>`)
+    .replace(INLINE_CODE, `<code style="${CODE_STYLE}">$1</code>`);
+  return `<p>${html}</p>`;
 }
 
 /** The black button of the product's email card. */

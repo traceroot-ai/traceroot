@@ -76,19 +76,41 @@ describe("on the cloud service", () => {
     expect(key).toEqual({ userId: "u1", campaign: "welcome", kind: "product" });
     const email = build();
     expect(email).toMatchObject({
-      subject: "Send your first trace to traceroot",
+      subject: "Send your first trace",
       idempotencyKey: "welcome/u1",
       headers: { "List-Unsubscribe": "<x>" },
     });
     expect(email.text).toContain("Hi new,");
     expect(email.text).toContain("Best,\nXinwei He\nTraceRoot.AI | CEO\n");
     expect(email.text).not.toMatch(/devs/i);
+    expect(email.text).toContain(`Unsubscribe from product emails: ${unsubscribeUrl}`);
+    expect(email.text).toContain("pick a time on my calendar (https://cal.com/traceroot/30min)");
+    expect(email.text).not.toContain("email from Slack");
+  });
+
+  it("sends the look-around version, with the demo project, when asked for it", async () => {
+    deployment.cloud = true;
+    await sendWelcomeEmail({ ...input, variant: "exploring" });
+    const email = core.sendOnce.mock.calls[0][2]();
+    expect(email.subject).toBe("A trace you can explore");
     expect(email.text).toContain(
-      `If you don't want to hear from us again, let us know: ${unsubscribeUrl}`,
+      "Open the demo project: https://app.example.com/projects/demo/traces",
     );
-    expect(email.text).toContain("https://app.example.com/projects/demo/traces");
-    // The Slack invite line waits for the invite switch and a work address.
-    expect(email.text).not.toContain("invite from Slack");
+  });
+
+  it.each([
+    ["switch off, work address", undefined, "kai@acme.com", false],
+    ["switch on, work address", "true", "kai@acme.com", true],
+    ["switch on, personal address", "true", "kai@gmail.com", false],
+    ["switch on, school address", "true", "kai@cs.stanford.edu", false],
+    ["switch on, school address abroad", "true", "kai@ox.ac.uk", false],
+  ])("says a Slack invite is coming only when it is (%s)", async (_case, on, email, said) => {
+    deployment.cloud = true;
+    vi.stubEnv("WELCOME_SLACK_INVITE_LINE_ENABLED", on ?? "");
+    await sendWelcomeEmail({ ...input, email });
+    const built = core.sendOnce.mock.calls[0][2]();
+    expect(built.text.includes("separate email from Slack")).toBe(said);
+    vi.unstubAllEnvs();
   });
 
   it.each([

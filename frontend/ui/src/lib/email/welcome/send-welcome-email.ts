@@ -16,11 +16,18 @@ import { isCloud } from "@/lib/server/cloud";
 import { followUpMode } from "@/lib/lifecycle/follow-up-job";
 import { demoProjectUrl } from "../demo-link";
 import { renderFounderEmail } from "../founder-email";
-import { founderWelcomeCopy } from "./founder-copy";
+import { founderWelcomeCopy, type WelcomeVariant } from "./founder-copy";
+import { slackInviteLineFor } from "./slack-invite-line";
 import { displayFirstName, renderWelcome } from "./render";
 
 export async function sendWelcomeEmail(
-  input: { userId: string; email: string; name: string | null },
+  input: {
+    userId: string;
+    email: string;
+    name: string | null;
+    /** The cloud version; the self-hosted welcome has one. */
+    variant?: WelcomeVariant;
+  },
   options: { db?: EmailSendClient; fetchImpl?: typeof fetch } = {},
 ): Promise<SendOnceResult> {
   const { userId, email } = input;
@@ -42,17 +49,13 @@ export async function sendWelcomeEmail(
       const { subject, text, html } = cloud
         ? renderFounderEmail(
             founderWelcomeCopy({
-              // Sent at sign-up, before the questions; the Just exploring
-              // version needs their answers.
-              variant: "generic",
+              variant: input.variant ?? "generic",
               demoUrl,
               bookingUrl: clientEnv.NEXT_PUBLIC_FOUNDERS_CAL_URL,
               githubUrl: clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL,
               // Promised only while the follow-ups are actually being sent.
               followUpLine: followUpMode() === "send",
-              // Needs the lead service's invite switch and a work address;
-              // off until both are wired up.
-              slackInviteLine: false,
+              slackInviteLine: slackInviteLineFor(email),
             }),
             { firstName, unsubscribeUrl },
           )

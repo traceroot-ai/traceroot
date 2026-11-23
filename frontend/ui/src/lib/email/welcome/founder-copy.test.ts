@@ -18,76 +18,98 @@ const render = (overrides: Partial<FounderWelcomeInput> = {}, firstName: string 
   });
 const SIGNOFF = "Best,\nXinwei He\nTraceRoot.AI | CEO";
 
+const LINK = 'style="color:#0B1015;text-decoration:underline"';
+const CALENDAR = `If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`;
+const FOLLOW_UPS =
+  "Over the next few weeks we will send a few short emails on what to do after your first trace.";
+const SLACK =
+  "You’ll also get a separate email from Slack inviting you to a private channel with our team.";
+const STAR = `Star traceroot on GitHub (${BASE.githubUrl})`;
+const FOOTER = ["", SIGNOFF, "", `Unsubscribe from product emails: ${UNSUB}`];
+
 describe("the cloud welcome email, as approved", () => {
-  it("generic version, with both preview lines", () => {
-    const { subject, text } = render();
-    expect(subject).toBe("Send your first trace to traceroot");
+  it("standard version, with both announcements", () => {
+    const { subject, text, html } = render();
+    expect(subject).toBe("Send your first trace");
     expect(text).toBe(
       [
         "Hi Sam,",
         "",
-        "Welcome to traceroot.",
+        "Welcome to traceroot. Open the project you want to trace and run `npx -y traceroot-cli@latest setup`. Once setup finishes, run your agent as you normally would.",
         "",
-        "Start by sending one trace. Run this in the project you want to trace and your coding agent adds the instrumentation:",
+        "Open the trace from that run. You’ll see which tools your agent called and how long each step took.",
         "",
-        "    npx -y traceroot-cli@latest setup",
+        "If you get stuck, reply and tell us which framework you’re using.",
         "",
-        "When the trace arrives you can open it and see every step your agent took.",
+        CALENDAR,
         "",
-        `Want to look around first? The demo project (${BASE.demoUrl}) has real traces to click through.`,
+        FOLLOW_UPS,
         "",
-        `Over the next few weeks we will send a few short emails on what to do after your first trace. Stuck on anything? Reply to this email and a person on the team will answer. If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`,
+        SLACK,
         "",
-        "You will also get an invite from Slack to a private channel with our team. You can ask us anything there.",
-        "",
-        `traceroot is open source. Don't forget to star ⭐ our repo on GitHub (${BASE.githubUrl})!`,
-        "",
-        SIGNOFF,
-        "",
-        `If you don't want to hear from us again, let us know: ${UNSUB}`,
+        STAR,
+        ...FOOTER,
       ].join("\n"),
     );
+    // Links only; the standard version has no button.
+    expect(html).not.toContain("display:inline-block");
+    expect(html).toContain(
+      '<code style="padding:1px 4px;background:#F4F4F6;border-radius:4px;font-size:13px">npx -y traceroot-cli@latest setup</code>',
+    );
+    expect(html).toContain(`<a href="${BASE.githubUrl}" ${LINK}>Star traceroot on GitHub</a>`);
   });
 
-  it("Just exploring version, with the demo project as its button", () => {
+  it("look-around version, with the demo project as its button", () => {
     const { subject, text, html } = render({ variant: "exploring" });
-    expect(subject).toBe("Take a look around traceroot");
-    expect(text).toContain(
-      "You can see what it does before connecting anything. The demo project has real traces. Open one and follow each step the agent took.",
+    expect(subject).toBe("A trace you can explore");
+    expect(text).toBe(
+      [
+        "Hi Sam,",
+        "",
+        "Welcome to traceroot. I’d start with the demo project. Pick a trace and open a tool call to see what the agent sent and what came back.",
+        "",
+        `Open the demo project: ${BASE.demoUrl}`,
+        "",
+        "When you’re ready to try it on your own agent, run `npx -y traceroot-cli@latest setup` in your project.",
+        "",
+        CALENDAR,
+        "",
+        FOLLOW_UPS,
+        "",
+        SLACK,
+        "",
+        STAR,
+        ...FOOTER,
+      ].join("\n"),
     );
-    expect(text).toContain(`Open the demo project: ${BASE.demoUrl}`);
-    expect(text).toContain(
-      "When you want it on your own agent, setup is one command, run in the project you want to trace:",
-    );
-    expect(text).toContain(SIGNOFF);
-    expect(html).toContain(`>Open the demo project</a>`);
+    expect(html).toContain(`<a href="${BASE.demoUrl}" style="display:inline-block`);
+    expect(html).toContain(">Open the demo project</a>");
   });
 
   it.each(["generic", "exploring"] as const)(
-    "%s: without the follow-ups running or an invite coming, keeps the offer of help and leaves out the promises",
+    "%s: each announcement appears only with its switch",
     (variant) => {
-      const { text } = render({ variant, followUpLine: false, slackInviteLine: false });
-      expect(text).toContain(
-        `Stuck on anything? Reply to this email and a person on the team will answer. If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`,
-      );
-      expect(text).not.toContain("Over the next few weeks");
-      expect(text).not.toContain("invite from Slack");
+      const none = render({ variant, followUpLine: false, slackInviteLine: false }).text;
+      expect(none).not.toContain(FOLLOW_UPS);
+      expect(none).not.toContain(SLACK);
+      expect(none).toContain(`${CALENDAR}\n\n${STAR}`);
+      const followUpsOnly = render({ variant, slackInviteLine: false }).text;
+      expect(followUpsOnly).toContain(`${CALENDAR}\n\n${FOLLOW_UPS}\n\n${STAR}`);
+      const slackOnly = render({ variant, followUpLine: false }).text;
+      expect(slackOnly).toContain(`${CALENDAR}\n\n${SLACK}\n\n${STAR}`);
     },
   );
 
   it.each(["generic", "exploring"] as const)(
-    "%s offers a call on the booking page, linked in HTML and written out in text",
+    "%s links the configured calendar once, in HTML and in text",
     (variant) => {
-      const { text, html } = render({ variant });
-      expect(text).toContain(
-        `If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`,
-      );
+      const bookingUrl = "https://cal.example.com/team/intro";
+      const { text, html } = render({ variant, bookingUrl });
+      expect(text).toContain(`pick a time on my calendar (${bookingUrl}).`);
       expect(html).toContain(
-        `If you’d like a hand with setup, <a href="${BASE.bookingUrl}" style="color:#0B1015;text-decoration:underline">pick a time on my calendar</a>.`,
+        `If you’d like a hand with setup, <a href="${bookingUrl}" ${LINK}>pick a time on my calendar</a>.`,
       );
-      // The old clause is gone, so the offer is made once.
-      expect(`${text}${html}`).not.toContain("and we will set it up together");
-      expect(html.match(new RegExp(BASE.bookingUrl.replace(/[.]/g, "\\."), "g"))).toHaveLength(1);
+      expect(html.split(bookingUrl)).toHaveLength(2);
     },
   );
 
@@ -99,7 +121,11 @@ describe("the cloud welcome email, as approved", () => {
       expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
       expect(`${text}${html}`).not.toContain("Founder");
       expect(`${text}${html}`).not.toMatch(/devs/i);
-      expect(html).toContain(`<a href="${UNSUB}"`);
+      expect(html).toContain(`<a href="${UNSUB}" ${LINK}>Unsubscribe from product emails</a>`);
     },
   );
+
+  it("greets without a name when there is none", () => {
+    expect(render({}, null).text.startsWith("Hi,\n\nWelcome to traceroot.")).toBe(true);
+  });
 });

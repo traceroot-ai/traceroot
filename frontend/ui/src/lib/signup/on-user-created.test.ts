@@ -12,6 +12,10 @@ const ensureContact = vi.hoisted(() => vi.fn());
 const isProductMailConfigured = vi.hoisted(() => vi.fn());
 const sendWelcomeEmail = vi.hoisted(() => vi.fn());
 const ensureDemoMembership = vi.hoisted(() => vi.fn());
+const scheduleWelcome = vi.hoisted(() => vi.fn());
+const deployment = vi.hoisted(() => ({ cloud: false }));
+vi.mock("@/lib/email/welcome/welcome-schedule", () => ({ scheduleWelcome }));
+vi.mock("@/lib/server/cloud", () => ({ isCloud: () => deployment.cloud }));
 vi.mock("@/env", () => ({ env: envState }));
 vi.mock("@/lib/demo-workspace", () => ({ ensureDemoMembership }));
 vi.mock("@traceroot/core/email", () => ({ ensureContact, isProductMailConfigured }));
@@ -32,10 +36,12 @@ const everything = [
   notifySignupSlack,
   ensureContact,
   sendWelcomeEmail,
+  scheduleWelcome,
 ];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  deployment.cloud = false;
   envState.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T/B/x";
   isProductMailConfigured.mockReturnValue(true);
   inviteFindFirst.mockResolvedValue({ id: "inv1" });
@@ -89,6 +95,7 @@ it("runs only the welcome when Slack is unset, and only Slack when mail is uncon
   }
 
   vi.clearAllMocks();
+  deployment.cloud = false;
   envState.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T/B/x";
   isProductMailConfigured.mockReturnValue(false);
   await onUserCreated(user, { path: "/sign-up/email" });
@@ -133,4 +140,26 @@ it("never rejects: failed arms are logged, the welcome is skipped and the count 
   expect(posted).toMatchObject({ provider: "unknown", viaInvite: false, totalUsers: undefined });
   expect(sendWelcomeEmail).not.toHaveBeenCalled();
   expect(console.error).toHaveBeenCalledTimes(4);
+});
+
+it("on the cloud service, records the contact and the welcome's due time, and sends nothing yet", async () => {
+  deployment.cloud = true;
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(ensureContact).toHaveBeenCalledWith({ email: user.email, name: user.name });
+  expect(scheduleWelcome).toHaveBeenCalledWith("u1");
+  expect(sendWelcomeEmail).not.toHaveBeenCalled();
+});
+
+it("on the cloud service, still schedules the welcome when the contact failed; the send makes it", async () => {
+  deployment.cloud = true;
+  ensureContact.mockResolvedValue({ ok: false });
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(scheduleWelcome).toHaveBeenCalledWith("u1");
+});
+
+it("on the cloud service, schedules no welcome for an AgentID or admin-created account", async () => {
+  deployment.cloud = true;
+  await onUserCreated(user, { path: "/callback/:id", provider: "agentid" });
+  await onUserCreated(user, { path: "/admin/create-user" });
+  expect(scheduleWelcome).not.toHaveBeenCalled();
 });
