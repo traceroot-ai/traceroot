@@ -84,11 +84,19 @@ async function createAuth(githubId = " github-client-id ") {
 }
 type Auth = Awaited<ReturnType<typeof createAuth>>["auth"];
 
+/** No test here may reach a real host: a request nothing stands in for fails. */
+function offline() {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    throw new Error(
+      `unexpected request to ${String(input instanceof Request ? input.url : input)}`,
+    );
+  });
+}
+
 /** github.com as its provider sees it, for one GitHub user. */
 function github(user: { id: number; email: string; verified?: boolean }) {
-  const real = globalThis.fetch;
   const json = (body: unknown) => Response.json(body);
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.startsWith("https://github.com/login/oauth/access_token"))
       return Promise.resolve(json({ access_token: "gho_test", token_type: "bearer" }));
@@ -100,8 +108,8 @@ function github(user: { id: number; email: string; verified?: boolean }) {
       return Promise.resolve(
         json([{ email: user.email, primary: true, verified: user.verified ?? true }]),
       );
-    if (url.startsWith("https://")) throw new Error(`unexpected request to ${url}`);
-    return real(input, init);
+    // Nothing else may leave the test: any other request fails here.
+    throw new Error(`unexpected request to ${url}`);
   });
 }
 
@@ -137,6 +145,7 @@ async function signIn(auth: Auth, callbackURL = "/onboarding") {
 }
 
 beforeEach(() => {
+  offline();
   hooks.onUserCreated.mockClear();
   hooks.captureServerEvent.mockClear();
 });

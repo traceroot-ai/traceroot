@@ -1,5 +1,5 @@
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { refuseUnverifiedGitHubSignUp } from "./signup/verified-social-email";
 
 /**
@@ -186,6 +186,17 @@ async function signInWithGithub(auth: AuthInstance, identity: GithubIdentity) {
 function githubAccountsIn(db: Record<string, unknown[]>) {
   return (db.account as { providerId: string }[]).filter((a) => a.providerId === "github");
 }
+
+/** No test here may reach a real host: a request nothing stands in for fails. */
+function offline() {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    throw new Error(
+      `unexpected request to ${String(input instanceof Request ? input.url : input)}`,
+    );
+  });
+}
+
+beforeEach(offline);
 
 afterEach(() => {
   vi.unstubAllGlobals();
