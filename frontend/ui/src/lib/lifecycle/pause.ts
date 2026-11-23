@@ -19,6 +19,8 @@ export interface FollowUpHold {
   paused: boolean;
   pauseReason: PauseReason | null;
   unsubscribed: boolean;
+  /** The decision time of the latest pause or resume applied, if any. */
+  intentAt: Date | null;
 }
 
 async function ensureRow(userId: string): Promise<void> {
@@ -28,41 +30,64 @@ async function ensureRow(userId: string): Promise<void> {
 async function readHold(userId: string): Promise<FollowUpHold> {
   const row = await prisma.userOnboarding.findUnique({
     where: { userId },
-    select: { followUpsPausedAt: true, followUpsPauseReason: true, unsubscribedAt: true },
+    select: {
+      followUpsPausedAt: true,
+      followUpsPauseReason: true,
+      unsubscribedAt: true,
+      followUpsIntentAt: true,
+    },
   });
   return {
     paused: !!row?.followUpsPausedAt,
     pauseReason: (row?.followUpsPausedAt ? row.followUpsPauseReason : null) as PauseReason | null,
     unsubscribed: !!row?.unsubscribedAt,
+    intentAt: row?.followUpsIntentAt ?? null,
   };
 }
 
 /**
- * Pauses or resumes one person's follow-ups, and answers where they now stand.
- * Repeating a call changes nothing: a second pause keeps the first time and
- * reason. Answers null for an unknown user.
+ * Pauses or resumes one person's follow-ups as decided at `intentAt`, and
+ * answers where they now stand and whether this call changed it.
+ *
+ * Only a decision later than the latest one applied takes effect. Calls can
+ * arrive out of order (a retry, or one that timed out at the caller and
+ * committed late), and an older decision must never undo a newer one, so each
+ * write is conditional on the stored decision time in the same statement. A
+ * repeated call is therefore a no-op, and a pause that finds the person already
+ * paused keeps the first pause's time and reason. Answers null for an unknown user.
  */
 export async function setFollowUpPause(
   userId: string,
   action: "pause" | "resume",
+  intentAt: Date,
   reason: PauseReason = "manual",
   now: Date = new Date(),
-): Promise<FollowUpHold | null> {
+): Promise<(FollowUpHold & { applied: boolean }) | null> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
   if (!user) return null;
   await ensureRow(userId);
+  const older = {
+    OR: [{ followUpsIntentAt: null }, { followUpsIntentAt: { lt: intentAt } }],
+  };
+  let applied: number;
   if (action === "pause") {
-    await prisma.userOnboarding.updateMany({
-      where: { userId, followUpsPausedAt: null },
-      data: { followUpsPausedAt: now, followUpsPauseReason: reason },
+    const fresh = await prisma.userOnboarding.updateMany({
+      where: { userId, followUpsPausedAt: null, ...older },
+      data: { followUpsPausedAt: now, followUpsPauseReason: reason, followUpsIntentAt: intentAt },
     });
+    const already = await prisma.userOnboarding.updateMany({
+      where: { userId, followUpsPausedAt: { not: null }, ...older },
+      data: { followUpsIntentAt: intentAt },
+    });
+    applied = fresh.count + already.count;
   } else {
-    await prisma.userOnboarding.updateMany({
-      where: { userId },
-      data: { followUpsPausedAt: null, followUpsPauseReason: null },
-    });
+    ({ count: applied } = await prisma.userOnboarding.updateMany({
+      where: { userId, ...older },
+      data: { followUpsPausedAt: null, followUpsPauseReason: null, followUpsIntentAt: intentAt },
+    }));
   }
-  return readHold(userId);
+  const hold = await readHold(userId);
+  return { ...hold, applied: applied > 0 };
 }
 
 /**
