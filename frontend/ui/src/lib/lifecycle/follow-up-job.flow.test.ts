@@ -183,6 +183,15 @@ describe("the facts the decision reads", () => {
     expect(facts?.sends).toContainEqual({ campaign: "setup_help", at: ago(0.5) });
   });
 
+  it("count the welcome only once it was sent, and an unsent follow-up from its claim", async () => {
+    person("u2", 3);
+    // The welcome's claim, with no send recorded.
+    db.sends.find((s) => s.userId === "u2" && s.campaign === "welcome")!.sentAt = null;
+    db.sends.push({ userId: "u2", campaign: "last_note", sentAt: null, claimedAt: ago(0.5) });
+    const facts = await followUpFacts("u2", NOW, new Date(START));
+    expect(facts?.sends).toEqual([{ campaign: "last_note", at: ago(0.5) }]);
+  });
+
   it("say invited-only for someone only in a colleague's workspace", async () => {
     person("u2", 3, { invited: true });
     expect((await followUpFacts("u2", NOW, new Date(START)))?.invitedOnly).toBe(true);
@@ -232,6 +241,21 @@ describe("a run that sends", () => {
     expect(connect.text).toContain(
       "https://app.example/workspaces/ws_traced/settings/integrations",
     );
+  });
+
+  it("sends Setup help on day 3 only to someone whose welcome was sent", async () => {
+    person("sent", 3);
+    person("claimed", 3);
+    db.sends.find((s) => s.userId === "claimed" && s.campaign === "welcome")!.sentAt = null;
+    mail.sendOnce.mockResolvedValue({ status: "sent", id: "e1" });
+    const run = await runFollowUps({ now: NOW, environment });
+    expect(run.due).toEqual({ setup_help: 1 });
+    expect(run.notDue).toMatchObject({ no_welcome: 1 });
+    expect(mail.sendOnce).toHaveBeenCalledTimes(1);
+    expect(mail.sendOnce.mock.calls[0][1]).toMatchObject({
+      userId: "sent",
+      campaign: "setup_help",
+    });
   });
 
   it("counts sends that failed or were already claimed elsewhere", async () => {
