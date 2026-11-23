@@ -49,8 +49,8 @@ export function CaseToolbar({
   const change = (next: CaseAnalysis) => {
     onChange(next);
     // Filters is disabled while runs load, and a disabled button can't take focus.
-    const filters = filtersRef.current;
-    (filters && !filters.disabled ? filters : searchRef.current)?.focus();
+    const button = filtersRef.current;
+    (button && !button.disabled ? button : searchRef.current)?.focus();
   };
 
   return (
