@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { mockRetention } from "@/test/retention-mock";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -99,14 +100,7 @@ vi.mock("@/features/detectors/hooks/use-findings", async (importOriginal) => ({
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/lib/hooks/use-retention", () => ({
-  useRetention: () => ({
-    retentionDays: 15,
-    showPricing: false,
-    onUpgradeClick: vi.fn(),
-    closePricing: vi.fn(),
-    workspaceId: "ws-1",
-    billingPlan: "free",
-  }),
+  useRetention: () => mockRetention(),
 }));
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 // The bar itself is out of scope; what the page puts in it (the filter chip) renders.

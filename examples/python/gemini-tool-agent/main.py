@@ -1,5 +1,5 @@
 """
-Gemini ReAct agent with tool use and TraceRoot observability.
+Gemini ReAct agent with tool use and traceroot observability.
 
 Usage:
     cp .env.example .env

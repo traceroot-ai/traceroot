@@ -53,7 +53,7 @@ describe("sendUsageQuotaEmail", () => {
     expect(mail.html).toContain("50,000");
     expect(mail.html).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
     // house-style card markup: logo, title, and CTA button
-    expect(mail.html).toContain('alt="TraceRoot"');
+    expect(mail.html).toContain('alt="traceroot"');
     expect(mail.html).toContain("Approaching your free plan limit");
     expect(mail.html).toContain("Manage your plan");
     // verbose warning lead: percentage, remaining headroom, and the

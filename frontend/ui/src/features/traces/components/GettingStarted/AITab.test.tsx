@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // The CLI card is the unit under test; mock the surrounding hooks and side-effecting
 // children so the tab renders without a query client or network access.
@@ -36,7 +36,15 @@ vi.mock("@/components/slack/SlackConnectButton", () => ({
   ),
 }));
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
+
 import { AITab } from "./AITab";
+
+/** jsdom has no clipboard, so each copy test states what the browser does with the write. */
+function stubClipboard(writeText: (text: string) => Promise<void>) {
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+}
 
 afterEach(() => {
   cleanup();
@@ -44,6 +52,37 @@ afterEach(() => {
   vi.resetModules();
   projectQuery.data = { workspace_id: "ws_1" };
   projectQuery.isLoading = false;
+  capture.mockReset();
+  Reflect.deleteProperty(navigator, "clipboard");
+});
+
+describe("AITab copy tracking", () => {
+  it("records the copy once the command is on the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    render(<AITab projectId="proj_1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy bash snippet" }));
+
+    await waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("setup --project proj_1"));
+    expect(capture).toHaveBeenCalledWith("setup_command_copied", {
+      project_id: "proj_1",
+      surface: "project",
+    });
+  });
+
+  it("records nothing when the browser refuses the copy", async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")));
+    render(<AITab projectId="proj_1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy bash snippet" }));
+
+    // The button's error is shown only after the rejected write was handled, so by
+    // then a recorded copy would already have happened.
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not copy");
+    expect(capture).not.toHaveBeenCalled();
+  });
 });
 
 /**
@@ -133,7 +172,7 @@ describe("AITab", () => {
   it("shows no runnable command when the deployment's API URL is not an origin", async () => {
     // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
     // like this reaches the panel. The command rendered for it used to be the
-    // unflagged one, which targets TraceRoot Cloud — so a self-hosted reader
+    // unflagged one, which targets traceroot Cloud — so a self-hosted reader
     // was handed a confident line that signs in against the wrong deployment.
     const { container } = await renderTabWith("http://:8000");
     const text = container.textContent ?? "";

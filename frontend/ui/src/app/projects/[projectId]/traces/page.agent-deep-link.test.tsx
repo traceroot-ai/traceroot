@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
+import { mockRetention } from "@/test/retention-mock";
 
 // The URL the viewer's "open in new tab" button builds while showing an RCA
 // agent trace (opened from a finding's analysis, or the sidebar sheet).
@@ -52,14 +53,7 @@ vi.mock("@/components/layout/app-layout", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/lib/hooks/use-retention", () => ({
-  useRetention: () => ({
-    retentionDays: 15,
-    showPricing: false,
-    onUpgradeClick: vi.fn(),
-    closePricing: vi.fn(),
-    workspaceId: "ws-1",
-    billingPlan: "free",
-  }),
+  useRetention: () => mockRetention(),
 }));
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 // The panel mock surfaces the props under test and lets the page's own
