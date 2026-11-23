@@ -12,10 +12,10 @@ import {
   EMAIL_COLORS,
   EMAIL_FONT_STACK,
   EMAIL_PIXEL_WORDMARK_URL,
+  emailLogoImg,
   escapeHtml,
 } from "@traceroot/core";
 import { greeting, LINK_STYLE } from "./welcome/copy";
-import { signatureLogoHtml } from "./welcome/render";
 
 /** "Best," and Xinwei's signature, written as in his own email. */
 export const FOUNDER_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
@@ -87,7 +87,8 @@ export function renderFounderEmail(
     ...(copy.button ? [buttonHtml(copy.button.label, copy.button.url)] : []),
     ...after.map(toHtml),
     `<p>${FOUNDER_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    signatureLogoHtml(),
+    // The same logo as the welcome email (welcome/render.ts).
+    `<p style="margin:20px 0 0">${emailLogoImg(30)}</p>`,
     `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}"><a href="${escapeHtml(input.unsubscribeUrl)}" ${LINK_STYLE}>${PRODUCT_OPT_OUT_LABEL}</a></p>`,
     "</div>",
     "</body></html>",
