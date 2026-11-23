@@ -23,6 +23,7 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn() }));
 vi.mock("./hooks", () => hooks);
 
+import { runsLegendNow } from "./compare/__tests__/runs-menu";
 import { cellAt, summaryGroup } from "./compare/__tests__/table-grid";
 import { CompareRunsView } from "./views/compare-runs-view";
 
@@ -127,8 +128,15 @@ const mount = (baselineId = "opus") =>
       runIds={["opus", "sonnet"]}
       baselineId={baselineId}
       onChangeBaseline={vi.fn()}
+      onChangeRuns={vi.fn()}
     />,
   );
+
+/** The run legend's chip for the baseline run, in the Runs menu. */
+const baselineChip = () =>
+  within(runsLegendNow())
+    .getAllByRole("button")
+    .find((chip) => chip.textContent?.includes("Baseline")) as HTMLElement;
 
 describe("CompareRunsView — N-run diff table", () => {
   it("renders one column per scorer", () => {
@@ -152,10 +160,10 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row).getAllByText(/double-charged and I want a refund/)).toHaveLength(1);
   });
 
-  it("names the selected baseline in the picker", () => {
+  it("names the selected baseline in the run legend", () => {
     mount("opus");
-    // The baseline picker's trigger names the chosen baseline run.
-    expect(screen.getAllByText(/#41 opus/).length).toBeGreaterThan(0);
+    // The baseline run's chip carries the "Baseline" badge.
+    expect(baselineChip().textContent).toContain("#41 opus");
   });
 
   it("falls back to the oldest run as the baseline when the URL names none", () => {
@@ -185,11 +193,10 @@ describe("CompareRunsView — N-run diff table", () => {
         runIds={["sonnet", "opus"]}
         baselineId={null}
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
-    expect(screen.getByTitle("Baseline run").textContent).toContain(
-      "ticket-routing-quality #41 opus",
-    );
+    expect(baselineChip().textContent).toContain("ticket-routing-quality #41 opus");
   });
 
   it("shows a regression delta against the baseline in the cells", () => {
@@ -400,6 +407,7 @@ describe("CompareRunsView — N-run diff table", () => {
         runIds={["opus", "sonnet", "haiku"]}
         baselineId="opus"
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
     // Same datasetId across all three → NOT cross-dataset, despite the differing names.
@@ -458,6 +466,7 @@ describe("CompareRunsView — N-run diff table", () => {
         runIds={["opus", "sonnet", "haiku"]}
         baselineId="opus"
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
     // The edited-input case survived: B's edited text is shown (aligned to A by row id,
@@ -556,6 +565,7 @@ describe("CompareRunsView — N-run diff table", () => {
         runIds={["opus", "sonnet", "haiku"]}
         baselineId="opus"
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
     // (a) + (b): TWO rows for the duplicate input — case-2 is NOT dropped, and BOTH A and B
